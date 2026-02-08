@@ -95,14 +95,43 @@ export function FileUpload({ files, onFilesChange }: FileUploadProps) {
     return <File className="h-4 w-4 text-muted-foreground" />;
   };
 
+  const handleClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    inputRef.current?.click();
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    e.stopPropagation();
+    if (e.target.files && e.target.files.length > 0) {
+      addFiles(e.target.files);
+    }
+    // Reset so the same file can be re-selected
+    e.target.value = '';
+  };
+
   return (
     <div className="space-y-3">
+      {/* Hidden file input — outside the drop zone to avoid event conflicts */}
+      <input
+        ref={inputRef}
+        type="file"
+        multiple
+        accept={ACCEPTED_EXTENSIONS.join(',')}
+        onChange={handleInputChange}
+        className="hidden"
+        tabIndex={-1}
+      />
+
       {/* Drop zone */}
       <div
+        role="button"
+        tabIndex={0}
         onDrop={handleDrop}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
-        onClick={() => inputRef.current?.click()}
+        onClick={handleClick}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); inputRef.current?.click(); } }}
         className={cn(
           'relative flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed p-8 cursor-pointer transition-all duration-200',
           isDragging
@@ -125,14 +154,6 @@ export function FileUpload({ files, onFilesChange }: FileUploadProps) {
             Up to {MAX_FILES} files, 10MB each
           </p>
         </div>
-        <input
-          ref={inputRef}
-          type="file"
-          multiple
-          accept={ACCEPTED_EXTENSIONS.join(',')}
-          onChange={(e) => e.target.files && addFiles(e.target.files)}
-          className="hidden"
-        />
       </div>
 
       {/* Error */}
