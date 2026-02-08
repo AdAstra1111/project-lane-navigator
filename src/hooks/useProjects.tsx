@@ -1,37 +1,27 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import type { Json } from '@/integrations/supabase/types';
-import { Project, ProjectInput, ClassificationResult } from '@/lib/types';
+import { Project, ProjectInput, AnalysisResponse, ProjectDocument } from '@/lib/types';
 import { classifyProject } from '@/lib/lane-classifier';
 import { toast } from 'sonner';
 
 async function uploadDocuments(files: File[], userId: string): Promise<string[]> {
   const paths: string[] = [];
-
   for (const file of files) {
     const timestamp = Date.now();
     const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
     const path = `${userId}/${timestamp}-${safeName}`;
-
-    const { error } = await supabase.storage
-      .from('project-documents')
-      .upload(path, file);
-
-    if (error) {
-      console.error(`Failed to upload ${file.name}:`, error);
-      throw new Error(`Failed to upload ${file.name}`);
-    }
-
+    const { error } = await supabase.storage.from('project-documents').upload(path, file);
+    if (error) throw new Error(`Failed to upload ${file.name}: ${error.message}`);
     paths.push(path);
   }
-
   return paths;
 }
 
 async function analyzeWithAI(
   projectInput: ProjectInput,
   documentPaths: string[]
-): Promise<ClassificationResult> {
+): Promise<AnalysisResponse> {
   const { data, error } = await supabase.functions.invoke('analyze-project', {
     body: { projectInput, documentPaths },
   });
@@ -40,12 +30,10 @@ async function analyzeWithAI(
     console.error('AI analysis error:', error);
     throw new Error(error.message || 'AI analysis failed');
   }
-
   if (data?.error) {
     throw new Error(data.error);
   }
-
-  return data as ClassificationResult;
+  return data as AnalysisResponse;
 }
 
 export function useProjects() {
@@ -68,27 +56,41 @@ export function useProjects() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
 
-      // Upload documents if any
+      // 1. Upload files to storage
       let documentPaths: string[] = [];
       if (files.length > 0) {
         documentPaths = await uploadDocuments(files, user.id);
       }
 
-      // Use AI analysis if documents are uploaded, otherwise fall back to rules-based
-      let classification: ClassificationResult;
-      if (files.length > 0) {
-        classification = await analyzeWithAI(input, documentPaths);
-      } else {
-        // Try AI analysis first even without docs, fall back to rules-based
-        try {
-          classification = await analyzeWithAI(input, []);
-        } catch (err) {
-          console.warn('AI analysis unavailable, using rules-based classifier:', err);
-          classification = classifyProject(input);
+      // 2. Run AI analysis (falls back to rules-based if AI fails and no docs)
+      let analysis: AnalysisResponse | null = null;
+      let fallbackClassification = null;
+
+      try {
+        analysis = await analyzeWithAI(input, documentPaths);
+      } catch (err) {
+        if (files.length > 0) {
+          // If documents were uploaded, we need AI — can't fall back
+          throw err;
         }
+        console.warn('AI analysis unavailable, using rules-based classifier:', err);
+        fallbackClassification = classifyProject(input);
       }
 
-      const { data, error } = await supabase
+      // 3. Build analysis_passes for storage
+      const analysisPasses = analysis
+        ? {
+            structural_read: analysis.structural_read,
+            creative_signal: analysis.creative_signal,
+            market_reality: analysis.market_reality,
+            do_next: analysis.do_next,
+            avoid: analysis.avoid,
+            partial_read: analysis.partial_read || null,
+          }
+        : null;
+
+      // 4. Insert project
+      const { data: project, error: insertError } = await supabase
         .from('projects')
         .insert({
           user_id: user.id,
@@ -99,18 +101,39 @@ export function useProjects() {
           target_audience: input.target_audience,
           tone: input.tone,
           comparable_titles: input.comparable_titles,
-          assigned_lane: classification.lane,
-          confidence: classification.confidence,
-          reasoning: classification.reasoning,
-          recommendations: classification.recommendations as unknown as Json,
+          assigned_lane: analysis?.lane || fallbackClassification?.lane || null,
+          confidence: analysis?.confidence ?? fallbackClassification?.confidence ?? null,
+          reasoning: analysis?.rationale || fallbackClassification?.reasoning || null,
+          recommendations: fallbackClassification
+            ? (fallbackClassification.recommendations as unknown as Json)
+            : null,
           document_urls: documentPaths,
-          analysis_passes: (classification.passes || null) as unknown as Json,
+          analysis_passes: analysisPasses as unknown as Json,
         })
         .select()
         .single();
 
-      if (error) throw error;
-      return data as unknown as Project;
+      if (insertError) throw insertError;
+
+      // 5. Save document records
+      if (analysis?.documents) {
+        for (const doc of analysis.documents) {
+          const { error: docError } = await supabase.from('project_documents').insert({
+            project_id: (project as any).id,
+            user_id: user.id,
+            file_name: doc.file_name,
+            file_path: doc.file_path,
+            extracted_text: doc.extracted_text || null,
+            extraction_status: doc.extraction_status,
+            total_pages: doc.total_pages,
+            pages_analyzed: doc.pages_analyzed,
+            error_message: doc.error_message,
+          });
+          if (docError) console.error('Failed to save document record:', docError);
+        }
+      }
+
+      return project as unknown as Project;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['projects'] });
@@ -140,4 +163,23 @@ export function useProject(id: string | undefined) {
   });
 
   return { project, isLoading, error };
+}
+
+export function useProjectDocuments(projectId: string | undefined) {
+  const { data: documents = [], isLoading, error } = useQuery({
+    queryKey: ['project-documents', projectId],
+    queryFn: async () => {
+      if (!projectId) throw new Error('No project ID');
+      const { data, error } = await supabase
+        .from('project_documents')
+        .select('id, project_id, user_id, file_name, file_path, extraction_status, total_pages, pages_analyzed, error_message, created_at')
+        .eq('project_id', projectId)
+        .order('created_at', { ascending: true });
+      if (error) throw error;
+      return data as unknown as ProjectDocument[];
+    },
+    enabled: !!projectId,
+  });
+
+  return { documents, isLoading, error };
 }
