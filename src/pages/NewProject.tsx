@@ -7,17 +7,19 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Header } from '@/components/Header';
+import { FileUpload } from '@/components/FileUpload';
 import { useProjects } from '@/hooks/useProjects';
 import { ProjectFormat, ProjectInput } from '@/lib/types';
 import { GENRES, BUDGET_RANGES, TARGET_AUDIENCES, TONES, FORMAT_OPTIONS } from '@/lib/constants';
 import { cn } from '@/lib/utils';
 
-const STEPS = ['Basics', 'Creative', 'Commercial'];
+const STEPS = ['Basics', 'Material', 'Creative', 'Commercial'];
 
 export default function NewProject() {
   const navigate = useNavigate();
   const { createProject } = useProjects();
   const [step, setStep] = useState(0);
+  const [files, setFiles] = useState<File[]>([]);
   const [form, setForm] = useState<ProjectInput>({
     title: '',
     format: 'film',
@@ -40,15 +42,16 @@ export default function NewProject() {
   const canProceed = () => {
     switch (step) {
       case 0: return form.title.trim().length > 0 && form.format;
-      case 1: return form.genres.length > 0 && form.target_audience && form.tone;
-      case 2: return form.budget_range;
+      case 1: return true; // Documents are optional
+      case 2: return form.genres.length > 0 && form.target_audience && form.tone;
+      case 3: return form.budget_range;
       default: return false;
     }
   };
 
   const handleSubmit = async () => {
     try {
-      const result = await createProject.mutateAsync(form);
+      const result = await createProject.mutateAsync({ input: form, files });
       navigate(`/projects/${result.id}`);
     } catch (err) {
       console.error('Failed to create project:', err);
@@ -99,6 +102,7 @@ export default function NewProject() {
             exit={{ opacity: 0, x: -20 }}
             transition={{ duration: 0.2 }}
           >
+            {/* Step 0: Basics */}
             {step === 0 && (
               <div className="space-y-6">
                 <div>
@@ -138,7 +142,34 @@ export default function NewProject() {
               </div>
             )}
 
+            {/* Step 1: Material Upload */}
             {step === 1 && (
+              <div className="space-y-6">
+                <div>
+                  <h2 className="text-2xl font-display font-bold text-foreground mb-1">Upload Material</h2>
+                  <p className="text-muted-foreground">
+                    Upload scripts, pitch decks, treatments, or any written material. 
+                    The AI will analyze the content directly to determine your project's lane.
+                  </p>
+                </div>
+                <FileUpload files={files} onFilesChange={setFiles} />
+                <div className="glass-card rounded-lg p-4">
+                  <p className="text-sm text-muted-foreground leading-relaxed">
+                    <span className="text-foreground font-medium">How it works:</span> When you upload material, 
+                    the AI performs a structured three-pass analysis — evaluating narrative structure, creative signal, 
+                    and market reality — to classify your project based on the execution on the page, not just metadata.
+                  </p>
+                </div>
+                {files.length === 0 && (
+                  <p className="text-xs text-muted-foreground text-center">
+                    You can skip this step — the AI will classify based on your form inputs instead.
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Step 2: Creative */}
+            {step === 2 && (
               <div className="space-y-6">
                 <div>
                   <h2 className="text-2xl font-display font-bold text-foreground mb-1">Creative Profile</h2>
@@ -207,7 +238,8 @@ export default function NewProject() {
               </div>
             )}
 
-            {step === 2 && (
+            {/* Step 3: Commercial */}
+            {step === 3 && (
               <div className="space-y-6">
                 <div>
                   <h2 className="text-2xl font-display font-bold text-foreground mb-1">Commercial Profile</h2>
@@ -269,7 +301,7 @@ export default function NewProject() {
               disabled={!canProceed()}
               className="bg-primary text-primary-foreground hover:bg-primary/90"
             >
-              Continue
+              {step === 1 && files.length === 0 ? 'Skip' : 'Continue'}
               <ArrowRight className="h-4 w-4 ml-1.5" />
             </Button>
           ) : (
@@ -281,11 +313,11 @@ export default function NewProject() {
               {createProject.isPending ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
-                  Classifying…
+                  {files.length > 0 ? 'Analysing Material…' : 'Classifying…'}
                 </>
               ) : (
                 <>
-                  Classify Project
+                  {files.length > 0 ? 'Analyse & Classify' : 'Classify Project'}
                   <ArrowRight className="h-4 w-4 ml-1.5" />
                 </>
               )}

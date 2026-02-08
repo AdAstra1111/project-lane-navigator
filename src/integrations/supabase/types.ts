@@ -40,11 +40,13 @@ export type Database = {
       }
       projects: {
         Row: {
+          analysis_passes: Json | null
           assigned_lane: string | null
           budget_range: string
           comparable_titles: string
           confidence: number | null
           created_at: string
+          document_urls: string[]
           format: string
           genres: string[]
           id: string
@@ -57,11 +59,13 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          analysis_passes?: Json | null
           assigned_lane?: string | null
           budget_range?: string
           comparable_titles?: string
           confidence?: number | null
           created_at?: string
+          document_urls?: string[]
           format?: string
           genres?: string[]
           id?: string
@@ -74,11 +78,13 @@ export type Database = {
           user_id: string
         }
         Update: {
+          analysis_passes?: Json | null
           assigned_lane?: string | null
           budget_range?: string
           comparable_titles?: string
           confidence?: number | null
           created_at?: string
+          document_urls?: string[]
           format?: string
           genres?: string[]
           id?: string

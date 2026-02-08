@@ -15,6 +15,18 @@ export interface Recommendation {
   description: string;
 }
 
+export interface AnalysisPass {
+  title: string;
+  summary: string;
+  signals: string[];
+}
+
+export interface AnalysisPasses {
+  structure: AnalysisPass;
+  creative: AnalysisPass;
+  market: AnalysisPass;
+}
+
 export interface ProjectInput {
   title: string;
   format: ProjectFormat;
@@ -30,6 +42,7 @@ export interface ClassificationResult {
   confidence: number;
   reasoning: string;
   recommendations: Recommendation[];
+  passes?: AnalysisPasses;
 }
 
 export interface Project {
@@ -46,6 +59,8 @@ export interface Project {
   confidence: number | null;
   reasoning: string | null;
   recommendations: Recommendation[] | null;
+  document_urls: string[];
+  analysis_passes: AnalysisPasses | null;
   created_at: string;
   updated_at: string;
 }
