@@ -38,6 +38,56 @@ export type Database = {
         }
         Relationships: []
       }
+      project_documents: {
+        Row: {
+          created_at: string
+          error_message: string | null
+          extracted_text: string | null
+          extraction_status: string
+          file_name: string
+          file_path: string
+          id: string
+          pages_analyzed: number | null
+          project_id: string
+          total_pages: number | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          error_message?: string | null
+          extracted_text?: string | null
+          extraction_status?: string
+          file_name: string
+          file_path: string
+          id?: string
+          pages_analyzed?: number | null
+          project_id: string
+          total_pages?: number | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          error_message?: string | null
+          extracted_text?: string | null
+          extraction_status?: string
+          file_name?: string
+          file_path?: string
+          id?: string
+          pages_analyzed?: number | null
+          project_id?: string
+          total_pages?: number | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_documents_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       projects: {
         Row: {
           analysis_passes: Json | null

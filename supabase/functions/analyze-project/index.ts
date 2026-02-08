@@ -7,16 +7,386 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const LANE_DEFINITIONS = `
-The seven monetisation lanes are:
-1. "studio-streamer" — Studio / Streamer: Big-budget, wide-audience projects suited for major studios or streaming platforms (Netflix, HBO, Disney+). Typically $15M+ budgets, IP-driven, commercially oriented.
-2. "independent-film" — Independent Film: Director-driven projects with artistic vision, moderate budgets ($1M–$15M), festival potential, aimed at discerning/arthouse audiences.
-3. "low-budget" — Low-Budget / Microbudget: Under $1M, constraints as creative assets, self-financed or micro-investor funded, direct-to-platform distribution.
-4. "international-copro" — International Co-Production: Multi-territory stories, treaty co-production structures, international cast/locations, cross-cultural themes.
-5. "genre-market" — Genre / Market-Driven: Clear genre identity (horror, thriller, action), pre-sales driven, built for genre audiences and market screenings.
-6. "prestige-awards" — Prestige / Awards: Awards-caliber material, elevated tone, A-list talent potential, festival premiere strategy, designed for awards season.
-7. "fast-turnaround" — Fast-Turnaround / Trend-Based: Speed-to-market projects riding cultural moments, trending topics, lean budgets, platform-first distribution.
+// ---- CONSTANTS ----
+const MAX_PAGES = 40;
+const WORDS_PER_PAGE = 250;
+const MAX_WORDS = MAX_PAGES * WORDS_PER_PAGE;
+
+const VALID_LANES = [
+  "studio-streamer", "independent-film", "low-budget",
+  "international-copro", "genre-market", "prestige-awards", "fast-turnaround",
+];
+
+// ---- TYPES ----
+interface ExtractionResult {
+  text: string;
+  totalPages: number | null;
+  pagesAnalyzed: number | null;
+  status: "success" | "partial" | "failed";
+  error: string | null;
+}
+
+// ---- TEXT EXTRACTION ----
+
+function basicPDFExtract(bytes: Uint8Array): string {
+  const raw = new TextDecoder("latin1").decode(bytes);
+  const parts: string[] = [];
+
+  // Extract text from BT...ET blocks (PDF text operators)
+  const btBlocks = raw.matchAll(/BT\s([\s\S]*?)ET/g);
+  for (const block of btBlocks) {
+    const content = block[1];
+    // Tj operator: (text) Tj
+    const tjMatches = content.matchAll(/\(([^)]*)\)\s*Tj/g);
+    for (const m of tjMatches) parts.push(m[1]);
+    // TJ array: [(text) kern (text)] TJ
+    const tjArrays = content.matchAll(/\[([^\]]*)\]\s*TJ/gi);
+    for (const arr of tjArrays) {
+      const innerMatches = arr[1].matchAll(/\(([^)]*)\)/g);
+      for (const inner of innerMatches) parts.push(inner[1]);
+    }
+  }
+
+  // Fallback: general parenthetical strings if BT/ET yields little
+  if (parts.join(" ").length < 200) {
+    const generalMatches = raw.matchAll(/\(([^)]{3,})\)/g);
+    for (const m of generalMatches) {
+      const segment = m[1];
+      if (/[a-zA-Z]{2,}/.test(segment) && !/^[\d.]+$/.test(segment)) {
+        parts.push(segment);
+      }
+    }
+  }
+
+  return parts
+    .map((s) =>
+      s.replace(/\\n/g, "\n").replace(/\\\(/g, "(").replace(/\\\)/g, ")").replace(/\\\\/g, "\\")
+    )
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+async function extractFromPDF(data: ArrayBuffer): Promise<ExtractionResult> {
+  try {
+    // Try pdf.js for reliable extraction
+    // @ts-ignore - dynamic esm import
+    const pdfjsLib = await import("https://esm.sh/pdfjs-dist@4.8.69/legacy/build/pdf.mjs");
+
+    const doc = await pdfjsLib.getDocument({ data: new Uint8Array(data) }).promise;
+    const totalPages = doc.numPages;
+    const pagesToRead = Math.min(totalPages, MAX_PAGES);
+
+    const pageTexts: string[] = [];
+    for (let i = 1; i <= pagesToRead; i++) {
+      const page = await doc.getPage(i);
+      const content = await page.getTextContent();
+      const text = content.items
+        .filter((item: any) => "str" in item)
+        .map((item: any) => item.str)
+        .join(" ");
+      pageTexts.push(text);
+    }
+
+    const fullText = pageTexts.join("\n\n");
+
+    if (fullText.trim().length < 50) {
+      return {
+        text: "",
+        totalPages,
+        pagesAnalyzed: null,
+        status: "failed",
+        error: "Couldn't read text from this file. Try exporting as a text-based PDF.",
+      };
+    }
+
+    return {
+      text: fullText.trim(),
+      totalPages,
+      pagesAnalyzed: pagesToRead,
+      status: pagesToRead < totalPages ? "partial" : "success",
+      error: null,
+    };
+  } catch (pdfJsErr) {
+    console.warn("pdf.js extraction failed, trying basic fallback:", pdfJsErr);
+
+    // Fallback to basic regex extraction
+    const bytes = new Uint8Array(data);
+    const text = basicPDFExtract(bytes);
+
+    if (text.length < 50) {
+      return {
+        text: "",
+        totalPages: null,
+        pagesAnalyzed: null,
+        status: "failed",
+        error: "Couldn't read text from this file. Try exporting as a text-based PDF.",
+      };
+    }
+
+    const wordCount = text.split(/\s+/).length;
+    const estimatedPages = Math.ceil(wordCount / WORDS_PER_PAGE);
+    const isPartial = wordCount > MAX_WORDS;
+
+    return {
+      text: isPartial ? text.split(/\s+/).slice(0, MAX_WORDS).join(" ") : text,
+      totalPages: estimatedPages,
+      pagesAnalyzed: isPartial ? MAX_PAGES : estimatedPages,
+      status: isPartial ? "partial" : "success",
+      error: null,
+    };
+  }
+}
+
+async function extractFromDOCX(data: ArrayBuffer): Promise<ExtractionResult> {
+  try {
+    // @ts-ignore - dynamic esm import
+    const JSZip = (await import("https://esm.sh/jszip@3.10.1")).default;
+    const zip = await JSZip.loadAsync(data);
+    const docXml = await zip.file("word/document.xml")?.async("text");
+
+    if (!docXml) {
+      return {
+        text: "",
+        totalPages: null,
+        pagesAnalyzed: null,
+        status: "failed",
+        error: "Couldn't read content from this DOCX file.",
+      };
+    }
+
+    // Extract text from w:t elements, preserving paragraphs
+    const textParts: string[] = [];
+    const paragraphs = docXml.split(/<\/w:p>/);
+    for (const para of paragraphs) {
+      const tMatches = para.matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g);
+      const paraText = Array.from(tMatches)
+        .map((m: any) => m[1])
+        .join("");
+      if (paraText.trim()) textParts.push(paraText.trim());
+    }
+
+    const text = textParts.join("\n");
+
+    if (text.length < 50) {
+      return {
+        text: "",
+        totalPages: null,
+        pagesAnalyzed: null,
+        status: "failed",
+        error: "Couldn't extract enough text from this DOCX file.",
+      };
+    }
+
+    const wordCount = text.split(/\s+/).length;
+    const estimatedPages = Math.ceil(wordCount / WORDS_PER_PAGE);
+    const isPartial = wordCount > MAX_WORDS;
+
+    return {
+      text: isPartial ? text.split(/\s+/).slice(0, MAX_WORDS).join(" ") : text,
+      totalPages: estimatedPages,
+      pagesAnalyzed: isPartial ? MAX_PAGES : estimatedPages,
+      status: isPartial ? "partial" : "success",
+      error: null,
+    };
+  } catch (err) {
+    console.error("DOCX extraction error:", err);
+    return {
+      text: "",
+      totalPages: null,
+      pagesAnalyzed: null,
+      status: "failed",
+      error: "Failed to parse DOCX file.",
+    };
+  }
+}
+
+function extractFromPlainText(rawText: string): ExtractionResult {
+  const text = rawText.trim();
+  if (text.length < 20) {
+    return { text: "", totalPages: null, pagesAnalyzed: null, status: "failed", error: "File contains too little text." };
+  }
+
+  const wordCount = text.split(/\s+/).length;
+  const estimatedPages = Math.ceil(wordCount / WORDS_PER_PAGE);
+  const isPartial = wordCount > MAX_WORDS;
+
+  return {
+    text: isPartial ? text.split(/\s+/).slice(0, MAX_WORDS).join(" ") : text,
+    totalPages: estimatedPages,
+    pagesAnalyzed: isPartial ? MAX_PAGES : estimatedPages,
+    status: isPartial ? "partial" : "success",
+    error: null,
+  };
+}
+
+async function extractTextFromFile(
+  data: Blob,
+  fileName: string
+): Promise<ExtractionResult> {
+  const ext = fileName.split(".").pop()?.toLowerCase();
+
+  if (ext === "txt" || ext === "md" || ext === "fountain" || ext === "fdx") {
+    const rawText = await data.text();
+    return extractFromPlainText(rawText);
+  }
+
+  if (ext === "pdf") {
+    const buffer = await data.arrayBuffer();
+    return extractFromPDF(buffer);
+  }
+
+  if (ext === "docx") {
+    const buffer = await data.arrayBuffer();
+    return extractFromDOCX(buffer);
+  }
+
+  return {
+    text: "",
+    totalPages: null,
+    pagesAnalyzed: null,
+    status: "failed",
+    error: `Unsupported file type: .${ext}. Accepted formats: PDF, DOCX, TXT, FDX, Fountain.`,
+  };
+}
+
+// ---- AI ANALYSIS ----
+
+const LANE_DESCRIPTIONS = `
+The seven monetisation lanes:
+1. "studio-streamer" — Studio / Streamer: Big-budget, wide-audience, major studio or platform play. Typically $15M+, IP-driven, commercial.
+2. "independent-film" — Independent Film: Director-driven, artistic vision, $1M–$15M, festival potential, discerning audiences.
+3. "low-budget" — Low-Budget / Microbudget: Under $1M, constraint-driven creativity, self-financed, direct-to-platform.
+4. "international-copro" — International Co-Production: Multi-territory, treaty structures, international cast, cross-cultural themes.
+5. "genre-market" — Genre / Market-Driven: Clear genre (horror, thriller, action), pre-sales driven, genre-audience targeted.
+6. "prestige-awards" — Prestige / Awards: Awards-caliber, elevated tone, A-list talent, festival premiere, awards season.
+7. "fast-turnaround" — Fast-Turnaround / Trend-Based: Speed-to-market, cultural moment, lean budget, platform-first.
 `;
+
+const ANALYSIS_TOOLS = [
+  {
+    type: "function",
+    function: {
+      name: "classify_project",
+      description:
+        "Classify a film/TV project into exactly one monetisation lane with structured 4-pass analysis. Be direct, practical, and specific like an experienced development executive. No generic encouragement.",
+      parameters: {
+        type: "object",
+        properties: {
+          structural_read: {
+            type: "object",
+            description: "Pass 1: Structural analysis based on the actual material",
+            properties: {
+              format_detected: {
+                type: "string",
+                description: "Detected format: feature screenplay, TV pilot, pitch deck, treatment, one-pager, etc.",
+              },
+              genre_as_written: {
+                type: "string",
+                description: "The genre as evidenced by the writing itself, not what the creator claims",
+              },
+              protagonist_goal_clarity: {
+                type: "string",
+                description: "Direct assessment of protagonist definition and goal clarity. Be specific.",
+              },
+              structure_clarity: {
+                type: "string",
+                description: "Assessment of narrative structure — acts, turning points, pacing. Cite specifics.",
+              },
+            },
+            required: ["format_detected", "genre_as_written", "protagonist_goal_clarity", "structure_clarity"],
+            additionalProperties: false,
+          },
+          creative_signal: {
+            type: "object",
+            description: "Pass 2: Creative quality and distinctiveness",
+            properties: {
+              originality: {
+                type: "string",
+                description: "How fresh or derivative the concept and execution are. Reference specific elements.",
+              },
+              tone_consistency: {
+                type: "string",
+                description: "Whether the tone is controlled and consistent throughout the material",
+              },
+              emotional_engine: {
+                type: "string",
+                description: "What drives emotional engagement — character, situation, theme, or spectacle",
+              },
+              standout_elements: {
+                type: "string",
+                description: "What people will actually remember — specific scenes, lines, images, or ideas",
+              },
+            },
+            required: ["originality", "tone_consistency", "emotional_engine", "standout_elements"],
+            additionalProperties: false,
+          },
+          market_reality: {
+            type: "object",
+            description: "Pass 3: Commercial viability and market positioning",
+            properties: {
+              likely_audience: {
+                type: "string",
+                description: "Who will actually watch this based on the execution, not aspirations",
+              },
+              comparable_titles: {
+                type: "string",
+                description: "Real comparable films/shows based on the actual writing, not aspirational comps",
+              },
+              budget_implications: {
+                type: "string",
+                description: "What the writing/visual ambition implies about minimum viable budget",
+              },
+              commercial_risks: {
+                type: "string",
+                description: "Key risks that could make this hard to finance, sell, or distribute",
+              },
+            },
+            required: ["likely_audience", "comparable_titles", "budget_implications", "commercial_risks"],
+            additionalProperties: false,
+          },
+          lane: {
+            type: "string",
+            enum: VALID_LANES,
+            description: "Exactly one primary monetisation lane. No ties.",
+          },
+          confidence: {
+            type: "number",
+            description: "Confidence score from 0 to 1 for the lane assignment",
+          },
+          rationale: {
+            type: "string",
+            description:
+              "One clear paragraph explaining WHY this lane, referencing specific evidence from the material. Direct, no hedging.",
+          },
+          do_next: {
+            type: "array",
+            items: { type: "string" },
+            description: "Exactly 3 specific, actionable next steps. Each should be a concrete action, not vague advice.",
+          },
+          avoid: {
+            type: "array",
+            items: { type: "string" },
+            description: "Exactly 3 specific things to avoid. Each should be a concrete warning, not generic caution.",
+          },
+        },
+        required: [
+          "structural_read",
+          "creative_signal",
+          "market_reality",
+          "lane",
+          "confidence",
+          "rationale",
+          "do_next",
+          "avoid",
+        ],
+        additionalProperties: false,
+      },
+    },
+  },
+];
+
+// ---- MAIN HANDLER ----
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -30,118 +400,105 @@ serve(async (req) => {
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) throw new Error("No authorization header");
 
+    // Verify user
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_PUBLISHABLE_KEY")!,
       { global: { headers: { Authorization: authHeader } } }
     );
-
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
     if (userError || !user) throw new Error("Not authenticated");
 
     const { projectInput, documentPaths } = await req.json();
 
-    // Download and extract text from uploaded documents
-    let documentContent = "";
-    if (documentPaths && documentPaths.length > 0) {
-      const adminClient = createClient(
-        Deno.env.get("SUPABASE_URL")!,
-        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-      );
+    // ---- DOWNLOAD & EXTRACT ----
+    const adminClient = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+    );
 
+    interface DocResult {
+      file_name: string;
+      file_path: string;
+      extracted_text: string;
+      extraction_status: string;
+      total_pages: number | null;
+      pages_analyzed: number | null;
+      error_message: string | null;
+    }
+
+    const docResults: DocResult[] = [];
+    let combinedText = "";
+
+    if (documentPaths && documentPaths.length > 0) {
       for (const path of documentPaths) {
-        const { data: fileData, error: downloadError } = await adminClient
-          .storage
+        const fileName = path.split("/").pop() || "document";
+
+        const { data: fileData, error: downloadError } = await adminClient.storage
           .from("project-documents")
           .download(path);
 
-        if (downloadError) {
+        if (downloadError || !fileData) {
           console.error(`Failed to download ${path}:`, downloadError);
+          docResults.push({
+            file_name: fileName,
+            file_path: path,
+            extracted_text: "",
+            extraction_status: "failed",
+            total_pages: null,
+            pages_analyzed: null,
+            error_message: `Failed to download file: ${downloadError?.message || "Unknown error"}`,
+          });
           continue;
         }
 
-        const fileName = path.split("/").pop() || "document";
-        const ext = fileName.split(".").pop()?.toLowerCase();
+        const result = await extractTextFromFile(fileData, fileName);
 
-        if (ext === "txt" || ext === "fdx" || ext === "fountain" || ext === "md") {
-          const text = await fileData.text();
-          documentContent += `\n\n--- DOCUMENT: ${fileName} ---\n${text}`;
-        } else if (ext === "pdf") {
-          // For PDF, attempt to extract text content
-          const arrayBuffer = await fileData.arrayBuffer();
-          const bytes = new Uint8Array(arrayBuffer);
-          // Simple PDF text extraction - extract text between stream markers
-          const rawText = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
-          // Extract readable text segments
-          const textSegments: string[] = [];
-          const matches = rawText.matchAll(/\(([^)]+)\)/g);
-          for (const match of matches) {
-            const segment = match[1].replace(/\\n/g, "\n").replace(/\\\(/g, "(").replace(/\\\)/g, ")");
-            if (segment.length > 2 && /[a-zA-Z]/.test(segment)) {
-              textSegments.push(segment);
-            }
-          }
-          const extractedText = textSegments.join(" ");
-          if (extractedText.length > 50) {
-            documentContent += `\n\n--- DOCUMENT: ${fileName} ---\n${extractedText}`;
-          } else {
-            documentContent += `\n\n--- DOCUMENT: ${fileName} ---\n[PDF content could not be fully extracted. Text may be image-based. Working with available metadata and form inputs.]`;
-          }
-        } else {
-          // For other file types, try text extraction
-          try {
-            const text = await fileData.text();
-            if (text.length > 20 && /[a-zA-Z]/.test(text)) {
-              documentContent += `\n\n--- DOCUMENT: ${fileName} ---\n${text}`;
-            }
-          } catch {
-            documentContent += `\n\n--- DOCUMENT: ${fileName} ---\n[Could not extract text from this file format.]`;
-          }
+        docResults.push({
+          file_name: fileName,
+          file_path: path,
+          extracted_text: result.text,
+          extraction_status: result.status,
+          total_pages: result.totalPages,
+          pages_analyzed: result.pagesAnalyzed,
+          error_message: result.error,
+        });
+
+        if (result.text) {
+          combinedText += `\n\n--- ${fileName} ---\n${result.text}`;
         }
       }
     }
 
-    const hasDocuments = documentContent.trim().length > 0;
+    // Cap total text at MAX_WORDS
+    const allWords = combinedText.trim().split(/\s+/);
+    let partialRead: { pages_analyzed: number; total_pages: number } | null = null;
 
-    const systemPrompt = `You are IFFY, an expert film and TV development executive and market analyst. You assess creative projects and classify them into monetisation lanes.
-
-${LANE_DEFINITIONS}
-
-You MUST respond with a valid JSON object using this exact structure:
-{
-  "passes": {
-    "structure": {
-      "title": "Structural Analysis",
-      "summary": "2-3 sentence summary of narrative structure findings",
-      "signals": ["signal 1", "signal 2", "signal 3"]
-    },
-    "creative": {
-      "title": "Creative Signal",
-      "summary": "2-3 sentence summary of creative/artistic qualities",
-      "signals": ["signal 1", "signal 2", "signal 3"]
-    },
-    "market": {
-      "title": "Market Reality",
-      "summary": "2-3 sentence summary of market positioning and commercial prospects",
-      "signals": ["signal 1", "signal 2", "signal 3"]
+    if (allWords.length > MAX_WORDS) {
+      combinedText = allWords.slice(0, MAX_WORDS).join(" ");
+      const totalEstimated = Math.ceil(allWords.length / WORDS_PER_PAGE);
+      partialRead = { pages_analyzed: MAX_PAGES, total_pages: totalEstimated };
     }
-  },
-  "lane": "one of the seven lane IDs exactly as listed above",
-  "confidence": 0.0 to 1.0,
-  "reasoning": "A detailed 3-5 sentence explanation of WHY this lane was chosen, referencing specific evidence from the material",
-  "recommendations": [
-    { "category": "Packaging", "title": "short title", "description": "actionable advice" },
-    { "category": "Finance", "title": "short title", "description": "actionable advice" },
-    { "category": "Strategy", "title": "short title", "description": "actionable advice" },
-    { "category": "Market", "title": "short title", "description": "actionable advice" }
-  ]
-}
 
-${hasDocuments ? `CRITICAL: Base your assessment PRIMARILY on the uploaded document content. The document IS the project — analyze the actual writing, structure, dialogue, tone, and execution on the page. Form inputs are secondary context only. The material itself determines the lane.` : `No documents were uploaded. Base your assessment on the form inputs provided.`}
+    const hasDocumentText = combinedText.trim().length > 50;
 
-Respond ONLY with the JSON object. No markdown, no code fences, no explanatory text.`;
+    // ---- BUILD AI PROMPT ----
+    const systemPrompt = `You are IFFY, a sharp, experienced film/TV development executive and market analyst. You assess creative projects and classify them into monetisation lanes.
 
-    const userMessage = `Analyze this project:
+${LANE_DESCRIPTIONS}
+
+CRITICAL RULES:
+- Be DIRECT and PRACTICAL. No generic encouragement. No "this has potential" padding.
+- Speak like an experienced producer who's read 10,000 scripts.
+- If something is weak, say so clearly. If something is strong, say exactly why.
+- Every assessment must reference SPECIFIC evidence from the material.
+${hasDocumentText ? "- Base your assessment PRIMARILY on the uploaded document content. The material itself determines the lane. Form inputs are secondary context only." : "- No documents were uploaded. Assess based on form inputs, but note limitations."}
+${partialRead ? `- NOTE: Only the first ~${partialRead.pages_analyzed} pages were provided (estimated ${partialRead.total_pages} total). State this in your structural read.` : ""}`;
+
+    const userMessage = `Classify this project.
 
 FORM INPUTS:
 - Title: ${projectInput.title}
@@ -152,12 +509,13 @@ FORM INPUTS:
 - Tone: ${projectInput.tone || "Not specified"}
 - Comparable Titles: ${projectInput.comparable_titles || "Not specified"}
 
-${hasDocuments ? `UPLOADED MATERIAL:\n${documentContent}` : "No documents uploaded."}
+${hasDocumentText ? `UPLOADED MATERIAL:\n${combinedText}` : "No documents uploaded. Classify based on form inputs only."}`;
 
-Perform your three-pass analysis (structure, creative signal, market reality) and return the classification.`;
+    console.log(
+      `Analyzing "${projectInput.title}": ${docResults.length} files, ${allWords.length} words extracted, partial=${!!partialRead}`
+    );
 
-    console.log(`Analyzing project "${projectInput.title}" with ${documentPaths?.length || 0} documents`);
-
+    // ---- CALL AI ----
     const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -170,6 +528,8 @@ Perform your three-pass analysis (structure, creative signal, market reality) an
           { role: "system", content: systemPrompt },
           { role: "user", content: userMessage },
         ],
+        tools: ANALYSIS_TOOLS,
+        tool_choice: { type: "function", function: { name: "classify_project" } },
       }),
     });
 
@@ -192,34 +552,49 @@ Perform your three-pass analysis (structure, creative signal, market reality) an
     }
 
     const aiData = await aiResponse.json();
-    const rawContent = aiData.choices?.[0]?.message?.content;
 
-    if (!rawContent) {
-      throw new Error("No content in AI response");
-    }
-
-    // Parse the JSON response, handling potential markdown fences
-    let cleaned = rawContent.trim();
-    if (cleaned.startsWith("```")) {
-      cleaned = cleaned.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
-    }
-
+    // Extract from tool call response
+    const toolCall = aiData.choices?.[0]?.message?.tool_calls?.[0];
     let result;
-    try {
-      result = JSON.parse(cleaned);
-    } catch (parseErr) {
-      console.error("Failed to parse AI response:", cleaned);
-      throw new Error("Failed to parse AI classification response");
+
+    if (toolCall?.function?.arguments) {
+      const args = typeof toolCall.function.arguments === "string"
+        ? toolCall.function.arguments
+        : JSON.stringify(toolCall.function.arguments);
+      try {
+        result = JSON.parse(args);
+      } catch (parseErr) {
+        console.error("Failed to parse tool call arguments:", args);
+        throw new Error("Failed to parse AI analysis response");
+      }
+    } else {
+      // Fallback: try to parse from message content
+      const rawContent = aiData.choices?.[0]?.message?.content || "";
+      let cleaned = rawContent.trim();
+      if (cleaned.startsWith("```")) {
+        cleaned = cleaned.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
+      }
+      try {
+        result = JSON.parse(cleaned);
+      } catch {
+        console.error("Failed to parse AI response:", rawContent);
+        throw new Error("Failed to parse AI classification response");
+      }
     }
 
-    // Validate required fields
-    const validLanes = [
-      "studio-streamer", "independent-film", "low-budget",
-      "international-copro", "genre-market", "prestige-awards", "fast-turnaround"
-    ];
-    if (!validLanes.includes(result.lane)) {
+    // Validate lane
+    if (!VALID_LANES.includes(result.lane)) {
+      console.error("Invalid lane returned:", result.lane);
       throw new Error(`Invalid lane: ${result.lane}`);
     }
+
+    // Ensure arrays have exactly 3 items
+    result.do_next = (result.do_next || []).slice(0, 3);
+    result.avoid = (result.avoid || []).slice(0, 3);
+
+    // Add metadata
+    result.partial_read = partialRead;
+    result.documents = docResults;
 
     return new Response(JSON.stringify(result), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },

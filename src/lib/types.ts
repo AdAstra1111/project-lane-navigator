@@ -9,23 +9,95 @@ export type MonetisationLane =
   | 'prestige-awards'
   | 'fast-turnaround';
 
+// ---- Analysis Types ----
+
+export interface StructuralRead {
+  format_detected: string;
+  genre_as_written: string;
+  protagonist_goal_clarity: string;
+  structure_clarity: string;
+}
+
+export interface CreativeSignal {
+  originality: string;
+  tone_consistency: string;
+  emotional_engine: string;
+  standout_elements: string;
+}
+
+export interface MarketReality {
+  likely_audience: string;
+  comparable_titles: string;
+  budget_implications: string;
+  commercial_risks: string;
+}
+
+export interface FullAnalysis {
+  structural_read: StructuralRead;
+  creative_signal: CreativeSignal;
+  market_reality: MarketReality;
+  do_next: string[];
+  avoid: string[];
+  partial_read?: { pages_analyzed: number; total_pages: number } | null;
+}
+
+// ---- Document Types ----
+
+export interface DocumentExtractionResult {
+  file_name: string;
+  file_path: string;
+  extracted_text: string;
+  extraction_status: 'success' | 'partial' | 'failed';
+  total_pages: number | null;
+  pages_analyzed: number | null;
+  error_message: string | null;
+}
+
+export interface ProjectDocument {
+  id: string;
+  project_id: string;
+  user_id: string;
+  file_name: string;
+  file_path: string;
+  extracted_text: string | null;
+  extraction_status: string;
+  total_pages: number | null;
+  pages_analyzed: number | null;
+  error_message: string | null;
+  created_at: string;
+}
+
+// ---- AI Response ----
+
+export interface AnalysisResponse {
+  lane: MonetisationLane;
+  confidence: number;
+  rationale: string;
+  structural_read: StructuralRead;
+  creative_signal: CreativeSignal;
+  market_reality: MarketReality;
+  do_next: string[];
+  avoid: string[];
+  partial_read?: { pages_analyzed: number; total_pages: number } | null;
+  documents: DocumentExtractionResult[];
+}
+
+// ---- Legacy Types (backward compat) ----
+
 export interface Recommendation {
   category: string;
   title: string;
   description: string;
 }
 
-export interface AnalysisPass {
+// Old analysis pass structure (from pre-document analysis)
+export interface LegacyAnalysisPass {
   title: string;
   summary: string;
   signals: string[];
 }
 
-export interface AnalysisPasses {
-  structure: AnalysisPass;
-  creative: AnalysisPass;
-  market: AnalysisPass;
-}
+// ---- Project Types ----
 
 export interface ProjectInput {
   title: string;
@@ -42,7 +114,6 @@ export interface ClassificationResult {
   confidence: number;
   reasoning: string;
   recommendations: Recommendation[];
-  passes?: AnalysisPasses;
 }
 
 export interface Project {
@@ -60,7 +131,7 @@ export interface Project {
   reasoning: string | null;
   recommendations: Recommendation[] | null;
   document_urls: string[];
-  analysis_passes: AnalysisPasses | null;
+  analysis_passes: FullAnalysis | null;
   created_at: string;
   updated_at: string;
 }
