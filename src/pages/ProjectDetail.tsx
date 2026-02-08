@@ -1,11 +1,12 @@
 import { useParams, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Film, Tv, Target, Palette, DollarSign, Users, Quote } from 'lucide-react';
+import { ArrowLeft, Film, Tv, Target, Palette, DollarSign, Users, Quote, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Header } from '@/components/Header';
 import { LaneBadge } from '@/components/LaneBadge';
+import { AnalysisPassesDisplay } from '@/components/AnalysisPassesDisplay';
 import { useProject } from '@/hooks/useProjects';
-import { MonetisationLane, Recommendation } from '@/lib/types';
+import { MonetisationLane, Recommendation, AnalysisPasses } from '@/lib/types';
 import { BUDGET_RANGES, TARGET_AUDIENCES, TONES } from '@/lib/constants';
 
 const CATEGORY_ICONS: Record<string, React.ElementType> = {
@@ -102,6 +103,8 @@ export default function ProjectDetail() {
   }
 
   const recommendations = (project.recommendations || []) as Recommendation[];
+  const analysisPasses = project.analysis_passes as AnalysisPasses | null;
+  const hasDocuments = project.document_urls && project.document_urls.length > 0;
 
   return (
     <div className="min-h-screen bg-background">
@@ -142,8 +145,23 @@ export default function ProjectDetail() {
                   {project.genres.join(' · ')}
                 </p>
               )}
+              {hasDocuments && (
+                <div className="flex items-center gap-1.5 mt-2">
+                  <FileText className="h-3.5 w-3.5 text-primary" />
+                  <span className="text-xs text-primary font-medium">
+                    {project.document_urls.length} document{project.document_urls.length !== 1 ? 's' : ''} analysed
+                  </span>
+                </div>
+              )}
             </div>
           </div>
+
+          {/* Analysis Passes */}
+          {analysisPasses && (
+            <div className="mb-8">
+              <AnalysisPassesDisplay passes={analysisPasses} />
+            </div>
+          )}
 
           {/* Lane Classification */}
           {project.assigned_lane && (
