@@ -142,11 +142,20 @@ export function useProjects() {
       }
 
       // 6. Detect scripts among uploaded files and create project_scripts records
-      const scriptPattern = /script|screenplay|draft|teleplay/i;
+      // Any document uploaded during project creation is treated as a script/treatment
+      // since the "Material" step is specifically for scripts, treatments, and pitch decks
       const scriptExtensions = ['.fdx', '.fountain'];
+      const scriptKeywordPattern = /script|screenplay|draft|teleplay|pilot|episode|treatment/i;
+      const scriptDocExtensions = ['.pdf', '.docx', '.doc', '.txt', '.md'];
       const scriptFiles = files.filter(f => {
         const ext = '.' + f.name.split('.').pop()?.toLowerCase();
-        return scriptExtensions.includes(ext) || scriptPattern.test(f.name);
+        // Always treat .fdx/.fountain as scripts
+        if (scriptExtensions.includes(ext)) return true;
+        // For common doc types, check keywords or default to treating as script
+        if (scriptDocExtensions.includes(ext)) {
+          return true; // uploaded during creation = likely a script or key material
+        }
+        return scriptKeywordPattern.test(f.name);
       });
 
       if (scriptFiles.length > 0) {
