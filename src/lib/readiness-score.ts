@@ -86,7 +86,7 @@ export function calculateReadiness(
 
   // HODs (10 pts) — Director is worth the most
   const REPUTATION_SCORE: Record<string, number> = { marquee: 4, acclaimed: 3, established: 2, emerging: 1 };
-  const KEY_DEPARTMENTS = ['Director', 'Director of Photography', 'Producer', 'Executive Producer'];
+  const KEY_DEPARTMENTS = ['Writer', 'Director', 'Director of Photography', 'Producer', 'Executive Producer'];
   const attachedHods = hods.filter(h => h.status === 'attached' || h.status === 'confirmed');
   const directorAttached = attachedHods.find(h => h.department === 'Director');
 

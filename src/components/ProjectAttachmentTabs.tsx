@@ -44,6 +44,7 @@ const REPUTATION_STYLES: Record<string, string> = {
 };
 
 const DEPARTMENTS = [
+  'Writer',
   'Director',
   'Director of Photography',
   'Producer',

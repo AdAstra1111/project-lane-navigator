@@ -63,7 +63,7 @@ export interface ProjectHOD {
   id: string;
   project_id: string;
   user_id: string;
-  department: string; // Director | DP | Producer | Line Producer | Editor | Composer | Production Designer | Costume Designer | VFX Supervisor | Sound Designer
+  department: string; // Writer | Director | DP | Producer | Line Producer | Editor | Composer | Production Designer | Costume Designer | VFX Supervisor | Sound Designer
   person_name: string;
   known_for: string;
   reputation_tier: string; // emerging | established | acclaimed | marquee
