@@ -1,4 +1,4 @@
-import { useState, useCallback, useId } from 'react';
+import { useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Upload, X, FileText, File, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -23,7 +23,6 @@ interface FileUploadProps {
 export function FileUpload({ files, onFilesChange }: FileUploadProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const inputId = useId();
 
   const validateFile = (file: File): string | null => {
     const ext = '.' + file.name.split('.').pop()?.toLowerCase();
@@ -105,20 +104,8 @@ export function FileUpload({ files, onFilesChange }: FileUploadProps) {
 
   return (
     <div className="space-y-3">
-      {/* Native label-based file trigger — no programmatic .click() needed */}
-      <input
-        id={inputId}
-        type="file"
-        multiple
-        accept={ACCEPTED_EXTENSIONS.join(',')}
-        onChange={handleInputChange}
-        className="sr-only"
-        tabIndex={-1}
-      />
-
-      {/* Drop zone — uses <label> so clicking natively opens file picker */}
-      <label
-        htmlFor={inputId}
+      {/* Drop zone with transparent file input overlay — no JS triggers, no htmlFor */}
+      <div
         onDrop={handleDrop}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
@@ -129,6 +116,14 @@ export function FileUpload({ files, onFilesChange }: FileUploadProps) {
             : 'border-border/50 bg-muted/30 hover:border-border hover:bg-muted/50'
         )}
       >
+        {/* Invisible native file input covers the entire drop zone */}
+        <input
+          type="file"
+          multiple
+          accept={ACCEPTED_EXTENSIONS.join(',')}
+          onChange={handleInputChange}
+          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+        />
         <Upload className={cn(
           'h-8 w-8 transition-colors',
           isDragging ? 'text-primary' : 'text-muted-foreground'
@@ -144,7 +139,7 @@ export function FileUpload({ files, onFilesChange }: FileUploadProps) {
             Up to {MAX_FILES} files, 10MB each
           </p>
         </div>
-      </label>
+      </div>
 
       {/* Error */}
       <AnimatePresence>
