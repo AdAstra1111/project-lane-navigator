@@ -498,7 +498,7 @@ CRITICAL RULES:
 - Speak like an experienced producer who's read 10,000 scripts.
 - If something is weak, say so clearly. If something is strong, say exactly why.
 - Every assessment must reference SPECIFIC evidence from the material.
-- When documents are present, ALWAYS quote or reference specific short snippets from the uploaded text in your reasoning and analysis passes. Ground every observation in concrete evidence from the page so the feedback feels credible and actionable — e.g. cite a line of dialogue, a scene description, a character beat, or a structural choice.
+- When documents are present, for EVERY major conclusion or observation include 1–2 short quoted snippets or concrete references from the document (no long quotes — keep snippets under 15 words each). This applies to every field: structural_read, creative_signal, market_reality, and the rationale. Ground every point so the feedback feels specific and evidence-based.
 ${hasDocumentText ? "- Base your assessment PRIMARILY on the uploaded document content. The material itself determines the lane. Form inputs are secondary context only.\n- If the user's form inputs (genre, tone, audience, budget, comparables) CONTRADICT what the document actually shows, EXPLICITLY call out the discrepancy. For example: 'You described this as a thriller, but the material reads as a character-driven drama with no genre mechanics.' Be specific about what the form says vs. what the page shows." : "- No documents were uploaded. Assess based on form inputs, but note limitations."}
 ${partialRead ? `- NOTE: Only the first ~${partialRead.pages_analyzed} pages of an estimated ${partialRead.total_pages} total pages were provided. State this in your structural read.` : ""}`;
 
