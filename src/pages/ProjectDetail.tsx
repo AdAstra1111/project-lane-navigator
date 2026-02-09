@@ -1,7 +1,8 @@
 import { useState, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Film, Tv, Target, Palette, DollarSign, Users, Quote, CheckCircle2, ShieldAlert, Trash2, Loader2, AlertTriangle, MessageSquareQuote, Radio } from 'lucide-react';
+import { ArrowLeft, Film, Tv, Target, Palette, DollarSign, Users, Quote, CheckCircle2, ShieldAlert, Trash2, Loader2, AlertTriangle, MessageSquareQuote, Radio, FileText } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import {
   AlertDialog,
@@ -284,6 +285,39 @@ export default function ProjectDetail() {
           {/* Readiness Score */}
           {readiness && <ProjectReadinessScore readiness={readiness} />}
 
+          {/* Script Status Banner */}
+          {(() => {
+            const currentScript = scripts.find(s => s.status === 'current');
+            const hasScript = scripts.length > 0;
+            return (
+              <div className={cn(
+                'flex items-center gap-3 glass-card rounded-lg px-4 py-2.5 text-sm',
+                currentScript ? 'border-l-4 border-emerald-500/50' : hasScript ? 'border-l-4 border-amber-500/50' : 'border-l-4 border-muted'
+              )}>
+                <FileText className={cn('h-4 w-4 shrink-0', currentScript ? 'text-emerald-400' : 'text-muted-foreground')} />
+                {currentScript ? (
+                  <span className="text-foreground">
+                    Current Script: <strong>{currentScript.version_label}</strong>
+                    <span className="text-muted-foreground ml-2 text-xs">
+                      {new Date(currentScript.created_at).toLocaleDateString()}
+                    </span>
+                    {scripts.length > 1 && (
+                      <span className="text-muted-foreground ml-2 text-xs">
+                        · {scripts.length - 1} archived version{scripts.length > 2 ? 's' : ''}
+                      </span>
+                    )}
+                  </span>
+                ) : hasScript ? (
+                  <span className="text-muted-foreground">
+                    {scripts.length} archived script{scripts.length > 1 ? 's' : ''} — no current draft set
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">No script attached — upload one to unlock deeper analysis</span>
+                )}
+              </div>
+            );
+          })()}
+
           {/* Relevant Signals Bridge */}
           {signalCount > 0 && (
             <Link
@@ -438,7 +472,7 @@ export default function ProjectDetail() {
             <div className={hasDocuments ? 'mt-4' : ''}>
               <AddDocumentsUpload
                 existingCount={documents.length}
-                onUpload={(files) => addDocuments.mutate(files)}
+                onUpload={(files, scriptInfo) => addDocuments.mutate({ files, scriptInfo })}
                 isUploading={addDocuments.isPending}
               />
             </div>
