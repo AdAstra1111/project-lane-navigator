@@ -28,7 +28,9 @@ export type Database = {
           last_updated_at: string
           market_alignment: string
           region: string
+          sales_leverage: string
           status: string
+          timing_window: string
           trend_type: string
         }
         Insert: {
@@ -44,7 +46,9 @@ export type Database = {
           last_updated_at?: string
           market_alignment?: string
           region?: string
+          sales_leverage?: string
           status?: string
+          timing_window?: string
           trend_type?: string
         }
         Update: {
@@ -60,7 +64,9 @@ export type Database = {
           last_updated_at?: string
           market_alignment?: string
           region?: string
+          sales_leverage?: string
           status?: string
+          timing_window?: string
           trend_type?: string
         }
         Relationships: []

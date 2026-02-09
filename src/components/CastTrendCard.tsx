@@ -48,6 +48,16 @@ export function CastTrendCard({ trend, index, isArchived }: CastTrendCardProps) 
         </div>
       </div>
       <p className="text-sm text-muted-foreground leading-relaxed">{trend.explanation}</p>
+      {(trend.sales_leverage || trend.timing_window) && (
+        <div className="flex gap-2 flex-wrap text-xs">
+          {trend.sales_leverage && (
+            <span className="bg-primary/10 text-primary rounded px-2 py-0.5 font-medium">{trend.sales_leverage}</span>
+          )}
+          {trend.timing_window && (
+            <span className="bg-muted/60 text-foreground rounded px-2 py-0.5">{trend.timing_window}</span>
+          )}
+        </div>
+      )}
       <div className="flex items-center justify-between text-xs text-muted-foreground">
         <div className="flex gap-1.5 flex-wrap">
           {trend.genre_relevance?.slice(0, 3).map(g => (

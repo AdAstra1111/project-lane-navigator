@@ -61,6 +61,12 @@ const CAST_FILTER_CONFIGS = [
     { value: 'Indie', label: 'Indie' }, { value: 'Studio', label: 'Studio' },
     { value: 'Streamer', label: 'Streamer' },
   ]},
+  { key: 'salesLeverage', label: 'Sales Leverage', options: [
+    { value: 'Pre-sales friendly', label: 'Pre-sales friendly' },
+    { value: 'MG-driven', label: 'MG-driven' },
+    { value: 'Streamer-oriented', label: 'Streamer-oriented' },
+    { value: 'Festival-driven', label: 'Festival-driven' },
+  ]},
 ];
 
 export default function CastTrends() {

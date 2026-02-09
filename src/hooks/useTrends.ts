@@ -40,6 +40,8 @@ export interface CastTrend {
   explanation: string;
   genre_relevance: string[];
   market_alignment: string;
+  sales_leverage: string;
+  timing_window: string;
   cycle_phase: 'Early' | 'Building' | 'Peaking';
   status: 'active' | 'archived';
   first_detected_at: string;
@@ -66,6 +68,7 @@ export interface CastFilters {
   genreRelevance?: string;
   cyclePhase?: string;
   marketAlignment?: string;
+  salesLeverage?: string;
 }
 
 // ---- Story Trend Hooks ----
@@ -182,6 +185,9 @@ export function useActiveCastTrends(filters?: CastFilters) {
       }
       if (filters?.marketAlignment) {
         trends = trends.filter(t => t.market_alignment === filters.marketAlignment);
+      }
+      if (filters?.salesLeverage) {
+        trends = trends.filter(t => t.sales_leverage === filters.salesLeverage);
       }
       return trends;
     },
