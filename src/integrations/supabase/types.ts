@@ -212,6 +212,53 @@ export type Database = {
         }
         Relationships: []
       }
+      project_cast: {
+        Row: {
+          actor_name: string
+          created_at: string
+          id: string
+          notes: string
+          project_id: string
+          role_name: string
+          status: string
+          territory_tags: string[]
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          actor_name?: string
+          created_at?: string
+          id?: string
+          notes?: string
+          project_id: string
+          role_name?: string
+          status?: string
+          territory_tags?: string[]
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          actor_name?: string
+          created_at?: string
+          id?: string
+          notes?: string
+          project_id?: string
+          role_name?: string
+          status?: string
+          territory_tags?: string[]
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_cast_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       project_copro_scenarios: {
         Row: {
           contributions: string
@@ -319,6 +366,65 @@ export type Database = {
           },
         ]
       }
+      project_finance_scenarios: {
+        Row: {
+          confidence: string
+          created_at: string
+          equity_amount: string
+          gap_amount: string
+          id: string
+          incentive_amount: string
+          notes: string
+          other_sources: string
+          presales_amount: string
+          project_id: string
+          scenario_name: string
+          total_budget: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          confidence?: string
+          created_at?: string
+          equity_amount?: string
+          gap_amount?: string
+          id?: string
+          incentive_amount?: string
+          notes?: string
+          other_sources?: string
+          presales_amount?: string
+          project_id: string
+          scenario_name?: string
+          total_budget?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          confidence?: string
+          created_at?: string
+          equity_amount?: string
+          gap_amount?: string
+          id?: string
+          incentive_amount?: string
+          notes?: string
+          other_sources?: string
+          presales_amount?: string
+          project_id?: string
+          scenario_name?: string
+          total_budget?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_finance_scenarios_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       project_incentive_scenarios: {
         Row: {
           blockers: string
@@ -375,6 +481,138 @@ export type Database = {
           },
           {
             foreignKeyName: "project_incentive_scenarios_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_partners: {
+        Row: {
+          created_at: string
+          id: string
+          notes: string
+          partner_name: string
+          partner_type: string
+          project_id: string
+          status: string
+          territory: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          notes?: string
+          partner_name?: string
+          partner_type?: string
+          project_id: string
+          status?: string
+          territory?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          notes?: string
+          partner_name?: string
+          partner_type?: string
+          project_id?: string
+          status?: string
+          territory?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_partners_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_scripts: {
+        Row: {
+          created_at: string
+          file_path: string | null
+          id: string
+          notes: string
+          project_id: string
+          status: string
+          updated_at: string
+          user_id: string
+          version_label: string
+        }
+        Insert: {
+          created_at?: string
+          file_path?: string | null
+          id?: string
+          notes?: string
+          project_id: string
+          status?: string
+          updated_at?: string
+          user_id: string
+          version_label?: string
+        }
+        Update: {
+          created_at?: string
+          file_path?: string | null
+          id?: string
+          notes?: string
+          project_id?: string
+          status?: string
+          updated_at?: string
+          user_id?: string
+          version_label?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_scripts_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_updates: {
+        Row: {
+          created_at: string
+          description: string
+          id: string
+          impact_summary: string | null
+          project_id: string
+          title: string
+          update_type: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string
+          id?: string
+          impact_summary?: string | null
+          project_id: string
+          title?: string
+          update_type?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          description?: string
+          id?: string
+          impact_summary?: string | null
+          project_id?: string
+          title?: string
+          update_type?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_updates_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"

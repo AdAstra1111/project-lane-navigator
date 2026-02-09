@@ -21,11 +21,16 @@ import { DocumentsList } from '@/components/DocumentsList';
 import { AddDocumentsUpload } from '@/components/AddDocumentsUpload';
 import { ProjectInsightPanel } from '@/components/ProjectInsightPanel';
 import { ProjectIncentivePanel } from '@/components/ProjectIncentivePanel';
+import { ProjectReadinessScore } from '@/components/ProjectReadinessScore';
+import { ProjectAttachmentTabs } from '@/components/ProjectAttachmentTabs';
+import { ProjectTimeline } from '@/components/ProjectTimeline';
 import { useProject, useProjectDocuments } from '@/hooks/useProjects';
 import { useProjects } from '@/hooks/useProjects';
 import { useAddDocuments } from '@/hooks/useAddDocuments';
 import { useSignalCount, useActiveCastTrends } from '@/hooks/useTrends';
+import { useProjectCast, useProjectPartners, useProjectScripts, useProjectFinance } from '@/hooks/useProjectAttachments';
 import { generateProjectInsights } from '@/lib/project-insights';
+import { calculateReadiness } from '@/lib/readiness-score';
 import { MonetisationLane, Recommendation, FullAnalysis } from '@/lib/types';
 import { BUDGET_RANGES, TARGET_AUDIENCES, TONES } from '@/lib/constants';
 
@@ -137,11 +142,23 @@ export default function ProjectDetail() {
   const { data: signalCount = 0 } = useSignalCount();
   const { data: castTrends = [] } = useActiveCastTrends();
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [incentiveAnalysed, setIncentiveAnalysed] = useState(false);
+
+  // Attachment hooks for readiness calculation
+  const { cast } = useProjectCast(id);
+  const { partners } = useProjectPartners(id);
+  const { scripts } = useProjectScripts(id);
+  const { scenarios: financeScenarios } = useProjectFinance(id);
 
   const insights = useMemo(() => {
     if (!project || castTrends.length === 0) return null;
     return generateProjectInsights(project, castTrends);
   }, [project, castTrends]);
+
+  const readiness = useMemo(() => {
+    if (!project) return null;
+    return calculateReadiness(project, cast, partners, scripts, financeScenarios, incentiveAnalysed);
+  }, [project, cast, partners, scripts, financeScenarios, incentiveAnalysed]);
 
   const handleDelete = async () => {
     if (!id) return;
@@ -264,6 +281,9 @@ export default function ProjectDetail() {
             </AlertDialog>
           </div>
 
+          {/* Readiness Score */}
+          {readiness && <ProjectReadinessScore readiness={readiness} />}
+
           {/* Relevant Signals Bridge */}
           {signalCount > 0 && (
             <Link
@@ -306,6 +326,9 @@ export default function ProjectDetail() {
               {project.confidence != null && <ConfidenceMeter confidence={project.confidence} />}
             </div>
           )}
+
+          {/* Attachment Tabs: Cast, Partners, Scripts, Finance */}
+          {id && <ProjectAttachmentTabs projectId={id} />}
 
           {/* Rationale */}
           {project.reasoning && (
@@ -400,6 +423,9 @@ export default function ProjectDetail() {
               )}
             </div>
           </div>
+
+          {/* Updates Timeline */}
+          {id && <ProjectTimeline projectId={id} />}
 
           {/* Documents */}
           <div>
