@@ -1,12 +1,25 @@
-import { useParams, Link } from 'react-router-dom';
+import { useState } from 'react';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Film, Tv, Target, Palette, DollarSign, Users, Quote, CheckCircle2, ShieldAlert } from 'lucide-react';
+import { ArrowLeft, Film, Tv, Target, Palette, DollarSign, Users, Quote, CheckCircle2, ShieldAlert, Trash2, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import { Header } from '@/components/Header';
 import { LaneBadge } from '@/components/LaneBadge';
 import { AnalysisPassesDisplay } from '@/components/AnalysisPassesDisplay';
 import { DocumentsList } from '@/components/DocumentsList';
 import { useProject, useProjectDocuments } from '@/hooks/useProjects';
+import { useProjects } from '@/hooks/useProjects';
 import { MonetisationLane, Recommendation, FullAnalysis } from '@/lib/types';
 import { BUDGET_RANGES, TARGET_AUDIENCES, TONES } from '@/lib/constants';
 
@@ -108,8 +121,17 @@ function DoAvoidSection({ doNext, avoid }: { doNext: string[]; avoid: string[] }
 
 export default function ProjectDetail() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const { project, isLoading } = useProject(id);
   const { documents } = useProjectDocuments(id);
+  const { deleteProject } = useProjects();
+  const [deleteOpen, setDeleteOpen] = useState(false);
+
+  const handleDelete = async () => {
+    if (!id) return;
+    await deleteProject.mutateAsync(id);
+    navigate('/dashboard');
+  };
 
   const getLabel = (value: string, list: readonly { value: string; label: string }[]) =>
     list.find(item => item.value === value)?.label || value;
@@ -187,6 +209,43 @@ export default function ProjectDetail() {
                 <p className="text-muted-foreground mt-1">{project.genres.join(' · ')}</p>
               )}
             </div>
+
+            <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+              <AlertDialogTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="text-muted-foreground hover:text-destructive hover:bg-destructive/10 shrink-0"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete "{project.title}"?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This will permanently delete the project, its analysis, and all uploaded documents. This action cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={handleDelete}
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    disabled={deleteProject.isPending}
+                  >
+                    {deleteProject.isPending ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+                        Deleting…
+                      </>
+                    ) : (
+                      'Delete Project'
+                    )}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </div>
 
           {/* Lane + Confidence */}

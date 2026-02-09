@@ -143,7 +143,24 @@ export function useProjects() {
     },
   });
 
-  return { projects, isLoading, error, createProject };
+  const deleteProject = useMutation({
+    mutationFn: async (projectId: string) => {
+      const { error } = await supabase
+        .from('projects')
+        .delete()
+        .eq('id', projectId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      toast.success('Project deleted');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to delete project');
+    },
+  });
+
+  return { projects, isLoading, error, createProject, deleteProject };
 }
 
 export function useProject(id: string | undefined) {
