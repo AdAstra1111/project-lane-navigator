@@ -14,6 +14,57 @@ export type Database = {
   }
   public: {
     Tables: {
+      cast_trends: {
+        Row: {
+          actor_name: string
+          age_band: string
+          archived_at: string | null
+          created_at: string
+          cycle_phase: string
+          explanation: string
+          first_detected_at: string
+          genre_relevance: string[]
+          id: string
+          last_updated_at: string
+          market_alignment: string
+          region: string
+          status: string
+          trend_type: string
+        }
+        Insert: {
+          actor_name: string
+          age_band?: string
+          archived_at?: string | null
+          created_at?: string
+          cycle_phase?: string
+          explanation: string
+          first_detected_at?: string
+          genre_relevance?: string[]
+          id?: string
+          last_updated_at?: string
+          market_alignment?: string
+          region?: string
+          status?: string
+          trend_type?: string
+        }
+        Update: {
+          actor_name?: string
+          age_band?: string
+          archived_at?: string | null
+          created_at?: string
+          cycle_phase?: string
+          explanation?: string
+          first_detected_at?: string
+          genre_relevance?: string[]
+          id?: string
+          last_updated_at?: string
+          market_alignment?: string
+          region?: string
+          status?: string
+          trend_type?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           created_at: string
@@ -156,11 +207,16 @@ export type Database = {
           cycle_phase: string
           explanation: string
           first_detected_at: string
+          format_tags: string[]
+          genre_tags: string[]
           id: string
+          lane_relevance: string[]
           last_updated_at: string
           name: string
+          region: string
           sources_count: number
           status: string
+          tone_tags: string[]
         }
         Insert: {
           archived_at?: string | null
@@ -169,11 +225,16 @@ export type Database = {
           cycle_phase: string
           explanation: string
           first_detected_at?: string
+          format_tags?: string[]
+          genre_tags?: string[]
           id?: string
+          lane_relevance?: string[]
           last_updated_at?: string
           name: string
+          region?: string
           sources_count?: number
           status?: string
+          tone_tags?: string[]
         }
         Update: {
           archived_at?: string | null
@@ -182,11 +243,16 @@ export type Database = {
           cycle_phase?: string
           explanation?: string
           first_detected_at?: string
+          format_tags?: string[]
+          genre_tags?: string[]
           id?: string
+          lane_relevance?: string[]
           last_updated_at?: string
           name?: string
+          region?: string
           sources_count?: number
           status?: string
+          tone_tags?: string[]
         }
         Relationships: []
       }
