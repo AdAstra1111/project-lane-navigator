@@ -71,6 +71,123 @@ export type Database = {
         }
         Relationships: []
       }
+      copro_frameworks: {
+        Row: {
+          confidence: string
+          created_at: string
+          cultural_requirements: string
+          eligible_countries: string[]
+          id: string
+          last_verified_at: string
+          max_share_pct: number | null
+          min_share_pct: number | null
+          name: string
+          notes: string
+          source_url: string
+          status: string
+          type: string
+          updated_at: string
+        }
+        Insert: {
+          confidence?: string
+          created_at?: string
+          cultural_requirements?: string
+          eligible_countries?: string[]
+          id?: string
+          last_verified_at?: string
+          max_share_pct?: number | null
+          min_share_pct?: number | null
+          name: string
+          notes?: string
+          source_url?: string
+          status?: string
+          type?: string
+          updated_at?: string
+        }
+        Update: {
+          confidence?: string
+          created_at?: string
+          cultural_requirements?: string
+          eligible_countries?: string[]
+          id?: string
+          last_verified_at?: string
+          max_share_pct?: number | null
+          min_share_pct?: number | null
+          name?: string
+          notes?: string
+          source_url?: string
+          status?: string
+          type?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      incentive_programs: {
+        Row: {
+          caps_limits: string
+          confidence: string
+          country_code: string
+          created_at: string
+          eligibility_summary: string
+          formats_supported: string[]
+          headline_rate: string
+          id: string
+          jurisdiction: string
+          last_verified_at: string
+          name: string
+          notes: string
+          payment_timing: string
+          qualifying_spend_rules: string
+          source_url: string
+          stackability: string
+          status: string
+          type: string
+          updated_at: string
+        }
+        Insert: {
+          caps_limits?: string
+          confidence?: string
+          country_code?: string
+          created_at?: string
+          eligibility_summary?: string
+          formats_supported?: string[]
+          headline_rate?: string
+          id?: string
+          jurisdiction: string
+          last_verified_at?: string
+          name: string
+          notes?: string
+          payment_timing?: string
+          qualifying_spend_rules?: string
+          source_url?: string
+          stackability?: string
+          status?: string
+          type?: string
+          updated_at?: string
+        }
+        Update: {
+          caps_limits?: string
+          confidence?: string
+          country_code?: string
+          created_at?: string
+          eligibility_summary?: string
+          formats_supported?: string[]
+          headline_rate?: string
+          id?: string
+          jurisdiction?: string
+          last_verified_at?: string
+          name?: string
+          notes?: string
+          payment_timing?: string
+          qualifying_spend_rules?: string
+          source_url?: string
+          stackability?: string
+          status?: string
+          type?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           created_at: string
@@ -94,6 +211,63 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      project_copro_scenarios: {
+        Row: {
+          contributions: string
+          copro_framework_id: string | null
+          created_at: string
+          eligibility_status: string
+          id: string
+          notes: string
+          project_id: string
+          proposed_splits: Json
+          risks: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          contributions?: string
+          copro_framework_id?: string | null
+          created_at?: string
+          eligibility_status?: string
+          id?: string
+          notes?: string
+          project_id: string
+          proposed_splits?: Json
+          risks?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          contributions?: string
+          copro_framework_id?: string | null
+          created_at?: string
+          eligibility_status?: string
+          id?: string
+          notes?: string
+          project_id?: string
+          proposed_splits?: Json
+          risks?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_copro_scenarios_copro_framework_id_fkey"
+            columns: ["copro_framework_id"]
+            isOneToOne: false
+            referencedRelation: "copro_frameworks"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_copro_scenarios_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       project_documents: {
         Row: {
@@ -138,6 +312,69 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "project_documents_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_incentive_scenarios: {
+        Row: {
+          blockers: string
+          confidence: string
+          created_at: string
+          estimated_benefit: string
+          estimated_qualifying_spend: string
+          id: string
+          incentive_program_id: string | null
+          jurisdiction: string
+          next_steps: string
+          notes: string
+          project_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          blockers?: string
+          confidence?: string
+          created_at?: string
+          estimated_benefit?: string
+          estimated_qualifying_spend?: string
+          id?: string
+          incentive_program_id?: string | null
+          jurisdiction?: string
+          next_steps?: string
+          notes?: string
+          project_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          blockers?: string
+          confidence?: string
+          created_at?: string
+          estimated_benefit?: string
+          estimated_qualifying_spend?: string
+          id?: string
+          incentive_program_id?: string | null
+          jurisdiction?: string
+          next_steps?: string
+          notes?: string
+          project_id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_incentive_scenarios_incentive_program_id_fkey"
+            columns: ["incentive_program_id"]
+            isOneToOne: false
+            referencedRelation: "incentive_programs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_incentive_scenarios_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"

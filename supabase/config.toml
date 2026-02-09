@@ -2,3 +2,6 @@ project_id = "mbwreoglhudppiwaxlsp"
 
 [functions.analyze-project]
 verify_jwt = false
+
+[functions.research-incentives]
+verify_jwt = false
