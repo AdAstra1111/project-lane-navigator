@@ -8,9 +8,9 @@ const corsHeaders = {
 };
 
 // ---- CONSTANTS ----
-const MAX_PAGES = 40;
+const MAX_PAGES = 300;          // read up to 300 pages (covers any screenplay or treatment)
 const WORDS_PER_PAGE = 250;
-const MAX_WORDS = MAX_PAGES * WORDS_PER_PAGE;
+const MAX_WORDS = MAX_PAGES * WORDS_PER_PAGE; // 75,000 words
 
 const VALID_LANES = [
   "studio-streamer", "independent-film", "low-budget",
@@ -73,7 +73,10 @@ async function extractFromPDF(data: ArrayBuffer): Promise<ExtractionResult> {
     // @ts-ignore - dynamic esm import
     const pdfjsLib = await import("https://esm.sh/pdfjs-dist@4.8.69/legacy/build/pdf.mjs");
 
-    const doc = await pdfjsLib.getDocument({ data: new Uint8Array(data) }).promise;
+    // Disable worker to avoid workerSrc error in Deno edge runtime
+    pdfjsLib.GlobalWorkerOptions.workerSrc = "";
+
+    const doc = await pdfjsLib.getDocument({ data: new Uint8Array(data), useWorkerFetch: false, isEvalSupported: false, useSystemFonts: true }).promise;
     const totalPages = doc.numPages;
     const pagesToRead = Math.min(totalPages, MAX_PAGES);
 
@@ -496,7 +499,7 @@ CRITICAL RULES:
 - If something is weak, say so clearly. If something is strong, say exactly why.
 - Every assessment must reference SPECIFIC evidence from the material.
 ${hasDocumentText ? "- Base your assessment PRIMARILY on the uploaded document content. The material itself determines the lane. Form inputs are secondary context only." : "- No documents were uploaded. Assess based on form inputs, but note limitations."}
-${partialRead ? `- NOTE: Only the first ~${partialRead.pages_analyzed} pages were provided (estimated ${partialRead.total_pages} total). State this in your structural read.` : ""}`;
+${partialRead ? `- NOTE: Only the first ~${partialRead.pages_analyzed} pages of an estimated ${partialRead.total_pages} total pages were provided. State this in your structural read.` : ""}`;
 
     const userMessage = `Classify this project.
 
