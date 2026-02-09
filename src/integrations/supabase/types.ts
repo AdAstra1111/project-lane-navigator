@@ -425,6 +425,56 @@ export type Database = {
           },
         ]
       }
+      project_hods: {
+        Row: {
+          created_at: string
+          department: string
+          id: string
+          known_for: string
+          notes: string
+          person_name: string
+          project_id: string
+          reputation_tier: string
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          department?: string
+          id?: string
+          known_for?: string
+          notes?: string
+          person_name?: string
+          project_id: string
+          reputation_tier?: string
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          department?: string
+          id?: string
+          known_for?: string
+          notes?: string
+          person_name?: string
+          project_id?: string
+          reputation_tier?: string
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_hods_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       project_incentive_scenarios: {
         Row: {
           blockers: string

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Users, Handshake, FileText, DollarSign, Plus, Trash2, X, Check } from 'lucide-react';
+import { Users, Handshake, FileText, DollarSign, Plus, Trash2, X, Check, Clapperboard } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,10 +11,12 @@ import {
   useProjectPartners,
   useProjectScripts,
   useProjectFinance,
+  useProjectHODs,
   type ProjectCastMember,
   type ProjectPartner,
   type ProjectScript,
   type ProjectFinanceScenario,
+  type ProjectHOD,
 } from '@/hooks/useProjectAttachments';
 
 // ---- Status badge styles ----
@@ -25,6 +27,7 @@ const STATUS_STYLES: Record<string, string> = {
   attached: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
   identified: 'bg-muted text-muted-foreground border-border',
   'in-discussion': 'bg-amber-500/15 text-amber-400 border-amber-500/30',
+  'in-talks': 'bg-amber-500/15 text-amber-400 border-amber-500/30',
   confirmed: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
   current: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
   archived: 'bg-muted text-muted-foreground border-border',
@@ -32,6 +35,30 @@ const STATUS_STYLES: Record<string, string> = {
   medium: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
   low: 'bg-red-500/15 text-red-400 border-red-500/30',
 };
+
+const REPUTATION_STYLES: Record<string, string> = {
+  emerging: 'bg-muted text-muted-foreground border-border',
+  established: 'bg-primary/15 text-primary border-primary/30',
+  acclaimed: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
+  marquee: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
+};
+
+const DEPARTMENTS = [
+  'Director',
+  'Director of Photography',
+  'Producer',
+  'Executive Producer',
+  'Line Producer',
+  'Editor',
+  'Composer',
+  'Production Designer',
+  'Costume Designer',
+  'VFX Supervisor',
+  'Sound Designer',
+  'Casting Director',
+  'Stunt Coordinator',
+  'Other',
+];
 
 // ---- Cast Tab ----
 function CastTab({ projectId }: { projectId: string }) {
@@ -290,6 +317,97 @@ function FinanceTab({ projectId }: { projectId: string }) {
   );
 }
 
+// ---- HODs Tab ----
+function HODsTab({ projectId }: { projectId: string }) {
+  const { hods, addHOD, deleteHOD, updateHOD } = useProjectHODs(projectId);
+  const [adding, setAdding] = useState(false);
+  const [form, setForm] = useState({ department: 'Director', person_name: '', known_for: '', reputation_tier: 'emerging' });
+
+  const handleAdd = () => {
+    if (!form.person_name.trim()) return;
+    addHOD.mutate(form);
+    setForm({ department: 'Director', person_name: '', known_for: '', reputation_tier: 'emerging' });
+    setAdding(false);
+  };
+
+  return (
+    <div className="space-y-3">
+      {hods.map(h => (
+        <div key={h.id} className="bg-muted/30 rounded-lg px-3 py-2.5 space-y-1.5">
+          <div className="flex items-center gap-3">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-foreground truncate">{h.person_name}</span>
+                <span className="text-[10px] text-muted-foreground bg-muted rounded px-1.5 py-0.5">{h.department}</span>
+                <Badge className={`text-[10px] px-1.5 py-0 border ${REPUTATION_STYLES[h.reputation_tier] || ''}`}>
+                  {h.reputation_tier}
+                </Badge>
+              </div>
+              {h.known_for && <p className="text-xs text-muted-foreground mt-0.5 truncate">{h.known_for}</p>}
+            </div>
+            <Select value={h.status} onValueChange={v => updateHOD.mutate({ id: h.id, status: v })}>
+              <SelectTrigger className="w-28 h-7 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="wishlist">Wishlist</SelectItem>
+                <SelectItem value="in-talks">In Talks</SelectItem>
+                <SelectItem value="attached">Attached</SelectItem>
+                <SelectItem value="confirmed">Confirmed</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => deleteHOD.mutate(h.id)}>
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </div>
+      ))}
+
+      {adding ? (
+        <div className="space-y-2 bg-muted/20 rounded-lg px-3 py-2">
+          <div className="flex items-center gap-2">
+            <Select value={form.department} onValueChange={v => setForm(f => ({ ...f, department: v }))}>
+              <SelectTrigger className="w-44 h-8 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {DEPARTMENTS.map(d => (
+                  <SelectItem key={d} value={d}>{d}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Input placeholder="Name" value={form.person_name} onChange={e => setForm(f => ({ ...f, person_name: e.target.value }))} className="h-8 text-sm flex-1" />
+          </div>
+          <div className="flex items-center gap-2">
+            <Input placeholder="Known for (e.g. Dune, The Bear)" value={form.known_for} onChange={e => setForm(f => ({ ...f, known_for: e.target.value }))} className="h-8 text-sm flex-1" />
+            <Select value={form.reputation_tier} onValueChange={v => setForm(f => ({ ...f, reputation_tier: v }))}>
+              <SelectTrigger className="w-32 h-8 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="emerging">Emerging</SelectItem>
+                <SelectItem value="established">Established</SelectItem>
+                <SelectItem value="acclaimed">Acclaimed</SelectItem>
+                <SelectItem value="marquee">Marquee</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button size="icon" className="h-7 w-7" onClick={handleAdd} disabled={!form.person_name.trim()}>
+              <Check className="h-3.5 w-3.5" />
+            </Button>
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setAdding(false)}>
+              <X className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <Button variant="outline" size="sm" onClick={() => setAdding(true)} className="w-full">
+          <Plus className="h-3.5 w-3.5 mr-1.5" /> Add Head of Department
+        </Button>
+      )}
+    </div>
+  );
+}
+
 // ---- Main Component ----
 interface Props {
   projectId: string;
@@ -303,9 +421,12 @@ export function ProjectAttachmentTabs({ projectId }: Props) {
       transition={{ delay: 0.2, duration: 0.3 }}
     >
       <Tabs defaultValue="cast" className="space-y-4">
-        <TabsList className="bg-muted/50 w-full grid grid-cols-4">
+        <TabsList className="bg-muted/50 w-full grid grid-cols-5">
           <TabsTrigger value="cast" className="gap-1.5 text-xs">
             <Users className="h-3.5 w-3.5" /> Cast
+          </TabsTrigger>
+          <TabsTrigger value="hods" className="gap-1.5 text-xs">
+            <Clapperboard className="h-3.5 w-3.5" /> HODs
           </TabsTrigger>
           <TabsTrigger value="partners" className="gap-1.5 text-xs">
             <Handshake className="h-3.5 w-3.5" /> Partners
@@ -320,6 +441,9 @@ export function ProjectAttachmentTabs({ projectId }: Props) {
 
         <TabsContent value="cast">
           <CastTab projectId={projectId} />
+        </TabsContent>
+        <TabsContent value="hods">
+          <HODsTab projectId={projectId} />
         </TabsContent>
         <TabsContent value="partners">
           <PartnersTab projectId={projectId} />
