@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Film, Tv, Target, Palette, DollarSign, Users, Quote, CheckCircle2, ShieldAlert, Trash2, Loader2 } from 'lucide-react';
+import { ArrowLeft, Film, Tv, Target, Palette, DollarSign, Users, Quote, CheckCircle2, ShieldAlert, Trash2, Loader2, AlertTriangle, MessageSquareQuote } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   AlertDialog,
@@ -251,6 +251,24 @@ export default function ProjectDetail() {
             </AlertDialog>
           </div>
 
+          {/* IFFY Verdict */}
+          {hasNewAnalysis && analysis?.verdict && (
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.1, duration: 0.3 }}
+              className="glass-card rounded-xl p-6 border-l-4 border-primary"
+            >
+              <div className="flex items-start gap-3">
+                <MessageSquareQuote className="h-5 w-5 text-primary shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">IFFY Verdict</p>
+                  <p className="text-lg font-display font-semibold text-foreground">{analysis.verdict}</p>
+                </div>
+              </div>
+            </motion.div>
+          )}
+
           {/* Lane + Confidence */}
           {project.assigned_lane && (
             <div className="glass-card rounded-xl p-6">
@@ -290,6 +308,23 @@ export default function ProjectDetail() {
           {/* DO / AVOID (new format) */}
           {hasNewAnalysis && analysis?.do_next && analysis?.avoid && (
             <DoAvoidSection doNext={analysis.do_next} avoid={analysis.avoid} />
+          )}
+          {/* Lane NOT suitable for */}
+          {hasNewAnalysis && analysis?.lane_not_suitable && (
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.7, duration: 0.3 }}
+              className="glass-card rounded-xl p-5"
+            >
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Lane Not Suitable For</p>
+                  <p className="text-sm text-foreground leading-relaxed">{analysis.lane_not_suitable}</p>
+                </div>
+              </div>
+            </motion.div>
           )}
 
           {/* Legacy Recommendations (old format) */}

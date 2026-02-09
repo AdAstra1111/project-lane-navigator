@@ -80,11 +80,13 @@ export function useProjects() {
       // 3. Build analysis_passes for storage
       const analysisPasses = analysis
         ? {
+            verdict: analysis.verdict || null,
             structural_read: analysis.structural_read,
             creative_signal: analysis.creative_signal,
             market_reality: analysis.market_reality,
             do_next: analysis.do_next,
             avoid: analysis.avoid,
+            lane_not_suitable: analysis.lane_not_suitable || null,
             partial_read: analysis.partial_read || null,
           }
         : null;
