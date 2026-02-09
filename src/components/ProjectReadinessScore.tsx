@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion';
 import { Gauge, ArrowRight, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { InfoTooltip } from '@/components/InfoTooltip';
 import type { ReadinessResult } from '@/lib/readiness-score';
 
 const STAGE_STYLES: Record<string, string> = {
@@ -75,6 +76,7 @@ export function ProjectReadinessScore({ readiness }: Props) {
       <div className="flex items-center gap-2">
         <Gauge className="h-4 w-4 text-primary" />
         <h3 className="font-display font-semibold text-foreground text-xl">Readiness Score</h3>
+        <InfoTooltip text="This reflects packaging, finance fit, and market timing — not taste. It measures how prepared your project is for financing conversations." />
       </div>
 
       <div className="flex items-center gap-6">
@@ -114,6 +116,7 @@ export function ProjectReadinessScore({ readiness }: Props) {
       <div className="flex items-center gap-2 bg-primary/10 rounded-lg px-3 py-2.5">
         <ArrowRight className="h-3.5 w-3.5 text-primary shrink-0" />
         <p className="text-xs text-foreground font-medium">{readiness.bestNextStep}</p>
+        <InfoTooltip text="This is the fastest way to improve your finance readiness right now." className="ml-auto" />
       </div>
     </motion.div>
   );

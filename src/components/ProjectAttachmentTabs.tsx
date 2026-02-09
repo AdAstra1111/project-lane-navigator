@@ -119,9 +119,14 @@ function CastTab({ projectId }: { projectId: string }) {
           </Button>
         </div>
       ) : (
-        <Button variant="outline" size="sm" onClick={() => setAdding(true)} className="w-full">
-          <Plus className="h-3.5 w-3.5 mr-1.5" /> Add Cast
-        </Button>
+        <div className="space-y-2">
+          {cast.length === 0 && (
+            <p className="text-xs text-muted-foreground text-center py-2">Cast attachments affect foreign value and finance pathways.</p>
+          )}
+          <Button variant="outline" size="sm" onClick={() => setAdding(true)} className="w-full">
+            <Plus className="h-3.5 w-3.5 mr-1.5" /> Add Cast
+          </Button>
+        </div>
       )}
     </div>
   );
@@ -192,9 +197,14 @@ function PartnersTab({ projectId }: { projectId: string }) {
           </Button>
         </div>
       ) : (
-        <Button variant="outline" size="sm" onClick={() => setAdding(true)} className="w-full">
-          <Plus className="h-3.5 w-3.5 mr-1.5" /> Add Partner
-        </Button>
+        <div className="space-y-2">
+          {partners.length === 0 && (
+            <p className="text-xs text-muted-foreground text-center py-2">Sales agents and co-producers unlock pre-sales and territory value.</p>
+          )}
+          <Button variant="outline" size="sm" onClick={() => setAdding(true)} className="w-full">
+            <Plus className="h-3.5 w-3.5 mr-1.5" /> Add Partner
+          </Button>
+        </div>
       )}
     </div>
   );
@@ -309,9 +319,14 @@ function FinanceTab({ projectId }: { projectId: string }) {
           </Button>
         </div>
       ) : (
-        <Button variant="outline" size="sm" onClick={() => setAdding(true)} className="w-full">
-          <Plus className="h-3.5 w-3.5 mr-1.5" /> Add Finance Scenario
-        </Button>
+        <div className="space-y-2">
+          {scenarios.length === 0 && (
+            <p className="text-xs text-muted-foreground text-center py-2">Model your capital stack to identify financing gaps early.</p>
+          )}
+          <Button variant="outline" size="sm" onClick={() => setAdding(true)} className="w-full">
+            <Plus className="h-3.5 w-3.5 mr-1.5" /> Add Finance Scenario
+          </Button>
+        </div>
       )}
     </div>
   );
@@ -400,9 +415,14 @@ function HODsTab({ projectId }: { projectId: string }) {
           </div>
         </div>
       ) : (
-        <Button variant="outline" size="sm" onClick={() => setAdding(true)} className="w-full">
-          <Plus className="h-3.5 w-3.5 mr-1.5" /> Add Head of Department
-        </Button>
+        <div className="space-y-2">
+          {hods.length === 0 && (
+            <p className="text-xs text-muted-foreground text-center py-2">A director or key HOD attachment significantly strengthens your package.</p>
+          )}
+          <Button variant="outline" size="sm" onClick={() => setAdding(true)} className="w-full">
+            <Plus className="h-3.5 w-3.5 mr-1.5" /> Add Head of Department
+          </Button>
+        </div>
       )}
     </div>
   );

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Landmark, BadgeDollarSign, Handshake, Loader2, ArrowRight, AlertTriangle, Clock } from 'lucide-react';
+import { InfoTooltip } from '@/components/InfoTooltip';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
@@ -73,6 +74,7 @@ export function ProjectIncentivePanel({ format, budget_range, genres }: Props) {
       <div className="flex items-center gap-2 mb-1">
         <Landmark className="h-4 w-4 text-primary" />
         <h3 className="font-display font-semibold text-foreground text-xl">Incentives & Co-Production</h3>
+        <InfoTooltip text="These opportunities update as project conditions change. Always verify with local counsel before relying on them." />
       </div>
 
       {!insights && !isLoading && (
