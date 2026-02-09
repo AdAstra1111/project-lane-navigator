@@ -1,5 +1,5 @@
 import { Link, useNavigate } from 'react-router-dom';
-import { LogOut, Plus, Radio } from 'lucide-react';
+import { LogOut, Plus, Radio, Landmark } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -30,6 +30,15 @@ export function Header() {
           >
             <Radio className="h-4 w-4 mr-1" />
             Trends
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => navigate('/incentives')}
+            className="text-muted-foreground hover:text-foreground"
+          >
+            <Landmark className="h-4 w-4 mr-1" />
+            Incentives
           </Button>
           <Button
             variant="outline"
