@@ -498,6 +498,7 @@ CRITICAL RULES:
 - Speak like an experienced producer who's read 10,000 scripts.
 - If something is weak, say so clearly. If something is strong, say exactly why.
 - Every assessment must reference SPECIFIC evidence from the material.
+- When documents are present, ALWAYS quote or reference specific short snippets from the uploaded text in your reasoning and analysis passes. Ground every observation in concrete evidence from the page so the feedback feels credible and actionable — e.g. cite a line of dialogue, a scene description, a character beat, or a structural choice.
 ${hasDocumentText ? "- Base your assessment PRIMARILY on the uploaded document content. The material itself determines the lane. Form inputs are secondary context only." : "- No documents were uploaded. Assess based on form inputs, but note limitations."}
 ${partialRead ? `- NOTE: Only the first ~${partialRead.pages_analyzed} pages of an estimated ${partialRead.total_pages} total pages were provided. State this in your structural read.` : ""}`;
 
