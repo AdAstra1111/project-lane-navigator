@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Film, Tv, Target, Palette, DollarSign, Users, Quote, CheckCircle2, ShieldAlert, Trash2, Loader2, AlertTriangle, MessageSquareQuote, Radio, FileText } from 'lucide-react';
+import { ArrowLeft, Film, Tv, Target, Palette, DollarSign, Users, Quote, CheckCircle2, ShieldAlert, Trash2, Loader2, AlertTriangle, MessageSquareQuote, FileText } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import {
@@ -28,7 +28,8 @@ import { ProjectTimeline } from '@/components/ProjectTimeline';
 import { useProject, useProjectDocuments } from '@/hooks/useProjects';
 import { useProjects } from '@/hooks/useProjects';
 import { useAddDocuments } from '@/hooks/useAddDocuments';
-import { useSignalCount, useActiveCastTrends } from '@/hooks/useTrends';
+import { useActiveCastTrends } from '@/hooks/useTrends';
+import { ProjectRelevantSignals } from '@/components/ProjectRelevantSignals';
 import { useProjectCast, useProjectPartners, useProjectScripts, useProjectFinance } from '@/hooks/useProjectAttachments';
 import { generateProjectInsights } from '@/lib/project-insights';
 import { calculateReadiness } from '@/lib/readiness-score';
@@ -140,7 +141,7 @@ export default function ProjectDetail() {
   const { documents } = useProjectDocuments(id);
   const { deleteProject } = useProjects();
   const addDocuments = useAddDocuments(id);
-  const { data: signalCount = 0 } = useSignalCount();
+  
   const { data: castTrends = [] } = useActiveCastTrends();
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [incentiveAnalysed, setIncentiveAnalysed] = useState(false);
@@ -318,17 +319,8 @@ export default function ProjectDetail() {
             );
           })()}
 
-          {/* Relevant Signals Bridge */}
-          {signalCount > 0 && (
-            <Link
-              to="/trends"
-              className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-primary transition-colors glass-card rounded-lg px-4 py-2.5"
-            >
-              <Radio className="h-4 w-4 text-primary" />
-              <span>Relevant Signals: <strong className="text-foreground">{signalCount}</strong></span>
-              <span className="text-xs">→</span>
-            </Link>
-          )}
+          {/* Relevant Signals — matched to this project */}
+          {project && <ProjectRelevantSignals project={project} />}
 
           {/* IFFY Verdict */}
           {hasNewAnalysis && analysis?.verdict && (
