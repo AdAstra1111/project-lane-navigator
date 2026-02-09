@@ -13,6 +13,7 @@ import Trends from "./pages/Trends";
 import StoryTrends from "./pages/StoryTrends";
 import CastTrends from "./pages/CastTrends";
 import IncentiveFinder from "./pages/IncentiveFinder";
+import CoproPlanner from "./pages/CoproPlanner";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -33,6 +34,7 @@ const App = () => (
           <Route path="/trends/story" element={<ProtectedRoute><StoryTrends /></ProtectedRoute>} />
           <Route path="/trends/cast" element={<ProtectedRoute><CastTrends /></ProtectedRoute>} />
           <Route path="/incentives" element={<ProtectedRoute><IncentiveFinder /></ProtectedRoute>} />
+          <Route path="/incentives/copro" element={<ProtectedRoute><CoproPlanner /></ProtectedRoute>} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
