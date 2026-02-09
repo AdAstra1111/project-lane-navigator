@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Search, Landmark, BadgeDollarSign, Clock, Shield, ExternalLink, Loader2, Info } from 'lucide-react';
 import { Header } from '@/components/Header';
+import { IncentiveNav } from '@/components/IncentiveNav';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -191,6 +192,8 @@ export default function IncentiveFinder() {
           transition={{ duration: 0.3 }}
           className="space-y-8"
         >
+          <IncentiveNav />
+
           {/* Page Header */}
           <div>
             <div className="flex items-center gap-2 mb-2">
