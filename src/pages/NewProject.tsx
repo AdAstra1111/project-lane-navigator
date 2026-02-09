@@ -12,6 +12,7 @@ import { useProjects } from '@/hooks/useProjects';
 import { ProjectFormat, ProjectInput } from '@/lib/types';
 import { GENRES, BUDGET_RANGES, TARGET_AUDIENCES, TONES, FORMAT_OPTIONS } from '@/lib/constants';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
 
 const STEPS = ['Basics', 'Material', 'Creative', 'Commercial'];
 
@@ -53,7 +54,21 @@ export default function NewProject() {
     try {
       const result = await createProject.mutateAsync({ input: form, files });
       navigate(`/projects/${result.id}`);
-    } catch (err) {
+    } catch (err: any) {
+      const message = err?.message || 'Failed to create project';
+      if (message.includes('credits exhausted')) {
+        toast.error('AI credits exhausted', {
+          description: 'Please add more credits to your Lovable account to continue analysing projects.',
+        });
+      } else if (message.includes('Rate limit')) {
+        toast.error('Too many requests', {
+          description: 'Please wait a moment and try again.',
+        });
+      } else {
+        toast.error('Analysis failed', {
+          description: message,
+        });
+      }
       console.error('Failed to create project:', err);
     }
   };
