@@ -148,6 +148,69 @@ export type Database = {
         }
         Relationships: []
       }
+      trend_signals: {
+        Row: {
+          archived_at: string | null
+          category: string
+          created_at: string
+          cycle_phase: string
+          explanation: string
+          first_detected_at: string
+          id: string
+          last_updated_at: string
+          name: string
+          sources_count: number
+          status: string
+        }
+        Insert: {
+          archived_at?: string | null
+          category: string
+          created_at?: string
+          cycle_phase: string
+          explanation: string
+          first_detected_at?: string
+          id?: string
+          last_updated_at?: string
+          name: string
+          sources_count?: number
+          status?: string
+        }
+        Update: {
+          archived_at?: string | null
+          category?: string
+          created_at?: string
+          cycle_phase?: string
+          explanation?: string
+          first_detected_at?: string
+          id?: string
+          last_updated_at?: string
+          name?: string
+          sources_count?: number
+          status?: string
+        }
+        Relationships: []
+      }
+      trend_weekly_briefs: {
+        Row: {
+          created_at: string
+          id: string
+          summary: string
+          week_start: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          summary: string
+          week_start: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          summary?: string
+          week_start?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

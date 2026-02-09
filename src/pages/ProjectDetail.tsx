@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Film, Tv, Target, Palette, DollarSign, Users, Quote, CheckCircle2, ShieldAlert, Trash2, Loader2, AlertTriangle, MessageSquareQuote } from 'lucide-react';
+import { ArrowLeft, Film, Tv, Target, Palette, DollarSign, Users, Quote, CheckCircle2, ShieldAlert, Trash2, Loader2, AlertTriangle, MessageSquareQuote, Radio } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   AlertDialog,
@@ -22,6 +22,7 @@ import { AddDocumentsUpload } from '@/components/AddDocumentsUpload';
 import { useProject, useProjectDocuments } from '@/hooks/useProjects';
 import { useProjects } from '@/hooks/useProjects';
 import { useAddDocuments } from '@/hooks/useAddDocuments';
+import { useSignalCount } from '@/hooks/useTrends';
 import { MonetisationLane, Recommendation, FullAnalysis } from '@/lib/types';
 import { BUDGET_RANGES, TARGET_AUDIENCES, TONES } from '@/lib/constants';
 
@@ -128,6 +129,7 @@ export default function ProjectDetail() {
   const { documents } = useProjectDocuments(id);
   const { deleteProject } = useProjects();
   const addDocuments = useAddDocuments(id);
+  const { data: signalCount = 0 } = useSignalCount();
   const [deleteOpen, setDeleteOpen] = useState(false);
 
   const handleDelete = async () => {
@@ -250,6 +252,18 @@ export default function ProjectDetail() {
               </AlertDialogContent>
             </AlertDialog>
           </div>
+
+          {/* Relevant Signals Bridge */}
+          {signalCount > 0 && (
+            <Link
+              to="/trends"
+              className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-primary transition-colors glass-card rounded-lg px-4 py-2.5"
+            >
+              <Radio className="h-4 w-4 text-primary" />
+              <span>Relevant Signals: <strong className="text-foreground">{signalCount}</strong></span>
+              <span className="text-xs">→</span>
+            </Link>
+          )}
 
           {/* IFFY Verdict */}
           {hasNewAnalysis && analysis?.verdict && (

@@ -1,5 +1,5 @@
 import { Link, useNavigate } from 'react-router-dom';
-import { LogOut, Plus } from 'lucide-react';
+import { LogOut, Plus, Radio } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -22,6 +22,15 @@ export function Header() {
           <span className="font-display font-semibold text-lg tracking-tight text-foreground">IFFY</span>
         </Link>
         <div className="flex items-center gap-3">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => navigate('/trends')}
+            className="text-muted-foreground hover:text-foreground"
+          >
+            <Radio className="h-4 w-4 mr-1" />
+            Trends
+          </Button>
           <Button
             variant="outline"
             size="sm"
