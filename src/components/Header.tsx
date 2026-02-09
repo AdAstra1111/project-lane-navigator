@@ -1,6 +1,12 @@
 import { Link, useNavigate } from 'react-router-dom';
-import { LogOut, Plus, Radio, Landmark } from 'lucide-react';
+import { LogOut, Plus, Radio, Landmark, HelpCircle, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { useAuth } from '@/hooks/useAuth';
 
 export function Header() {
@@ -40,6 +46,26 @@ export function Header() {
             <Landmark className="h-4 w-4 mr-1" />
             Incentives
           </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground">
+                <HelpCircle className="h-4 w-4 mr-1" />
+                Help
+                <ChevronDown className="h-3 w-3 ml-0.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuItem onClick={() => navigate('/about')}>
+                About IFFY
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => navigate('/how-it-works')}>
+                How It Works
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => navigate('/faq')}>
+                FAQ
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Button
             variant="outline"
             size="sm"

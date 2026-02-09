@@ -4,6 +4,7 @@ import { Plus, Clapperboard } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Header } from '@/components/Header';
 import { ProjectCard } from '@/components/ProjectCard';
+import { OnboardingOverlay } from '@/components/OnboardingOverlay';
 import { useProjects } from '@/hooks/useProjects';
 
 export default function Dashboard() {
@@ -12,6 +13,7 @@ export default function Dashboard() {
   return (
     <div className="min-h-screen bg-background">
       <Header />
+      <OnboardingOverlay />
       <main className="container py-10">
         <motion.div
           initial={{ opacity: 0, y: 12 }}
@@ -52,10 +54,10 @@ export default function Dashboard() {
                 <Clapperboard className="h-8 w-8 text-muted-foreground" />
               </div>
               <h2 className="text-xl font-display font-semibold text-foreground mb-2">
-                No projects yet
+                Start by adding a project
               </h2>
               <p className="text-muted-foreground mb-6 max-w-sm">
-                Create your first project and IFFY will classify it into the right monetisation lane.
+                IFFY will guide you one decision at a time. Attach a script, add cast, and build towards finance-ready.
               </p>
               <Link to="/projects/new">
                 <Button className="bg-primary text-primary-foreground hover:bg-primary/90">
