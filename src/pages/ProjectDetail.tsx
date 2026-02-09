@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { ArrowLeft, Film, Tv, Target, Palette, DollarSign, Users, Quote, CheckCircle2, ShieldAlert, Trash2, Loader2, AlertTriangle, MessageSquareQuote, FileText } from 'lucide-react';
+import { ProjectNoteInput } from '@/components/ProjectNoteInput';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import {
@@ -356,6 +357,9 @@ export default function ProjectDetail() {
 
           {/* Attachment Tabs: Cast, Partners, Scripts, Finance */}
           {id && <ProjectAttachmentTabs projectId={id} />}
+
+          {/* Project Notes with Impact Analysis */}
+          {id && <ProjectNoteInput projectId={id} />}
 
           {/* Rationale */}
           {project.reasoning && (
