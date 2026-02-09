@@ -1,7 +1,10 @@
 import { useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Upload, X, FileText, File, AlertCircle } from 'lucide-react';
+import { Upload, X, FileText, File, AlertCircle, ScrollText } from 'lucide-react';
 import { cn } from '@/lib/utils';
+
+const SCRIPT_EXTENSIONS = ['.pdf', '.fdx', '.fountain', '.docx', '.doc', '.txt'];
+const SCRIPT_NAME_PATTERNS = /script|screenplay|draft|teleplay/i;
 
 const ACCEPTED_TYPES = [
   'application/pdf',
@@ -87,10 +90,15 @@ export function FileUpload({ files, onFilesChange }: FileUploadProps) {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
+  const isScriptFile = (name: string) => {
+    const ext = '.' + name.split('.').pop()?.toLowerCase();
+    return (ext === '.fdx' || ext === '.fountain') || SCRIPT_NAME_PATTERNS.test(name);
+  };
+
   const getFileIcon = (name: string) => {
+    if (isScriptFile(name)) return <ScrollText className="h-4 w-4 text-primary" />;
     const ext = name.split('.').pop()?.toLowerCase();
     if (ext === 'pdf') return <FileText className="h-4 w-4 text-red-400" />;
-    if (ext === 'fdx' || ext === 'fountain') return <FileText className="h-4 w-4 text-blue-400" />;
     return <File className="h-4 w-4 text-muted-foreground" />;
   };
 
@@ -170,7 +178,12 @@ export function FileUpload({ files, onFilesChange }: FileUploadProps) {
             {getFileIcon(file.name)}
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-foreground truncate">{file.name}</p>
-              <p className="text-xs text-muted-foreground">{formatSize(file.size)}</p>
+              <div className="flex items-center gap-2">
+                <p className="text-xs text-muted-foreground">{formatSize(file.size)}</p>
+                {isScriptFile(file.name) && (
+                  <span className="text-xs text-primary font-medium">Script detected</span>
+                )}
+              </div>
             </div>
             <button
               type="button"
