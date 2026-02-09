@@ -20,6 +20,7 @@ import { AnalysisPassesDisplay } from '@/components/AnalysisPassesDisplay';
 import { DocumentsList } from '@/components/DocumentsList';
 import { AddDocumentsUpload } from '@/components/AddDocumentsUpload';
 import { ProjectInsightPanel } from '@/components/ProjectInsightPanel';
+import { ProjectIncentivePanel } from '@/components/ProjectIncentivePanel';
 import { useProject, useProjectDocuments } from '@/hooks/useProjects';
 import { useProjects } from '@/hooks/useProjects';
 import { useAddDocuments } from '@/hooks/useAddDocuments';
@@ -353,6 +354,15 @@ export default function ProjectDetail() {
 
           {/* Intelligence Panel */}
           {insights && <ProjectInsightPanel insights={insights} />}
+
+          {/* Incentives & Co-Production Panel */}
+          {project && (
+            <ProjectIncentivePanel
+              format={project.format}
+              budget_range={project.budget_range}
+              genres={project.genres || []}
+            />
+          )}
 
           {/* Legacy Recommendations (old format) */}
           {!hasNewAnalysis && legacyRecs.length > 0 && (
