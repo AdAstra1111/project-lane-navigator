@@ -39,9 +39,6 @@ export function DocumentsList({ documents }: DocumentsListProps) {
 
   return (
     <div>
-      <h3 className="font-display font-semibold text-foreground text-xl mb-4">
-        Uploaded Documents
-      </h3>
       <div className="space-y-2">
         {documents.map((doc, index) => (
           <motion.div
