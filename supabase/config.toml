@@ -11,3 +11,6 @@ verify_jwt = false
 
 [functions.project-incentive-insights]
 verify_jwt = false
+
+[functions.refresh-trends]
+verify_jwt = false
