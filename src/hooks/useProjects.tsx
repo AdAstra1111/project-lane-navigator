@@ -28,7 +28,11 @@ async function analyzeWithAI(
 
   if (error) {
     console.error('AI analysis error:', error);
-    throw new Error(error.message || 'AI analysis failed');
+    // Check if the response data contains a specific error message
+    const errorMessage = typeof data === 'object' && data?.error
+      ? data.error
+      : error.message || 'AI analysis failed';
+    throw new Error(errorMessage);
   }
   if (data?.error) {
     throw new Error(data.error);
