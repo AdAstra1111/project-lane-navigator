@@ -10,6 +10,8 @@ import Dashboard from "./pages/Dashboard";
 import NewProject from "./pages/NewProject";
 import ProjectDetail from "./pages/ProjectDetail";
 import Trends from "./pages/Trends";
+import StoryTrends from "./pages/StoryTrends";
+import CastTrends from "./pages/CastTrends";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -27,6 +29,8 @@ const App = () => (
           <Route path="/projects/new" element={<ProtectedRoute><NewProject /></ProtectedRoute>} />
           <Route path="/projects/:id" element={<ProtectedRoute><ProjectDetail /></ProtectedRoute>} />
           <Route path="/trends" element={<ProtectedRoute><Trends /></ProtectedRoute>} />
+          <Route path="/trends/story" element={<ProtectedRoute><StoryTrends /></ProtectedRoute>} />
+          <Route path="/trends/cast" element={<ProtectedRoute><CastTrends /></ProtectedRoute>} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
