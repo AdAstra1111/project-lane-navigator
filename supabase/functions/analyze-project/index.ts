@@ -272,13 +272,18 @@ const ANALYSIS_TOOLS = [
     function: {
       name: "classify_project",
       description:
-        "Classify a film/TV project into exactly one monetisation lane with structured 4-pass analysis. Be direct, practical, and specific like an experienced development executive. No generic encouragement.",
+        "Classify a film/TV project into exactly one monetisation lane with the mandatory 5-step IFFY analysis process. Write like an experienced producer — direct, practical, slightly opinionated. No generic encouragement or vague praise.",
       parameters: {
         type: "object",
         properties: {
+          verdict: {
+            type: "string",
+            description:
+              "IFFY Verdict: One decisive sentence summarising the project's status. Examples: 'Worth pursuing with revisions', 'Strong concept, weak execution', 'Market-misaligned in current form'. No hedging.",
+          },
           structural_read: {
             type: "object",
-            description: "Pass 1: Structural analysis based on the actual material",
+            description: "Step 2: Structural analysis. Assess format clarity, protagonist + goal clarity (0–2), act progression / structure (0–2), narrative momentum (0–2). Reference concrete evidence.",
             properties: {
               format_detected: {
                 type: "string",
@@ -286,15 +291,15 @@ const ANALYSIS_TOOLS = [
               },
               genre_as_written: {
                 type: "string",
-                description: "The genre as evidenced by the writing itself, not what the creator claims",
+                description: "The genre as evidenced by the writing itself, not what the creator claims. Include short quoted evidence.",
               },
               protagonist_goal_clarity: {
                 type: "string",
-                description: "Direct assessment of protagonist definition and goal clarity. Be specific.",
+                description: "Direct assessment of protagonist definition and goal clarity. Include specific evidence from the material.",
               },
               structure_clarity: {
                 type: "string",
-                description: "Assessment of narrative structure — acts, turning points, pacing. Cite specifics.",
+                description: "Assessment of narrative structure — acts, turning points, pacing. Cite specific moments.",
               },
             },
             required: ["format_detected", "genre_as_written", "protagonist_goal_clarity", "structure_clarity"],
@@ -302,23 +307,23 @@ const ANALYSIS_TOOLS = [
           },
           creative_signal: {
             type: "object",
-            description: "Pass 2: Creative quality and distinctiveness",
+            description: "Step 3: Creative quality. Evaluate originality of premise, tonal consistency, emotional engine, standout elements. Anchor to specific aspects, not abstractions.",
             properties: {
               originality: {
                 type: "string",
-                description: "How fresh or derivative the concept and execution are. Reference specific elements.",
+                description: "How fresh or derivative the concept and execution are. Reference specific elements with short evidence.",
               },
               tone_consistency: {
                 type: "string",
-                description: "Whether the tone is controlled and consistent throughout the material",
+                description: "Whether the tone is controlled and consistent. Cite moments where it works or breaks.",
               },
               emotional_engine: {
                 type: "string",
-                description: "What drives emotional engagement — character, situation, theme, or spectacle",
+                description: "What drives emotional engagement — character, situation, theme, or spectacle. Be specific.",
               },
               standout_elements: {
                 type: "string",
-                description: "What people will actually remember — specific scenes, lines, images, or ideas",
+                description: "What people will actually remember — specific scenes, lines, images, or ideas.",
               },
             },
             required: ["originality", "tone_consistency", "emotional_engine", "standout_elements"],
@@ -326,23 +331,23 @@ const ANALYSIS_TOOLS = [
           },
           market_reality: {
             type: "object",
-            description: "Pass 3: Commercial viability and market positioning",
+            description: "Step 4: Commercial viability. Assess based on execution, not aspirations.",
             properties: {
               likely_audience: {
                 type: "string",
-                description: "Who will actually watch this based on the execution, not aspirations",
+                description: "Who will actually watch this based on the execution, not aspirations.",
               },
               comparable_titles: {
                 type: "string",
-                description: "Real comparable films/shows based on the actual writing, not aspirational comps",
+                description: "Real comparable films/shows based on the actual writing, not aspirational comps the creator wishes for.",
               },
               budget_implications: {
                 type: "string",
-                description: "What the writing/visual ambition implies about minimum viable budget",
+                description: "What the writing/visual ambition implies about minimum viable budget.",
               },
               commercial_risks: {
                 type: "string",
-                description: "Key risks that could make this hard to finance, sell, or distribute",
+                description: "Key risks that could make this hard to finance, sell, or distribute.",
               },
             },
             required: ["likely_audience", "comparable_titles", "budget_implications", "commercial_risks"],
@@ -351,11 +356,11 @@ const ANALYSIS_TOOLS = [
           lane: {
             type: "string",
             enum: VALID_LANES,
-            description: "Exactly one primary monetisation lane. No ties.",
+            description: "Step 1 (determined first): Exactly one Primary Monetisation Lane. This is LOCKED — all subsequent analysis supports or stress-tests this lane.",
           },
           confidence: {
             type: "number",
-            description: "Confidence score from 0 to 1 for the lane assignment",
+            description: "Confidence score from 0 to 1 for the lane assignment.",
           },
           rationale: {
             type: "string",
@@ -365,15 +370,21 @@ const ANALYSIS_TOOLS = [
           do_next: {
             type: "array",
             items: { type: "string" },
-            description: "Exactly 3 specific, actionable next steps. Each should be a concrete action, not vague advice.",
+            description: "Exactly 3 specific, actionable next steps. Concrete actions, not vague advice.",
           },
           avoid: {
             type: "array",
             items: { type: "string" },
-            description: "Exactly 3 specific things to avoid. Each should be a concrete warning, not generic caution.",
+            description: "Exactly 3 specific things to avoid. Concrete warnings, not generic caution.",
+          },
+          lane_not_suitable: {
+            type: "string",
+            description:
+              "One sentence on which lane this project is NOT suitable for, and why. Example: 'This is unlikely to succeed as a Studio / Streamer project due to scale vs concept density.' Be specific.",
           },
         },
         required: [
+          "verdict",
           "structural_read",
           "creative_signal",
           "market_reality",
@@ -382,6 +393,7 @@ const ANALYSIS_TOOLS = [
           "rationale",
           "do_next",
           "avoid",
+          "lane_not_suitable",
         ],
         additionalProperties: false,
       },
@@ -489,17 +501,34 @@ serve(async (req) => {
     const hasDocumentText = combinedText.trim().length > 50;
 
     // ---- BUILD AI PROMPT ----
-    const systemPrompt = `You are IFFY, a sharp, experienced film/TV development executive and market analyst. You assess creative projects and classify them into monetisation lanes.
+    const systemPrompt = `You are IFFY, an opinionated internal development executive for film and TV producers.
+Your role is to assess projects based on their actual execution, not marketing intent, and to make clear, defensible judgements about market positioning.
+When documents (scripts, decks, treatments) are provided, your analysis must be based PRIMARILY on the extracted document text. User-entered form data is secondary and used only to fill gaps or identify inconsistencies.
 
 ${LANE_DESCRIPTIONS}
 
-CRITICAL RULES:
-- Be DIRECT and PRACTICAL. No generic encouragement. No "this has potential" padding.
+ANALYSIS PROCESS (MANDATORY ORDER):
+Step 1 — Determine Primary Monetisation Lane (FIRST, ONCE ONLY). Based on the material as written, assign exactly one lane. Do not reconsider or change this lane later.
+Step 2 — Structural Read: Format clarity, protagonist + goal clarity, act progression / structure, narrative momentum. Reference concrete evidence.
+Step 3 — Creative Signal: Originality of premise, tonal consistency, emotional engine, standout elements. Anchor conclusions to specific aspects.
+Step 4 — Market Reality Check: Likely audience based on execution, comparable titles (execution-based, not aspirational), budget implications, commercial risks.
+Step 5 — Decision Output (LOCKED TO PRIMARY LANE): All conclusions must support or stress-test the Primary Lane. Provide confidence, rationale, 3 DO NEXT, 3 AVOID, and which lane this is NOT suitable for.
+
+EVIDENCE ANCHORING (CRITICAL):
+- For EVERY major conclusion or observation, include 1–2 short quoted snippets or concrete references from the document (under 15 words each).
+- This applies to ALL fields: structural_read, creative_signal, market_reality, and the rationale.
+- Example: "The protagonist's goal remains unclear for much of Act One ('I just want things to be different') which weakens momentum."
+
+CONSISTENCY CHECK (REQUIRED):
+Before finalising output, ensure the verdict, lane, risks, and recommendations do not contradict each other. If contradictions exist, resolve them in favour of the Primary Monetisation Lane.
+
+TONE:
+- Direct, practical, slightly opinionated.
 - Speak like an experienced producer who's read 10,000 scripts.
 - If something is weak, say so clearly. If something is strong, say exactly why.
-- Every assessment must reference SPECIFIC evidence from the material.
-- When documents are present, for EVERY major conclusion or observation include 1–2 short quoted snippets or concrete references from the document (no long quotes — keep snippets under 15 words each). This applies to every field: structural_read, creative_signal, market_reality, and the rationale. Ground every point so the feedback feels specific and evidence-based.
-${hasDocumentText ? "- Base your assessment PRIMARILY on the uploaded document content. The material itself determines the lane. Form inputs are secondary context only.\n- If the user's form inputs (genre, tone, audience, budget, comparables) CONTRADICT what the document actually shows, EXPLICITLY call out the discrepancy. For example: 'You described this as a thriller, but the material reads as a character-driven drama with no genre mechanics.' Be specific about what the form says vs. what the page shows." : "- No documents were uploaded. Assess based on form inputs, but note limitations."}
+- Avoid generic encouragement, vague praise, or academic language.
+
+${hasDocumentText ? "- Base your assessment PRIMARILY on the uploaded document content. The material itself determines the lane. Form inputs are secondary context only.\n- If the user's form inputs (genre, tone, audience, budget, comparables) CONTRADICT what the document actually shows, EXPLICITLY call out the discrepancy. Be specific about what the form says vs. what the page shows." : "- No documents were uploaded. Assess based on form inputs, but note limitations in your verdict."}
 ${partialRead ? `- NOTE: Only the first ~${partialRead.pages_analyzed} pages of an estimated ${partialRead.total_pages} total pages were provided. State this in your structural read.` : ""}`;
 
     const userMessage = `Classify this project.

@@ -33,11 +33,13 @@ export interface MarketReality {
 }
 
 export interface FullAnalysis {
+  verdict?: string;
   structural_read: StructuralRead;
   creative_signal: CreativeSignal;
   market_reality: MarketReality;
   do_next: string[];
   avoid: string[];
+  lane_not_suitable?: string;
   partial_read?: { pages_analyzed: number; total_pages: number } | null;
 }
 
@@ -70,6 +72,7 @@ export interface ProjectDocument {
 // ---- AI Response ----
 
 export interface AnalysisResponse {
+  verdict: string;
   lane: MonetisationLane;
   confidence: number;
   rationale: string;
@@ -78,6 +81,7 @@ export interface AnalysisResponse {
   market_reality: MarketReality;
   do_next: string[];
   avoid: string[];
+  lane_not_suitable: string;
   partial_read?: { pages_analyzed: number; total_pages: number } | null;
   documents: DocumentExtractionResult[];
 }
