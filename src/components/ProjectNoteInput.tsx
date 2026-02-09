@@ -1,11 +1,13 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, Loader2, Lightbulb } from 'lucide-react';
+import { Send, Loader2, Lightbulb, ChevronDown, MessageSquare } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '@/components/ui/accordion';
 import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
+import { useProjectUpdates } from '@/hooks/useProjectAttachments';
 
 interface ProjectNoteInputProps {
   projectId: string;
@@ -17,6 +19,9 @@ export function ProjectNoteInput({ projectId }: ProjectNoteInputProps) {
   const [impact, setImpact] = useState<string | null>(null);
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { updates } = useProjectUpdates(projectId);
+
+  const pastNotes = updates.filter(u => u.update_type === 'note');
 
   const handleSubmit = async () => {
     if (!note.trim()) return;
@@ -51,7 +56,6 @@ export function ProjectNoteInput({ projectId }: ProjectNoteInputProps) {
       setImpact(result.impact);
       setNote('');
 
-      // Refresh timeline
       queryClient.invalidateQueries({ queryKey: ['project-updates', projectId] });
     } catch (e: any) {
       console.error('Note analysis failed:', e);
@@ -124,6 +128,44 @@ export function ProjectNoteInput({ projectId }: ProjectNoteInputProps) {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {pastNotes.length > 0 && (
+        <div className="glass-card rounded-xl p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <MessageSquare className="h-4 w-4 text-muted-foreground" />
+            <h4 className="font-display font-semibold text-foreground text-sm">Past Notes</h4>
+            <span className="text-xs text-muted-foreground">({pastNotes.length})</span>
+          </div>
+          <Accordion type="single" collapsible className="space-y-0">
+            {pastNotes.map((n) => (
+              <AccordionItem key={n.id} value={n.id} className="border-border/50">
+                <AccordionTrigger className="py-3 hover:no-underline gap-2">
+                  <div className="flex-1 text-left min-w-0">
+                    <p className="text-sm text-foreground font-medium truncate">{n.title || n.description}</p>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">
+                      {new Date(n.created_at).toLocaleDateString()}
+                    </p>
+                  </div>
+                </AccordionTrigger>
+                <AccordionContent>
+                  {n.description && n.title !== n.description && (
+                    <p className="text-sm text-muted-foreground mb-2">{n.description}</p>
+                  )}
+                  {n.impact_summary && (
+                    <div className="rounded-lg bg-primary/5 border border-primary/10 p-3">
+                      <p className="text-xs text-primary font-medium uppercase tracking-wider mb-1">Impact Assessment</p>
+                      <p className="text-sm text-foreground leading-relaxed">{n.impact_summary}</p>
+                    </div>
+                  )}
+                  {!n.impact_summary && (
+                    <p className="text-xs text-muted-foreground italic">No impact assessment recorded.</p>
+                  )}
+                </AccordionContent>
+              </AccordionItem>
+            ))}
+          </Accordion>
+        </div>
+      )}
     </div>
   );
 }
