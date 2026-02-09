@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { ArrowLeft, Film, Tv, Target, Palette, DollarSign, Users, Quote, CheckCircle2, ShieldAlert, Trash2, Loader2, AlertTriangle, MessageSquareQuote, Radio } from 'lucide-react';
@@ -19,12 +19,16 @@ import { LaneBadge } from '@/components/LaneBadge';
 import { AnalysisPassesDisplay } from '@/components/AnalysisPassesDisplay';
 import { DocumentsList } from '@/components/DocumentsList';
 import { AddDocumentsUpload } from '@/components/AddDocumentsUpload';
+import { ProjectInsightPanel } from '@/components/ProjectInsightPanel';
 import { useProject, useProjectDocuments } from '@/hooks/useProjects';
 import { useProjects } from '@/hooks/useProjects';
 import { useAddDocuments } from '@/hooks/useAddDocuments';
-import { useSignalCount } from '@/hooks/useTrends';
+import { useSignalCount, useActiveCastTrends } from '@/hooks/useTrends';
+import { generateProjectInsights } from '@/lib/project-insights';
 import { MonetisationLane, Recommendation, FullAnalysis } from '@/lib/types';
 import { BUDGET_RANGES, TARGET_AUDIENCES, TONES } from '@/lib/constants';
+
+
 
 const CATEGORY_ICONS: Record<string, React.ElementType> = {
   Packaging: Users,
@@ -130,7 +134,13 @@ export default function ProjectDetail() {
   const { deleteProject } = useProjects();
   const addDocuments = useAddDocuments(id);
   const { data: signalCount = 0 } = useSignalCount();
+  const { data: castTrends = [] } = useActiveCastTrends();
   const [deleteOpen, setDeleteOpen] = useState(false);
+
+  const insights = useMemo(() => {
+    if (!project || castTrends.length === 0) return null;
+    return generateProjectInsights(project, castTrends);
+  }, [project, castTrends]);
 
   const handleDelete = async () => {
     if (!id) return;
@@ -340,6 +350,9 @@ export default function ProjectDetail() {
               </div>
             </motion.div>
           )}
+
+          {/* Intelligence Panel */}
+          {insights && <ProjectInsightPanel insights={insights} />}
 
           {/* Legacy Recommendations (old format) */}
           {!hasNewAnalysis && legacyRecs.length > 0 && (
