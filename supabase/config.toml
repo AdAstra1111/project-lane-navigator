@@ -8,3 +8,6 @@ verify_jwt = false
 
 [functions.research-copro]
 verify_jwt = false
+
+[functions.project-incentive-insights]
+verify_jwt = false

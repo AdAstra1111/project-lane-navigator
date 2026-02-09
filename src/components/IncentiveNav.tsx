@@ -1,10 +1,11 @@
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Landmark, Handshake } from 'lucide-react';
+import { Landmark, Handshake, Layers } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 const TABS = [
   { path: '/incentives', label: 'Incentive Finder', icon: Landmark },
   { path: '/incentives/copro', label: 'Co-Production Planner', icon: Handshake },
+  { path: '/incentives/stack', label: 'Stack & Cashflow', icon: Layers },
 ];
 
 export function IncentiveNav() {
