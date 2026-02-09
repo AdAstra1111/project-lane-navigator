@@ -121,11 +121,13 @@ export function useProjects() {
 
       if (insertError) throw insertError;
 
+      const projectId = (project as any).id;
+
       // 5. Save document records
       if (analysis?.documents) {
         for (const doc of analysis.documents) {
           const { error: docError } = await supabase.from('project_documents').insert({
-            project_id: (project as any).id,
+            project_id: projectId,
             user_id: user.id,
             file_name: doc.file_name,
             file_path: doc.file_path,
@@ -136,6 +138,28 @@ export function useProjects() {
             error_message: doc.error_message,
           });
           if (docError) console.error('Failed to save document record:', docError);
+        }
+      }
+
+      // 6. Detect scripts among uploaded files and create project_scripts records
+      const scriptPattern = /script|screenplay|draft|teleplay/i;
+      const scriptExtensions = ['.fdx', '.fountain'];
+      const scriptFiles = files.filter(f => {
+        const ext = '.' + f.name.split('.').pop()?.toLowerCase();
+        return scriptExtensions.includes(ext) || scriptPattern.test(f.name);
+      });
+
+      if (scriptFiles.length > 0) {
+        for (const file of scriptFiles) {
+          const matchingPath = documentPaths.find(p => p.includes(file.name.replace(/[^a-zA-Z0-9._-]/g, '_')));
+          await supabase.from('project_scripts').insert({
+            project_id: projectId,
+            user_id: user.id,
+            version_label: file.name.replace(/\.[^.]+$/, ''),
+            status: 'current',
+            file_path: matchingPath || null,
+            notes: 'Auto-detected as script on project creation',
+          });
         }
       }
 
