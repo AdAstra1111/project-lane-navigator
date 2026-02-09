@@ -30,7 +30,7 @@ import { useProjects } from '@/hooks/useProjects';
 import { useAddDocuments } from '@/hooks/useAddDocuments';
 import { useActiveCastTrends } from '@/hooks/useTrends';
 import { ProjectRelevantSignals } from '@/components/ProjectRelevantSignals';
-import { useProjectCast, useProjectPartners, useProjectScripts, useProjectFinance } from '@/hooks/useProjectAttachments';
+import { useProjectCast, useProjectPartners, useProjectScripts, useProjectFinance, useProjectHODs } from '@/hooks/useProjectAttachments';
 import { generateProjectInsights } from '@/lib/project-insights';
 import { calculateReadiness } from '@/lib/readiness-score';
 import { MonetisationLane, Recommendation, FullAnalysis } from '@/lib/types';
@@ -151,6 +151,7 @@ export default function ProjectDetail() {
   const { partners } = useProjectPartners(id);
   const { scripts } = useProjectScripts(id);
   const { scenarios: financeScenarios } = useProjectFinance(id);
+  const { hods } = useProjectHODs(id);
 
   const insights = useMemo(() => {
     if (!project || castTrends.length === 0) return null;
@@ -159,8 +160,8 @@ export default function ProjectDetail() {
 
   const readiness = useMemo(() => {
     if (!project) return null;
-    return calculateReadiness(project, cast, partners, scripts, financeScenarios, incentiveAnalysed);
-  }, [project, cast, partners, scripts, financeScenarios, incentiveAnalysed]);
+    return calculateReadiness(project, cast, partners, scripts, financeScenarios, hods, incentiveAnalysed);
+  }, [project, cast, partners, scripts, financeScenarios, hods, incentiveAnalysed]);
 
   const handleDelete = async () => {
     if (!id) return;

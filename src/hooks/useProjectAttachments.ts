@@ -59,6 +59,20 @@ export interface ProjectFinanceScenario {
   updated_at: string;
 }
 
+export interface ProjectHOD {
+  id: string;
+  project_id: string;
+  user_id: string;
+  department: string; // Director | DP | Producer | Line Producer | Editor | Composer | Production Designer | Costume Designer | VFX Supervisor | Sound Designer
+  person_name: string;
+  known_for: string;
+  reputation_tier: string; // emerging | established | acclaimed | marquee
+  status: string; // wishlist | in-talks | attached | confirmed
+  notes: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface ProjectUpdate {
   id: string;
   project_id: string;
@@ -311,6 +325,68 @@ export function useProjectFinance(projectId: string | undefined) {
   });
 
   return { scenarios, isLoading, addScenario, updateScenario, deleteScenario };
+}
+
+// ---- HODs (Heads of Department) ----
+
+export function useProjectHODs(projectId: string | undefined) {
+  const queryClient = useQueryClient();
+  const queryKey = ['project-hods', projectId];
+
+  const { data: hods = [], isLoading } = useQuery({
+    queryKey,
+    queryFn: async () => {
+      if (!projectId) return [];
+      const { data, error } = await supabase
+        .from('project_hods')
+        .select('*')
+        .eq('project_id', projectId)
+        .order('created_at', { ascending: true });
+      if (error) throw error;
+      return data as unknown as ProjectHOD[];
+    },
+    enabled: !!projectId,
+  });
+
+  const addHOD = useMutation({
+    mutationFn: async (input: Partial<ProjectHOD>) => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+      const { error } = await supabase.from('project_hods').insert({
+        project_id: projectId!,
+        user_id: user.id,
+        department: input.department || '',
+        person_name: input.person_name || '',
+        known_for: input.known_for || '',
+        reputation_tier: input.reputation_tier || 'emerging',
+        status: input.status || 'wishlist',
+        notes: input.notes || '',
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey }); toast.success('HOD added'); },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const updateHOD = useMutation({
+    mutationFn: async ({ id, ...updates }: Partial<ProjectHOD> & { id: string }) => {
+      const { error } = await supabase.from('project_hods').update(updates).eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey }),
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const deleteHOD = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from('project_hods').delete().eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey }); toast.success('HOD removed'); },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  return { hods, isLoading, addHOD, updateHOD, deleteHOD };
 }
 
 // ---- Updates Timeline ----

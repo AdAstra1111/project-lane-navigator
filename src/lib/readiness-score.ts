@@ -7,7 +7,7 @@
  */
 
 import type { Project, FullAnalysis } from '@/lib/types';
-import type { ProjectCastMember, ProjectPartner, ProjectScript, ProjectFinanceScenario } from '@/hooks/useProjectAttachments';
+import type { ProjectCastMember, ProjectPartner, ProjectScript, ProjectFinanceScenario, ProjectHOD } from '@/hooks/useProjectAttachments';
 
 export type ReadinessStage = 'Early' | 'Building' | 'Packaged' | 'Finance-Ready';
 
@@ -38,6 +38,7 @@ export function calculateReadiness(
   partners: ProjectPartner[],
   scripts: ProjectScript[],
   financeScenarios: ProjectFinanceScenario[],
+  hods: ProjectHOD[],
   hasIncentiveInsights: boolean,
 ): ReadinessResult {
   const strengths: string[] = [];
@@ -64,34 +65,60 @@ export function calculateReadiness(
     scriptScore = Math.min(25, scriptScore + 5);
   }
 
-  // ---- Packaging (30 points) ----
+  // ---- Packaging (30 points): Cast 10 + HODs 10 + Partners 10 ----
   let packagingScore = 0;
+
+  // Cast (10 pts)
   const attachedCast = cast.filter(c => c.status === 'attached');
   const approachedCast = cast.filter(c => c.status === 'approached' || c.status === 'interested');
   
   if (attachedCast.length > 0) {
-    packagingScore += 15;
+    packagingScore += 10;
     strengths.push(`${attachedCast.length} cast attached`);
   } else if (approachedCast.length > 0) {
-    packagingScore += 7;
+    packagingScore += 5;
     strengths.push(`${approachedCast.length} cast in discussion`);
   } else if (cast.length > 0) {
-    packagingScore += 3;
+    packagingScore += 2;
   } else {
     blockers.push('No cast identified');
   }
 
+  // HODs (10 pts) — Director is worth the most
+  const REPUTATION_SCORE: Record<string, number> = { marquee: 4, acclaimed: 3, established: 2, emerging: 1 };
+  const KEY_DEPARTMENTS = ['Director', 'Director of Photography', 'Producer', 'Executive Producer'];
+  const attachedHods = hods.filter(h => h.status === 'attached' || h.status === 'confirmed');
+  const directorAttached = attachedHods.find(h => h.department === 'Director');
+
+  if (directorAttached) {
+    const directorRep = REPUTATION_SCORE[directorAttached.reputation_tier] || 1;
+    packagingScore += Math.min(5, directorRep + 2); // 3-5 pts based on reputation
+    strengths.push(`Director attached (${directorAttached.reputation_tier})`);
+  } else if (hods.some(h => h.department === 'Director')) {
+    packagingScore += 1;
+  } else {
+    blockers.push('No director attached');
+  }
+
+  const otherKeyHods = attachedHods.filter(h => h.department !== 'Director' && KEY_DEPARTMENTS.includes(h.department));
+  if (otherKeyHods.length > 0) {
+    const bestRep = Math.max(...otherKeyHods.map(h => REPUTATION_SCORE[h.reputation_tier] || 1));
+    packagingScore += Math.min(5, otherKeyHods.length + bestRep); // up to 5 pts
+    if (otherKeyHods.length >= 2) strengths.push(`${otherKeyHods.length} key HODs attached`);
+  }
+
+  // Partners (10 pts)
   const confirmedPartners = partners.filter(p => p.status === 'confirmed');
   const activePartners = partners.filter(p => p.status === 'in-discussion' || p.status === 'confirmed');
   
   if (confirmedPartners.length > 0) {
-    packagingScore += 15;
+    packagingScore += 10;
     strengths.push(`${confirmedPartners.length} partner(s) confirmed`);
   } else if (activePartners.length > 0) {
-    packagingScore += 8;
+    packagingScore += 5;
     strengths.push('Partner discussions active');
   } else if (partners.length > 0) {
-    packagingScore += 3;
+    packagingScore += 2;
   } else {
     blockers.push('No partners or sales path identified');
   }
@@ -147,9 +174,11 @@ export function calculateReadiness(
 
   const weakest = sortedBlockers[0];
   if (weakest.area === 'script') bestNextStep = 'Attach a current script version to strengthen your package.';
-  else if (weakest.area === 'packaging') bestNextStep = attachedCast.length === 0
-    ? 'Attach at least one lead cast member to unlock pre-sales potential.'
-    : 'Confirm a sales agent or co-production partner.';
+  else if (weakest.area === 'packaging') {
+    if (!directorAttached) bestNextStep = 'Attach a director to significantly strengthen your package.';
+    else if (attachedCast.length === 0) bestNextStep = 'Attach at least one lead cast member to unlock pre-sales potential.';
+    else bestNextStep = 'Confirm a sales agent or co-production partner.';
+  }
   else if (weakest.area === 'finance') bestNextStep = !hasIncentiveInsights
     ? 'Run the Incentive Analysis to identify financing opportunities.'
     : 'Create a finance scenario to model your capital stack.';
