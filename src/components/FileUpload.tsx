@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useCallback, useId } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Upload, X, FileText, File, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -23,7 +23,7 @@ interface FileUploadProps {
 export function FileUpload({ files, onFilesChange }: FileUploadProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputId = useId();
 
   const validateFile = (file: File): string | null => {
     const ext = '.' + file.name.split('.').pop()?.toLowerCase();
@@ -95,14 +95,7 @@ export function FileUpload({ files, onFilesChange }: FileUploadProps) {
     return <File className="h-4 w-4 text-muted-foreground" />;
   };
 
-  const handleClick = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    inputRef.current?.click();
-  };
-
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    e.stopPropagation();
     if (e.target.files && e.target.files.length > 0) {
       addFiles(e.target.files);
     }
@@ -112,26 +105,23 @@ export function FileUpload({ files, onFilesChange }: FileUploadProps) {
 
   return (
     <div className="space-y-3">
-      {/* Hidden file input — outside the drop zone to avoid event conflicts */}
+      {/* Native label-based file trigger — no programmatic .click() needed */}
       <input
-        ref={inputRef}
+        id={inputId}
         type="file"
         multiple
         accept={ACCEPTED_EXTENSIONS.join(',')}
         onChange={handleInputChange}
-        className="hidden"
+        className="sr-only"
         tabIndex={-1}
       />
 
-      {/* Drop zone */}
-      <div
-        role="button"
-        tabIndex={0}
+      {/* Drop zone — uses <label> so clicking natively opens file picker */}
+      <label
+        htmlFor={inputId}
         onDrop={handleDrop}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
-        onClick={handleClick}
-        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); inputRef.current?.click(); } }}
         className={cn(
           'relative flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed p-8 cursor-pointer transition-all duration-200',
           isDragging
@@ -154,7 +144,7 @@ export function FileUpload({ files, onFilesChange }: FileUploadProps) {
             Up to {MAX_FILES} files, 10MB each
           </p>
         </div>
-      </div>
+      </label>
 
       {/* Error */}
       <AnimatePresence>
