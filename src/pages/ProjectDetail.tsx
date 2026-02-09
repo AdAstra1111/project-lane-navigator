@@ -18,8 +18,10 @@ import { Header } from '@/components/Header';
 import { LaneBadge } from '@/components/LaneBadge';
 import { AnalysisPassesDisplay } from '@/components/AnalysisPassesDisplay';
 import { DocumentsList } from '@/components/DocumentsList';
+import { AddDocumentsUpload } from '@/components/AddDocumentsUpload';
 import { useProject, useProjectDocuments } from '@/hooks/useProjects';
 import { useProjects } from '@/hooks/useProjects';
+import { useAddDocuments } from '@/hooks/useAddDocuments';
 import { MonetisationLane, Recommendation, FullAnalysis } from '@/lib/types';
 import { BUDGET_RANGES, TARGET_AUDIENCES, TONES } from '@/lib/constants';
 
@@ -125,6 +127,7 @@ export default function ProjectDetail() {
   const { project, isLoading } = useProject(id);
   const { documents } = useProjectDocuments(id);
   const { deleteProject } = useProjects();
+  const addDocuments = useAddDocuments(id);
   const [deleteOpen, setDeleteOpen] = useState(false);
 
   const handleDelete = async () => {
@@ -327,7 +330,21 @@ export default function ProjectDetail() {
           </div>
 
           {/* Documents */}
-          {hasDocuments && <DocumentsList documents={documents} />}
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-display font-semibold text-foreground text-xl">
+                {hasDocuments ? 'Uploaded Documents' : 'Documents'}
+              </h3>
+            </div>
+            {hasDocuments && <DocumentsList documents={documents} />}
+            <div className={hasDocuments ? 'mt-4' : ''}>
+              <AddDocumentsUpload
+                existingCount={documents.length}
+                onUpload={(files) => addDocuments.mutate(files)}
+                isUploading={addDocuments.isPending}
+              />
+            </div>
+          </div>
         </motion.div>
       </main>
     </div>
