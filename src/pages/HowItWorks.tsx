@@ -1,6 +1,9 @@
 import { motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
-import { ArrowRight, FolderOpen, RefreshCw, Landmark, Footprints } from 'lucide-react';
+import {
+  ArrowRight, FolderOpen, RefreshCw, Landmark, Footprints,
+  DollarSign, Users, BarChart3, Sparkles, FileOutput,
+} from 'lucide-react';
 import { Header } from '@/components/Header';
 import { Button } from '@/components/ui/button';
 
@@ -22,9 +25,34 @@ const steps = [
     body: 'Attach a marquee director? Your readiness score changes. Confirm a co-production partner? The finance picture shifts. IFFY watches what matters — packaging, finance fit, and market timing — and reflects it in real time. No manual recalculation.',
   },
   {
+    icon: DollarSign,
+    title: 'Build your capital stack deal by deal',
+    body: 'The Finance Tracker organises your funding across six categories — Sales & Distribution, Equity, Tax Incentives, Soft Money, Gap & Debt, and Other. Log individual deals with status, amounts, and counterparties. The waterfall chart visualises secured versus pipeline value against your budget, so you always know the gap.',
+  },
+  {
     icon: Landmark,
     title: 'Finance, incentives, and co-productions are integrated',
     body: 'Incentive programmes, co-production treaties, and capital stack scenarios aren\'t separate tools. They\'re part of the same assessment. IFFY evaluates them in the context of your specific project — its budget, its genre, its territory mix — so you see what\'s actually relevant.',
+  },
+  {
+    icon: Sparkles,
+    title: 'Smart Packaging suggests who fits',
+    body: 'Smart Packaging uses AI to recommend talent combinations — cast and directors — based on your budget, genre, lane, and current market trends. The Cast Explorer lets you click any suggested name for a full market assessment, trajectory analysis, and links to IMDb and Google Images.',
+  },
+  {
+    icon: Users,
+    title: 'Collaborate with your team',
+    body: 'Invite collaborators via a secure link and assign roles — Producer, Sales Agent, Lawyer, or Creative. Each role sees only the sections relevant to their function. Threaded, section-filtered comments keep discussions in context. Everyone works from the same living dossier.',
+  },
+  {
+    icon: BarChart3,
+    title: 'Market intelligence finds you',
+    body: 'Trend signals are automatically matched to your project based on genre, tone, format, and lane. Buyer matching scores active industry buyers against your project metadata. The pipeline gives you a Kanban view across Development, Packaging, Financing, and Pre-Production — with stage gates that ensure projects have the fundamentals before advancing.',
+  },
+  {
+    icon: FileOutput,
+    title: 'Export and compare',
+    body: 'Generate a professional PDF One-Pager for any project — including readiness score, lane, verdict, team, finance scenarios, and top buyer matches. Clone projects to create variants, then compare them side-by-side to see how changes in budget, cast, or territory impact positioning.',
   },
   {
     icon: Footprints,
