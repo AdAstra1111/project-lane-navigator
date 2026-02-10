@@ -8,11 +8,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { LaneBadge } from '@/components/LaneBadge';
 import { ProjectReadinessScore } from '@/components/ProjectReadinessScore';
+import { FinanceReadinessBreakdown } from '@/components/FinanceReadinessBreakdown';
 import { useProjects, useProject } from '@/hooks/useProjects';
 import { useProjectCast, useProjectPartners, useProjectScripts, useProjectFinance, useProjectHODs } from '@/hooks/useProjectAttachments';
 import { calculateReadiness } from '@/lib/readiness-score';
+import { calculateFinanceReadiness } from '@/lib/finance-readiness';
 import type { Project } from '@/lib/types';
 import type { ProjectCastMember, ProjectPartner, ProjectScript, ProjectFinanceScenario, ProjectHOD } from '@/hooks/useProjectAttachments';
+import { cn } from '@/lib/utils';
 
 function ProjectColumn({ projectId }: { projectId: string }) {
   const { project, isLoading } = useProject(projectId);
@@ -25,6 +28,11 @@ function ProjectColumn({ projectId }: { projectId: string }) {
   const readiness = useMemo(() => {
     if (!project) return null;
     return calculateReadiness(project, cast, partners, scripts, financeScenarios, hods, false);
+  }, [project, cast, partners, scripts, financeScenarios, hods]);
+
+  const financeReadiness = useMemo(() => {
+    if (!project) return null;
+    return calculateFinanceReadiness(project, cast, partners, scripts, financeScenarios, hods, false);
   }, [project, cast, partners, scripts, financeScenarios, hods]);
 
   if (isLoading || !project) {
@@ -159,6 +167,43 @@ function ProjectColumn({ projectId }: { projectId: string }) {
             </div>
           )}
           <p className="text-xs text-primary font-medium">{readiness.bestNextStep}</p>
+        </div>
+      )}
+
+      {/* Finance Readiness */}
+      {financeReadiness && (
+        <div className="glass-card rounded-lg p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium text-foreground">Finance Readiness</span>
+            <div className="flex items-center gap-2">
+              <span className={cn(
+                'text-2xl font-bold',
+                financeReadiness.score >= 70 ? 'text-emerald-400' : financeReadiness.score >= 40 ? 'text-amber-400' : 'text-red-400'
+              )}>{financeReadiness.score}</span>
+              <span className="text-xs text-muted-foreground">/100</span>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            <Badge className="text-[10px]">Vol: {financeReadiness.volatilityIndex}</Badge>
+            <Badge className="text-[10px]">{financeReadiness.geographySensitivity}</Badge>
+          </div>
+          <FinanceReadinessBreakdown subscores={financeReadiness.subscores} />
+          <div className="grid grid-cols-3 gap-1.5 text-center">
+            {(['low', 'target', 'stretch'] as const).map(key => {
+              const band = financeReadiness.budgetBands[key];
+              return (
+                <div key={key} className={cn('rounded border p-1.5', key === 'target' ? 'border-primary/30 bg-primary/5' : 'border-border')}>
+                  <p className="text-[9px] text-muted-foreground uppercase">{key}</p>
+                  <p className="text-[11px] font-semibold text-foreground">{band.rangeHint}</p>
+                </div>
+              );
+            })}
+          </div>
+          {financeReadiness.riskFlags.length > 0 && (
+            <div className="text-xs text-red-400">
+              ⚠ {financeReadiness.riskFlags.length} risk flag{financeReadiness.riskFlags.length !== 1 ? 's' : ''}: <span className="text-muted-foreground">{financeReadiness.riskFlags.map(f => f.tag).join(', ')}</span>
+            </div>
+          )}
         </div>
       )}
     </div>

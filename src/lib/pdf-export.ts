@@ -7,6 +7,7 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import type { Project, FullAnalysis, MonetisationLane } from '@/lib/types';
 import type { ReadinessResult } from '@/lib/readiness-score';
+import type { FinanceReadinessResult } from '@/lib/finance-readiness';
 import type { ProjectCastMember, ProjectPartner, ProjectFinanceScenario, ProjectHOD } from '@/hooks/useProjectAttachments';
 import type { BuyerMatch } from '@/lib/buyer-matcher';
 import { BUDGET_RANGES, TARGET_AUDIENCES, TONES } from '@/lib/constants';
@@ -15,6 +16,7 @@ import { LANE_LABELS } from '@/lib/types';
 interface ExportData {
   project: Project;
   readiness: ReadinessResult | null;
+  financeReadiness?: FinanceReadinessResult | null;
   cast: ProjectCastMember[];
   partners: ProjectPartner[];
   hods: ProjectHOD[];
@@ -35,7 +37,7 @@ const getLabel = (value: string, list: readonly { value: string; label: string }
   list.find(item => item.value === value)?.label || value;
 
 export function exportProjectPDF(data: ExportData) {
-  const { project, readiness, cast, partners, hods, financeScenarios, buyerMatches } = data;
+  const { project, readiness, financeReadiness, cast, partners, hods, financeScenarios, buyerMatches } = data;
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const pageWidth = doc.internal.pageSize.getWidth();
   const margin = 16;
@@ -123,6 +125,68 @@ export function exportProjectPDF(data: ExportData) {
     });
 
     y += 28;
+  }
+
+  // ---- Finance Readiness ----
+  if (financeReadiness) {
+    checkPage(30);
+    y += 2;
+    sectionTitle(doc, 'Finance Readiness', margin, y);
+    y += 7;
+
+    doc.setFillColor(...COLORS.light);
+    doc.roundedRect(margin, y, contentWidth, 22, 2, 2, 'F');
+
+    doc.setTextColor(...COLORS.dark);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(20);
+    doc.text(`${financeReadiness.score}`, margin + 6, y + 12);
+
+    doc.setFontSize(8);
+    doc.setTextColor(...COLORS.muted);
+    doc.setFont('helvetica', 'normal');
+    const frLabel = financeReadiness.score >= 80 ? 'Finance-Ready' : financeReadiness.score >= 60 ? 'Approaching' : financeReadiness.score >= 35 ? 'Building' : 'Early Stage';
+    doc.text(`/ 100  ·  ${frLabel}  ·  Volatility: ${financeReadiness.volatilityIndex}  ·  ${financeReadiness.geographySensitivity}`, margin + 6 + doc.getTextWidth(`${financeReadiness.score}`) + 2, y + 12);
+
+    y += 24;
+
+    // Budget bands row
+    const bandW = (contentWidth - 6) / 3;
+    (['low', 'target', 'stretch'] as const).forEach((key, i) => {
+      const band = financeReadiness.budgetBands[key];
+      const bx = margin + i * (bandW + 3);
+      const labels = { low: 'Low', target: 'Target', stretch: 'Stretch' };
+      doc.setFillColor(key === 'target' ? 230 : 245, key === 'target' ? 240 : 248, 255);
+      doc.roundedRect(bx, y, bandW, 12, 1, 1, 'F');
+      doc.setTextColor(...COLORS.muted);
+      doc.setFontSize(6);
+      doc.text(labels[key].toUpperCase(), bx + bandW / 2, y + 4, { align: 'center' });
+      doc.setTextColor(...COLORS.dark);
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'bold');
+      doc.text(band.rangeHint, bx + bandW / 2, y + 9.5, { align: 'center' });
+      doc.setFont('helvetica', 'normal');
+    });
+    y += 15;
+
+    // Top risk flags
+    if (financeReadiness.riskFlags.length > 0) {
+      const topFlags = financeReadiness.riskFlags.slice(0, 3);
+      topFlags.forEach(flag => {
+        checkPage(8);
+        doc.setTextColor(239, 68, 68);
+        doc.setFontSize(7);
+        doc.setFont('helvetica', 'bold');
+        doc.text(`⚠ ${flag.tag}`, margin, y);
+        doc.setTextColor(...COLORS.muted);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7);
+        const flagLines = doc.splitTextToSize(flag.explanation, contentWidth - 4);
+        doc.text(flagLines, margin + 2, y + 3.5);
+        y += flagLines.length * 3 + 5;
+      });
+    }
+    y += 2;
   }
 
   // ---- IFFY Verdict ----

@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { TrendingUp, Shield, AlertTriangle, MapPin, ChevronDown, Gauge, Activity, Layers, Info } from 'lucide-react';
+import { TrendingUp, Shield, AlertTriangle, MapPin, ChevronDown, Gauge, Activity, Layers, Info, ArrowRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { FinanceReadinessBreakdown } from '@/components/FinanceReadinessBreakdown';
 import type {
   FinanceReadinessResult,
   BudgetModule,
@@ -74,8 +75,21 @@ function ScoreRing({ score }: { score: number }) {
   );
 }
 
+const MODULE_CTAS: Record<string, { label: string; hint: string }> = {
+  'Above the Line': { label: 'Add cast or director', hint: 'Attach key creative talent to improve ATL confidence' },
+  'Below the Line': { label: 'Add HODs', hint: 'Attach heads of department to firm up BTL scope' },
+  'Locations & Logistics': { label: 'Set production territory', hint: 'Define territories in Project Details to unlock location-aware assessments' },
+  'Schedule': { label: 'Attach script', hint: 'A current script enables schedule estimation' },
+  'Post-Production': { label: 'Review VFX scope', hint: 'Ensure post requirements are reflected in your analysis' },
+  'VFX / Scale': { label: 'Review analysis', hint: 'Confirm VFX/period signals in the script analysis' },
+  'Contingency': { label: 'Add scenarios', hint: 'Multiple finance scenarios provide contingency flexibility' },
+  'Soft Money & Incentives': { label: 'Run incentive analysis', hint: 'Analyse incentive eligibility to improve soft money confidence' },
+};
+
 function ModuleRow({ module }: { module: BudgetModule }) {
   const [open, setOpen] = useState(false);
+  const cta = MODULE_CTAS[module.name];
+  const showCta = cta && module.scopeConfidence === 'Low';
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
       <CollapsibleTrigger className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-muted/30 transition-colors cursor-pointer">
@@ -94,6 +108,13 @@ function ModuleRow({ module }: { module: BudgetModule }) {
             <span className="text-primary font-medium shrink-0">Market:</span>
             <span>{module.marketPressure}</span>
           </div>
+          {showCta && (
+            <div className="flex items-center gap-1.5 mt-1.5 bg-primary/5 rounded px-2 py-1.5">
+              <ArrowRight className="h-3 w-3 text-primary shrink-0" />
+              <span className="text-primary font-medium">{cta.label}</span>
+              <span className="text-muted-foreground">— {cta.hint}</span>
+            </div>
+          )}
         </div>
       </CollapsibleContent>
     </Collapsible>
@@ -174,6 +195,9 @@ export function FinanceReadinessPanel({ result }: FinanceReadinessPanelProps) {
           </div>
         </div>
       </div>
+
+      {/* Score Breakdown */}
+      {result.subscores && <FinanceReadinessBreakdown subscores={result.subscores} />}
 
       {/* Budget Bands */}
       <div className="glass-card rounded-xl p-5">
