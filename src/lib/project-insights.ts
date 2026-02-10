@@ -9,11 +9,19 @@ import type { CastTrend } from '@/hooks/useTrends';
 
 // ---- Output types ----
 
+export interface CastSuggestion {
+  name: string;
+  reason: string;
+  suggested_role: string;
+  creative_fit: string;
+  commercial_case: string;
+}
+
 export interface CastInsight {
   archetype_guidance: string;
   territory_note: string;
   warning: string | null;
-  suggested_cast: { name: string; reason: string }[];
+  suggested_cast: CastSuggestion[];
 }
 
 export interface IdeaPositioning {
@@ -173,10 +181,50 @@ export function generateProjectInsights(
     castWarning = 'No trending talent matches this project\'s genre profile. Consider broadening genre positioning or reviewing cast strategy.';
   }
 
-  const suggestedCast = matchingCast.map(c => ({
-    name: c.actor_name,
-    reason: `${c.trend_type} (${c.cycle_phase}) · ${c.region} · ${c.sales_leverage || c.market_alignment}${c.timing_window ? ` · ${c.timing_window}` : ''}`,
-  }));
+  const suggestedCast: CastSuggestion[] = matchingCast.map(c => {
+    // Determine suggested role archetype based on age band, genre, and trend type
+    const ageBand = (c.age_band || '').toLowerCase();
+    const ctGenres = (c.genre_relevance || []).map(g => g.toLowerCase());
+    let suggestedRole = 'Lead';
+    if (ageBand.includes('40') || ageBand.includes('50') || ageBand.includes('older') || ageBand.includes('senior')) {
+      if (genres.some(g => ['thriller', 'crime', 'drama'].includes(g))) suggestedRole = 'Antagonist / Authority Figure';
+      else suggestedRole = 'Lead or Mentor Figure';
+    } else if (ageBand.includes('20') || ageBand.includes('young') || ageBand.includes('emerging')) {
+      suggestedRole = 'Lead or Breakout Role';
+    } else {
+      if (genres.some(g => ['action', 'thriller'].includes(g))) suggestedRole = 'Lead or Anti-Hero';
+      else if (genres.some(g => ['romance', 'comedy'].includes(g))) suggestedRole = 'Romantic Lead';
+      else suggestedRole = 'Lead';
+    }
+
+    // Creative fit reasoning
+    const genreOverlap = ctGenres.filter(cg => genres.some(pg => cg.includes(pg) || pg.includes(cg)));
+    const creativeParts: string[] = [];
+    if (genreOverlap.length > 0) creativeParts.push(`Proven in ${genreOverlap.slice(0, 2).join(' & ')}`);
+    if (c.explanation) {
+      // Use first sentence of explanation as creative context
+      const firstSentence = c.explanation.split(/\.\s/)[0];
+      if (firstSentence.length < 120) creativeParts.push(firstSentence);
+    }
+    if (creativeParts.length === 0) creativeParts.push('Profile aligns with the project\'s tone and genre positioning');
+
+    // Commercial reasoning
+    const commercialParts: string[] = [];
+    if (c.sales_leverage) commercialParts.push(c.sales_leverage);
+    if (c.market_alignment) commercialParts.push(`Market alignment: ${c.market_alignment}`);
+    if (c.region) commercialParts.push(`Strong in ${c.region} territory`);
+    if (c.cycle_phase === 'Peaking') commercialParts.push('Currently peaking — maximum market leverage');
+    else if (c.cycle_phase === 'Building') commercialParts.push('Building momentum — strong value-to-cost ratio');
+    if (c.timing_window) commercialParts.push(`Window: ${c.timing_window}`);
+
+    return {
+      name: c.actor_name,
+      reason: `${c.trend_type} (${c.cycle_phase}) · ${c.region} · ${c.sales_leverage || c.market_alignment}${c.timing_window ? ` · ${c.timing_window}` : ''}`,
+      suggested_role: suggestedRole,
+      creative_fit: creativeParts.join('. ') + '.',
+      commercial_case: commercialParts.join('. ') + '.',
+    };
+  });
 
   // --- Idea Positioning ---
   const primaryGenre = genres[0] || 'drama';

@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { CastInfoDialog } from '@/components/CastInfoDialog';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
-import type { ProjectInsights } from '@/lib/project-insights';
+import type { ProjectInsights, CastSuggestion } from '@/lib/project-insights';
 
 const SATURATION_STYLES: Record<string, { label: string; className: string }> = {
   emerging: { label: 'Emerging', className: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' },
@@ -104,15 +104,25 @@ export function ProjectInsightPanel({ insights, projectContext }: ProjectInsight
         {cast.suggested_cast.length > 0 && (
           <div className="space-y-2 pt-1">
             <p className="text-xs text-muted-foreground uppercase tracking-wider font-medium">Trending Talent Matches</p>
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               {cast.suggested_cast.map(c => (
                 <button
                   key={c.name}
                   onClick={() => setSelectedPerson(c)}
-                  className="w-full flex items-start gap-3 text-sm bg-muted/30 hover:bg-muted/50 rounded-lg px-3 py-2 text-left transition-colors cursor-pointer group"
+                  className="w-full text-left bg-muted/30 hover:bg-muted/50 rounded-lg px-3 py-3 transition-colors cursor-pointer group"
                 >
-                  <span className="font-medium text-foreground whitespace-nowrap group-hover:text-primary transition-colors">{c.name}</span>
-                  <span className="text-muted-foreground text-xs leading-relaxed">{c.reason}</span>
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <span className="font-medium text-sm text-foreground group-hover:text-primary transition-colors">{c.name}</span>
+                    <span className="text-[10px] text-primary/80 bg-primary/10 rounded px-1.5 py-0.5">{c.suggested_role}</span>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      <span className="text-foreground/70 font-medium">Creative: </span>{c.creative_fit}
+                    </p>
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      <span className="text-foreground/70 font-medium">Commercial: </span>{c.commercial_case}
+                    </p>
+                  </div>
                 </button>
               ))}
             </div>
