@@ -5,6 +5,8 @@ import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { CastInfoDialog } from '@/components/CastInfoDialog';
+import { TalentTriageBoard } from '@/components/TalentTriageBoard';
+import { useTalentTriage } from '@/hooks/useTalentTriage';
 
 interface PackagingSuggestion {
   name: string;
@@ -15,6 +17,7 @@ interface PackagingSuggestion {
 }
 
 interface Props {
+  projectId: string;
   projectTitle: string;
   format: string;
   genres: string[];
@@ -23,10 +26,15 @@ interface Props {
   assignedLane: string | null;
 }
 
-export function SmartPackaging({ projectTitle, format, genres, budgetRange, tone, assignedLane }: Props) {
+export function SmartPackaging({ projectId, projectTitle, format, genres, budgetRange, tone, assignedLane }: Props) {
   const [suggestions, setSuggestions] = useState<PackagingSuggestion[]>([]);
   const [loading, setLoading] = useState(false);
+  const [replacementLoading, setReplacementLoading] = useState(false);
   const [selectedPerson, setSelectedPerson] = useState<{ name: string; reason: string } | null>(null);
+
+  const triage = useTalentTriage(projectId);
+
+  const projectContext = { title: projectTitle, format, budget_range: budgetRange, genres };
 
   const fetchSuggestions = async () => {
     setLoading(true);
@@ -35,11 +43,67 @@ export function SmartPackaging({ projectTitle, format, genres, budgetRange, tone
         body: { projectTitle, format, genres, budgetRange, tone, assignedLane },
       });
       if (error) throw error;
-      setSuggestions(data?.suggestions || []);
+      const results: PackagingSuggestion[] = data?.suggestions || [];
+      setSuggestions(results);
+
+      // Auto-save to triage (skip duplicates by name)
+      const existingNames = new Set(triage.items.map(i => i.person_name.toLowerCase()));
+      const newItems = results
+        .filter(s => !existingNames.has(s.name.toLowerCase()))
+        .map(s => ({
+          person_name: s.name,
+          person_type: s.role.toLowerCase().includes('director') ? 'director' : 'cast',
+          suggestion_source: 'smart-packaging',
+          suggestion_context: s.rationale,
+          role_suggestion: s.role,
+          creative_fit: s.rationale,
+          commercial_case: `Market value: ${s.market_value} · Window: ${s.availability_window}`,
+        }));
+      if (newItems.length > 0) {
+        await triage.addItems(newItems);
+        toast.success(`${newItems.length} new suggestion${newItems.length > 1 ? 's' : ''} added to triage`);
+      }
     } catch (e: any) {
       toast.error(e.message || 'Failed to get packaging suggestions');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleRequestReplacement = async (item: any) => {
+    setReplacementLoading(true);
+    try {
+      // Get all passed names to exclude
+      const excludeNames = triage.passed.map(p => p.person_name);
+      const { data, error } = await supabase.functions.invoke('smart-packaging', {
+        body: {
+          projectTitle, format, genres, budgetRange, tone, assignedLane,
+          excludeNames,
+          replacementFor: item.person_name,
+          maxSuggestions: 1,
+        },
+      });
+      if (error) throw error;
+      const results: PackagingSuggestion[] = data?.suggestions || [];
+      if (results.length > 0) {
+        const s = results[0];
+        await triage.addItems([{
+          person_name: s.name,
+          person_type: s.role.toLowerCase().includes('director') ? 'director' : 'cast',
+          suggestion_source: 'smart-packaging',
+          suggestion_context: s.rationale,
+          role_suggestion: s.role,
+          creative_fit: s.rationale,
+          commercial_case: `Market value: ${s.market_value} · Window: ${s.availability_window}`,
+        }]);
+        toast.success(`Replacement suggested: ${s.name}`);
+      } else {
+        toast.info('No additional suggestions available');
+      }
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to get replacement');
+    } finally {
+      setReplacementLoading(false);
     }
   };
 
@@ -54,17 +118,31 @@ export function SmartPackaging({ projectTitle, format, genres, budgetRange, tone
           <Sparkles className="h-5 w-5 text-primary" />
           <h3 className="font-display font-semibold text-foreground">Smart Packaging</h3>
         </div>
-        <Button size="sm" variant="outline" onClick={fetchSuggestions} disabled={loading}>
+        <Button size="sm" variant="outline" onClick={fetchSuggestions} disabled={loading || replacementLoading}>
           {loading ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Users className="h-3.5 w-3.5 mr-1" />}
-          {suggestions.length > 0 ? 'Refresh' : 'Get Suggestions'}
+          {triage.items.length > 0 ? 'Get More' : 'Get Suggestions'}
         </Button>
       </div>
 
       <p className="text-sm text-muted-foreground mb-4">
-        AI recommends cast & director combinations to maximize financeability based on genre, budget, and market trends.
+        AI recommends cast & director combinations to maximize financeability. Triage suggestions into Shortlist, Maybe, or Pass — rank your shortlist by priority.
       </p>
 
-      {suggestions.length > 0 && (
+      {/* Show triage board if there are items */}
+      <TalentTriageBoard
+        unsorted={triage.unsorted}
+        shortlisted={triage.shortlisted}
+        maybes={triage.maybes}
+        passed={triage.passed}
+        onUpdateStatus={triage.updateStatus}
+        onUpdatePriority={triage.updatePriorityRank}
+        onDelete={triage.deleteItem}
+        onRequestReplacement={handleRequestReplacement}
+        projectContext={projectContext}
+      />
+
+      {/* Show raw suggestions only if no triage items yet (first-time preview) */}
+      {triage.items.length === 0 && suggestions.length > 0 && (
         <div className="space-y-3">
           {suggestions.map((s, i) => (
             <motion.div
@@ -104,7 +182,7 @@ export function SmartPackaging({ projectTitle, format, genres, budgetRange, tone
           reason={selectedPerson.reason}
           open={!!selectedPerson}
           onOpenChange={(open) => { if (!open) setSelectedPerson(null); }}
-          projectContext={{ title: projectTitle, format, budget_range: budgetRange, genres }}
+          projectContext={projectContext}
         />
       )}
     </motion.div>

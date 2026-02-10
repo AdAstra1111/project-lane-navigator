@@ -514,6 +514,7 @@ export default function ProjectDetail() {
             )}
             {project && (
               <SmartPackaging
+                projectId={project.id}
                 projectTitle={project.title}
                 format={project.format}
                 genres={project.genres || []}
