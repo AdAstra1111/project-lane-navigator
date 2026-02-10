@@ -56,6 +56,8 @@ import { calculateFinanceReadiness } from '@/lib/finance-readiness';
 import { FinanceReadinessPanel } from '@/components/FinanceReadinessPanel';
 import { GeographySelector } from '@/components/GeographySelector';
 import { PipelineStageSuggestion } from '@/components/PipelineStageSuggestion';
+import { ScoreSparkline } from '@/components/ScoreSparkline';
+import { useScoreHistory, useAutoSaveScore } from '@/hooks/useScoreHistory';
 import { getStageGates } from '@/lib/pipeline-gates';
 import { MonetisationLane, Recommendation, FullAnalysis, PipelineStage, PIPELINE_STAGES } from '@/lib/types';
 import { BUDGET_RANGES, TARGET_AUDIENCES, TONES } from '@/lib/constants';
@@ -220,6 +222,10 @@ export default function ProjectDetail() {
     if (!project) return null;
     return calculateFinanceReadiness(project, cast, partners, scripts, financeScenarios, hods, incentiveAnalysed);
   }, [project, cast, partners, scripts, financeScenarios, hods, incentiveAnalysed]);
+
+  // Score history: auto-save daily snapshot
+  const { history: scoreHistory } = useScoreHistory(id);
+  useAutoSaveScore(id, readiness?.score ?? null, financeReadiness?.score ?? null);
 
   // Pipeline stage auto-suggestion: check if next stage gates are all met
   const nextStageGates = useMemo(() => {
@@ -392,6 +398,14 @@ export default function ProjectDetail() {
 
           {/* ─── ALWAYS VISIBLE: Readiness ─── */}
           {readiness && <ProjectReadinessScore readiness={readiness} />}
+
+          {/* ─── Score Trend Sparklines ─── */}
+          {scoreHistory.length >= 2 && (
+            <div className="glass-card rounded-xl px-5 py-3 flex flex-wrap gap-6">
+              <ScoreSparkline history={scoreHistory} field="readiness_score" label="Readiness Trend" />
+              <ScoreSparkline history={scoreHistory} field="finance_readiness_score" label="Finance Trend" />
+            </div>
+          )}
 
           {/* ─── ALWAYS VISIBLE: Lane + Confidence ─── */}
           {project.assigned_lane && (

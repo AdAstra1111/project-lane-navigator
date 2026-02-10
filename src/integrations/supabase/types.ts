@@ -1273,6 +1273,44 @@ export type Database = {
         }
         Relationships: []
       }
+      readiness_score_history: {
+        Row: {
+          created_at: string
+          finance_readiness_score: number
+          id: string
+          project_id: string
+          readiness_score: number
+          snapshot_date: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          finance_readiness_score?: number
+          id?: string
+          project_id: string
+          readiness_score?: number
+          snapshot_date?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          finance_readiness_score?: number
+          id?: string
+          project_id?: string
+          readiness_score?: number
+          snapshot_date?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "readiness_score_history_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       scene_schedule: {
         Row: {
           call_time: string | null
