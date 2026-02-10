@@ -40,6 +40,7 @@ import { useAddDocuments } from '@/hooks/useAddDocuments';
 import { useProjectDuplicate } from '@/hooks/useProjectDuplicate';
 import { useActiveCastTrends, useActiveSignals } from '@/hooks/useTrends';
 import { useAuth } from '@/hooks/useAuth';
+import { useScriptCharacters } from '@/hooks/useScriptCharacters';
 import { ProjectRelevantSignals } from '@/components/ProjectRelevantSignals';
 import { TerritoryHeatMap } from '@/components/TerritoryHeatMap';
 import { ScriptCoverage } from '@/components/ScriptCoverage';
@@ -200,6 +201,7 @@ export default function ProjectDetail() {
   const { scenarios: financeScenarios } = useProjectFinance(id);
   const { hods } = useProjectHODs(id);
   const insightTriage = useTalentTriage(id || '');
+  const { data: scriptCharacters = [], isLoading: scriptCharsLoading } = useScriptCharacters(id);
   const insights = useMemo(() => {
     if (!project || castTrends.length === 0) return null;
     return generateProjectInsights(project, castTrends);
@@ -522,6 +524,8 @@ export default function ProjectDetail() {
                 budgetRange={project.budget_range}
                 tone={project.tone}
                 assignedLane={project.assigned_lane}
+                scriptCharacters={scriptCharacters}
+                scriptCharactersLoading={scriptCharsLoading}
               />
             )}
           </Section>
@@ -541,6 +545,8 @@ export default function ProjectDetail() {
                 }}
                 onSaveToTriage={insightTriage.addItems}
                 existingTriageNames={new Set(insightTriage.items.map(i => i.person_name.toLowerCase()))}
+                scriptCharacters={scriptCharacters}
+                scriptCharactersLoading={scriptCharsLoading}
               />
             </Section>
           )}

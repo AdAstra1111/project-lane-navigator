@@ -27,9 +27,13 @@ serve(async (req) => {
       });
     }
 
-    const { projectTitle, format, genres, budgetRange, tone, assignedLane } = await req.json();
+    const { projectTitle, format, genres, budgetRange, tone, assignedLane, targetCharacter } = await req.json();
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
+
+    const characterClause = targetCharacter
+      ? `\n\nTARGET ROLE: The producer is specifically casting for the character "${targetCharacter.name}"${targetCharacter.description ? ` — ${targetCharacter.description}` : ''}${targetCharacter.scene_count ? ` (appears in ${targetCharacter.scene_count} scenes, ${targetCharacter.scene_count > 15 ? 'LEAD' : targetCharacter.scene_count > 5 ? 'SUPPORTING LEAD' : 'SUPPORTING'} role)` : ''}. Tailor ALL suggestions to actors who could convincingly play this specific character. Consider age, physicality, acting range, and prior roles that demonstrate suitability.`
+      : '';
 
     const prompt = `You are an expert film/TV casting strategist with deep knowledge of the independent and studio film landscape. Given a project, suggest 6 specific actors who would be realistic, appropriate, and strategically smart choices.
 
@@ -38,7 +42,7 @@ Format: ${format}
 Genres: ${genres?.join(', ')}
 Budget: ${budgetRange}
 Tone: ${tone}
-Lane: ${assignedLane || 'unclassified'}
+Lane: ${assignedLane || 'unclassified'}${characterClause}
 
 CRITICAL RULES:
 1. Match talent to budget REALISTICALLY. A $5-15M film should not suggest A-list superstars who cost $20M+ per film. Think mid-tier talent with rising profiles, character actors with name recognition, or international stars with pre-sales value.

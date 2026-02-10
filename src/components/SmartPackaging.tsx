@@ -5,8 +5,10 @@ import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { CastInfoDialog } from '@/components/CastInfoDialog';
+import { CharacterSelector } from '@/components/CharacterSelector';
 import { TalentTriageBoard } from '@/components/TalentTriageBoard';
 import { useTalentTriage } from '@/hooks/useTalentTriage';
+import type { ScriptCharacter } from '@/hooks/useScriptCharacters';
 
 interface PackagingSuggestion {
   name: string;
@@ -24,13 +26,16 @@ interface Props {
   budgetRange: string;
   tone: string;
   assignedLane: string | null;
+  scriptCharacters?: ScriptCharacter[];
+  scriptCharactersLoading?: boolean;
 }
 
-export function SmartPackaging({ projectId, projectTitle, format, genres, budgetRange, tone, assignedLane }: Props) {
+export function SmartPackaging({ projectId, projectTitle, format, genres, budgetRange, tone, assignedLane, scriptCharacters = [], scriptCharactersLoading }: Props) {
   const [suggestions, setSuggestions] = useState<PackagingSuggestion[]>([]);
   const [loading, setLoading] = useState(false);
   const [replacementLoading, setReplacementLoading] = useState(false);
   const [selectedPerson, setSelectedPerson] = useState<{ name: string; reason: string } | null>(null);
+  const [targetCharacter, setTargetCharacter] = useState<ScriptCharacter | null>(null);
 
   const triage = useTalentTriage(projectId);
 
@@ -40,7 +45,7 @@ export function SmartPackaging({ projectId, projectTitle, format, genres, budget
     setLoading(true);
     try {
       const { data, error } = await supabase.functions.invoke('smart-packaging', {
-        body: { projectTitle, format, genres, budgetRange, tone, assignedLane },
+        body: { projectTitle, format, genres, budgetRange, tone, assignedLane, targetCharacter: targetCharacter ? { name: targetCharacter.name, description: targetCharacter.description, scene_count: targetCharacter.scene_count } : undefined },
       });
       if (error) throw error;
       const results: PackagingSuggestion[] = data?.suggestions || [];
@@ -124,8 +129,26 @@ export function SmartPackaging({ projectId, projectTitle, format, genres, budget
         </Button>
       </div>
 
+      <div className="mb-3">
+        <CharacterSelector
+          characters={scriptCharacters}
+          selected={targetCharacter}
+          onSelect={setTargetCharacter}
+          loading={scriptCharactersLoading}
+        />
+      </div>
+      {targetCharacter && (
+        <div className="mb-3 bg-muted/30 rounded-lg px-3 py-2 text-xs">
+          <span className="font-medium text-foreground">Casting for: </span>
+          <span className="text-primary font-semibold">{targetCharacter.name}</span>
+          {targetCharacter.description && (
+            <p className="text-muted-foreground mt-1">{targetCharacter.description}</p>
+          )}
+        </div>
+      )}
+
       <p className="text-sm text-muted-foreground mb-4">
-        AI recommends cast & director combinations to maximize financeability. Triage suggestions into Shortlist, Maybe, or Pass — rank your shortlist by priority.
+        AI recommends cast & director combinations to maximize financeability{targetCharacter ? ` for the role of ${targetCharacter.name}` : ''}. Triage suggestions into Shortlist, Maybe, or Pass — rank your shortlist by priority.
       </p>
 
       {/* Show triage board if there are items */}
