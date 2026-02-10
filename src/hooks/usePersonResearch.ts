@@ -10,6 +10,12 @@ export interface PersonAssessment {
   risk_flags: string[];
 }
 
+export interface DisambiguationCandidate {
+  name: string;
+  descriptor: string;
+  known_for: string;
+}
+
 interface ProjectContext {
   title?: string;
   format?: string;
@@ -18,12 +24,20 @@ interface ProjectContext {
 }
 
 export function usePersonResearch() {
-  const [loading, setLoading] = useState<string | null>(null); // person name being researched
+  const [loading, setLoading] = useState<string | null>(null);
   const [assessments, setAssessments] = useState<Record<string, PersonAssessment>>({});
+  const [candidates, setCandidates] = useState<DisambiguationCandidate[] | null>(null);
+  const [pendingResearch, setPendingResearch] = useState<{
+    personName: string;
+    role: 'cast' | 'hod';
+    projectContext?: ProjectContext;
+    department?: string;
+  } | null>(null);
 
   const research = async (personName: string, role: 'cast' | 'hod', projectContext?: ProjectContext, department?: string) => {
     if (!personName.trim()) return;
     setLoading(personName);
+    setCandidates(null);
 
     try {
       const { data, error } = await supabase.functions.invoke('research-person', {
@@ -46,6 +60,13 @@ export function usePersonResearch() {
         return;
       }
 
+      // Check if disambiguation is needed
+      if (data?.disambiguation && data?.candidates) {
+        setCandidates(data.candidates);
+        setPendingResearch({ personName, role, projectContext, department });
+        return;
+      }
+
       setAssessments(prev => ({ ...prev, [personName]: data as PersonAssessment }));
     } catch (e) {
       console.error('Person research error:', e);
@@ -53,6 +74,42 @@ export function usePersonResearch() {
     } finally {
       setLoading(null);
     }
+  };
+
+  const confirmCandidate = async (candidate: DisambiguationCandidate) => {
+    if (!pendingResearch) return;
+    const { personName, role, projectContext, department } = pendingResearch;
+
+    setLoading(personName);
+    setCandidates(null);
+    setPendingResearch(null);
+
+    try {
+      const { data, error } = await supabase.functions.invoke('research-person', {
+        body: {
+          person_name: personName,
+          role,
+          project_context: { ...projectContext, department },
+          mode: 'assess',
+          disambiguation_hint: `${candidate.descriptor} — known for: ${candidate.known_for}`,
+        },
+      });
+
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+
+      setAssessments(prev => ({ ...prev, [personName]: data as PersonAssessment }));
+    } catch (e) {
+      console.error('Person research error:', e);
+      toast.error('Could not assess this person right now.');
+    } finally {
+      setLoading(null);
+    }
+  };
+
+  const clearDisambiguation = () => {
+    setCandidates(null);
+    setPendingResearch(null);
   };
 
   const clearAssessment = (personName: string) => {
@@ -63,5 +120,5 @@ export function usePersonResearch() {
     });
   };
 
-  return { research, loading, assessments, clearAssessment };
+  return { research, loading, assessments, candidates, confirmCandidate, clearDisambiguation, clearAssessment };
 }

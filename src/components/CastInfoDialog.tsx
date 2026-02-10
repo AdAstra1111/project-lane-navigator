@@ -2,8 +2,8 @@ import { useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Loader2, TrendingUp, Award, AlertTriangle, ExternalLink, Search } from 'lucide-react';
-import { usePersonResearch, type PersonAssessment } from '@/hooks/usePersonResearch';
+import { Loader2, TrendingUp, Award, AlertTriangle, ExternalLink, Search, Users } from 'lucide-react';
+import { usePersonResearch, type PersonAssessment, type DisambiguationCandidate } from '@/hooks/usePersonResearch';
 import { motion } from 'framer-motion';
 
 const TRAJECTORY_STYLES: Record<string, { label: string; className: string }> = {
@@ -38,7 +38,7 @@ interface CastInfoDialogProps {
 }
 
 export function CastInfoDialog({ personName, reason, open, onOpenChange, projectContext }: CastInfoDialogProps) {
-  const { research, loading, assessments } = usePersonResearch();
+  const { research, loading, assessments, candidates, confirmCandidate, clearDisambiguation } = usePersonResearch();
   const [hasRequested, setHasRequested] = useState(false);
 
   const assessment = assessments[personName];
@@ -46,6 +46,9 @@ export function CastInfoDialog({ personName, reason, open, onOpenChange, project
 
   const handleOpen = (isOpen: boolean) => {
     onOpenChange(isOpen);
+    if (!isOpen) {
+      clearDisambiguation();
+    }
     if (isOpen && !assessment && !hasRequested) {
       setHasRequested(true);
       research(personName, 'cast', projectContext);
@@ -86,7 +89,7 @@ export function CastInfoDialog({ personName, reason, open, onOpenChange, project
           </Button>
         </div>
 
-        {/* AI Assessment */}
+        {/* Loading */}
         {isLoading && (
           <div className="flex items-center gap-2 py-6 justify-center text-muted-foreground text-sm">
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -94,6 +97,36 @@ export function CastInfoDialog({ personName, reason, open, onOpenChange, project
           </div>
         )}
 
+        {/* Disambiguation step */}
+        {candidates && candidates.length > 1 && !isLoading && (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="space-y-3"
+          >
+            <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+              <Users className="h-4 w-4 text-primary" />
+              Multiple people found — which one?
+            </div>
+            <div className="space-y-2">
+              {candidates.map((c, i) => (
+                <button
+                  key={i}
+                  onClick={() => confirmCandidate(c)}
+                  className="w-full text-left border border-border rounded-lg p-3 hover:border-primary/50 hover:bg-primary/5 transition-colors"
+                >
+                  <p className="text-sm font-semibold text-foreground">{c.name}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{c.descriptor}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Known for: <span className="text-foreground">{c.known_for}</span>
+                  </p>
+                </button>
+              ))}
+            </div>
+          </motion.div>
+        )}
+
+        {/* AI Assessment */}
         {assessment && (
           <motion.div
             initial={{ opacity: 0, y: 8 }}
@@ -148,7 +181,7 @@ export function CastInfoDialog({ personName, reason, open, onOpenChange, project
           </motion.div>
         )}
 
-        {!isLoading && !assessment && hasRequested && (
+        {!isLoading && !assessment && !candidates && hasRequested && (
           <div className="py-4 text-center">
             <p className="text-sm text-muted-foreground">Could not load assessment.</p>
             <Button size="sm" variant="ghost" className="mt-2" onClick={() => research(personName, 'cast', projectContext)}>
