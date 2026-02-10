@@ -29,3 +29,6 @@ verify_jwt = false
 
 [functions.research-person]
 verify_jwt = false
+
+[functions.script-coverage]
+verify_jwt = false
