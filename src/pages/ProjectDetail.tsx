@@ -524,11 +524,13 @@ export default function ProjectDetail() {
             ) : null
           }>
             <FinanceWaterfall scenarios={financeScenarios} />
-            {project && (
+            {project && id && (
               <ProjectIncentivePanel
+                projectId={id}
                 format={project.format}
                 budget_range={project.budget_range}
                 genres={project.genres || []}
+                onAnalysed={setIncentiveAnalysed}
               />
             )}
             {id && <DealTracker projectId={id} />}

@@ -1151,6 +1151,7 @@ export type Database = {
           format: string
           genres: string[]
           id: string
+          incentive_insights: Json | null
           pipeline_stage: string
           reasoning: string | null
           recommendations: Json | null
@@ -1171,6 +1172,7 @@ export type Database = {
           format?: string
           genres?: string[]
           id?: string
+          incentive_insights?: Json | null
           pipeline_stage?: string
           reasoning?: string | null
           recommendations?: Json | null
@@ -1191,6 +1193,7 @@ export type Database = {
           format?: string
           genres?: string[]
           id?: string
+          incentive_insights?: Json | null
           pipeline_stage?: string
           reasoning?: string | null
           recommendations?: Json | null
