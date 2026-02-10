@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Film, Tv, Target, Palette, DollarSign, Users, Quote, CheckCircle2, ShieldAlert, Trash2, Loader2, AlertTriangle, MessageSquareQuote, FileText } from 'lucide-react';
+import { ArrowLeft, Film, Tv, Target, Palette, DollarSign, Users, Quote, CheckCircle2, ShieldAlert, Trash2, Loader2, AlertTriangle, MessageSquareQuote, FileText, Copy, ArrowLeftRight } from 'lucide-react';
 import { ProjectNoteInput } from '@/components/ProjectNoteInput';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -29,6 +29,7 @@ import { ProjectTimeline } from '@/components/ProjectTimeline';
 import { useProject, useProjectDocuments } from '@/hooks/useProjects';
 import { useProjects } from '@/hooks/useProjects';
 import { useAddDocuments } from '@/hooks/useAddDocuments';
+import { useProjectDuplicate } from '@/hooks/useProjectDuplicate';
 import { useActiveCastTrends } from '@/hooks/useTrends';
 import { ProjectRelevantSignals } from '@/components/ProjectRelevantSignals';
 import { useProjectCast, useProjectPartners, useProjectScripts, useProjectFinance, useProjectHODs } from '@/hooks/useProjectAttachments';
@@ -142,6 +143,7 @@ export default function ProjectDetail() {
   const { documents } = useProjectDocuments(id);
   const { deleteProject } = useProjects();
   const addDocuments = useAddDocuments(id);
+  const { duplicate } = useProjectDuplicate();
   
   const { data: castTrends = [] } = useActiveCastTrends();
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -168,6 +170,12 @@ export default function ProjectDetail() {
     if (!id) return;
     await deleteProject.mutateAsync(id);
     navigate('/dashboard');
+  };
+
+  const handleDuplicate = () => {
+    if (!id) return;
+    duplicate.mutate(id);
+  };
   };
 
   const getLabel = (value: string, list: readonly { value: string; label: string }[]) =>
@@ -247,16 +255,37 @@ export default function ProjectDetail() {
               )}
             </div>
 
-            <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-              <AlertDialogTrigger asChild>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="text-muted-foreground hover:text-primary shrink-0"
+                title="Duplicate as scenario"
+                onClick={handleDuplicate}
+                disabled={duplicate.isPending}
+              >
+                {duplicate.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Copy className="h-4 w-4" />}
+              </Button>
+              <Link to="/compare">
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="text-muted-foreground hover:text-destructive hover:bg-destructive/10 shrink-0"
+                  className="text-muted-foreground hover:text-primary shrink-0"
+                  title="Compare scenarios"
                 >
-                  <Trash2 className="h-4 w-4" />
+                  <ArrowLeftRight className="h-4 w-4" />
                 </Button>
-              </AlertDialogTrigger>
+              </Link>
+              <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="text-muted-foreground hover:text-destructive hover:bg-destructive/10 shrink-0"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
                   <AlertDialogTitle>Delete "{project.title}"?</AlertDialogTitle>
@@ -283,6 +312,7 @@ export default function ProjectDetail() {
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
+            </div>
           </div>
 
           {/* Readiness Score */}
