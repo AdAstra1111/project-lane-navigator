@@ -38,6 +38,8 @@ import { useAuth } from '@/hooks/useAuth';
 import { ProjectRelevantSignals } from '@/components/ProjectRelevantSignals';
 import { TerritoryHeatMap } from '@/components/TerritoryHeatMap';
 import { ScriptCoverage } from '@/components/ScriptCoverage';
+import { FinanceWaterfall } from '@/components/FinanceWaterfall';
+import { CompAnalysis } from '@/components/CompAnalysis';
 import { useProjectCast, useProjectPartners, useProjectScripts, useProjectFinance, useProjectHODs } from '@/hooks/useProjectAttachments';
 import { generateProjectInsights } from '@/lib/project-insights';
 import { calculateReadiness } from '@/lib/readiness-score';
@@ -437,6 +439,9 @@ export default function ProjectDetail() {
             </div>
           )}
 
+          {/* Finance Waterfall */}
+          <FinanceWaterfall scenarios={financeScenarios} />
+
           {/* Attachment Tabs: Cast, Partners, Scripts, Finance */}
           {id && <ProjectAttachmentTabs projectId={id} projectContext={{ title: project.title, format: project.format, budget_range: project.budget_range, genres: project.genres }} />}
 
@@ -513,6 +518,18 @@ export default function ProjectDetail() {
 
           {/* Buyer / Market Match Engine */}
           {project && <ProjectBuyerMatches project={project} />}
+
+          {/* Comparable Analysis */}
+          {project && (
+            <CompAnalysis
+              projectTitle={project.title}
+              format={project.format}
+              genres={project.genres || []}
+              budgetRange={project.budget_range}
+              tone={project.tone}
+              comparableTitles={project.comparable_titles}
+            />
+          )}
 
           {/* Territory Heat Map */}
           <TerritoryHeatMap

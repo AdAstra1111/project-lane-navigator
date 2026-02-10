@@ -32,3 +32,6 @@ verify_jwt = false
 
 [functions.script-coverage]
 verify_jwt = false
+
+[functions.comp-analysis]
+verify_jwt = false

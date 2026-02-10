@@ -1,15 +1,19 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Plus, Clapperboard, ArrowLeftRight, Kanban } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Header } from '@/components/Header';
 import { ProjectCard } from '@/components/ProjectCard';
 import { OnboardingOverlay } from '@/components/OnboardingOverlay';
 import { DashboardAnalytics } from '@/components/DashboardAnalytics';
+import { RoleDashboard } from '@/components/RoleDashboard';
 import { useProjects } from '@/hooks/useProjects';
 
 export default function Dashboard() {
   const { projects, isLoading } = useProjects();
+  const [roleView, setRoleView] = useState<string>('none');
 
   return (
     <div className="min-h-screen bg-background">
@@ -47,6 +51,18 @@ export default function Dashboard() {
                   </Button>
                 </Link>
               )}
+              <Select value={roleView} onValueChange={setRoleView}>
+                <SelectTrigger className="w-36">
+                  <SelectValue placeholder="Role View" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">All Projects</SelectItem>
+                  <SelectItem value="producer">Producer</SelectItem>
+                  <SelectItem value="sales_agent">Sales Agent</SelectItem>
+                  <SelectItem value="lawyer">Lawyer</SelectItem>
+                  <SelectItem value="creative">Creative</SelectItem>
+                </SelectContent>
+              </Select>
               <Link to="/projects/new">
                 <Button className="bg-primary text-primary-foreground hover:bg-primary/90">
                   <Plus className="h-4 w-4 mr-1.5" />
@@ -88,6 +104,9 @@ export default function Dashboard() {
           ) : (
             <>
               <DashboardAnalytics projects={projects} />
+              {roleView !== 'none' && (
+                <RoleDashboard projects={projects} role={roleView as any} />
+              )}
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {projects.map((project, i) => (
                   <ProjectCard key={project.id} project={project} index={i} />
