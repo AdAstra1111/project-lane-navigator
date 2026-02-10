@@ -47,6 +47,7 @@ import { FinanceWaterfall } from '@/components/FinanceWaterfall';
 import { CompAnalysis } from '@/components/CompAnalysis';
 import { DealTracker } from '@/components/DealTracker';
 import { SmartPackaging } from '@/components/SmartPackaging';
+import { useTalentTriage } from '@/hooks/useTalentTriage';
 import { MarketWindowAlerts } from '@/components/MarketWindowAlerts';
 import { useProjectCast, useProjectPartners, useProjectScripts, useProjectFinance, useProjectHODs } from '@/hooks/useProjectAttachments';
 import { generateProjectInsights } from '@/lib/project-insights';
@@ -198,7 +199,7 @@ export default function ProjectDetail() {
   const { scripts } = useProjectScripts(id);
   const { scenarios: financeScenarios } = useProjectFinance(id);
   const { hods } = useProjectHODs(id);
-
+  const insightTriage = useTalentTriage(id || '');
   const insights = useMemo(() => {
     if (!project || castTrends.length === 0) return null;
     return generateProjectInsights(project, castTrends);
@@ -526,7 +527,7 @@ export default function ProjectDetail() {
           </Section>
 
           {/* 3. Intelligence */}
-          {insights && project && (
+          {insights && project && id && (
             <Section icon={Target} title="Intelligence">
               <ProjectInsightPanel
                 insights={insights}
@@ -538,6 +539,8 @@ export default function ProjectDetail() {
                   tone: project.tone,
                   assigned_lane: project.assigned_lane,
                 }}
+                onSaveToTriage={insightTriage.addItems}
+                existingTriageNames={new Set(insightTriage.items.map(i => i.person_name.toLowerCase()))}
               />
             </Section>
           )}
