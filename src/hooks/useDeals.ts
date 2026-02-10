@@ -19,10 +19,98 @@ export interface ProjectDeal {
   updated_at: string;
 }
 
+// ─── Finance categories ───
+export type DealCategory = 'sales' | 'equity' | 'incentive' | 'soft-money' | 'gap' | 'other';
+
+export const DEAL_CATEGORIES: { value: DealCategory; label: string; description: string }[] = [
+  { value: 'sales', label: 'Sales & Distribution', description: 'Pre-sales, MGs, territory deals' },
+  { value: 'equity', label: 'Equity & Investment', description: 'Private equity, co-finance, studio investment' },
+  { value: 'incentive', label: 'Tax Incentives', description: 'Tax credits, rebates, secured incentives' },
+  { value: 'soft-money', label: 'Soft Money', description: 'Grants, funds, broadcaster pre-buys' },
+  { value: 'gap', label: 'Gap & Debt', description: 'Gap finance, bridge loans, bank debt' },
+  { value: 'other', label: 'Other', description: 'Deferments, in-kind, product placement' },
+];
+
+// Maps deal_type values → category
+export const DEAL_TYPE_CATEGORY: Record<string, DealCategory> = {
+  // Sales
+  'all-rights': 'sales',
+  'theatrical': 'sales',
+  'streaming': 'sales',
+  'broadcast': 'sales',
+  'home-ent': 'sales',
+  'airline': 'sales',
+  'presale': 'sales',
+  // Equity
+  'equity': 'equity',
+  'co-finance': 'equity',
+  'studio-deal': 'equity',
+  // Incentive
+  'tax-credit': 'incentive',
+  'rebate': 'incentive',
+  'cash-grant': 'incentive',
+  // Soft money
+  'fund-grant': 'soft-money',
+  'broadcaster-prebuy': 'soft-money',
+  'development-fund': 'soft-money',
+  // Gap
+  'gap-finance': 'gap',
+  'bridge-loan': 'gap',
+  'bank-debt': 'gap',
+  // Other
+  'deferment': 'other',
+  'in-kind': 'other',
+  'product-placement': 'other',
+  'other': 'other',
+};
+
+export const DEAL_TYPES_BY_CATEGORY: Record<DealCategory, { value: string; label: string }[]> = {
+  sales: [
+    { value: 'all-rights', label: 'All Rights' },
+    { value: 'presale', label: 'Pre-Sale' },
+    { value: 'theatrical', label: 'Theatrical' },
+    { value: 'streaming', label: 'Streaming' },
+    { value: 'broadcast', label: 'Broadcast' },
+    { value: 'home-ent', label: 'Home Entertainment' },
+    { value: 'airline', label: 'Airline' },
+  ],
+  equity: [
+    { value: 'equity', label: 'Private Equity' },
+    { value: 'co-finance', label: 'Co-Finance' },
+    { value: 'studio-deal', label: 'Studio Deal' },
+  ],
+  incentive: [
+    { value: 'tax-credit', label: 'Tax Credit' },
+    { value: 'rebate', label: 'Rebate' },
+    { value: 'cash-grant', label: 'Cash Grant' },
+  ],
+  'soft-money': [
+    { value: 'fund-grant', label: 'Fund / Grant' },
+    { value: 'broadcaster-prebuy', label: 'Broadcaster Pre-Buy' },
+    { value: 'development-fund', label: 'Development Fund' },
+  ],
+  gap: [
+    { value: 'gap-finance', label: 'Gap Finance' },
+    { value: 'bridge-loan', label: 'Bridge Loan' },
+    { value: 'bank-debt', label: 'Bank Debt' },
+  ],
+  other: [
+    { value: 'deferment', label: 'Deferment' },
+    { value: 'in-kind', label: 'In-Kind' },
+    { value: 'product-placement', label: 'Product Placement' },
+    { value: 'other', label: 'Other' },
+  ],
+};
+
 const DEAL_STATUSES = ['offered', 'negotiating', 'term-sheet', 'closed', 'passed'] as const;
-const DEAL_TYPES = ['all-rights', 'theatrical', 'streaming', 'broadcast', 'home-ent', 'airline', 'other'] as const;
+// Keep legacy export for backward compat
+const DEAL_TYPES = Object.values(DEAL_TYPES_BY_CATEGORY).flat().map(t => t.value);
 
 export { DEAL_STATUSES, DEAL_TYPES };
+
+export function getCategoryForDealType(dealType: string): DealCategory {
+  return DEAL_TYPE_CATEGORY[dealType] || 'other';
+}
 
 export function useProjectDeals(projectId: string | undefined) {
   const queryClient = useQueryClient();
@@ -87,5 +175,22 @@ export function useProjectDeals(projectId: string | undefined) {
     .filter(d => d.status === 'closed' && d.minimum_guarantee)
     .reduce((sum, d) => sum + (parseFloat(d.minimum_guarantee.replace(/[^0-9.]/g, '')) || 0), 0);
 
-  return { deals, isLoading, addDeal, updateDeal, deleteDeal, totalMG };
+  // Group deals by category
+  const dealsByCategory = deals.reduce<Record<DealCategory, ProjectDeal[]>>((acc, deal) => {
+    const cat = getCategoryForDealType(deal.deal_type);
+    if (!acc[cat]) acc[cat] = [];
+    acc[cat].push(deal);
+    return acc;
+  }, {} as Record<DealCategory, ProjectDeal[]>);
+
+  // Per-category totals (closed deals)
+  const categoryTotals = DEAL_CATEGORIES.reduce<Record<DealCategory, number>>((acc, cat) => {
+    const catDeals = dealsByCategory[cat.value] || [];
+    acc[cat.value] = catDeals
+      .filter(d => d.status === 'closed' && d.minimum_guarantee)
+      .reduce((sum, d) => sum + (parseFloat(d.minimum_guarantee.replace(/[^0-9.]/g, '')) || 0), 0);
+    return acc;
+  }, {} as Record<DealCategory, number>);
+
+  return { deals, isLoading, addDeal, updateDeal, deleteDeal, totalMG, dealsByCategory, categoryTotals };
 }
