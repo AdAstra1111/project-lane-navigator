@@ -55,7 +55,7 @@ export function CastInfoDialog({ personName, reason, open, onOpenChange, project
   const trajectory = TRAJECTORY_STYLES[assessment?.market_trajectory || 'unknown'] || TRAJECTORY_STYLES.unknown;
   const impact = IMPACT_STYLES[assessment?.packaging_impact || 'neutral'] || IMPACT_STYLES.neutral;
 
-  const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(personName + ' actor')}&tbm=isch`;
+  const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(personName + ' actor')}`;
   const imdbUrl = `https://www.imdb.com/find/?q=${encodeURIComponent(personName)}&s=nm`;
 
   return (
