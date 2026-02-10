@@ -39,8 +39,8 @@ serve(async (req) => {
     const replacementClause = replacementFor
       ? `\n\nThis is a REPLACEMENT request. The producer passed on "${replacementFor}". Suggest someone who fills a similar role/function but is a different talent.`
       : '';
-    const characterClause = targetCharacter
-      ? `\n\nTARGET ROLE: The producer is specifically casting for the character "${targetCharacter.name}"${targetCharacter.description ? ` — ${targetCharacter.description}` : ''}${targetCharacter.scene_count ? ` (appears in ${targetCharacter.scene_count} scenes, ${targetCharacter.scene_count > 15 ? 'LEAD' : targetCharacter.scene_count > 5 ? 'SUPPORTING LEAD' : 'SUPPORTING'} role)` : ''}. Tailor ALL suggestions to actors who could convincingly play this specific character. Consider age, physicality, acting range, and prior roles that demonstrate suitability.`
+    const characterClause = (targetCharacter && !isCrew)
+      ? `\n\nTARGET ROLE: The producer is specifically casting for the character "${targetCharacter.name}"${targetCharacter.description ? ` — ${targetCharacter.description}` : ''}${targetCharacter.scene_count ? ` (appears in ${targetCharacter.scene_count} scenes, ${targetCharacter.scene_count > 15 ? 'LEAD' : targetCharacter.scene_count > 5 ? 'SUPPORTING LEAD' : 'SUPPORTING'} role)` : ''}. Tailor ALL suggestions to ACTORS ONLY who could convincingly play this specific character. Do NOT suggest directors or crew — only actors. Consider age, physicality, acting range, and prior roles that demonstrate suitability.`
       : '';
 
     const crewPrompt = isCrew
