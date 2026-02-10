@@ -1,8 +1,7 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Users, UserPlus, X, Shield, Eye, Pencil, Crown, Mail, ChevronDown } from 'lucide-react';
+import { Users, UserPlus, X, Shield, Eye, Pencil, Crown, Link2, Copy, Check, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import {
   Select,
@@ -24,6 +23,8 @@ import {
   type ProjectRole,
   type ProjectCollaborator,
 } from '@/hooks/useCollaboration';
+import { useInviteLinks } from '@/hooks/useInviteLinks';
+import { toast } from 'sonner';
 
 const ROLE_ICONS: Record<ProjectRole, React.ElementType> = {
   producer: Crown,
@@ -101,20 +102,26 @@ interface ProjectCollaboratorsPanelProps {
 }
 
 export function ProjectCollaboratorsPanel({ projectId, isOwner }: ProjectCollaboratorsPanelProps) {
-  const { collaborators, isLoading, invite, remove, updateRole } = useProjectCollaborators(projectId);
+  const { collaborators, isLoading, remove, updateRole } = useProjectCollaborators(projectId);
+  const { links, create: createLink, remove: removeLink, getInviteUrl } = useInviteLinks(projectId);
   const [inviteOpen, setInviteOpen] = useState(false);
-  const [email, setEmail] = useState('');
   const [role, setRole] = useState<ProjectRole>('creative');
+  const [copiedToken, setCopiedToken] = useState<string | null>(null);
 
-  const handleInvite = () => {
-    if (!email.trim()) return;
-    invite.mutate({ email: email.trim(), role }, {
-      onSuccess: () => {
-        setEmail('');
-        setRole('creative');
-        setInviteOpen(false);
-      },
-    });
+  const handleCreateLink = async () => {
+    const result = await createLink.mutateAsync({ role });
+    const url = getInviteUrl(result.token);
+    await navigator.clipboard.writeText(url);
+    setCopiedToken(result.token);
+    toast.success('Invite link copied to clipboard!');
+    setTimeout(() => setCopiedToken(null), 3000);
+  };
+
+  const handleCopyLink = async (token: string) => {
+    await navigator.clipboard.writeText(getInviteUrl(token));
+    setCopiedToken(token);
+    toast.success('Link copied!');
+    setTimeout(() => setCopiedToken(null), 3000);
   };
 
   return (
@@ -144,23 +151,11 @@ export function ProjectCollaboratorsPanel({ projectId, isOwner }: ProjectCollabo
             </DialogTrigger>
             <DialogContent className="sm:max-w-md">
               <DialogHeader>
-                <DialogTitle className="font-display">Invite Team Member</DialogTitle>
+                <DialogTitle className="font-display">Create Invite Link</DialogTitle>
               </DialogHeader>
               <div className="space-y-4 mt-2">
                 <div>
-                  <label className="text-sm text-muted-foreground mb-1.5 block">Email address</label>
-                  <div className="flex items-center gap-2">
-                    <Mail className="h-4 w-4 text-muted-foreground shrink-0" />
-                    <Input
-                      value={email}
-                      onChange={e => setEmail(e.target.value)}
-                      placeholder="colleague@example.com"
-                      type="email"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="text-sm text-muted-foreground mb-1.5 block">Role</label>
+                  <label className="text-sm text-muted-foreground mb-1.5 block">Role for invitee</label>
                   <Select value={role} onValueChange={v => setRole(v as ProjectRole)}>
                     <SelectTrigger>
                       <SelectValue />
@@ -178,12 +173,43 @@ export function ProjectCollaboratorsPanel({ projectId, isOwner }: ProjectCollabo
                   </Select>
                 </div>
                 <Button
-                  onClick={handleInvite}
-                  disabled={!email.trim() || invite.isPending}
+                  onClick={handleCreateLink}
+                  disabled={createLink.isPending}
                   className="w-full"
                 >
-                  {invite.isPending ? 'Sending…' : 'Send Invitation'}
+                  <Link2 className="h-4 w-4 mr-1.5" />
+                  {createLink.isPending ? 'Creating…' : 'Create & Copy Link'}
                 </Button>
+
+                {links.length > 0 && (
+                  <div className="border-t border-border pt-3 space-y-2">
+                    <p className="text-xs text-muted-foreground font-medium">Active Links</p>
+                    {links.map((link: any) => (
+                      <div key={link.id} className="flex items-center justify-between text-xs bg-muted/50 rounded-lg px-3 py-2">
+                        <div>
+                          <span className="font-medium text-foreground">{ROLE_LABELS[link.role as ProjectRole]}</span>
+                          <span className="text-muted-foreground ml-2">
+                            {link.use_count} use{link.use_count !== 1 ? 's' : ''}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            variant="ghost" size="icon" className="h-6 w-6"
+                            onClick={() => handleCopyLink(link.token)}
+                          >
+                            {copiedToken === link.token ? <Check className="h-3 w-3 text-emerald-500" /> : <Copy className="h-3 w-3" />}
+                          </Button>
+                          <Button
+                            variant="ghost" size="icon" className="h-6 w-6"
+                            onClick={() => removeLink.mutate(link.id)}
+                          >
+                            <Trash2 className="h-3 w-3 text-muted-foreground" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </DialogContent>
           </Dialog>

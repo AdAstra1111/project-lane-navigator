@@ -904,6 +904,50 @@ export type Database = {
           },
         ]
       }
+      project_invite_links: {
+        Row: {
+          created_at: string
+          created_by: string
+          expires_at: string
+          id: string
+          max_uses: number | null
+          project_id: string
+          role: Database["public"]["Enums"]["project_role"]
+          token: string
+          use_count: number
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          expires_at?: string
+          id?: string
+          max_uses?: number | null
+          project_id: string
+          role?: Database["public"]["Enums"]["project_role"]
+          token?: string
+          use_count?: number
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          expires_at?: string
+          id?: string
+          max_uses?: number | null
+          project_id?: string
+          role?: Database["public"]["Enums"]["project_role"]
+          token?: string
+          use_count?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_invite_links_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       project_partners: {
         Row: {
           created_at: string
@@ -1352,6 +1396,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      accept_invite_link: { Args: { _token: string }; Returns: Json }
       get_project_role: {
         Args: { _project_id: string; _user_id: string }
         Returns: string
