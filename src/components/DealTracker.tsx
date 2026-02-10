@@ -164,13 +164,17 @@ function CategorySection({
   onDelete: (id: string) => void;
   onAdd: (cat: DealCategory) => void;
 }) {
+  const [open, setOpen] = useState(deals.length > 0);
   const Icon = CATEGORY_ICONS[category.value];
   const closedCount = deals.filter(d => d.status === 'closed').length;
   const activeCount = deals.filter(d => !['closed', 'passed'].includes(d.status)).length;
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center justify-between">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center justify-between hover:bg-muted/30 rounded-lg px-1 py-1 transition-colors cursor-pointer"
+      >
         <div className="flex items-center gap-2">
           <Icon className="h-4 w-4 text-primary" />
           <h4 className="font-display font-semibold text-foreground text-sm">{category.label}</h4>
@@ -179,29 +183,46 @@ function CategorySection({
               {activeCount} active · {closedCount} closed
             </span>
           )}
-        </div>
-        <div className="flex items-center gap-2">
           {total > 0 && (
             <span className="text-xs font-medium text-emerald-400">
-              ${(total / 1000).toFixed(0)}K secured
+              ${(total / 1000).toFixed(0)}K
             </span>
           )}
-          <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => onAdd(category.value)}>
+        </div>
+        <div className="flex items-center gap-1">
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 text-xs"
+            onClick={(e) => { e.stopPropagation(); onAdd(category.value); }}
+          >
             <Plus className="h-3 w-3 mr-1" />
             Add
           </Button>
+          {open ? <ChevronUp className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />}
         </div>
-      </div>
+      </button>
 
-      {deals.length === 0 ? (
-        <p className="text-xs text-muted-foreground pl-6 py-1">{category.description}</p>
-      ) : (
-        <div className="space-y-0.5">
-          {deals.map(deal => (
-            <DealRow key={deal.id} deal={deal} onUpdate={onUpdate} onDelete={onDelete} />
-          ))}
-        </div>
-      )}
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="overflow-hidden"
+          >
+            {deals.length === 0 ? (
+              <p className="text-xs text-muted-foreground pl-6 py-1">{category.description}</p>
+            ) : (
+              <div className="space-y-0.5">
+                {deals.map(deal => (
+                  <DealRow key={deal.id} deal={deal} onUpdate={onUpdate} onDelete={onDelete} />
+                ))}
+              </div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
