@@ -509,7 +509,17 @@ export default function ProjectDetail() {
           )}
 
           {/* Intelligence Panel */}
-          {insights && <ProjectInsightPanel insights={insights} />}
+          {insights && project && (
+            <ProjectInsightPanel
+              insights={insights}
+              projectContext={{
+                title: project.title,
+                format: project.format,
+                budget_range: project.budget_range,
+                genres: project.genres || [],
+              }}
+            />
+          )}
 
           {/* Incentives & Co-Production Panel */}
           {project && (
