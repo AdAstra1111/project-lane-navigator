@@ -3,7 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
 
-export type TriageStatus = 'unsorted' | 'shortlist' | 'maybe' | 'pass';
+export type TriageStatus = 'unsorted' | 'shortlist' | 'maybe' | 'no' | 'pass';
 
 export interface TalentTriageItem {
   id: string;
@@ -133,6 +133,7 @@ export function useTalentTriage(projectId: string) {
     unsorted: byStatus('unsorted'),
     shortlisted: byStatus('shortlist'),
     maybes: byStatus('maybe'),
+    nos: byStatus('no'),
     passed: byStatus('pass'),
   };
 }
