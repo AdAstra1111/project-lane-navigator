@@ -148,7 +148,14 @@ function CastTab({ projectId }: { projectId: string }) {
                   {availableCharacters.map(ch => (
                     <SelectItem key={ch.name} value={ch.name}>
                       <div className="flex flex-col">
-                        <span>{ch.name}</span>
+                        <div className="flex items-center gap-2">
+                          <span>{ch.name}</span>
+                          {ch.scene_count != null && ch.scene_count > 0 && (
+                            <span className="text-[10px] bg-muted text-muted-foreground rounded px-1.5 py-0.5">
+                              {ch.scene_count} scene{ch.scene_count !== 1 ? 's' : ''}
+                            </span>
+                          )}
+                        </div>
                         {ch.description && <span className="text-[10px] text-muted-foreground">{ch.description}</span>}
                       </div>
                     </SelectItem>

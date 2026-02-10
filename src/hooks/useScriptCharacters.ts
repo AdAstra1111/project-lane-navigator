@@ -4,6 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 export interface ScriptCharacter {
   name: string;
   description: string;
+  scene_count?: number;
 }
 
 export function useScriptCharacters(projectId: string | undefined) {

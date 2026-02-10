@@ -82,7 +82,6 @@ serve(async (req) => {
       } else if (fileData) {
         const arrayBuffer = await fileData.arrayBuffer();
         const bytes = new Uint8Array(arrayBuffer);
-        // Convert to base64
         let binary = "";
         for (let i = 0; i < bytes.length; i++) {
           binary += String.fromCharCode(bytes[i]);
@@ -106,7 +105,7 @@ serve(async (req) => {
     // Build messages: use PDF (multimodal) or text
     const systemMessage = {
       role: "system",
-      content: `You are a script analysis tool. Extract all named speaking characters from the screenplay/script text provided. Return ONLY character names as they appear in the script (typically in UPPERCASE in screenplays). Exclude generic descriptions like "MAN", "WOMAN", "WAITER" unless they are clearly recurring characters. Focus on characters who have dialogue or are named specifically.`,
+      content: `You are a script analysis tool. Extract all named speaking characters from the screenplay/script text provided. For each character, count how many distinct scenes they appear in. A scene is typically marked by a scene heading (INT./EXT. or similar slug line). Return character names as they appear in the script. Exclude generic descriptions like "MAN", "WOMAN", "WAITER" unless they are clearly recurring characters with multiple scenes. Focus on characters who have dialogue or are named specifically.`,
     };
 
     let userMessage: any;
@@ -115,16 +114,15 @@ serve(async (req) => {
       const truncated = words.length > 20000 ? words.slice(0, 20000).join(" ") : extractedText;
       userMessage = {
         role: "user",
-        content: `Extract all named character names from this script:\n\n${truncated}`,
+        content: `Extract all named character names from this script, and count how many scenes each character appears in:\n\n${truncated}`,
       };
     } else {
-      // Send PDF as multimodal content
       userMessage = {
         role: "user",
         content: [
           {
             type: "text",
-            text: "Extract all named speaking character names from this screenplay/script PDF.",
+            text: "Extract all named speaking character names from this screenplay/script PDF. For each character, count how many scenes they appear in.",
           },
           {
             type: "image_url",
@@ -150,7 +148,7 @@ serve(async (req) => {
             type: "function",
             function: {
               name: "extract_characters",
-              description: "Return the list of character names found in the script.",
+              description: "Return the list of character names found in the script with scene counts.",
               parameters: {
                 type: "object",
                 properties: {
@@ -161,8 +159,9 @@ serve(async (req) => {
                       properties: {
                         name: { type: "string", description: "Character name as it appears in the script" },
                         description: { type: "string", description: "Brief one-line description of the character if determinable, otherwise empty string" },
+                        scene_count: { type: "number", description: "Number of distinct scenes the character appears in" },
                       },
-                      required: ["name", "description"],
+                      required: ["name", "description", "scene_count"],
                       additionalProperties: false,
                     },
                   },
@@ -201,7 +200,7 @@ serve(async (req) => {
 
     const aiData = await aiResponse.json();
     
-    let characters: { name: string; description: string }[] = [];
+    let characters: { name: string; description: string; scene_count: number }[] = [];
     try {
       const toolCall = aiData.choices?.[0]?.message?.tool_calls?.[0];
       if (toolCall?.function?.arguments) {
@@ -212,7 +211,7 @@ serve(async (req) => {
       console.error("Failed to parse AI character response:", parseErr);
     }
 
-    // Deduplicate and title-case
+    // Deduplicate, title-case, and sort by scene count descending
     const seen = new Set<string>();
     const uniqueCharacters = characters.filter((c) => {
       const key = c.name.toUpperCase().trim();
@@ -222,7 +221,8 @@ serve(async (req) => {
     }).map((c) => ({
       name: c.name.trim().split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" "),
       description: c.description,
-    }));
+      scene_count: c.scene_count || 0,
+    })).sort((a, b) => b.scene_count - a.scene_count);
 
     console.log(`Extracted ${uniqueCharacters.length} characters`);
 
