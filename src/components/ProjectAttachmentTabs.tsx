@@ -381,9 +381,9 @@ function ScriptsTab({ projectId }: { projectId: string }) {
   );
 }
 
-// ---- Finance Scenarios Tab ----
+// ---- Finance Scenarios Tab (exported for use in Finance section) ----
 
-const FINANCE_FIELD_HINTS: Record<string, { label: string; placeholder: string; tip: string }> = {
+export const FINANCE_FIELD_HINTS: Record<string, { label: string; placeholder: string; tip: string }> = {
   total_budget: { label: 'Total Budget', placeholder: 'e.g. $2.5M', tip: 'The all-in production budget you\'re targeting. This becomes the benchmark everything else is measured against.' },
   equity_amount: { label: 'Equity', placeholder: 'e.g. $500K', tip: 'Private investment — producer equity, gap equity, or mezzanine finance. Usually the riskiest money in, so it\'s the hardest to close.' },
   presales_amount: { label: 'Pre-Sales', placeholder: 'e.g. $800K', tip: 'Revenue from territory sales committed before production. This is how distributors and sales agents de-risk the project.' },
@@ -398,7 +398,7 @@ const CONFIDENCE_OPTIONS = [
   { value: 'low', label: 'Low', desc: 'Early stage — exploratory or aspirational' },
 ];
 
-function FinanceTab({ projectId }: { projectId: string }) {
+export function FinanceTab({ projectId }: { projectId: string }) {
   const { scenarios, addScenario, deleteScenario, updateScenario } = useProjectFinance(projectId);
   const [adding, setAdding] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -797,7 +797,7 @@ export function ProjectAttachmentTabs({ projectId, projectContext, projectTitle,
       transition={{ delay: 0.2, duration: 0.3 }}
     >
       <Tabs defaultValue="cast" className="space-y-4">
-        <TabsList className="bg-muted/50 w-full grid grid-cols-6">
+        <TabsList className="bg-muted/50 w-full grid grid-cols-5">
           <TabsTrigger value="cast" className="gap-1.5 text-xs">
             <Users className="h-3.5 w-3.5" /> Cast
           </TabsTrigger>
@@ -809,9 +809,6 @@ export function ProjectAttachmentTabs({ projectId, projectContext, projectTitle,
           </TabsTrigger>
           <TabsTrigger value="scripts" className="gap-1.5 text-xs">
             <FileText className="h-3.5 w-3.5" /> Scripts
-          </TabsTrigger>
-          <TabsTrigger value="finance" className="gap-1.5 text-xs">
-            <DollarSign className="h-3.5 w-3.5" /> Finance
           </TabsTrigger>
           <TabsTrigger value="schedule" className="gap-1.5 text-xs">
             <CalendarDays className="h-3.5 w-3.5" /> Schedule
@@ -831,9 +828,6 @@ export function ProjectAttachmentTabs({ projectId, projectContext, projectTitle,
         </TabsContent>
         <TabsContent value="scripts">
           <ScriptsTab projectId={projectId} />
-        </TabsContent>
-        <TabsContent value="finance">
-          <FinanceTab projectId={projectId} />
         </TabsContent>
         <TabsContent value="schedule">
           <ScheduleTab projectId={projectId} />
