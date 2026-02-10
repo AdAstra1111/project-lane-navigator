@@ -26,3 +26,6 @@ verify_jwt = false
 
 [functions.extract-scenes]
 verify_jwt = false
+
+[functions.research-person]
+verify_jwt = false

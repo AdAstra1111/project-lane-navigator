@@ -356,7 +356,7 @@ export default function ProjectDetail() {
           )}
 
           {/* Attachment Tabs: Cast, Partners, Scripts, Finance */}
-          {id && <ProjectAttachmentTabs projectId={id} />}
+          {id && <ProjectAttachmentTabs projectId={id} projectContext={{ title: project.title, format: project.format, budget_range: project.budget_range, genres: project.genres }} />}
 
           {/* Project Notes with Impact Analysis */}
           {id && <ProjectNoteInput projectId={id} />}

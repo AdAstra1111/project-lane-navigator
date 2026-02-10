@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { Users, Handshake, FileText, DollarSign, Plus, Trash2, X, Check, Clapperboard, Loader2, CalendarDays } from 'lucide-react';
+import { Users, Handshake, FileText, DollarSign, Plus, Trash2, X, Check, Clapperboard, Loader2, CalendarDays, Sparkles } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -19,6 +19,8 @@ import {
   type ProjectHOD,
 } from '@/hooks/useProjectAttachments';
 import { useScriptCharacters } from '@/hooks/useScriptCharacters';
+import { usePersonResearch } from '@/hooks/usePersonResearch';
+import { PersonAssessmentCard } from '@/components/PersonAssessmentCard';
 import { ScheduleTab } from '@/components/ScheduleTab';
 
 // ---- Status badge styles ----
@@ -63,10 +65,18 @@ const DEPARTMENTS = [
   'Other',
 ];
 
+export interface ProjectContext {
+  title?: string;
+  format?: string;
+  budget_range?: string;
+  genres?: string[];
+}
+
 // ---- Cast Tab ----
-function CastTab({ projectId }: { projectId: string }) {
+function CastTab({ projectId, projectContext }: { projectId: string; projectContext?: ProjectContext }) {
   const { cast, addCast, deleteCast, updateCast } = useProjectCast(projectId);
   const { data: scriptCharacters = [], isLoading: charsLoading } = useScriptCharacters(projectId);
+  const { research, loading, assessments, clearAssessment } = usePersonResearch();
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState({ role_name: '', actor_name: '', status: 'wishlist' });
   const [customRole, setCustomRole] = useState(false);
@@ -80,6 +90,8 @@ function CastTab({ projectId }: { projectId: string }) {
   const handleAdd = () => {
     if (!form.actor_name.trim()) return;
     addCast.mutate(form);
+    // Trigger research
+    research(form.actor_name, 'cast', projectContext);
     setForm({ role_name: '', actor_name: '', status: 'wishlist' });
     setCustomRole(false);
     setAdding(false);
@@ -88,34 +100,55 @@ function CastTab({ projectId }: { projectId: string }) {
   return (
     <div className="space-y-3">
       {cast.map(c => (
-        <div key={c.id} className="flex items-center gap-3 bg-muted/30 rounded-lg px-3 py-2.5">
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-medium text-foreground truncate">{c.actor_name}</span>
-              {c.role_name && <span className="text-xs text-muted-foreground">as {c.role_name}</span>}
-            </div>
-            {c.territory_tags.length > 0 && (
-              <div className="flex gap-1 mt-1">
-                {c.territory_tags.map(t => (
-                  <span key={t} className="text-[10px] text-muted-foreground bg-muted rounded px-1.5 py-0.5">{t}</span>
-                ))}
+        <div key={c.id}>
+          <div className="flex items-center gap-3 bg-muted/30 rounded-lg px-3 py-2.5">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-foreground truncate">{c.actor_name}</span>
+                {c.role_name && <span className="text-xs text-muted-foreground">as {c.role_name}</span>}
               </div>
-            )}
+              {c.territory_tags.length > 0 && (
+                <div className="flex gap-1 mt-1">
+                  {c.territory_tags.map(t => (
+                    <span key={t} className="text-[10px] text-muted-foreground bg-muted rounded px-1.5 py-0.5">{t}</span>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="flex items-center gap-1">
+              {!assessments[c.actor_name] && loading !== c.actor_name && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 text-muted-foreground hover:text-primary"
+                  onClick={() => research(c.actor_name, 'cast', projectContext)}
+                  title="Assess market value"
+                >
+                  <Sparkles className="h-3.5 w-3.5" />
+                </Button>
+              )}
+              {loading === c.actor_name && (
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+              )}
+            </div>
+            <Select value={c.status} onValueChange={v => updateCast.mutate({ id: c.id, status: v })}>
+              <SelectTrigger className="w-28 h-7 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="wishlist">Wishlist</SelectItem>
+                <SelectItem value="approached">Approached</SelectItem>
+                <SelectItem value="interested">Interested</SelectItem>
+                <SelectItem value="attached">Attached</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => deleteCast.mutate(c.id)}>
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
           </div>
-          <Select value={c.status} onValueChange={v => updateCast.mutate({ id: c.id, status: v })}>
-            <SelectTrigger className="w-28 h-7 text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="wishlist">Wishlist</SelectItem>
-              <SelectItem value="approached">Approached</SelectItem>
-              <SelectItem value="interested">Interested</SelectItem>
-              <SelectItem value="attached">Attached</SelectItem>
-            </SelectContent>
-          </Select>
-          <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => deleteCast.mutate(c.id)}>
-            <Trash2 className="h-3.5 w-3.5" />
-          </Button>
+          {assessments[c.actor_name] && (
+            <PersonAssessmentCard assessment={assessments[c.actor_name]} onDismiss={() => clearAssessment(c.actor_name)} />
+          )}
         </div>
       ))}
 
@@ -404,14 +437,17 @@ function FinanceTab({ projectId }: { projectId: string }) {
 }
 
 // ---- HODs Tab ----
-function HODsTab({ projectId }: { projectId: string }) {
+function HODsTab({ projectId, projectContext }: { projectId: string; projectContext?: ProjectContext }) {
   const { hods, addHOD, deleteHOD, updateHOD } = useProjectHODs(projectId);
+  const { research, loading, assessments, clearAssessment } = usePersonResearch();
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState({ department: 'Director', person_name: '', known_for: '', reputation_tier: 'emerging' });
 
   const handleAdd = () => {
     if (!form.person_name.trim()) return;
     addHOD.mutate(form);
+    // Trigger research
+    research(form.person_name, 'hod', projectContext, form.department);
     setForm({ department: 'Director', person_name: '', known_for: '', reputation_tier: 'emerging' });
     setAdding(false);
   };
@@ -419,33 +455,54 @@ function HODsTab({ projectId }: { projectId: string }) {
   return (
     <div className="space-y-3">
       {hods.map(h => (
-        <div key={h.id} className="bg-muted/30 rounded-lg px-3 py-2.5 space-y-1.5">
-          <div className="flex items-center gap-3">
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-foreground truncate">{h.person_name}</span>
-                <span className="text-[10px] text-muted-foreground bg-muted rounded px-1.5 py-0.5">{h.department}</span>
-                <Badge className={`text-[10px] px-1.5 py-0 border ${REPUTATION_STYLES[h.reputation_tier] || ''}`}>
-                  {h.reputation_tier}
-                </Badge>
+        <div key={h.id}>
+          <div className="bg-muted/30 rounded-lg px-3 py-2.5 space-y-1.5">
+            <div className="flex items-center gap-3">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-foreground truncate">{h.person_name}</span>
+                  <span className="text-[10px] text-muted-foreground bg-muted rounded px-1.5 py-0.5">{h.department}</span>
+                  <Badge className={`text-[10px] px-1.5 py-0 border ${REPUTATION_STYLES[h.reputation_tier] || ''}`}>
+                    {h.reputation_tier}
+                  </Badge>
+                </div>
+                {h.known_for && <p className="text-xs text-muted-foreground mt-0.5 truncate">{h.known_for}</p>}
               </div>
-              {h.known_for && <p className="text-xs text-muted-foreground mt-0.5 truncate">{h.known_for}</p>}
+              <div className="flex items-center gap-1">
+                {!assessments[h.person_name] && loading !== h.person_name && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 text-muted-foreground hover:text-primary"
+                    onClick={() => research(h.person_name, 'hod', projectContext, h.department)}
+                    title="Assess market value"
+                  >
+                    <Sparkles className="h-3.5 w-3.5" />
+                  </Button>
+                )}
+                {loading === h.person_name && (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                )}
+              </div>
+              <Select value={h.status} onValueChange={v => updateHOD.mutate({ id: h.id, status: v })}>
+                <SelectTrigger className="w-28 h-7 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="wishlist">Wishlist</SelectItem>
+                  <SelectItem value="in-talks">In Talks</SelectItem>
+                  <SelectItem value="attached">Attached</SelectItem>
+                  <SelectItem value="confirmed">Confirmed</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => deleteHOD.mutate(h.id)}>
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
             </div>
-            <Select value={h.status} onValueChange={v => updateHOD.mutate({ id: h.id, status: v })}>
-              <SelectTrigger className="w-28 h-7 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="wishlist">Wishlist</SelectItem>
-                <SelectItem value="in-talks">In Talks</SelectItem>
-                <SelectItem value="attached">Attached</SelectItem>
-                <SelectItem value="confirmed">Confirmed</SelectItem>
-              </SelectContent>
-            </Select>
-            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => deleteHOD.mutate(h.id)}>
-              <Trash2 className="h-3.5 w-3.5" />
-            </Button>
           </div>
+          {assessments[h.person_name] && (
+            <PersonAssessmentCard assessment={assessments[h.person_name]} onDismiss={() => clearAssessment(h.person_name)} />
+          )}
         </div>
       ))}
 
@@ -502,9 +559,10 @@ function HODsTab({ projectId }: { projectId: string }) {
 // ---- Main Component ----
 interface Props {
   projectId: string;
+  projectContext?: ProjectContext;
 }
 
-export function ProjectAttachmentTabs({ projectId }: Props) {
+export function ProjectAttachmentTabs({ projectId, projectContext }: Props) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}
@@ -534,10 +592,10 @@ export function ProjectAttachmentTabs({ projectId }: Props) {
         </TabsList>
 
         <TabsContent value="cast">
-          <CastTab projectId={projectId} />
+          <CastTab projectId={projectId} projectContext={projectContext} />
         </TabsContent>
         <TabsContent value="hods">
-          <HODsTab projectId={projectId} />
+          <HODsTab projectId={projectId} projectContext={projectContext} />
         </TabsContent>
         <TabsContent value="partners">
           <PartnersTab projectId={projectId} />
