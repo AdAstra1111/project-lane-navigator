@@ -468,24 +468,7 @@ export default function ProjectDetail() {
             )}
           </Section>
 
-          {/* 2. Intelligence */}
-          {insights && project && (
-            <Section icon={Target} title="Intelligence">
-              <ProjectInsightPanel
-                insights={insights}
-                projectContext={{
-                  title: project.title,
-                  format: project.format,
-                  budget_range: project.budget_range,
-                  genres: project.genres || [],
-                  tone: project.tone,
-                  assigned_lane: project.assigned_lane,
-                }}
-              />
-            </Section>
-          )}
-
-          {/* 3. Packaging & Attachments */}
+          {/* 2. Packaging & Attachments */}
           <Section icon={Package} title="Packaging" badge={
             readiness ? (
               <span className="text-xs text-muted-foreground bg-muted rounded-full px-2 py-0.5">
@@ -514,6 +497,23 @@ export default function ProjectDetail() {
               />
             )}
           </Section>
+
+          {/* 3. Intelligence */}
+          {insights && project && (
+            <Section icon={Target} title="Intelligence">
+              <ProjectInsightPanel
+                insights={insights}
+                projectContext={{
+                  title: project.title,
+                  format: project.format,
+                  budget_range: project.budget_range,
+                  genres: project.genres || [],
+                  tone: project.tone,
+                  assigned_lane: project.assigned_lane,
+                }}
+              />
+            </Section>
+          )}
 
           {/* 4. Finance & Incentives */}
           <Section icon={DollarSign} title="Finance & Incentives" badge={
