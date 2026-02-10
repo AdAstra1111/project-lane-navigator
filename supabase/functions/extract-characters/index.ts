@@ -41,25 +41,22 @@ serve(async (req) => {
       .order("created_at", { ascending: false })
       .limit(1);
 
-    if (!scripts?.length || !scripts[0].file_path) {
-      return new Response(JSON.stringify({ characters: [] }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    const scriptFilePath = scripts?.[0]?.file_path || null;
+
+    // --- Try to find extracted text from project_documents ---
+    let extractedText = "";
+
+    if (scriptFilePath) {
+      const { data: docs } = await adminClient
+        .from("project_documents")
+        .select("extracted_text")
+        .eq("project_id", projectId)
+        .eq("file_path", scriptFilePath)
+        .limit(1);
+      extractedText = docs?.[0]?.extracted_text || "";
     }
 
-    const scriptFilePath = scripts[0].file_path;
-
-    // Get the extracted text from project_documents matching this file_path
-    const { data: docs } = await adminClient
-      .from("project_documents")
-      .select("extracted_text")
-      .eq("project_id", projectId)
-      .eq("file_path", scriptFilePath)
-      .limit(1);
-
-    let extractedText = docs?.[0]?.extracted_text || "";
-
-    // If no extracted text found via file_path match, try the latest document with text
+    // Fallback: any document with extracted text for this project
     if (!extractedText) {
       const { data: fallbackDocs } = await adminClient
         .from("project_documents")
@@ -71,19 +68,73 @@ serve(async (req) => {
       extractedText = fallbackDocs?.[0]?.extracted_text || "";
     }
 
-    if (!extractedText || extractedText.length < 50) {
+    // --- If still no text, download the PDF from storage and send as base64 to AI ---
+    let pdfBase64: string | null = null;
+
+    if (!extractedText && scriptFilePath) {
+      console.log("No extracted text found, downloading PDF from storage:", scriptFilePath);
+      const { data: fileData, error: downloadError } = await adminClient.storage
+        .from("project-documents")
+        .download(scriptFilePath);
+
+      if (downloadError) {
+        console.error("Storage download error:", downloadError);
+      } else if (fileData) {
+        const arrayBuffer = await fileData.arrayBuffer();
+        const bytes = new Uint8Array(arrayBuffer);
+        // Convert to base64
+        let binary = "";
+        for (let i = 0; i < bytes.length; i++) {
+          binary += String.fromCharCode(bytes[i]);
+        }
+        pdfBase64 = btoa(binary);
+        console.log(`Downloaded PDF, size: ${bytes.length} bytes`);
+      }
+    }
+
+    // If we have neither extracted text nor a PDF, return empty
+    if (!extractedText && !pdfBase64) {
+      console.log("No text or PDF available for character extraction");
       return new Response(JSON.stringify({ characters: [] }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // Truncate to ~20k words to stay within token limits
-    const words = extractedText.split(/\s+/);
-    const truncated = words.length > 20000 ? words.slice(0, 20000).join(" ") : extractedText;
-
-    // Use Lovable AI to extract character names
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
+
+    // Build messages: use PDF (multimodal) or text
+    const systemMessage = {
+      role: "system",
+      content: `You are a script analysis tool. Extract all named speaking characters from the screenplay/script text provided. Return ONLY character names as they appear in the script (typically in UPPERCASE in screenplays). Exclude generic descriptions like "MAN", "WOMAN", "WAITER" unless they are clearly recurring characters. Focus on characters who have dialogue or are named specifically.`,
+    };
+
+    let userMessage: any;
+    if (extractedText) {
+      const words = extractedText.split(/\s+/);
+      const truncated = words.length > 20000 ? words.slice(0, 20000).join(" ") : extractedText;
+      userMessage = {
+        role: "user",
+        content: `Extract all named character names from this script:\n\n${truncated}`,
+      };
+    } else {
+      // Send PDF as multimodal content
+      userMessage = {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "Extract all named speaking character names from this screenplay/script PDF.",
+          },
+          {
+            type: "image_url",
+            image_url: {
+              url: `data:application/pdf;base64,${pdfBase64}`,
+            },
+          },
+        ],
+      };
+    }
 
     const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -92,17 +143,8 @@ serve(async (req) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
-        messages: [
-          {
-            role: "system",
-            content: `You are a script analysis tool. Extract all named speaking characters from the screenplay/script text provided. Return ONLY character names as they appear in the script (typically in UPPERCASE in screenplays). Exclude generic descriptions like "MAN", "WOMAN", "WAITER" unless they are clearly recurring characters. Focus on characters who have dialogue or are named specifically.`,
-          },
-          {
-            role: "user",
-            content: `Extract all named character names from this script:\n\n${truncated}`,
-          },
-        ],
+        model: "google/gemini-2.5-flash",
+        messages: [systemMessage, userMessage],
         tools: [
           {
             type: "function",
@@ -159,7 +201,6 @@ serve(async (req) => {
 
     const aiData = await aiResponse.json();
     
-    // Parse tool call response
     let characters: { name: string; description: string }[] = [];
     try {
       const toolCall = aiData.choices?.[0]?.message?.tool_calls?.[0];
@@ -182,6 +223,8 @@ serve(async (req) => {
       name: c.name.trim().split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" "),
       description: c.description,
     }));
+
+    console.log(`Extracted ${uniqueCharacters.length} characters`);
 
     return new Response(JSON.stringify({ characters: uniqueCharacters }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
