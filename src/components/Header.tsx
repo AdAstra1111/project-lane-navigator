@@ -1,5 +1,5 @@
 import { Link, useNavigate } from 'react-router-dom';
-import { LogOut, Plus, Radio, Landmark, HelpCircle, ChevronDown, Calendar } from 'lucide-react';
+import { LogOut, Plus, Radio, Landmark, HelpCircle, ChevronDown, Calendar, Users } from 'lucide-react';
 import { NotificationBell } from '@/components/NotificationBell';
 import { Button } from '@/components/ui/button';
 import {
@@ -55,6 +55,15 @@ export function Header() {
           >
             <Calendar className="h-4 w-4 mr-1" />
             Festivals
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => navigate('/buyer-crm')}
+            className="text-muted-foreground hover:text-foreground"
+          >
+            <Users className="h-4 w-4 mr-1" />
+            Buyers
           </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

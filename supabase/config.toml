@@ -35,3 +35,6 @@ verify_jwt = false
 
 [functions.comp-analysis]
 verify_jwt = false
+
+[functions.smart-packaging]
+verify_jwt = false
