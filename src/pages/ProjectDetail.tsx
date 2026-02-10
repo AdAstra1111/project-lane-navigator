@@ -427,7 +427,33 @@ export default function ProjectDetail() {
 
           {/* ═══ COLLAPSIBLE SECTIONS ═══ */}
 
-          {/* 1. Analysis & Signals */}
+          {/* 1. Project Details */}
+          <Section icon={FileText} title="Project Details" defaultOpen>
+            <div className="glass-card rounded-xl p-5">
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div>
+                  <p className="text-muted-foreground mb-0.5">Budget Range</p>
+                  <p className="text-foreground font-medium">{getLabel(project.budget_range, BUDGET_RANGES)}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground mb-0.5">Target Audience</p>
+                  <p className="text-foreground font-medium">{getLabel(project.target_audience, TARGET_AUDIENCES)}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground mb-0.5">Tone</p>
+                  <p className="text-foreground font-medium">{getLabel(project.tone, TONES)}</p>
+                </div>
+                {project.comparable_titles && (
+                  <div>
+                    <p className="text-muted-foreground mb-0.5">Comparables</p>
+                    <p className="text-foreground font-medium">{project.comparable_titles}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </Section>
+
+          {/* 2. Analysis & Signals */}
           <Section icon={TrendingUp} title="Analysis & Signals">
             {project && <ProjectRelevantSignals project={project} />}
             {hasNewAnalysis && analysis && <AnalysisPassesDisplay passes={analysis} />}
@@ -591,31 +617,6 @@ export default function ProjectDetail() {
             {id && <ProjectTimeline projectId={id} />}
           </Section>
 
-          {/* 8. Project Details */}
-          <Section icon={FileText} title="Project Details">
-            <div className="glass-card rounded-xl p-5">
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <p className="text-muted-foreground mb-0.5">Budget Range</p>
-                  <p className="text-foreground font-medium">{getLabel(project.budget_range, BUDGET_RANGES)}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground mb-0.5">Target Audience</p>
-                  <p className="text-foreground font-medium">{getLabel(project.target_audience, TARGET_AUDIENCES)}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground mb-0.5">Tone</p>
-                  <p className="text-foreground font-medium">{getLabel(project.tone, TONES)}</p>
-                </div>
-                {project.comparable_titles && (
-                  <div>
-                    <p className="text-muted-foreground mb-0.5">Comparables</p>
-                    <p className="text-foreground font-medium">{project.comparable_titles}</p>
-                  </div>
-                )}
-              </div>
-            </div>
-          </Section>
         </motion.div>
       </main>
     </div>
