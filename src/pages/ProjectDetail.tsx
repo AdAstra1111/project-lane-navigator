@@ -428,7 +428,7 @@ export default function ProjectDetail() {
           {/* ═══ COLLAPSIBLE SECTIONS ═══ */}
 
           {/* 1. Analysis & Signals */}
-          <Section icon={TrendingUp} title="Analysis & Signals" defaultOpen>
+          <Section icon={TrendingUp} title="Analysis & Signals">
             {project && <ProjectRelevantSignals project={project} />}
             {hasNewAnalysis && analysis && <AnalysisPassesDisplay passes={analysis} />}
             {hasNewAnalysis && analysis?.do_next && analysis?.avoid && (
