@@ -69,6 +69,33 @@ function normaliseBudget(budgetRange: string): string {
   return 'mid'; // default
 }
 
+// ---- Budget-to-market-alignment mapping ----
+
+const BUDGET_ALIGNMENT_FIT: Record<string, string[]> = {
+  micro: ['Indie'],
+  low: ['Indie'],
+  mid: ['Indie', 'Streamer'],
+  high: ['Streamer', 'Studio'],
+  'studio-level': ['Studio', 'Streamer'],
+};
+
+// ---- Tone keywords for matching ----
+
+function extractToneKeywords(tone: string): string[] {
+  const lower = tone.toLowerCase();
+  const keywords: string[] = [];
+  if (lower.includes('comed') || lower.includes('funny') || lower.includes('light') || lower.includes('satir')) keywords.push('comedy');
+  if (lower.includes('dark') || lower.includes('grit') || lower.includes('noir') || lower.includes('bleak')) keywords.push('thriller', 'drama');
+  if (lower.includes('action') || lower.includes('adrenaline') || lower.includes('kinetic')) keywords.push('action');
+  if (lower.includes('prestige') || lower.includes('arthouse') || lower.includes('auteur') || lower.includes('intimate')) keywords.push('prestige', 'drama');
+  if (lower.includes('horror') || lower.includes('scar') || lower.includes('creep') || lower.includes('elevated')) keywords.push('horror');
+  if (lower.includes('romantic') || lower.includes('love') || lower.includes('warm')) keywords.push('romance');
+  if (lower.includes('coming-of-age') || lower.includes('youth')) keywords.push('coming-of-age');
+  if (lower.includes('adventure') || lower.includes('epic')) keywords.push('action', 'adventure');
+  if (lower.includes('crime') || lower.includes('heist') || lower.includes('caper')) keywords.push('thriller', 'crime');
+  return [...new Set(keywords)];
+}
+
 // ---- Core insight generation ----
 
 export function generateProjectInsights(
@@ -78,21 +105,50 @@ export function generateProjectInsights(
   const genres = (project.genres || []).map(g => g.toLowerCase());
   const budget = normaliseBudget(project.budget_range);
   const format = project.format;
+  const toneKeywords = extractToneKeywords(project.tone || '');
+  const preferredAlignments = BUDGET_ALIGNMENT_FIT[budget] || ['Indie', 'Streamer'];
 
-  // --- Cast Intelligence ---
-  const matchingCast = castTrends
-    .filter(ct => {
-      const genreMatch = ct.genre_relevance?.some(gr =>
-        genres.some(pg => gr.toLowerCase().includes(pg) || pg.includes(gr.toLowerCase()))
+  // --- Cast Intelligence (multi-factor scoring) ---
+  const scored = castTrends
+    .filter(ct => ct.status === 'active')
+    .map(ct => {
+      let score = 0;
+      const ctGenres = (ct.genre_relevance || []).map(g => g.toLowerCase());
+
+      // Genre match (max 40 pts) — exact match scores higher than substring
+      const genreMatches = genres.filter(pg =>
+        ctGenres.some(cg => cg === pg || cg.includes(pg) || pg.includes(cg))
       );
-      return genreMatch && ct.status === 'active';
+      score += Math.min(genreMatches.length * 15, 40);
+
+      // Tone match (max 20 pts) — check if actor genres align with project tone
+      const toneMatches = toneKeywords.filter(tk =>
+        ctGenres.some(cg => cg.includes(tk) || tk.includes(cg))
+      );
+      score += Math.min(toneMatches.length * 10, 20);
+
+      // Market alignment fit (max 20 pts)
+      const alignment = ct.market_alignment || '';
+      if (preferredAlignments.some(pa => alignment.toLowerCase().includes(pa.toLowerCase()))) {
+        score += 20;
+      } else if (alignment.toLowerCase().includes('indie') && budget === 'mid') {
+        score += 10; // partial credit
+      }
+
+      // Cycle phase bonus (max 15 pts)
+      const phaseBonus: Record<string, number> = { Peaking: 15, Building: 10, Early: 5 };
+      score += phaseBonus[ct.cycle_phase] || 0;
+
+      // Territory diversity bonus (5 pts for non-US actors on international projects)
+      if (ct.region && ct.region !== 'US') score += 5;
+
+      return { trend: ct, score };
     })
-    .sort((a, b) => {
-      // Prioritise by phase: Peaking > Building > Early
-      const phaseOrder = { Peaking: 3, Building: 2, Early: 1 };
-      return (phaseOrder[b.cycle_phase] || 0) - (phaseOrder[a.cycle_phase] || 0);
-    })
+    .filter(s => s.score >= 20) // minimum relevance threshold
+    .sort((a, b) => b.score - a.score)
     .slice(0, 6);
+
+  const matchingCast = scored.map(s => s.trend);
 
   const hasInternationalSpread = matchingCast.some(c => c.region !== 'US') && matchingCast.some(c => c.region === 'US' || c.region === 'UK');
 
