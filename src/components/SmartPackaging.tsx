@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Sparkles, Loader2, Users, Star, User } from 'lucide-react';
+import { Sparkles, Loader2, Users, Star, User, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
@@ -70,11 +70,23 @@ export function SmartPackaging({ projectId, projectTitle, format, genres, budget
 
   const projectContext = { title: projectTitle, format, budget_range: budgetRange, genres };
 
-  const fetchSuggestions = async () => {
+  const fetchSuggestions = async (clearFirst = false) => {
     setLoading(true);
     try {
+      // If clearing, delete unsorted triage items for this mode first
+      if (clearFirst) {
+        const unsorted = filteredByStatus('unsorted');
+        for (const item of unsorted) {
+          await triage.deleteItem(item.id);
+        }
+        setSuggestions([]);
+      }
+
+      // Exclude passed/no'd names so they don't reappear
+      const excludeNames = [...filteredByStatus('pass'), ...filteredByStatus('no')].map(p => p.person_name);
+
       const { data, error } = await supabase.functions.invoke('smart-packaging', {
-        body: { projectTitle, format, genres, budgetRange, tone, assignedLane, mode, customBrief: customBrief.trim().slice(0, 500) || undefined, targetDepartment: mode === 'crew' ? targetDepartment : undefined, targetCharacter: (mode === 'cast' && targetCharacter) ? { name: targetCharacter.name, description: targetCharacter.description, scene_count: targetCharacter.scene_count } : undefined },
+        body: { projectTitle, format, genres, budgetRange, tone, assignedLane, mode, excludeNames: excludeNames.length > 0 ? excludeNames : undefined, customBrief: customBrief.trim().slice(0, 500) || undefined, targetDepartment: mode === 'crew' ? targetDepartment : undefined, targetCharacter: (mode === 'cast' && targetCharacter) ? { name: targetCharacter.name, description: targetCharacter.description, scene_count: targetCharacter.scene_count } : undefined },
       });
       if (error) throw error;
       const results: PackagingSuggestion[] = data?.suggestions || [];
@@ -154,10 +166,18 @@ export function SmartPackaging({ projectId, projectTitle, format, genres, budget
             {mode === 'crew' ? 'Smart Crew Suggestions' : 'Smart Cast Suggestions'}
           </h3>
         </div>
-        <Button size="sm" variant="outline" onClick={fetchSuggestions} disabled={loading || replacementLoading}>
-          {loading ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Users className="h-3.5 w-3.5 mr-1" />}
-          {filteredItems.length > 0 ? 'Get More' : 'Get Suggestions'}
-        </Button>
+        <div className="flex items-center gap-2">
+          {filteredItems.length > 0 && (
+            <Button size="sm" variant="ghost" onClick={() => fetchSuggestions(true)} disabled={loading || replacementLoading} title="Clear unsorted & get fresh suggestions">
+              <RefreshCw className="h-3.5 w-3.5 mr-1" />
+              Refresh
+            </Button>
+          )}
+          <Button size="sm" variant="outline" onClick={() => fetchSuggestions(false)} disabled={loading || replacementLoading}>
+            {loading ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Users className="h-3.5 w-3.5 mr-1" />}
+            {filteredItems.length > 0 ? 'Get More' : 'Get Suggestions'}
+          </Button>
+        </div>
       </div>
 
       {mode === 'cast' && (
