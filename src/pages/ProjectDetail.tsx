@@ -30,6 +30,7 @@ import { ProjectInsightPanel } from '@/components/ProjectInsightPanel';
 import { ProjectIncentivePanel } from '@/components/ProjectIncentivePanel';
 import { ProjectReadinessScore } from '@/components/ProjectReadinessScore';
 import { ProjectAttachmentTabs } from '@/components/ProjectAttachmentTabs';
+import { FinanceTab } from '@/components/ProjectAttachmentTabs';
 import { ProjectTimeline } from '@/components/ProjectTimeline';
 import { ProjectBuyerMatches } from '@/components/ProjectBuyerMatches';
 import { ProjectCollaboratorsPanel } from '@/components/ProjectCollaboratorsPanel';
@@ -608,6 +609,7 @@ export default function ProjectDetail() {
             ) : null
           }>
             {financeReadiness && <FinanceReadinessPanel result={financeReadiness} />}
+            {id && <FinanceTab projectId={id} />}
             <FinanceWaterfall scenarios={financeScenarios} />
             {project && id && (
               <ProjectIncentivePanel
