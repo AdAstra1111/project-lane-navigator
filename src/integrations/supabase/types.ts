@@ -1400,6 +1400,10 @@ export type Database = {
     }
     Functions: {
       accept_invite_link: { Args: { _token: string }; Returns: Json }
+      check_document_access: {
+        Args: { _file_path: string; _user_id: string }
+        Returns: boolean
+      }
       get_project_role: {
         Args: { _project_id: string; _user_id: string }
         Returns: string
