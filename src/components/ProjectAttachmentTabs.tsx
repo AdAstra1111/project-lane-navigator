@@ -1,6 +1,8 @@
 import { useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { Users, Handshake, FileText, DollarSign, Plus, Trash2, X, Check, Clapperboard, Loader2, CalendarDays, Sparkles } from 'lucide-react';
+import { Users, Handshake, FileText, DollarSign, Plus, Trash2, X, Check, Clapperboard, Loader2, CalendarDays, Sparkles, HelpCircle } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { type DisambiguationCandidate } from '@/hooks/usePersonResearch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -76,7 +78,7 @@ export interface ProjectContext {
 function CastTab({ projectId, projectContext }: { projectId: string; projectContext?: ProjectContext }) {
   const { cast, addCast, deleteCast, updateCast } = useProjectCast(projectId);
   const { data: scriptCharacters = [], isLoading: charsLoading } = useScriptCharacters(projectId);
-  const { research, loading, assessments, clearAssessment } = usePersonResearch();
+  const { research, loading, assessments, clearAssessment, candidates, confirmCandidate, clearDisambiguation } = usePersonResearch();
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState({ role_name: '', actor_name: '', status: 'wishlist' });
   const [customRole, setCustomRole] = useState(false);
@@ -151,6 +153,13 @@ function CastTab({ projectId, projectContext }: { projectId: string; projectCont
           )}
         </div>
       ))}
+
+      {/* Disambiguation Dialog */}
+      <DisambiguationDialog
+        candidates={candidates}
+        onSelect={confirmCandidate}
+        onClose={clearDisambiguation}
+      />
 
       {adding ? (
         <div className="space-y-2 bg-muted/20 rounded-lg px-3 py-2">
@@ -439,7 +448,7 @@ function FinanceTab({ projectId }: { projectId: string }) {
 // ---- HODs Tab ----
 function HODsTab({ projectId, projectContext }: { projectId: string; projectContext?: ProjectContext }) {
   const { hods, addHOD, deleteHOD, updateHOD } = useProjectHODs(projectId);
-  const { research, loading, assessments, clearAssessment } = usePersonResearch();
+  const { research, loading, assessments, clearAssessment, candidates, confirmCandidate, clearDisambiguation } = usePersonResearch();
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState({ department: 'Director', person_name: '', known_for: '', reputation_tier: 'emerging' });
 
@@ -506,6 +515,13 @@ function HODsTab({ projectId, projectContext }: { projectId: string; projectCont
         </div>
       ))}
 
+      {/* Disambiguation Dialog */}
+      <DisambiguationDialog
+        candidates={candidates}
+        onSelect={confirmCandidate}
+        onClose={clearDisambiguation}
+      />
+
       {adding ? (
         <div className="space-y-2 bg-muted/20 rounded-lg px-3 py-2">
           <div className="flex items-center gap-2">
@@ -553,6 +569,48 @@ function HODsTab({ projectId, projectContext }: { projectId: string; projectCont
         </div>
       )}
     </div>
+  );
+}
+
+// ---- Disambiguation Dialog ----
+function DisambiguationDialog({
+  candidates,
+  onSelect,
+  onClose,
+}: {
+  candidates: DisambiguationCandidate[] | null;
+  onSelect: (c: DisambiguationCandidate) => void;
+  onClose: () => void;
+}) {
+  if (!candidates || candidates.length <= 1) return null;
+
+  return (
+    <Dialog open={true} onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="sm:max-w-sm bg-card border-border">
+        <DialogHeader>
+          <DialogTitle className="font-display text-lg flex items-center gap-2">
+            <HelpCircle className="h-4.5 w-4.5 text-primary" />
+            Multiple people found
+          </DialogTitle>
+        </DialogHeader>
+        <p className="text-xs text-muted-foreground -mt-1">Which person did you mean?</p>
+        <div className="space-y-2">
+          {candidates.map((c, i) => (
+            <button
+              key={i}
+              onClick={() => onSelect(c)}
+              className="w-full text-left border border-border rounded-lg p-3 hover:border-primary/50 hover:bg-primary/5 transition-colors"
+            >
+              <p className="text-sm font-semibold text-foreground">{c.name}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">{c.descriptor}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Known for: <span className="text-foreground">{c.known_for}</span>
+              </p>
+            </button>
+          ))}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

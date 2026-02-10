@@ -38,7 +38,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    const { person_name, role, project_context } = await req.json();
+    const { person_name, role, project_context, mode, disambiguation_hint } = await req.json();
 
     if (!person_name) {
       return new Response(JSON.stringify({ error: "person_name is required" }), {
@@ -51,7 +51,97 @@ Deno.serve(async (req) => {
       ? "actor/actress in film and television"
       : `${project_context?.department || "crew member"} in film and television`;
 
-    const systemPrompt = `You are IFFY, a film finance intelligence tool. A producer is considering attaching a person to their project. Assess this person's current market value and how they affect the project's finance readiness.
+    // ── STEP 1: Disambiguation ──
+    if (mode !== "assess") {
+      const disambigResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${LOVABLE_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "google/gemini-3-flash-preview",
+          messages: [
+            {
+              role: "system",
+              content: `You are a film industry expert. The user is looking up a person named "${person_name}" who works as a ${roleContext}. Determine if this name could refer to multiple well-known people in the film/TV industry. If there is clearly only ONE well-known person by this name in this role, return a single candidate. If ambiguous, return up to 4 candidates.`,
+            },
+            {
+              role: "user",
+              content: `Who are the notable people named "${person_name}" working as a ${roleContext}? List each distinct person with a short identifier.`,
+            },
+          ],
+          tools: [{
+            type: "function",
+            function: {
+              name: "report_candidates",
+              description: "Return candidate matches for the given name.",
+              parameters: {
+                type: "object",
+                properties: {
+                  candidates: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        name: { type: "string", description: "Full name" },
+                        descriptor: { type: "string", description: "Brief identifier, e.g. 'British director of 12 Years a Slave' or 'Australian director of The Rover'" },
+                        known_for: { type: "string", description: "1-2 most famous credits" },
+                      },
+                      required: ["name", "descriptor", "known_for"],
+                      additionalProperties: false,
+                    },
+                  },
+                },
+                required: ["candidates"],
+                additionalProperties: false,
+              },
+            },
+          }],
+          tool_choice: { type: "function", function: { name: "report_candidates" } },
+        }),
+      });
+
+      if (!disambigResponse.ok) {
+        const status = disambigResponse.status;
+        if (status === 429) {
+          return new Response(JSON.stringify({ error: "Rate limit exceeded. Please try again shortly." }), {
+            status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        if (status === 402) {
+          return new Response(JSON.stringify({ error: "AI credits exhausted." }), {
+            status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        const body = await disambigResponse.text();
+        console.error("AI disambiguation error:", status, body);
+        throw new Error(`AI gateway error ${status}`);
+      }
+
+      const disambigData = await disambigResponse.json();
+      const disambigCall = disambigData.choices?.[0]?.message?.tool_calls?.[0];
+      if (!disambigCall?.function?.arguments) throw new Error("AI did not return disambiguation data");
+
+      const { candidates } = JSON.parse(disambigCall.function.arguments);
+
+      // If only one candidate, skip straight to assessment
+      if (candidates.length === 1) {
+        // Fall through to assessment with the confirmed identity
+      } else {
+        // Return candidates for user to pick
+        return new Response(JSON.stringify({ disambiguation: true, candidates }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
+
+    // ── STEP 2: Full Assessment ──
+    const identityHint = disambiguation_hint
+      ? `\nIMPORTANT: The user has confirmed they mean specifically: ${disambiguation_hint}. Assess ONLY this person, not anyone else with the same name.`
+      : "";
+
+    const systemPrompt = `You are IFFY, a film finance intelligence tool. A producer is considering attaching a person to their project. Assess this person's current market value and how they affect the project's finance readiness.${identityHint}
 
 Be specific about:
 - Their notable recent work (last 5 years)
@@ -116,7 +206,7 @@ Keep your response to 4-6 sentences. Be direct and producer-facing.`;
         model: "google/gemini-2.5-flash",
         messages: [
           { role: "system", content: systemPrompt },
-          { role: "user", content: `Assess the current market value and project impact of ${person_name} as a ${roleContext}.` },
+          { role: "user", content: `Assess the current market value and project impact of ${person_name} (${disambiguation_hint || roleContext}).` },
         ],
         tools,
         tool_choice: { type: "function", function: { name: "report_person_assessment" } },
