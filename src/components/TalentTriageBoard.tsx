@@ -2,11 +2,12 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Star, ThumbsDown, HelpCircle, RotateCcw, ChevronDown, ChevronUp,
-  GripVertical, Trash2, ArrowUp, ArrowDown, Sparkles, Ban,
+  GripVertical, Trash2, ArrowUp, ArrowDown, Sparkles, Ban, User,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { CastInfoDialog } from '@/components/CastInfoDialog';
+import { usePersonImage } from '@/hooks/usePersonImage';
 import type { TalentTriageItem, TriageStatus } from '@/hooks/useTalentTriage';
 
 interface Props {
@@ -50,6 +51,7 @@ function TriageCard({
   projectContext?: Props['projectContext'];
 }) {
   const [selectedPerson, setSelectedPerson] = useState<{ name: string; reason: string } | null>(null);
+  const imageUrl = usePersonImage(item.person_name);
 
   return (
     <>
@@ -61,6 +63,14 @@ function TriageCard({
         className="border border-border rounded-lg p-3 bg-card"
       >
         <div className="flex items-start gap-2">
+          {/* Headshot */}
+          <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center shrink-0 overflow-hidden">
+            {imageUrl ? (
+              <img src={imageUrl} alt={item.person_name} className="h-full w-full object-cover" />
+            ) : (
+              <User className="h-4 w-4 text-muted-foreground" />
+            )}
+          </div>
           {showPriorityControls && (
             <div className="flex flex-col items-center gap-0.5 pt-0.5">
               <button
