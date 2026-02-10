@@ -27,7 +27,7 @@ serve(async (req) => {
       });
     }
 
-    const { projectTitle, format, genres, budgetRange, tone, assignedLane, excludeNames, replacementFor, maxSuggestions, targetCharacter, mode, targetDepartment } = await req.json();
+    const { projectTitle, format, genres, budgetRange, tone, assignedLane, excludeNames, replacementFor, maxSuggestions, targetCharacter, mode, targetDepartment, customBrief } = await req.json();
     const isCrew = mode === 'crew';
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
@@ -83,7 +83,7 @@ Format: ${format}
 Genres: ${genres?.join(', ')}
 Budget: ${budgetRange}
 Tone: ${tone}
-Lane: ${assignedLane || 'unclassified'}${characterClause}${departmentClause}${excludeClause}${replacementClause}
+Lane: ${assignedLane || 'unclassified'}${characterClause}${departmentClause}${excludeClause}${replacementClause}${customBrief ? `\n\nPRODUCER BRIEF: The producer has given the following specific instructions — follow them closely:\n"${String(customBrief).slice(0, 500)}"` : ''}
 
 ${crewFields}`;
 
