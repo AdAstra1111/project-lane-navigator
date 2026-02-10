@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Film, Tv, Target, Palette, DollarSign, Users, Quote, CheckCircle2, ShieldAlert, Trash2, Loader2, AlertTriangle, MessageSquareQuote, FileText, Copy, ArrowLeftRight } from 'lucide-react';
+import { ArrowLeft, Film, Tv, Target, Palette, DollarSign, Users, Quote, CheckCircle2, ShieldAlert, Trash2, Loader2, AlertTriangle, MessageSquareQuote, FileText, Copy, ArrowLeftRight, Download } from 'lucide-react';
 import { ProjectNoteInput } from '@/components/ProjectNoteInput';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -41,6 +41,8 @@ import { generateProjectInsights } from '@/lib/project-insights';
 import { calculateReadiness } from '@/lib/readiness-score';
 import { MonetisationLane, Recommendation, FullAnalysis } from '@/lib/types';
 import { BUDGET_RANGES, TARGET_AUDIENCES, TONES } from '@/lib/constants';
+import { exportProjectPDF } from '@/lib/pdf-export';
+import { matchBuyersToProject } from '@/lib/buyer-matcher';
 
 
 
@@ -182,6 +184,40 @@ export default function ProjectDetail() {
     duplicate.mutate(id);
   };
 
+  const handleExportPDF = async () => {
+    if (!project || !readiness) return;
+    // Fetch buyer data on-demand for export
+    let buyerMatches: import('@/lib/buyer-matcher').BuyerMatch[] = [];
+    try {
+      const { data: buyers } = await (await import('@/integrations/supabase/client')).supabase
+        .from('market_buyers')
+        .select('*')
+        .eq('status', 'active');
+      if (buyers && buyers.length > 0) {
+        const castTerritories = [...new Set(cast.flatMap(c => c.territory_tags))];
+        buyerMatches = matchBuyersToProject(buyers as any[], {
+          format: project.format,
+          genres: project.genres,
+          budget_range: project.budget_range,
+          tone: project.tone,
+          target_audience: project.target_audience,
+          assigned_lane: project.assigned_lane,
+          cast_territories: castTerritories,
+        });
+      }
+    } catch { /* proceed without buyer matches */ }
+
+    exportProjectPDF({
+      project,
+      readiness,
+      cast,
+      partners,
+      hods,
+      financeScenarios,
+      buyerMatches,
+    });
+  };
+
   const getLabel = (value: string, list: readonly { value: string; label: string }[]) =>
     list.find(item => item.value === value)?.label || value;
 
@@ -260,6 +296,15 @@ export default function ProjectDetail() {
             </div>
 
             <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="text-muted-foreground hover:text-primary shrink-0"
+                title="Export PDF one-pager"
+                onClick={handleExportPDF}
+              >
+                <Download className="h-4 w-4" />
+              </Button>
               <Button
                 variant="ghost"
                 size="icon"
