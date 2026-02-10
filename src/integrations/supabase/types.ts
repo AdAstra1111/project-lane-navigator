@@ -14,6 +14,114 @@ export type Database = {
   }
   public: {
     Tables: {
+      buyer_contacts: {
+        Row: {
+          appetite_notes: string
+          buyer_name: string
+          company: string
+          company_type: string
+          created_at: string
+          email: string
+          genres_interest: string[]
+          id: string
+          last_contact_at: string | null
+          phone: string
+          relationship_status: string
+          territories: string[]
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          appetite_notes?: string
+          buyer_name?: string
+          company?: string
+          company_type?: string
+          created_at?: string
+          email?: string
+          genres_interest?: string[]
+          id?: string
+          last_contact_at?: string | null
+          phone?: string
+          relationship_status?: string
+          territories?: string[]
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          appetite_notes?: string
+          buyer_name?: string
+          company?: string
+          company_type?: string
+          created_at?: string
+          email?: string
+          genres_interest?: string[]
+          id?: string
+          last_contact_at?: string | null
+          phone?: string
+          relationship_status?: string
+          territories?: string[]
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      buyer_meetings: {
+        Row: {
+          buyer_contact_id: string
+          created_at: string
+          follow_up: string
+          id: string
+          location: string
+          meeting_date: string
+          meeting_type: string
+          notes: string
+          outcome: string
+          project_id: string | null
+          user_id: string
+        }
+        Insert: {
+          buyer_contact_id: string
+          created_at?: string
+          follow_up?: string
+          id?: string
+          location?: string
+          meeting_date?: string
+          meeting_type?: string
+          notes?: string
+          outcome?: string
+          project_id?: string | null
+          user_id: string
+        }
+        Update: {
+          buyer_contact_id?: string
+          created_at?: string
+          follow_up?: string
+          id?: string
+          location?: string
+          meeting_date?: string
+          meeting_type?: string
+          notes?: string
+          outcome?: string
+          project_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "buyer_meetings_buyer_contact_id_fkey"
+            columns: ["buyer_contact_id"]
+            isOneToOne: false
+            referencedRelation: "buyer_contacts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "buyer_meetings_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       cast_trends: {
         Row: {
           actor_name: string
@@ -508,6 +616,65 @@ export type Database = {
           },
           {
             foreignKeyName: "project_copro_scenarios_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_deals: {
+        Row: {
+          buyer_name: string
+          closed_at: string | null
+          created_at: string
+          currency: string
+          deal_type: string
+          id: string
+          minimum_guarantee: string
+          notes: string
+          offered_at: string | null
+          project_id: string
+          status: string
+          territory: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          buyer_name?: string
+          closed_at?: string | null
+          created_at?: string
+          currency?: string
+          deal_type?: string
+          id?: string
+          minimum_guarantee?: string
+          notes?: string
+          offered_at?: string | null
+          project_id: string
+          status?: string
+          territory?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          buyer_name?: string
+          closed_at?: string | null
+          created_at?: string
+          currency?: string
+          deal_type?: string
+          id?: string
+          minimum_guarantee?: string
+          notes?: string
+          offered_at?: string | null
+          project_id?: string
+          status?: string
+          territory?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_deals_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"

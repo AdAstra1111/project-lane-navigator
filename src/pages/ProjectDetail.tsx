@@ -33,13 +33,16 @@ import { useProject, useProjectDocuments } from '@/hooks/useProjects';
 import { useProjects } from '@/hooks/useProjects';
 import { useAddDocuments } from '@/hooks/useAddDocuments';
 import { useProjectDuplicate } from '@/hooks/useProjectDuplicate';
-import { useActiveCastTrends } from '@/hooks/useTrends';
+import { useActiveCastTrends, useActiveSignals } from '@/hooks/useTrends';
 import { useAuth } from '@/hooks/useAuth';
 import { ProjectRelevantSignals } from '@/components/ProjectRelevantSignals';
 import { TerritoryHeatMap } from '@/components/TerritoryHeatMap';
 import { ScriptCoverage } from '@/components/ScriptCoverage';
 import { FinanceWaterfall } from '@/components/FinanceWaterfall';
 import { CompAnalysis } from '@/components/CompAnalysis';
+import { DealTracker } from '@/components/DealTracker';
+import { SmartPackaging } from '@/components/SmartPackaging';
+import { MarketWindowAlerts } from '@/components/MarketWindowAlerts';
 import { useProjectCast, useProjectPartners, useProjectScripts, useProjectFinance, useProjectHODs } from '@/hooks/useProjectAttachments';
 import { generateProjectInsights } from '@/lib/project-insights';
 import { calculateReadiness } from '@/lib/readiness-score';
@@ -156,6 +159,7 @@ export default function ProjectDetail() {
   const { duplicate } = useProjectDuplicate();
   
   const { data: castTrends = [] } = useActiveCastTrends();
+  const { data: trendSignals = [] } = useActiveSignals();
   const { user } = useAuth();
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [incentiveAnalysed, setIncentiveAnalysed] = useState(false);
@@ -518,6 +522,31 @@ export default function ProjectDetail() {
 
           {/* Buyer / Market Match Engine */}
           {project && <ProjectBuyerMatches project={project} />}
+
+          {/* Deal Tracker */}
+          {id && <DealTracker projectId={id} />}
+
+          {/* Smart Packaging Suggestions */}
+          {project && (
+            <SmartPackaging
+              projectTitle={project.title}
+              format={project.format}
+              genres={project.genres || []}
+              budgetRange={project.budget_range}
+              tone={project.tone}
+              assignedLane={project.assigned_lane}
+            />
+          )}
+
+          {/* Market Window Alerts */}
+          {project && trendSignals.length > 0 && (
+            <MarketWindowAlerts
+              genres={project.genres || []}
+              tone={project.tone}
+              format={project.format}
+              signals={trendSignals}
+            />
+          )}
 
           {/* Comparable Analysis */}
           {project && (

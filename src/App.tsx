@@ -18,6 +18,7 @@ import StackCashflow from "./pages/StackCashflow";
 import CompareProjects from "./pages/CompareProjects";
 import Pipeline from "./pages/Pipeline";
 import FestivalCalendar from "./pages/FestivalCalendar";
+import BuyerCRM from "./pages/BuyerCRM";
 import About from "./pages/About";
 import HowItWorks from "./pages/HowItWorks";
 import FAQ from "./pages/FAQ";
@@ -49,6 +50,7 @@ const App = () => (
           <Route path="/compare" element={<ProtectedRoute><CompareProjects /></ProtectedRoute>} />
           <Route path="/pipeline" element={<ProtectedRoute><Pipeline /></ProtectedRoute>} />
           <Route path="/festivals" element={<ProtectedRoute><FestivalCalendar /></ProtectedRoute>} />
+          <Route path="/buyer-crm" element={<ProtectedRoute><BuyerCRM /></ProtectedRoute>} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
