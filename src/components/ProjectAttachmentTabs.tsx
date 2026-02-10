@@ -456,7 +456,7 @@ function HODsTab({ projectId, projectContext }: { projectId: string; projectCont
     if (!form.person_name.trim()) return;
     addHOD.mutate(form);
     // Trigger research
-    research(form.person_name, 'hod', projectContext, form.department);
+    research(form.person_name, 'hod', projectContext, form.department, form.known_for);
     setForm({ department: 'Director', person_name: '', known_for: '', reputation_tier: 'emerging' });
     setAdding(false);
   };
@@ -483,7 +483,7 @@ function HODsTab({ projectId, projectContext }: { projectId: string; projectCont
                     variant="ghost"
                     size="icon"
                     className="h-7 w-7 text-muted-foreground hover:text-primary"
-                    onClick={() => research(h.person_name, 'hod', projectContext, h.department)}
+                    onClick={() => research(h.person_name, 'hod', projectContext, h.department, h.known_for)}
                     title="Assess market value"
                   >
                     <Sparkles className="h-3.5 w-3.5" />
