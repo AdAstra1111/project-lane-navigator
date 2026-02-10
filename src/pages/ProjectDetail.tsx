@@ -47,7 +47,6 @@ import { ScriptCoverage } from '@/components/ScriptCoverage';
 import { FinanceWaterfall } from '@/components/FinanceWaterfall';
 import { CompAnalysis } from '@/components/CompAnalysis';
 import { DealTracker } from '@/components/DealTracker';
-import { SmartPackaging } from '@/components/SmartPackaging';
 import { useTalentTriage } from '@/hooks/useTalentTriage';
 import { MarketWindowAlerts } from '@/components/MarketWindowAlerts';
 import { useProjectCast, useProjectPartners, useProjectScripts, useProjectFinance, useProjectHODs } from '@/hooks/useProjectAttachments';
@@ -505,7 +504,18 @@ export default function ProjectDetail() {
               </span>
             ) : null
           }>
-            {id && <ProjectAttachmentTabs projectId={id} projectContext={{ title: project.title, format: project.format, budget_range: project.budget_range, genres: project.genres }} />}
+            {id && <ProjectAttachmentTabs
+              projectId={id}
+              projectContext={{ title: project.title, format: project.format, budget_range: project.budget_range, genres: project.genres }}
+              projectTitle={project.title}
+              format={project.format}
+              genres={project.genres || []}
+              budgetRange={project.budget_range}
+              tone={project.tone}
+              assignedLane={project.assigned_lane}
+              scriptCharacters={scriptCharacters}
+              scriptCharactersLoading={scriptCharsLoading}
+            />}
             {id && hasDocuments && (
               <ScriptCoverage
                 projectId={id}
@@ -513,19 +523,6 @@ export default function ProjectDetail() {
                 format={project.format}
                 genres={project.genres || []}
                 hasDocuments={hasDocuments}
-              />
-            )}
-            {project && (
-              <SmartPackaging
-                projectId={project.id}
-                projectTitle={project.title}
-                format={project.format}
-                genres={project.genres || []}
-                budgetRange={project.budget_range}
-                tone={project.tone}
-                assignedLane={project.assigned_lane}
-                scriptCharacters={scriptCharacters}
-                scriptCharactersLoading={scriptCharsLoading}
               />
             )}
           </Section>

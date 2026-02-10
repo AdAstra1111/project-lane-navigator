@@ -18,6 +18,8 @@ interface PackagingSuggestion {
   availability_window: string;
 }
 
+export type PackagingMode = 'cast' | 'crew';
+
 interface Props {
   projectId: string;
   projectTitle: string;
@@ -26,11 +28,12 @@ interface Props {
   budgetRange: string;
   tone: string;
   assignedLane: string | null;
+  mode?: PackagingMode;
   scriptCharacters?: ScriptCharacter[];
   scriptCharactersLoading?: boolean;
 }
 
-export function SmartPackaging({ projectId, projectTitle, format, genres, budgetRange, tone, assignedLane, scriptCharacters = [], scriptCharactersLoading }: Props) {
+export function SmartPackaging({ projectId, projectTitle, format, genres, budgetRange, tone, assignedLane, mode = 'cast', scriptCharacters = [], scriptCharactersLoading }: Props) {
   const [suggestions, setSuggestions] = useState<PackagingSuggestion[]>([]);
   const [loading, setLoading] = useState(false);
   const [replacementLoading, setReplacementLoading] = useState(false);
@@ -45,7 +48,7 @@ export function SmartPackaging({ projectId, projectTitle, format, genres, budget
     setLoading(true);
     try {
       const { data, error } = await supabase.functions.invoke('smart-packaging', {
-        body: { projectTitle, format, genres, budgetRange, tone, assignedLane, targetCharacter: targetCharacter ? { name: targetCharacter.name, description: targetCharacter.description, scene_count: targetCharacter.scene_count } : undefined },
+        body: { projectTitle, format, genres, budgetRange, tone, assignedLane, mode, targetCharacter: targetCharacter ? { name: targetCharacter.name, description: targetCharacter.description, scene_count: targetCharacter.scene_count } : undefined },
       });
       if (error) throw error;
       const results: PackagingSuggestion[] = data?.suggestions || [];
@@ -82,7 +85,7 @@ export function SmartPackaging({ projectId, projectTitle, format, genres, budget
       const excludeNames = [...triage.passed, ...triage.nos].map(p => p.person_name);
       const { data, error } = await supabase.functions.invoke('smart-packaging', {
         body: {
-          projectTitle, format, genres, budgetRange, tone, assignedLane,
+          projectTitle, format, genres, budgetRange, tone, assignedLane, mode,
           excludeNames,
           replacementFor: item.person_name,
           maxSuggestions: 1,
@@ -121,7 +124,9 @@ export function SmartPackaging({ projectId, projectTitle, format, genres, budget
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <Sparkles className="h-5 w-5 text-primary" />
-          <h3 className="font-display font-semibold text-foreground">Smart Packaging</h3>
+          <h3 className="font-display font-semibold text-foreground">
+            {mode === 'crew' ? 'Smart Crew Suggestions' : 'Smart Cast Suggestions'}
+          </h3>
         </div>
         <Button size="sm" variant="outline" onClick={fetchSuggestions} disabled={loading || replacementLoading}>
           {loading ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Users className="h-3.5 w-3.5 mr-1" />}
@@ -129,26 +134,32 @@ export function SmartPackaging({ projectId, projectTitle, format, genres, budget
         </Button>
       </div>
 
-      <div className="mb-3">
-        <CharacterSelector
-          characters={scriptCharacters}
-          selected={targetCharacter}
-          onSelect={setTargetCharacter}
-          loading={scriptCharactersLoading}
-        />
-      </div>
-      {targetCharacter && (
-        <div className="mb-3 bg-muted/30 rounded-lg px-3 py-2 text-xs">
-          <span className="font-medium text-foreground">Casting for: </span>
-          <span className="text-primary font-semibold">{targetCharacter.name}</span>
-          {targetCharacter.description && (
-            <p className="text-muted-foreground mt-1">{targetCharacter.description}</p>
+      {mode === 'cast' && (
+        <>
+          <div className="mb-3">
+            <CharacterSelector
+              characters={scriptCharacters}
+              selected={targetCharacter}
+              onSelect={setTargetCharacter}
+              loading={scriptCharactersLoading}
+            />
+          </div>
+          {targetCharacter && (
+            <div className="mb-3 bg-muted/30 rounded-lg px-3 py-2 text-xs">
+              <span className="font-medium text-foreground">Casting for: </span>
+              <span className="text-primary font-semibold">{targetCharacter.name}</span>
+              {targetCharacter.description && (
+                <p className="text-muted-foreground mt-1">{targetCharacter.description}</p>
+              )}
+            </div>
           )}
-        </div>
+        </>
       )}
 
       <p className="text-sm text-muted-foreground mb-4">
-        AI recommends cast & director combinations to maximize financeability{targetCharacter ? ` for the role of ${targetCharacter.name}` : ''}. Triage suggestions into Shortlist, Maybe, or Pass — rank your shortlist by priority.
+        {mode === 'crew'
+          ? 'AI recommends key crew & HODs to maximize production value and credibility. Triage suggestions into Shortlist, Maybe, or Pass.'
+          : `AI recommends cast & director combinations to maximize financeability${targetCharacter ? ` for the role of ${targetCharacter.name}` : ''}. Triage suggestions into Shortlist, Maybe, or Pass — rank your shortlist by priority.`}
       </p>
 
       {/* Show triage board if there are items */}
