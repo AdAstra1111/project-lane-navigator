@@ -188,6 +188,69 @@ export type Database = {
         }
         Relationships: []
       }
+      market_buyers: {
+        Row: {
+          appetite_notes: string
+          budget_sweet_spot: string[]
+          company_type: string
+          confidence: string
+          created_at: string
+          deal_types: string[]
+          formats: string[]
+          genres_acquired: string[]
+          id: string
+          last_verified_at: string
+          market_presence: string
+          name: string
+          recent_acquisitions: string
+          source_url: string
+          status: string
+          territories: string[]
+          tone_preferences: string[]
+          updated_at: string
+        }
+        Insert: {
+          appetite_notes?: string
+          budget_sweet_spot?: string[]
+          company_type?: string
+          confidence?: string
+          created_at?: string
+          deal_types?: string[]
+          formats?: string[]
+          genres_acquired?: string[]
+          id?: string
+          last_verified_at?: string
+          market_presence?: string
+          name: string
+          recent_acquisitions?: string
+          source_url?: string
+          status?: string
+          territories?: string[]
+          tone_preferences?: string[]
+          updated_at?: string
+        }
+        Update: {
+          appetite_notes?: string
+          budget_sweet_spot?: string[]
+          company_type?: string
+          confidence?: string
+          created_at?: string
+          deal_types?: string[]
+          formats?: string[]
+          genres_acquired?: string[]
+          id?: string
+          last_verified_at?: string
+          market_presence?: string
+          name?: string
+          recent_acquisitions?: string
+          source_url?: string
+          status?: string
+          territories?: string[]
+          tone_preferences?: string[]
+          updated_at?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           created_at: string
