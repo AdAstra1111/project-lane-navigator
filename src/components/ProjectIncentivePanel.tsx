@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Landmark, BadgeDollarSign, Handshake, Loader2, ArrowRight, AlertTriangle, Clock } from 'lucide-react';
+import { Landmark, BadgeDollarSign, Handshake, Loader2, ArrowRight, Clock, RefreshCw } from 'lucide-react';
 import { InfoTooltip } from '@/components/InfoTooltip';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -32,37 +32,69 @@ interface IncentiveInsights {
 }
 
 interface Props {
+  projectId: string;
   format: string;
   budget_range: string;
   genres: string[];
+  onAnalysed?: (done: boolean) => void;
 }
 
-export function ProjectIncentivePanel({ format, budget_range, genres }: Props) {
+export function ProjectIncentivePanel({ projectId, format, budget_range, genres, onAnalysed }: Props) {
   const [insights, setInsights] = useState<IncentiveInsights | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [hasSearched, setHasSearched] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
   const { toast } = useToast();
   const navigate = useNavigate();
 
-  // Pick sensible default territories based on budget
   const defaultTerritories = ['United Kingdom', 'Ireland', 'Canada', 'France', 'Germany', 'Australia'];
+
+  // Load saved insights on mount
+  useEffect(() => {
+    const loadSaved = async () => {
+      try {
+        const { data } = await supabase
+          .from('projects')
+          .select('incentive_insights')
+          .eq('id', projectId)
+          .single();
+        if (data?.incentive_insights) {
+          setInsights(data.incentive_insights as unknown as IncentiveInsights);
+          onAnalysed?.(true);
+        }
+      } catch {
+        // ignore
+      } finally {
+        setInitialLoading(false);
+      }
+    };
+    loadSaved();
+  }, [projectId]);
 
   const handleGenerate = async () => {
     setIsLoading(true);
-    setHasSearched(true);
     try {
       const { data, error } = await supabase.functions.invoke('project-incentive-insights', {
         body: { format, budget_range, genres, territories: defaultTerritories },
       });
       if (error) throw error;
       if (data?.error) { toast({ title: 'Error', description: data.error, variant: 'destructive' }); return; }
+      
       setInsights(data);
+      onAnalysed?.(true);
+
+      // Persist to project
+      await supabase
+        .from('projects')
+        .update({ incentive_insights: data } as any)
+        .eq('id', projectId);
     } catch (err: any) {
       toast({ title: 'Analysis Failed', description: err.message, variant: 'destructive' });
     } finally {
       setIsLoading(false);
     }
   };
+
+  if (initialLoading) return null;
 
   return (
     <motion.div
@@ -140,11 +172,17 @@ export function ProjectIncentivePanel({ format, budget_range, genres }: Props) {
             </div>
           )}
 
-          {/* CTA */}
-          <Button variant="outline" size="sm" onClick={() => navigate('/incentives')} className="w-full">
-            <ArrowRight className="h-3.5 w-3.5 mr-1.5" />
-            Build Full Incentive & Co-Pro Plan
-          </Button>
+          {/* Re-analyse + CTA */}
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={handleGenerate} disabled={isLoading} className="flex-1">
+              <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+              Re-analyse
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => navigate('/incentives')} className="flex-1">
+              <ArrowRight className="h-3.5 w-3.5 mr-1.5" />
+              Full Incentive Plan
+            </Button>
+          </div>
         </div>
       )}
     </motion.div>
