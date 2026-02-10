@@ -322,6 +322,98 @@ export type Database = {
           },
         ]
       }
+      project_collaborators: {
+        Row: {
+          created_at: string
+          email: string
+          id: string
+          invited_by: string
+          project_id: string
+          role: Database["public"]["Enums"]["project_role"]
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          email?: string
+          id?: string
+          invited_by: string
+          project_id: string
+          role?: Database["public"]["Enums"]["project_role"]
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          id?: string
+          invited_by?: string
+          project_id?: string
+          role?: Database["public"]["Enums"]["project_role"]
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_collaborators_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_comments: {
+        Row: {
+          content: string
+          created_at: string
+          id: string
+          parent_id: string | null
+          project_id: string
+          section: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          content: string
+          created_at?: string
+          id?: string
+          parent_id?: string | null
+          project_id: string
+          section?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          id?: string
+          parent_id?: string | null
+          project_id?: string
+          section?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_comments_parent_id_fkey"
+            columns: ["parent_id"]
+            isOneToOne: false
+            referencedRelation: "project_comments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_comments_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       project_copro_scenarios: {
         Row: {
           contributions: string
@@ -1049,10 +1141,17 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      get_project_role: {
+        Args: { _project_id: string; _user_id: string }
+        Returns: string
+      }
+      has_project_access: {
+        Args: { _project_id: string; _user_id: string }
+        Returns: boolean
+      }
     }
     Enums: {
-      [_ in never]: never
+      project_role: "producer" | "sales_agent" | "lawyer" | "creative"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -1179,6 +1278,8 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      project_role: ["producer", "sales_agent", "lawyer", "creative"],
+    },
   },
 } as const

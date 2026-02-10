@@ -27,11 +27,14 @@ import { ProjectReadinessScore } from '@/components/ProjectReadinessScore';
 import { ProjectAttachmentTabs } from '@/components/ProjectAttachmentTabs';
 import { ProjectTimeline } from '@/components/ProjectTimeline';
 import { ProjectBuyerMatches } from '@/components/ProjectBuyerMatches';
+import { ProjectCollaboratorsPanel } from '@/components/ProjectCollaboratorsPanel';
+import { ProjectCommentsThread } from '@/components/ProjectCommentsThread';
 import { useProject, useProjectDocuments } from '@/hooks/useProjects';
 import { useProjects } from '@/hooks/useProjects';
 import { useAddDocuments } from '@/hooks/useAddDocuments';
 import { useProjectDuplicate } from '@/hooks/useProjectDuplicate';
 import { useActiveCastTrends } from '@/hooks/useTrends';
+import { useAuth } from '@/hooks/useAuth';
 import { ProjectRelevantSignals } from '@/components/ProjectRelevantSignals';
 import { useProjectCast, useProjectPartners, useProjectScripts, useProjectFinance, useProjectHODs } from '@/hooks/useProjectAttachments';
 import { generateProjectInsights } from '@/lib/project-insights';
@@ -147,6 +150,7 @@ export default function ProjectDetail() {
   const { duplicate } = useProjectDuplicate();
   
   const { data: castTrends = [] } = useActiveCastTrends();
+  const { user } = useAuth();
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [incentiveAnalysed, setIncentiveAnalysed] = useState(false);
 
@@ -487,6 +491,12 @@ export default function ProjectDetail() {
               )}
             </div>
           </div>
+
+          {/* Team & Collaboration */}
+          {id && <ProjectCollaboratorsPanel projectId={id} isOwner={project.user_id === user?.id} />}
+
+          {/* Discussion Thread */}
+          {id && <ProjectCommentsThread projectId={id} currentUserId={user?.id || null} />}
 
           {/* Updates Timeline */}
           {id && <ProjectTimeline projectId={id} />}
