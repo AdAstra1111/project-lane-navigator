@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { Users, Handshake, FileText, DollarSign, Plus, Trash2, X, Check, Clapperboard, Loader2, CalendarDays, Sparkles, HelpCircle } from 'lucide-react';
+import { InfoTooltip } from '@/components/InfoTooltip';
 import { SmartPackaging } from '@/components/SmartPackaging';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { type DisambiguationCandidate } from '@/hooks/usePersonResearch';
@@ -381,61 +382,219 @@ function ScriptsTab({ projectId }: { projectId: string }) {
 }
 
 // ---- Finance Scenarios Tab ----
+
+const FINANCE_FIELD_HINTS: Record<string, { label: string; placeholder: string; tip: string }> = {
+  total_budget: { label: 'Total Budget', placeholder: 'e.g. $2.5M', tip: 'The all-in production budget you\'re targeting. This becomes the benchmark everything else is measured against.' },
+  equity_amount: { label: 'Equity', placeholder: 'e.g. $500K', tip: 'Private investment — producer equity, gap equity, or mezzanine finance. Usually the riskiest money in, so it\'s the hardest to close.' },
+  presales_amount: { label: 'Pre-Sales', placeholder: 'e.g. $800K', tip: 'Revenue from territory sales committed before production. This is how distributors and sales agents de-risk the project.' },
+  incentive_amount: { label: 'Incentives', placeholder: 'e.g. $400K', tip: 'Tax credits, rebates, or soft money from governments. Often the most reliable source but requires qualifying spend in specific jurisdictions.' },
+  gap_amount: { label: 'Gap / Bridge', placeholder: 'e.g. $200K', tip: 'Financing against unsold territories — a bank lends against projected sales. Requires a sales agent with a strong track record.' },
+  other_sources: { label: 'Other Sources', placeholder: 'e.g. $100K', tip: 'Broadcaster pre-buys, brand partnerships, crowdfunding, deferrals, or any source that doesn\'t fit the categories above.' },
+};
+
+const CONFIDENCE_OPTIONS = [
+  { value: 'high', label: 'High', desc: 'Letters of intent or signed deals in hand' },
+  { value: 'medium', label: 'Medium', desc: 'Verbal interest or advanced discussions' },
+  { value: 'low', label: 'Low', desc: 'Early stage — exploratory or aspirational' },
+];
+
 function FinanceTab({ projectId }: { projectId: string }) {
   const { scenarios, addScenario, deleteScenario, updateScenario } = useProjectFinance(projectId);
   const [adding, setAdding] = useState(false);
-  const [form, setForm] = useState({ scenario_name: '', total_budget: '', notes: '' });
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [form, setForm] = useState({
+    scenario_name: '',
+    total_budget: '',
+    equity_amount: '',
+    presales_amount: '',
+    incentive_amount: '',
+    gap_amount: '',
+    other_sources: '',
+    confidence: 'medium',
+    notes: '',
+  });
+
+  const resetForm = () => setForm({
+    scenario_name: '', total_budget: '', equity_amount: '', presales_amount: '',
+    incentive_amount: '', gap_amount: '', other_sources: '', confidence: 'medium', notes: '',
+  });
 
   const handleAdd = () => {
     if (!form.scenario_name.trim()) return;
     addScenario.mutate(form);
-    setForm({ scenario_name: '', total_budget: '', notes: '' });
+    resetForm();
     setAdding(false);
+  };
+
+  const parseAmt = (v: string) => {
+    if (!v) return 0;
+    return parseFloat(v.replace(/[^0-9.]/g, '')) || 0;
+  };
+
+  const scenarioSummary = (s: ProjectFinanceScenario) => {
+    const total = parseAmt(s.total_budget);
+    const funded = parseAmt(s.equity_amount) + parseAmt(s.presales_amount) + parseAmt(s.incentive_amount) + parseAmt(s.gap_amount) + parseAmt(s.other_sources);
+    const pct = total > 0 ? Math.round((funded / total) * 100) : 0;
+    return { total, funded, pct, gap: total - funded };
+  };
+
+  const fmtCurrency = (v: number) => {
+    if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M`;
+    if (v >= 1_000) return `$${(v / 1_000).toFixed(0)}K`;
+    return `$${v.toFixed(0)}`;
   };
 
   return (
     <div className="space-y-3">
-      {scenarios.map(s => (
-        <div key={s.id} className="bg-muted/30 rounded-lg px-3 py-2.5 space-y-2">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-medium text-foreground">{s.scenario_name}</span>
-              <Badge className={`text-[10px] px-1.5 py-0 border ${STATUS_STYLES[s.confidence] || ''}`}>
-                {s.confidence}
-              </Badge>
+      {/* Existing scenarios */}
+      {scenarios.map(s => {
+        const { total, funded, pct, gap } = scenarioSummary(s);
+        const isExpanded = expandedId === s.id;
+        return (
+          <div key={s.id} className="bg-muted/30 rounded-lg px-3 py-2.5 space-y-2">
+            <div className="flex items-center justify-between">
+              <button
+                type="button"
+                className="flex items-center gap-2 text-left flex-1 min-w-0"
+                onClick={() => setExpandedId(isExpanded ? null : s.id)}
+              >
+                <span className="text-sm font-medium text-foreground truncate">{s.scenario_name}</span>
+                <Badge className={`text-[10px] px-1.5 py-0 border ${STATUS_STYLES[s.confidence] || ''}`}>
+                  {s.confidence}
+                </Badge>
+                {total > 0 && (
+                  <span className="text-[10px] text-muted-foreground ml-auto mr-2">
+                    {pct}% funded
+                  </span>
+                )}
+              </button>
+              <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => deleteScenario.mutate(s.id)}>
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
             </div>
-            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => deleteScenario.mutate(s.id)}>
-              <Trash2 className="h-3.5 w-3.5" />
+
+            {/* Mini funding bar */}
+            {total > 0 && (
+              <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all duration-500"
+                  style={{
+                    width: `${Math.min(pct, 100)}%`,
+                    background: pct >= 90 ? 'hsl(var(--primary))' : pct >= 50 ? 'hsl(35, 90%, 55%)' : 'hsl(0, 70%, 55%)',
+                  }}
+                />
+              </div>
+            )}
+
+            {/* Summary row */}
+            {total > 0 && (
+              <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-muted-foreground">
+                <span>Budget: <span className="text-foreground font-medium">{fmtCurrency(total)}</span></span>
+                <span>Funded: <span className="text-foreground font-medium">{fmtCurrency(funded)}</span></span>
+                {gap > 0 && <span className="text-amber-400">Gap: {fmtCurrency(gap)}</span>}
+              </div>
+            )}
+
+            {/* Expanded detail */}
+            {isExpanded && (
+              <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="space-y-2 pt-1 border-t border-border/50">
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  {Object.entries(FINANCE_FIELD_HINTS).map(([key, { label }]) => {
+                    const val = s[key as keyof ProjectFinanceScenario] as string;
+                    if (!val && key !== 'total_budget') return null;
+                    return (
+                      <div key={key}>
+                        <span className="text-muted-foreground">{label}:</span>{' '}
+                        <span className="text-foreground">{val || '—'}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+                {s.notes && <p className="text-xs text-muted-foreground italic">{s.notes}</p>}
+              </motion.div>
+            )}
+          </div>
+        );
+      })}
+
+      {/* Add form */}
+      {adding ? (
+        <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} className="space-y-3 bg-muted/20 rounded-lg px-4 py-3 border border-border/50">
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            Name this scenario (e.g. "Base Case", "Without Tax Credit", "Optimistic Pre-Sales") and fill in the funding sources you've identified. Leave blank what you don't know yet — you can update later.
+          </p>
+
+          <Input
+            placeholder="Scenario name (e.g. Base Case)"
+            value={form.scenario_name}
+            onChange={e => setForm(f => ({ ...f, scenario_name: e.target.value }))}
+            className="h-8 text-sm"
+          />
+
+          <div className="grid grid-cols-2 gap-2">
+            {Object.entries(FINANCE_FIELD_HINTS).map(([key, { label, placeholder, tip }]) => (
+              <div key={key} className="space-y-0.5">
+                <div className="flex items-center gap-1">
+                  <label className="text-[11px] text-muted-foreground font-medium">{label}</label>
+                  <InfoTooltip text={tip} />
+                </div>
+                <Input
+                  placeholder={placeholder}
+                  value={form[key as keyof typeof form]}
+                  onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
+                  className="h-7 text-xs"
+                />
+              </div>
+            ))}
+          </div>
+
+          <div className="space-y-1">
+            <div className="flex items-center gap-1">
+              <label className="text-[11px] text-muted-foreground font-medium">Confidence</label>
+              <InfoTooltip text="How solid are these numbers? High = signed deals. Medium = verbal interest. Low = aspirational targets." />
+            </div>
+            <Select value={form.confidence} onValueChange={v => setForm(f => ({ ...f, confidence: v }))}>
+              <SelectTrigger className="h-7 text-xs w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {CONFIDENCE_OPTIONS.map(o => (
+                  <SelectItem key={o.value} value={o.value}>
+                    <span>{o.label}</span>
+                    <span className="text-muted-foreground ml-1.5">— {o.desc}</span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <Input
+            placeholder="Notes (optional — e.g. 'Assumes Ireland shoot for Section 481')"
+            value={form.notes}
+            onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+            className="h-7 text-xs"
+          />
+
+          <div className="flex items-center gap-2 justify-end">
+            <Button variant="ghost" size="sm" onClick={() => { resetForm(); setAdding(false); }}>Cancel</Button>
+            <Button size="sm" onClick={handleAdd} disabled={!form.scenario_name.trim()}>
+              <Check className="h-3.5 w-3.5 mr-1" /> Save Scenario
             </Button>
           </div>
-          {s.total_budget && (
-            <div className="grid grid-cols-3 gap-2 text-xs">
-              {s.total_budget && <div><span className="text-muted-foreground">Budget:</span> <span className="text-foreground">{s.total_budget}</span></div>}
-              {s.incentive_amount && <div><span className="text-muted-foreground">Incentives:</span> <span className="text-foreground">{s.incentive_amount}</span></div>}
-              {s.presales_amount && <div><span className="text-muted-foreground">Pre-sales:</span> <span className="text-foreground">{s.presales_amount}</span></div>}
-              {s.equity_amount && <div><span className="text-muted-foreground">Equity:</span> <span className="text-foreground">{s.equity_amount}</span></div>}
-              {s.gap_amount && <div><span className="text-muted-foreground">Gap:</span> <span className="text-foreground">{s.gap_amount}</span></div>}
-            </div>
-          )}
-          {s.notes && <p className="text-xs text-muted-foreground">{s.notes}</p>}
-        </div>
-      ))}
-
-      {adding ? (
-        <div className="flex items-center gap-2 bg-muted/20 rounded-lg px-3 py-2">
-          <Input placeholder="Scenario name" value={form.scenario_name} onChange={e => setForm(f => ({ ...f, scenario_name: e.target.value }))} className="h-8 text-sm flex-1" />
-          <Input placeholder="Total budget" value={form.total_budget} onChange={e => setForm(f => ({ ...f, total_budget: e.target.value }))} className="h-8 text-sm w-28" />
-          <Button size="icon" className="h-7 w-7" onClick={handleAdd} disabled={!form.scenario_name.trim()}>
-            <Check className="h-3.5 w-3.5" />
-          </Button>
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setAdding(false)}>
-            <X className="h-3.5 w-3.5" />
-          </Button>
-        </div>
+        </motion.div>
       ) : (
         <div className="space-y-2">
           {scenarios.length === 0 && (
-            <p className="text-xs text-muted-foreground text-center py-2">Model your capital stack to identify financing gaps early.</p>
+            <div className="text-center py-4 space-y-2">
+              <DollarSign className="h-8 w-8 mx-auto text-muted-foreground/40" />
+              <p className="text-sm font-medium text-foreground">Capital Stack Modelling</p>
+              <p className="text-xs text-muted-foreground leading-relaxed max-w-sm mx-auto">
+                A finance scenario maps where your money is coming from — equity, pre-sales, incentives, gap, and other sources — against your total budget. Create multiple scenarios to stress-test your project: "What if we lose the tax credit?" or "What if pre-sales come in 30% higher?"
+              </p>
+              <p className="text-[11px] text-muted-foreground/70 max-w-xs mx-auto">
+                This feeds into your Finance Readiness score and the waterfall chart — helping you see gaps before financiers do.
+              </p>
+            </div>
           )}
           <Button variant="outline" size="sm" onClick={() => setAdding(true)} className="w-full">
             <Plus className="h-3.5 w-3.5 mr-1.5" /> Add Finance Scenario
