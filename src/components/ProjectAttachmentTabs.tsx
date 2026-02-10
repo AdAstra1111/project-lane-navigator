@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { Users, Handshake, FileText, DollarSign, Plus, Trash2, X, Check, Clapperboard } from 'lucide-react';
+import { Users, Handshake, FileText, DollarSign, Plus, Trash2, X, Check, Clapperboard, Loader2 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,6 +18,7 @@ import {
   type ProjectFinanceScenario,
   type ProjectHOD,
 } from '@/hooks/useProjectAttachments';
+import { useScriptCharacters } from '@/hooks/useScriptCharacters';
 
 // ---- Status badge styles ----
 const STATUS_STYLES: Record<string, string> = {
@@ -64,13 +65,22 @@ const DEPARTMENTS = [
 // ---- Cast Tab ----
 function CastTab({ projectId }: { projectId: string }) {
   const { cast, addCast, deleteCast, updateCast } = useProjectCast(projectId);
+  const { data: scriptCharacters = [], isLoading: charsLoading } = useScriptCharacters(projectId);
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState({ role_name: '', actor_name: '', status: 'wishlist' });
+  const [customRole, setCustomRole] = useState(false);
+
+  // Filter out characters already cast
+  const availableCharacters = useMemo(() => {
+    const usedRoles = new Set(cast.map(c => c.role_name.toUpperCase()));
+    return scriptCharacters.filter(ch => !usedRoles.has(ch.name.toUpperCase()));
+  }, [scriptCharacters, cast]);
 
   const handleAdd = () => {
     if (!form.actor_name.trim()) return;
     addCast.mutate(form);
     setForm({ role_name: '', actor_name: '', status: 'wishlist' });
+    setCustomRole(false);
     setAdding(false);
   };
 
@@ -109,15 +119,67 @@ function CastTab({ projectId }: { projectId: string }) {
       ))}
 
       {adding ? (
-        <div className="flex items-center gap-2 bg-muted/20 rounded-lg px-3 py-2">
-          <Input placeholder="Actor name" value={form.actor_name} onChange={e => setForm(f => ({ ...f, actor_name: e.target.value }))} className="h-8 text-sm flex-1" />
-          <Input placeholder="Role" value={form.role_name} onChange={e => setForm(f => ({ ...f, role_name: e.target.value }))} className="h-8 text-sm w-28" />
-          <Button size="icon" className="h-7 w-7" onClick={handleAdd} disabled={!form.actor_name.trim()}>
-            <Check className="h-3.5 w-3.5" />
-          </Button>
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setAdding(false)}>
-            <X className="h-3.5 w-3.5" />
-          </Button>
+        <div className="space-y-2 bg-muted/20 rounded-lg px-3 py-2">
+          <div className="flex items-center gap-2">
+            <Input placeholder="Actor name" value={form.actor_name} onChange={e => setForm(f => ({ ...f, actor_name: e.target.value }))} className="h-8 text-sm flex-1" />
+          </div>
+          <div className="flex items-center gap-2">
+            {!customRole && scriptCharacters.length > 0 ? (
+              <Select
+                value={form.role_name || undefined}
+                onValueChange={v => {
+                  if (v === '__custom__') {
+                    setCustomRole(true);
+                    setForm(f => ({ ...f, role_name: '' }));
+                  } else {
+                    setForm(f => ({ ...f, role_name: v }));
+                  }
+                }}
+              >
+                <SelectTrigger className="flex-1 h-8 text-xs">
+                  <SelectValue placeholder={charsLoading ? "Scanning script…" : "Select character role"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {charsLoading && (
+                    <div className="flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground">
+                      <Loader2 className="h-3 w-3 animate-spin" /> Scanning script…
+                    </div>
+                  )}
+                  {availableCharacters.map(ch => (
+                    <SelectItem key={ch.name} value={ch.name}>
+                      <div className="flex flex-col">
+                        <span>{ch.name}</span>
+                        {ch.description && <span className="text-[10px] text-muted-foreground">{ch.description}</span>}
+                      </div>
+                    </SelectItem>
+                  ))}
+                  <SelectItem value="__custom__">
+                    <span className="text-primary">+ Custom character name</span>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            ) : (
+              <div className="flex items-center gap-1 flex-1">
+                <Input
+                  placeholder="Character / role name"
+                  value={form.role_name}
+                  onChange={e => setForm(f => ({ ...f, role_name: e.target.value }))}
+                  className="h-8 text-sm flex-1"
+                />
+                {scriptCharacters.length > 0 && customRole && (
+                  <Button variant="ghost" size="sm" className="h-7 text-[10px] px-2 text-muted-foreground" onClick={() => setCustomRole(false)}>
+                    Script list
+                  </Button>
+                )}
+              </div>
+            )}
+            <Button size="icon" className="h-7 w-7" onClick={handleAdd} disabled={!form.actor_name.trim()}>
+              <Check className="h-3.5 w-3.5" />
+            </Button>
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setAdding(false); setCustomRole(false); }}>
+              <X className="h-3.5 w-3.5" />
+            </Button>
+          </div>
         </div>
       ) : (
         <div className="space-y-2">
