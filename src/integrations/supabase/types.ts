@@ -1215,8 +1215,10 @@ export type Database = {
           id: string
           incentive_insights: Json | null
           pipeline_stage: string
+          primary_territory: string
           reasoning: string | null
           recommendations: Json | null
+          secondary_territories: string[]
           target_audience: string
           title: string
           tone: string
@@ -1236,8 +1238,10 @@ export type Database = {
           id?: string
           incentive_insights?: Json | null
           pipeline_stage?: string
+          primary_territory?: string
           reasoning?: string | null
           recommendations?: Json | null
+          secondary_territories?: string[]
           target_audience?: string
           title: string
           tone?: string
@@ -1257,8 +1261,10 @@ export type Database = {
           id?: string
           incentive_insights?: Json | null
           pipeline_stage?: string
+          primary_territory?: string
           reasoning?: string | null
           recommendations?: Json | null
+          secondary_territories?: string[]
           target_audience?: string
           title?: string
           tone?: string
