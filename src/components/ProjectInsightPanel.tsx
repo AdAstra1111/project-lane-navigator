@@ -1,6 +1,8 @@
+import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Users, Lightbulb, Clock, AlertTriangle, TrendingUp, MapPin } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { CastInfoDialog } from '@/components/CastInfoDialog';
 import type { ProjectInsights } from '@/lib/project-insights';
 
 const SATURATION_STYLES: Record<string, { label: string; className: string }> = {
@@ -12,11 +14,18 @@ const SATURATION_STYLES: Record<string, { label: string; className: string }> = 
 
 interface ProjectInsightPanelProps {
   insights: ProjectInsights;
+  projectContext?: {
+    title?: string;
+    format?: string;
+    budget_range?: string;
+    genres?: string[];
+  };
 }
 
-export function ProjectInsightPanel({ insights }: ProjectInsightPanelProps) {
+export function ProjectInsightPanel({ insights, projectContext }: ProjectInsightPanelProps) {
   const { cast, idea, timing } = insights;
   const saturation = SATURATION_STYLES[idea.saturation] || SATURATION_STYLES['well-timed'];
+  const [selectedPerson, setSelectedPerson] = useState<{ name: string; reason: string } | null>(null);
 
   return (
     <motion.div
@@ -50,12 +59,16 @@ export function ProjectInsightPanel({ insights }: ProjectInsightPanelProps) {
         {cast.suggested_cast.length > 0 && (
           <div className="space-y-2 pt-1">
             <p className="text-xs text-muted-foreground uppercase tracking-wider font-medium">Suggested Cast Pool</p>
-            <div className="space-y-1.5">
+             <div className="space-y-1.5">
               {cast.suggested_cast.map(c => (
-                <div key={c.name} className="flex items-start gap-3 text-sm bg-muted/30 rounded-lg px-3 py-2">
-                  <span className="font-medium text-foreground whitespace-nowrap">{c.name}</span>
+                <button
+                  key={c.name}
+                  onClick={() => setSelectedPerson(c)}
+                  className="w-full flex items-start gap-3 text-sm bg-muted/30 hover:bg-muted/50 rounded-lg px-3 py-2 text-left transition-colors cursor-pointer group"
+                >
+                  <span className="font-medium text-foreground whitespace-nowrap group-hover:text-primary transition-colors">{c.name}</span>
                   <span className="text-muted-foreground text-xs leading-relaxed">{c.reason}</span>
-                </div>
+                </button>
               ))}
             </div>
           </div>
@@ -100,6 +113,16 @@ export function ProjectInsightPanel({ insights }: ProjectInsightPanelProps) {
           </div>
         )}
       </div>
+      {/* Cast Info Dialog */}
+      {selectedPerson && (
+        <CastInfoDialog
+          personName={selectedPerson.name}
+          reason={selectedPerson.reason}
+          open={!!selectedPerson}
+          onOpenChange={(open) => { if (!open) setSelectedPerson(null); }}
+          projectContext={projectContext}
+        />
+      )}
     </motion.div>
   );
 }
