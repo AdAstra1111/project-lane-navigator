@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { Users, Handshake, FileText, DollarSign, Plus, Trash2, X, Check, Clapperboard, Loader2 } from 'lucide-react';
+import { Users, Handshake, FileText, DollarSign, Plus, Trash2, X, Check, Clapperboard, Loader2, CalendarDays } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -19,6 +19,7 @@ import {
   type ProjectHOD,
 } from '@/hooks/useProjectAttachments';
 import { useScriptCharacters } from '@/hooks/useScriptCharacters';
+import { ScheduleTab } from '@/components/ScheduleTab';
 
 // ---- Status badge styles ----
 const STATUS_STYLES: Record<string, string> = {
@@ -511,7 +512,7 @@ export function ProjectAttachmentTabs({ projectId }: Props) {
       transition={{ delay: 0.2, duration: 0.3 }}
     >
       <Tabs defaultValue="cast" className="space-y-4">
-        <TabsList className="bg-muted/50 w-full grid grid-cols-5">
+        <TabsList className="bg-muted/50 w-full grid grid-cols-6">
           <TabsTrigger value="cast" className="gap-1.5 text-xs">
             <Users className="h-3.5 w-3.5" /> Cast
           </TabsTrigger>
@@ -526,6 +527,9 @@ export function ProjectAttachmentTabs({ projectId }: Props) {
           </TabsTrigger>
           <TabsTrigger value="finance" className="gap-1.5 text-xs">
             <DollarSign className="h-3.5 w-3.5" /> Finance
+          </TabsTrigger>
+          <TabsTrigger value="schedule" className="gap-1.5 text-xs">
+            <CalendarDays className="h-3.5 w-3.5" /> Schedule
           </TabsTrigger>
         </TabsList>
 
@@ -543,6 +547,9 @@ export function ProjectAttachmentTabs({ projectId }: Props) {
         </TabsContent>
         <TabsContent value="finance">
           <FinanceTab projectId={projectId} />
+        </TabsContent>
+        <TabsContent value="schedule">
+          <ScheduleTab projectId={projectId} />
         </TabsContent>
       </Tabs>
     </motion.div>

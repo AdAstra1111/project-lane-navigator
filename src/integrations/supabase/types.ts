@@ -585,6 +585,65 @@ export type Database = {
           },
         ]
       }
+      project_scenes: {
+        Row: {
+          cast_members: string[]
+          created_at: string
+          description: string
+          heading: string
+          id: string
+          int_ext: string
+          location: string
+          notes: string
+          page_count: number | null
+          project_id: string
+          scene_number: string
+          time_of_day: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          cast_members?: string[]
+          created_at?: string
+          description?: string
+          heading: string
+          id?: string
+          int_ext?: string
+          location?: string
+          notes?: string
+          page_count?: number | null
+          project_id: string
+          scene_number: string
+          time_of_day?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          cast_members?: string[]
+          created_at?: string
+          description?: string
+          heading?: string
+          id?: string
+          int_ext?: string
+          location?: string
+          notes?: string
+          page_count?: number | null
+          project_id?: string
+          scene_number?: string
+          time_of_day?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_scenes_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       project_scripts: {
         Row: {
           created_at: string
@@ -729,6 +788,117 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      scene_schedule: {
+        Row: {
+          call_time: string | null
+          created_at: string
+          dependencies: string[]
+          id: string
+          notes: string
+          project_id: string
+          scene_id: string
+          shoot_day_id: string
+          sort_order: number
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          call_time?: string | null
+          created_at?: string
+          dependencies?: string[]
+          id?: string
+          notes?: string
+          project_id: string
+          scene_id: string
+          shoot_day_id: string
+          sort_order?: number
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          call_time?: string | null
+          created_at?: string
+          dependencies?: string[]
+          id?: string
+          notes?: string
+          project_id?: string
+          scene_id?: string
+          shoot_day_id?: string
+          sort_order?: number
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scene_schedule_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scene_schedule_scene_id_fkey"
+            columns: ["scene_id"]
+            isOneToOne: false
+            referencedRelation: "project_scenes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scene_schedule_shoot_day_id_fkey"
+            columns: ["shoot_day_id"]
+            isOneToOne: false
+            referencedRelation: "shoot_days"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      shoot_days: {
+        Row: {
+          created_at: string
+          day_number: number
+          id: string
+          notes: string
+          project_id: string
+          shoot_date: string
+          unit: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          day_number?: number
+          id?: string
+          notes?: string
+          project_id: string
+          shoot_date: string
+          unit?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          day_number?: number
+          id?: string
+          notes?: string
+          project_id?: string
+          shoot_date?: string
+          unit?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shoot_days_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       trend_signals: {
         Row: {
