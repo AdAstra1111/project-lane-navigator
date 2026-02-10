@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
-import { ArrowRight, Target, Layers, TrendingUp, Shield } from 'lucide-react';
+import { ArrowRight, Target, Layers, TrendingUp, Shield, DollarSign, Users, Sparkles, GitBranch, UserPlus, FileOutput } from 'lucide-react';
 import { Header } from '@/components/Header';
 import { Button } from '@/components/ui/button';
 
@@ -45,6 +45,12 @@ export default function About() {
               { icon: Target, title: 'Decision-support', desc: 'IFFY surfaces the best next step — not a to-do list. One decision at a time, moving you closer to finance-ready.' },
               { icon: TrendingUp, title: 'Market intelligence', desc: 'Trend signals, cast momentum, and genre cycles are tracked continuously and matched to your specific project.' },
               { icon: Shield, title: 'Finance integration', desc: 'Incentives, co-production treaties, and capital stacks are evaluated in context — not in isolation.' },
+              { icon: DollarSign, title: 'Finance Tracker', desc: 'Build your capital stack deal by deal across six categories — Sales, Equity, Incentives, Soft Money, Gap & Debt — with real-time waterfall visualisation.' },
+              { icon: Users, title: 'Buyer matching & CRM', desc: 'Scored buyer matches based on genre, budget, territory, and tone — plus a CRM to track meetings, appetite, and follow-ups.' },
+              { icon: Sparkles, title: 'Smart Packaging', desc: 'AI-driven talent recommendations based on budget, genre, lane, and market trends. Click any name for trajectory analysis and IMDb links.' },
+              { icon: GitBranch, title: 'Pipeline & stage gates', desc: 'A Kanban view across Development, Packaging, Financing, and Pre-Production — with automated gates ensuring readiness before advancement.' },
+              { icon: UserPlus, title: 'Collaboration', desc: 'Role-based access for Producers, Sales Agents, Lawyers, and Creatives. Threaded, section-filtered comments keep discussions in context.' },
+              { icon: FileOutput, title: 'Export & compare', desc: 'Generate a professional PDF One-Pager or clone projects to compare variants side-by-side across readiness scores and market positioning.' },
             ].map(({ icon: Icon, title, desc }, i) => (
               <div key={title} className="glass-card rounded-xl p-5 space-y-2">
                 <div className="h-9 w-9 rounded-md bg-primary/10 flex items-center justify-center">
