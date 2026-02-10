@@ -4,9 +4,11 @@ import { Users, Lightbulb, Clock, AlertTriangle, TrendingUp, MapPin, Sparkles, L
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { CastInfoDialog } from '@/components/CastInfoDialog';
+import { CharacterSelector } from '@/components/CharacterSelector';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import type { ProjectInsights, CastSuggestion } from '@/lib/project-insights';
+import type { ScriptCharacter } from '@/hooks/useScriptCharacters';
 
 const SATURATION_STYLES: Record<string, { label: string; className: string }> = {
   emerging: { label: 'Emerging', className: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' },
@@ -51,14 +53,17 @@ interface ProjectInsightPanelProps {
   };
   onSaveToTriage?: (items: SaveToTriageInput[]) => Promise<void>;
   existingTriageNames?: Set<string>;
+  scriptCharacters?: ScriptCharacter[];
+  scriptCharactersLoading?: boolean;
 }
 
-export function ProjectInsightPanel({ insights, projectContext, onSaveToTriage, existingTriageNames }: ProjectInsightPanelProps) {
+export function ProjectInsightPanel({ insights, projectContext, onSaveToTriage, existingTriageNames, scriptCharacters = [], scriptCharactersLoading }: ProjectInsightPanelProps) {
   const { cast, idea, timing } = insights;
   const saturation = SATURATION_STYLES[idea.saturation] || SATURATION_STYLES['well-timed'];
   const [selectedPerson, setSelectedPerson] = useState<{ name: string; reason: string } | null>(null);
   const [aiSuggestions, setAiSuggestions] = useState<AICastSuggestion[]>([]);
   const [aiLoading, setAiLoading] = useState(false);
+  const [targetCharacter, setTargetCharacter] = useState<ScriptCharacter | null>(null);
 
   const fetchAiSuggestions = async () => {
     setAiLoading(true);
@@ -71,6 +76,7 @@ export function ProjectInsightPanel({ insights, projectContext, onSaveToTriage, 
           budgetRange: projectContext?.budget_range,
           tone: projectContext?.tone,
           assignedLane: projectContext?.assigned_lane,
+          targetCharacter: targetCharacter ? { name: targetCharacter.name, description: targetCharacter.description, scene_count: targetCharacter.scene_count } : undefined,
         },
       });
       if (error) throw error;
@@ -171,8 +177,25 @@ export function ProjectInsightPanel({ insights, projectContext, onSaveToTriage, 
               {aiSuggestions.length > 0 ? 'Refresh' : 'Explore Talent'}
             </Button>
           </div>
+          <div className="mb-3">
+            <CharacterSelector
+              characters={scriptCharacters}
+              selected={targetCharacter}
+              onSelect={setTargetCharacter}
+              loading={scriptCharactersLoading}
+            />
+          </div>
+          {targetCharacter && (
+            <div className="mb-3 bg-muted/30 rounded-lg px-3 py-2 text-xs">
+              <span className="font-medium text-foreground">Casting for: </span>
+              <span className="text-primary font-semibold">{targetCharacter.name}</span>
+              {targetCharacter.description && (
+                <p className="text-muted-foreground mt-1">{targetCharacter.description}</p>
+              )}
+            </div>
+          )}
           {!aiLoading && aiSuggestions.length === 0 && (
-            <p className="text-xs text-muted-foreground">Get AI-powered suggestions tailored to this project's budget, tone, and genre.</p>
+            <p className="text-xs text-muted-foreground">Get AI-powered suggestions tailored to this project's budget, tone, and genre{targetCharacter ? ` — specifically for ${targetCharacter.name}` : ''}.</p>
           )}
           {aiSuggestions.length > 0 && (
             <div className="space-y-2">

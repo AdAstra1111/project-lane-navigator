@@ -27,7 +27,7 @@ serve(async (req) => {
       });
     }
 
-    const { projectTitle, format, genres, budgetRange, tone, assignedLane, excludeNames, replacementFor, maxSuggestions } = await req.json();
+    const { projectTitle, format, genres, budgetRange, tone, assignedLane, excludeNames, replacementFor, maxSuggestions, targetCharacter } = await req.json();
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
 
@@ -38,6 +38,9 @@ serve(async (req) => {
     const replacementClause = replacementFor
       ? `\n\nThis is a REPLACEMENT request. The producer passed on "${replacementFor}". Suggest someone who fills a similar role/function but is a different talent.`
       : '';
+    const characterClause = targetCharacter
+      ? `\n\nTARGET ROLE: The producer is specifically casting for the character "${targetCharacter.name}"${targetCharacter.description ? ` — ${targetCharacter.description}` : ''}${targetCharacter.scene_count ? ` (appears in ${targetCharacter.scene_count} scenes, ${targetCharacter.scene_count > 15 ? 'LEAD' : targetCharacter.scene_count > 5 ? 'SUPPORTING LEAD' : 'SUPPORTING'} role)` : ''}. Tailor ALL suggestions to actors who could convincingly play this specific character. Consider age, physicality, acting range, and prior roles that demonstrate suitability.`
+      : '';
 
     const prompt = `You are an expert film/TV packaging strategist. Given a project, suggest ${count} specific cast members and/or directors that would maximize its financeability and market appeal.
 
@@ -46,7 +49,7 @@ Format: ${format}
 Genres: ${genres?.join(', ')}
 Budget: ${budgetRange}
 Tone: ${tone}
-Lane: ${assignedLane || 'unclassified'}${excludeClause}${replacementClause}
+Lane: ${assignedLane || 'unclassified'}${characterClause}${excludeClause}${replacementClause}
 
 For each suggestion provide:
 - name: Full name of the talent
