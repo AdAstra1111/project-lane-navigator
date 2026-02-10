@@ -741,6 +741,7 @@ export type Database = {
           format: string
           genres: string[]
           id: string
+          pipeline_stage: string
           reasoning: string | null
           recommendations: Json | null
           target_audience: string
@@ -760,6 +761,7 @@ export type Database = {
           format?: string
           genres?: string[]
           id?: string
+          pipeline_stage?: string
           reasoning?: string | null
           recommendations?: Json | null
           target_audience?: string
@@ -779,6 +781,7 @@ export type Database = {
           format?: string
           genres?: string[]
           id?: string
+          pipeline_stage?: string
           reasoning?: string | null
           recommendations?: Json | null
           target_audience?: string
