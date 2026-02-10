@@ -1,5 +1,6 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { LogOut, Plus, Radio, Landmark, HelpCircle, ChevronDown } from 'lucide-react';
+import { NotificationBell } from '@/components/NotificationBell';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -66,6 +67,7 @@ export function Header() {
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+          <NotificationBell />
           <Button
             variant="outline"
             size="sm"

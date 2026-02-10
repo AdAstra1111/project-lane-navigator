@@ -36,6 +36,8 @@ import { useProjectDuplicate } from '@/hooks/useProjectDuplicate';
 import { useActiveCastTrends } from '@/hooks/useTrends';
 import { useAuth } from '@/hooks/useAuth';
 import { ProjectRelevantSignals } from '@/components/ProjectRelevantSignals';
+import { TerritoryHeatMap } from '@/components/TerritoryHeatMap';
+import { ScriptCoverage } from '@/components/ScriptCoverage';
 import { useProjectCast, useProjectPartners, useProjectScripts, useProjectFinance, useProjectHODs } from '@/hooks/useProjectAttachments';
 import { generateProjectInsights } from '@/lib/project-insights';
 import { calculateReadiness } from '@/lib/readiness-score';
@@ -172,6 +174,7 @@ export default function ProjectDetail() {
     if (!project) return null;
     return calculateReadiness(project, cast, partners, scripts, financeScenarios, hods, incentiveAnalysed);
   }, [project, cast, partners, scripts, financeScenarios, hods, incentiveAnalysed]);
+
 
   const handleDelete = async () => {
     if (!id) return;
@@ -458,6 +461,17 @@ export default function ProjectDetail() {
             </motion.div>
           )}
 
+          {/* Script Coverage */}
+          {id && hasDocuments && (
+            <ScriptCoverage
+              projectId={id}
+              projectTitle={project.title}
+              format={project.format}
+              genres={project.genres || []}
+              hasDocuments={hasDocuments}
+            />
+          )}
+
           {/* Analysis Passes (new format) */}
           {hasNewAnalysis && analysis && (
             <AnalysisPassesDisplay passes={analysis} />
@@ -499,6 +513,13 @@ export default function ProjectDetail() {
 
           {/* Buyer / Market Match Engine */}
           {project && <ProjectBuyerMatches project={project} />}
+
+          {/* Territory Heat Map */}
+          <TerritoryHeatMap
+            partners={partners}
+            castTerritories={[...new Set(cast.flatMap(c => c.territory_tags))]}
+            incentiveJurisdictions={[]}
+          />
 
           {/* Legacy Recommendations (old format) */}
           {!hasNewAnalysis && legacyRecs.length > 0 && (

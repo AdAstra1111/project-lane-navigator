@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Header } from '@/components/Header';
 import { ProjectCard } from '@/components/ProjectCard';
 import { OnboardingOverlay } from '@/components/OnboardingOverlay';
+import { DashboardAnalytics } from '@/components/DashboardAnalytics';
 import { useProjects } from '@/hooks/useProjects';
 
 export default function Dashboard() {
@@ -85,11 +86,14 @@ export default function Dashboard() {
               </Link>
             </div>
           ) : (
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {projects.map((project, i) => (
-                <ProjectCard key={project.id} project={project} index={i} />
-              ))}
-            </div>
+            <>
+              <DashboardAnalytics projects={projects} />
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {projects.map((project, i) => (
+                  <ProjectCard key={project.id} project={project} index={i} />
+                ))}
+              </div>
+            </>
           )}
         </motion.div>
       </main>
