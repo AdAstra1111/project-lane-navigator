@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Star, ThumbsDown, HelpCircle, RotateCcw, ChevronDown, ChevronUp,
-  GripVertical, Trash2, ArrowUp, ArrowDown, Sparkles,
+  GripVertical, Trash2, ArrowUp, ArrowDown, Sparkles, Ban,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -13,6 +13,7 @@ interface Props {
   unsorted: TalentTriageItem[];
   shortlisted: TalentTriageItem[];
   maybes: TalentTriageItem[];
+  nos: TalentTriageItem[];
   passed: TalentTriageItem[];
   onUpdateStatus: (id: string, status: TriageStatus) => void;
   onUpdatePriority: (id: string, rank: number) => void;
@@ -25,6 +26,7 @@ const statusConfig: Record<TriageStatus, { label: string; icon: any; color: stri
   unsorted: { label: 'Unsorted', icon: Sparkles, color: 'text-muted-foreground' },
   shortlist: { label: 'Shortlist', icon: Star, color: 'text-amber-400' },
   maybe: { label: 'Maybe', icon: HelpCircle, color: 'text-blue-400' },
+  no: { label: 'No', icon: Ban, color: 'text-orange-400' },
   pass: { label: 'Pass', icon: ThumbsDown, color: 'text-red-400' },
 };
 
@@ -109,19 +111,25 @@ function TriageCard({
                   <Star className="h-3 w-3 mr-1" /> Shortlist
                 </Button>
               )}
-              {item.status !== 'maybe' && (
+              {item.status !== 'maybe' && item.status !== 'no' && item.status !== 'pass' && (
                 <Button size="sm" variant="ghost" className="h-6 px-2 text-xs text-blue-400 hover:text-blue-300"
                   onClick={() => onUpdateStatus(item.id, 'maybe')}>
                   <HelpCircle className="h-3 w-3 mr-1" /> Maybe
                 </Button>
               )}
-              {item.status !== 'pass' && (
+              {item.status !== 'no' && item.status !== 'pass' && (
+                <Button size="sm" variant="ghost" className="h-6 px-2 text-xs text-orange-400 hover:text-orange-300"
+                  onClick={() => onUpdateStatus(item.id, 'no')}>
+                  <Ban className="h-3 w-3 mr-1" /> No
+                </Button>
+              )}
+              {item.status !== 'pass' && item.status !== 'no' && (
                 <Button size="sm" variant="ghost" className="h-6 px-2 text-xs text-red-400 hover:text-red-300"
                   onClick={() => onUpdateStatus(item.id, 'pass')}>
                   <ThumbsDown className="h-3 w-3 mr-1" /> Pass
                 </Button>
               )}
-              {item.status === 'pass' && (
+              {(item.status === 'pass' || item.status === 'no') && (
                 <Button size="sm" variant="ghost" className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
                   onClick={() => onUpdateStatus(item.id, 'unsorted')}>
                   <RotateCcw className="h-3 w-3 mr-1" /> Restore
@@ -181,7 +189,7 @@ function TriageColumn({
   const config = statusConfig[status];
   const Icon = config.icon;
 
-  if (items.length === 0 && status === 'pass') return null;
+  if (items.length === 0 && (status === 'pass' || status === 'no')) return null;
 
   return (
     <div>
@@ -229,11 +237,11 @@ function TriageColumn({
 }
 
 export function TalentTriageBoard({
-  unsorted, shortlisted, maybes, passed,
+  unsorted, shortlisted, maybes, nos, passed,
   onUpdateStatus, onUpdatePriority, onDelete, onRequestReplacement,
   projectContext,
 }: Props) {
-  const total = unsorted.length + shortlisted.length + maybes.length + passed.length;
+  const total = unsorted.length + shortlisted.length + maybes.length + nos.length + passed.length;
   if (total === 0) return null;
 
   return (
@@ -253,6 +261,10 @@ export function TalentTriageBoard({
           onDelete={onDelete} projectContext={projectContext} />
 
         <TriageColumn status="maybe" items={maybes}
+          onUpdateStatus={onUpdateStatus} onUpdatePriority={onUpdatePriority}
+          onDelete={onDelete} projectContext={projectContext} />
+
+        <TriageColumn status="no" items={nos} defaultOpen={false}
           onUpdateStatus={onUpdateStatus} onUpdatePriority={onUpdatePriority}
           onDelete={onDelete} projectContext={projectContext} />
 

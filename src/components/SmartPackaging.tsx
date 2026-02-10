@@ -78,8 +78,8 @@ export function SmartPackaging({ projectId, projectTitle, format, genres, budget
   const handleRequestReplacement = async (item: any) => {
     setReplacementLoading(true);
     try {
-      // Get all passed names to exclude
-      const excludeNames = triage.passed.map(p => p.person_name);
+      // Get all passed and no'd names to exclude
+      const excludeNames = [...triage.passed, ...triage.nos].map(p => p.person_name);
       const { data, error } = await supabase.functions.invoke('smart-packaging', {
         body: {
           projectTitle, format, genres, budgetRange, tone, assignedLane,
@@ -156,6 +156,7 @@ export function SmartPackaging({ projectId, projectTitle, format, genres, budget
         unsorted={triage.unsorted}
         shortlisted={triage.shortlisted}
         maybes={triage.maybes}
+        nos={triage.nos}
         passed={triage.passed}
         onUpdateStatus={triage.updateStatus}
         onUpdatePriority={triage.updatePriorityRank}
