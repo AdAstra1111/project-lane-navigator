@@ -1,0 +1,1 @@
+ALTER TABLE public.project_talent_triage ADD COLUMN IF NOT EXISTS image_url text NOT NULL DEFAULT '';

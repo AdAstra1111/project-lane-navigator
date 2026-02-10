@@ -1104,6 +1104,7 @@ export type Database = {
           created_at: string
           creative_fit: string
           id: string
+          image_url: string
           person_name: string
           person_type: string
           priority_rank: number | null
@@ -1120,6 +1121,7 @@ export type Database = {
           created_at?: string
           creative_fit?: string
           id?: string
+          image_url?: string
           person_name: string
           person_type?: string
           priority_rank?: number | null
@@ -1136,6 +1138,7 @@ export type Database = {
           created_at?: string
           creative_fit?: string
           id?: string
+          image_url?: string
           person_name?: string
           person_type?: string
           priority_rank?: number | null

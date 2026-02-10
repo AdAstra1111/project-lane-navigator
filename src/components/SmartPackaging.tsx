@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Sparkles, Loader2, Users, Star } from 'lucide-react';
+import { Sparkles, Loader2, Users, Star, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
@@ -10,6 +10,7 @@ import { CastInfoDialog } from '@/components/CastInfoDialog';
 import { CharacterSelector } from '@/components/CharacterSelector';
 import { TalentTriageBoard } from '@/components/TalentTriageBoard';
 import { useTalentTriage } from '@/hooks/useTalentTriage';
+import { usePersonImage } from '@/hooks/usePersonImage';
 import type { ScriptCharacter } from '@/hooks/useScriptCharacters';
 
 interface PackagingSuggestion {
@@ -33,6 +34,19 @@ interface Props {
   mode?: PackagingMode;
   scriptCharacters?: ScriptCharacter[];
   scriptCharactersLoading?: boolean;
+}
+
+function SuggestionAvatar({ name }: { name: string }) {
+  const imageUrl = usePersonImage(name);
+  return (
+    <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center shrink-0 overflow-hidden">
+      {imageUrl ? (
+        <img src={imageUrl} alt={name} className="h-full w-full object-cover" />
+      ) : (
+        <User className="h-4 w-4 text-muted-foreground" />
+      )}
+    </div>
+  );
 }
 
 export function SmartPackaging({ projectId, projectTitle, format, genres, budgetRange, tone, assignedLane, mode = 'cast', scriptCharacters = [], scriptCharactersLoading }: Props) {
@@ -232,27 +246,27 @@ export function SmartPackaging({ projectId, projectTitle, format, genres, budget
               initial={{ opacity: 0, x: -12 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: i * 0.1 }}
-              className="border border-border rounded-lg p-4"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="flex items-center gap-2 mb-1">
-                    <Star className="h-3.5 w-3.5 text-amber-400" />
-                    <button
-                      onClick={() => setSelectedPerson({ name: s.name, reason: `${s.role} · ${s.rationale}` })}
-                      className="font-semibold text-sm text-foreground hover:text-primary transition-colors cursor-pointer"
-                    >
-                      {s.name}
-                    </button>
-                    <span className="text-xs text-muted-foreground">· {s.role}</span>
-                  </div>
-                  <p className="text-sm text-muted-foreground leading-relaxed">{s.rationale}</p>
-                </div>
-              </div>
-              <div className="flex gap-4 mt-2 text-xs text-muted-foreground">
-                <span>Market Value: <span className="text-foreground font-medium">{s.market_value}</span></span>
-                <span>Window: <span className="text-foreground font-medium">{s.availability_window}</span></span>
-              </div>
+               className="border border-border rounded-lg p-4"
+             >
+               <div className="flex items-start gap-3">
+                 <SuggestionAvatar name={s.name} />
+                 <div className="flex-1 min-w-0">
+                   <div className="flex items-center gap-2 mb-1">
+                     <button
+                       onClick={() => setSelectedPerson({ name: s.name, reason: `${s.role} · ${s.rationale}` })}
+                       className="font-semibold text-sm text-foreground hover:text-primary transition-colors cursor-pointer"
+                     >
+                       {s.name}
+                     </button>
+                     <span className="text-xs text-muted-foreground">· {s.role}</span>
+                   </div>
+                   <p className="text-sm text-muted-foreground leading-relaxed">{s.rationale}</p>
+                   <div className="flex gap-4 mt-2 text-xs text-muted-foreground">
+                     <span>Market Value: <span className="text-foreground font-medium">{s.market_value}</span></span>
+                     <span>Window: <span className="text-foreground font-medium">{s.availability_window}</span></span>
+                   </div>
+                 </div>
+               </div>
             </motion.div>
           ))}
         </div>
