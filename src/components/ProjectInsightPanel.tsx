@@ -29,6 +29,16 @@ interface AICastSuggestion {
   territory_value: string;
 }
 
+interface SaveToTriageInput {
+  person_name: string;
+  person_type: string;
+  suggestion_source: string;
+  suggestion_context?: string;
+  role_suggestion?: string;
+  creative_fit?: string;
+  commercial_case?: string;
+}
+
 interface ProjectInsightPanelProps {
   insights: ProjectInsights;
   projectContext?: {
@@ -39,9 +49,11 @@ interface ProjectInsightPanelProps {
     tone?: string;
     assigned_lane?: string | null;
   };
+  onSaveToTriage?: (items: SaveToTriageInput[]) => Promise<void>;
+  existingTriageNames?: Set<string>;
 }
 
-export function ProjectInsightPanel({ insights, projectContext }: ProjectInsightPanelProps) {
+export function ProjectInsightPanel({ insights, projectContext, onSaveToTriage, existingTriageNames }: ProjectInsightPanelProps) {
   const { cast, idea, timing } = insights;
   const saturation = SATURATION_STYLES[idea.saturation] || SATURATION_STYLES['well-timed'];
   const [selectedPerson, setSelectedPerson] = useState<{ name: string; reason: string } | null>(null);
@@ -62,7 +74,28 @@ export function ProjectInsightPanel({ insights, projectContext }: ProjectInsight
         },
       });
       if (error) throw error;
-      setAiSuggestions(data?.suggestions || []);
+      const results: AICastSuggestion[] = data?.suggestions || [];
+      setAiSuggestions(results);
+
+      // Auto-save to triage if callback provided
+      if (onSaveToTriage && results.length > 0) {
+        const names = existingTriageNames || new Set<string>();
+        const newItems = results
+          .filter(s => !names.has(s.name.toLowerCase()))
+          .map(s => ({
+            person_name: s.name,
+            person_type: 'cast',
+            suggestion_source: 'cast-explorer',
+            suggestion_context: s.rationale,
+            role_suggestion: s.role_type,
+            creative_fit: s.rationale,
+            commercial_case: `Trajectory: ${s.market_trajectory} · Territory value: ${s.territory_value}`,
+          }));
+        if (newItems.length > 0) {
+          await onSaveToTriage(newItems);
+          toast.success(`${newItems.length} suggestion${newItems.length > 1 ? 's' : ''} added to triage`);
+        }
+      }
     } catch (e: any) {
       toast.error(e.message || 'Failed to get AI suggestions');
     } finally {
