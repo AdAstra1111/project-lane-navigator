@@ -17,3 +17,9 @@ verify_jwt = false
 
 [functions.analyze-note]
 verify_jwt = false
+
+[functions.extract-characters]
+verify_jwt = false
+
+[functions.extract-documents]
+verify_jwt = false
