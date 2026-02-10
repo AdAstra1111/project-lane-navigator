@@ -1,8 +1,11 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Users, Lightbulb, Clock, AlertTriangle, TrendingUp, MapPin } from 'lucide-react';
+import { Users, Lightbulb, Clock, AlertTriangle, TrendingUp, MapPin, Sparkles, Loader2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { CastInfoDialog } from '@/components/CastInfoDialog';
+import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
 import type { ProjectInsights } from '@/lib/project-insights';
 
 const SATURATION_STYLES: Record<string, { label: string; className: string }> = {
@@ -12,6 +15,20 @@ const SATURATION_STYLES: Record<string, { label: string; className: string }> = 
   cooling: { label: 'Cooling', className: 'bg-red-500/15 text-red-400 border-red-500/30' },
 };
 
+const TRAJECTORY_STYLES: Record<string, string> = {
+  rising: 'text-emerald-400',
+  peak: 'text-primary',
+  steady: 'text-muted-foreground',
+};
+
+interface AICastSuggestion {
+  name: string;
+  role_type: string;
+  rationale: string;
+  market_trajectory: string;
+  territory_value: string;
+}
+
 interface ProjectInsightPanelProps {
   insights: ProjectInsights;
   projectContext?: {
@@ -19,6 +36,8 @@ interface ProjectInsightPanelProps {
     format?: string;
     budget_range?: string;
     genres?: string[];
+    tone?: string;
+    assigned_lane?: string | null;
   };
 }
 
@@ -26,6 +45,30 @@ export function ProjectInsightPanel({ insights, projectContext }: ProjectInsight
   const { cast, idea, timing } = insights;
   const saturation = SATURATION_STYLES[idea.saturation] || SATURATION_STYLES['well-timed'];
   const [selectedPerson, setSelectedPerson] = useState<{ name: string; reason: string } | null>(null);
+  const [aiSuggestions, setAiSuggestions] = useState<AICastSuggestion[]>([]);
+  const [aiLoading, setAiLoading] = useState(false);
+
+  const fetchAiSuggestions = async () => {
+    setAiLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('suggest-cast', {
+        body: {
+          projectTitle: projectContext?.title,
+          format: projectContext?.format,
+          genres: projectContext?.genres,
+          budgetRange: projectContext?.budget_range,
+          tone: projectContext?.tone,
+          assignedLane: projectContext?.assigned_lane,
+        },
+      });
+      if (error) throw error;
+      setAiSuggestions(data?.suggestions || []);
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to get AI suggestions');
+    } finally {
+      setAiLoading(false);
+    }
+  };
 
   return (
     <motion.div
@@ -56,10 +99,12 @@ export function ProjectInsightPanel({ insights, projectContext }: ProjectInsight
             <span>{cast.warning}</span>
           </div>
         )}
+
+        {/* Trending cast pool */}
         {cast.suggested_cast.length > 0 && (
           <div className="space-y-2 pt-1">
-            <p className="text-xs text-muted-foreground uppercase tracking-wider font-medium">Suggested Cast Pool</p>
-             <div className="space-y-1.5">
+            <p className="text-xs text-muted-foreground uppercase tracking-wider font-medium">Trending Talent Matches</p>
+            <div className="space-y-1.5">
               {cast.suggested_cast.map(c => (
                 <button
                   key={c.name}
@@ -73,6 +118,44 @@ export function ProjectInsightPanel({ insights, projectContext }: ProjectInsight
             </div>
           </div>
         )}
+
+        {/* AI Explore More */}
+        <div className="pt-2 border-t border-border/50">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs text-muted-foreground uppercase tracking-wider font-medium">AI Cast Explorer</p>
+            <Button size="sm" variant="outline" onClick={fetchAiSuggestions} disabled={aiLoading} className="h-7 text-xs">
+              {aiLoading ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Sparkles className="h-3 w-3 mr-1" />}
+              {aiSuggestions.length > 0 ? 'Refresh' : 'Explore Talent'}
+            </Button>
+          </div>
+          {!aiLoading && aiSuggestions.length === 0 && (
+            <p className="text-xs text-muted-foreground">Get AI-powered suggestions tailored to this project's budget, tone, and genre.</p>
+          )}
+          {aiSuggestions.length > 0 && (
+            <div className="space-y-2">
+              {aiSuggestions.map((s, i) => (
+                <motion.button
+                  key={s.name}
+                  initial={{ opacity: 0, x: -8 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: i * 0.06 }}
+                  onClick={() => setSelectedPerson({ name: s.name, reason: `${s.role_type} · ${s.rationale}` })}
+                  className="w-full text-left bg-muted/30 hover:bg-muted/50 rounded-lg px-3 py-2.5 transition-colors cursor-pointer group"
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="font-medium text-sm text-foreground group-hover:text-primary transition-colors">{s.name}</span>
+                    <span className="text-[10px] text-muted-foreground">· {s.role_type}</span>
+                    <span className={`text-[10px] ml-auto ${TRAJECTORY_STYLES[s.market_trajectory] || 'text-muted-foreground'}`}>
+                      {s.market_trajectory === 'rising' ? '↑' : s.market_trajectory === 'peak' ? '●' : '—'} {s.market_trajectory}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground leading-relaxed">{s.rationale}</p>
+                  <p className="text-[10px] text-muted-foreground mt-1">Territory value: {s.territory_value}</p>
+                </motion.button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Idea Positioning */}
@@ -113,6 +196,7 @@ export function ProjectInsightPanel({ insights, projectContext }: ProjectInsight
           </div>
         )}
       </div>
+
       {/* Cast Info Dialog */}
       {selectedPerson && (
         <CastInfoDialog

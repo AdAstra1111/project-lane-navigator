@@ -517,6 +517,8 @@ export default function ProjectDetail() {
                 format: project.format,
                 budget_range: project.budget_range,
                 genres: project.genres || [],
+                tone: project.tone,
+                assigned_lane: project.assigned_lane,
               }}
             />
           )}
