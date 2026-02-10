@@ -27,7 +27,7 @@ serve(async (req) => {
       });
     }
 
-    const { projectTitle, format, genres, budgetRange, tone, assignedLane, excludeNames, replacementFor, maxSuggestions, targetCharacter, mode } = await req.json();
+    const { projectTitle, format, genres, budgetRange, tone, assignedLane, excludeNames, replacementFor, maxSuggestions, targetCharacter, mode, targetDepartment } = await req.json();
     const isCrew = mode === 'crew';
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
@@ -42,9 +42,12 @@ serve(async (req) => {
     const characterClause = (targetCharacter && !isCrew)
       ? `\n\nTARGET ROLE: The producer is specifically casting for the character "${targetCharacter.name}"${targetCharacter.description ? ` — ${targetCharacter.description}` : ''}${targetCharacter.scene_count ? ` (appears in ${targetCharacter.scene_count} scenes, ${targetCharacter.scene_count > 15 ? 'LEAD' : targetCharacter.scene_count > 5 ? 'SUPPORTING LEAD' : 'SUPPORTING'} role)` : ''}. Tailor ALL suggestions to ACTORS ONLY who could convincingly play this specific character. Do NOT suggest directors or crew — only actors. Consider age, physicality, acting range, and prior roles that demonstrate suitability.`
       : '';
+    const departmentClause = (isCrew && targetDepartment)
+      ? `\n\nTARGET DEPARTMENT: The producer is specifically looking for a "${targetDepartment}". Suggest ONLY people who work as ${targetDepartment}s. Do NOT suggest people from other departments.`
+      : '';
 
     const crewPrompt = isCrew
-      ? `You are an expert film/TV crew packaging strategist. Given a project, suggest ${count} specific department heads (HODs) and key crew members that would maximize its production value and market credibility.`
+      ? `You are an expert film/TV crew packaging strategist. Given a project, suggest ${count} specific ${targetDepartment ? targetDepartment + 's' : 'department heads (HODs) and key crew members'} that would maximize its production value and market credibility.`
       : `You are an expert film/TV packaging strategist. Given a project, suggest ${count} specific cast members and/or directors that would maximize its financeability and market appeal.`;
 
     const crewFields = isCrew
@@ -80,7 +83,7 @@ Format: ${format}
 Genres: ${genres?.join(', ')}
 Budget: ${budgetRange}
 Tone: ${tone}
-Lane: ${assignedLane || 'unclassified'}${characterClause}${excludeClause}${replacementClause}
+Lane: ${assignedLane || 'unclassified'}${characterClause}${departmentClause}${excludeClause}${replacementClause}
 
 ${crewFields}`;
 

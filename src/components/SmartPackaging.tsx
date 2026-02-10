@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Sparkles, Loader2, Users, Star } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { CastInfoDialog } from '@/components/CastInfoDialog';
@@ -39,6 +40,7 @@ export function SmartPackaging({ projectId, projectTitle, format, genres, budget
   const [replacementLoading, setReplacementLoading] = useState(false);
   const [selectedPerson, setSelectedPerson] = useState<{ name: string; reason: string } | null>(null);
   const [targetCharacter, setTargetCharacter] = useState<ScriptCharacter | null>(null);
+  const [targetDepartment, setTargetDepartment] = useState<string | null>(null);
 
   const triage = useTalentTriage(projectId);
 
@@ -48,7 +50,7 @@ export function SmartPackaging({ projectId, projectTitle, format, genres, budget
     setLoading(true);
     try {
       const { data, error } = await supabase.functions.invoke('smart-packaging', {
-        body: { projectTitle, format, genres, budgetRange, tone, assignedLane, mode, targetCharacter: targetCharacter ? { name: targetCharacter.name, description: targetCharacter.description, scene_count: targetCharacter.scene_count } : undefined },
+        body: { projectTitle, format, genres, budgetRange, tone, assignedLane, mode, targetDepartment: mode === 'crew' ? targetDepartment : undefined, targetCharacter: (mode === 'cast' && targetCharacter) ? { name: targetCharacter.name, description: targetCharacter.description, scene_count: targetCharacter.scene_count } : undefined },
       });
       if (error) throw error;
       const results: PackagingSuggestion[] = data?.suggestions || [];
@@ -154,6 +156,34 @@ export function SmartPackaging({ projectId, projectTitle, format, genres, budget
             </div>
           )}
         </>
+      )}
+
+      {mode === 'crew' && (
+        <div className="mb-3">
+          <Select
+            value={targetDepartment || 'all'}
+            onValueChange={v => setTargetDepartment(v === 'all' ? null : v)}
+          >
+            <SelectTrigger className="h-8 text-xs bg-background">
+              <SelectValue placeholder="All departments" />
+            </SelectTrigger>
+            <SelectContent className="bg-popover z-50">
+              <SelectItem value="all">All departments</SelectItem>
+              <SelectItem value="Writer">Writer</SelectItem>
+              <SelectItem value="Director">Director</SelectItem>
+              <SelectItem value="Director of Photography">Director of Photography</SelectItem>
+              <SelectItem value="Producer">Producer</SelectItem>
+              <SelectItem value="Line Producer">Line Producer</SelectItem>
+              <SelectItem value="Editor">Editor</SelectItem>
+              <SelectItem value="Composer">Composer</SelectItem>
+              <SelectItem value="Production Designer">Production Designer</SelectItem>
+              <SelectItem value="Costume Designer">Costume Designer</SelectItem>
+              <SelectItem value="VFX Supervisor">VFX Supervisor</SelectItem>
+              <SelectItem value="Sound Designer">Sound Designer</SelectItem>
+              <SelectItem value="Casting Director">Casting Director</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       )}
 
       <p className="text-sm text-muted-foreground mb-4">
