@@ -46,6 +46,14 @@ export function SmartPackaging({ projectId, projectTitle, format, genres, budget
 
   const triage = useTalentTriage(projectId);
 
+  // Filter triage items by mode: cast tab sees cast items, crew tab sees crew/director items
+  const isCastType = (type: string) => type === 'cast' || type === 'actor';
+  const isCrewType = (type: string) => !isCastType(type);
+  const modeFilter = mode === 'cast' ? isCastType : isCrewType;
+  const filteredItems = triage.items.filter(i => modeFilter(i.person_type));
+  const filteredByStatus = (status: string) =>
+    filteredItems.filter(i => i.status === status).sort((a, b) => status === 'shortlist' ? a.priority_rank - b.priority_rank : 0);
+
   const projectContext = { title: projectTitle, format, budget_range: budgetRange, genres };
 
   const fetchSuggestions = async () => {
@@ -64,7 +72,7 @@ export function SmartPackaging({ projectId, projectTitle, format, genres, budget
         .filter(s => !existingNames.has(s.name.toLowerCase()))
         .map(s => ({
           person_name: s.name,
-          person_type: s.role.toLowerCase().includes('director') ? 'director' : 'cast',
+          person_type: mode === 'crew' ? 'crew' : 'cast',
           suggestion_source: 'smart-packaging',
           suggestion_context: s.rationale,
           role_suggestion: s.role,
@@ -86,7 +94,7 @@ export function SmartPackaging({ projectId, projectTitle, format, genres, budget
     setReplacementLoading(true);
     try {
       // Get all passed and no'd names to exclude
-      const excludeNames = [...triage.passed, ...triage.nos].map(p => p.person_name);
+      const excludeNames = [...filteredByStatus('pass'), ...filteredByStatus('no')].map(p => p.person_name);
       const { data, error } = await supabase.functions.invoke('smart-packaging', {
         body: {
           projectTitle, format, genres, budgetRange, tone, assignedLane, mode,
@@ -101,7 +109,7 @@ export function SmartPackaging({ projectId, projectTitle, format, genres, budget
         const s = results[0];
         await triage.addItems([{
           person_name: s.name,
-          person_type: s.role.toLowerCase().includes('director') ? 'director' : 'cast',
+          person_type: mode === 'crew' ? 'crew' : 'cast',
           suggestion_source: 'smart-packaging',
           suggestion_context: s.rationale,
           role_suggestion: s.role,
@@ -134,7 +142,7 @@ export function SmartPackaging({ projectId, projectTitle, format, genres, budget
         </div>
         <Button size="sm" variant="outline" onClick={fetchSuggestions} disabled={loading || replacementLoading}>
           {loading ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Users className="h-3.5 w-3.5 mr-1" />}
-          {triage.items.length > 0 ? 'Get More' : 'Get Suggestions'}
+          {filteredItems.length > 0 ? 'Get More' : 'Get Suggestions'}
         </Button>
       </div>
 
@@ -203,11 +211,11 @@ export function SmartPackaging({ projectId, projectTitle, format, genres, budget
 
       {/* Show triage board if there are items */}
       <TalentTriageBoard
-        unsorted={triage.unsorted}
-        shortlisted={triage.shortlisted}
-        maybes={triage.maybes}
-        nos={triage.nos}
-        passed={triage.passed}
+        unsorted={filteredByStatus('unsorted')}
+        shortlisted={filteredByStatus('shortlist')}
+        maybes={filteredByStatus('maybe')}
+        nos={filteredByStatus('no')}
+        passed={filteredByStatus('pass')}
         onUpdateStatus={triage.updateStatus}
         onUpdatePriority={triage.updatePriorityRank}
         onDelete={triage.deleteItem}
@@ -216,7 +224,7 @@ export function SmartPackaging({ projectId, projectTitle, format, genres, budget
       />
 
       {/* Show raw suggestions only if no triage items yet (first-time preview) */}
-      {triage.items.length === 0 && suggestions.length > 0 && (
+      {filteredItems.length === 0 && suggestions.length > 0 && (
         <div className="space-y-3">
           {suggestions.map((s, i) => (
             <motion.div
