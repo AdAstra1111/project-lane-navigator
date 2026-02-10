@@ -26,6 +26,7 @@ import { ProjectIncentivePanel } from '@/components/ProjectIncentivePanel';
 import { ProjectReadinessScore } from '@/components/ProjectReadinessScore';
 import { ProjectAttachmentTabs } from '@/components/ProjectAttachmentTabs';
 import { ProjectTimeline } from '@/components/ProjectTimeline';
+import { ProjectBuyerMatches } from '@/components/ProjectBuyerMatches';
 import { useProject, useProjectDocuments } from '@/hooks/useProjects';
 import { useProjects } from '@/hooks/useProjects';
 import { useAddDocuments } from '@/hooks/useAddDocuments';
@@ -446,6 +447,9 @@ export default function ProjectDetail() {
               genres={project.genres || []}
             />
           )}
+
+          {/* Buyer / Market Match Engine */}
+          {project && <ProjectBuyerMatches project={project} />}
 
           {/* Legacy Recommendations (old format) */}
           {!hasNewAnalysis && legacyRecs.length > 0 && (
