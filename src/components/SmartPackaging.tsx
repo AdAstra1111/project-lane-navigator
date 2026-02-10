@@ -4,6 +4,7 @@ import { Sparkles, Loader2, Users, Star } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { CastInfoDialog } from '@/components/CastInfoDialog';
 
 interface PackagingSuggestion {
   name: string;
@@ -25,6 +26,7 @@ interface Props {
 export function SmartPackaging({ projectTitle, format, genres, budgetRange, tone, assignedLane }: Props) {
   const [suggestions, setSuggestions] = useState<PackagingSuggestion[]>([]);
   const [loading, setLoading] = useState(false);
+  const [selectedPerson, setSelectedPerson] = useState<{ name: string; reason: string } | null>(null);
 
   const fetchSuggestions = async () => {
     setLoading(true);
@@ -76,7 +78,12 @@ export function SmartPackaging({ projectTitle, format, genres, budgetRange, tone
                 <div>
                   <div className="flex items-center gap-2 mb-1">
                     <Star className="h-3.5 w-3.5 text-amber-400" />
-                    <span className="font-semibold text-sm text-foreground">{s.name}</span>
+                    <button
+                      onClick={() => setSelectedPerson({ name: s.name, reason: `${s.role} · ${s.rationale}` })}
+                      className="font-semibold text-sm text-foreground hover:text-primary transition-colors cursor-pointer"
+                    >
+                      {s.name}
+                    </button>
                     <span className="text-xs text-muted-foreground">· {s.role}</span>
                   </div>
                   <p className="text-sm text-muted-foreground leading-relaxed">{s.rationale}</p>
@@ -89,6 +96,16 @@ export function SmartPackaging({ projectTitle, format, genres, budgetRange, tone
             </motion.div>
           ))}
         </div>
+      )}
+
+      {selectedPerson && (
+        <CastInfoDialog
+          personName={selectedPerson.name}
+          reason={selectedPerson.reason}
+          open={!!selectedPerson}
+          onOpenChange={(open) => { if (!open) setSelectedPerson(null); }}
+          projectContext={{ title: projectTitle, format, budget_range: budgetRange, genres }}
+        />
       )}
     </motion.div>
   );
