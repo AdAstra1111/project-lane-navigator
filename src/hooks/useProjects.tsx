@@ -9,8 +9,9 @@ async function uploadDocuments(files: File[], userId: string): Promise<string[]>
   const paths: string[] = [];
   for (const file of files) {
     const timestamp = Date.now();
+    const randomToken = crypto.randomUUID().slice(0, 8);
     const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const path = `${userId}/${timestamp}-${safeName}`;
+    const path = `${userId}/${timestamp}-${randomToken}-${safeName}`;
     const { error } = await supabase.storage.from('project-documents').upload(path, file);
     if (error) throw new Error(`Failed to upload ${file.name}: ${error.message}`);
     paths.push(path);
