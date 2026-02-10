@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Plus, Clapperboard } from 'lucide-react';
+import { Plus, Clapperboard, ArrowLeftRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Header } from '@/components/Header';
 import { ProjectCard } from '@/components/ProjectCard';
@@ -29,12 +29,22 @@ export default function Dashboard() {
                 {projects.length} project{projects.length !== 1 ? 's' : ''} classified
               </p>
             </div>
-            <Link to="/projects/new">
-              <Button className="bg-primary text-primary-foreground hover:bg-primary/90">
-                <Plus className="h-4 w-4 mr-1.5" />
-                New Project
-              </Button>
-            </Link>
+            <div className="flex items-center gap-2">
+              {projects.length >= 2 && (
+                <Link to="/compare">
+                  <Button variant="outline">
+                    <ArrowLeftRight className="h-4 w-4 mr-1.5" />
+                    Compare
+                  </Button>
+                </Link>
+              )}
+              <Link to="/projects/new">
+                <Button className="bg-primary text-primary-foreground hover:bg-primary/90">
+                  <Plus className="h-4 w-4 mr-1.5" />
+                  New Project
+                </Button>
+              </Link>
+            </div>
           </div>
 
           {isLoading ? (
