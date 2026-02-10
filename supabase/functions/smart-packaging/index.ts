@@ -27,7 +27,8 @@ serve(async (req) => {
       });
     }
 
-    const { projectTitle, format, genres, budgetRange, tone, assignedLane, excludeNames, replacementFor, maxSuggestions, targetCharacter } = await req.json();
+    const { projectTitle, format, genres, budgetRange, tone, assignedLane, excludeNames, replacementFor, maxSuggestions, targetCharacter, mode } = await req.json();
+    const isCrew = mode === 'crew';
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
 
@@ -42,16 +43,24 @@ serve(async (req) => {
       ? `\n\nTARGET ROLE: The producer is specifically casting for the character "${targetCharacter.name}"${targetCharacter.description ? ` — ${targetCharacter.description}` : ''}${targetCharacter.scene_count ? ` (appears in ${targetCharacter.scene_count} scenes, ${targetCharacter.scene_count > 15 ? 'LEAD' : targetCharacter.scene_count > 5 ? 'SUPPORTING LEAD' : 'SUPPORTING'} role)` : ''}. Tailor ALL suggestions to actors who could convincingly play this specific character. Consider age, physicality, acting range, and prior roles that demonstrate suitability.`
       : '';
 
-    const prompt = `You are an expert film/TV packaging strategist. Given a project, suggest ${count} specific cast members and/or directors that would maximize its financeability and market appeal.
+    const crewPrompt = isCrew
+      ? `You are an expert film/TV crew packaging strategist. Given a project, suggest ${count} specific department heads (HODs) and key crew members that would maximize its production value and market credibility.`
+      : `You are an expert film/TV packaging strategist. Given a project, suggest ${count} specific cast members and/or directors that would maximize its financeability and market appeal.`;
 
-Project: "${projectTitle}"
-Format: ${format}
-Genres: ${genres?.join(', ')}
-Budget: ${budgetRange}
-Tone: ${tone}
-Lane: ${assignedLane || 'unclassified'}${characterClause}${excludeClause}${replacementClause}
+    const crewFields = isCrew
+      ? `For each suggestion provide:
+- name: Full name of the crew member
+- role: Their department/position (e.g. "Director of Photography", "Production Designer", "Composer", "Editor", "VFX Supervisor")
+- rationale: Why this person fits this project (2-3 sentences)
+- market_value: "High", "Medium-High", "Medium" based on reputation and demand
+- availability_window: Estimated availability like "2025-2026" or "Available"
 
-For each suggestion provide:
+Focus on crew that:
+1. Has relevant genre/format experience
+2. Would add production credibility and attract talent
+3. Is realistically within the budget range
+4. Has a track record that buyers/financiers recognise`
+      : `For each suggestion provide:
 - name: Full name of the talent
 - role: "Lead Actor", "Supporting Actor", "Director", etc.
 - rationale: Why this person fits this project (2-3 sentences)
@@ -64,6 +73,18 @@ Focus on talent that:
 3. Would unlock financing or pre-sales in key territories
 4. Is currently in demand or trending upward`;
 
+    const prompt = `${crewPrompt}
+
+Project: "${projectTitle}"
+Format: ${format}
+Genres: ${genres?.join(', ')}
+Budget: ${budgetRange}
+Tone: ${tone}
+Lane: ${assignedLane || 'unclassified'}${characterClause}${excludeClause}${replacementClause}
+
+${crewFields}`;
+
+    const systemMsg = isCrew ? "You are a film industry crew packaging expert." : "You are a film industry packaging expert.";
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -73,7 +94,7 @@ Focus on talent that:
       body: JSON.stringify({
         model: "google/gemini-3-flash-preview",
         messages: [
-          { role: "system", content: "You are a film industry packaging expert." },
+          { role: "system", content: systemMsg },
           { role: "user", content: prompt },
         ],
         tools: [{

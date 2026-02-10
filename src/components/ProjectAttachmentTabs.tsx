@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { Users, Handshake, FileText, DollarSign, Plus, Trash2, X, Check, Clapperboard, Loader2, CalendarDays, Sparkles, HelpCircle } from 'lucide-react';
+import { SmartPackaging } from '@/components/SmartPackaging';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { type DisambiguationCandidate } from '@/hooks/usePersonResearch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -618,9 +619,18 @@ function DisambiguationDialog({
 interface Props {
   projectId: string;
   projectContext?: ProjectContext;
+  projectTitle?: string;
+  format?: string;
+  genres?: string[];
+  budgetRange?: string;
+  tone?: string;
+  assignedLane?: string | null;
+  scriptCharacters?: import('@/hooks/useScriptCharacters').ScriptCharacter[];
+  scriptCharactersLoading?: boolean;
 }
 
-export function ProjectAttachmentTabs({ projectId, projectContext }: Props) {
+export function ProjectAttachmentTabs({ projectId, projectContext, projectTitle, format, genres, budgetRange, tone, assignedLane, scriptCharacters, scriptCharactersLoading }: Props) {
+  const smartPackagingProps = projectTitle ? { projectId, projectTitle, format: format || '', genres: genres || [], budgetRange: budgetRange || '', tone: tone || '', assignedLane: assignedLane || null, scriptCharacters, scriptCharactersLoading } : null;
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}
@@ -651,9 +661,11 @@ export function ProjectAttachmentTabs({ projectId, projectContext }: Props) {
 
         <TabsContent value="cast">
           <CastTab projectId={projectId} projectContext={projectContext} />
+          {smartPackagingProps && <SmartPackaging {...smartPackagingProps} mode="cast" />}
         </TabsContent>
         <TabsContent value="hods">
           <HODsTab projectId={projectId} projectContext={projectContext} />
+          {smartPackagingProps && <SmartPackaging {...smartPackagingProps} mode="crew" />}
         </TabsContent>
         <TabsContent value="partners">
           <PartnersTab projectId={projectId} />
