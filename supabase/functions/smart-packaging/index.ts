@@ -27,18 +27,26 @@ serve(async (req) => {
       });
     }
 
-    const { projectTitle, format, genres, budgetRange, tone, assignedLane } = await req.json();
+    const { projectTitle, format, genres, budgetRange, tone, assignedLane, excludeNames, replacementFor, maxSuggestions } = await req.json();
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
 
-    const prompt = `You are an expert film/TV packaging strategist. Given a project, suggest 5 specific cast members and/or directors that would maximize its financeability and market appeal.
+    const count = maxSuggestions || 5;
+    const excludeClause = excludeNames?.length
+      ? `\n\nIMPORTANT: Do NOT suggest these names (already passed on): ${excludeNames.join(', ')}`
+      : '';
+    const replacementClause = replacementFor
+      ? `\n\nThis is a REPLACEMENT request. The producer passed on "${replacementFor}". Suggest someone who fills a similar role/function but is a different talent.`
+      : '';
+
+    const prompt = `You are an expert film/TV packaging strategist. Given a project, suggest ${count} specific cast members and/or directors that would maximize its financeability and market appeal.
 
 Project: "${projectTitle}"
 Format: ${format}
 Genres: ${genres?.join(', ')}
 Budget: ${budgetRange}
 Tone: ${tone}
-Lane: ${assignedLane || 'unclassified'}
+Lane: ${assignedLane || 'unclassified'}${excludeClause}${replacementClause}
 
 For each suggestion provide:
 - name: Full name of the talent

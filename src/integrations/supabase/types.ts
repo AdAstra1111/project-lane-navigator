@@ -1098,6 +1098,65 @@ export type Database = {
           },
         ]
       }
+      project_talent_triage: {
+        Row: {
+          commercial_case: string
+          created_at: string
+          creative_fit: string
+          id: string
+          person_name: string
+          person_type: string
+          priority_rank: number | null
+          project_id: string
+          role_suggestion: string
+          status: string
+          suggestion_context: string
+          suggestion_source: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          commercial_case?: string
+          created_at?: string
+          creative_fit?: string
+          id?: string
+          person_name: string
+          person_type?: string
+          priority_rank?: number | null
+          project_id: string
+          role_suggestion?: string
+          status?: string
+          suggestion_context?: string
+          suggestion_source?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          commercial_case?: string
+          created_at?: string
+          creative_fit?: string
+          id?: string
+          person_name?: string
+          person_type?: string
+          priority_rank?: number | null
+          project_id?: string
+          role_suggestion?: string
+          status?: string
+          suggestion_context?: string
+          suggestion_source?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_talent_triage_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       project_updates: {
         Row: {
           created_at: string
