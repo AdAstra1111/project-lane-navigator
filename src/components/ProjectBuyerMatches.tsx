@@ -153,6 +153,7 @@ export function ProjectBuyerMatches({ project }: ProjectBuyerMatchesProps) {
   const { matches, buyersLoading, hasBuyers } = useBuyerMatches(project);
   const { research, isResearching } = useResearchBuyers();
   const queryClient = useQueryClient();
+  const [collapsed, setCollapsed] = useState(true);
 
   const handleResearch = async () => {
     try {
@@ -163,6 +164,8 @@ export function ProjectBuyerMatches({ project }: ProjectBuyerMatchesProps) {
       toast.error(e.message || 'Research failed');
     }
   };
+
+  const displayedMatches = collapsed ? matches.slice(0, 3) : matches;
 
   return (
     <motion.div
@@ -175,6 +178,11 @@ export function ProjectBuyerMatches({ project }: ProjectBuyerMatchesProps) {
         <div className="flex items-center gap-2">
           <Search className="h-5 w-5 text-primary" />
           <h3 className="font-display font-semibold text-foreground text-lg">Buyer Matches</h3>
+          {matches.length > 0 && (
+            <span className="text-xs text-muted-foreground bg-muted rounded-full px-2 py-0.5">
+              {matches.length}
+            </span>
+          )}
         </div>
         <Button
           variant="outline"
@@ -217,9 +225,29 @@ export function ProjectBuyerMatches({ project }: ProjectBuyerMatchesProps) {
         </div>
       ) : (
         <div className="space-y-3">
-          {matches.map((match, i) => (
+          {displayedMatches.map((match, i) => (
             <BuyerCard key={match.buyerId} match={match} index={i} />
           ))}
+          {matches.length > 3 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setCollapsed(!collapsed)}
+              className="w-full text-xs text-muted-foreground hover:text-foreground"
+            >
+              {collapsed ? (
+                <>
+                  <ChevronDown className="h-3.5 w-3.5 mr-1" />
+                  Show all {matches.length} matches
+                </>
+              ) : (
+                <>
+                  <ChevronUp className="h-3.5 w-3.5 mr-1" />
+                  Show fewer
+                </>
+              )}
+            </Button>
+          )}
         </div>
       )}
     </motion.div>
