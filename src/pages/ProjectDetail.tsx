@@ -52,6 +52,8 @@ import { MarketWindowAlerts } from '@/components/MarketWindowAlerts';
 import { useProjectCast, useProjectPartners, useProjectScripts, useProjectFinance, useProjectHODs } from '@/hooks/useProjectAttachments';
 import { generateProjectInsights } from '@/lib/project-insights';
 import { calculateReadiness } from '@/lib/readiness-score';
+import { calculateFinanceReadiness } from '@/lib/finance-readiness';
+import { FinanceReadinessPanel } from '@/components/FinanceReadinessPanel';
 import { MonetisationLane, Recommendation, FullAnalysis } from '@/lib/types';
 import { BUDGET_RANGES, TARGET_AUDIENCES, TONES } from '@/lib/constants';
 import { exportProjectPDF } from '@/lib/pdf-export';
@@ -209,6 +211,11 @@ export default function ProjectDetail() {
   const readiness = useMemo(() => {
     if (!project) return null;
     return calculateReadiness(project, cast, partners, scripts, financeScenarios, hods, incentiveAnalysed);
+  }, [project, cast, partners, scripts, financeScenarios, hods, incentiveAnalysed]);
+
+  const financeReadiness = useMemo(() => {
+    if (!project) return null;
+    return calculateFinanceReadiness(project, cast, partners, scripts, financeScenarios, hods, incentiveAnalysed);
   }, [project, cast, partners, scripts, financeScenarios, hods, incentiveAnalysed]);
 
   const handleDelete = async () => {
@@ -556,6 +563,7 @@ export default function ProjectDetail() {
               </span>
             ) : null
           }>
+            {financeReadiness && <FinanceReadinessPanel result={financeReadiness} />}
             <FinanceWaterfall scenarios={financeScenarios} />
             {project && id && (
               <ProjectIncentivePanel
