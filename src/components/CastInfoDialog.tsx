@@ -75,11 +75,11 @@ export function CastInfoDialog({ personName, reason, open, onOpenChange, project
 
         {/* External links for photos/info */}
         <div className="flex gap-2">
-          <Button size="sm" variant="outline" className="text-xs" onClick={() => window.open(searchUrl, '_blank', 'noopener,noreferrer')}>
+          <Button size="sm" variant="outline" className="text-xs" onClick={() => (window.top || window).open(searchUrl, '_blank', 'noopener,noreferrer')}>
             <Search className="h-3.5 w-3.5 mr-1" />
             Photos
           </Button>
-          <Button size="sm" variant="outline" className="text-xs" onClick={() => window.open(imdbUrl, '_blank', 'noopener,noreferrer')}>
+          <Button size="sm" variant="outline" className="text-xs" onClick={() => (window.top || window).open(imdbUrl, '_blank', 'noopener,noreferrer')}>
             <ExternalLink className="h-3.5 w-3.5 mr-1" />
             IMDb
           </Button>
