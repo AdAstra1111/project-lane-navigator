@@ -34,7 +34,7 @@ export function usePersonResearch() {
     department?: string;
   } | null>(null);
 
-  const research = async (personName: string, role: 'cast' | 'hod', projectContext?: ProjectContext, department?: string) => {
+  const research = async (personName: string, role: 'cast' | 'hod', projectContext?: ProjectContext, department?: string, knownFor?: string) => {
     if (!personName.trim()) return;
     setLoading(personName);
     setCandidates(null);
@@ -45,6 +45,7 @@ export function usePersonResearch() {
           person_name: personName,
           role,
           project_context: { ...projectContext, department },
+          known_for: knownFor || undefined,
         },
       });
 

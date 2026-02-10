@@ -38,7 +38,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    const { person_name, role, project_context, mode, disambiguation_hint } = await req.json();
+    const { person_name, role, project_context, mode, disambiguation_hint, known_for } = await req.json();
 
     if (!person_name) {
       return new Response(JSON.stringify({ error: "person_name is required" }), {
@@ -50,6 +50,8 @@ Deno.serve(async (req) => {
     const roleContext = role === "cast"
       ? "actor/actress in film and television"
       : `${project_context?.department || "crew member"} in film and television`;
+
+    const knownForHint = known_for ? ` Known for: ${known_for}.` : "";
 
     // ── STEP 1: Disambiguation ──
     if (mode !== "assess") {
@@ -64,7 +66,7 @@ Deno.serve(async (req) => {
           messages: [
             {
               role: "system",
-              content: `You are a film industry expert. The user is looking up a person named "${person_name}" who works as a ${roleContext}. Determine if this name could refer to multiple well-known people in the film/TV industry. If there is clearly only ONE well-known person by this name in this role, return a single candidate. If ambiguous, return up to 4 candidates.`,
+              content: `You are a film industry expert. The user is looking up a person named "${person_name}" who works as a ${roleContext}.${knownForHint} Determine if this name could refer to multiple well-known people in the film/TV industry. If there is clearly only ONE well-known person by this name in this role, return a single candidate. If ambiguous, return up to 4 candidates.`,
             },
             {
               role: "user",
@@ -139,7 +141,9 @@ Deno.serve(async (req) => {
     // ── STEP 2: Full Assessment ──
     const identityHint = disambiguation_hint
       ? `\nIMPORTANT: The user has confirmed they mean specifically: ${disambiguation_hint}. Assess ONLY this person, not anyone else with the same name.`
-      : "";
+      : known_for
+        ? `\nIMPORTANT: The user has specified this person is known for: ${known_for}. Use this to identify the correct individual.`
+        : "";
 
     const systemPrompt = `You are IFFY, a film finance intelligence tool. A producer is considering attaching a person to their project. Assess this person's current market value and how they affect the project's finance readiness.${identityHint}
 
