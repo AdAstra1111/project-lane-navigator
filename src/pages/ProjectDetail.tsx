@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Film, Tv, Target, Palette, DollarSign, Users, Quote, CheckCircle2, ShieldAlert, Trash2, Loader2, AlertTriangle, MessageSquareQuote, FileText, Copy, ArrowLeftRight, Download } from 'lucide-react';
+import { ArrowLeft, Film, Tv, Target, Palette, DollarSign, Users, Quote, CheckCircle2, ShieldAlert, Trash2, Loader2, AlertTriangle, MessageSquareQuote, FileText, Copy, ArrowLeftRight, Download, TrendingUp, Landmark, BarChart3, Package, StickyNote, UsersRound, ChevronDown } from 'lucide-react';
 import { ProjectNoteInput } from '@/components/ProjectNoteInput';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -16,6 +16,11 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
 import { Header } from '@/components/Header';
 import { LaneBadge } from '@/components/LaneBadge';
 import { AnalysisPassesDisplay } from '@/components/AnalysisPassesDisplay';
@@ -50,8 +55,6 @@ import { MonetisationLane, Recommendation, FullAnalysis } from '@/lib/types';
 import { BUDGET_RANGES, TARGET_AUDIENCES, TONES } from '@/lib/constants';
 import { exportProjectPDF } from '@/lib/pdf-export';
 import { matchBuyersToProject } from '@/lib/buyer-matcher';
-
-
 
 const CATEGORY_ICONS: Record<string, React.ElementType> = {
   Packaging: Users,
@@ -106,12 +109,7 @@ function RecommendationCard({ rec, index }: { rec: Recommendation; index: number
 function DoAvoidSection({ doNext, avoid }: { doNext: string[]; avoid: string[] }) {
   return (
     <div className="grid gap-4 sm:grid-cols-2">
-      <motion.div
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.5, duration: 0.3 }}
-        className="glass-card rounded-xl p-5"
-      >
+      <div className="glass-card rounded-xl p-5">
         <div className="flex items-center gap-2 mb-4">
           <CheckCircle2 className="h-5 w-5 text-emerald-400" />
           <h4 className="font-display font-semibold text-foreground">Do Next</h4>
@@ -124,14 +122,8 @@ function DoAvoidSection({ doNext, avoid }: { doNext: string[]; avoid: string[] }
             </li>
           ))}
         </ol>
-      </motion.div>
-
-      <motion.div
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.6, duration: 0.3 }}
-        className="glass-card rounded-xl p-5"
-      >
+      </div>
+      <div className="glass-card rounded-xl p-5">
         <div className="flex items-center gap-2 mb-4">
           <ShieldAlert className="h-5 w-5 text-red-400" />
           <h4 className="font-display font-semibold text-foreground">Avoid</h4>
@@ -144,8 +136,45 @@ function DoAvoidSection({ doNext, avoid }: { doNext: string[]; avoid: string[] }
             </li>
           ))}
         </ol>
-      </motion.div>
+      </div>
     </div>
+  );
+}
+
+/* ─── Collapsible section wrapper ─── */
+function Section({
+  icon: Icon,
+  title,
+  defaultOpen = false,
+  children,
+  badge,
+}: {
+  icon: React.ElementType;
+  title: string;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+  badge?: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <CollapsibleTrigger asChild>
+        <button className="w-full glass-card rounded-xl px-5 py-4 flex items-center gap-3 hover:bg-card/90 transition-colors group cursor-pointer">
+          <Icon className="h-4 w-4 text-primary shrink-0" />
+          <span className="font-display font-semibold text-foreground text-base flex-1 text-left">{title}</span>
+          {badge}
+          <ChevronDown className={cn(
+            "h-4 w-4 text-muted-foreground transition-transform duration-200",
+            open && "rotate-180"
+          )} />
+        </button>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="overflow-hidden data-[state=open]:animate-accordion-down data-[state=closed]:animate-accordion-up">
+        <div className="pt-3 space-y-4">
+          {children}
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 
@@ -157,14 +186,13 @@ export default function ProjectDetail() {
   const { deleteProject } = useProjects();
   const addDocuments = useAddDocuments(id);
   const { duplicate } = useProjectDuplicate();
-  
+
   const { data: castTrends = [] } = useActiveCastTrends();
   const { data: trendSignals = [] } = useActiveSignals();
   const { user } = useAuth();
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [incentiveAnalysed, setIncentiveAnalysed] = useState(false);
 
-  // Attachment hooks for readiness calculation
   const { cast } = useProjectCast(id);
   const { partners } = useProjectPartners(id);
   const { scripts } = useProjectScripts(id);
@@ -181,7 +209,6 @@ export default function ProjectDetail() {
     return calculateReadiness(project, cast, partners, scripts, financeScenarios, hods, incentiveAnalysed);
   }, [project, cast, partners, scripts, financeScenarios, hods, incentiveAnalysed]);
 
-
   const handleDelete = async () => {
     if (!id) return;
     await deleteProject.mutateAsync(id);
@@ -195,7 +222,6 @@ export default function ProjectDetail() {
 
   const handleExportPDF = async () => {
     if (!project || !readiness) return;
-    // Fetch buyer data on-demand for export
     let buyerMatches: import('@/lib/buyer-matcher').BuyerMatch[] = [];
     try {
       const { data: buyers } = await (await import('@/integrations/supabase/client')).supabase
@@ -263,6 +289,8 @@ export default function ProjectDetail() {
   const analysis = project.analysis_passes as FullAnalysis | null;
   const hasNewAnalysis = analysis?.structural_read != null;
   const hasDocuments = documents.length > 0;
+  const currentScript = scripts.find(s => s.status === 'current');
+  const hasScript = scripts.length > 0;
 
   return (
     <div className="min-h-screen bg-background">
@@ -272,9 +300,9 @@ export default function ProjectDetail() {
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3 }}
-          className="space-y-6"
+          className="space-y-4"
         >
-          {/* Back */}
+          {/* ─── ALWAYS VISIBLE: Header ─── */}
           <Link
             to="/dashboard"
             className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
@@ -283,7 +311,6 @@ export default function ProjectDetail() {
             All Projects
           </Link>
 
-          {/* Header */}
           <div className="flex items-start justify-between gap-4">
             <div>
               <div className="flex items-center gap-2 mb-2">
@@ -305,121 +332,62 @@ export default function ProjectDetail() {
             </div>
 
             <div className="flex items-center gap-1">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="text-muted-foreground hover:text-primary shrink-0"
-                title="Export PDF one-pager"
-                onClick={handleExportPDF}
-              >
+              <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary shrink-0" title="Export PDF one-pager" onClick={handleExportPDF}>
                 <Download className="h-4 w-4" />
               </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="text-muted-foreground hover:text-primary shrink-0"
-                title="Duplicate as scenario"
-                onClick={handleDuplicate}
-                disabled={duplicate.isPending}
-              >
+              <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary shrink-0" title="Duplicate as scenario" onClick={handleDuplicate} disabled={duplicate.isPending}>
                 {duplicate.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Copy className="h-4 w-4" />}
               </Button>
               <Link to="/compare">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="text-muted-foreground hover:text-primary shrink-0"
-                  title="Compare scenarios"
-                >
+                <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary shrink-0" title="Compare scenarios">
                   <ArrowLeftRight className="h-4 w-4" />
                 </Button>
               </Link>
               <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
                 <AlertDialogTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="text-muted-foreground hover:text-destructive hover:bg-destructive/10 shrink-0"
-                  >
+                  <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive hover:bg-destructive/10 shrink-0">
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Delete "{project.title}"?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    This will permanently delete the project, its analysis, and all uploaded documents. This action cannot be undone.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction
-                    onClick={handleDelete}
-                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                    disabled={deleteProject.isPending}
-                  >
-                    {deleteProject.isPending ? (
-                      <>
-                        <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
-                        Deleting…
-                      </>
-                    ) : (
-                      'Delete Project'
-                    )}
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete "{project.title}"?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This will permanently delete the project, its analysis, and all uploaded documents. This action cannot be undone.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90" disabled={deleteProject.isPending}>
+                      {deleteProject.isPending ? (<><Loader2 className="h-4 w-4 mr-1.5 animate-spin" />Deleting…</>) : 'Delete Project'}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             </div>
           </div>
 
-          {/* Readiness Score */}
+          {/* ─── ALWAYS VISIBLE: Readiness ─── */}
           {readiness && <ProjectReadinessScore readiness={readiness} />}
 
-          {/* Script Status Banner */}
-          {(() => {
-            const currentScript = scripts.find(s => s.status === 'current');
-            const hasScript = scripts.length > 0;
-            return (
-              <div className={cn(
-                'flex items-center gap-3 glass-card rounded-lg px-4 py-2.5 text-sm',
-                currentScript ? 'border-l-4 border-emerald-500/50' : hasScript ? 'border-l-4 border-amber-500/50' : 'border-l-4 border-muted'
-              )}>
-                <FileText className={cn('h-4 w-4 shrink-0', currentScript ? 'text-emerald-400' : 'text-muted-foreground')} />
-                {currentScript ? (
-                  <span className="text-foreground">
-                    Current Script: <strong>{currentScript.version_label}</strong>
-                    <span className="text-muted-foreground ml-2 text-xs">
-                      {new Date(currentScript.created_at).toLocaleDateString()}
-                    </span>
-                    {scripts.length > 1 && (
-                      <span className="text-muted-foreground ml-2 text-xs">
-                        · {scripts.length - 1} archived version{scripts.length > 2 ? 's' : ''}
-                      </span>
-                    )}
-                  </span>
-                ) : hasScript ? (
-                  <span className="text-muted-foreground">
-                    {scripts.length} archived script{scripts.length > 1 ? 's' : ''} — no current draft set
-                  </span>
-                ) : (
-                  <span className="text-muted-foreground">No script attached — upload one to unlock deeper analysis</span>
-                )}
+          {/* ─── ALWAYS VISIBLE: Lane + Confidence ─── */}
+          {project.assigned_lane && (
+            <div className="glass-card rounded-xl p-5 flex items-center justify-between gap-4">
+              <div>
+                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-2">Primary Lane</p>
+                <LaneBadge lane={project.assigned_lane as MonetisationLane} size="lg" />
               </div>
-            );
-          })()}
+              {project.confidence != null && (
+                <div className="flex-1 max-w-xs">
+                  <ConfidenceMeter confidence={project.confidence} />
+                </div>
+              )}
+            </div>
+          )}
 
-          {/* Relevant Signals — matched to this project */}
-          {project && <ProjectRelevantSignals project={project} />}
-
-          {/* IFFY Verdict */}
+          {/* ─── ALWAYS VISIBLE: IFFY Verdict ─── */}
           {hasNewAnalysis && analysis?.verdict && (
-            <motion.div
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.1, duration: 0.3 }}
-              className="glass-card rounded-xl p-6 border-l-4 border-primary"
-            >
+            <div className="glass-card rounded-xl p-5 border-l-4 border-primary">
               <div className="flex items-start gap-3">
                 <MessageSquareQuote className="h-5 w-5 text-primary shrink-0 mt-0.5" />
                 <div>
@@ -427,220 +395,225 @@ export default function ProjectDetail() {
                   <p className="text-lg font-display font-semibold text-foreground">{analysis.verdict}</p>
                 </div>
               </div>
-            </motion.div>
-          )}
-
-          {/* Lane + Confidence */}
-          {project.assigned_lane && (
-            <div className="glass-card rounded-xl p-6">
-              <div className="flex items-start justify-between gap-4 mb-4">
-                <div>
-                  <p className="text-xs text-muted-foreground uppercase tracking-wider mb-2">Primary Lane</p>
-                  <LaneBadge lane={project.assigned_lane as MonetisationLane} size="lg" />
-                </div>
-              </div>
-              {project.confidence != null && <ConfidenceMeter confidence={project.confidence} />}
             </div>
           )}
 
-          {/* Finance Waterfall */}
-          <FinanceWaterfall scenarios={financeScenarios} />
+          {/* ─── ALWAYS VISIBLE: Script Status ─── */}
+          <div className={cn(
+            'flex items-center gap-3 glass-card rounded-lg px-4 py-2.5 text-sm',
+            currentScript ? 'border-l-4 border-emerald-500/50' : hasScript ? 'border-l-4 border-amber-500/50' : 'border-l-4 border-muted'
+          )}>
+            <FileText className={cn('h-4 w-4 shrink-0', currentScript ? 'text-emerald-400' : 'text-muted-foreground')} />
+            {currentScript ? (
+              <span className="text-foreground">
+                Current Script: <strong>{currentScript.version_label}</strong>
+                <span className="text-muted-foreground ml-2 text-xs">
+                  {new Date(currentScript.created_at).toLocaleDateString()}
+                </span>
+                {scripts.length > 1 && (
+                  <span className="text-muted-foreground ml-2 text-xs">
+                    · {scripts.length - 1} archived version{scripts.length > 2 ? 's' : ''}
+                  </span>
+                )}
+              </span>
+            ) : hasScript ? (
+              <span className="text-muted-foreground">
+                {scripts.length} archived script{scripts.length > 1 ? 's' : ''} — no current draft set
+              </span>
+            ) : (
+              <span className="text-muted-foreground">No script attached — upload one to unlock deeper analysis</span>
+            )}
+          </div>
 
-          {/* Attachment Tabs: Cast, Partners, Scripts, Finance */}
-          {id && <ProjectAttachmentTabs projectId={id} projectContext={{ title: project.title, format: project.format, budget_range: project.budget_range, genres: project.genres }} />}
+          {/* ═══ COLLAPSIBLE SECTIONS ═══ */}
 
-          {/* Project Notes with Impact Analysis */}
-          {id && <ProjectNoteInput projectId={id} />}
-
-          {/* Rationale */}
-          {project.reasoning && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.2 }}
-              className="glass-card rounded-xl p-6"
-            >
-              <div className="flex items-start gap-3">
-                <Quote className="h-5 w-5 text-primary shrink-0 mt-0.5" />
-                <div>
-                  <h3 className="font-display font-semibold text-foreground mb-2">Why This Lane</h3>
-                  <p className="text-muted-foreground leading-relaxed">{project.reasoning}</p>
+          {/* 1. Analysis & Signals */}
+          <Section icon={TrendingUp} title="Analysis & Signals" defaultOpen>
+            {project && <ProjectRelevantSignals project={project} />}
+            {hasNewAnalysis && analysis && <AnalysisPassesDisplay passes={analysis} />}
+            {hasNewAnalysis && analysis?.do_next && analysis?.avoid && (
+              <DoAvoidSection doNext={analysis.do_next} avoid={analysis.avoid} />
+            )}
+            {hasNewAnalysis && analysis?.lane_not_suitable && (
+              <div className="glass-card rounded-xl p-5">
+                <div className="flex items-start gap-3">
+                  <AlertTriangle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Lane Not Suitable For</p>
+                    <p className="text-sm text-foreground leading-relaxed">{analysis.lane_not_suitable}</p>
+                  </div>
                 </div>
               </div>
-            </motion.div>
-          )}
-
-          {/* Script Coverage */}
-          {id && hasDocuments && (
-            <ScriptCoverage
-              projectId={id}
-              projectTitle={project.title}
-              format={project.format}
-              genres={project.genres || []}
-              hasDocuments={hasDocuments}
-            />
-          )}
-
-          {/* Analysis Passes (new format) */}
-          {hasNewAnalysis && analysis && (
-            <AnalysisPassesDisplay passes={analysis} />
-          )}
-
-          {/* DO / AVOID (new format) */}
-          {hasNewAnalysis && analysis?.do_next && analysis?.avoid && (
-            <DoAvoidSection doNext={analysis.do_next} avoid={analysis.avoid} />
-          )}
-          {/* Lane NOT suitable for */}
-          {hasNewAnalysis && analysis?.lane_not_suitable && (
-            <motion.div
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.7, duration: 0.3 }}
-              className="glass-card rounded-xl p-5"
-            >
-              <div className="flex items-start gap-3">
-                <AlertTriangle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
-                <div>
-                  <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Lane Not Suitable For</p>
-                  <p className="text-sm text-foreground leading-relaxed">{analysis.lane_not_suitable}</p>
+            )}
+            {project.reasoning && (
+              <div className="glass-card rounded-xl p-5">
+                <div className="flex items-start gap-3">
+                  <Quote className="h-5 w-5 text-primary shrink-0 mt-0.5" />
+                  <div>
+                    <h4 className="font-display font-semibold text-foreground mb-2">Why This Lane</h4>
+                    <p className="text-muted-foreground leading-relaxed">{project.reasoning}</p>
+                  </div>
                 </div>
               </div>
-            </motion.div>
-          )}
+            )}
+            {!hasNewAnalysis && legacyRecs.length > 0 && (
+              <div>
+                <h4 className="font-display font-semibold text-foreground text-lg mb-3">Recommendations</h4>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {legacyRecs.map((rec, i) => (
+                    <RecommendationCard key={rec.title} rec={rec} index={i} />
+                  ))}
+                </div>
+              </div>
+            )}
+          </Section>
 
-          {/* Intelligence Panel */}
+          {/* 2. Intelligence */}
           {insights && project && (
-            <ProjectInsightPanel
-              insights={insights}
-              projectContext={{
-                title: project.title,
-                format: project.format,
-                budget_range: project.budget_range,
-                genres: project.genres || [],
-                tone: project.tone,
-                assigned_lane: project.assigned_lane,
-              }}
-            />
-          )}
-
-          {/* Incentives & Co-Production Panel */}
-          {project && (
-            <ProjectIncentivePanel
-              format={project.format}
-              budget_range={project.budget_range}
-              genres={project.genres || []}
-            />
-          )}
-
-          {/* Buyer / Market Match Engine */}
-          {project && <ProjectBuyerMatches project={project} />}
-
-          {/* Deal Tracker */}
-          {id && <DealTracker projectId={id} />}
-
-          {/* Smart Packaging Suggestions */}
-          {project && (
-            <SmartPackaging
-              projectTitle={project.title}
-              format={project.format}
-              genres={project.genres || []}
-              budgetRange={project.budget_range}
-              tone={project.tone}
-              assignedLane={project.assigned_lane}
-            />
-          )}
-
-          {/* Market Window Alerts */}
-          {project && trendSignals.length > 0 && (
-            <MarketWindowAlerts
-              genres={project.genres || []}
-              tone={project.tone}
-              format={project.format}
-              signals={trendSignals}
-            />
-          )}
-
-          {/* Comparable Analysis */}
-          {project && (
-            <CompAnalysis
-              projectTitle={project.title}
-              format={project.format}
-              genres={project.genres || []}
-              budgetRange={project.budget_range}
-              tone={project.tone}
-              comparableTitles={project.comparable_titles}
-            />
-          )}
-
-          {/* Territory Heat Map */}
-          <TerritoryHeatMap
-            partners={partners}
-            castTerritories={[...new Set(cast.flatMap(c => c.territory_tags))]}
-            incentiveJurisdictions={[]}
-          />
-
-          {/* Legacy Recommendations (old format) */}
-          {!hasNewAnalysis && legacyRecs.length > 0 && (
-            <div>
-              <h3 className="font-display font-semibold text-foreground text-xl mb-4">Recommendations</h3>
-              <div className="grid gap-4 sm:grid-cols-2">
-                {legacyRecs.map((rec, i) => (
-                  <RecommendationCard key={rec.title} rec={rec} index={i} />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Project Details */}
-          <div className="glass-card rounded-xl p-6">
-            <h3 className="font-display font-semibold text-foreground mb-4">Project Details</h3>
-            <div className="grid grid-cols-2 gap-4 text-sm">
-              <div>
-                <p className="text-muted-foreground mb-0.5">Budget Range</p>
-                <p className="text-foreground font-medium">{getLabel(project.budget_range, BUDGET_RANGES)}</p>
-              </div>
-              <div>
-                <p className="text-muted-foreground mb-0.5">Target Audience</p>
-                <p className="text-foreground font-medium">{getLabel(project.target_audience, TARGET_AUDIENCES)}</p>
-              </div>
-              <div>
-                <p className="text-muted-foreground mb-0.5">Tone</p>
-                <p className="text-foreground font-medium">{getLabel(project.tone, TONES)}</p>
-              </div>
-              {project.comparable_titles && (
-                <div>
-                  <p className="text-muted-foreground mb-0.5">Comparables</p>
-                  <p className="text-foreground font-medium">{project.comparable_titles}</p>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Team & Collaboration */}
-          {id && <ProjectCollaboratorsPanel projectId={id} isOwner={project.user_id === user?.id} />}
-
-          {/* Discussion Thread */}
-          {id && <ProjectCommentsThread projectId={id} currentUserId={user?.id || null} />}
-
-          {/* Updates Timeline */}
-          {id && <ProjectTimeline projectId={id} />}
-
-          {/* Documents */}
-          <div>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-display font-semibold text-foreground text-xl">
-                {hasDocuments ? 'Uploaded Documents' : 'Documents'}
-              </h3>
-            </div>
-            {hasDocuments && <DocumentsList documents={documents} />}
-            <div className={hasDocuments ? 'mt-4' : ''}>
-              <AddDocumentsUpload
-                existingCount={documents.length}
-                onUpload={(files, scriptInfo) => addDocuments.mutate({ files, scriptInfo })}
-                isUploading={addDocuments.isPending}
+            <Section icon={Target} title="Intelligence">
+              <ProjectInsightPanel
+                insights={insights}
+                projectContext={{
+                  title: project.title,
+                  format: project.format,
+                  budget_range: project.budget_range,
+                  genres: project.genres || [],
+                  tone: project.tone,
+                  assigned_lane: project.assigned_lane,
+                }}
               />
+            </Section>
+          )}
+
+          {/* 3. Packaging & Attachments */}
+          <Section icon={Package} title="Packaging" badge={
+            readiness ? (
+              <span className="text-xs text-muted-foreground bg-muted rounded-full px-2 py-0.5">
+                {readiness.breakdown.packaging}/30
+              </span>
+            ) : null
+          }>
+            {id && <ProjectAttachmentTabs projectId={id} projectContext={{ title: project.title, format: project.format, budget_range: project.budget_range, genres: project.genres }} />}
+            {id && hasDocuments && (
+              <ScriptCoverage
+                projectId={id}
+                projectTitle={project.title}
+                format={project.format}
+                genres={project.genres || []}
+                hasDocuments={hasDocuments}
+              />
+            )}
+            {project && (
+              <SmartPackaging
+                projectTitle={project.title}
+                format={project.format}
+                genres={project.genres || []}
+                budgetRange={project.budget_range}
+                tone={project.tone}
+                assignedLane={project.assigned_lane}
+              />
+            )}
+          </Section>
+
+          {/* 4. Finance & Incentives */}
+          <Section icon={DollarSign} title="Finance & Incentives" badge={
+            readiness ? (
+              <span className="text-xs text-muted-foreground bg-muted rounded-full px-2 py-0.5">
+                {readiness.breakdown.finance}/25
+              </span>
+            ) : null
+          }>
+            <FinanceWaterfall scenarios={financeScenarios} />
+            {project && (
+              <ProjectIncentivePanel
+                format={project.format}
+                budget_range={project.budget_range}
+                genres={project.genres || []}
+              />
+            )}
+            {id && <DealTracker projectId={id} />}
+          </Section>
+
+          {/* 5. Market & Buyers */}
+          <Section icon={BarChart3} title="Market & Buyers">
+            {project && <ProjectBuyerMatches project={project} />}
+            {project && trendSignals.length > 0 && (
+              <MarketWindowAlerts
+                genres={project.genres || []}
+                tone={project.tone}
+                format={project.format}
+                signals={trendSignals}
+              />
+            )}
+            {project && (
+              <CompAnalysis
+                projectTitle={project.title}
+                format={project.format}
+                genres={project.genres || []}
+                budgetRange={project.budget_range}
+                tone={project.tone}
+                comparableTitles={project.comparable_titles}
+              />
+            )}
+            <TerritoryHeatMap
+              partners={partners}
+              castTerritories={[...new Set(cast.flatMap(c => c.territory_tags))]}
+              incentiveJurisdictions={[]}
+            />
+          </Section>
+
+          {/* 6. Notes & Documents */}
+          <Section icon={StickyNote} title="Notes & Documents">
+            {id && <ProjectNoteInput projectId={id} />}
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="font-display font-semibold text-foreground text-lg">
+                  {hasDocuments ? 'Uploaded Documents' : 'Documents'}
+                </h4>
+              </div>
+              {hasDocuments && <DocumentsList documents={documents} />}
+              <div className={hasDocuments ? 'mt-4' : ''}>
+                <AddDocumentsUpload
+                  existingCount={documents.length}
+                  onUpload={(files, scriptInfo) => addDocuments.mutate({ files, scriptInfo })}
+                  isUploading={addDocuments.isPending}
+                />
+              </div>
             </div>
-          </div>
+          </Section>
+
+          {/* 7. Team & Activity */}
+          <Section icon={UsersRound} title="Team & Activity">
+            {id && <ProjectCollaboratorsPanel projectId={id} isOwner={project.user_id === user?.id} />}
+            {id && <ProjectCommentsThread projectId={id} currentUserId={user?.id || null} />}
+            {id && <ProjectTimeline projectId={id} />}
+          </Section>
+
+          {/* 8. Project Details */}
+          <Section icon={FileText} title="Project Details">
+            <div className="glass-card rounded-xl p-5">
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div>
+                  <p className="text-muted-foreground mb-0.5">Budget Range</p>
+                  <p className="text-foreground font-medium">{getLabel(project.budget_range, BUDGET_RANGES)}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground mb-0.5">Target Audience</p>
+                  <p className="text-foreground font-medium">{getLabel(project.target_audience, TARGET_AUDIENCES)}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground mb-0.5">Tone</p>
+                  <p className="text-foreground font-medium">{getLabel(project.tone, TONES)}</p>
+                </div>
+                {project.comparable_titles && (
+                  <div>
+                    <p className="text-muted-foreground mb-0.5">Comparables</p>
+                    <p className="text-foreground font-medium">{project.comparable_titles}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </Section>
         </motion.div>
       </main>
     </div>
