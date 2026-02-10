@@ -16,6 +16,7 @@ import IncentiveFinder from "./pages/IncentiveFinder";
 import CoproPlanner from "./pages/CoproPlanner";
 import StackCashflow from "./pages/StackCashflow";
 import CompareProjects from "./pages/CompareProjects";
+import Pipeline from "./pages/Pipeline";
 import About from "./pages/About";
 import HowItWorks from "./pages/HowItWorks";
 import FAQ from "./pages/FAQ";
@@ -45,6 +46,7 @@ const App = () => (
           <Route path="/incentives/copro" element={<ProtectedRoute><CoproPlanner /></ProtectedRoute>} />
           <Route path="/incentives/stack" element={<ProtectedRoute><StackCashflow /></ProtectedRoute>} />
           <Route path="/compare" element={<ProtectedRoute><CompareProjects /></ProtectedRoute>} />
+          <Route path="/pipeline" element={<ProtectedRoute><Pipeline /></ProtectedRoute>} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>

@@ -120,6 +120,15 @@ export interface ClassificationResult {
   recommendations: Recommendation[];
 }
 
+export type PipelineStage = 'development' | 'packaging' | 'financing' | 'pre-production';
+
+export const PIPELINE_STAGES: { value: PipelineStage; label: string }[] = [
+  { value: 'development', label: 'Development' },
+  { value: 'packaging', label: 'Packaging' },
+  { value: 'financing', label: 'Financing' },
+  { value: 'pre-production', label: 'Pre-Production' },
+];
+
 export interface Project {
   id: string;
   user_id: string;
@@ -136,6 +145,7 @@ export interface Project {
   recommendations: Recommendation[] | null;
   document_urls: string[];
   analysis_passes: FullAnalysis | null;
+  pipeline_stage: PipelineStage;
   created_at: string;
   updated_at: string;
 }

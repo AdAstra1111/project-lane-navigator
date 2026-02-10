@@ -176,7 +176,6 @@ export default function ProjectDetail() {
     if (!id) return;
     duplicate.mutate(id);
   };
-  };
 
   const getLabel = (value: string, list: readonly { value: string; label: string }[]) =>
     list.find(item => item.value === value)?.label || value;

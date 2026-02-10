@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Plus, Clapperboard, ArrowLeftRight } from 'lucide-react';
+import { Plus, Clapperboard, ArrowLeftRight, Kanban } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Header } from '@/components/Header';
 import { ProjectCard } from '@/components/ProjectCard';
@@ -30,6 +30,14 @@ export default function Dashboard() {
               </p>
             </div>
             <div className="flex items-center gap-2">
+              {projects.length >= 1 && (
+                <Link to="/pipeline">
+                  <Button variant="outline">
+                    <Kanban className="h-4 w-4 mr-1.5" />
+                    Pipeline
+                  </Button>
+                </Link>
+              )}
               {projects.length >= 2 && (
                 <Link to="/compare">
                   <Button variant="outline">
