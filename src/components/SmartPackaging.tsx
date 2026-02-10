@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { Textarea } from '@/components/ui/textarea';
 import { CastInfoDialog } from '@/components/CastInfoDialog';
 import { CharacterSelector } from '@/components/CharacterSelector';
 import { TalentTriageBoard } from '@/components/TalentTriageBoard';
@@ -41,6 +42,7 @@ export function SmartPackaging({ projectId, projectTitle, format, genres, budget
   const [selectedPerson, setSelectedPerson] = useState<{ name: string; reason: string } | null>(null);
   const [targetCharacter, setTargetCharacter] = useState<ScriptCharacter | null>(null);
   const [targetDepartment, setTargetDepartment] = useState<string | null>(null);
+  const [customBrief, setCustomBrief] = useState('');
 
   const triage = useTalentTriage(projectId);
 
@@ -50,7 +52,7 @@ export function SmartPackaging({ projectId, projectTitle, format, genres, budget
     setLoading(true);
     try {
       const { data, error } = await supabase.functions.invoke('smart-packaging', {
-        body: { projectTitle, format, genres, budgetRange, tone, assignedLane, mode, targetDepartment: mode === 'crew' ? targetDepartment : undefined, targetCharacter: (mode === 'cast' && targetCharacter) ? { name: targetCharacter.name, description: targetCharacter.description, scene_count: targetCharacter.scene_count } : undefined },
+        body: { projectTitle, format, genres, budgetRange, tone, assignedLane, mode, customBrief: customBrief.trim().slice(0, 500) || undefined, targetDepartment: mode === 'crew' ? targetDepartment : undefined, targetCharacter: (mode === 'cast' && targetCharacter) ? { name: targetCharacter.name, description: targetCharacter.description, scene_count: targetCharacter.scene_count } : undefined },
       });
       if (error) throw error;
       const results: PackagingSuggestion[] = data?.suggestions || [];
@@ -186,11 +188,18 @@ export function SmartPackaging({ projectId, projectTitle, format, genres, budget
         </div>
       )}
 
-      <p className="text-sm text-muted-foreground mb-4">
-        {mode === 'crew'
-          ? 'AI recommends key crew & HODs to maximize production value and credibility. Triage suggestions into Shortlist, Maybe, or Pass.'
-          : `AI recommends cast & director combinations to maximize financeability${targetCharacter ? ` for the role of ${targetCharacter.name}` : ''}. Triage suggestions into Shortlist, Maybe, or Pass — rank your shortlist by priority.`}
-      </p>
+      <div className="mb-4">
+        <Textarea
+          placeholder={mode === 'crew'
+            ? 'e.g. "Looking for a DP with experience in handheld naturalistic work, ideally European"'
+            : 'e.g. "English actors who are tall and can play American, strong comedic range"'}
+          value={customBrief}
+          onChange={e => setCustomBrief(e.target.value)}
+          className="text-sm min-h-[60px] resize-none bg-background"
+          maxLength={500}
+        />
+        <p className="text-[10px] text-muted-foreground mt-1 text-right">{customBrief.length}/500</p>
+      </div>
 
       {/* Show triage board if there are items */}
       <TalentTriageBoard
