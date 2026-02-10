@@ -54,7 +54,10 @@ import { generateProjectInsights } from '@/lib/project-insights';
 import { calculateReadiness } from '@/lib/readiness-score';
 import { calculateFinanceReadiness } from '@/lib/finance-readiness';
 import { FinanceReadinessPanel } from '@/components/FinanceReadinessPanel';
-import { MonetisationLane, Recommendation, FullAnalysis } from '@/lib/types';
+import { GeographySelector } from '@/components/GeographySelector';
+import { PipelineStageSuggestion } from '@/components/PipelineStageSuggestion';
+import { getStageGates } from '@/lib/pipeline-gates';
+import { MonetisationLane, Recommendation, FullAnalysis, PipelineStage, PIPELINE_STAGES } from '@/lib/types';
 import { BUDGET_RANGES, TARGET_AUDIENCES, TONES } from '@/lib/constants';
 import { exportProjectPDF } from '@/lib/pdf-export';
 import { matchBuyersToProject } from '@/lib/buyer-matcher';
@@ -218,6 +221,16 @@ export default function ProjectDetail() {
     return calculateFinanceReadiness(project, cast, partners, scripts, financeScenarios, hods, incentiveAnalysed);
   }, [project, cast, partners, scripts, financeScenarios, hods, incentiveAnalysed]);
 
+  // Pipeline stage auto-suggestion: check if next stage gates are all met
+  const nextStageGates = useMemo(() => {
+    if (!project) return null;
+    const stageOrder: PipelineStage[] = ['development', 'packaging', 'financing', 'pre-production'];
+    const currentIdx = stageOrder.indexOf(project.pipeline_stage as PipelineStage);
+    const nextStage = stageOrder[currentIdx + 1];
+    if (!nextStage) return null;
+    return getStageGates(nextStage, project, cast, partners, scripts, financeScenarios, hods, incentiveAnalysed);
+  }, [project, cast, partners, scripts, financeScenarios, hods, incentiveAnalysed]);
+
   const handleDelete = async () => {
     if (!id) return;
     await deleteProject.mutateAsync(id);
@@ -254,6 +267,7 @@ export default function ProjectDetail() {
     exportProjectPDF({
       project,
       readiness,
+      financeReadiness,
       cast,
       partners,
       hods,
@@ -434,6 +448,15 @@ export default function ProjectDetail() {
             )}
           </div>
 
+          {/* ─── Pipeline Stage Suggestion ─── */}
+          {id && project && nextStageGates && (
+            <PipelineStageSuggestion
+              projectId={id}
+              currentStage={project.pipeline_stage as PipelineStage}
+              nextStageGates={nextStageGates}
+            />
+          )}
+
           {/* ═══ COLLAPSIBLE SECTIONS ═══ */}
 
           {/* 1. Project Details */}
@@ -460,6 +483,13 @@ export default function ProjectDetail() {
                 )}
               </div>
             </div>
+            {id && (
+              <GeographySelector
+                projectId={id}
+                primaryTerritory={(project as any).primary_territory || ''}
+                secondaryTerritories={(project as any).secondary_territories || []}
+              />
+            )}
           </Section>
 
           {/* 2. Analysis & Signals */}

@@ -46,10 +46,20 @@ export interface RiskFlag {
   mitigation: string;
 }
 
+export interface FinanceReadinessSubscores {
+  scriptClarity: number;
+  packagingStrength: number;
+  financeStructure: number;
+  marketPosition: number;
+  geography: number;
+  narrativeCoherence: number;
+}
+
 export interface FinanceReadinessResult {
   score: number;                          // 0–100
   volatilityIndex: VolatilityLevel;
   geographySensitivity: GeographySensitivity;
+  subscores: FinanceReadinessSubscores;
   budgetBands: {
     low: BudgetBand;
     target: BudgetBand;
@@ -432,6 +442,14 @@ export function calculateFinanceReadiness(
     score: Math.min(100, totalScore),
     volatilityIndex,
     geographySensitivity,
+    subscores: {
+      scriptClarity,
+      packagingStrength,
+      financeStructure,
+      marketPosition,
+      geography: geographyScore,
+      narrativeCoherence,
+    },
     budgetBands,
     modules,
     riskFlags,
