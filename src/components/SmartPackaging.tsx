@@ -48,7 +48,7 @@ export function SmartPackaging({ projectId, projectTitle, format, genres, budget
 
   // Filter triage items by mode: cast tab sees cast items, crew tab sees crew/director items
   const isCastType = (type: string) => type === 'cast' || type === 'actor';
-  const isCrewType = (type: string) => !isCastType(type);
+  const isCrewType = (type: string) => type === 'crew' || type === 'director' || type === 'hod';
   const modeFilter = mode === 'cast' ? isCastType : isCrewType;
   const filteredItems = triage.items.filter(i => modeFilter(i.person_type));
   const filteredByStatus = (status: string) =>
