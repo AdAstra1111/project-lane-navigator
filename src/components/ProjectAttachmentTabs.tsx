@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
-import { motion } from 'framer-motion';
-import { Users, Handshake, FileText, DollarSign, Plus, Trash2, X, Check, Clapperboard, Loader2, CalendarDays, Sparkles, HelpCircle, RefreshCw } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Users, Handshake, FileText, DollarSign, Plus, Trash2, X, Check, Clapperboard, Loader2, CalendarDays, Sparkles, HelpCircle, RefreshCw, ChevronDown, ChevronUp, MessageSquare, Send } from 'lucide-react';
 import { InfoTooltip } from '@/components/InfoTooltip';
 import { SmartPackaging } from '@/components/SmartPackaging';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -8,6 +8,7 @@ import { type DisambiguationCandidate } from '@/hooks/usePersonResearch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
@@ -34,11 +35,13 @@ const STATUS_STYLES: Record<string, string> = {
   wishlist: 'bg-muted text-muted-foreground border-border',
   approached: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
   interested: 'bg-primary/15 text-primary border-primary/30',
+  'in-talks': 'bg-primary/15 text-primary border-primary/30',
+  'offer-out': 'bg-violet-500/15 text-violet-400 border-violet-500/30',
   attached: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
+  confirmed: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
+  passed: 'bg-red-500/15 text-red-400 border-red-500/30',
   identified: 'bg-muted text-muted-foreground border-border',
   'in-discussion': 'bg-amber-500/15 text-amber-400 border-amber-500/30',
-  'in-talks': 'bg-amber-500/15 text-amber-400 border-amber-500/30',
-  confirmed: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
   current: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
   archived: 'bg-muted text-muted-foreground border-border',
   high: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
@@ -86,6 +89,8 @@ function CastTab({ projectId, projectContext }: { projectId: string; projectCont
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState({ role_name: '', actor_name: '', status: 'wishlist', territory_tags: '' });
   const [customRole, setCustomRole] = useState(false);
+  const [expandedNotes, setExpandedNotes] = useState<string | null>(null);
+  const [noteInput, setNoteInput] = useState('');
 
   // Filter out characters already cast
   const availableCharacters = useMemo(() => {
@@ -103,11 +108,25 @@ function CastTab({ projectId, projectContext }: { projectId: string; projectCont
     setAdding(false);
   };
 
+  const handleSaveNote = (c: ProjectCastMember) => {
+    if (!noteInput.trim()) return;
+    const timestamp = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+    const existingNotes = c.notes ? c.notes.trim() : '';
+    const newEntry = `[${timestamp}] ${noteInput.trim()}`;
+    const updatedNotes = existingNotes ? `${newEntry}\n${existingNotes}` : newEntry;
+    updateCast.mutate({ id: c.id, notes: updatedNotes });
+    setNoteInput('');
+  };
+
   return (
     <div className="space-y-3">
-      {cast.map(c => (
+      {cast.map(c => {
+        const isExpanded = expandedNotes === c.id;
+        const noteLines = c.notes ? c.notes.split('\n').filter(Boolean) : [];
+        return (
         <div key={c.id}>
-          <div className="flex items-start gap-3 bg-muted/30 rounded-lg px-3 py-3">
+          <div className="bg-muted/30 rounded-lg px-3 py-3 space-y-1.5">
+            <div className="flex items-start gap-3">
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <PersonNameLink
@@ -149,27 +168,75 @@ function CastTab({ projectId, projectContext }: { projectId: string; projectCont
               {loading === c.actor_name && (
                 <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
               )}
+              <Button
+                variant="ghost"
+                size="icon"
+                className={`h-7 w-7 ${noteLines.length > 0 ? 'text-primary' : 'text-muted-foreground'} hover:text-primary`}
+                onClick={() => setExpandedNotes(isExpanded ? null : c.id)}
+                title="Notes & activity"
+              >
+                <MessageSquare className="h-3.5 w-3.5" />
+                {noteLines.length > 0 && <span className="absolute -top-0.5 -right-0.5 text-[8px] bg-primary text-primary-foreground rounded-full h-3.5 w-3.5 flex items-center justify-center">{noteLines.length}</span>}
+              </Button>
             </div>
             <Select value={c.status} onValueChange={v => updateCast.mutate({ id: c.id, status: v })}>
-              <SelectTrigger className="w-28 h-7 text-xs">
+              <SelectTrigger className={`w-28 h-7 text-xs border ${STATUS_STYLES[c.status] || ''}`}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="wishlist">Wishlist</SelectItem>
                 <SelectItem value="approached">Approached</SelectItem>
-                <SelectItem value="interested">Interested</SelectItem>
-                <SelectItem value="attached">Attached</SelectItem>
+                <SelectItem value="in-talks">In Talks</SelectItem>
+                <SelectItem value="offer-out">Offer Out</SelectItem>
+                <SelectItem value="confirmed">Confirmed</SelectItem>
+                <SelectItem value="passed">Passed</SelectItem>
               </SelectContent>
             </Select>
             <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => deleteCast.mutate(c.id)}>
               <Trash2 className="h-3.5 w-3.5" />
             </Button>
+            </div>
+
+            {/* Expandable notes section */}
+            <AnimatePresence>
+              {isExpanded && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  className="overflow-hidden ml-12"
+                >
+                  <div className="pt-2 border-t border-border/50 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Input
+                        placeholder="Add a note (e.g. 'Spoke to agent, avail confirmed for Q3')"
+                        value={expandedNotes === c.id ? noteInput : ''}
+                        onChange={e => setNoteInput(e.target.value)}
+                        onKeyDown={e => e.key === 'Enter' && handleSaveNote(c)}
+                        className="h-7 text-xs flex-1"
+                      />
+                      <Button size="icon" variant="ghost" className="h-7 w-7 text-primary" onClick={() => handleSaveNote(c)} disabled={!noteInput.trim()}>
+                        <Send className="h-3 w-3" />
+                      </Button>
+                    </div>
+                    {noteLines.length > 0 && (
+                      <div className="space-y-1 max-h-32 overflow-y-auto">
+                        {noteLines.map((line, i) => (
+                          <p key={i} className="text-xs text-muted-foreground leading-relaxed">{line}</p>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
           {assessments[c.actor_name] && (
             <PersonAssessmentCard assessment={assessments[c.actor_name]} onDismiss={() => clearAssessment(c.actor_name)} />
           )}
         </div>
-      ))}
+        );
+      })}
 
       {/* Disambiguation Dialog */}
       <DisambiguationDialog
@@ -250,8 +317,9 @@ function CastTab({ projectId, projectContext }: { projectId: string; projectCont
               <SelectContent>
                 <SelectItem value="wishlist">Wishlist</SelectItem>
                 <SelectItem value="approached">Approached</SelectItem>
-                <SelectItem value="interested">Interested</SelectItem>
-                <SelectItem value="attached">Attached</SelectItem>
+                <SelectItem value="in-talks">In Talks</SelectItem>
+                <SelectItem value="offer-out">Offer Out</SelectItem>
+                <SelectItem value="confirmed">Confirmed</SelectItem>
               </SelectContent>
             </Select>
             <Input
@@ -673,19 +741,33 @@ function HODsTab({ projectId, projectContext }: { projectId: string; projectCont
   const { research, loading, assessments, clearAssessment, candidates, confirmCandidate, clearDisambiguation } = usePersonResearch();
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState({ department: 'Director', person_name: '', known_for: '', reputation_tier: 'emerging' });
+  const [expandedNotes, setExpandedNotes] = useState<string | null>(null);
+  const [noteInput, setNoteInput] = useState('');
 
   const handleAdd = () => {
     if (!form.person_name.trim()) return;
     addHOD.mutate(form);
-    // Trigger research
     research(form.person_name, 'hod', projectContext, form.department, form.known_for);
     setForm({ department: 'Director', person_name: '', known_for: '', reputation_tier: 'emerging' });
     setAdding(false);
   };
 
+  const handleSaveNote = (h: ProjectHOD) => {
+    if (!noteInput.trim()) return;
+    const timestamp = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+    const existingNotes = h.notes ? h.notes.trim() : '';
+    const newEntry = `[${timestamp}] ${noteInput.trim()}`;
+    const updatedNotes = existingNotes ? `${newEntry}\n${existingNotes}` : newEntry;
+    updateHOD.mutate({ id: h.id, notes: updatedNotes });
+    setNoteInput('');
+  };
+
   return (
     <div className="space-y-3">
-      {hods.map(h => (
+      {hods.map(h => {
+        const isExpanded = expandedNotes === h.id;
+        const noteLines = h.notes ? h.notes.split('\n').filter(Boolean) : [];
+        return (
         <div key={h.id}>
           <div className="bg-muted/30 rounded-lg px-3 py-3 space-y-1.5">
             <div className="flex items-start gap-3">
@@ -723,28 +805,74 @@ function HODsTab({ projectId, projectContext }: { projectId: string; projectCont
                 {loading === h.person_name && (
                   <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
                 )}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={`h-7 w-7 ${noteLines.length > 0 ? 'text-primary' : 'text-muted-foreground'} hover:text-primary`}
+                  onClick={() => setExpandedNotes(isExpanded ? null : h.id)}
+                  title="Notes & activity"
+                >
+                  <MessageSquare className="h-3.5 w-3.5" />
+                </Button>
               </div>
               <Select value={h.status} onValueChange={v => updateHOD.mutate({ id: h.id, status: v })}>
-                <SelectTrigger className="w-28 h-7 text-xs">
+                <SelectTrigger className={`w-28 h-7 text-xs border ${STATUS_STYLES[h.status] || ''}`}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="wishlist">Wishlist</SelectItem>
+                  <SelectItem value="approached">Approached</SelectItem>
                   <SelectItem value="in-talks">In Talks</SelectItem>
-                  <SelectItem value="attached">Attached</SelectItem>
+                  <SelectItem value="offer-out">Offer Out</SelectItem>
                   <SelectItem value="confirmed">Confirmed</SelectItem>
+                  <SelectItem value="passed">Passed</SelectItem>
                 </SelectContent>
               </Select>
               <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => deleteHOD.mutate(h.id)}>
                 <Trash2 className="h-3.5 w-3.5" />
               </Button>
             </div>
+
+            {/* Expandable notes section */}
+            <AnimatePresence>
+              {isExpanded && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  className="overflow-hidden ml-12"
+                >
+                  <div className="pt-2 border-t border-border/50 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Input
+                        placeholder="Add a note (e.g. 'Agent says avail Q2, quote $X')"
+                        value={expandedNotes === h.id ? noteInput : ''}
+                        onChange={e => setNoteInput(e.target.value)}
+                        onKeyDown={e => e.key === 'Enter' && handleSaveNote(h)}
+                        className="h-7 text-xs flex-1"
+                      />
+                      <Button size="icon" variant="ghost" className="h-7 w-7 text-primary" onClick={() => handleSaveNote(h)} disabled={!noteInput.trim()}>
+                        <Send className="h-3 w-3" />
+                      </Button>
+                    </div>
+                    {noteLines.length > 0 && (
+                      <div className="space-y-1 max-h-32 overflow-y-auto">
+                        {noteLines.map((line, i) => (
+                          <p key={i} className="text-xs text-muted-foreground leading-relaxed">{line}</p>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
           {assessments[h.person_name] && (
             <PersonAssessmentCard assessment={assessments[h.person_name]} onDismiss={() => clearAssessment(h.person_name)} />
           )}
         </div>
-      ))}
+        );
+      })}
 
       {/* Disambiguation Dialog */}
       <DisambiguationDialog
