@@ -17,7 +17,7 @@ function CompanyAvatar({ company }: { company: ProductionCompany }) {
         className="h-10 w-10 rounded-lg overflow-hidden shrink-0 border border-border/50"
         style={accent ? { borderColor: accent + '40' } : undefined}
       >
-        <img src={company.logo_url} alt={company.name} className="h-full w-full object-cover" />
+        <img src={company.logo_url} alt={company.name} className="h-full w-full object-contain" />
       </div>
     );
   }
