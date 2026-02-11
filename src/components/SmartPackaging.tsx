@@ -73,32 +73,35 @@ export function SmartPackaging({ projectId, projectTitle, format, genres, budget
   const fetchSuggestions = async (clearFirst = false) => {
     setLoading(true);
     try {
+      // Snapshot names to exclude BEFORE deleting unsorted items
+      // Only exclude passed/no'd names from AI — let shortlisted/maybe names be excluded via dedup only
+      const excludeNames = [...filteredByStatus('pass'), ...filteredByStatus('no')].map(p => p.person_name);
+
+      // Track names that should NOT be re-added as triage items (shortlisted, maybe, etc.)
+      const survivingNames = new Set(
+        filteredItems
+          .filter(i => i.status !== 'unsorted')
+          .map(i => i.person_name.toLowerCase())
+      );
+
       // If clearing, delete unsorted triage items for this mode first
       if (clearFirst) {
         const unsorted = filteredByStatus('unsorted');
-        for (const item of unsorted) {
-          await triage.deleteItem(item.id);
-        }
+        // Delete in parallel for speed
+        await Promise.all(unsorted.map(item => triage.deleteItem(item.id)));
         setSuggestions([]);
       }
 
-      // Exclude passed/no'd names so they don't reappear
-      const excludeNames = [...filteredByStatus('pass'), ...filteredByStatus('no')].map(p => p.person_name);
-
-      // Request more suggestions to ensure enough fresh options after dedup
-      const existingNames = new Set(triage.items.map(i => i.person_name.toLowerCase()));
-      const alreadyKnown = [...excludeNames.map(n => n.toLowerCase()), ...existingNames];
       const { data, error } = await supabase.functions.invoke('smart-packaging', {
-        body: { projectTitle, format, genres, budgetRange, tone, assignedLane, mode, maxSuggestions: 10, excludeNames: alreadyKnown.length > 0 ? [...new Set(alreadyKnown)] : undefined, customBrief: customBrief.trim().slice(0, 500) || undefined, targetDepartment: mode === 'crew' ? targetDepartment : undefined, targetCharacter: (mode === 'cast' && targetCharacter) ? { name: targetCharacter.name, description: targetCharacter.description, scene_count: targetCharacter.scene_count, gender: targetCharacter.gender } : undefined },
+        body: { projectTitle, format, genres, budgetRange, tone, assignedLane, mode, maxSuggestions: 10, excludeNames: excludeNames.length > 0 ? excludeNames : undefined, customBrief: customBrief.trim().slice(0, 500) || undefined, targetDepartment: mode === 'crew' ? targetDepartment : undefined, targetCharacter: (mode === 'cast' && targetCharacter) ? { name: targetCharacter.name, description: targetCharacter.description, scene_count: targetCharacter.scene_count, gender: targetCharacter.gender } : undefined },
       });
       if (error) throw error;
       const results: PackagingSuggestion[] = data?.suggestions || [];
       setSuggestions(results);
 
-      // Auto-save to triage (skip duplicates by name)
-      const knownNames = new Set(triage.items.map(i => i.person_name.toLowerCase()));
+      // Auto-save to triage (skip names that already exist in non-unsorted statuses)
       const newItems = results
-        .filter(s => !knownNames.has(s.name.toLowerCase()))
+        .filter(s => !survivingNames.has(s.name.toLowerCase()))
         .map(s => ({
           person_name: s.name,
           person_type: mode === 'crew' ? 'crew' : 'cast',
