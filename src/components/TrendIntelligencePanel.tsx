@@ -11,6 +11,7 @@ import { useTrendEngines, useEngineWeights, useProjectEngineScores, useAIEngineS
 import { calculateTrendViability, calculateWesternEntryAdvantage, type TrendViabilityResult, type CyclePosition, type DynamicModifierContext } from '@/lib/trend-viability';
 import { PredictionOutcomePanel } from '@/components/PredictionOutcomePanel';
 import { WesternEntryAdvantagePanel } from '@/components/WesternEntryAdvantagePanel';
+import { WesternEntryMonitorPanel } from '@/components/WesternEntryMonitorPanel';
 import { OperationProgress, AI_SCORE_STAGES, TREND_REFRESH_STAGES } from '@/components/OperationProgress';
 import { SourceConfidenceOverlay } from '@/components/SourceConfidenceOverlay';
 
@@ -277,7 +278,15 @@ export function TrendIntelligencePanel({ projectId, format, budgetRange, primary
       {/* Western Entry Advantage — Vertical Drama only */}
       {format === 'vertical-drama' && result && (() => {
         const westernAdvantage = calculateWesternEntryAdvantage(result.engineBreakdown);
-        return <WesternEntryAdvantagePanel advantage={westernAdvantage} />;
+        return (
+          <>
+            <WesternEntryAdvantagePanel advantage={westernAdvantage} />
+            <WesternEntryMonitorPanel
+              engineBreakdown={result.engineBreakdown}
+              appliedModifiers={result.appliedModifiers}
+            />
+          </>
+        );
       })()}
 
       {/* Prediction Accuracy Tracking */}
