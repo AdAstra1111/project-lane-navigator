@@ -298,6 +298,36 @@ export type Database = {
         }
         Relationships: []
       }
+      engine_weight_snapshots: {
+        Row: {
+          created_at: string
+          id: string
+          notes: string
+          production_type: string
+          snapshot_label: string
+          trigger_type: string
+          weights: Json
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          notes?: string
+          production_type: string
+          snapshot_label?: string
+          trigger_type?: string
+          weights?: Json
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          notes?: string
+          production_type?: string
+          snapshot_label?: string
+          trigger_type?: string
+          weights?: Json
+        }
+        Relationships: []
+      }
       incentive_programs: {
         Row: {
           caps_limits: string
@@ -2717,9 +2747,11 @@ export type Database = {
           confidence: string
           created_at: string
           description: string
+          enabled: boolean
           engine_name: string
           engine_type: string
           id: string
+          intelligence_layer: string
           last_refresh: string | null
           refresh_frequency: string
           status: string
@@ -2730,9 +2762,11 @@ export type Database = {
           confidence?: string
           created_at?: string
           description?: string
+          enabled?: boolean
           engine_name: string
           engine_type?: string
           id?: string
+          intelligence_layer?: string
           last_refresh?: string | null
           refresh_frequency?: string
           status?: string
@@ -2743,9 +2777,11 @@ export type Database = {
           confidence?: string
           created_at?: string
           description?: string
+          enabled?: boolean
           engine_name?: string
           engine_type?: string
           id?: string
+          intelligence_layer?: string
           last_refresh?: string | null
           refresh_frequency?: string
           status?: string
