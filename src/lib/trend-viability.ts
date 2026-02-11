@@ -14,6 +14,8 @@ export interface TrendEngine {
   id: string;
   engine_name: string;
   engine_type: string;
+  intelligence_layer: string;
+  enabled: boolean;
   description: string;
   base_weight_default: number;
   refresh_frequency: string;
@@ -54,6 +56,7 @@ export interface TrendViabilityResult {
   engineBreakdown: {
     engineName: string;
     engineType: string;
+    intelligenceLayer: string;
     rawWeight: number;
     adjustedWeight: number;
     score: number;
@@ -62,6 +65,7 @@ export interface TrendViabilityResult {
     source: string;
     staleDays: number | null;
   }[];
+  layerBreakdown: { layer: string; score: number; weight: number; engineCount: number }[];
   appliedModifiers: { label: string; engine: string; delta: number }[];
   totalEnginesScored: number;
   totalEngines: number;
@@ -238,8 +242,9 @@ export function calculateTrendViability(
   const breakdown: TrendViabilityResult['engineBreakdown'] = [];
   let totalScored = 0;
 
-  for (const engine of engines) {
+   for (const engine of engines) {
     if (engine.status !== 'active') continue;
+    if (engine.enabled === false) continue;
 
     const rawWeight = weightMap.get(engine.id) || engine.base_weight_default;
     const adjWeight = adjustedWeights.get(engine.id) || 0;
@@ -257,6 +262,7 @@ export function calculateTrendViability(
     breakdown.push({
       engineName: engine.engine_name,
       engineType: engine.engine_type,
+      intelligenceLayer: engine.intelligence_layer || 'market',
       rawWeight,
       adjustedWeight: adjWeight,
       score,
@@ -278,13 +284,25 @@ export function calculateTrendViability(
   if (highConfCount >= breakdown.length * 0.6) confidenceLevel = 'high';
   if (lowConfCount >= breakdown.length * 0.4 || totalScored < engines.length * 0.3) confidenceLevel = 'low';
 
+  // Compute layer breakdown
+  const LAYERS = ['market', 'narrative', 'talent', 'platform'] as const;
+  const layerBreakdown = LAYERS.map(layer => {
+    const layerEngines = breakdown.filter(e => e.intelligenceLayer === layer);
+    const layerWeight = layerEngines.reduce((s, e) => s + e.adjustedWeight, 0);
+    const layerScore = layerEngines.length > 0
+      ? Math.round(layerEngines.reduce((s, e) => s + e.score * (e.adjustedWeight / (layerWeight || 1)), 0) * 10)
+      : 0;
+    return { layer, score: Math.min(100, layerScore), weight: layerWeight, engineCount: layerEngines.length };
+  }).filter(l => l.engineCount > 0);
+
   return {
     trendScore,
     confidenceLevel,
     cyclePosition: determineCyclePosition(breakdown),
     engineBreakdown: breakdown.sort((a, b) => b.contribution - a.contribution),
+    layerBreakdown,
     appliedModifiers,
     totalEnginesScored: totalScored,
-    totalEngines: engines.filter(e => e.status === 'active').length,
+    totalEngines: engines.filter(e => e.status === 'active' && e.enabled !== false).length,
   };
 }

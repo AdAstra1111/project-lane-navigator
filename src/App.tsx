@@ -34,6 +34,7 @@ import Reports from "./pages/Reports";
 import Companies from "./pages/Companies";
 import CompanyDetail from "./pages/CompanyDetail";
 import PresentationMode from "./pages/PresentationMode";
+import TrendGovernance from "./pages/TrendGovernance";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -54,6 +55,7 @@ const AnimatedRoutes = () => {
         <Route path="/trends" element={<ProtectedRoute><Trends /></ProtectedRoute>} />
         <Route path="/trends/story" element={<ProtectedRoute><StoryTrends /></ProtectedRoute>} />
         <Route path="/trends/cast" element={<ProtectedRoute><CastTrends /></ProtectedRoute>} />
+        <Route path="/trends/governance" element={<ProtectedRoute><TrendGovernance /></ProtectedRoute>} />
         <Route path="/incentives" element={<ProtectedRoute><IncentiveFinder /></ProtectedRoute>} />
         <Route path="/incentives/copro" element={<ProtectedRoute><CoproPlanner /></ProtectedRoute>} />
         <Route path="/incentives/stack" element={<ProtectedRoute><StackCashflow /></ProtectedRoute>} />

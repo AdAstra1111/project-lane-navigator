@@ -28,6 +28,20 @@ const ENGINE_TYPE_COLORS: Record<string, string> = {
   macro: 'bg-blue-500/15 text-blue-400 border-blue-500/30',
 };
 
+const LAYER_COLORS: Record<string, string> = {
+  market: 'text-emerald-400',
+  narrative: 'text-purple-400',
+  talent: 'text-amber-400',
+  platform: 'text-blue-400',
+};
+
+const LAYER_LABELS: Record<string, string> = {
+  market: 'Market',
+  narrative: 'Narrative',
+  talent: 'Talent',
+  platform: 'Platform',
+};
+
 function ScoreRing({ score, size = 80 }: { score: number; size?: number }) {
   const radius = (size - 8) / 2;
   const circumference = 2 * Math.PI * radius;
@@ -128,6 +142,33 @@ export function TrendIntelligencePanel({ projectId, format, budgetRange, primary
         <OperationProgress isActive={isScoring} stages={AI_SCORE_STAGES} className="mt-3" />
         <OperationProgress isActive={isRecalibrating} stages={TREND_REFRESH_STAGES} className="mt-3" />
       </div>
+
+      {/* 4-Layer Breakdown */}
+      {result.layerBreakdown.length > 0 && (
+        <div className="glass-card rounded-xl p-4">
+          <p className="text-xs text-muted-foreground uppercase tracking-wider mb-3">Intelligence Layers</p>
+          <div className="grid grid-cols-2 gap-3">
+            {result.layerBreakdown.map(layer => (
+              <div key={layer.layer} className="flex items-center gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className={cn('text-xs font-medium', LAYER_COLORS[layer.layer] || 'text-foreground')}>
+                      {LAYER_LABELS[layer.layer] || layer.layer}
+                    </span>
+                    <span className="text-xs font-mono text-muted-foreground">
+                      {layer.score}
+                    </span>
+                  </div>
+                  <Progress value={layer.score} className="h-1.5" />
+                  <span className="text-[10px] text-muted-foreground">
+                    {layer.engineCount} engines · {(layer.weight * 100).toFixed(0)}% weight
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Applied Modifiers */}
       {result.appliedModifiers.length > 0 && (

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
-import { Radio, BookOpen, Users, RefreshCw } from 'lucide-react';
+import { Radio, BookOpen, Users, RefreshCw, Settings2 } from 'lucide-react';
 import { Header } from '@/components/Header';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -182,6 +182,17 @@ export default function Trends() {
               </motion.div>
             </Link>
           </div>
+
+          {/* Governance Link */}
+          <Link to="/trends/governance">
+            <div className="glass-card rounded-xl p-4 hover:border-primary/40 transition-colors cursor-pointer flex items-center gap-3">
+              <Settings2 className="h-5 w-5 text-primary" />
+              <div className="flex-1">
+                <h3 className="font-display font-semibold text-foreground text-sm">Engine Governance</h3>
+                <p className="text-xs text-muted-foreground">Toggle engines, adjust weights, view model versions.</p>
+              </div>
+            </div>
+          </Link>
 
           {/* Methodology note */}
           <div className="text-xs text-muted-foreground border-t border-border/50 pt-6">

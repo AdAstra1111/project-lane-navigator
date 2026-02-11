@@ -13,6 +13,7 @@ export function useTrendEngines() {
         .from('trend_engines')
         .select('*')
         .eq('status', 'active')
+        .eq('enabled', true)
         .order('engine_name');
       if (error) throw error;
       return data as unknown as TrendEngine[];
