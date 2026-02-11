@@ -95,7 +95,7 @@ export default function Dashboard() {
                 Start by adding a project
               </h2>
               <p className="text-muted-foreground mb-6 max-w-sm">
-                IFFY will guide you one decision at a time. Attach a script, add cast, and build towards finance-ready.
+                From inception to recoup — one decision at a time. Attach a script, add cast, and build towards finance-ready.
               </p>
               <Link to="/projects/new">
                 <Button className="bg-primary text-primary-foreground hover:bg-primary/90">

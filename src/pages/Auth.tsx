@@ -81,8 +81,8 @@ export default function Auth() {
   };
 
   const subtitles: Record<AuthView, string> = {
-    'sign-in': 'Sign in to manage your projects.',
-    'sign-up': 'Start classifying your creative projects.',
+    'sign-in': 'From inception to recoup.',
+    'sign-up': 'From inception to recoup.',
     'forgot-password': 'Enter your email and we\'ll send you a reset link.',
   };
 
@@ -205,11 +205,12 @@ export default function Auth() {
         />
         <div className="absolute inset-0 bg-background/40 backdrop-blur-sm" />
         <div className="relative z-10 max-w-md px-8 text-center">
+          <p className="text-xs font-display uppercase tracking-[0.2em] text-primary mb-3">Intelligent Film Flow & Yield</p>
           <h2 className="text-3xl font-display font-bold text-foreground mb-4">
-            Know your lane.
+            From inception to recoup.
           </h2>
           <p className="text-muted-foreground text-lg leading-relaxed">
-            IFFY helps producers classify creative projects into clear monetisation lanes — so you always know what to build, how to package it, and where it belongs.
+            IFFY guides film and TV projects from development through production to monetisation — preserving context, ownership, and financial clarity at every stage.
           </p>
         </div>
       </div>

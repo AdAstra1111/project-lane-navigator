@@ -175,11 +175,25 @@ export default function Settings() {
           </div>
         </motion.section>
 
-        {/* Account */}
+        {/* About */}
         <motion.section
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
+          className="glass-card rounded-xl p-6 mb-6"
+        >
+          <h2 className="font-display font-semibold text-foreground mb-2">About IFFY</h2>
+          <p className="text-xs font-display uppercase tracking-[0.15em] text-primary mb-2">Intelligent Film Flow & Yield</p>
+          <p className="text-sm text-muted-foreground leading-relaxed">
+            IFFY is a project intelligence system that guides film and TV projects from inception through production to monetisation and recoup — preserving context, ownership, and financial clarity at every stage.
+          </p>
+        </motion.section>
+
+        {/* Account */}
+        <motion.section
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.15 }}
           className="glass-card rounded-xl p-6"
         >
           <h2 className="font-display font-semibold text-foreground mb-4">Account</h2>
