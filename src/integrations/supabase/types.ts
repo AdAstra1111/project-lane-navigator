@@ -179,6 +179,53 @@ export type Database = {
         }
         Relationships: []
       }
+      company_members: {
+        Row: {
+          company_id: string
+          created_at: string
+          default_role: string
+          display_name: string
+          email: string
+          id: string
+          invited_by: string
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          default_role?: string
+          display_name?: string
+          email?: string
+          id?: string
+          invited_by: string
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          default_role?: string
+          display_name?: string
+          email?: string
+          id?: string
+          invited_by?: string
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "company_members_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "production_companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       copro_frameworks: {
         Row: {
           confidence: string
