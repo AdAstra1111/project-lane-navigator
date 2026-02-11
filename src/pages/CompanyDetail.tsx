@@ -106,11 +106,11 @@ function CompanyBrandingSection({ companyId, logoUrl, colorAccent, jurisdiction 
         {/* Logo */}
         <div className="flex flex-col items-center gap-2">
             <div
-              className="h-16 w-16 rounded-lg border-2 border-dashed border-border overflow-hidden flex items-center justify-center cursor-pointer hover:border-primary/50 transition-colors bg-muted-foreground/10 dark:bg-muted-foreground/20"
+              className="h-16 max-w-[200px] min-w-[64px] rounded-lg border-2 border-dashed border-border overflow-hidden flex items-center justify-center cursor-pointer hover:border-primary/50 transition-colors bg-muted-foreground/10 dark:bg-muted-foreground/20"
               onClick={() => fileInputRef.current?.click()}
             >
               {logoUrl ? (
-                <img src={logoUrl} alt="Logo" className="h-full w-full object-contain p-1" />
+                <img src={logoUrl} alt="Logo" className="h-full w-auto object-contain p-1" />
             ) : (
               <Upload className="h-5 w-5 text-muted-foreground" />
             )}
@@ -353,10 +353,10 @@ export default function CompanyDetail() {
                 <div className="flex items-center gap-4">
                     {company.logo_url ? (
                     <div
-                      className="h-14 w-14 rounded-lg overflow-hidden border border-border/50 bg-muted-foreground/10 dark:bg-muted-foreground/20 p-1"
+                      className="h-14 max-w-[180px] min-w-[56px] rounded-lg overflow-hidden border border-border/50 bg-muted-foreground/10 dark:bg-muted-foreground/20 p-1"
                       style={company.color_accent ? { borderColor: company.color_accent + '40' } : undefined}
                     >
-                      <img src={company.logo_url} alt={company.name} className="h-full w-full object-contain" />
+                      <img src={company.logo_url} alt={company.name} className="h-full w-auto object-contain" />
                     </div>
                   ) : (
                     <div
