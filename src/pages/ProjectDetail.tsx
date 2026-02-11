@@ -54,6 +54,7 @@ import { BudgetPanel } from '@/components/BudgetPanel';
 import { DeliveryIntelligencePanel } from '@/components/DeliveryIntelligencePanel';
 import { CostTrackingPanel } from '@/components/CostTrackingPanel';
 import { ContractManagerPanel } from '@/components/ContractManagerPanel';
+import { ProjectActivityFeed } from '@/components/ProjectActivityFeed';
 import { useProjectBudgets } from '@/hooks/useBudgets';
 import type { BudgetSummary } from '@/lib/finance-readiness';
 import { useTalentTriage } from '@/hooks/useTalentTriage';
@@ -790,6 +791,7 @@ export default function ProjectDetail() {
           <Section icon={UsersRound} title="Team & Activity">
             {id && <ProjectCollaboratorsPanel projectId={id} isOwner={project.user_id === user?.id} />}
             {id && <ProjectCommentsThread projectId={id} currentUserId={user?.id || null} />}
+            {id && <ProjectActivityFeed projectId={id} />}
             {id && <ProjectTimeline projectId={id} />}
           </Section>
 
