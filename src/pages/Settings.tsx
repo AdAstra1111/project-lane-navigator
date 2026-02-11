@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { User, Mail, LogOut, Save, Loader2 } from 'lucide-react';
+import { User, Mail, LogOut, Save, Loader2, Crown } from 'lucide-react';
+import { useSubscription } from '@/hooks/useSubscription';
 import { Header } from '@/components/Header';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,6 +14,7 @@ import { toast } from '@/hooks/use-toast';
 
 export default function Settings() {
   const { user, signOut } = useAuth();
+  const { plan } = useSubscription();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [displayName, setDisplayName] = useState('');
@@ -175,11 +177,29 @@ export default function Settings() {
           </div>
         </motion.section>
 
-        {/* About */}
+        {/* Subscription */}
         <motion.section
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
+          className="glass-card rounded-xl p-6 mb-6"
+        >
+          <h2 className="font-display font-semibold text-foreground mb-2 flex items-center gap-2">
+            <Crown className="h-5 w-5 text-primary" /> Subscription
+          </h2>
+          <p className="text-sm text-muted-foreground mb-3">
+            Current plan: <span className="font-semibold text-foreground capitalize">{plan}</span>
+          </p>
+          <Button size="sm" variant="outline" onClick={() => navigate('/pricing')}>
+            {plan === 'free' ? 'Upgrade Plan' : 'Manage Plan'}
+          </Button>
+        </motion.section>
+
+        {/* About */}
+        <motion.section
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.15 }}
           className="glass-card rounded-xl p-6 mb-6"
         >
           <h2 className="font-display font-semibold text-foreground mb-2">About IFFY</h2>

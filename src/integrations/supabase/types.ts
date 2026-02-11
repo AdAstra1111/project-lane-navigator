@@ -2848,6 +2848,54 @@ export type Database = {
           },
         ]
       }
+      subscriptions: {
+        Row: {
+          cancel_at_period_end: boolean
+          created_at: string
+          current_period_end: string | null
+          current_period_start: string | null
+          id: string
+          plan: string
+          seats_included: number
+          seats_used: number
+          status: string
+          stripe_customer_id: string | null
+          stripe_subscription_id: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          cancel_at_period_end?: boolean
+          created_at?: string
+          current_period_end?: string | null
+          current_period_start?: string | null
+          id?: string
+          plan?: string
+          seats_included?: number
+          seats_used?: number
+          status?: string
+          stripe_customer_id?: string | null
+          stripe_subscription_id?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          cancel_at_period_end?: boolean
+          created_at?: string
+          current_period_end?: string | null
+          current_period_start?: string | null
+          id?: string
+          plan?: string
+          seats_included?: number
+          seats_used?: number
+          status?: string
+          stripe_customer_id?: string | null
+          stripe_subscription_id?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       territory_cost_index: {
         Row: {
           accommodation_day: number
@@ -3067,6 +3115,45 @@ export type Database = {
           production_type?: string
           summary?: string
           week_start?: string
+        }
+        Relationships: []
+      }
+      usage_tracking: {
+        Row: {
+          ai_analyses_used: number
+          buyer_contacts_count: number
+          cast_research_used: number
+          created_at: string
+          id: string
+          period_start: string
+          projects_count: number
+          storage_bytes_used: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          ai_analyses_used?: number
+          buyer_contacts_count?: number
+          cast_research_used?: number
+          created_at?: string
+          id?: string
+          period_start?: string
+          projects_count?: number
+          storage_bytes_used?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          ai_analyses_used?: number
+          buyer_contacts_count?: number
+          cast_research_used?: number
+          created_at?: string
+          id?: string
+          period_start?: string
+          projects_count?: number
+          storage_bytes_used?: number
+          updated_at?: string
+          user_id?: string
         }
         Relationships: []
       }
