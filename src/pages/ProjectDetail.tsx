@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Film, Tv, Target, Palette, DollarSign, Users, Quote, CheckCircle2, ShieldAlert, Trash2, Loader2, AlertTriangle, MessageSquareQuote, FileText, Copy, ArrowLeftRight, Download, TrendingUp, Landmark, BarChart3, Package, StickyNote, UsersRound, ChevronDown, PieChart, FileSpreadsheet, PackageCheck, Receipt } from 'lucide-react';
+import { ArrowLeft, Film, Tv, Target, Palette, DollarSign, Users, Quote, CheckCircle2, ShieldAlert, Trash2, Loader2, AlertTriangle, MessageSquareQuote, FileText, Copy, ArrowLeftRight, Download, TrendingUp, Landmark, BarChart3, Package, StickyNote, UsersRound, ChevronDown, PieChart, FileSpreadsheet, PackageCheck, Receipt, FileSignature } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { ProjectNoteInput } from '@/components/ProjectNoteInput';
 import { cn } from '@/lib/utils';
@@ -53,6 +53,7 @@ import { OwnershipWaterfallPanel } from '@/components/OwnershipWaterfallPanel';
 import { BudgetPanel } from '@/components/BudgetPanel';
 import { DeliveryIntelligencePanel } from '@/components/DeliveryIntelligencePanel';
 import { CostTrackingPanel } from '@/components/CostTrackingPanel';
+import { ContractManagerPanel } from '@/components/ContractManagerPanel';
 import { useProjectBudgets } from '@/hooks/useBudgets';
 import type { BudgetSummary } from '@/lib/finance-readiness';
 import { useTalentTriage } from '@/hooks/useTalentTriage';
@@ -713,7 +714,14 @@ export default function ProjectDetail() {
             </Section>
           )}
 
-          {/* 7. Ownership & Waterfall */}
+          {/* 7. Contracts */}
+          {id && (
+            <Section icon={FileSignature} title="Contracts">
+              <ContractManagerPanel projectId={id} />
+            </Section>
+          )}
+
+          {/* 8. Ownership & Waterfall */}
           {id && (
             <Section icon={PieChart} title="Ownership & Waterfall">
               <OwnershipWaterfallPanel projectId={id} />
