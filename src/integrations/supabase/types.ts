@@ -667,37 +667,58 @@ export type Database = {
       project_cast: {
         Row: {
           actor_name: string
+          agency: string
+          agent_name: string
+          contact_email: string
+          contact_phone: string
           created_at: string
           id: string
+          imdb_id: string
+          manager_name: string
           notes: string
           project_id: string
           role_name: string
           status: string
           territory_tags: string[]
+          tmdb_id: string
           updated_at: string
           user_id: string
         }
         Insert: {
           actor_name?: string
+          agency?: string
+          agent_name?: string
+          contact_email?: string
+          contact_phone?: string
           created_at?: string
           id?: string
+          imdb_id?: string
+          manager_name?: string
           notes?: string
           project_id: string
           role_name?: string
           status?: string
           territory_tags?: string[]
+          tmdb_id?: string
           updated_at?: string
           user_id: string
         }
         Update: {
           actor_name?: string
+          agency?: string
+          agent_name?: string
+          contact_email?: string
+          contact_phone?: string
           created_at?: string
           id?: string
+          imdb_id?: string
+          manager_name?: string
           notes?: string
           project_id?: string
           role_name?: string
           status?: string
           territory_tags?: string[]
+          tmdb_id?: string
           updated_at?: string
           user_id?: string
         }
@@ -1413,41 +1434,62 @@ export type Database = {
       }
       project_hods: {
         Row: {
+          agency: string
+          agent_name: string
+          contact_email: string
+          contact_phone: string
           created_at: string
           department: string
           id: string
+          imdb_id: string
           known_for: string
+          manager_name: string
           notes: string
           person_name: string
           project_id: string
           reputation_tier: string
           status: string
+          tmdb_id: string
           updated_at: string
           user_id: string
         }
         Insert: {
+          agency?: string
+          agent_name?: string
+          contact_email?: string
+          contact_phone?: string
           created_at?: string
           department?: string
           id?: string
+          imdb_id?: string
           known_for?: string
+          manager_name?: string
           notes?: string
           person_name?: string
           project_id: string
           reputation_tier?: string
           status?: string
+          tmdb_id?: string
           updated_at?: string
           user_id: string
         }
         Update: {
+          agency?: string
+          agent_name?: string
+          contact_email?: string
+          contact_phone?: string
           created_at?: string
           department?: string
           id?: string
+          imdb_id?: string
           known_for?: string
+          manager_name?: string
           notes?: string
           person_name?: string
           project_id?: string
           reputation_tier?: string
           status?: string
+          tmdb_id?: string
           updated_at?: string
           user_id?: string
         }
