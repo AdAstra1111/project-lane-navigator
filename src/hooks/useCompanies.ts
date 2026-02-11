@@ -7,6 +7,8 @@ export interface ProductionCompany {
   user_id: string;
   name: string;
   logo_url: string;
+  color_accent: string;
+  jurisdiction: string;
   created_at: string;
   updated_at: string;
 }
@@ -54,18 +56,21 @@ export function useCompanies() {
   });
 
   const updateCompany = useMutation({
-    mutationFn: async ({ id, name, logo_url }: { id: string; name?: string; logo_url?: string }) => {
-      const updates: Record<string, string> = {};
-      if (name !== undefined) updates.name = name;
-      if (logo_url !== undefined) updates.logo_url = logo_url;
+    mutationFn: async (updates: { id: string; name?: string; logo_url?: string; color_accent?: string; jurisdiction?: string }) => {
+      const { id, ...fields } = updates;
+      const payload: Record<string, string> = {};
+      for (const [k, v] of Object.entries(fields)) {
+        if (v !== undefined) payload[k] = v;
+      }
       const { error } = await supabase
         .from('production_companies')
-        .update(updates)
+        .update(payload)
         .eq('id', id);
       if (error) throw error;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['production-companies'] });
+      queryClient.invalidateQueries({ queryKey: ['production-company'] });
       toast.success('Company updated');
     },
     onError: (e: Error) => toast.error(e.message),

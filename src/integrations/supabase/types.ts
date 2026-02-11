@@ -405,24 +405,30 @@ export type Database = {
       }
       production_companies: {
         Row: {
+          color_accent: string
           created_at: string
           id: string
+          jurisdiction: string
           logo_url: string | null
           name: string
           updated_at: string
           user_id: string
         }
         Insert: {
+          color_accent?: string
           created_at?: string
           id?: string
+          jurisdiction?: string
           logo_url?: string | null
           name: string
           updated_at?: string
           user_id: string
         }
         Update: {
+          color_accent?: string
           created_at?: string
           id?: string
+          jurisdiction?: string
           logo_url?: string | null
           name?: string
           updated_at?: string
