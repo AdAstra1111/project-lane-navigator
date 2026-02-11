@@ -1,11 +1,13 @@
 import { Link, useNavigate } from 'react-router-dom';
-import { LogOut, Plus, Radio, Landmark, HelpCircle, ChevronDown, Calendar, Users, LayoutGrid } from 'lucide-react';
+import { LogOut, Plus, Radio, Landmark, HelpCircle, ChevronDown, Calendar, Users, LayoutGrid, Globe, BarChart3, Settings } from 'lucide-react';
 import { NotificationBell } from '@/components/NotificationBell';
+import { GlobalSearch } from '@/components/GlobalSearch';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useAuth } from '@/hooks/useAuth';
@@ -65,15 +67,31 @@ export function Header() {
             <Users className="h-4 w-4 mr-1" />
             Buyers
           </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => navigate('/market-intelligence')}
+            className="text-muted-foreground hover:text-foreground"
+          >
+            <Globe className="h-4 w-4 mr-1" />
+            Intel
+          </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground">
                 <HelpCircle className="h-4 w-4 mr-1" />
-                Help
+                More
                 <ChevronDown className="h-3 w-3 ml-0.5" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuItem onClick={() => navigate('/reports')}>
+                <BarChart3 className="h-4 w-4 mr-2" /> Reports & Exports
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => navigate('/festivals')}>
+                <Calendar className="h-4 w-4 mr-2" /> Festivals
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => navigate('/about')}>
                 About IFFY
               </DropdownMenuItem>
@@ -83,8 +101,13 @@ export function Header() {
               <DropdownMenuItem onClick={() => navigate('/faq')}>
                 FAQ
               </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => navigate('/settings')}>
+                <Settings className="h-4 w-4 mr-2" /> Settings
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+          <GlobalSearch />
           <NotificationBell />
           <Button
             variant="outline"

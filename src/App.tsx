@@ -25,6 +25,9 @@ import HowItWorks from "./pages/HowItWorks";
 import FAQ from "./pages/FAQ";
 import AcceptInvite from "./pages/AcceptInvite";
 import Notifications from "./pages/Notifications";
+import MarketIntelligence from "./pages/MarketIntelligence";
+import Settings from "./pages/Settings";
+import Reports from "./pages/Reports";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -56,6 +59,9 @@ const App = () => (
           <Route path="/calendar" element={<ProtectedRoute><ProductionCalendar /></ProtectedRoute>} />
           <Route path="/buyer-crm" element={<ProtectedRoute><BuyerCRM /></ProtectedRoute>} />
           <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
+          <Route path="/market-intelligence" element={<ProtectedRoute><MarketIntelligence /></ProtectedRoute>} />
+          <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+          <Route path="/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
           <Route path="/invite" element={<AcceptInvite />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
