@@ -801,13 +801,13 @@ export default function ProjectDetail() {
               scriptCharactersLoading={scriptCharsLoading}
             />}
             <CastImpactPanel cast={cast} hods={hods} />
-            {id && hasDocuments && (
+            {id && (hasDocuments || hasScript) && (
               <ScriptCoverage
                 projectId={id}
                 projectTitle={project.title}
                 format={project.format}
                 genres={project.genres || []}
-                hasDocuments={hasDocuments}
+                hasDocuments={hasDocuments || hasScript}
               />
             )}
           </Section>
