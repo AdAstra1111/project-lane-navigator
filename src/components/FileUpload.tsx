@@ -15,7 +15,7 @@ const ACCEPTED_TYPES = [
 ];
 
 const ACCEPTED_EXTENSIONS = ['.pdf', '.txt', '.md', '.docx', '.doc', '.fdx', '.fountain'];
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25MB
 const MAX_FILES = 5;
 
 interface FileUploadProps {
@@ -33,7 +33,7 @@ export function FileUpload({ files, onFilesChange }: FileUploadProps) {
       return `"${file.name}" is not a supported file type. Accepted: PDF, TXT, MD, DOCX, FDX, Fountain.`;
     }
     if (file.size > MAX_FILE_SIZE) {
-      return `"${file.name}" exceeds the 10MB size limit.`;
+      return `"${file.name}" exceeds the 25MB size limit.`;
     }
     return null;
   };
@@ -144,7 +144,7 @@ export function FileUpload({ files, onFilesChange }: FileUploadProps) {
             Scripts, pitch decks, treatments — PDF, TXT, DOCX, FDX, Fountain
           </p>
           <p className="text-xs text-muted-foreground">
-            Up to {MAX_FILES} files, 10MB each
+            Up to {MAX_FILES} files, 25MB each
           </p>
         </div>
       </div>
