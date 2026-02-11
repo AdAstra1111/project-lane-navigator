@@ -51,6 +51,7 @@ export const MODE_GENRES: Record<ProjectFormat, string[]> = {
   'music-video': ['Pop', 'Hip-Hop / Rap', 'Rock', 'R&B / Soul', 'Electronic', 'Country', 'Latin', 'Indie', 'Classical', 'World Music'],
   'proof-of-concept': ['Drama', 'Sci-Fi', 'Horror', 'Fantasy', 'Action', 'Thriller', 'Animation', 'Comedy', 'Experimental'],
   hybrid: ['Transmedia', 'Interactive', 'Immersive', 'Mixed Reality', 'Documentary-Fiction', 'Cross-Platform', 'Experiential', 'Installation'],
+  'vertical-drama': ['Romance', 'Drama', 'Thriller', 'Comedy', 'Fantasy', 'Horror', 'Action', 'Mystery', 'Revenge', 'Workplace'],
 };
 
 export const MODE_AUDIENCES: Record<ProjectFormat, LabelValue[]> = {
@@ -119,6 +120,13 @@ export const MODE_AUDIENCES: Record<ProjectFormat, LabelValue[]> = {
     { value: 'cross-platform', label: 'Cross-Platform Users' },
     { value: 'innovation-community', label: 'Innovation / Tech Community' },
     { value: 'general', label: 'General Audience' },
+  ],
+  'vertical-drama': [
+    { value: 'gen-z', label: 'Gen Z (16–24)' },
+    { value: 'millennial', label: 'Millennials (25–40)' },
+    { value: 'mobile-first', label: 'Mobile-First Viewers' },
+    { value: 'binge-watchers', label: 'Binge / Scroll Watchers' },
+    { value: 'global-mobile', label: 'Global Mobile Audience' },
   ],
 };
 
@@ -197,6 +205,14 @@ export const MODE_TONES: Record<ProjectFormat, LabelValue[]> = {
     { value: 'digital-physical', label: 'Digital-Physical Hybrid' },
     { value: 'experimental', label: 'Experimental / Art' },
   ],
+  'vertical-drama': [
+    { value: 'addictive', label: 'Addictive / Cliffhanger-Driven' },
+    { value: 'escapist', label: 'Escapist / Fantasy' },
+    { value: 'emotional', label: 'Emotional / Melodramatic' },
+    { value: 'suspenseful', label: 'Suspenseful / Twisty' },
+    { value: 'comedic', label: 'Comedic / Light' },
+    { value: 'dark', label: 'Dark / Gritty' },
+  ],
 };
 
 export const MODE_BUDGETS: Record<ProjectFormat, LabelValue[]> = {
@@ -272,6 +288,13 @@ export const MODE_BUDGETS: Record<ProjectFormat, LabelValue[]> = {
     { value: '500k-2m', label: '$500K – $2M' },
     { value: '2m-plus', label: '$2M+' },
   ],
+  'vertical-drama': [
+    { value: 'under-10k-ep', label: 'Under $10K / ep' },
+    { value: '10k-50k-ep', label: '$10K – $50K / ep' },
+    { value: '50k-150k-ep', label: '$50K – $150K / ep' },
+    { value: '150k-500k-ep', label: '$150K – $500K / ep' },
+    { value: '500k-plus-ep', label: '$500K+ / ep' },
+  ],
 };
 
 export const MODE_COMPARABLE_CONFIG: Record<ProjectFormat, { label: string; placeholder: string; hint: string }> = {
@@ -286,6 +309,7 @@ export const MODE_COMPARABLE_CONFIG: Record<ProjectFormat, { label: string; plac
   'music-video': { label: 'Reference Videos', placeholder: 'e.g. Spike Jonze\'s energy meets Hiro Murai\'s visual storytelling', hint: 'Reference music videos, directors, or visual styles you\'re drawing from.' },
   'proof-of-concept': { label: 'Target Project', placeholder: 'e.g. Proving the world of our sci-fi feature, similar to District 9\'s early proof', hint: 'Describe the larger project this proof of concept is designed to unlock.' },
   hybrid: { label: 'Reference Projects', placeholder: 'e.g. Sleep No More\'s immersion meets Bandersnatch\'s interactivity', hint: 'Reference cross-platform, immersive, or transmedia projects that inspire your approach.' },
+  'vertical-drama': { label: 'Reference Shows', placeholder: 'e.g. The pacing of ReelShort originals meets the drama of K-drama cliffhangers', hint: 'Reference vertical drama series, short-form shows, or mobile-first content that inspires your approach.' },
 };
 
 export const MODE_CREATIVE_LABEL: Record<ProjectFormat, { title: string; subtitle: string; genreLabel: string }> = {
@@ -300,6 +324,7 @@ export const MODE_CREATIVE_LABEL: Record<ProjectFormat, { title: string; subtitl
   'music-video': { title: 'Visual Direction', subtitle: 'Define the visual approach and genre.', genreLabel: 'Music Genre' },
   'proof-of-concept': { title: 'Concept Profile', subtitle: 'What are you proving and for what target project?', genreLabel: 'Genre / Style' },
   hybrid: { title: 'Project Identity', subtitle: 'Define the cross-platform creative vision.', genreLabel: 'Format Type' },
+  'vertical-drama': { title: 'Creative Profile', subtitle: 'Define the genre, tone, and hook of your vertical drama.', genreLabel: 'Genre' },
 };
 
 export const MODE_COMMERCIAL_LABEL: Record<ProjectFormat, { title: string; subtitle: string }> = {
@@ -314,6 +339,7 @@ export const MODE_COMMERCIAL_LABEL: Record<ProjectFormat, { title: string; subti
   'music-video': { title: 'Production Budget', subtitle: 'Define the label/artist budget and scope.' },
   'proof-of-concept': { title: 'Budget & Goal', subtitle: 'What\'s the budget and what does success look like?' },
   hybrid: { title: 'Budget & Partners', subtitle: 'Define funding sources and technology partners.' },
+  'vertical-drama': { title: 'Budget & Platform', subtitle: 'Define the per-episode budget and target platform.' },
 };
 
 export const FORMAT_OPTIONS = [
@@ -324,6 +350,7 @@ export const FORMAT_OPTIONS = [
   { value: 'digital-series', label: 'Digital Series' },
   { value: 'commercial', label: 'Commercial / Advert' },
   { value: 'branded-content', label: 'Branded Content' },
+  { value: 'vertical-drama', label: 'Vertical Drama' },
 ] as const;
 
 export const TV_SUBFORMAT_OPTIONS = [
