@@ -57,10 +57,12 @@ export function ScriptToBudgetPanel({ projectId, scriptText, format, genres, bud
   // If scriptText is the sentinel, fetch extracted text from project_documents
   const needsFetch = scriptText === '__SCRIPT_EXISTS_NO_TEXT__';
   const effectiveText = needsFetch ? resolvedText : scriptText;
+  const [fetchFailed, setFetchFailed] = useState(false);
 
   useEffect(() => {
     if (!needsFetch) return;
-    (async () => {
+    let attempts = 0;
+    const tryFetch = async () => {
       const { data } = await supabase
         .from('project_documents')
         .select('extracted_text')
@@ -68,8 +70,18 @@ export function ScriptToBudgetPanel({ projectId, scriptText, format, genres, bud
         .not('extracted_text', 'is', null)
         .limit(1)
         .single();
-      if (data?.extracted_text) setResolvedText(data.extracted_text);
-    })();
+      if (data?.extracted_text) {
+        setResolvedText(data.extracted_text);
+      } else {
+        attempts++;
+        if (attempts < 3) {
+          setTimeout(tryFetch, 3000);
+        } else {
+          setFetchFailed(true);
+        }
+      }
+    };
+    tryFetch();
   }, [needsFetch, projectId]);
 
   const STAGES = [
@@ -129,12 +141,21 @@ export function ScriptToBudgetPanel({ projectId, scriptText, format, genres, bud
     );
   }
 
-  if (needsFetch && !resolvedText) {
+  if (needsFetch && !resolvedText && !fetchFailed) {
+    return (
+      <Card className="p-4 border-dashed border-2 border-border/50 bg-card/30 text-center space-y-3">
+        <Brain className="h-6 w-6 mx-auto text-primary/40" />
+        <p className="text-xs text-muted-foreground">Script detected — extracting text for budget estimation…</p>
+        <Progress value={undefined} className="h-1.5 mx-auto max-w-[200px] animate-pulse" />
+      </Card>
+    );
+  }
+
+  if (needsFetch && !resolvedText && fetchFailed) {
     return (
       <Card className="p-4 border-dashed border-2 border-border/50 bg-card/30 text-center">
-        <Brain className="h-6 w-6 mx-auto mb-2 text-primary/40" />
-        <p className="text-xs text-muted-foreground">Script detected — extracting text for budget estimation…</p>
-        <Loader2 className="h-4 w-4 mx-auto mt-2 animate-spin text-muted-foreground" />
+        <Brain className="h-6 w-6 mx-auto mb-2 text-muted-foreground/40" />
+        <p className="text-xs text-muted-foreground">Script text not yet extracted. Try re-uploading the script or use "Estimate Budget" after extraction completes.</p>
       </Card>
     );
   }
