@@ -115,12 +115,16 @@ export default function Auth() {
             </button>
           )}
 
-          <h1 className="text-2xl font-display font-semibold text-foreground mb-1">
-            {titles[view]}
-          </h1>
-          <p className="text-sm text-muted-foreground mb-8">
-            {subtitles[view]}
-          </p>
+          {view !== 'sign-in' && (
+            <>
+              <h1 className="text-2xl font-display font-semibold text-foreground mb-1">
+                {titles[view]}
+              </h1>
+              <p className="text-sm text-muted-foreground mb-8">
+                {subtitles[view]}
+              </p>
+            </>
+          )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
