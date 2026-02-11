@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { useNavigate, Navigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, Navigate, useSearchParams, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Play } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
@@ -82,8 +82,8 @@ export default function Auth() {
   };
 
   const subtitles: Record<AuthView, string> = {
-    'sign-in': 'From inception to recoup.',
-    'sign-up': 'From inception to recoup.',
+    'sign-in': 'From inception to legacy.',
+    'sign-up': 'From inception to legacy.',
     'forgot-password': 'Enter your email and we\'ll send you a reset link.',
   };
 
@@ -101,7 +101,7 @@ export default function Auth() {
             <img src={iffyLogo} alt="IFFY logo" className="h-12 w-12 rounded-lg" />
             <div className="flex flex-col leading-none">
               <span className="font-display font-bold text-3xl tracking-tight text-foreground">IFFY</span>
-              <span className="text-[10px] text-muted-foreground tracking-widest uppercase">From inception to recoup</span>
+              <span className="text-[10px] text-muted-foreground tracking-widest uppercase">From inception to legacy</span>
             </div>
           </div>
 
@@ -213,11 +213,17 @@ export default function Auth() {
         <div className="relative z-10 max-w-md px-8 text-center">
           <p className="text-xs font-display uppercase tracking-[0.2em] text-primary mb-3">Intelligent Film Flow & Yield</p>
           <h2 className="text-3xl font-display font-bold text-foreground mb-4">
-            From inception to recoup.
+            From inception to legacy.
           </h2>
-          <p className="text-muted-foreground text-lg leading-relaxed">
+          <p className="text-muted-foreground text-lg leading-relaxed mb-6">
             IFFY guides film and TV projects from development through production to monetisation — preserving context, ownership, and financial clarity at every stage.
           </p>
+          <Link to="/demo" className="inline-flex items-center gap-2 text-sm font-medium text-primary hover:text-primary/80 transition-colors group">
+            <span className="h-9 w-9 rounded-full bg-primary/10 group-hover:bg-primary/20 flex items-center justify-center transition-colors">
+              <Play className="h-4 w-4 fill-primary text-primary" />
+            </span>
+            Watch the trailer
+          </Link>
         </div>
       </div>
     </div>
