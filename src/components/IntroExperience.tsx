@@ -16,7 +16,7 @@ const brandSlides = [
     phase: 'brand' as const,
     subtitle: 'Intelligent Film Flow & Yield',
     title: 'IFFY',
-    body: 'From inception to recoup.',
+    body: 'From inception to legacy.',
   },
   {
     phase: 'value' as const,

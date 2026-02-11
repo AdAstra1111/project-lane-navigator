@@ -185,7 +185,7 @@ export default function Settings() {
           <h2 className="font-display font-semibold text-foreground mb-2">About IFFY</h2>
           <p className="text-xs font-display uppercase tracking-[0.15em] text-primary mb-2">Intelligent Film Flow & Yield</p>
           <p className="text-sm text-muted-foreground leading-relaxed">
-            IFFY is a project intelligence system that guides film and TV projects from inception through production to monetisation and recoup — preserving context, ownership, and financial clarity at every stage.
+            IFFY is a project intelligence system that guides film and TV projects from inception through production to monetisation and beyond — preserving context, ownership, and financial clarity at every stage.
           </p>
         </motion.section>
 

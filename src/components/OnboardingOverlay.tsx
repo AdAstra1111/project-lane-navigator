@@ -8,7 +8,7 @@ const ONBOARDING_KEY = 'iffy-onboarding-seen';
 const steps = [
   {
     icon: FolderOpen,
-    title: 'From inception to recoup.',
+    title: 'From inception to legacy.',
     body: 'IFFY — Intelligent Film Flow & Yield — guides your project from first idea through production to monetisation.',
   },
   {
