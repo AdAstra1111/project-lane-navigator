@@ -1,15 +1,17 @@
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Film, Tv, ArrowRight } from 'lucide-react';
+import { Film, Tv, ArrowRight, Star } from 'lucide-react';
 import { Project, MonetisationLane } from '@/lib/types';
 import { LaneBadge } from './LaneBadge';
-import { cn } from '@/lib/utils';
 
 interface ProjectCardProps {
   project: Project;
   index: number;
   readinessScore?: number | null;
   financeReadinessScore?: number | null;
+  selected?: boolean;
+  onSelect?: (id: string) => void;
+  onTogglePin?: (id: string, pinned: boolean) => void;
 }
 
 function MiniScoreRing({ score, size = 28 }: { score: number; size?: number }) {
@@ -29,7 +31,7 @@ function MiniScoreRing({ score, size = 28 }: { score: number; size?: number }) {
   );
 }
 
-export function ProjectCard({ project, index, readinessScore, financeReadinessScore }: ProjectCardProps) {
+export function ProjectCard({ project, index, readinessScore, financeReadinessScore, selected, onSelect, onTogglePin }: ProjectCardProps) {
   const FormatIcon = project.format === 'tv-series' ? Tv : Film;
 
   return (
@@ -37,10 +39,38 @@ export function ProjectCard({ project, index, readinessScore, financeReadinessSc
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.05, duration: 0.3 }}
+      className="relative"
     >
+      {/* Select checkbox */}
+      {onSelect && (
+        <button
+          onClick={(e) => { e.preventDefault(); onSelect(project.id); }}
+          className={`absolute -left-1 -top-1 z-10 h-5 w-5 rounded border-2 flex items-center justify-center transition-colors ${
+            selected ? 'bg-primary border-primary' : 'border-border bg-background hover:border-primary/50'
+          }`}
+        >
+          {selected && <span className="text-primary-foreground text-xs font-bold">✓</span>}
+        </button>
+      )}
+
+      {/* Pin button */}
+      {onTogglePin && (
+        <button
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); onTogglePin(project.id, !project.pinned); }}
+          className={`absolute top-2 right-2 z-10 p-1 rounded transition-colors ${
+            project.pinned ? 'text-primary' : 'text-muted-foreground/30 hover:text-primary/60'
+          }`}
+          title={project.pinned ? 'Unpin project' : 'Pin to top'}
+        >
+          <Star className={`h-3.5 w-3.5 ${project.pinned ? 'fill-primary' : ''}`} />
+        </button>
+      )}
+
       <Link
         to={`/projects/${project.id}`}
-        className="group block glass-card rounded-lg p-5 transition-all duration-300 hover:border-primary/30 hover:shadow-[0_0_30px_hsl(var(--glow-primary))]"
+        className={`group block glass-card rounded-lg p-5 transition-all duration-300 hover:border-primary/30 hover:shadow-[0_0_30px_hsl(var(--glow-primary))] ${
+          selected ? 'ring-2 ring-primary/50' : ''
+        } ${project.pinned ? 'border-primary/20' : ''}`}
       >
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1 min-w-0">
@@ -49,6 +79,9 @@ export function ProjectCard({ project, index, readinessScore, financeReadinessSc
               <span className="text-xs text-muted-foreground uppercase tracking-wider">
                 {project.format === 'tv-series' ? 'TV Series' : 'Film'}
               </span>
+              {project.pinned && (
+                <span className="text-[10px] text-primary font-medium">Pinned</span>
+              )}
             </div>
             <h3 className="text-lg font-display font-semibold text-foreground truncate group-hover:text-primary transition-colors">
               {project.title}

@@ -50,9 +50,23 @@ export function useProjects() {
       const { data, error } = await supabase
         .from('projects')
         .select('*')
+        .order('pinned', { ascending: false })
         .order('created_at', { ascending: false });
       if (error) throw error;
       return data as unknown as Project[];
+    },
+  });
+
+  const togglePin = useMutation({
+    mutationFn: async ({ projectId, pinned }: { projectId: string; pinned: boolean }) => {
+      const { error } = await supabase
+        .from('projects')
+        .update({ pinned })
+        .eq('id', projectId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
     },
   });
 
@@ -200,7 +214,7 @@ export function useProjects() {
     },
   });
 
-  return { projects, isLoading, error, createProject, deleteProject };
+  return { projects, isLoading, error, createProject, deleteProject, togglePin };
 }
 
 export function useProject(id: string | undefined) {
