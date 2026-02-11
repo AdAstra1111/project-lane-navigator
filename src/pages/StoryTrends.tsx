@@ -1,15 +1,20 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { Activity, FileText, Archive, Radio, BookOpen } from 'lucide-react';
+import { Activity, FileText, Archive, BookOpen } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
 import { Header } from '@/components/Header';
 import { SignalCard } from '@/components/SignalCard';
 import { TrendsFilters } from '@/components/TrendsFilters';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   useActiveSignals,
   useArchivedSignals,
   useLatestWeeklyBrief,
   StoryFilters,
+  PRODUCTION_TYPE_TREND_CATEGORIES,
+  TARGET_BUYER_OPTIONS,
+  BUDGET_TIER_OPTIONS,
 } from '@/hooks/useTrends';
 import { format } from 'date-fns';
 
@@ -37,41 +42,80 @@ function SkeletonCards({ count }: { count: number }) {
   );
 }
 
-const STORY_FILTER_CONFIGS = [
-  { key: 'genre', label: 'Genre', options: [
-    { value: 'YA', label: 'YA' }, { value: 'Horror', label: 'Horror' },
-    { value: 'Thriller', label: 'Thriller' }, { value: 'Comedy', label: 'Comedy' },
-    { value: 'Drama', label: 'Drama' }, { value: 'Sci-Fi', label: 'Sci-Fi' },
-    { value: 'Romance', label: 'Romance' }, { value: 'Action', label: 'Action' },
-  ]},
-  { key: 'tone', label: 'Tone', options: [
-    { value: 'Dark', label: 'Dark' }, { value: 'Hopeful', label: 'Hopeful' },
-    { value: 'Satirical', label: 'Satirical' }, { value: 'Romantic', label: 'Romantic' },
-    { value: 'Gritty', label: 'Gritty' }, { value: 'Whimsical', label: 'Whimsical' },
-  ]},
-  { key: 'format', label: 'Format', options: [
-    { value: 'Feature', label: 'Feature' }, { value: 'Series', label: 'Series' },
-    { value: 'Limited Series', label: 'Limited Series' },
-  ]},
-  { key: 'cyclePhase', label: 'Phase', options: [
-    { value: 'Early', label: 'Early' }, { value: 'Building', label: 'Building' },
-    { value: 'Peaking', label: 'Peaking' }, { value: 'Declining', label: 'Declining' },
-  ]},
-  { key: 'region', label: 'Region', options: [
-    { value: 'UK', label: 'UK' }, { value: 'US', label: 'US' },
-    { value: 'Europe', label: 'Europe' }, { value: 'International', label: 'International' },
-  ]},
-];
+const PRODUCTION_TYPES = Object.entries(PRODUCTION_TYPE_TREND_CATEGORIES).map(([value, config]) => ({
+  value,
+  label: config.label,
+}));
 
 export default function StoryTrends() {
-  const [filters, setFilters] = useState<StoryFilters>({});
+  const [searchParams] = useSearchParams();
+  const initialType = searchParams.get('type') || 'film';
+  const [selectedType, setSelectedType] = useState(initialType);
+  const typeConfig = PRODUCTION_TYPE_TREND_CATEGORIES[selectedType];
+
+  const [filters, setFilters] = useState<StoryFilters>({ productionType: initialType });
   const handleFilter = useCallback((key: string, value: string | undefined) => {
     setFilters(prev => ({ ...prev, [key]: value }));
   }, []);
-  const resetFilters = useCallback(() => setFilters({}), []);
+  const resetFilters = useCallback(() => setFilters({ productionType: selectedType }), [selectedType]);
+
+  const handleTypeChange = useCallback((type: string) => {
+    setSelectedType(type);
+    setFilters({ productionType: type });
+  }, []);
+
+  // Determine if this is a commercial/branded mode (no film terminology)
+  const isNonFilm = ['commercial', 'branded-content', 'music-video', 'digital-series'].includes(selectedType);
+
+  const filterConfigs = useMemo(() => {
+    const configs = [
+      { key: 'genre', label: 'Genre', options: [
+        { value: 'YA', label: 'YA' }, { value: 'Horror', label: 'Horror' },
+        { value: 'Thriller', label: 'Thriller' }, { value: 'Comedy', label: 'Comedy' },
+        { value: 'Drama', label: 'Drama' }, { value: 'Sci-Fi', label: 'Sci-Fi' },
+        { value: 'Romance', label: 'Romance' }, { value: 'Action', label: 'Action' },
+      ]},
+      { key: 'cyclePhase', label: 'Phase', options: [
+        { value: 'Early', label: 'Early' }, { value: 'Building', label: 'Building' },
+        { value: 'Peaking', label: 'Peaking' }, { value: 'Declining', label: 'Declining' },
+      ]},
+      { key: 'region', label: 'Region', options: [
+        { value: 'UK', label: 'UK' }, { value: 'US', label: 'US' },
+        { value: 'Europe', label: 'Europe' }, { value: 'International', label: 'International' },
+      ]},
+      { key: 'velocity', label: 'Velocity', options: [
+        { value: 'Rising', label: 'Rising' }, { value: 'Stable', label: 'Stable' },
+        { value: 'Declining', label: 'Declining' },
+      ]},
+      { key: 'saturationRisk', label: 'Saturation', options: [
+        { value: 'Low', label: 'Low' }, { value: 'Medium', label: 'Medium' },
+        { value: 'High', label: 'High' },
+      ]},
+      { key: 'budgetTier', label: 'Budget Tier', options: BUDGET_TIER_OPTIONS },
+    ];
+
+    // Add target buyer based on production type
+    const buyerOpts = TARGET_BUYER_OPTIONS[selectedType] || TARGET_BUYER_OPTIONS.film;
+    configs.push({ key: 'targetBuyer', label: isNonFilm ? 'Target Client' : 'Target Buyer', options: buyerOpts });
+
+    // Add format/tone only for narrative types
+    if (!isNonFilm) {
+      configs.splice(1, 0,
+        { key: 'tone', label: 'Tone', options: [
+          { value: 'Dark', label: 'Dark' }, { value: 'Hopeful', label: 'Hopeful' },
+          { value: 'Satirical', label: 'Satirical' }, { value: 'Gritty', label: 'Gritty' },
+        ]},
+        { key: 'format', label: 'Format', options: [
+          { value: 'Feature', label: 'Feature' }, { value: 'Series', label: 'Series' },
+        ]},
+      );
+    }
+
+    return configs;
+  }, [selectedType, isNonFilm]);
 
   const { data: activeSignals = [], isLoading: loadingActive } = useActiveSignals(filters);
-  const { data: archivedSignals = [], isLoading: loadingArchived } = useArchivedSignals();
+  const { data: archivedSignals = [], isLoading: loadingArchived } = useArchivedSignals(selectedType);
   const { data: latestBrief, isLoading: loadingBrief } = useLatestWeeklyBrief();
 
   return (
@@ -90,10 +134,30 @@ export default function StoryTrends() {
               <BookOpen className="h-4 w-4 text-primary" />
               <span className="text-xs text-muted-foreground uppercase tracking-wider">Intelligence Layer</span>
             </div>
-            <h1 className="text-3xl font-display font-bold text-foreground tracking-tight">Story Trends</h1>
+            <h1 className="text-3xl font-display font-bold text-foreground tracking-tight">
+              {typeConfig?.label || 'Story'} Signals
+            </h1>
             <p className="text-muted-foreground mt-1 leading-relaxed">
-              Emerging narrative, genre, tone, and market signals across the entertainment industry.
+              {isNonFilm 
+                ? `Market signals, creative direction, and ${selectedType === 'commercial' ? 'client behaviour' : 'platform behaviour'} trends.`
+                : 'Emerging narrative, genre, tone, and market signals segmented by production type.'
+              }
             </p>
+          </div>
+
+          {/* Production Type Selector */}
+          <div className="space-y-2">
+            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Production Type</label>
+            <Select value={selectedType} onValueChange={handleTypeChange}>
+              <SelectTrigger className="w-full h-9 bg-muted/50 border-border/50 text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PRODUCTION_TYPES.map(pt => (
+                  <SelectItem key={pt.value} value={pt.value}>{pt.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           {/* Weekly Brief */}
@@ -132,7 +196,7 @@ export default function StoryTrends() {
           {/* Filters */}
           <TrendsFilters
             filters={filters as Record<string, string>}
-            filterConfigs={STORY_FILTER_CONFIGS}
+            filterConfigs={filterConfigs}
             onFilterChange={handleFilter}
             onReset={resetFilters}
           />
@@ -161,8 +225,8 @@ export default function StoryTrends() {
               ) : (
                 <EmptyState
                   icon={Activity}
-                  title="No active story signals"
-                  description="Signals will appear here once three or more independent sources confirm a pattern."
+                  title={`No active ${typeConfig?.label || 'story'} signals`}
+                  description={`Signals for ${typeConfig?.label || 'this production type'} will appear here once detected. Use the Refresh button on the Trends hub to trigger analysis.`}
                 />
               )}
             </TabsContent>
@@ -173,7 +237,7 @@ export default function StoryTrends() {
               ) : (
                 <EmptyState
                   icon={Archive}
-                  title="No archived story signals"
+                  title="No archived signals"
                   description="Past signals will be recorded here with their lifecycle."
                 />
               )}
@@ -182,7 +246,7 @@ export default function StoryTrends() {
 
           {/* Methodology note */}
           <div className="text-xs text-muted-foreground border-t border-border/50 pt-6">
-            <p>Signals require confirmation across ≥3 independent sources before surfacing. Week-over-week comparison is applied automatically.</p>
+            <p>Signals are scored on Strength (1–10), Velocity (Rising/Stable/Declining), and Saturation Risk (Low/Medium/High) with a 12-month forecast. Segmented by production type.</p>
           </div>
         </motion.div>
       </main>
