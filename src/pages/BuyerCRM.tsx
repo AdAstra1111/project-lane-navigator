@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Plus, Users, Search, MessageSquare, Phone, Mail, X, ChevronDown } from 'lucide-react';
+import { Plus, Users, Search, MessageSquare, Phone, Mail, X, ChevronDown, Landmark, Radio, BookOpen } from 'lucide-react';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -154,9 +155,16 @@ export default function BuyerCRM() {
           {/* Contact List */}
           {filtered.length === 0 ? (
             <div className="text-center py-16">
-              <Users className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-              <h3 className="font-display font-semibold text-foreground mb-1">No contacts yet</h3>
-              <p className="text-sm text-muted-foreground">Add buyer contacts to track relationships and meetings.</p>
+              <div className="h-14 w-14 rounded-xl bg-primary/10 flex items-center justify-center mx-auto mb-4">
+                <Users className="h-7 w-7 text-primary" />
+              </div>
+              <h3 className="font-display font-semibold text-foreground mb-2">Build your buyer network</h3>
+              <p className="text-sm text-muted-foreground max-w-sm mx-auto mb-4">
+                Track distributors, sales agents, streamers, and financiers. Log meetings and manage relationships — all in context of your projects.
+              </p>
+              <Button onClick={() => setShowForm(true)}>
+                <Plus className="h-4 w-4 mr-1.5" />Add Your First Contact
+              </Button>
             </div>
           ) : (
             <div className="space-y-3">
@@ -198,9 +206,15 @@ export default function BuyerCRM() {
                             <ChevronDown className={`h-3.5 w-3.5 transition-transform ${expandedId === contact.id ? 'rotate-180' : ''}`} />
                           </Button>
                         </CollapsibleTrigger>
-                        <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => deleteContact.mutate(contact.id)}>
-                          <X className="h-3.5 w-3.5" />
-                        </Button>
+                        <ConfirmDialog
+                          title={`Delete ${contact.buyer_name}?`}
+                          description="This will permanently remove this contact and all their meeting history."
+                          onConfirm={() => deleteContact.mutate(contact.id)}
+                        >
+                          <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground hover:text-destructive">
+                            <X className="h-3.5 w-3.5" />
+                          </Button>
+                        </ConfirmDialog>
                       </div>
                     </div>
 

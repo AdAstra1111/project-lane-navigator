@@ -25,6 +25,20 @@ function downloadCSV(content: string, filename: string) {
   URL.revokeObjectURL(url);
 }
 
+export function exportProjectsCsv(projects: any[]) {
+  const headers = ['Title', 'Format', 'Genres', 'Budget Range', 'Lane', 'Pipeline Stage', 'Created'];
+  const rows = projects.map(p => [
+    p.title || '',
+    p.format || '',
+    (p.genres || []).join('; '),
+    p.budget_range || '',
+    p.assigned_lane || '',
+    p.pipeline_stage || '',
+    p.created_at ? new Date(p.created_at).toLocaleDateString() : '',
+  ]);
+  downloadCSV(toCSV(headers, rows), `iffy_projects_${new Date().toISOString().slice(0, 10)}.csv`);
+}
+
 export function exportDealsCSV(deals: any[], projectTitle: string) {
   const headers = ['Territory', 'Buyer', 'Deal Type', 'Status', 'Amount', 'Currency', 'Notes', 'Offered At', 'Closed At'];
   const rows = deals.map(d => [

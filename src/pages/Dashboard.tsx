@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Plus, Clapperboard, ArrowLeftRight, Kanban } from 'lucide-react';
+import { Plus, Clapperboard, ArrowLeftRight, Kanban, Archive, FileDown, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Header } from '@/components/Header';
@@ -11,14 +11,46 @@ import { OnboardingChecklist } from '@/components/OnboardingChecklist';
 import { DashboardAnalytics } from '@/components/DashboardAnalytics';
 import { DashboardActivityFeed } from '@/components/DashboardActivityFeed';
 import { RoleDashboard } from '@/components/RoleDashboard';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { PageTransition } from '@/components/PageTransition';
 import { useProjects } from '@/hooks/useProjects';
 import { useDashboardScores } from '@/hooks/useDashboardScores';
+import { exportProjectsCsv } from '@/lib/csv-export';
+import { toast } from 'sonner';
 
 export default function Dashboard() {
-  const { projects, isLoading } = useProjects();
+  const { projects, isLoading, togglePin, deleteProject } = useProjects();
   const [roleView, setRoleView] = useState<string>('none');
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const { data: projectScores = {} } = useDashboardScores(projects);
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const clearSelection = () => setSelectedIds(new Set());
+
+  const handleBulkExport = () => {
+    const selected = projects.filter(p => selectedIds.has(p.id));
+    if (selected.length === 0) return;
+    exportProjectsCsv(selected);
+    toast.success(`Exported ${selected.length} project${selected.length !== 1 ? 's' : ''}`);
+    clearSelection();
+  };
+
+  const handleBulkDelete = () => {
+    selectedIds.forEach(id => deleteProject.mutate(id));
+    toast.success(`Deleted ${selectedIds.size} project${selectedIds.size !== 1 ? 's' : ''}`);
+    clearSelection();
+  };
+
+  const handleTogglePin = (id: string, pinned: boolean) => {
+    togglePin.mutate({ projectId: id, pinned });
+  };
 
   return (
     <PageTransition>
@@ -78,6 +110,38 @@ export default function Dashboard() {
             </div>
           </div>
 
+          {/* Bulk action bar */}
+          {selectedIds.size > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="glass-card rounded-lg px-4 py-2.5 mb-4 flex items-center justify-between"
+            >
+              <span className="text-sm font-medium text-foreground">
+                {selectedIds.size} selected
+              </span>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" onClick={handleBulkExport}>
+                  <FileDown className="h-3.5 w-3.5 mr-1" />
+                  Export CSV
+                </Button>
+                <ConfirmDialog
+                  title={`Delete ${selectedIds.size} project${selectedIds.size !== 1 ? 's' : ''}?`}
+                  description="This will permanently remove the selected projects and all their data. This cannot be undone."
+                  onConfirm={handleBulkDelete}
+                >
+                  <Button variant="destructive" size="sm">
+                    <Archive className="h-3.5 w-3.5 mr-1" />
+                    Delete
+                  </Button>
+                </ConfirmDialog>
+                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={clearSelection}>
+                  <X className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            </motion.div>
+          )}
+
           {isLoading ? (
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {[...Array(3)].map((_, i) => (
@@ -98,7 +162,7 @@ export default function Dashboard() {
                 Start by adding a project
               </h2>
               <p className="text-muted-foreground mb-6 max-w-sm">
-                From inception to recoup — one decision at a time. Attach a script, add cast, and build towards finance-ready.
+                From inception to recoup — one decision at a time. Start with a concept, pitch, or cast attachment.
               </p>
               <Link to="/projects/new">
                 <Button className="bg-primary text-primary-foreground hover:bg-primary/90">
@@ -123,6 +187,9 @@ export default function Dashboard() {
                     index={i}
                     readinessScore={projectScores[project.id]?.readiness ?? null}
                     financeReadinessScore={projectScores[project.id]?.financeReadiness ?? null}
+                    selected={selectedIds.has(project.id)}
+                    onSelect={toggleSelect}
+                    onTogglePin={handleTogglePin}
                   />
                 ))}
               </div>

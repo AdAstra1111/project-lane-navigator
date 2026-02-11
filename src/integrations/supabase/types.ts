@@ -1794,6 +1794,7 @@ export type Database = {
           genres: string[]
           id: string
           incentive_insights: Json | null
+          pinned: boolean
           pipeline_stage: string
           primary_territory: string
           reasoning: string | null
@@ -1817,6 +1818,7 @@ export type Database = {
           genres?: string[]
           id?: string
           incentive_insights?: Json | null
+          pinned?: boolean
           pipeline_stage?: string
           primary_territory?: string
           reasoning?: string | null
@@ -1840,6 +1842,7 @@ export type Database = {
           genres?: string[]
           id?: string
           incentive_insights?: Json | null
+          pinned?: boolean
           pipeline_stage?: string
           primary_territory?: string
           reasoning?: string | null
