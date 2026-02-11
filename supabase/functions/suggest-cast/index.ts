@@ -31,8 +31,11 @@ serve(async (req) => {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
 
+    const genderHint = targetCharacter?.gender && targetCharacter.gender !== 'unknown'
+      ? ` This character is ${targetCharacter.gender}. Suggest ONLY ${targetCharacter.gender} actors.`
+      : '';
     const characterClause = targetCharacter
-      ? `\n\nTARGET ROLE: The producer is specifically casting for the character "${targetCharacter.name}"${targetCharacter.description ? ` — ${targetCharacter.description}` : ''}${targetCharacter.scene_count ? ` (appears in ${targetCharacter.scene_count} scenes, ${targetCharacter.scene_count > 15 ? 'LEAD' : targetCharacter.scene_count > 5 ? 'SUPPORTING LEAD' : 'SUPPORTING'} role)` : ''}. Tailor ALL suggestions to actors who could convincingly play this specific character. Consider age, physicality, acting range, and prior roles that demonstrate suitability.`
+      ? `\n\nTARGET ROLE: The producer is specifically casting for the character "${targetCharacter.name}"${targetCharacter.description ? ` — ${targetCharacter.description}` : ''}${targetCharacter.scene_count ? ` (appears in ${targetCharacter.scene_count} scenes, ${targetCharacter.scene_count > 15 ? 'LEAD' : targetCharacter.scene_count > 5 ? 'SUPPORTING LEAD' : 'SUPPORTING'} role)` : ''}.${genderHint} Tailor ALL suggestions to actors who could convincingly play this specific character. Consider age, physicality, acting range, and prior roles that demonstrate suitability.`
       : '';
 
     const prompt = `You are an expert film/TV casting strategist with deep knowledge of the independent and studio film landscape. Given a project, suggest 6 specific actors who would be realistic, appropriate, and strategically smart choices.

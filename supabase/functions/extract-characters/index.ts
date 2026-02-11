@@ -108,7 +108,7 @@ serve(async (req) => {
     // Build messages: use PDF (multimodal) or text
     const systemMessage = {
       role: "system",
-      content: `You are a script analysis tool. Extract all named speaking characters from the screenplay/script text provided. For each character, count how many distinct scenes they appear in. A scene is typically marked by a scene heading (INT./EXT. or similar slug line). Return character names as they appear in the script. Exclude generic descriptions like "MAN", "WOMAN", "WAITER" unless they are clearly recurring characters with multiple scenes. Focus on characters who have dialogue or are named specifically.`,
+      content: `You are a script analysis tool. Extract all named speaking characters from the screenplay/script text provided. For each character, count how many distinct scenes they appear in and determine their gender. A scene is typically marked by a scene heading (INT./EXT. or similar slug line). Return character names as they appear in the script. Exclude generic descriptions like "MAN", "WOMAN", "WAITER" unless they are clearly recurring characters with multiple scenes. Focus on characters who have dialogue or are named specifically. For gender, use "male", "female", or "unknown" based on pronouns, character descriptions, dialogue context, or name conventions in the script.`,
     };
 
     let userMessage: any;
@@ -163,8 +163,9 @@ serve(async (req) => {
                         name: { type: "string", description: "Character name as it appears in the script" },
                         description: { type: "string", description: "Brief one-line description of the character if determinable, otherwise empty string" },
                         scene_count: { type: "number", description: "Number of distinct scenes the character appears in" },
+                        gender: { type: "string", enum: ["male", "female", "unknown"], description: "Gender of the character based on script context, pronouns, and descriptions" },
                       },
-                      required: ["name", "description", "scene_count"],
+                      required: ["name", "description", "scene_count", "gender"],
                       additionalProperties: false,
                     },
                   },
@@ -203,7 +204,7 @@ serve(async (req) => {
 
     const aiData = await aiResponse.json();
     
-    let characters: { name: string; description: string; scene_count: number }[] = [];
+    let characters: { name: string; description: string; scene_count: number; gender?: string }[] = [];
     try {
       const toolCall = aiData.choices?.[0]?.message?.tool_calls?.[0];
       if (toolCall?.function?.arguments) {
@@ -225,7 +226,10 @@ serve(async (req) => {
       name: c.name.trim().split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" "),
       description: c.description,
       scene_count: c.scene_count || 0,
-    })).sort((a, b) => b.scene_count - a.scene_count);
+    })).map((c: any) => ({
+      ...c,
+      gender: c.gender || 'unknown',
+    })).sort((a: any, b: any) => b.scene_count - a.scene_count);
 
     console.log(`Extracted ${uniqueCharacters.length} characters`);
 
