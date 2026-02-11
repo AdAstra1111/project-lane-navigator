@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { ArrowLeft, Film, Tv, Target, Palette, DollarSign, Users, Quote, CheckCircle2, ShieldAlert, Trash2, Loader2, AlertTriangle, MessageSquareQuote, FileText, Copy, ArrowLeftRight, Download, TrendingUp, Landmark, BarChart3, Package, StickyNote, UsersRound, ChevronDown, PieChart, FileSpreadsheet, PackageCheck, Receipt } from 'lucide-react';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { ProjectNoteInput } from '@/components/ProjectNoteInput';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -70,7 +71,11 @@ import { getStageGates } from '@/lib/pipeline-gates';
 import { MonetisationLane, Recommendation, FullAnalysis, PipelineStage, PIPELINE_STAGES } from '@/lib/types';
 import { BUDGET_RANGES, TARGET_AUDIENCES, TONES } from '@/lib/constants';
 import { exportProjectPDF } from '@/lib/pdf-export';
+import { exportDealsCSV, exportDeliverablesCSV, exportCostsCSV, exportBudgetCSV } from '@/lib/csv-export';
 import { matchBuyersToProject } from '@/lib/buyer-matcher';
+import { useProjectDeals } from '@/hooks/useDeals';
+import { useProjectDeliverables } from '@/hooks/useDeliverables';
+import { useProjectCostEntries } from '@/hooks/useCostEntries';
 
 const CATEGORY_ICONS: Record<string, React.ElementType> = {
   Packaging: Users,
@@ -214,6 +219,9 @@ export default function ProjectDetail() {
   const { scripts } = useProjectScripts(id);
   const { scenarios: financeScenarios } = useProjectFinance(id);
   const { hods } = useProjectHODs(id);
+  const { deals } = useProjectDeals(id);
+  const { deliverables } = useProjectDeliverables(id);
+  const { entries: costEntries } = useProjectCostEntries(id);
   const { budgets } = useProjectBudgets(id);
 
   const budgetSummary: BudgetSummary = useMemo(() => {
@@ -291,6 +299,14 @@ export default function ProjectDetail() {
       }
     } catch { /* proceed without buyer matches */ }
 
+    const totalSpent = costEntries.reduce((s, c) => s + Number(c.amount || 0), 0);
+    const lockedBudgets = budgets.filter(b => b.status === 'locked');
+    const totalBudget = lockedBudgets.reduce((s, b) => s + Number(b.total_amount), 0);
+    const dates = costEntries.map(c => new Date(c.entry_date).getTime()).filter(Boolean);
+    const spanMs = dates.length > 1 ? Math.max(...dates) - Math.min(...dates) : 0;
+    const weeks = Math.max(1, spanMs / (7 * 24 * 60 * 60 * 1000));
+    const burnRate = totalSpent / weeks;
+
     exportProjectPDF({
       project,
       readiness,
@@ -300,7 +316,25 @@ export default function ProjectDetail() {
       hods,
       financeScenarios,
       buyerMatches,
+      deals,
+      deliverables,
+      costSummary: totalSpent > 0 ? { totalSpent, totalBudget, burnRate } : undefined,
     });
+  };
+
+  const handleExportDealsCSV = () => {
+    if (!project) return;
+    exportDealsCSV(deals, project.title);
+  };
+
+  const handleExportDeliverablesCSV = () => {
+    if (!project) return;
+    exportDeliverablesCSV(deliverables, project.title);
+  };
+
+  const handleExportCostsCSV = () => {
+    if (!project) return;
+    exportCostsCSV(costEntries, project.title);
   };
 
   const getLabel = (value: string, list: readonly { value: string; label: string }[]) =>
@@ -382,9 +416,38 @@ export default function ProjectDetail() {
             </div>
 
             <div className="flex items-center gap-1">
-              <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary shrink-0" title="Export PDF one-pager" onClick={handleExportPDF}>
-                <Download className="h-4 w-4" />
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary shrink-0" title="Export">
+                    <Download className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={handleExportPDF}>
+                    <FileText className="h-3.5 w-3.5 mr-2" />
+                    PDF One-Pager
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  {deals.length > 0 && (
+                    <DropdownMenuItem onClick={handleExportDealsCSV}>
+                      <FileSpreadsheet className="h-3.5 w-3.5 mr-2" />
+                      Deals CSV
+                    </DropdownMenuItem>
+                  )}
+                  {deliverables.length > 0 && (
+                    <DropdownMenuItem onClick={handleExportDeliverablesCSV}>
+                      <FileSpreadsheet className="h-3.5 w-3.5 mr-2" />
+                      Deliverables CSV
+                    </DropdownMenuItem>
+                  )}
+                  {costEntries.length > 0 && (
+                    <DropdownMenuItem onClick={handleExportCostsCSV}>
+                      <FileSpreadsheet className="h-3.5 w-3.5 mr-2" />
+                      Costs CSV
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
               <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary shrink-0" title="Duplicate as scenario" onClick={handleDuplicate} disabled={duplicate.isPending}>
                 {duplicate.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Copy className="h-4 w-4" />}
               </Button>
