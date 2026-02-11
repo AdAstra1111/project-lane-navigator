@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Header } from '@/components/Header';
 import { ProjectCard } from '@/components/ProjectCard';
-import { OnboardingOverlay } from '@/components/OnboardingOverlay';
+import { IntroExperience } from '@/components/IntroExperience';
 import { DashboardAnalytics } from '@/components/DashboardAnalytics';
 import { DashboardActivityFeed } from '@/components/DashboardActivityFeed';
 import { RoleDashboard } from '@/components/RoleDashboard';
@@ -21,7 +21,7 @@ export default function Dashboard() {
   return (
     <div className="min-h-screen bg-background">
       <Header />
-      <OnboardingOverlay />
+      <IntroExperience />
       <main className="container py-10">
         <motion.div
           initial={{ opacity: 0, y: 12 }}
