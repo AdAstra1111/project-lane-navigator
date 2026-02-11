@@ -1,9 +1,11 @@
 import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Clock, AlertTriangle, ArrowRight } from 'lucide-react';
+import { Clock, AlertTriangle, ArrowRight, Download } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { differenceInDays, format, isPast } from 'date-fns';
 import { useAllDeadlines, ProjectDeadline } from '@/hooks/useDeadlines';
+import { exportAllDeadlinesToICS } from '@/lib/ics-export';
 
 interface DeadlineWithProject extends ProjectDeadline {
   project_title?: string;
@@ -36,9 +38,21 @@ export function DashboardCountdowns({ projectTitleMap }: { projectTitleMap: Reco
       className="mb-6"
     >
       <div className="glass-card rounded-xl p-5 border-l-4 border-amber-500/40">
-        <div className="flex items-center gap-2 mb-3">
-          <Clock className="h-4 w-4 text-amber-400" />
-          <h3 className="font-display font-semibold text-foreground text-sm">Upcoming Deadlines</h3>
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <Clock className="h-4 w-4 text-amber-400" />
+            <h3 className="font-display font-semibold text-foreground text-sm">Upcoming Deadlines</h3>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 text-xs text-muted-foreground"
+            onClick={() => exportAllDeadlinesToICS(urgent.map(d => ({ label: d.label, due_date: d.due_date, notes: d.notes, project_title: d.project_title })))}
+            title="Export all to calendar (.ics)"
+          >
+            <Download className="h-3.5 w-3.5 mr-1" />
+            Export to Calendar
+          </Button>
         </div>
         <div className="space-y-2">
           {urgent.map(d => {
