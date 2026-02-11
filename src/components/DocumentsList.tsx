@@ -3,6 +3,7 @@ import { FileText, File, CheckCircle2, AlertCircle, AlertTriangle, RotateCw } fr
 import { ProjectDocument } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { useExtractDocuments } from '@/hooks/useExtractDocuments';
+import { OperationProgress, EXTRACT_STAGES } from '@/components/OperationProgress';
 
 function getStatusIcon(status: string) {
   switch (status) {
@@ -71,16 +72,19 @@ export function DocumentsList({ documents, projectId }: DocumentsListProps) {
       </div>
 
       {hasUnextracted && projectId && (
-        <Button
-          variant="outline"
-          size="sm"
-          className="mt-3 w-full text-xs gap-1.5"
-          onClick={() => extract.mutate()}
-          disabled={extract.isPending}
-        >
-          <RotateCw className={`h-3 w-3 ${extract.isPending ? 'animate-spin' : ''}`} />
-          {extract.isPending ? 'Extracting…' : 'Re-extract Document Text'}
-        </Button>
+        <>
+          <OperationProgress isActive={extract.isPending} stages={EXTRACT_STAGES} className="mt-3" />
+          <Button
+            variant="outline"
+            size="sm"
+            className="mt-3 w-full text-xs gap-1.5"
+            onClick={() => extract.mutate()}
+            disabled={extract.isPending}
+          >
+            <RotateCw className={`h-3 w-3 ${extract.isPending ? 'animate-spin' : ''}`} />
+            {extract.isPending ? 'Extracting…' : 'Re-extract Document Text'}
+          </Button>
+        </>
       )}
     </div>
   );

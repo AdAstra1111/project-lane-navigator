@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils';
 import { useTrendEngines, useEngineWeights, useProjectEngineScores, useAIEngineScoring, useRecalibrateWeights } from '@/hooks/useTrendEngines';
 import { calculateTrendViability, type TrendViabilityResult, type CyclePosition, type DynamicModifierContext } from '@/lib/trend-viability';
 import { PredictionOutcomePanel } from '@/components/PredictionOutcomePanel';
+import { OperationProgress, AI_SCORE_STAGES, TREND_REFRESH_STAGES } from '@/components/OperationProgress';
 
 const CYCLE_CONFIG: Record<CyclePosition, { color: string; icon: typeof TrendingUp; label: string }> = {
   Boom: { color: 'text-emerald-400', icon: TrendingUp, label: 'Boom' },
@@ -123,6 +124,8 @@ export function TrendIntelligencePanel({ projectId, format, budgetRange, primary
             {isRecalibrating ? 'Recalibrating…' : 'Recalibrate Weights'}
           </Button>
         </div>
+        <OperationProgress isActive={isScoring} stages={AI_SCORE_STAGES} className="mt-3" />
+        <OperationProgress isActive={isRecalibrating} stages={TREND_REFRESH_STAGES} className="mt-3" />
       </div>
 
       {/* Applied Modifiers */}

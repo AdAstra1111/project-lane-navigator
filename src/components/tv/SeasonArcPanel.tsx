@@ -3,6 +3,7 @@ import { Loader2, Sparkles, Milestone, Flag, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { OperationProgress, SEASON_ARC_STAGES } from '@/components/OperationProgress';
 
 interface ArcResult {
   midpoint_hook: { score: number; description: string };
@@ -55,6 +56,8 @@ export function SeasonArcPanel({
           Evaluate Arc
         </Button>
       </div>
+
+      <OperationProgress isActive={loading} stages={SEASON_ARC_STAGES} />
 
       {!result && !loading && (
         <p className="text-sm text-muted-foreground">

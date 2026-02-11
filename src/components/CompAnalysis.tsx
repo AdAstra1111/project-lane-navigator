@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import { OperationProgress, COMP_STAGES } from '@/components/OperationProgress';
 
 interface Comparable {
   title: string;
@@ -80,6 +81,8 @@ export function CompAnalysis({ projectTitle, format, genres, budgetRange, tone, 
           )}
         </Button>
       </div>
+
+      <OperationProgress isActive={isLoading} stages={COMP_STAGES} />
 
       {!data && !isLoading && (
         <p className="text-sm text-muted-foreground">

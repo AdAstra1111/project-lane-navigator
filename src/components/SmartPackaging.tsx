@@ -14,6 +14,7 @@ import { useTalentTriage } from '@/hooks/useTalentTriage';
 import { useProjectCast, useProjectHODs } from '@/hooks/useProjectAttachments';
 import { usePersonImage } from '@/hooks/usePersonImage';
 import type { ScriptCharacter } from '@/hooks/useScriptCharacters';
+import { OperationProgress, PACKAGING_STAGES } from '@/components/OperationProgress';
 
 interface PackagingSuggestion {
   name: string;
@@ -193,6 +194,8 @@ export function SmartPackaging({ projectId, projectTitle, format, genres, budget
           </Button>
         </div>
       </div>
+
+      <OperationProgress isActive={loading} stages={PACKAGING_STAGES} className="mb-3" />
 
       {mode === 'cast' && (
         <>
