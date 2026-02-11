@@ -566,6 +566,90 @@ export type Database = {
           },
         ]
       }
+      project_contracts: {
+        Row: {
+          contract_type: string
+          created_at: string
+          currency: string
+          executed_at: string | null
+          expires_at: string | null
+          id: string
+          key_terms: Json
+          notes: string
+          participant_id: string | null
+          project_id: string
+          rights_granted: string
+          source: string
+          status: string
+          term_years: string
+          territory: string
+          title: string
+          total_value: string
+          updated_at: string
+          user_id: string
+          version: number
+        }
+        Insert: {
+          contract_type?: string
+          created_at?: string
+          currency?: string
+          executed_at?: string | null
+          expires_at?: string | null
+          id?: string
+          key_terms?: Json
+          notes?: string
+          participant_id?: string | null
+          project_id: string
+          rights_granted?: string
+          source?: string
+          status?: string
+          term_years?: string
+          territory?: string
+          title?: string
+          total_value?: string
+          updated_at?: string
+          user_id: string
+          version?: number
+        }
+        Update: {
+          contract_type?: string
+          created_at?: string
+          currency?: string
+          executed_at?: string | null
+          expires_at?: string | null
+          id?: string
+          key_terms?: Json
+          notes?: string
+          participant_id?: string | null
+          project_id?: string
+          rights_granted?: string
+          source?: string
+          status?: string
+          term_years?: string
+          territory?: string
+          title?: string
+          total_value?: string
+          updated_at?: string
+          user_id?: string
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_contracts_participant_id_fkey"
+            columns: ["participant_id"]
+            isOneToOne: false
+            referencedRelation: "project_participants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_contracts_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       project_copro_scenarios: {
         Row: {
           contributions: string
@@ -948,6 +1032,138 @@ export type Database = {
           },
         ]
       }
+      project_ownership_stakes: {
+        Row: {
+          conditions: string
+          contract_id: string | null
+          created_at: string
+          id: string
+          notes: string
+          participant_id: string | null
+          percentage: number
+          project_id: string
+          rights_type: string
+          source: string
+          stake_type: string
+          territory: string
+          updated_at: string
+          user_id: string
+          version: number
+        }
+        Insert: {
+          conditions?: string
+          contract_id?: string | null
+          created_at?: string
+          id?: string
+          notes?: string
+          participant_id?: string | null
+          percentage?: number
+          project_id: string
+          rights_type?: string
+          source?: string
+          stake_type?: string
+          territory?: string
+          updated_at?: string
+          user_id: string
+          version?: number
+        }
+        Update: {
+          conditions?: string
+          contract_id?: string | null
+          created_at?: string
+          id?: string
+          notes?: string
+          participant_id?: string | null
+          percentage?: number
+          project_id?: string
+          rights_type?: string
+          source?: string
+          stake_type?: string
+          territory?: string
+          updated_at?: string
+          user_id?: string
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_ownership_stakes_contract_id_fkey"
+            columns: ["contract_id"]
+            isOneToOne: false
+            referencedRelation: "project_contracts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_ownership_stakes_participant_id_fkey"
+            columns: ["participant_id"]
+            isOneToOne: false
+            referencedRelation: "project_participants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_ownership_stakes_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_participants: {
+        Row: {
+          company: string
+          contact_email: string
+          created_at: string
+          id: string
+          notes: string
+          participant_name: string
+          participant_type: string
+          project_id: string
+          role_description: string
+          source: string
+          updated_at: string
+          user_id: string
+          version: number
+        }
+        Insert: {
+          company?: string
+          contact_email?: string
+          created_at?: string
+          id?: string
+          notes?: string
+          participant_name?: string
+          participant_type?: string
+          project_id: string
+          role_description?: string
+          source?: string
+          updated_at?: string
+          user_id: string
+          version?: number
+        }
+        Update: {
+          company?: string
+          contact_email?: string
+          created_at?: string
+          id?: string
+          notes?: string
+          participant_name?: string
+          participant_type?: string
+          project_id?: string
+          role_description?: string
+          source?: string
+          updated_at?: string
+          user_id?: string
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_participants_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       project_partners: {
         Row: {
           created_at: string
@@ -1194,6 +1410,91 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "project_updates_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_waterfall_rules: {
+        Row: {
+          cap_amount: string
+          conditions: string
+          contract_id: string | null
+          corridor_pct: number
+          created_at: string
+          id: string
+          notes: string
+          participant_id: string | null
+          percentage: number
+          position: number
+          premium_pct: number
+          project_id: string
+          rule_name: string
+          rule_type: string
+          source: string
+          updated_at: string
+          user_id: string
+          version: number
+        }
+        Insert: {
+          cap_amount?: string
+          conditions?: string
+          contract_id?: string | null
+          corridor_pct?: number
+          created_at?: string
+          id?: string
+          notes?: string
+          participant_id?: string | null
+          percentage?: number
+          position?: number
+          premium_pct?: number
+          project_id: string
+          rule_name?: string
+          rule_type?: string
+          source?: string
+          updated_at?: string
+          user_id: string
+          version?: number
+        }
+        Update: {
+          cap_amount?: string
+          conditions?: string
+          contract_id?: string | null
+          corridor_pct?: number
+          created_at?: string
+          id?: string
+          notes?: string
+          participant_id?: string | null
+          percentage?: number
+          position?: number
+          premium_pct?: number
+          project_id?: string
+          rule_name?: string
+          rule_type?: string
+          source?: string
+          updated_at?: string
+          user_id?: string
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_waterfall_rules_contract_id_fkey"
+            columns: ["contract_id"]
+            isOneToOne: false
+            referencedRelation: "project_contracts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_waterfall_rules_participant_id_fkey"
+            columns: ["participant_id"]
+            isOneToOne: false
+            referencedRelation: "project_participants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_waterfall_rules_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"

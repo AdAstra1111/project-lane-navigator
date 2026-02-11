@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Film, Tv, Target, Palette, DollarSign, Users, Quote, CheckCircle2, ShieldAlert, Trash2, Loader2, AlertTriangle, MessageSquareQuote, FileText, Copy, ArrowLeftRight, Download, TrendingUp, Landmark, BarChart3, Package, StickyNote, UsersRound, ChevronDown } from 'lucide-react';
+import { ArrowLeft, Film, Tv, Target, Palette, DollarSign, Users, Quote, CheckCircle2, ShieldAlert, Trash2, Loader2, AlertTriangle, MessageSquareQuote, FileText, Copy, ArrowLeftRight, Download, TrendingUp, Landmark, BarChart3, Package, StickyNote, UsersRound, ChevronDown, PieChart } from 'lucide-react';
 import { ProjectNoteInput } from '@/components/ProjectNoteInput';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -48,6 +48,7 @@ import { ScriptCoverage } from '@/components/ScriptCoverage';
 import { FinanceWaterfall } from '@/components/FinanceWaterfall';
 import { CompAnalysis } from '@/components/CompAnalysis';
 import { DealTracker } from '@/components/DealTracker';
+import { OwnershipWaterfallPanel } from '@/components/OwnershipWaterfallPanel';
 import { useTalentTriage } from '@/hooks/useTalentTriage';
 import { MarketWindowAlerts } from '@/components/MarketWindowAlerts';
 import { ProjectFestivalMatches } from '@/components/ProjectFestivalMatches';
@@ -627,7 +628,14 @@ export default function ProjectDetail() {
             {id && <DealTracker projectId={id} />}
           </Section>
 
-          {/* 5. Market & Buyers */}
+          {/* 5. Ownership & Waterfall */}
+          {id && (
+            <Section icon={PieChart} title="Ownership & Waterfall">
+              <OwnershipWaterfallPanel projectId={id} />
+            </Section>
+          )}
+
+          {/* 6. Market & Buyers */}
           <Section icon={BarChart3} title="Market & Buyers">
             {project && <ProjectBuyerMatches project={project} />}
             {project && (
