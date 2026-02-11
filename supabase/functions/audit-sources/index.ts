@@ -183,7 +183,75 @@ serve(async (req) => {
       });
     }
 
-    // 4. Log to model_version_log
+    // 4. Evaluate shadow sources
+    const shadowSourcesRes = await supabase
+      .from("data_sources")
+      .select("*")
+      .eq("status", "shadow");
+    const shadowSources = shadowSourcesRes.data || [];
+
+    const shadowResults: Array<{
+      source_id: string;
+      source_name: string;
+      accuracy: number | null;
+      sample_size: number;
+      meets_threshold: boolean;
+    }> = [];
+
+    for (const shadow of shadowSources) {
+      // Find engines in the same intelligence layer as this shadow source
+      const layerEngines = engines.filter(
+        (e: any) => e.intelligence_layer === shadow.intelligence_layer
+      );
+      if (layerEngines.length === 0) {
+        shadowResults.push({
+          source_id: shadow.id,
+          source_name: shadow.source_name,
+          accuracy: null,
+          sample_size: 0,
+          meets_threshold: false,
+        });
+        continue;
+      }
+
+      // Simulate: use the accuracy of engines in the same layer as a proxy
+      let totalAcc = 0;
+      let count = 0;
+      for (const engine of layerEngines) {
+        const acc = engineAccuracy[engine.id];
+        if (!acc || acc.total < 2) continue;
+        totalAcc += acc.hits / acc.total;
+        count++;
+      }
+
+      const avgAccuracy = count > 0 ? totalAcc / count : null;
+      const sampleSize = count > 0 ? Math.min(...layerEngines.map((e: any) => engineAccuracy[e.id]?.total || 0).filter((t: number) => t > 0)) : 0;
+
+      shadowResults.push({
+        source_id: shadow.id,
+        source_name: shadow.source_name,
+        accuracy: avgAccuracy,
+        sample_size: sampleSize,
+        meets_threshold: avgAccuracy !== null && avgAccuracy >= 0.6 && sampleSize >= 3,
+      });
+
+      // Store evaluation
+      if (avgAccuracy !== null) {
+        await supabase.from("shadow_source_evaluations").insert({
+          source_id: shadow.id,
+          evaluation_period: `Audit — ${new Date().toISOString().slice(0, 10)}`,
+          accuracy_score: parseFloat(avgAccuracy.toFixed(3)),
+          sample_size: sampleSize,
+          correlation_details: {
+            layer: shadow.intelligence_layer,
+            engines_evaluated: count,
+            layer_engines: layerEngines.map((e: any) => e.engine_name),
+          },
+        });
+      }
+    }
+
+    // 5. Log to model_version_log
     const flagged = sourceResults.filter(r => r.status_change);
     const stale = sourceResults.filter(r => r.staleness_flag);
 
@@ -191,7 +259,7 @@ serve(async (req) => {
       version_label: `Quarterly Audit — ${new Date().toISOString().slice(0, 10)}`,
       production_type: "all",
       change_type: "quarterly_audit",
-      reason: `Auto-audit: ${sourcesUpdated} sources updated, ${flagged.length} flagged low-correlation, ${stale.length} stale.`,
+      reason: `Auto-audit: ${sourcesUpdated} sources updated, ${flagged.length} flagged low-correlation, ${stale.length} stale. ${shadowSources.length} shadow sources evaluated.`,
       triggered_by: "audit-sources",
       changes: {
         sources_audited: sources.length,
@@ -200,6 +268,7 @@ serve(async (req) => {
         stale_sources: stale.map(s => s.source_name),
         outcomes_analysed: outcomes.length,
         results: sourceResults,
+        shadow_evaluations: shadowResults,
       },
     });
 
@@ -213,6 +282,8 @@ serve(async (req) => {
         stale_count: stale.length,
         outcomes_analysed: outcomes.length,
         results: sourceResults,
+        shadow_sources_evaluated: shadowSources.length,
+        shadow_results: shadowResults,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

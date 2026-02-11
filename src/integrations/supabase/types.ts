@@ -2760,6 +2760,47 @@ export type Database = {
           },
         ]
       }
+      shadow_source_evaluations: {
+        Row: {
+          accuracy_score: number
+          correlation_details: Json
+          created_at: string
+          evaluation_period: string
+          id: string
+          promoted_at: string | null
+          sample_size: number
+          source_id: string
+        }
+        Insert: {
+          accuracy_score?: number
+          correlation_details?: Json
+          created_at?: string
+          evaluation_period?: string
+          id?: string
+          promoted_at?: string | null
+          sample_size?: number
+          source_id: string
+        }
+        Update: {
+          accuracy_score?: number
+          correlation_details?: Json
+          created_at?: string
+          evaluation_period?: string
+          id?: string
+          promoted_at?: string | null
+          sample_size?: number
+          source_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shadow_source_evaluations_source_id_fkey"
+            columns: ["source_id"]
+            isOneToOne: false
+            referencedRelation: "data_sources"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       shared_signals: {
         Row: {
           created_at: string
