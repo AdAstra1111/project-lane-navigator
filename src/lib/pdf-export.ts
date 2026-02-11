@@ -10,6 +10,8 @@ import type { ReadinessResult } from '@/lib/readiness-score';
 import type { FinanceReadinessResult } from '@/lib/finance-readiness';
 import type { ProjectCastMember, ProjectPartner, ProjectFinanceScenario, ProjectHOD } from '@/hooks/useProjectAttachments';
 import type { BuyerMatch } from '@/lib/buyer-matcher';
+import type { ProjectDeal } from '@/hooks/useDeals';
+import { getCategoryForDealType, DEAL_TYPES_BY_CATEGORY } from '@/hooks/useDeals';
 import { BUDGET_RANGES, TARGET_AUDIENCES, TONES } from '@/lib/constants';
 import { LANE_LABELS } from '@/lib/types';
 
@@ -22,6 +24,9 @@ interface ExportData {
   hods: ProjectHOD[];
   financeScenarios: ProjectFinanceScenario[];
   buyerMatches: BuyerMatch[];
+  deals?: ProjectDeal[];
+  deliverables?: { item_name: string; territory: string; buyer_name: string; status: string; deliverable_type: string }[];
+  costSummary?: { totalSpent: number; totalBudget: number; burnRate: number };
 }
 
 const COLORS = {
@@ -37,7 +42,7 @@ const getLabel = (value: string, list: readonly { value: string; label: string }
   list.find(item => item.value === value)?.label || value;
 
 export function exportProjectPDF(data: ExportData) {
-  const { project, readiness, financeReadiness, cast, partners, hods, financeScenarios, buyerMatches } = data;
+  const { project, readiness, financeReadiness, cast, partners, hods, financeScenarios, buyerMatches, deals, deliverables, costSummary } = data;
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const pageWidth = doc.internal.pageSize.getWidth();
   const margin = 16;
@@ -386,6 +391,78 @@ export function exportProjectPDF(data: ExportData) {
       doc.text(lines, margin + 6, y);
       y += lines.length * 3.5 + 2;
     });
+  }
+
+  // ---- Deal Summary ----
+  if (deals && deals.length > 0) {
+    checkPage(24);
+    y += 2;
+    sectionTitle(doc, 'Deal Summary', margin, y);
+    y += 7;
+
+    const closedDeals = deals.filter(d => d.status === 'closed');
+    const pipelineDeals = deals.filter(d => !['closed', 'passed'].includes(d.status));
+    const closedTotal = closedDeals.reduce((s, d) => s + (parseFloat(d.minimum_guarantee.replace(/[^0-9.]/g, '')) || 0), 0);
+    const pipelineTotal = pipelineDeals.reduce((s, d) => s + (parseFloat(d.minimum_guarantee.replace(/[^0-9.]/g, '')) || 0), 0);
+
+    doc.setFontSize(8);
+    doc.setTextColor(...COLORS.dark);
+    doc.text(`Closed: ${closedDeals.length} deals ($${closedTotal.toLocaleString()})  ·  Pipeline: ${pipelineDeals.length} deals ($${pipelineTotal.toLocaleString()})`, margin, y);
+    y += 5;
+
+    const dealRows = deals.slice(0, 15).map(d => {
+      const cat = getCategoryForDealType(d.deal_type);
+      const typeLabel = DEAL_TYPES_BY_CATEGORY[cat]?.find(t => t.value === d.deal_type)?.label || d.deal_type;
+      return [d.territory || '—', d.buyer_name || '—', typeLabel, d.minimum_guarantee || '—', d.status];
+    });
+
+    autoTable(doc, {
+      startY: y,
+      margin: { left: margin, right: margin },
+      head: [['Territory', 'Buyer', 'Type', 'Amount', 'Status']],
+      body: dealRows,
+      theme: 'striped',
+      styles: { fontSize: 7, cellPadding: 1.5, textColor: COLORS.dark },
+      headStyles: { fillColor: COLORS.dark, textColor: COLORS.white, fontSize: 6.5 },
+    });
+    y = (doc as any).lastAutoTable.finalY + 4;
+  }
+
+  // ---- Deliverables ----
+  if (deliverables && deliverables.length > 0) {
+    checkPage(20);
+    sectionTitle(doc, 'Deliverables', margin, y);
+    y += 7;
+
+    const completed = deliverables.filter(d => d.status === 'completed' || d.status === 'waived').length;
+    doc.setFontSize(8);
+    doc.setTextColor(...COLORS.dark);
+    doc.text(`${completed} / ${deliverables.length} complete (${deliverables.length > 0 ? Math.round((completed / deliverables.length) * 100) : 0}%)`, margin, y);
+    y += 5;
+
+    autoTable(doc, {
+      startY: y,
+      margin: { left: margin, right: margin },
+      head: [['Item', 'Territory', 'Buyer', 'Type', 'Status']],
+      body: deliverables.slice(0, 15).map(d => [d.item_name || '—', d.territory || '—', d.buyer_name || '—', d.deliverable_type, d.status]),
+      theme: 'striped',
+      styles: { fontSize: 7, cellPadding: 1.5, textColor: COLORS.dark },
+      headStyles: { fillColor: COLORS.dark, textColor: COLORS.white, fontSize: 6.5 },
+    });
+    y = (doc as any).lastAutoTable.finalY + 4;
+  }
+
+  // ---- Cost Summary ----
+  if (costSummary && costSummary.totalSpent > 0) {
+    checkPage(14);
+    sectionTitle(doc, 'Cost Summary', margin, y);
+    y += 7;
+
+    const burnPct = costSummary.totalBudget > 0 ? Math.round((costSummary.totalSpent / costSummary.totalBudget) * 100) : 0;
+    doc.setFontSize(8);
+    doc.setTextColor(...COLORS.dark);
+    doc.text(`Total Spent: $${costSummary.totalSpent.toLocaleString()}  ·  Budget: $${costSummary.totalBudget.toLocaleString()}  ·  Burn: ${burnPct}%  ·  Weekly Rate: $${Math.round(costSummary.burnRate).toLocaleString()}/wk`, margin, y);
+    y += 6;
   }
 
   // ---- Footer ----
