@@ -122,10 +122,10 @@ export default function MarketIntelligence() {
                     </h2>
                     <Select value={genreFilter} onValueChange={setGenreFilter}>
                       <SelectTrigger className="w-36 h-8 text-xs">
-                        <SelectValue placeholder="All genres" />
+                        <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="all">All genres</SelectItem>
+                        <SelectItem value="all">All Genres</SelectItem>
                         {allGenres.map(g => <SelectItem key={g} value={g}>{g}</SelectItem>)}
                       </SelectContent>
                     </Select>
