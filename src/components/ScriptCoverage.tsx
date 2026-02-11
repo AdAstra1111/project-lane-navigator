@@ -53,7 +53,7 @@ export function ScriptCoverage({ projectId, projectTitle, format, genres, hasDoc
   const handleGenerate = async () => {
     setIsLoading(true);
     try {
-      // Fetch extracted text on demand
+      // Fetch extracted text from project_documents first
       const { data: docs, error: docsError } = await supabase
         .from('project_documents')
         .select('extracted_text')
@@ -62,13 +62,44 @@ export function ScriptCoverage({ projectId, projectTitle, format, genres, hasDoc
 
       if (docsError) throw docsError;
 
-      const scriptText = (docs || [])
+      let scriptText = (docs || [])
         .map((d: any) => d.extracted_text)
         .filter((t: string) => t && t.length > 100)
         .join('\n\n---\n\n');
 
+      // If no document text, check project_scripts for file_path and try to extract
       if (!scriptText || scriptText.length < 100) {
-        toast.error('No extracted text found — try the "Extract Text" button first.');
+        const { data: scripts } = await supabase
+          .from('project_scripts')
+          .select('file_path')
+          .eq('project_id', projectId)
+          .eq('status', 'current')
+          .limit(1);
+
+        if (scripts?.length && scripts[0].file_path) {
+          // Trigger extraction first
+          toast.info('Extracting script text — this may take a moment…');
+          const { error: extractErr } = await supabase.functions.invoke('extract-documents', {
+            body: { projectId },
+          });
+          if (extractErr) console.warn('Extract attempt:', extractErr);
+
+          // Re-fetch after extraction
+          const { data: freshDocs } = await supabase
+            .from('project_documents')
+            .select('extracted_text')
+            .eq('project_id', projectId)
+            .not('extracted_text', 'is', null);
+
+          scriptText = (freshDocs || [])
+            .map((d: any) => d.extracted_text)
+            .filter((t: string) => t && t.length > 100)
+            .join('\n\n---\n\n');
+        }
+      }
+
+      if (!scriptText || scriptText.length < 100) {
+        toast.error('No extracted text found — try uploading the script via Documents first.');
         return;
       }
 
