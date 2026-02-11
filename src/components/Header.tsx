@@ -42,7 +42,10 @@ export function Header() {
           <div className="h-8 w-8 rounded-md bg-primary flex items-center justify-center">
             <span className="font-display font-bold text-sm text-primary-foreground">IF</span>
           </div>
-          <span className="font-display font-semibold text-lg tracking-tight text-foreground">IFFY</span>
+          <div className="flex flex-col leading-none">
+            <span className="font-display font-semibold text-lg tracking-tight text-foreground">IFFY</span>
+            <span className="text-[9px] tracking-widest uppercase text-muted-foreground font-medium">Intelligent Film Flow & Yield</span>
+          </div>
         </Link>
 
         {/* Desktop nav */}
