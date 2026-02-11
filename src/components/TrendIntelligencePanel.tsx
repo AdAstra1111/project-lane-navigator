@@ -12,6 +12,7 @@ import { calculateTrendViability, calculateWesternEntryAdvantage, type TrendViab
 import { PredictionOutcomePanel } from '@/components/PredictionOutcomePanel';
 import { WesternEntryAdvantagePanel } from '@/components/WesternEntryAdvantagePanel';
 import { OperationProgress, AI_SCORE_STAGES, TREND_REFRESH_STAGES } from '@/components/OperationProgress';
+import { SourceConfidenceOverlay } from '@/components/SourceConfidenceOverlay';
 
 const CYCLE_CONFIG: Record<CyclePosition, { color: string; icon: typeof TrendingUp; label: string }> = {
   Boom: { color: 'text-emerald-400', icon: TrendingUp, label: 'Boom' },
@@ -266,6 +267,12 @@ export function TrendIntelligencePanel({ projectId, format, budgetRange, primary
           </div>
         </CollapsibleContent>
       </Collapsible>
+
+      {/* Data Source Governance */}
+      <SourceConfidenceOverlay
+        productionType={format}
+        engines={engines.map(e => ({ id: e.id, engine_name: e.engine_name }))}
+      />
 
       {/* Western Entry Advantage — Vertical Drama only */}
       {format === 'vertical-drama' && result && (() => {
