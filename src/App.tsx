@@ -36,6 +36,7 @@ import CompanyDetail from "./pages/CompanyDetail";
 import PresentationMode from "./pages/PresentationMode";
 import TrendGovernance from "./pages/TrendGovernance";
 import CinematicDemo from "./pages/CinematicDemo";
+import Pricing from "./pages/Pricing";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -72,6 +73,7 @@ const AnimatedRoutes = () => {
         <Route path="/companies" element={<ProtectedRoute><Companies /></ProtectedRoute>} />
         <Route path="/companies/:id" element={<ProtectedRoute><CompanyDetail /></ProtectedRoute>} />
         <Route path="/projects/:id/present" element={<ProtectedRoute><PresentationMode /></ProtectedRoute>} />
+        <Route path="/pricing" element={<ProtectedRoute><Pricing /></ProtectedRoute>} />
         <Route path="/demo" element={<CinematicDemo />} />
         <Route path="/invite" element={<AcceptInvite />} />
         <Route path="*" element={<NotFound />} />
