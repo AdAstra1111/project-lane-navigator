@@ -110,16 +110,29 @@ function CastTab({ projectId, projectContext }: { projectId: string; projectCont
           <div className="flex items-start gap-3 bg-muted/30 rounded-lg px-3 py-3">
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <PersonNameLink personName={c.actor_name} reason={c.role_name || 'Cast'} projectContext={projectContext} size="md" onNameCorrected={(name) => updateCast.mutate({ id: c.id, actor_name: name })} />
+                <PersonNameLink
+                  personName={c.actor_name}
+                  reason={c.role_name || 'Cast'}
+                  projectContext={projectContext}
+                  size="md"
+                  onNameCorrected={(name) => updateCast.mutate({ id: c.id, actor_name: name })}
+                  contactFields={{ agent_name: c.agent_name, manager_name: c.manager_name, agency: c.agency, contact_phone: c.contact_phone, contact_email: c.contact_email }}
+                  onContactSave={(fields) => updateCast.mutate({ id: c.id, ...fields })}
+                  onExternalIds={(ids) => updateCast.mutate({ id: c.id, imdb_id: ids.imdb_id || '', tmdb_id: ids.tmdb_id || '' })}
+                />
                 {c.role_name && <span className="text-xs text-muted-foreground">as <span className="font-medium text-foreground/80">{c.role_name}</span></span>}
               </div>
-              {c.territory_tags.length > 0 && (
-                <div className="flex gap-1 mt-1.5 ml-12">
-                  {c.territory_tags.map(t => (
-                    <span key={t} className="text-[10px] text-muted-foreground bg-muted rounded px-1.5 py-0.5">{t}</span>
-                  ))}
-                </div>
-              )}
+              <div className="flex gap-1 mt-1.5 ml-12 flex-wrap">
+                {c.agency && (
+                  <span className="text-[10px] text-primary/80 bg-primary/10 rounded px-1.5 py-0.5">{c.agency}</span>
+                )}
+                {c.agent_name && !c.agency && (
+                  <span className="text-[10px] text-muted-foreground bg-muted rounded px-1.5 py-0.5">Agent: {c.agent_name}</span>
+                )}
+                {c.territory_tags.map(t => (
+                  <span key={t} className="text-[10px] text-muted-foreground bg-muted rounded px-1.5 py-0.5">{t}</span>
+                ))}
+              </div>
             </div>
             <div className="flex items-center gap-1">
               {!assessments[c.actor_name] && loading !== c.actor_name && (
@@ -678,7 +691,16 @@ function HODsTab({ projectId, projectContext }: { projectId: string; projectCont
             <div className="flex items-start gap-3">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <PersonNameLink personName={h.person_name} reason={`${h.department} · ${h.known_for}`} projectContext={projectContext} size="md" onNameCorrected={(name) => updateHOD.mutate({ id: h.id, person_name: name })} />
+                  <PersonNameLink
+                    personName={h.person_name}
+                    reason={`${h.department} · ${h.known_for}`}
+                    projectContext={projectContext}
+                    size="md"
+                    onNameCorrected={(name) => updateHOD.mutate({ id: h.id, person_name: name })}
+                    contactFields={{ agent_name: h.agent_name, manager_name: h.manager_name, agency: h.agency, contact_phone: h.contact_phone, contact_email: h.contact_email }}
+                    onContactSave={(fields) => updateHOD.mutate({ id: h.id, ...fields })}
+                    onExternalIds={(ids) => updateHOD.mutate({ id: h.id, imdb_id: ids.imdb_id || '', tmdb_id: ids.tmdb_id || '' })}
+                  />
                   <span className="text-[10px] text-muted-foreground bg-muted rounded px-1.5 py-0.5">{h.department}</span>
                   <Badge className={`text-[10px] px-1.5 py-0 border ${REPUTATION_STYLES[h.reputation_tier] || ''}`}>
                     {h.reputation_tier}

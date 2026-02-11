@@ -10,9 +10,16 @@ export interface ProjectCastMember {
   user_id: string;
   role_name: string;
   actor_name: string;
-  status: string; // wishlist | approached | interested | attached
+  status: string;
   territory_tags: string[];
   notes: string;
+  agent_name: string;
+  manager_name: string;
+  agency: string;
+  contact_phone: string;
+  contact_email: string;
+  imdb_id: string;
+  tmdb_id: string;
   created_at: string;
   updated_at: string;
 }
@@ -63,12 +70,19 @@ export interface ProjectHOD {
   id: string;
   project_id: string;
   user_id: string;
-  department: string; // Writer | Director | DP | Producer | Line Producer | Editor | Composer | Production Designer | Costume Designer | VFX Supervisor | Sound Designer
+  department: string;
   person_name: string;
   known_for: string;
-  reputation_tier: string; // emerging | established | acclaimed | marquee
-  status: string; // wishlist | in-talks | attached | confirmed
+  reputation_tier: string;
+  status: string;
   notes: string;
+  agent_name: string;
+  manager_name: string;
+  agency: string;
+  contact_phone: string;
+  contact_email: string;
+  imdb_id: string;
+  tmdb_id: string;
   created_at: string;
   updated_at: string;
 }
