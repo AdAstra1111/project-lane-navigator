@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { LogOut, Plus, Radio, Landmark, HelpCircle, ChevronDown, Calendar, Users, LayoutGrid, Globe, BarChart3, Settings, Menu, X } from 'lucide-react';
+import { LogOut, Plus, Radio, Landmark, HelpCircle, ChevronDown, Calendar, Users, LayoutGrid, Globe, BarChart3, Settings, Menu, X, Building2 } from 'lucide-react';
 import { NotificationBell } from '@/components/NotificationBell';
 import { GlobalSearch } from '@/components/GlobalSearch';
 import { ThemeToggle } from '@/components/ThemeToggle';
@@ -25,6 +25,7 @@ export function Header() {
   };
 
   const navItems = [
+    { label: 'Companies', icon: Building2, path: '/companies' },
     { label: 'Trends', icon: Radio, path: '/trends' },
     { label: 'Incentives', icon: Landmark, path: '/incentives' },
     { label: 'Calendar', icon: LayoutGrid, path: '/calendar' },
