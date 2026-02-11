@@ -308,6 +308,25 @@ export default function ProjectDetail() {
   const { history: scoreHistory } = useScoreHistory(id);
   useAutoSaveScore(id, readiness?.score ?? null, financeReadiness?.score ?? null);
 
+  // Script text detection (must be before early returns to respect Rules of Hooks)
+  const currentScript = scripts.find(s => s.status === 'current');
+  const scriptText = useMemo(() => {
+    if (!project) return null;
+    if (documents.length) {
+      if (currentScript) {
+        const scriptDoc = documents.find(d => d.extracted_text && d.file_path === currentScript.file_path);
+        if (scriptDoc?.extracted_text) return scriptDoc.extracted_text;
+      }
+      const scriptDoc = documents.find(d => d.extracted_text && d.file_name.match(/\.(pdf|txt|fdx|fountain|docx|doc|md)$/i));
+      if (scriptDoc?.extracted_text) return scriptDoc.extracted_text;
+      const anyDoc = documents.find(d => d.extracted_text);
+      if (anyDoc?.extracted_text) return anyDoc.extracted_text;
+    }
+    if (project?.document_urls?.length) return '__SCRIPT_EXISTS_NO_TEXT__';
+    if (currentScript) return '__SCRIPT_EXISTS_NO_TEXT__';
+    return null;
+  }, [documents, currentScript, project]);
+
   // Pipeline stage auto-suggestion: check if next stage gates are all met
   const nextStageGates = useMemo(() => {
     if (!project) return null;
@@ -425,25 +444,7 @@ export default function ProjectDetail() {
   const analysis = project.analysis_passes as FullAnalysis | null;
   const hasNewAnalysis = analysis?.structural_read != null;
   const hasDocuments = documents.length > 0;
-  const currentScript = scripts.find(s => s.status === 'current');
   const hasScript = scripts.length > 0;
-  const scriptText = useMemo(() => {
-    // Try documents table first
-    if (documents.length) {
-      if (currentScript) {
-        const scriptDoc = documents.find(d => d.extracted_text && d.file_path === currentScript.file_path);
-        if (scriptDoc?.extracted_text) return scriptDoc.extracted_text;
-      }
-      const scriptDoc = documents.find(d => d.extracted_text && d.file_name.match(/\.(pdf|txt|fdx|fountain|docx|doc|md)$/i));
-      if (scriptDoc?.extracted_text) return scriptDoc.extracted_text;
-      const anyDoc = documents.find(d => d.extracted_text);
-      if (anyDoc?.extracted_text) return anyDoc.extracted_text;
-    }
-    // Fallback: if project has document_urls but no extracted documents, signal that script exists
-    if (project?.document_urls?.length) return '__SCRIPT_EXISTS_NO_TEXT__';
-    if (currentScript) return '__SCRIPT_EXISTS_NO_TEXT__';
-    return null;
-  }, [documents, currentScript, project?.document_urls]);
 
   return (
     <div className="min-h-screen bg-background">
