@@ -14,6 +14,7 @@ Deno.serve(async (req) => {
   try {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
+    const PERPLEXITY_API_KEY = Deno.env.get("PERPLEXITY_API_KEY");
 
     const authHeader = req.headers.get("Authorization");
     if (!authHeader?.startsWith("Bearer ")) {
@@ -60,11 +61,43 @@ Deno.serve(async (req) => {
       });
     }
 
+    // ── Perplexity grounded buyer research ──
+    let groundedBuyerData = "";
+    if (PERPLEXITY_API_KEY) {
+      try {
+        const pResponse = await fetch("https://api.perplexity.ai/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${PERPLEXITY_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "sonar",
+            messages: [
+              { role: "system", content: "You are an entertainment industry acquisitions researcher. Return factual, current data about which companies are actively buying content, their recent acquisitions, and deal activity." },
+              { role: "user", content: `Which distributors, sales agents, streamers, and financiers are currently acquiring ${format || "film"} content in the ${(genres || ["drama"]).join(", ")} genre space? Budget range: ${budget_range || "indie to mid-budget"}. Territories: ${(territories || ["worldwide"]).join(", ")}. Include recent acquisition deals, market activity, and any company strategy shifts.` },
+            ],
+            search_recency_filter: "month",
+          }),
+        });
+        if (pResponse.ok) {
+          const pData = await pResponse.json();
+          const pContent = pData.choices?.[0]?.message?.content || "";
+          const citations = pData.citations || [];
+          groundedBuyerData = `\n\n=== REAL-TIME BUYER INTELLIGENCE (cited web sources) ===\n${pContent}\n\nSources: ${citations.join(", ")}\n=== END ===`;
+          console.log("Perplexity buyer research complete, citations:", citations.length);
+        }
+      } catch (e) {
+        console.warn("Perplexity buyer research failed:", e);
+      }
+    }
+
     // Research via AI
     const systemPrompt = `You are an expert in international film and TV sales, distribution, and financing markets. 
 You have deep knowledge of which distributors, sales agents, streamers, and financiers are actively acquiring content.
 Today's date is ${new Date().toISOString().split("T")[0]}.
-Provide REAL companies only — no made-up entities. If uncertain, mark confidence as "low".`;
+Provide REAL companies only — no made-up entities. If uncertain, mark confidence as "low".
+${groundedBuyerData ? "\nIMPORTANT: Use the REAL-TIME BUYER INTELLIGENCE below as your primary source. It contains current, cited acquisition activity. Base your recommendations on these facts." : ""}`;
 
     const userPrompt = `Research and identify active buyers (distributors, sales agents, streamers, broadcasters, financiers) that are currently acquiring content matching these characteristics:
 
@@ -74,6 +107,7 @@ Budget range: ${budget_range || 'not specified'}
 Tone: ${tone || 'not specified'}
 Target audience: ${target_audience || 'not specified'}
 Key territories: ${territories?.join(', ') || 'worldwide'}
+${groundedBuyerData}
 
 Identify 15-20 real companies across different types (sales agents, distributors, streamers, financiers). 
 Focus on companies that are ACTIVELY acquiring this type of content right now.
