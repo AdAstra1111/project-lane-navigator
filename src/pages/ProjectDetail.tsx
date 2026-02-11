@@ -428,19 +428,22 @@ export default function ProjectDetail() {
   const currentScript = scripts.find(s => s.status === 'current');
   const hasScript = scripts.length > 0;
   const scriptText = useMemo(() => {
-    if (!documents.length) return null;
-    // First try to find a document linked to the current script
-    if (currentScript) {
-      const scriptDoc = documents.find(d => d.extracted_text && d.file_path === currentScript.file_path);
+    // Try documents table first
+    if (documents.length) {
+      if (currentScript) {
+        const scriptDoc = documents.find(d => d.extracted_text && d.file_path === currentScript.file_path);
+        if (scriptDoc?.extracted_text) return scriptDoc.extracted_text;
+      }
+      const scriptDoc = documents.find(d => d.extracted_text && d.file_name.match(/\.(pdf|txt|fdx|fountain|docx|doc|md)$/i));
       if (scriptDoc?.extracted_text) return scriptDoc.extracted_text;
+      const anyDoc = documents.find(d => d.extracted_text);
+      if (anyDoc?.extracted_text) return anyDoc.extracted_text;
     }
-    // Fallback: find any document with extracted text (script-like extensions first, then any)
-    const scriptDoc = documents.find(d => d.extracted_text && d.file_name.match(/\.(pdf|txt|fdx|fountain|docx|doc|md)$/i));
-    if (scriptDoc?.extracted_text) return scriptDoc.extracted_text;
-    // Last resort: any document with extracted text
-    const anyDoc = documents.find(d => d.extracted_text);
-    return anyDoc?.extracted_text || null;
-  }, [documents, currentScript]);
+    // Fallback: if project has document_urls but no extracted documents, signal that script exists
+    if (project?.document_urls?.length) return '__SCRIPT_EXISTS_NO_TEXT__';
+    if (currentScript) return '__SCRIPT_EXISTS_NO_TEXT__';
+    return null;
+  }, [documents, currentScript, project?.document_urls]);
 
   return (
     <div className="min-h-screen bg-background">

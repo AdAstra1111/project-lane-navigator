@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Brain, Loader2, Zap, DollarSign } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -48,13 +48,32 @@ const CAT_STYLES: Record<string, string> = {
 
 export function ScriptToBudgetPanel({ projectId, scriptText, format, genres, budgetRange, lane, totalBudget, onImport }: Props) {
   const [result, setResult] = useState<AutoBudgetResult | null>(null);
+  const [resolvedText, setResolvedText] = useState<string | null>(null);
+
+  // If scriptText is the sentinel, fetch extracted text from project_documents
+  const needsFetch = scriptText === '__SCRIPT_EXISTS_NO_TEXT__';
+  const effectiveText = needsFetch ? resolvedText : scriptText;
+
+  useEffect(() => {
+    if (!needsFetch) return;
+    (async () => {
+      const { data } = await supabase
+        .from('project_documents')
+        .select('extracted_text')
+        .eq('project_id', projectId)
+        .not('extracted_text', 'is', null)
+        .limit(1)
+        .single();
+      if (data?.extracted_text) setResolvedText(data.extracted_text);
+    })();
+  }, [needsFetch, projectId]);
 
   const estimate = useMutation({
     mutationFn: async () => {
-      if (!scriptText) throw new Error('No script text available');
+      if (!effectiveText) throw new Error('No script text available');
 
       const { data, error } = await supabase.functions.invoke('script-to-budget', {
-        body: { scriptText, format, genres, budgetRange, lane, totalBudget },
+        body: { scriptText: effectiveText, format, genres, budgetRange, lane, totalBudget },
       });
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
@@ -69,6 +88,16 @@ export function ScriptToBudgetPanel({ projectId, scriptText, format, genres, bud
       <Card className="p-4 border-dashed border-2 border-border/50 bg-card/30 text-center">
         <Brain className="h-6 w-6 mx-auto mb-2 text-muted-foreground/40" />
         <p className="text-xs text-muted-foreground">Upload a script to enable AI budget estimation.</p>
+      </Card>
+    );
+  }
+
+  if (needsFetch && !resolvedText) {
+    return (
+      <Card className="p-4 border-dashed border-2 border-border/50 bg-card/30 text-center">
+        <Brain className="h-6 w-6 mx-auto mb-2 text-primary/40" />
+        <p className="text-xs text-muted-foreground">Script detected — extracting text for budget estimation…</p>
+        <Loader2 className="h-4 w-4 mx-auto mt-2 animate-spin text-muted-foreground" />
       </Card>
     );
   }
