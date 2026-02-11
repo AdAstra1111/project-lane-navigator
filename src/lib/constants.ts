@@ -34,8 +34,13 @@ export const TONES = [
 ] as const;
 
 export const FORMAT_OPTIONS = [
-  { value: 'film', label: 'Film' },
+  { value: 'film', label: 'Feature Film' },
   { value: 'tv-series', label: 'TV Series' },
+  { value: 'short-film', label: 'Short Film' },
+  { value: 'documentary', label: 'Documentary' },
+  { value: 'digital-series', label: 'Digital Series' },
+  { value: 'commercial', label: 'Commercial / Advert' },
+  { value: 'branded-content', label: 'Branded Content' },
 ] as const;
 
 export const TV_SUBFORMAT_OPTIONS = [
