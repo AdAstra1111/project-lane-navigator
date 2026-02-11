@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Plus, Clapperboard, ArrowLeftRight, Kanban } from 'lucide-react';
@@ -10,23 +10,12 @@ import { OnboardingOverlay } from '@/components/OnboardingOverlay';
 import { DashboardAnalytics } from '@/components/DashboardAnalytics';
 import { RoleDashboard } from '@/components/RoleDashboard';
 import { useProjects } from '@/hooks/useProjects';
-import { calculateReadiness } from '@/lib/readiness-score';
-import { calculateFinanceReadiness } from '@/lib/finance-readiness';
+import { useDashboardScores } from '@/hooks/useDashboardScores';
 
 export default function Dashboard() {
   const { projects, isLoading } = useProjects();
   const [roleView, setRoleView] = useState<string>('none');
-
-  // Compute lightweight readiness scores for all projects (no attachment data on dashboard)
-  const projectScores = useMemo(() => {
-    const scores: Record<string, { readiness: number; financeReadiness: number }> = {};
-    for (const p of projects) {
-      const r = calculateReadiness(p, [], [], [], [], [], false);
-      const fr = calculateFinanceReadiness(p, [], [], [], [], [], false);
-      scores[p.id] = { readiness: r.score, financeReadiness: fr.score };
-    }
-    return scores;
-  }, [projects]);
+  const { data: projectScores = {} } = useDashboardScores(projects);
 
   return (
     <div className="min-h-screen bg-background">
