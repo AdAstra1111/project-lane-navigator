@@ -8,9 +8,10 @@ const corsHeaders = {
 };
 
 // ---- CONSTANTS ----
-const MAX_PAGES = 300;          // read up to 300 pages (covers any screenplay or treatment)
+const MAX_PAGES = 200;          // read up to 200 pages
 const WORDS_PER_PAGE = 250;
-const MAX_WORDS = MAX_PAGES * WORDS_PER_PAGE; // 75,000 words
+const MAX_WORDS = 25_000;       // hard cap — keeps token count within AI context window
+const MAX_CHARS = 400_000;      // character-level safety cap for noisy extractions
 
 const VALID_LANES = [
   "studio-streamer", "independent-film", "low-budget",
@@ -488,14 +489,17 @@ serve(async (req) => {
       }
     }
 
-    // Cap total text at MAX_WORDS
+    // Cap total text at MAX_CHARS first (catches noisy extractions), then MAX_WORDS
+    if (combinedText.length > MAX_CHARS) {
+      combinedText = combinedText.slice(0, MAX_CHARS);
+    }
     const allWords = combinedText.trim().split(/\s+/);
     let partialRead: { pages_analyzed: number; total_pages: number } | null = null;
 
     if (allWords.length > MAX_WORDS) {
       combinedText = allWords.slice(0, MAX_WORDS).join(" ");
       const totalEstimated = Math.ceil(allWords.length / WORDS_PER_PAGE);
-      partialRead = { pages_analyzed: MAX_PAGES, total_pages: totalEstimated };
+      partialRead = { pages_analyzed: Math.min(MAX_PAGES, totalEstimated), total_pages: totalEstimated };
     }
 
     const hasDocumentText = combinedText.trim().length > 50;
