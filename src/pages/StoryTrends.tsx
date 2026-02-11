@@ -116,7 +116,7 @@ export default function StoryTrends() {
 
   const { data: activeSignals = [], isLoading: loadingActive } = useActiveSignals(filters);
   const { data: archivedSignals = [], isLoading: loadingArchived } = useArchivedSignals(selectedType);
-  const { data: latestBrief, isLoading: loadingBrief } = useLatestWeeklyBrief();
+  const { data: latestBrief, isLoading: loadingBrief } = useLatestWeeklyBrief(selectedType);
 
   return (
     <div className="min-h-screen bg-background">
