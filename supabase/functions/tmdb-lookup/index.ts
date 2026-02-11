@@ -17,7 +17,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    const { name } = await req.json();
+    const { name, mode } = await req.json();
     if (!name) {
       return new Response(
         JSON.stringify({ error: 'name is required' }),
@@ -25,7 +25,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Search for person
+    // Search for person(s)
     const searchRes = await fetch(
       `https://api.themoviedb.org/3/search/person?query=${encodeURIComponent(name)}&include_adult=false&language=en-US&page=1`,
       { headers: { Authorization: `Bearer ${apiKey}`, accept: 'application/json' } }
@@ -34,7 +34,27 @@ Deno.serve(async (req) => {
     
     if (!searchData.results || searchData.results.length === 0) {
       return new Response(
-        JSON.stringify({ found: false }),
+        JSON.stringify(mode === 'search' ? { results: [] } : { found: false }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // If mode=search, return top 8 results with basic info (no detailed fetch)
+    if (mode === 'search') {
+      const results = searchData.results.slice(0, 8).map((p: any) => ({
+        tmdb_id: p.id,
+        name: p.name,
+        known_for_department: p.known_for_department || '',
+        profile_url: p.profile_path ? `https://image.tmdb.org/t/p/w185${p.profile_path}` : null,
+        popularity: p.popularity || 0,
+        known_for: (p.known_for || []).slice(0, 3).map((k: any) => ({
+          title: k.title || k.name,
+          year: (k.release_date || k.first_air_date || '').slice(0, 4),
+          media_type: k.media_type,
+        })),
+      }));
+      return new Response(
+        JSON.stringify({ results }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
