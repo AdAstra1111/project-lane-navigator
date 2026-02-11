@@ -61,8 +61,11 @@ export function ScriptToBudgetPanel({ projectId, scriptText, format, genres, bud
 
   useEffect(() => {
     if (!needsFetch) return;
+    let cancelled = false;
     let attempts = 0;
+    const maxAttempts = 20; // ~60s total polling
     const tryFetch = async () => {
+      if (cancelled) return;
       const { data } = await supabase
         .from('project_documents')
         .select('extracted_text')
@@ -70,11 +73,12 @@ export function ScriptToBudgetPanel({ projectId, scriptText, format, genres, bud
         .not('extracted_text', 'is', null)
         .limit(1)
         .single();
+      if (cancelled) return;
       if (data?.extracted_text) {
         setResolvedText(data.extracted_text);
       } else {
         attempts++;
-        if (attempts < 3) {
+        if (attempts < maxAttempts) {
           setTimeout(tryFetch, 3000);
         } else {
           setFetchFailed(true);
@@ -82,6 +86,7 @@ export function ScriptToBudgetPanel({ projectId, scriptText, format, genres, bud
       }
     };
     tryFetch();
+    return () => { cancelled = true; };
   }, [needsFetch, projectId]);
 
   const STAGES = [
