@@ -25,6 +25,8 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const lovableApiKey = Deno.env.get("LOVABLE_API_KEY")!;
 
+    const PERPLEXITY_API_KEY = Deno.env.get("PERPLEXITY_API_KEY");
+
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     // Verify the user
@@ -76,6 +78,40 @@ serve(async (req) => {
     const existingSignalNames = (existingSignals || []).map((s: any) => s.name).join(", ");
     const existingCastNames = (existingCast || []).map((c: any) => c.actor_name).join(", ");
 
+    // ── Perplexity grounded market intelligence ──
+    let perplexityMarketData = "";
+    if (PERPLEXITY_API_KEY) {
+      try {
+        const pType = productionType || "film";
+        const pResponse = await fetch("https://api.perplexity.ai/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${PERPLEXITY_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "sonar",
+            messages: [
+              { role: "system", content: "You are an entertainment industry market analyst. Return factual, current market data with specifics." },
+              { role: "user", content: `What are the current major trends, shifts, and signals in the ${pType} industry as of 2026? Include: genre trends, buyer appetite changes, talent market shifts, festival/market buzz, streaming vs theatrical dynamics, international co-production activity, and any emerging formats or technologies. Be specific with recent examples and data points.` },
+            ],
+            search_recency_filter: "week",
+          }),
+        });
+        if (pResponse.ok) {
+          const pData = await pResponse.json();
+          perplexityMarketData = pData.choices?.[0]?.message?.content || "";
+          console.log("Perplexity market intelligence fetched successfully");
+        }
+      } catch (e) {
+        console.warn("Perplexity market research failed:", e);
+      }
+    }
+
+    const groundedContext = perplexityMarketData
+      ? `\n\n=== REAL-TIME MARKET INTELLIGENCE (from live web search) ===\n${perplexityMarketData}\n=== END MARKET INTELLIGENCE ===\n\nIMPORTANT: Use the above real-time data to ground your signals in current reality. Prioritize trends that are confirmed by this research.`
+      : "";
+
     // Build vertical-drama-specific prompt additions
     const isVerticalDrama = productionType === "vertical-drama";
     const verticalDramaContext = isVerticalDrama
@@ -99,6 +135,7 @@ Research and return an updated set of 10-15 trend signals${typeFilter}. For each
 
 ${typeInstruction}
 ${verticalDramaContext}
+${groundedContext}
 
 For commercial and branded-content signals, use category terms like "Brand Strategy", "Creative Direction", "Client Behaviour", "Content Innovation" — never use film-distribution terminology like "pre-sales", "sales agent", "theatrical", etc.
 
@@ -147,6 +184,7 @@ Research and return an updated set of 10-15 ${castLabel} trends${typeFilter}. Fo
 
 ${typeInstruction}
 ${isVerticalDrama ? "\nFor vertical-drama, track creators, influencers, and actors with strong social media/short-form presence. Focus on those with proven scroll-stopping ability, not traditional film credentials." : ""}
+${groundedContext}
 
 Focus on talent relevant to international content — not just Hollywood A-listers. Include talent from UK, Europe, Asia, LatAm, and Australia/NZ.
 
