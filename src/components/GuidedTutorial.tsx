@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import iffyLogo from '@/assets/iffy-logo-v3.png';
 import {
   FolderOpen, DollarSign, Users, BarChart3, Sparkles, Globe,
   ArrowRight, ArrowLeft, X, ChevronRight, Play, Pause,
@@ -263,9 +264,7 @@ function HeroSlide({ slide }: { slide: Slide }) {
         animate={{ scale: 1, opacity: 1 }}
         transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
       >
-        <div className="h-24 w-24 rounded-2xl bg-primary flex items-center justify-center mx-auto shadow-[0_0_80px_hsl(38_65%_55%/0.3)]">
-          <span className="font-display font-bold text-3xl text-primary-foreground">IF</span>
-        </div>
+        <img src={iffyLogo} alt="IFFY logo" className="h-24 w-24 rounded-2xl mx-auto shadow-[0_0_80px_hsl(38_65%_55%/0.3)]" />
       </motion.div>
 
       <motion.p

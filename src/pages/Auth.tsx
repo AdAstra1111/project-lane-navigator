@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import authBg from '@/assets/auth-bg.jpg';
+import iffyLogo from '@/assets/iffy-logo-v3.png';
 
 type AuthView = 'sign-in' | 'sign-up' | 'forgot-password';
 
@@ -25,7 +26,7 @@ export default function Auth() {
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
-        <div className="h-8 w-8 rounded-md bg-primary animate-pulse" />
+        <img src={iffyLogo} alt="IFFY" className="h-10 w-10 animate-pulse" />
       </div>
     );
   }
@@ -97,10 +98,11 @@ export default function Auth() {
           className="w-full max-w-sm"
         >
           <div className="flex items-center gap-3 mb-10">
-            <div className="h-12 w-12 rounded-lg bg-primary flex items-center justify-center shrink-0">
-              <span className="font-display font-bold text-lg text-primary-foreground">IF</span>
+            <img src={iffyLogo} alt="IFFY logo" className="h-12 w-12 rounded-lg" />
+            <div className="flex flex-col leading-none">
+              <span className="font-display font-bold text-3xl tracking-tight text-foreground">IFFY</span>
+              <span className="text-[10px] text-muted-foreground tracking-widest uppercase">From inception to recoup</span>
             </div>
-            <span className="font-display font-bold text-3xl tracking-tight text-foreground">IFFY</span>
           </div>
 
           {view === 'forgot-password' && (

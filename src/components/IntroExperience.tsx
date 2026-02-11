@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import iffyLogo from '@/assets/iffy-logo-v3.png';
 import {
   FolderOpen, DollarSign, Users, BarChart3, Sparkles,
   ArrowRight, Play, X, ChevronRight,
@@ -172,9 +173,7 @@ export function IntroExperience() {
                     transition={{ delay: 0.2, duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
                     className="mx-auto"
                   >
-                    <div className="h-20 w-20 rounded-2xl bg-primary flex items-center justify-center mx-auto shadow-[0_0_60px_hsl(38_65%_55%/0.3)]">
-                      <span className="font-display font-bold text-2xl text-primary-foreground">IF</span>
-                    </div>
+                    <img src={iffyLogo} alt="IFFY logo" className="h-20 w-20 rounded-2xl mx-auto shadow-[0_0_60px_hsl(38_65%_55%/0.3)]" />
                   </motion.div>
 
                   {/* Subtitle */}

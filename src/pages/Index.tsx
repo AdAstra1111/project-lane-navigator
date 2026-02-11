@@ -1,5 +1,6 @@
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
+import iffyLogo from '@/assets/iffy-logo-v3.png';
 
 const Index = () => {
   const { user, loading } = useAuth();
@@ -7,7 +8,7 @@ const Index = () => {
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
-        <div className="h-8 w-8 rounded-md bg-primary animate-pulse" />
+        <img src={iffyLogo} alt="IFFY" className="h-10 w-10 animate-pulse" />
       </div>
     );
   }
