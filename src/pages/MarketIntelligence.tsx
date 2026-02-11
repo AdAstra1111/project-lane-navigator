@@ -39,7 +39,7 @@ export default function MarketIntelligence() {
   const navigate = useNavigate();
   const { data: signals = [] } = useActiveSignals();
   const { data: castTrends = [] } = useActiveCastTrends();
-  const [genreFilter, setGenreFilter] = useState<string>('all');
+  const [genreFilter, setGenreFilter] = useState<string>('__all__');
 
   const { data: buyers = [] } = useQuery({
     queryKey: ['market-buyers-intel'],
@@ -56,7 +56,7 @@ export default function MarketIntelligence() {
   }, [signals]);
 
   const filteredSignals = useMemo(() => {
-    if (genreFilter === 'all') return signals.slice(0, 12);
+    if (genreFilter === '__all__') return signals.slice(0, 12);
     return signals.filter((s: any) => (s.genre_tags || []).some((g: string) => g.toLowerCase() === genreFilter.toLowerCase())).slice(0, 12);
   }, [signals, genreFilter]);
 
@@ -125,7 +125,7 @@ export default function MarketIntelligence() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="all">All Genres</SelectItem>
+                        <SelectItem value="__all__">All Genres</SelectItem>
                         {allGenres.map(g => <SelectItem key={g} value={g}>{g}</SelectItem>)}
                       </SelectContent>
                     </Select>
