@@ -5,7 +5,7 @@ import { Radio, BookOpen, Users, RefreshCw } from 'lucide-react';
 import { Header } from '@/components/Header';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { useSignalCount, PRODUCTION_TYPE_TREND_CATEGORIES } from '@/hooks/useTrends';
+import { useSignalCount, useTrendCountsByType, PRODUCTION_TYPE_TREND_CATEGORIES } from '@/hooks/useTrends';
 import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
@@ -18,6 +18,7 @@ const PRODUCTION_TYPES = Object.entries(PRODUCTION_TYPE_TREND_CATEGORIES).map(([
 export default function Trends() {
   const [selectedType, setSelectedType] = useState<string>('film');
   const { data: signalCount = 0 } = useSignalCount(selectedType);
+  const { data: trendCounts = {} } = useTrendCountsByType();
   const [isRefreshing, setIsRefreshing] = useState(false);
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -112,9 +113,22 @@ export default function Trends() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {PRODUCTION_TYPES.map(pt => (
-                  <SelectItem key={pt.value} value={pt.value}>{pt.label}</SelectItem>
-                ))}
+                {PRODUCTION_TYPES.map(pt => {
+                  const c = trendCounts[pt.value];
+                  const total = c ? c.signals + c.cast : 0;
+                  return (
+                    <SelectItem key={pt.value} value={pt.value}>
+                      <span className="flex items-center justify-between w-full gap-2">
+                        {pt.label}
+                        {total > 0 && (
+                          <span className="text-[10px] bg-primary/15 text-primary rounded-full px-1.5 py-0.5 font-mono ml-2">
+                            {total}
+                          </span>
+                        )}
+                      </span>
+                    </SelectItem>
+                  );
+                })}
               </SelectContent>
             </Select>
           </div>
