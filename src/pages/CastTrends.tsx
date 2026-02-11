@@ -1,14 +1,19 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { Activity, Archive, Users } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
 import { Header } from '@/components/Header';
 import { CastTrendCard } from '@/components/CastTrendCard';
 import { TrendsFilters } from '@/components/TrendsFilters';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   useActiveCastTrends,
   useArchivedCastTrends,
   CastFilters,
+  PRODUCTION_TYPE_TREND_CATEGORIES,
+  TARGET_BUYER_OPTIONS,
+  BUDGET_TIER_OPTIONS,
 } from '@/hooks/useTrends';
 
 function EmptyState({ icon: Icon, title, description }: { icon: React.ElementType; title: string; description: string }) {
@@ -35,49 +40,83 @@ function SkeletonCards({ count }: { count: number }) {
   );
 }
 
-const CAST_FILTER_CONFIGS = [
-  { key: 'region', label: 'Region', options: [
-    { value: 'UK', label: 'UK' }, { value: 'US', label: 'US' },
-    { value: 'Europe', label: 'Europe' }, { value: 'Australia', label: 'Australia' },
-  ]},
-  { key: 'ageBand', label: 'Age Band', options: [
-    { value: 'Under 18', label: 'Under 18' }, { value: '18-25', label: '18–25' },
-    { value: '26-35', label: '26–35' }, { value: '36-45', label: '36–45' },
-  ]},
-  { key: 'trendType', label: 'Trend Type', options: [
-    { value: 'Emerging', label: 'Emerging' }, { value: 'Accelerating', label: 'Accelerating' },
-    { value: 'Resurgent', label: 'Resurgent' },
-  ]},
-  { key: 'genreRelevance', label: 'Genre', options: [
-    { value: 'YA', label: 'YA' }, { value: 'Comedy', label: 'Comedy' },
-    { value: 'Drama', label: 'Drama' }, { value: 'Genre Film', label: 'Genre Film' },
-    { value: 'Action', label: 'Action' },
-  ]},
-  { key: 'cyclePhase', label: 'Phase', options: [
-    { value: 'Early', label: 'Early' }, { value: 'Building', label: 'Building' },
-    { value: 'Peaking', label: 'Peaking' },
-  ]},
-  { key: 'marketAlignment', label: 'Market', options: [
-    { value: 'Indie', label: 'Indie' }, { value: 'Studio', label: 'Studio' },
-    { value: 'Streamer', label: 'Streamer' },
-  ]},
-  { key: 'salesLeverage', label: 'Sales Leverage', options: [
-    { value: 'Pre-sales friendly', label: 'Pre-sales friendly' },
-    { value: 'MG-driven', label: 'MG-driven' },
-    { value: 'Streamer-oriented', label: 'Streamer-oriented' },
-    { value: 'Festival-driven', label: 'Festival-driven' },
-  ]},
-];
+const PRODUCTION_TYPES = Object.entries(PRODUCTION_TYPE_TREND_CATEGORIES).map(([value, config]) => ({
+  value,
+  label: config.label,
+  castLabel: config.castLabel,
+}));
 
 export default function CastTrends() {
-  const [filters, setFilters] = useState<CastFilters>({});
+  const [searchParams] = useSearchParams();
+  const initialType = searchParams.get('type') || 'film';
+  const [selectedType, setSelectedType] = useState(initialType);
+  const typeConfig = PRODUCTION_TYPE_TREND_CATEGORIES[selectedType];
+
+  const [filters, setFilters] = useState<CastFilters>({ productionType: initialType });
   const handleFilter = useCallback((key: string, value: string | undefined) => {
     setFilters(prev => ({ ...prev, [key]: value }));
   }, []);
-  const resetFilters = useCallback(() => setFilters({}), []);
+  const resetFilters = useCallback(() => setFilters({ productionType: selectedType }), [selectedType]);
+
+  const handleTypeChange = useCallback((type: string) => {
+    setSelectedType(type);
+    setFilters({ productionType: type });
+  }, []);
+
+  const isNonFilm = ['commercial', 'branded-content', 'music-video', 'digital-series'].includes(selectedType);
+
+  const filterConfigs = useMemo(() => {
+    const configs = [
+      { key: 'region', label: 'Region', options: [
+        { value: 'UK', label: 'UK' }, { value: 'US', label: 'US' },
+        { value: 'Europe', label: 'Europe' }, { value: 'Australia', label: 'Australia' },
+      ]},
+      { key: 'cyclePhase', label: 'Phase', options: [
+        { value: 'Early', label: 'Early' }, { value: 'Building', label: 'Building' },
+        { value: 'Peaking', label: 'Peaking' },
+      ]},
+      { key: 'velocity', label: 'Velocity', options: [
+        { value: 'Rising', label: 'Rising' }, { value: 'Stable', label: 'Stable' },
+        { value: 'Declining', label: 'Declining' },
+      ]},
+      { key: 'saturationRisk', label: 'Saturation', options: [
+        { value: 'Low', label: 'Low' }, { value: 'Medium', label: 'Medium' },
+        { value: 'High', label: 'High' },
+      ]},
+      { key: 'budgetTier', label: 'Budget Tier', options: BUDGET_TIER_OPTIONS },
+    ];
+
+    const buyerOpts = TARGET_BUYER_OPTIONS[selectedType] || TARGET_BUYER_OPTIONS.film;
+    configs.push({ key: 'targetBuyer', label: isNonFilm ? 'Target Client' : 'Target Buyer', options: buyerOpts });
+
+    // Only add film-specific filters for narrative types
+    if (!isNonFilm) {
+      configs.splice(1, 0,
+        { key: 'ageBand', label: 'Age Band', options: [
+          { value: 'Under 18', label: 'Under 18' }, { value: '18-25', label: '18–25' },
+          { value: '26-35', label: '26–35' }, { value: '36-45', label: '36–45' },
+        ]},
+        { key: 'trendType', label: 'Trend Type', options: [
+          { value: 'Emerging', label: 'Emerging' }, { value: 'Accelerating', label: 'Accelerating' },
+          { value: 'Resurgent', label: 'Resurgent' },
+        ]},
+        { key: 'genreRelevance', label: 'Genre', options: [
+          { value: 'YA', label: 'YA' }, { value: 'Comedy', label: 'Comedy' },
+          { value: 'Drama', label: 'Drama' }, { value: 'Genre Film', label: 'Genre Film' },
+          { value: 'Action', label: 'Action' },
+        ]},
+        { key: 'marketAlignment', label: 'Market', options: [
+          { value: 'Indie', label: 'Indie' }, { value: 'Studio', label: 'Studio' },
+          { value: 'Streamer', label: 'Streamer' },
+        ]},
+      );
+    }
+
+    return configs;
+  }, [selectedType, isNonFilm]);
 
   const { data: activeCast = [], isLoading: loadingCast } = useActiveCastTrends(filters);
-  const { data: archivedCast = [], isLoading: loadingArchived } = useArchivedCastTrends();
+  const { data: archivedCast = [], isLoading: loadingArchived } = useArchivedCastTrends(selectedType);
 
   return (
     <div className="min-h-screen bg-background">
@@ -95,16 +134,36 @@ export default function CastTrends() {
               <Users className="h-4 w-4 text-primary" />
               <span className="text-xs text-muted-foreground uppercase tracking-wider">Intelligence Layer</span>
             </div>
-            <h1 className="text-3xl font-display font-bold text-foreground tracking-tight">Cast Trends</h1>
+            <h1 className="text-3xl font-display font-bold text-foreground tracking-tight">
+              {typeConfig?.castLabel || 'Cast Trends'}
+            </h1>
             <p className="text-muted-foreground mt-1 leading-relaxed">
-              Emerging and rising talent identified through casting momentum, breakout performances, and audience traction.
+              {isNonFilm
+                ? `Key personnel and creative leads driving ${typeConfig?.label || selectedType} momentum.`
+                : 'Emerging and rising talent identified through casting momentum, breakout performances, and audience traction.'
+              }
             </p>
+          </div>
+
+          {/* Production Type Selector */}
+          <div className="space-y-2">
+            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Production Type</label>
+            <Select value={selectedType} onValueChange={handleTypeChange}>
+              <SelectTrigger className="w-full h-9 bg-muted/50 border-border/50 text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PRODUCTION_TYPES.map(pt => (
+                  <SelectItem key={pt.value} value={pt.value}>{pt.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           {/* Filters */}
           <TrendsFilters
             filters={filters as Record<string, string>}
-            filterConfigs={CAST_FILTER_CONFIGS}
+            filterConfigs={filterConfigs}
             onFilterChange={handleFilter}
             onReset={resetFilters}
           />
@@ -133,8 +192,8 @@ export default function CastTrends() {
               ) : (
                 <EmptyState
                   icon={Users}
-                  title="No active cast signals"
-                  description="Talent signals will appear here once sustained momentum is detected across independent sources."
+                  title={`No active ${typeConfig?.castLabel?.toLowerCase() || 'signals'}`}
+                  description={`${typeConfig?.castLabel || 'Talent'} signals for ${typeConfig?.label || 'this type'} will appear here once detected.`}
                 />
               )}
             </TabsContent>
@@ -145,8 +204,8 @@ export default function CastTrends() {
               ) : (
                 <EmptyState
                   icon={Archive}
-                  title="No archived cast signals"
-                  description="Past talent signals will be recorded here with their career trajectory."
+                  title="No archived signals"
+                  description="Past signals will be recorded here with their trajectory."
                 />
               )}
             </TabsContent>
@@ -154,7 +213,7 @@ export default function CastTrends() {
 
           {/* Methodology note */}
           <div className="text-xs text-muted-foreground border-t border-border/50 pt-6">
-            <p>Cast signals require sustained momentum across independent data points. Focus on trajectory, not fame.</p>
+            <p>Scored on Strength (1–10), Velocity, and Saturation Risk. Focus on trajectory, not fame. Segmented by production type.</p>
           </div>
         </motion.div>
       </main>

@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion';
 import { CastTrend } from '@/hooks/useTrends';
 import { Badge } from '@/components/ui/badge';
+import { TrendScoreBadges } from '@/components/TrendScoreBadges';
 import { formatDistanceToNow } from 'date-fns';
 
 const TREND_TYPE_STYLES: Record<string, string> = {
@@ -48,6 +49,21 @@ export function CastTrendCard({ trend, index, isArchived }: CastTrendCardProps) 
         </div>
       </div>
       <p className="text-sm text-muted-foreground leading-relaxed">{trend.explanation}</p>
+
+      {/* Scoring Badges */}
+      <TrendScoreBadges
+        strength={trend.strength}
+        velocity={trend.velocity}
+        saturationRisk={trend.saturation_risk}
+      />
+
+      {/* Forecast */}
+      {trend.forecast && (
+        <p className="text-xs text-muted-foreground italic border-l-2 border-primary/30 pl-2">
+          12-month forecast: {trend.forecast}
+        </p>
+      )}
+
       {(trend.sales_leverage || trend.timing_window) && (
         <div className="flex gap-2 flex-wrap text-xs">
           {trend.sales_leverage && (
@@ -58,6 +74,7 @@ export function CastTrendCard({ trend, index, isArchived }: CastTrendCardProps) 
           )}
         </div>
       )}
+
       <div className="flex items-center justify-between text-xs text-muted-foreground">
         <div className="flex gap-1.5 flex-wrap">
           {trend.genre_relevance?.slice(0, 3).map(g => (
@@ -65,6 +82,9 @@ export function CastTrendCard({ trend, index, isArchived }: CastTrendCardProps) 
           ))}
           {trend.market_alignment && (
             <span className="bg-muted/50 rounded px-1.5 py-0.5">{trend.market_alignment}</span>
+          )}
+          {trend.target_buyer && (
+            <span className="bg-muted/50 rounded px-1.5 py-0.5">{trend.target_buyer}</span>
           )}
         </div>
         <span>

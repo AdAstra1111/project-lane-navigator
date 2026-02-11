@@ -127,55 +127,76 @@ export type Database = {
           actor_name: string
           age_band: string
           archived_at: string | null
+          budget_tier: string
           created_at: string
           cycle_phase: string
           explanation: string
           first_detected_at: string
+          forecast: string
           genre_relevance: string[]
           id: string
           last_updated_at: string
           market_alignment: string
+          production_type: string
           region: string
           sales_leverage: string
+          saturation_risk: string
           status: string
+          strength: number
+          target_buyer: string
           timing_window: string
           trend_type: string
+          velocity: string
         }
         Insert: {
           actor_name: string
           age_band?: string
           archived_at?: string | null
+          budget_tier?: string
           created_at?: string
           cycle_phase?: string
           explanation: string
           first_detected_at?: string
+          forecast?: string
           genre_relevance?: string[]
           id?: string
           last_updated_at?: string
           market_alignment?: string
+          production_type?: string
           region?: string
           sales_leverage?: string
+          saturation_risk?: string
           status?: string
+          strength?: number
+          target_buyer?: string
           timing_window?: string
           trend_type?: string
+          velocity?: string
         }
         Update: {
           actor_name?: string
           age_band?: string
           archived_at?: string | null
+          budget_tier?: string
           created_at?: string
           cycle_phase?: string
           explanation?: string
           first_detected_at?: string
+          forecast?: string
           genre_relevance?: string[]
           id?: string
           last_updated_at?: string
           market_alignment?: string
+          production_type?: string
           region?: string
           sales_leverage?: string
+          saturation_risk?: string
           status?: string
+          strength?: number
+          target_buyer?: string
           timing_window?: string
           trend_type?: string
+          velocity?: string
         }
         Relationships: []
       }
@@ -2548,57 +2569,78 @@ export type Database = {
       trend_signals: {
         Row: {
           archived_at: string | null
+          budget_tier: string
           category: string
           created_at: string
           cycle_phase: string
           explanation: string
           first_detected_at: string
+          forecast: string
           format_tags: string[]
           genre_tags: string[]
           id: string
           lane_relevance: string[]
           last_updated_at: string
           name: string
+          production_type: string
           region: string
+          saturation_risk: string
           sources_count: number
           status: string
+          strength: number
+          target_buyer: string
           tone_tags: string[]
+          velocity: string
         }
         Insert: {
           archived_at?: string | null
+          budget_tier?: string
           category: string
           created_at?: string
           cycle_phase: string
           explanation: string
           first_detected_at?: string
+          forecast?: string
           format_tags?: string[]
           genre_tags?: string[]
           id?: string
           lane_relevance?: string[]
           last_updated_at?: string
           name: string
+          production_type?: string
           region?: string
+          saturation_risk?: string
           sources_count?: number
           status?: string
+          strength?: number
+          target_buyer?: string
           tone_tags?: string[]
+          velocity?: string
         }
         Update: {
           archived_at?: string | null
+          budget_tier?: string
           category?: string
           created_at?: string
           cycle_phase?: string
           explanation?: string
           first_detected_at?: string
+          forecast?: string
           format_tags?: string[]
           genre_tags?: string[]
           id?: string
           lane_relevance?: string[]
           last_updated_at?: string
           name?: string
+          production_type?: string
           region?: string
+          saturation_risk?: string
           sources_count?: number
           status?: string
+          strength?: number
+          target_buyer?: string
           tone_tags?: string[]
+          velocity?: string
         }
         Relationships: []
       }

@@ -4,16 +4,24 @@ import { Link } from 'react-router-dom';
 import { Radio, BookOpen, Users, RefreshCw } from 'lucide-react';
 import { Header } from '@/components/Header';
 import { Button } from '@/components/ui/button';
-import { useSignalCount } from '@/hooks/useTrends';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { useSignalCount, PRODUCTION_TYPE_TREND_CATEGORIES } from '@/hooks/useTrends';
 import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
 
+const PRODUCTION_TYPES = Object.entries(PRODUCTION_TYPE_TREND_CATEGORIES).map(([value, config]) => ({
+  value,
+  label: config.label,
+}));
+
 export default function Trends() {
-  const { data: signalCount = 0 } = useSignalCount();
+  const [selectedType, setSelectedType] = useState<string>('film');
+  const { data: signalCount = 0 } = useSignalCount(selectedType);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const typeConfig = PRODUCTION_TYPE_TREND_CATEGORIES[selectedType];
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -32,7 +40,7 @@ export default function Trends() {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${session.access_token}`,
           },
-          body: JSON.stringify({}),
+          body: JSON.stringify({ production_type: selectedType }),
         }
       );
 
@@ -43,14 +51,12 @@ export default function Trends() {
 
       const result = await response.json();
 
-      // Invalidate all trend queries
       queryClient.invalidateQueries({ queryKey: ['trend-signals'] });
-      queryClient.invalidateQueries({ queryKey: ['signal-count'] });
       queryClient.invalidateQueries({ queryKey: ['cast-trends'] });
 
       toast({
         title: 'Trends refreshed',
-        description: `${result.signals_updated} signals and ${result.cast_updated} cast trends updated.`,
+        description: `${result.signals_updated} signals and ${result.cast_updated} ${typeConfig?.castLabel?.toLowerCase() || 'cast trends'} updated for ${typeConfig?.label || selectedType}.`,
       });
     } catch (e: any) {
       console.error('Refresh failed:', e);
@@ -83,7 +89,7 @@ export default function Trends() {
               </div>
               <h1 className="text-3xl font-display font-bold text-foreground tracking-tight">Trends</h1>
               <p className="text-muted-foreground mt-1 leading-relaxed">
-                Emerging narrative, IP, market behaviour, and talent signals across the entertainment industry.
+                Production-type segmented intelligence. No cross-type contamination.
               </p>
             </div>
             <Button
@@ -98,9 +104,24 @@ export default function Trends() {
             </Button>
           </div>
 
+          {/* Production Type Selector */}
+          <div className="space-y-2">
+            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Production Type</label>
+            <Select value={selectedType} onValueChange={setSelectedType}>
+              <SelectTrigger className="w-full h-10 bg-muted/50 border-border/50">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PRODUCTION_TYPES.map(pt => (
+                  <SelectItem key={pt.value} value={pt.value}>{pt.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
           {/* Navigation Cards */}
           <div className="grid gap-4 sm:grid-cols-2">
-            <Link to="/trends/story">
+            <Link to={`/trends/story?type=${selectedType}`}>
               <motion.div
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -112,11 +133,11 @@ export default function Trends() {
                     <BookOpen className="h-5 w-5 text-primary" />
                   </div>
                   <h2 className="font-display font-semibold text-foreground text-lg group-hover:text-primary transition-colors">
-                    Story Trends
+                    {typeConfig?.label || 'Story'} Signals
                   </h2>
                 </div>
                 <p className="text-sm text-muted-foreground leading-relaxed">
-                  Narrative, genre, tone, and market signals detected across independent industry sources.
+                  {typeConfig?.storyCategories.slice(0, 3).join(', ')} and more — segmented for {typeConfig?.label || selectedType}.
                 </p>
                 {signalCount > 0 && (
                   <p className="text-xs text-primary mt-3 font-medium">
@@ -126,7 +147,7 @@ export default function Trends() {
               </motion.div>
             </Link>
 
-            <Link to="/trends/cast">
+            <Link to={`/trends/cast?type=${selectedType}`}>
               <motion.div
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -138,11 +159,11 @@ export default function Trends() {
                     <Users className="h-5 w-5 text-primary" />
                   </div>
                   <h2 className="font-display font-semibold text-foreground text-lg group-hover:text-primary transition-colors">
-                    Cast Trends
+                    {typeConfig?.castLabel || 'Cast Trends'}
                   </h2>
                 </div>
                 <p className="text-sm text-muted-foreground leading-relaxed">
-                  Emerging and rising talent identified through casting momentum, breakout performances, and audience traction.
+                  Talent and key personnel momentum for {typeConfig?.label || selectedType} projects.
                 </p>
               </motion.div>
             </Link>
@@ -150,7 +171,7 @@ export default function Trends() {
 
           {/* Methodology note */}
           <div className="text-xs text-muted-foreground border-t border-border/50 pt-6">
-            <p>Signals require confirmation across ≥3 independent sources. Project analysis references trends data without embedding it directly.</p>
+            <p>Signals are segmented by production type and scored on Strength (1–10), Velocity, and Saturation Risk. Each trend includes a 12-month forecast.</p>
           </div>
         </motion.div>
       </main>
