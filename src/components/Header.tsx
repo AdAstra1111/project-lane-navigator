@@ -1,5 +1,6 @@
+import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { LogOut, Plus, Radio, Landmark, HelpCircle, ChevronDown, Calendar, Users, LayoutGrid, Globe, BarChart3, Settings } from 'lucide-react';
+import { LogOut, Plus, Radio, Landmark, HelpCircle, ChevronDown, Calendar, Users, LayoutGrid, Globe, BarChart3, Settings, Menu, X } from 'lucide-react';
 import { NotificationBell } from '@/components/NotificationBell';
 import { GlobalSearch } from '@/components/GlobalSearch';
 import { Button } from '@/components/ui/button';
@@ -15,11 +16,20 @@ import { useAuth } from '@/hooks/useAuth';
 export function Header() {
   const { signOut } = useAuth();
   const navigate = useNavigate();
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   const handleSignOut = async () => {
     await signOut();
     navigate('/auth');
   };
+
+  const navItems = [
+    { label: 'Trends', icon: Radio, path: '/trends' },
+    { label: 'Incentives', icon: Landmark, path: '/incentives' },
+    { label: 'Calendar', icon: LayoutGrid, path: '/calendar' },
+    { label: 'Buyers', icon: Users, path: '/buyer-crm' },
+    { label: 'Intel', icon: Globe, path: '/market-intelligence' },
+  ];
 
   return (
     <header className="sticky top-0 z-50 border-b border-border/50 bg-background/80 backdrop-blur-xl">
@@ -30,52 +40,21 @@ export function Header() {
           </div>
           <span className="font-display font-semibold text-lg tracking-tight text-foreground">IFFY</span>
         </Link>
-        <div className="flex items-center gap-3">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => navigate('/trends')}
-            className="text-muted-foreground hover:text-foreground"
-          >
-            <Radio className="h-4 w-4 mr-1" />
-            Trends
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => navigate('/incentives')}
-            className="text-muted-foreground hover:text-foreground"
-          >
-            <Landmark className="h-4 w-4 mr-1" />
-            Incentives
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => navigate('/calendar')}
-            className="text-muted-foreground hover:text-foreground"
-          >
-            <LayoutGrid className="h-4 w-4 mr-1" />
-            Calendar
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => navigate('/buyer-crm')}
-            className="text-muted-foreground hover:text-foreground"
-          >
-            <Users className="h-4 w-4 mr-1" />
-            Buyers
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => navigate('/market-intelligence')}
-            className="text-muted-foreground hover:text-foreground"
-          >
-            <Globe className="h-4 w-4 mr-1" />
-            Intel
-          </Button>
+
+        {/* Desktop nav */}
+        <div className="hidden md:flex items-center gap-3">
+          {navItems.map(item => (
+            <Button
+              key={item.path}
+              variant="ghost"
+              size="sm"
+              onClick={() => navigate(item.path)}
+              className="text-muted-foreground hover:text-foreground"
+            >
+              <item.icon className="h-4 w-4 mr-1" />
+              {item.label}
+            </Button>
+          ))}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground">
@@ -92,15 +71,9 @@ export function Header() {
                 <Calendar className="h-4 w-4 mr-2" /> Festivals
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => navigate('/about')}>
-                About IFFY
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => navigate('/how-it-works')}>
-                How It Works
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => navigate('/faq')}>
-                FAQ
-              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => navigate('/about')}>About IFFY</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => navigate('/how-it-works')}>How It Works</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => navigate('/faq')}>FAQ</DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => navigate('/settings')}>
                 <Settings className="h-4 w-4 mr-2" /> Settings
@@ -127,7 +100,62 @@ export function Header() {
             <LogOut className="h-4 w-4" />
           </Button>
         </div>
+
+        {/* Mobile controls */}
+        <div className="flex md:hidden items-center gap-2">
+          <GlobalSearch />
+          <NotificationBell />
+          <Button variant="ghost" size="icon" onClick={() => setMobileOpen(!mobileOpen)}>
+            {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          </Button>
+        </div>
       </div>
+
+      {/* Mobile drawer */}
+      {mobileOpen && (
+        <div className="md:hidden border-t border-border/50 bg-background p-4 space-y-1 animate-in slide-in-from-top-2 duration-200">
+          {navItems.map(item => (
+            <button
+              key={item.path}
+              onClick={() => { navigate(item.path); setMobileOpen(false); }}
+              className="flex items-center gap-3 w-full px-3 py-2.5 rounded-md text-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+            >
+              <item.icon className="h-4 w-4" />
+              {item.label}
+            </button>
+          ))}
+          <div className="border-t border-border/30 my-2" />
+          {[
+            { label: 'Reports & Exports', path: '/reports', icon: BarChart3 },
+            { label: 'Festivals', path: '/festivals', icon: Calendar },
+            { label: 'Settings', path: '/settings', icon: Settings },
+          ].map(item => (
+            <button
+              key={item.path}
+              onClick={() => { navigate(item.path); setMobileOpen(false); }}
+              className="flex items-center gap-3 w-full px-3 py-2.5 rounded-md text-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+            >
+              <item.icon className="h-4 w-4" />
+              {item.label}
+            </button>
+          ))}
+          <div className="border-t border-border/30 my-2" />
+          <button
+            onClick={() => { navigate('/projects/new'); setMobileOpen(false); }}
+            className="flex items-center gap-3 w-full px-3 py-2.5 rounded-md text-sm font-medium text-primary hover:bg-primary/5 transition-colors"
+          >
+            <Plus className="h-4 w-4" />
+            New Project
+          </button>
+          <button
+            onClick={() => { handleSignOut(); setMobileOpen(false); }}
+            className="flex items-center gap-3 w-full px-3 py-2.5 rounded-md text-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+          >
+            <LogOut className="h-4 w-4" />
+            Sign Out
+          </button>
+        </div>
+      )}
     </header>
   );
 }
