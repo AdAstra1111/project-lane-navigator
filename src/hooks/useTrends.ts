@@ -117,7 +117,7 @@ export const PRODUCTION_TYPE_TREND_CATEGORIES: Record<string, { label: string; s
   'digital-series': { label: 'Digital / Social', storyCategories: ['Platform Algorithm', 'Creator Economy', 'Brand Integration', 'Audience Behaviour', 'Format Innovation'], castLabel: 'Creator Trends' },
   'proof-of-concept': { label: 'Proof of Concept', storyCategories: ['Lab Cycles', 'Investor Appetite', 'IP Demonstration', 'Technology Trends', 'Development Deals'], castLabel: 'Emerging Talent' },
   hybrid: { label: 'Hybrid', storyCategories: ['Cross-Platform', 'Immersive Tech', 'Innovation Funds', 'Experiential Demand', 'Transmedia'], castLabel: 'Creative Leads' },
-  'vertical-drama': { label: 'Vertical Drama', storyCategories: ['Platform Algorithm', 'Scroll Retention', 'Genre Momentum', 'Cast Social Value', 'Brand Integration', 'Global Expansion'], castLabel: 'Cast Trends' },
+  'vertical-drama': { label: 'Vertical Drama', storyCategories: ['Platform Algorithm', 'Scroll Retention', 'Genre Momentum', 'Cast Social Value', 'Brand Integration', 'Global Expansion'], castLabel: 'Talent & Creator Trends' },
 };
 
 export const TARGET_BUYER_OPTIONS: Record<string, { value: string; label: string }[]> = {
@@ -274,6 +274,33 @@ export function useSignalCount(productionType?: string) {
       const { count, error } = await query;
       if (error) throw error;
       return count ?? 0;
+    },
+  });
+}
+
+export function useTrendCountsByType() {
+  return useQuery({
+    queryKey: ['trend-counts-by-type'],
+    queryFn: async () => {
+      const [signalsRes, castRes] = await Promise.all([
+        supabase.from('trend_signals').select('production_type').eq('status', 'active'),
+        supabase.from('cast_trends').select('production_type').eq('status', 'active'),
+      ]);
+      if (signalsRes.error) throw signalsRes.error;
+      if (castRes.error) throw castRes.error;
+
+      const counts: Record<string, { signals: number; cast: number }> = {};
+      for (const row of signalsRes.data ?? []) {
+        const pt = row.production_type || 'film';
+        if (!counts[pt]) counts[pt] = { signals: 0, cast: 0 };
+        counts[pt].signals++;
+      }
+      for (const row of castRes.data ?? []) {
+        const pt = row.production_type || 'film';
+        if (!counts[pt]) counts[pt] = { signals: 0, cast: 0 };
+        counts[pt].cast++;
+      }
+      return counts;
     },
   });
 }

@@ -11,6 +11,7 @@ import {
   useActiveSignals,
   useArchivedSignals,
   useLatestWeeklyBrief,
+  useTrendCountsByType,
   StoryFilters,
   PRODUCTION_TYPE_TREND_CATEGORIES,
   TARGET_BUYER_OPTIONS,
@@ -116,6 +117,7 @@ export default function StoryTrends() {
 
   const { data: activeSignals = [], isLoading: loadingActive } = useActiveSignals(filters);
   const { data: archivedSignals = [], isLoading: loadingArchived } = useArchivedSignals(selectedType);
+  const { data: trendCounts = {} } = useTrendCountsByType();
   const { data: latestBrief, isLoading: loadingBrief } = useLatestWeeklyBrief(selectedType);
 
   return (
@@ -153,9 +155,22 @@ export default function StoryTrends() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {PRODUCTION_TYPES.map(pt => (
-                  <SelectItem key={pt.value} value={pt.value}>{pt.label}</SelectItem>
-                ))}
+                {PRODUCTION_TYPES.map(pt => {
+                  const c = trendCounts[pt.value];
+                  const total = c ? c.signals + c.cast : 0;
+                  return (
+                    <SelectItem key={pt.value} value={pt.value}>
+                      <span className="flex items-center justify-between w-full gap-2">
+                        {pt.label}
+                        {total > 0 && (
+                          <span className="text-[10px] bg-primary/15 text-primary rounded-full px-1.5 py-0.5 font-mono ml-2">
+                            {total}
+                          </span>
+                        )}
+                      </span>
+                    </SelectItem>
+                  );
+                })}
               </SelectContent>
             </Select>
           </div>
