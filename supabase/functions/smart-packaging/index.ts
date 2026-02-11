@@ -32,7 +32,7 @@ serve(async (req) => {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
 
-    const count = maxSuggestions || 5;
+    const count = maxSuggestions || 8;
     const excludeClause = excludeNames?.length
       ? `\n\nIMPORTANT: Do NOT suggest these names (already passed on): ${excludeNames.join(', ')}`
       : '';
