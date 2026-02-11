@@ -2855,6 +2855,87 @@ export type Database = {
         }
         Relationships: []
       }
+      vertical_data_sources: {
+        Row: {
+          category: string
+          created_at: string
+          id: string
+          notes: string
+          refresh_frequency: string
+          region: string
+          reliability_score: number
+          source_name: string
+          source_type: string
+          status: string
+          updated_at: string
+          url: string
+        }
+        Insert: {
+          category?: string
+          created_at?: string
+          id?: string
+          notes?: string
+          refresh_frequency?: string
+          region?: string
+          reliability_score?: number
+          source_name: string
+          source_type?: string
+          status?: string
+          updated_at?: string
+          url?: string
+        }
+        Update: {
+          category?: string
+          created_at?: string
+          id?: string
+          notes?: string
+          refresh_frequency?: string
+          region?: string
+          reliability_score?: number
+          source_name?: string
+          source_type?: string
+          status?: string
+          updated_at?: string
+          url?: string
+        }
+        Relationships: []
+      }
+      vertical_trend_snapshots: {
+        Row: {
+          created_at: string
+          episode_patterns: Json
+          id: string
+          raw_data: Json
+          region: string
+          revenue_shifts: Json
+          snapshot_date: string
+          top_apps: Json
+          top_micro_genres: Json
+        }
+        Insert: {
+          created_at?: string
+          episode_patterns?: Json
+          id?: string
+          raw_data?: Json
+          region?: string
+          revenue_shifts?: Json
+          snapshot_date?: string
+          top_apps?: Json
+          top_micro_genres?: Json
+        }
+        Update: {
+          created_at?: string
+          episode_patterns?: Json
+          id?: string
+          raw_data?: Json
+          region?: string
+          revenue_shifts?: Json
+          snapshot_date?: string
+          top_apps?: Json
+          top_micro_genres?: Json
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

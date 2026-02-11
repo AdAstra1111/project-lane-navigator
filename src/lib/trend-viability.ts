@@ -42,6 +42,7 @@ export interface DynamicModifierContext {
   primary_territory: string;
   target_buyer?: string;
   assigned_lane?: string | null;
+  vertical_region?: 'china' | 'western' | null;
 }
 
 export type CyclePosition = 'Boom' | 'Growth' | 'Saturation' | 'Trough' | 'Rebound';
@@ -94,6 +95,18 @@ const MODIFIER_RULES: ModifierRule[] = [
   { condition: ctx => ctx.assigned_lane === 'international-copro', engineName: 'Exportability Score', delta: 0.04, label: 'Co-pro lane boosts exportability' },
   { condition: ctx => ctx.assigned_lane === 'international-copro', engineName: 'Territory Incentive Tracker', delta: 0.03, label: 'Co-pro lane boosts incentive tracking' },
   { condition: ctx => ctx.assigned_lane === 'fast-turnaround', engineName: 'Social Engagement Velocity', delta: 0.04, label: 'Fast-turnaround boosts social velocity' },
+
+  // ─── Vertical Drama: China-origin ecosystem ───
+  { condition: ctx => ctx.vertical_region === 'china', engineName: 'Platform Revenue Velocity', delta: 0.06, label: 'China-origin: monetisation velocity boost' },
+  { condition: ctx => ctx.vertical_region === 'china', engineName: 'Retention Proxy Model', delta: 0.04, label: 'China-origin: binge model boost' },
+  { condition: ctx => ctx.vertical_region === 'china', engineName: 'Cadence Optimization Model', delta: 0.03, label: 'China-origin: cadence optimisation boost' },
+  { condition: ctx => ctx.vertical_region === 'china', engineName: 'App Store Ranking Momentum', delta: 0.03, label: 'China-origin: app store momentum boost' },
+
+  // ─── Vertical Drama: Western/US emerging ecosystem ───
+  { condition: ctx => ctx.vertical_region === 'western', engineName: 'Influencer Conversion Index', delta: 0.06, label: 'Western entry: influencer conversion boost' },
+  { condition: ctx => ctx.vertical_region === 'western', engineName: 'Micro-Genre Heat Index', delta: 0.04, label: 'Western entry: social virality boost' },
+  { condition: ctx => ctx.vertical_region === 'western', engineName: 'Localization Scaling Potential', delta: 0.04, label: 'Western entry: localisation scaling boost' },
+  { condition: ctx => ctx.vertical_region === 'western', engineName: 'Episodic Hook Pattern Analyzer', delta: 0.03, label: 'Western entry: hook pattern boost' },
 ];
 
 // ─── Confidence Decay ───
@@ -120,19 +133,61 @@ function determineCyclePosition(breakdown: TrendViabilityResult['engineBreakdown
     ? breakdown.reduce((s, e) => s + e.score, 0) / breakdown.length
     : 5;
 
+  // Vertical Drama uses platform-native engines for cycle detection
+  const platformEngine = breakdown.find(e => e.engineName === 'Platform Revenue Velocity');
+  const retentionEngine = breakdown.find(e => e.engineName === 'Retention Proxy Model');
   const genreEngine = breakdown.find(e => e.engineName === 'Genre Cycle Engine');
   const socialEngine = breakdown.find(e => e.engineName === 'Social Engagement Velocity');
+  const microGenreEngine = breakdown.find(e => e.engineName === 'Micro-Genre Heat Index');
 
   if (avgScore >= 8) return 'Boom';
   if (avgScore >= 6.5) {
     if (genreEngine && genreEngine.score < 5) return 'Saturation';
+    if (platformEngine && platformEngine.score < 5) return 'Saturation';
     return 'Growth';
   }
   if (avgScore >= 4.5) {
     if (socialEngine && socialEngine.score >= 7) return 'Rebound';
+    if (microGenreEngine && microGenreEngine.score >= 7) return 'Rebound';
+    if (retentionEngine && retentionEngine.score >= 7) return 'Rebound';
     return 'Saturation';
   }
   return 'Trough';
+}
+
+// ─── Western Entry Advantage Index ───
+
+export interface WesternEntryAdvantage {
+  score: number; // 0-100
+  factors: { label: string; score: number; weight: number }[];
+}
+
+export function calculateWesternEntryAdvantage(
+  engineBreakdown: TrendViabilityResult['engineBreakdown'],
+): WesternEntryAdvantage {
+  const factors: WesternEntryAdvantage['factors'] = [];
+
+  // Trope familiarity (from Micro-Genre Heat)
+  const microGenre = engineBreakdown.find(e => e.engineName === 'Micro-Genre Heat Index');
+  factors.push({ label: 'Trope Familiarity', score: microGenre ? microGenre.score * 10 : 50, weight: 0.25 });
+
+  // Dubbing adaptability (from Localization Scaling)
+  const localization = engineBreakdown.find(e => e.engineName === 'Localization Scaling Potential');
+  factors.push({ label: 'Dubbing Adaptability', score: localization ? localization.score * 10 : 50, weight: 0.25 });
+
+  // Cultural translation ease (from Episodic Hook Pattern — culturally universal hooks score higher)
+  const hookPattern = engineBreakdown.find(e => e.engineName === 'Episodic Hook Pattern Analyzer');
+  factors.push({ label: 'Cultural Translation Ease', score: hookPattern ? hookPattern.score * 10 : 50, weight: 0.25 });
+
+  // Platform algorithm compatibility (from App Store Ranking Momentum)
+  const appStore = engineBreakdown.find(e => e.engineName === 'App Store Ranking Momentum');
+  factors.push({ label: 'Platform Algorithm Compatibility', score: appStore ? appStore.score * 10 : 50, weight: 0.25 });
+
+  const totalScore = Math.round(
+    factors.reduce((sum, f) => sum + f.score * f.weight, 0)
+  );
+
+  return { score: Math.min(100, Math.max(0, totalScore)), factors };
 }
 
 // ─── Main Calculator ───

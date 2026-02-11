@@ -8,8 +8,9 @@ import { Slider } from '@/components/ui/slider';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { cn } from '@/lib/utils';
 import { useTrendEngines, useEngineWeights, useProjectEngineScores, useAIEngineScoring, useRecalibrateWeights } from '@/hooks/useTrendEngines';
-import { calculateTrendViability, type TrendViabilityResult, type CyclePosition, type DynamicModifierContext } from '@/lib/trend-viability';
+import { calculateTrendViability, calculateWesternEntryAdvantage, type TrendViabilityResult, type CyclePosition, type DynamicModifierContext } from '@/lib/trend-viability';
 import { PredictionOutcomePanel } from '@/components/PredictionOutcomePanel';
+import { WesternEntryAdvantagePanel } from '@/components/WesternEntryAdvantagePanel';
 import { OperationProgress, AI_SCORE_STAGES, TREND_REFRESH_STAGES } from '@/components/OperationProgress';
 
 const CYCLE_CONFIG: Record<CyclePosition, { color: string; icon: typeof TrendingUp; label: string }> = {
@@ -224,6 +225,12 @@ export function TrendIntelligencePanel({ projectId, format, budgetRange, primary
           </div>
         </CollapsibleContent>
       </Collapsible>
+
+      {/* Western Entry Advantage — Vertical Drama only */}
+      {format === 'vertical-drama' && result && (() => {
+        const westernAdvantage = calculateWesternEntryAdvantage(result.engineBreakdown);
+        return <WesternEntryAdvantagePanel advantage={westernAdvantage} />;
+      })()}
 
       {/* Prediction Accuracy Tracking */}
       <PredictionOutcomePanel projectId={projectId} currentTrendScore={result.trendScore} />
