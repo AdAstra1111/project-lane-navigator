@@ -4,6 +4,7 @@ import { Radio } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '@/components/ui/accordion';
 import { useActiveSignals, TrendSignal } from '@/hooks/useTrends';
+import { TrendScoreBadges } from '@/components/TrendScoreBadges';
 import type { Project } from '@/lib/types';
 import { SignalCard } from '@/components/SignalCard';
 
@@ -100,7 +101,7 @@ export function ProjectRelevantSignals({ project }: Props) {
         {relevantSignals.map(({ signal }) => (
           <AccordionItem key={signal.id} value={signal.id} className="glass-card rounded-lg border-none">
             <AccordionTrigger className="px-4 py-3 hover:no-underline gap-3">
-              <div className="flex items-center gap-2 text-left min-w-0">
+              <div className="flex items-center gap-2 text-left min-w-0 flex-1">
                 <span className="font-display font-semibold text-foreground text-sm truncate">{signal.name}</span>
                 <Badge className={`text-[10px] px-1.5 py-0 border shrink-0 ${CATEGORY_STYLES[signal.category] ?? ''}`}>
                   {signal.category}
@@ -109,6 +110,7 @@ export function ProjectRelevantSignals({ project }: Props) {
                   {signal.cycle_phase}
                 </Badge>
               </div>
+              <TrendScoreBadges strength={signal.strength} velocity={signal.velocity} saturationRisk={signal.saturation_risk} compact />
             </AccordionTrigger>
             <AccordionContent className="px-4 pb-4 pt-0">
               <SignalCard signal={signal} index={0} />

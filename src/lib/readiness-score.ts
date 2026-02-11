@@ -10,6 +10,7 @@ import type { Project, FullAnalysis } from '@/lib/types';
 import type { ProjectCastMember, ProjectPartner, ProjectScript, ProjectFinanceScenario, ProjectHOD } from '@/hooks/useProjectAttachments';
 import type { BudgetSummary } from '@/lib/finance-readiness';
 import type { ScheduleMetrics } from '@/lib/schedule-impact';
+import type { TrendReadinessAdjustment } from '@/lib/trend-influence';
 
 export type ReadinessStage = 'Early' | 'Building' | 'Packaged' | 'Finance-Ready';
 
@@ -44,6 +45,7 @@ export function calculateReadiness(
   hasIncentiveInsights: boolean,
   budgetSummary?: BudgetSummary,
   scheduleMetrics?: ScheduleMetrics,
+  trendAdjustment?: TrendReadinessAdjustment,
 ): ReadinessResult {
   const strengths: string[] = [];
   const blockers: string[] = [];
@@ -191,7 +193,18 @@ export function calculateReadiness(
   financeScore = Math.min(25, financeScore);
   marketScore = Math.min(20, marketScore);
 
-  const totalScore = scriptScore + packagingScore + financeScore + marketScore;
+  // Apply trend influence adjustment (clamped to keep total 0-100)
+  let trendBonus = 0;
+  if (trendAdjustment && trendAdjustment.adjustment !== 0) {
+    trendBonus = trendAdjustment.adjustment;
+    if (trendBonus > 0) {
+      strengths.push(`Market trends boost: +${trendBonus}`);
+    } else {
+      blockers.push(`Market headwinds: ${trendBonus}`);
+    }
+  }
+
+  const totalScore = Math.min(100, Math.max(0, scriptScore + packagingScore + financeScore + marketScore + trendBonus));
   const stage = getStage(totalScore);
 
   // Best next step

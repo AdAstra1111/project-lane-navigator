@@ -57,57 +57,89 @@ serve(async (req) => {
     const existingCastNames = (existingCast || []).map((c: any) => c.actor_name).join(", ");
 
     // --- REFRESH STORY TREND SIGNALS ---
-    const signalPrompt = `You are an international film and television market intelligence analyst. Your job is to identify emerging, building, peaking, and declining signals across the entertainment industry.
+    const signalPrompt = `You are an international film, television, and commercial content market intelligence analyst. Your job is to identify emerging, building, peaking, and declining signals across the entertainment and content industry, segmented by production type.
 
 Current active signals: ${existingSignalNames || "None"}
 
-Research and return an updated set of 12-18 trend signals. For each existing signal, assess whether its cycle_phase should change (Early → Building → Peaking → Declining → Dead). Remove signals that are no longer relevant. Add new signals you detect.
+Research and return an updated set of 15-20 trend signals. For each existing signal, assess whether its cycle_phase should change (Early → Building → Peaking → Declining → Dead). Remove signals that are no longer relevant. Add new signals you detect.
 
-Categories: Narrative, IP, Market Behaviour, Buyer Appetite, Genre Cycle
+IMPORTANT: Each signal MUST specify a production_type. Distribute signals across production types: film, tv-series, documentary, commercial, branded-content, music-video, short-film, digital-series.
+
+For commercial and branded-content signals, use category terms like "Brand Strategy", "Creative Direction", "Client Behaviour", "Content Innovation" — never use film-distribution terminology like "pre-sales", "sales agent", "theatrical", etc.
+
+Categories by production type:
+- film/tv-series: Narrative, IP, Market Behaviour, Buyer Appetite, Genre Cycle
+- commercial: Brand Strategy, Creative Direction, Production Innovation, Award Cycles, Client Behaviour
+- branded-content: Brand Strategy, Platform Behaviour, Cultural Shifts, Engagement Patterns, Content Innovation
+- documentary: Subject Access, Impact Trends, Broadcaster Appetite, Grant Cycles, Archive Innovation
+- music-video: Visual Innovation, Artist Momentum, Platform Strategy, Commissioner Behaviour
+- short-film/digital-series: Festival Cycles, Platform Algorithm, Creator Economy, Format Innovation
+
 Cycle phases: Early, Building, Peaking, Declining
 Regions: US, UK, Europe, Asia, LatAm, International, MENA, Africa
+Velocity: Rising, Stable, Declining
+Saturation Risk: Low, Medium, High
+Budget Tiers: Micro, Low, Mid, Upper-Mid, High, Studio-Scale
 
 For each signal provide:
 - name: concise signal name
-- category: one of the categories above
+- category: one of the categories for its production type
 - cycle_phase: current phase
-- explanation: 2-3 sentences explaining the signal, evidence, and implications for producers
+- explanation: 2-3 sentences explaining the signal, evidence, and implications
 - sources_count: estimated number of independent sources (3-8)
 - genre_tags: relevant genres (array)
 - tone_tags: relevant tones (array)
 - format_tags: relevant formats like Feature, Series, Limited Series (array)
 - region: primary region
 - lane_relevance: which finance lanes this affects (array from: studio-streamer, independent-film, low-budget, international-copro, genre-market, prestige-awards, fast-turnaround)
+- production_type: one of film, tv-series, documentary, documentary-series, commercial, branded-content, music-video, short-film, digital-series, proof-of-concept, hybrid
+- strength: 1-10 integer
+- velocity: Rising, Stable, or Declining
+- saturation_risk: Low, Medium, or High
+- forecast: one sentence 12-month outlook
+- budget_tier: one of Micro, Low, Mid, Upper-Mid, High, Studio-Scale
+- target_buyer: the primary buyer type relevant to this signal's production type
 
 Return ONLY a JSON array of signal objects. No markdown, no explanation outside the JSON.`;
 
-    const castPrompt = `You are an international film and television talent analyst focused on finance-relevant casting intelligence. Your job is to identify actors whose market momentum is shifting in ways that affect project packaging and finance.
+    const castPrompt = `You are an international entertainment talent analyst focused on finance-relevant talent intelligence, segmented by production type. Your job is to identify talent whose market momentum is shifting in ways that affect project packaging and finance.
 
-Current tracked actors: ${existingCastNames || "None"}
+Current tracked talent: ${existingCastNames || "None"}
 
-Research and return an updated set of 15-20 cast trends. For existing actors, update their cycle_phase and timing_window. Remove actors whose momentum has stalled. Add new emerging talent.
+Research and return an updated set of 15-20 talent trends. For existing entries, update their cycle_phase and timing_window. Remove entries whose momentum has stalled. Add new emerging talent.
 
-Focus on actors relevant to international co-productions and independent film finance — not just Hollywood A-listers. Include talent from UK, Europe, Asia, LatAm, and Australia/NZ.
+IMPORTANT: Each entry MUST specify a production_type. For commercial/branded-content, track directors and creative leads rather than actors. For music-video, track directors. Distribute across production types.
+
+Focus on talent relevant to international content — not just Hollywood A-listers. Include talent from UK, Europe, Asia, LatAm, and Australia/NZ.
 
 Trend types: Emerging, Accelerating, Resurgent, Declining
 Cycle phases: Early, Building, Peaking, Declining
 Regions: US, UK, Europe, Asia, LatAm, Australia, MENA, Africa
-Market alignment: Studio, Indie, Streamer
-Sales leverage: Pre-sales friendly, MG-driven, Festival-driven, Streamer-oriented
+Market alignment: Studio, Indie, Streamer, Brand, Agency
+Sales leverage: Pre-sales friendly, MG-driven, Festival-driven, Streamer-oriented, Brand-aligned
+Velocity: Rising, Stable, Declining
+Saturation Risk: Low, Medium, High
 
-For each actor provide:
-- actor_name: full name
+For each entry provide:
+- actor_name: full name (or director/creator name for non-film types)
 - region: primary region
 - age_band: 18-25, 26-35, 36-45, 46-55, 55+
 - trend_type: one of the types above
-- explanation: 2-3 sentences on why this actor's momentum matters for finance
-- genre_relevance: array of relevant genres
-- market_alignment: Studio, Indie, or Streamer
+- explanation: 2-3 sentences on why this talent's momentum matters
+- genre_relevance: array of relevant genres or specialties
+- market_alignment: Studio, Indie, Streamer, Brand, or Agency
 - cycle_phase: current phase
 - sales_leverage: one of the leverage types
 - timing_window: e.g. "Strong next 6-12 months"
+- production_type: one of film, tv-series, documentary, commercial, branded-content, music-video, short-film, digital-series
+- strength: 1-10 integer
+- velocity: Rising, Stable, or Declining
+- saturation_risk: Low, Medium, or High
+- forecast: one sentence 12-month outlook
+- budget_tier: one of Micro, Low, Mid, Upper-Mid, High, Studio-Scale
+- target_buyer: the primary buyer type relevant to this talent's production type
 
-Return ONLY a JSON array of actor objects. No markdown, no explanation outside the JSON.`;
+Return ONLY a JSON array of objects. No markdown, no explanation outside the JSON.`;
 
     // Make both AI calls in parallel
     const [signalResponse, castResponse] = await Promise.all([
@@ -209,6 +241,13 @@ Return ONLY a JSON array of actor objects. No markdown, no explanation outside t
       format_tags: s.format_tags || [],
       region: s.region || "International",
       lane_relevance: s.lane_relevance || [],
+      production_type: s.production_type || "film",
+      strength: Math.min(10, Math.max(1, parseInt(s.strength) || 5)),
+      velocity: ["Rising", "Stable", "Declining"].includes(s.velocity) ? s.velocity : "Stable",
+      saturation_risk: ["Low", "Medium", "High"].includes(s.saturation_risk) ? s.saturation_risk : "Low",
+      forecast: s.forecast || "",
+      budget_tier: s.budget_tier || "",
+      target_buyer: s.target_buyer || "",
       status: "active",
       first_detected_at: now,
       last_updated_at: now,
@@ -225,6 +264,13 @@ Return ONLY a JSON array of actor objects. No markdown, no explanation outside t
       cycle_phase: c.cycle_phase || "Early",
       sales_leverage: c.sales_leverage || "",
       timing_window: c.timing_window || "",
+      production_type: c.production_type || "film",
+      strength: Math.min(10, Math.max(1, parseInt(c.strength) || 5)),
+      velocity: ["Rising", "Stable", "Declining"].includes(c.velocity) ? c.velocity : "Stable",
+      saturation_risk: ["Low", "Medium", "High"].includes(c.saturation_risk) ? c.saturation_risk : "Low",
+      forecast: c.forecast || "",
+      budget_tier: c.budget_tier || "",
+      target_buyer: c.target_buyer || "",
       status: "active",
       first_detected_at: now,
       last_updated_at: now,

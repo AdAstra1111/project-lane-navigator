@@ -43,6 +43,7 @@ import { useProjects } from '@/hooks/useProjects';
 import { useAddDocuments } from '@/hooks/useAddDocuments';
 import { useProjectDuplicate } from '@/hooks/useProjectDuplicate';
 import { useActiveCastTrends, useActiveSignals } from '@/hooks/useTrends';
+import { calculateTrendInfluence } from '@/lib/trend-influence';
 import { useAuth } from '@/hooks/useAuth';
 import { useScriptCharacters } from '@/hooks/useScriptCharacters';
 import { ProjectRelevantSignals } from '@/components/ProjectRelevantSignals';
@@ -284,10 +285,15 @@ export default function ProjectDetail() {
   const isAlternateMode = project && !isTV && !isFilm;
   const formatMeta = project ? getFormatMeta(project.format) : null;
 
+  const trendInfluence = useMemo(() => {
+    if (!project || (!trendSignals.length && !castTrends.length)) return null;
+    return calculateTrendInfluence(project, trendSignals, castTrends);
+  }, [project, trendSignals, castTrends]);
+
   const readiness = useMemo(() => {
     if (!project) return null;
-    return calculateReadiness(project, cast, partners, scripts, financeScenarios, hods, incentiveAnalysed, budgetSummary, scheduleMetrics);
-  }, [project, cast, partners, scripts, financeScenarios, hods, incentiveAnalysed, budgetSummary, scheduleMetrics]);
+    return calculateReadiness(project, cast, partners, scripts, financeScenarios, hods, incentiveAnalysed, budgetSummary, scheduleMetrics, trendInfluence?.readinessAdjustment);
+  }, [project, cast, partners, scripts, financeScenarios, hods, incentiveAnalysed, budgetSummary, scheduleMetrics, trendInfluence]);
 
   const tvReadiness = useMemo(() => {
     if (!project || !isTV) return null;
