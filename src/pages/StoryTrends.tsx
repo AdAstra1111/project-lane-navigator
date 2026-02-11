@@ -1,10 +1,11 @@
 import { useState, useCallback, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { Activity, FileText, Archive, BookOpen } from 'lucide-react';
+import { Activity, FileText, Archive, BookOpen, RefreshCw } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { Header } from '@/components/Header';
 import { SignalCard } from '@/components/SignalCard';
 import { TrendsFilters } from '@/components/TrendsFilters';
+import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
@@ -17,6 +18,9 @@ import {
   TARGET_BUYER_OPTIONS,
   BUDGET_TIER_OPTIONS,
 } from '@/hooks/useTrends';
+import { supabase } from '@/integrations/supabase/client';
+import { useQueryClient } from '@tanstack/react-query';
+import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
 
 function EmptyState({ icon: Icon, title, description }: { icon: React.ElementType; title: string; description: string }) {
@@ -53,6 +57,9 @@ export default function StoryTrends() {
   const initialType = searchParams.get('type') || 'film';
   const [selectedType, setSelectedType] = useState(initialType);
   const typeConfig = PRODUCTION_TYPE_TREND_CATEGORIES[selectedType];
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
 
   const [filters, setFilters] = useState<StoryFilters>({ productionType: initialType });
   const handleFilter = useCallback((key: string, value: string | undefined) => {
@@ -64,6 +71,44 @@ export default function StoryTrends() {
     setSelectedType(type);
     setFilters({ productionType: type });
   }, []);
+
+  const handleRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        toast({ title: 'Not authenticated', description: 'Please sign in first.', variant: 'destructive' });
+        return;
+      }
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/refresh-trends`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ production_type: selectedType }),
+        }
+      );
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || 'Refresh failed');
+      }
+      const result = await response.json();
+      queryClient.invalidateQueries({ queryKey: ['trend-signals'] });
+      queryClient.invalidateQueries({ queryKey: ['cast-trends'] });
+      queryClient.invalidateQueries({ queryKey: ['trend-counts-by-type'] });
+      toast({
+        title: 'Trends refreshed',
+        description: `${result.signals_updated} signals and ${result.cast_updated} ${typeConfig?.castLabel?.toLowerCase() || 'cast trends'} updated for ${typeConfig?.label || selectedType}.`,
+      });
+    } catch (e: any) {
+      toast({ title: 'Refresh failed', description: e.message || 'Something went wrong.', variant: 'destructive' });
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [selectedType, typeConfig, queryClient, toast]);
 
   // Determine if this is a commercial/branded mode (no film terminology)
   const isNonFilm = ['commercial', 'branded-content', 'music-video', 'digital-series'].includes(selectedType);
@@ -131,20 +176,32 @@ export default function StoryTrends() {
           className="space-y-8"
         >
           {/* Page Header */}
-          <div>
-            <div className="flex items-center gap-2 mb-2">
-              <BookOpen className="h-4 w-4 text-primary" />
-              <span className="text-xs text-muted-foreground uppercase tracking-wider">Intelligence Layer</span>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <BookOpen className="h-4 w-4 text-primary" />
+                <span className="text-xs text-muted-foreground uppercase tracking-wider">Intelligence Layer</span>
+              </div>
+              <h1 className="text-3xl font-display font-bold text-foreground tracking-tight">
+                {typeConfig?.label || 'Story'} Signals
+              </h1>
+              <p className="text-muted-foreground mt-1 leading-relaxed">
+                {isNonFilm 
+                  ? `Market signals, creative direction, and ${selectedType === 'commercial' ? 'client behaviour' : 'platform behaviour'} trends.`
+                  : 'Emerging narrative, genre, tone, and market signals segmented by production type.'
+                }
+              </p>
             </div>
-            <h1 className="text-3xl font-display font-bold text-foreground tracking-tight">
-              {typeConfig?.label || 'Story'} Signals
-            </h1>
-            <p className="text-muted-foreground mt-1 leading-relaxed">
-              {isNonFilm 
-                ? `Market signals, creative direction, and ${selectedType === 'commercial' ? 'client behaviour' : 'platform behaviour'} trends.`
-                : 'Emerging narrative, genre, tone, and market signals segmented by production type.'
-              }
-            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleRefresh}
+              disabled={isRefreshing}
+              className="shrink-0 mt-1 border-border/50 hover:border-primary/50 hover:bg-primary/5"
+            >
+              <RefreshCw className={`h-4 w-4 mr-1.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+              {isRefreshing ? 'Refreshing…' : `Refresh ${typeConfig?.label || ''}`}
+            </Button>
           </div>
 
           {/* Production Type Selector */}

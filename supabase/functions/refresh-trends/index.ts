@@ -13,7 +13,6 @@ serve(async (req) => {
   }
 
   try {
-    // Validate auth
     const authHeader = req.headers.get("Authorization");
     if (!authHeader?.startsWith("Bearer ")) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
@@ -42,28 +41,64 @@ serve(async (req) => {
       });
     }
 
-    // Fetch existing signals for context
-    const { data: existingSignals } = await supabase
+    // Parse request body for optional production_type filter
+    let productionType: string | null = null;
+    try {
+      const body = await req.json();
+      productionType = body.production_type || null;
+    } catch {
+      // No body or invalid JSON — refresh all types
+    }
+
+    const typeFilter = productionType ? ` for production_type="${productionType}"` : "";
+    const typeInstruction = productionType
+      ? `IMPORTANT: Generate signals ONLY for production_type = "${productionType}". Every signal must have production_type set to "${productionType}".`
+      : `Distribute signals across production types: film, tv-series, documentary, commercial, branded-content, music-video, short-film, digital-series, vertical-drama.`;
+
+    // Fetch existing signals for context (filtered if production_type provided)
+    let signalQuery = supabase
       .from("trend_signals")
       .select("name, category, cycle_phase, status")
       .eq("status", "active");
-
-    const { data: existingCast } = await supabase
+    let castQuery = supabase
       .from("cast_trends")
       .select("actor_name, region, trend_type, status")
       .eq("status", "active");
 
+    if (productionType) {
+      signalQuery = signalQuery.eq("production_type", productionType);
+      castQuery = castQuery.eq("production_type", productionType);
+    }
+
+    const { data: existingSignals } = await signalQuery;
+    const { data: existingCast } = await castQuery;
+
     const existingSignalNames = (existingSignals || []).map((s: any) => s.name).join(", ");
     const existingCastNames = (existingCast || []).map((c: any) => c.actor_name).join(", ");
 
+    // Build vertical-drama-specific prompt additions
+    const isVerticalDrama = productionType === "vertical-drama";
+    const verticalDramaContext = isVerticalDrama
+      ? `\n\nThis is VERTICAL DRAMA — short-form, mobile-first narrative content for platforms like TikTok, ReelShort, DramaBox, ShortTV, GoodShort. Focus on:
+- Platform algorithm shifts and ranking changes
+- Scroll retention and episodic hook patterns  
+- Micro-genre heat (e.g. CEO romance, revenge arcs, time-loop)
+- Creator/influencer momentum for short-form
+- Monetisation models (micro-transactions, ad-supported, subscription)
+- China-origin vs Western-entry market dynamics
+- App store ranking momentum
+Categories for vertical-drama: Platform Algorithm, Scroll Retention, Cast Social Value, Micro-Genre Heat, Monetisation Model, Regional Expansion, Content Innovation, Creator Economy`
+      : "";
+
     // --- REFRESH STORY TREND SIGNALS ---
-    const signalPrompt = `You are an international film, television, and commercial content market intelligence analyst. Your job is to identify emerging, building, peaking, and declining signals across the entertainment and content industry, segmented by production type.
+    const signalPrompt = `You are an international film, television, and commercial content market intelligence analyst. Your job is to identify emerging, building, peaking, and declining signals across the entertainment and content industry.
 
-Current active signals: ${existingSignalNames || "None"}
+Current active signals${typeFilter}: ${existingSignalNames || "None"}
 
-Research and return an updated set of 15-20 trend signals. For each existing signal, assess whether its cycle_phase should change (Early → Building → Peaking → Declining → Dead). Remove signals that are no longer relevant. Add new signals you detect.
+Research and return an updated set of 10-15 trend signals${typeFilter}. For each existing signal, assess whether its cycle_phase should change (Early → Building → Peaking → Declining → Dead). Remove signals that are no longer relevant. Add new signals you detect.
 
-IMPORTANT: Each signal MUST specify a production_type. Distribute signals across production types: film, tv-series, documentary, commercial, branded-content, music-video, short-film, digital-series.
+${typeInstruction}
+${verticalDramaContext}
 
 For commercial and branded-content signals, use category terms like "Brand Strategy", "Creative Direction", "Client Behaviour", "Content Innovation" — never use film-distribution terminology like "pre-sales", "sales agent", "theatrical", etc.
 
@@ -74,9 +109,10 @@ Categories by production type:
 - documentary: Subject Access, Impact Trends, Broadcaster Appetite, Grant Cycles, Archive Innovation
 - music-video: Visual Innovation, Artist Momentum, Platform Strategy, Commissioner Behaviour
 - short-film/digital-series: Festival Cycles, Platform Algorithm, Creator Economy, Format Innovation
+- vertical-drama: Platform Algorithm, Scroll Retention, Cast Social Value, Micro-Genre Heat, Monetisation Model, Regional Expansion, Content Innovation, Creator Economy
 
 Cycle phases: Early, Building, Peaking, Declining
-Regions: US, UK, Europe, Asia, LatAm, International, MENA, Africa
+Regions: US, UK, Europe, Asia, LatAm, International, MENA, Africa, China
 Velocity: Rising, Stable, Declining
 Saturation Risk: Low, Medium, High
 Budget Tiers: Micro, Low, Mid, Upper-Mid, High, Studio-Scale
@@ -89,10 +125,10 @@ For each signal provide:
 - sources_count: estimated number of independent sources (3-8)
 - genre_tags: relevant genres (array)
 - tone_tags: relevant tones (array)
-- format_tags: relevant formats like Feature, Series, Limited Series (array)
+- format_tags: relevant formats (array)
 - region: primary region
-- lane_relevance: which finance lanes this affects (array from: studio-streamer, independent-film, low-budget, international-copro, genre-market, prestige-awards, fast-turnaround)
-- production_type: one of film, tv-series, documentary, documentary-series, commercial, branded-content, music-video, short-film, digital-series, proof-of-concept, hybrid
+- lane_relevance: which finance lanes this affects (array)
+- production_type: "${productionType || "film"}"
 - strength: 1-10 integer
 - velocity: Rising, Stable, or Declining
 - saturation_risk: Low, Medium, or High
@@ -102,26 +138,25 @@ For each signal provide:
 
 Return ONLY a JSON array of signal objects. No markdown, no explanation outside the JSON.`;
 
-    const castPrompt = `You are an international entertainment talent analyst focused on finance-relevant talent intelligence, segmented by production type. Your job is to identify talent whose market momentum is shifting in ways that affect project packaging and finance.
+    const castLabel = isVerticalDrama ? "creator/talent" : "talent";
+    const castPrompt = `You are an international entertainment ${castLabel} analyst focused on finance-relevant talent intelligence. Your job is to identify talent whose market momentum is shifting in ways that affect project packaging and finance.
 
-Current tracked talent: ${existingCastNames || "None"}
+Current tracked ${castLabel}${typeFilter}: ${existingCastNames || "None"}
 
-Research and return an updated set of 15-20 talent trends. For existing entries, update their cycle_phase and timing_window. Remove entries whose momentum has stalled. Add new emerging talent.
+Research and return an updated set of 10-15 ${castLabel} trends${typeFilter}. For existing entries, update their cycle_phase and timing_window. Remove entries whose momentum has stalled. Add new emerging talent.
 
-IMPORTANT: Each entry MUST specify a production_type. For commercial/branded-content, track directors and creative leads rather than actors. For music-video, track directors. Distribute across production types.
+${typeInstruction}
+${isVerticalDrama ? "\nFor vertical-drama, track creators, influencers, and actors with strong social media/short-form presence. Focus on those with proven scroll-stopping ability, not traditional film credentials." : ""}
 
 Focus on talent relevant to international content — not just Hollywood A-listers. Include talent from UK, Europe, Asia, LatAm, and Australia/NZ.
 
 Trend types: Emerging, Accelerating, Resurgent, Declining
 Cycle phases: Early, Building, Peaking, Declining
-Regions: US, UK, Europe, Asia, LatAm, Australia, MENA, Africa
-Market alignment: Studio, Indie, Streamer, Brand, Agency
-Sales leverage: Pre-sales friendly, MG-driven, Festival-driven, Streamer-oriented, Brand-aligned
 Velocity: Rising, Stable, Declining
 Saturation Risk: Low, Medium, High
 
 For each entry provide:
-- actor_name: full name (or director/creator name for non-film types)
+- actor_name: full name
 - region: primary region
 - age_band: 18-25, 26-35, 36-45, 46-55, 55+
 - trend_type: one of the types above
@@ -129,9 +164,9 @@ For each entry provide:
 - genre_relevance: array of relevant genres or specialties
 - market_alignment: Studio, Indie, Streamer, Brand, or Agency
 - cycle_phase: current phase
-- sales_leverage: one of the leverage types
+- sales_leverage: one of Pre-sales friendly, MG-driven, Festival-driven, Streamer-oriented, Brand-aligned
 - timing_window: e.g. "Strong next 6-12 months"
-- production_type: one of film, tv-series, documentary, commercial, branded-content, music-video, short-film, digital-series
+- production_type: "${productionType || "film"}"
 - strength: 1-10 integer
 - velocity: Rising, Stable, or Declining
 - saturation_risk: Low, Medium, or High
@@ -190,7 +225,6 @@ Return ONLY a JSON array of objects. No markdown, no explanation outside the JSO
     const signalContent = signalData.choices?.[0]?.message?.content || "";
     const castContent = castData.choices?.[0]?.message?.content || "";
 
-    // Parse JSON from AI responses (strip markdown fences if present)
     const parseJson = (raw: string) => {
       let cleaned = raw.trim();
       if (cleaned.startsWith("```")) {
@@ -216,18 +250,26 @@ Return ONLY a JSON array of objects. No markdown, no explanation outside the JSO
       throw new Error("AI returned invalid cast data");
     }
 
-    // Archive existing active signals
+    // Archive existing active signals — ONLY for the requested production_type
     const now = new Date().toISOString();
 
-    await supabase
+    let archiveSignalQuery = supabase
       .from("trend_signals")
       .update({ status: "archived", archived_at: now })
       .eq("status", "active");
 
-    await supabase
+    let archiveCastQuery = supabase
       .from("cast_trends")
       .update({ status: "archived", archived_at: now })
       .eq("status", "active");
+
+    if (productionType) {
+      archiveSignalQuery = archiveSignalQuery.eq("production_type", productionType);
+      archiveCastQuery = archiveCastQuery.eq("production_type", productionType);
+    }
+
+    await archiveSignalQuery;
+    await archiveCastQuery;
 
     // Insert new signals
     const signalRows = newSignals.map((s: any) => ({
@@ -241,7 +283,7 @@ Return ONLY a JSON array of objects. No markdown, no explanation outside the JSO
       format_tags: s.format_tags || [],
       region: s.region || "International",
       lane_relevance: s.lane_relevance || [],
-      production_type: s.production_type || "film",
+      production_type: productionType || s.production_type || "film",
       strength: Math.min(10, Math.max(1, parseInt(s.strength) || 5)),
       velocity: ["Rising", "Stable", "Declining"].includes(s.velocity) ? s.velocity : "Stable",
       saturation_risk: ["Low", "Medium", "High"].includes(s.saturation_risk) ? s.saturation_risk : "Low",
@@ -264,7 +306,7 @@ Return ONLY a JSON array of objects. No markdown, no explanation outside the JSO
       cycle_phase: c.cycle_phase || "Early",
       sales_leverage: c.sales_leverage || "",
       timing_window: c.timing_window || "",
-      production_type: c.production_type || "film",
+      production_type: productionType || c.production_type || "film",
       strength: Math.min(10, Math.max(1, parseInt(c.strength) || 5)),
       velocity: ["Rising", "Stable", "Declining"].includes(c.velocity) ? c.velocity : "Stable",
       saturation_risk: ["Low", "Medium", "High"].includes(c.saturation_risk) ? c.saturation_risk : "Low",
@@ -293,6 +335,7 @@ Return ONLY a JSON array of objects. No markdown, no explanation outside the JSO
         success: true,
         signals_updated: signalRows.length,
         cast_updated: castRows.length,
+        production_type: productionType || "all",
         refreshed_at: now,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
