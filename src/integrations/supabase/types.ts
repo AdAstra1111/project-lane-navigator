@@ -1789,6 +1789,113 @@ export type Database = {
           },
         ]
       }
+      project_recoupment_scenarios: {
+        Row: {
+          created_at: string
+          currency: string
+          id: string
+          notes: string
+          project_id: string
+          scenario_name: string
+          total_revenue_estimate: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          currency?: string
+          id?: string
+          notes?: string
+          project_id: string
+          scenario_name?: string
+          total_revenue_estimate?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          currency?: string
+          id?: string
+          notes?: string
+          project_id?: string
+          scenario_name?: string
+          total_revenue_estimate?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_recoupment_scenarios_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_recoupment_tiers: {
+        Row: {
+          cap: number | null
+          created_at: string
+          fixed_amount: number
+          id: string
+          notes: string
+          participant_name: string
+          percentage: number
+          project_id: string
+          scenario_id: string
+          tier_order: number
+          tier_type: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          cap?: number | null
+          created_at?: string
+          fixed_amount?: number
+          id?: string
+          notes?: string
+          participant_name?: string
+          percentage?: number
+          project_id: string
+          scenario_id: string
+          tier_order?: number
+          tier_type?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          cap?: number | null
+          created_at?: string
+          fixed_amount?: number
+          id?: string
+          notes?: string
+          participant_name?: string
+          percentage?: number
+          project_id?: string
+          scenario_id?: string
+          tier_order?: number
+          tier_type?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_recoupment_tiers_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_recoupment_tiers_scenario_id_fkey"
+            columns: ["scenario_id"]
+            isOneToOne: false
+            referencedRelation: "project_recoupment_scenarios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       project_scenes: {
         Row: {
           cast_members: string[]

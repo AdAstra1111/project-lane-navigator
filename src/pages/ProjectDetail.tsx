@@ -58,6 +58,7 @@ import { ProjectActivityFeed } from '@/components/ProjectActivityFeed';
 import { DeadlinePanel } from '@/components/DeadlinePanel';
 import { DecisionJournal } from '@/components/DecisionJournal';
 import { ProjectChat } from '@/components/ProjectChat';
+import { RecoupmentWaterfallPanel } from '@/components/RecoupmentWaterfallPanel';
 import { useProjectBudgets } from '@/hooks/useBudgets';
 import type { BudgetSummary } from '@/lib/finance-readiness';
 import { useTalentTriage } from '@/hooks/useTalentTriage';
@@ -735,6 +736,13 @@ export default function ProjectDetail() {
           {id && (
             <Section icon={PieChart} title="Ownership & Waterfall">
               <OwnershipWaterfallPanel projectId={id} />
+            </Section>
+          )}
+
+          {/* 8b. Recoupment Waterfall */}
+          {id && (
+            <Section icon={TrendingUp} title="Recoupment Waterfall">
+              <RecoupmentWaterfallPanel projectId={id} />
             </Section>
           )}
 
