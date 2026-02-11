@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { LogOut, Plus, Radio, Landmark, HelpCircle, ChevronDown, Calendar, Users, LayoutGrid, Globe, BarChart3, Settings, Menu, X, Building2, GraduationCap } from 'lucide-react';
+import iffyLogo from '@/assets/iffy-logo.png';
 import { NotificationBell } from '@/components/NotificationBell';
 import { GlobalSearch } from '@/components/GlobalSearch';
 import { ThemeToggle } from '@/components/ThemeToggle';
@@ -39,10 +40,11 @@ export function Header() {
     <header className="sticky top-0 z-50 border-b border-border/50 bg-background/80 backdrop-blur-xl">
       <div className="container flex h-16 items-center justify-between">
         <Link to="/dashboard" className="flex items-center gap-2">
-          <div className="h-8 w-8 rounded-md bg-primary flex items-center justify-center">
-            <span className="font-display font-bold text-sm text-primary-foreground">IF</span>
+          <img src={iffyLogo} alt="IFFY logo" className="h-8 w-8 rounded-md" />
+          <div className="flex flex-col leading-none">
+            <span className="font-display font-semibold text-lg tracking-tight text-foreground">IFFY</span>
+            <span className="text-[10px] text-muted-foreground tracking-widest uppercase">From inception to recoup</span>
           </div>
-          <span className="font-display font-semibold text-lg tracking-tight text-foreground">IFFY</span>
         </Link>
 
         {/* Desktop nav */}
