@@ -60,6 +60,15 @@ export const MODE_WORKFLOWS: Record<ProjectFormat, { value: string; label: strin
     { value: 'invoice', label: 'Invoice' },
     { value: 'paid', label: 'Paid' },
   ],
+  'branded-content': [
+    { value: 'strategy', label: 'Strategy' },
+    { value: 'creative-development', label: 'Creative Development' },
+    { value: 'brand-approval', label: 'Brand Approval' },
+    { value: 'production', label: 'Production' },
+    { value: 'post', label: 'Post' },
+    { value: 'distribution', label: 'Distribution' },
+    { value: 'performance', label: 'Performance Tracking' },
+  ],
   'documentary-series': [
     { value: 'development', label: 'Development' },
     { value: 'access-secured', label: 'Access Secured' },

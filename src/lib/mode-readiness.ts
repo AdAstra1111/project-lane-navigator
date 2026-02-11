@@ -18,25 +18,25 @@ export interface ModeReadinessResult {
 }
 
 function getStage(score: number, format: string): string {
-  if (format === 'commercial') {
+  if (format === 'commercial' || format === 'music-video') {
     if (score >= 80) return 'Delivery-Ready';
     if (score >= 55) return 'In Production';
     if (score >= 30) return 'Awarded';
     return 'Pitching';
   }
-  if (format === 'short-film') {
+  if (format === 'short-film' || format === 'proof-of-concept') {
     if (score >= 80) return 'Festival-Ready';
     if (score >= 55) return 'In Post';
     if (score >= 30) return 'In Production';
     return 'Development';
   }
-  if (format === 'documentary') {
+  if (format === 'documentary' || format === 'documentary-series') {
     if (score >= 80) return 'Distribution-Ready';
     if (score >= 55) return 'In Production';
     if (score >= 30) return 'Funded';
     return 'Access Phase';
   }
-  if (format === 'digital-series') {
+  if (format === 'digital-series' || format === 'hybrid') {
     if (score >= 80) return 'Growth Phase';
     if (score >= 55) return 'Launched';
     if (score >= 30) return 'Funded';
@@ -48,7 +48,7 @@ function getStage(score: number, format: string): string {
     if (score >= 30) return 'Funded';
     return 'Strategy';
   }
-  // Default
+  // Default (film, tv-series)
   if (score >= 80) return 'Finance-Ready';
   if (score >= 55) return 'Packaged';
   if (score >= 30) return 'Building';
@@ -415,6 +415,273 @@ function scoreBrandedContent(
   };
 }
 
+// ─── DOCUMENTARY SERIES ───
+
+function scoreDocumentarySeries(
+  project: Project, cast: ProjectCastMember[], partners: ProjectPartner[],
+  scripts: ProjectScript[], financeScenarios: ProjectFinanceScenario[],
+  hods: ProjectHOD[], hasIncentiveInsights: boolean, budgetSummary?: BudgetSummary,
+): ModeReadinessResult {
+  const strengths: string[] = [];
+  const blockers: string[] = [];
+  const analysis = project.analysis_passes as FullAnalysis | null;
+
+  let cultural = 0;
+  if (project.genres?.length > 0) cultural += 5;
+  if (project.tone) cultural += 5;
+  if (analysis?.creative_signal) { cultural += 5; strengths.push('Creative signal identified'); }
+  if (project.comparable_titles) cultural += 5;
+  cultural = Math.min(20, cultural);
+
+  let access = 0;
+  if (scripts.some(s => s.status === 'current')) { access += 10; strengths.push('Treatment attached'); }
+  else if (scripts.length > 0) access += 5;
+  else blockers.push('No treatment attached');
+  if (hods.some(h => h.department === 'Director' && (h.status === 'attached' || h.status === 'confirmed'))) {
+    access += 5; strengths.push('Director attached');
+  }
+  if (analysis?.structural_read) access += 5;
+  access = Math.min(20, access);
+
+  let format = 0;
+  if (project.format) format += 5;
+  if (analysis?.structural_read) format += 5;
+  if (scripts.length > 1) format += 5;
+  format = Math.min(15, format);
+
+  let broadcaster = 0;
+  if (financeScenarios.length > 0) { broadcaster += 10; strengths.push('Finance modelled'); }
+  else blockers.push('No finance scenario');
+  if (partners.some(p => p.status === 'confirmed')) broadcaster += 5;
+  if (hasIncentiveInsights) broadcaster += 5;
+  broadcaster = Math.min(20, broadcaster);
+
+  let impact = 0;
+  if (budgetSummary && budgetSummary.count > 0) impact += 5;
+  if (partners.length > 0) impact += 5;
+  if (project.budget_range) impact += 5;
+  impact = Math.min(15, impact);
+
+  let clearance = 0;
+  if (budgetSummary && budgetSummary.hasLocked) clearance += 5;
+  if (analysis) clearance += 5;
+  clearance = Math.min(10, clearance);
+
+  const score = cultural + access + format + broadcaster + impact + clearance;
+
+  return {
+    score,
+    stage: getStage(score, 'documentary'),
+    dimensions: [
+      { key: 'cultural-relevance', label: 'Cultural Relevance', score: cultural, max: 20 },
+      { key: 'access', label: 'Access Sustainability', score: access, max: 20 },
+      { key: 'format', label: 'Format Strength', score: format, max: 15 },
+      { key: 'broadcaster-fit', label: 'Broadcaster Fit', score: broadcaster, max: 20 },
+      { key: 'impact', label: 'Impact Campaign', score: impact, max: 15 },
+      { key: 'clearance', label: 'Clearance Risk', score: clearance, max: 10 },
+    ],
+    strengths: strengths.slice(0, 3),
+    blockers: blockers.slice(0, 3),
+    bestNextStep: scripts.length === 0 ? 'Attach a treatment for your series.' :
+      financeScenarios.length === 0 ? 'Model your funding plan with broadcaster and grant sources.' :
+      'Secure broadcaster commitment for first season.',
+  };
+}
+
+// ─── MUSIC VIDEO ───
+
+function scoreMusicVideo(
+  project: Project, cast: ProjectCastMember[], partners: ProjectPartner[],
+  scripts: ProjectScript[], financeScenarios: ProjectFinanceScenario[],
+  hods: ProjectHOD[], hasIncentiveInsights: boolean, budgetSummary?: BudgetSummary,
+): ModeReadinessResult {
+  const strengths: string[] = [];
+  const blockers: string[] = [];
+  const analysis = project.analysis_passes as FullAnalysis | null;
+
+  let visual = 0;
+  if (scripts.some(s => s.status === 'current')) { visual += 15; strengths.push('Treatment attached'); }
+  else if (scripts.length > 0) visual += 8;
+  else blockers.push('No treatment attached');
+  if (analysis?.creative_signal) visual += 8;
+  if (project.tone) visual += 7;
+  visual = Math.min(30, visual);
+
+  let directorFit = 0;
+  const dirAttached = hods.some(h => h.department === 'Director' && (h.status === 'attached' || h.status === 'confirmed'));
+  if (dirAttached) { directorFit += 18; strengths.push('Director attached'); }
+  else blockers.push('No director attached');
+  if (analysis?.structural_read) directorFit += 7;
+  directorFit = Math.min(25, directorFit);
+
+  let scope = 0;
+  if (budgetSummary && budgetSummary.count > 0) { scope += 10; strengths.push('Budget created'); }
+  else blockers.push('No budget');
+  if (financeScenarios.length > 0) scope += 5;
+  if (project.budget_range) scope += 5;
+  scope = Math.min(20, scope);
+
+  let release = 0;
+  if (project.target_audience) release += 5;
+  if (partners.length > 0) release += 5;
+  if (project.comparable_titles) release += 5;
+  release = Math.min(15, release);
+
+  let portfolio = 0;
+  if (project.genres?.length > 0) portfolio += 3;
+  if (analysis?.market_reality) portfolio += 4;
+  if (dirAttached) portfolio += 3;
+  portfolio = Math.min(10, portfolio);
+
+  const score = visual + directorFit + scope + release + portfolio;
+
+  return {
+    score,
+    stage: getStage(score, 'commercial'),
+    dimensions: [
+      { key: 'visual-concept', label: 'Visual Concept', score: visual, max: 30 },
+      { key: 'director-fit', label: 'Director Fit', score: directorFit, max: 25 },
+      { key: 'production-scope', label: 'Production Scope', score: scope, max: 20 },
+      { key: 'release-strategy', label: 'Release Strategy', score: release, max: 15 },
+      { key: 'portfolio-value', label: 'Portfolio Value', score: portfolio, max: 10 },
+    ],
+    strengths: strengths.slice(0, 3),
+    blockers: blockers.slice(0, 3),
+    bestNextStep: !dirAttached ? 'Attach a director to anchor the visual.' :
+      scripts.length === 0 ? 'Write a treatment for the visual concept.' :
+      'Lock budget and production timeline.',
+  };
+}
+
+// ─── PROOF OF CONCEPT ───
+
+function scoreProofOfConcept(
+  project: Project, cast: ProjectCastMember[], partners: ProjectPartner[],
+  scripts: ProjectScript[], financeScenarios: ProjectFinanceScenario[],
+  hods: ProjectHOD[], hasIncentiveInsights: boolean, budgetSummary?: BudgetSummary,
+): ModeReadinessResult {
+  const strengths: string[] = [];
+  const blockers: string[] = [];
+  const analysis = project.analysis_passes as FullAnalysis | null;
+
+  let ipDemo = 0;
+  if (scripts.some(s => s.status === 'current')) { ipDemo += 15; strengths.push('Script/treatment attached'); }
+  else if (scripts.length > 0) ipDemo += 7;
+  else blockers.push('No script attached');
+  if (analysis?.structural_read) ipDemo += 8;
+  if (analysis?.creative_signal) ipDemo += 7;
+  ipDemo = Math.min(30, ipDemo);
+
+  let techShowcase = 0;
+  const dirAttached = hods.some(h => h.department === 'Director' && (h.status === 'attached' || h.status === 'confirmed'));
+  if (dirAttached) { techShowcase += 10; strengths.push('Director attached'); }
+  if (hods.filter(h => h.status === 'attached' || h.status === 'confirmed').length >= 2) techShowcase += 5;
+  if (project.tone) techShowcase += 5;
+  techShowcase = Math.min(20, techShowcase);
+
+  let pitchReady = 0;
+  if (project.comparable_titles) pitchReady += 5;
+  if (project.genres?.length > 0) pitchReady += 5;
+  if (project.target_audience) pitchReady += 5;
+  if (analysis?.market_reality) pitchReady += 5;
+  if (budgetSummary && budgetSummary.count > 0) pitchReady += 5;
+  pitchReady = Math.min(25, pitchReady);
+
+  let talentSignal = 0;
+  if (cast.some(c => c.status === 'attached')) { talentSignal += 8; strengths.push('Cast attached'); }
+  if (dirAttached) talentSignal += 7;
+  talentSignal = Math.min(15, talentSignal);
+
+  let marketViability = 0;
+  if (financeScenarios.length > 0) marketViability += 4;
+  if (partners.length > 0) marketViability += 3;
+  if (project.budget_range) marketViability += 3;
+  marketViability = Math.min(10, marketViability);
+
+  const score = ipDemo + techShowcase + pitchReady + talentSignal + marketViability;
+
+  return {
+    score,
+    stage: getStage(score, 'short-film'),
+    dimensions: [
+      { key: 'ip-demonstration', label: 'IP Demonstration', score: ipDemo, max: 30 },
+      { key: 'technical-showcase', label: 'Technical Showcase', score: techShowcase, max: 20 },
+      { key: 'pitch-readiness', label: 'Pitch Readiness', score: pitchReady, max: 25 },
+      { key: 'talent-signal', label: 'Talent Signal', score: talentSignal, max: 15 },
+      { key: 'market-viability', label: 'Market Viability', score: marketViability, max: 10 },
+    ],
+    strengths: strengths.slice(0, 3),
+    blockers: blockers.slice(0, 3),
+    bestNextStep: scripts.length === 0 ? 'Write a script that proves the concept.' :
+      !dirAttached ? 'Attach a director to anchor the proof.' :
+      'Build a full development package for pitch meetings.',
+  };
+}
+
+// ─── HYBRID ───
+
+function scoreHybrid(
+  project: Project, cast: ProjectCastMember[], partners: ProjectPartner[],
+  scripts: ProjectScript[], financeScenarios: ProjectFinanceScenario[],
+  hods: ProjectHOD[], hasIncentiveInsights: boolean, budgetSummary?: BudgetSummary,
+): ModeReadinessResult {
+  const strengths: string[] = [];
+  const blockers: string[] = [];
+  const analysis = project.analysis_passes as FullAnalysis | null;
+
+  let innovation = 0;
+  if (project.comparable_titles) innovation += 5;
+  if (analysis?.creative_signal) { innovation += 10; strengths.push('Creative signal identified'); }
+  if (project.tone) innovation += 5;
+  if (scripts.some(s => s.status === 'current')) innovation += 5;
+  innovation = Math.min(25, innovation);
+
+  let audienceDesign = 0;
+  if (project.target_audience) { audienceDesign += 8; strengths.push('Target audience defined'); }
+  if (project.genres?.length > 0) audienceDesign += 5;
+  if (analysis?.market_reality) audienceDesign += 7;
+  audienceDesign = Math.min(20, audienceDesign);
+
+  let techFeasibility = 0;
+  if (scripts.some(s => s.status === 'current')) { techFeasibility += 8; strengths.push('Design doc attached'); }
+  else blockers.push('No design document attached');
+  if (hods.some(h => h.status === 'attached' || h.status === 'confirmed')) techFeasibility += 7;
+  if (analysis?.structural_read) techFeasibility += 5;
+  techFeasibility = Math.min(20, techFeasibility);
+
+  let fundingFit = 0;
+  if (financeScenarios.length > 0) { fundingFit += 10; strengths.push('Finance modelled'); }
+  else blockers.push('No finance scenario');
+  if (partners.length > 0) fundingFit += 5;
+  if (budgetSummary && budgetSummary.count > 0) fundingFit += 5;
+  fundingFit = Math.min(20, fundingFit);
+
+  let culturalImpact = 0;
+  if (project.comparable_titles) culturalImpact += 5;
+  if (analysis?.creative_signal) culturalImpact += 5;
+  if (project.budget_range) culturalImpact += 5;
+  culturalImpact = Math.min(15, culturalImpact);
+
+  const score = innovation + audienceDesign + techFeasibility + fundingFit + culturalImpact;
+
+  return {
+    score,
+    stage: getStage(score, 'digital-series'),
+    dimensions: [
+      { key: 'innovation', label: 'Innovation Factor', score: innovation, max: 25 },
+      { key: 'audience-design', label: 'Audience Design', score: audienceDesign, max: 20 },
+      { key: 'tech-feasibility', label: 'Technical Feasibility', score: techFeasibility, max: 20 },
+      { key: 'funding-fit', label: 'Funding Fit', score: fundingFit, max: 20 },
+      { key: 'cultural-impact', label: 'Cultural Impact', score: culturalImpact, max: 15 },
+    ],
+    strengths: strengths.slice(0, 3),
+    blockers: blockers.slice(0, 3),
+    bestNextStep: scripts.length === 0 ? 'Create a design document or prototype brief.' :
+      financeScenarios.length === 0 ? 'Model funding with innovation funds and tech partners.' :
+      'Build cross-platform audience strategy.',
+  };
+}
+
 // ─── ROUTER ───
 
 export function calculateModeReadiness(
@@ -427,12 +694,20 @@ export function calculateModeReadiness(
       return scoreShortFilm(project, cast, partners, scripts, financeScenarios, hods, hasIncentiveInsights, budgetSummary);
     case 'documentary':
       return scoreDocumentary(project, cast, partners, scripts, financeScenarios, hods, hasIncentiveInsights, budgetSummary);
+    case 'documentary-series':
+      return scoreDocumentarySeries(project, cast, partners, scripts, financeScenarios, hods, hasIncentiveInsights, budgetSummary);
     case 'digital-series':
       return scoreDigitalSeries(project, cast, partners, scripts, financeScenarios, hods, hasIncentiveInsights, budgetSummary);
     case 'commercial':
       return scoreCommercial(project, cast, partners, scripts, financeScenarios, hods, hasIncentiveInsights, budgetSummary);
     case 'branded-content':
       return scoreBrandedContent(project, cast, partners, scripts, financeScenarios, hods, hasIncentiveInsights, budgetSummary);
+    case 'music-video':
+      return scoreMusicVideo(project, cast, partners, scripts, financeScenarios, hods, hasIncentiveInsights, budgetSummary);
+    case 'proof-of-concept':
+      return scoreProofOfConcept(project, cast, partners, scripts, financeScenarios, hods, hasIncentiveInsights, budgetSummary);
+    case 'hybrid':
+      return scoreHybrid(project, cast, partners, scripts, financeScenarios, hods, hasIncentiveInsights, budgetSummary);
     default:
       return null; // film and tv-series use their own dedicated scoring
   }
