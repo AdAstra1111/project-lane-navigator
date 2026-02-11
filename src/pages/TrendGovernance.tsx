@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Settings2, Save, RotateCcw, History, BarChart3, Loader2 } from 'lucide-react';
 import { Header } from '@/components/Header';
@@ -109,7 +109,7 @@ export default function TrendGovernance() {
   const [hasChanges, setHasChanges] = useState(false);
 
   // Initialize local state when data loads
-  useMemo(() => {
+  useEffect(() => {
     const wMap: Record<string, number> = {};
     for (const w of weights) wMap[w.engine_id] = w.weight_value;
     for (const e of engines) {
