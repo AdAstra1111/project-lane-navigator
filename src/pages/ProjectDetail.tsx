@@ -201,13 +201,16 @@ export default function ProjectDetail() {
   const { data: trendSignals = [] } = useActiveSignals();
   const { user } = useAuth();
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const [incentiveAnalysed, setIncentiveAnalysed] = useState(false);
+  const [incentiveAnalysedThisSession, setIncentiveAnalysedThisSession] = useState(false);
 
   const { cast } = useProjectCast(id);
   const { partners } = useProjectPartners(id);
   const { scripts } = useProjectScripts(id);
   const { scenarios: financeScenarios } = useProjectFinance(id);
   const { hods } = useProjectHODs(id);
+
+  // Incentive analysis is considered done if either: already persisted in DB or run this session
+  const incentiveAnalysed = incentiveAnalysedThisSession || !!(project as any)?.incentive_insights;
   const insightTriage = useTalentTriage(id || '');
   const { data: scriptCharacters = [], isLoading: scriptCharsLoading } = useScriptCharacters(id);
   const insights = useMemo(() => {
@@ -618,7 +621,7 @@ export default function ProjectDetail() {
                 format={project.format}
                 budget_range={project.budget_range}
                 genres={project.genres || []}
-                onAnalysed={setIncentiveAnalysed}
+                onAnalysed={setIncentiveAnalysedThisSession}
               />
             )}
             {id && <DealTracker projectId={id} />}

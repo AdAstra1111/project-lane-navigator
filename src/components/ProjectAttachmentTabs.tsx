@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { Users, Handshake, FileText, DollarSign, Plus, Trash2, X, Check, Clapperboard, Loader2, CalendarDays, Sparkles, HelpCircle } from 'lucide-react';
+import { Users, Handshake, FileText, DollarSign, Plus, Trash2, X, Check, Clapperboard, Loader2, CalendarDays, Sparkles, HelpCircle, RefreshCw } from 'lucide-react';
 import { InfoTooltip } from '@/components/InfoTooltip';
 import { SmartPackaging } from '@/components/SmartPackaging';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -26,6 +26,7 @@ import { useScriptCharacters } from '@/hooks/useScriptCharacters';
 import { usePersonResearch } from '@/hooks/usePersonResearch';
 import { PersonAssessmentCard } from '@/components/PersonAssessmentCard';
 import { ScheduleTab } from '@/components/ScheduleTab';
+import { useProjectDeals, type DealCategory } from '@/hooks/useDeals';
 
 // ---- Status badge styles ----
 const STATUS_STYLES: Record<string, string> = {
@@ -82,7 +83,7 @@ function CastTab({ projectId, projectContext }: { projectId: string; projectCont
   const { data: scriptCharacters = [], isLoading: charsLoading } = useScriptCharacters(projectId);
   const { research, loading, assessments, clearAssessment, candidates, confirmCandidate, clearDisambiguation } = usePersonResearch();
   const [adding, setAdding] = useState(false);
-  const [form, setForm] = useState({ role_name: '', actor_name: '', status: 'wishlist' });
+  const [form, setForm] = useState({ role_name: '', actor_name: '', status: 'wishlist', territory_tags: '' });
   const [customRole, setCustomRole] = useState(false);
 
   // Filter out characters already cast
@@ -93,10 +94,10 @@ function CastTab({ projectId, projectContext }: { projectId: string; projectCont
 
   const handleAdd = () => {
     if (!form.actor_name.trim()) return;
-    addCast.mutate(form);
-    // Trigger research
+    const territories = form.territory_tags.split(',').map(t => t.trim()).filter(Boolean);
+    addCast.mutate({ role_name: form.role_name, actor_name: form.actor_name, status: form.status, territory_tags: territories });
     research(form.actor_name, 'cast', projectContext);
-    setForm({ role_name: '', actor_name: '', status: 'wishlist' });
+    setForm({ role_name: '', actor_name: '', status: 'wishlist', territory_tags: '' });
     setCustomRole(false);
     setAdding(false);
   };
@@ -225,6 +226,26 @@ function CastTab({ projectId, projectContext }: { projectId: string; projectCont
                 )}
               </div>
             )}
+          </div>
+          {/* Status & Territory row */}
+          <div className="flex items-center gap-2">
+            <Select value={form.status} onValueChange={v => setForm(f => ({ ...f, status: v }))}>
+              <SelectTrigger className="w-28 h-8 text-xs">
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="wishlist">Wishlist</SelectItem>
+                <SelectItem value="approached">Approached</SelectItem>
+                <SelectItem value="interested">Interested</SelectItem>
+                <SelectItem value="attached">Attached</SelectItem>
+              </SelectContent>
+            </Select>
+            <Input
+              placeholder="Territories (e.g. UK, US)"
+              value={form.territory_tags}
+              onChange={e => setForm(f => ({ ...f, territory_tags: e.target.value }))}
+              className="h-8 text-sm flex-1"
+            />
             <Button size="icon" className="h-7 w-7" onClick={handleAdd} disabled={!form.actor_name.trim()}>
               <Check className="h-3.5 w-3.5" />
             </Button>
@@ -400,6 +421,7 @@ const CONFIDENCE_OPTIONS = [
 
 export function FinanceTab({ projectId }: { projectId: string }) {
   const { scenarios, addScenario, deleteScenario, updateScenario } = useProjectFinance(projectId);
+  const { deals, categoryTotals } = useProjectDeals(projectId);
   const [adding, setAdding] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [form, setForm] = useState({
@@ -424,6 +446,21 @@ export function FinanceTab({ projectId }: { projectId: string }) {
     addScenario.mutate(form);
     resetForm();
     setAdding(false);
+  };
+
+  const hasClosedDeals = Object.values(categoryTotals as Record<string, number>).some(v => v > 0);
+
+  const handleSyncFromDeals = (scenarioId: string) => {
+    const fmtAmt = (v: number) => v > 0 ? v.toString() : '';
+    const salesTotal = (categoryTotals.sales || 0) + (categoryTotals['soft-money'] || 0);
+    updateScenario.mutate({
+      id: scenarioId,
+      presales_amount: fmtAmt(salesTotal),
+      equity_amount: fmtAmt(categoryTotals.equity || 0),
+      incentive_amount: fmtAmt(categoryTotals.incentive || 0),
+      gap_amount: fmtAmt(categoryTotals.gap || 0),
+      other_sources: fmtAmt(categoryTotals.other || 0),
+    });
   };
 
   const parseAmt = (v: string) => {
@@ -468,6 +505,17 @@ export function FinanceTab({ projectId }: { projectId: string }) {
                   </span>
                 )}
               </button>
+              {hasClosedDeals && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 text-muted-foreground hover:text-primary"
+                  onClick={() => handleSyncFromDeals(s.id)}
+                  title="Sync amounts from closed deals"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                </Button>
+              )}
               <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => deleteScenario.mutate(s.id)}>
                 <Trash2 className="h-3.5 w-3.5" />
               </Button>
