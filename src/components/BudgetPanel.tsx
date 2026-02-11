@@ -1,6 +1,6 @@
 import { useState, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { DollarSign, Plus, Trash2, Check, X, Upload, FileSpreadsheet, Lock, Unlock, ChevronDown, Info, ArrowLeftRight, FileText, Loader2 } from 'lucide-react';
+import { DollarSign, Plus, Trash2, Check, X, Upload, FileSpreadsheet, Lock, Unlock, ChevronDown, Info, ArrowLeftRight, FileText, Loader2, Download } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -17,6 +17,8 @@ import {
   type ProjectBudget,
 } from '@/hooks/useBudgets';
 import { BudgetCompareView } from '@/components/BudgetCompareView';
+import { exportBudgetXLSX } from '@/lib/xls-export';
+import { exportBudgetCSV } from '@/lib/csv-export';
 
 // ---- Template options ----
 const TEMPLATE_OPTIONS = [
@@ -90,10 +92,12 @@ const CAT_STYLES: Record<string, string> = {
 function BudgetDetailView({
   budget,
   projectId,
+  projectTitle,
   onBack,
 }: {
   budget: ProjectBudget;
   projectId: string;
+  projectTitle: string;
   onBack: () => void;
 }) {
   const { lines, addLine, addLines, updateLine, deleteLine } = useBudgetLines(budget.id, projectId);
@@ -220,6 +224,20 @@ function BudgetDetailView({
               </Button>
             </>
           )}
+          <Button variant="outline" size="sm" className="text-xs gap-1.5" onClick={() => {
+            exportBudgetXLSX({
+              projectTitle,
+              budgetLabel: budget.version_label,
+              currency: budget.currency,
+              lines,
+              totalAmount: totalFromLines,
+            });
+          }}>
+            <Download className="h-3 w-3" /> XLS
+          </Button>
+          <Button variant="outline" size="sm" className="text-xs gap-1.5" onClick={() => exportBudgetCSV(lines, budget.version_label, projectTitle)}>
+            <Download className="h-3 w-3" /> CSV
+          </Button>
           <Button variant="outline" size="sm" className="text-xs gap-1.5" onClick={handleLockToggle}>
             {isLocked ? <Unlock className="h-3 w-3" /> : <Lock className="h-3 w-3" />}
             {isLocked ? 'Unlock' : 'Lock'}
@@ -334,9 +352,10 @@ function BudgetDetailView({
 interface Props {
   projectId: string;
   assignedLane?: string | null;
+  projectTitle?: string;
 }
 
-export function BudgetPanel({ projectId, assignedLane }: Props) {
+export function BudgetPanel({ projectId, assignedLane, projectTitle = 'Project' }: Props) {
   const { budgets, addBudget, deleteBudget } = useProjectBudgets(projectId);
   const [selectedBudgetId, setSelectedBudgetId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -398,6 +417,7 @@ export function BudgetPanel({ projectId, assignedLane }: Props) {
         <BudgetDetailView
           budget={selectedBudget}
           projectId={projectId}
+          projectTitle={projectTitle}
           onBack={() => setSelectedBudgetId(null)}
         />
       </motion.div>

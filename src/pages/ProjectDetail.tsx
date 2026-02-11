@@ -707,7 +707,7 @@ export default function ProjectDetail() {
           {/* 5. Budget */}
           {id && (
             <Section icon={FileSpreadsheet} title="Budget">
-              <BudgetPanel projectId={id} assignedLane={project?.assigned_lane} />
+              <BudgetPanel projectId={id} assignedLane={project?.assigned_lane} projectTitle={project?.title} />
             </Section>
           )}
 
