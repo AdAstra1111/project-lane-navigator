@@ -253,10 +253,13 @@ serve(async (req) => {
 
       const result = await extractTextFromFile(fileData, fileName);
 
+      // Strip null bytes that PostgreSQL cannot store
+      const cleanText = result.text.replace(/\x00/g, '');
+
       docResults.push({
         file_name: fileName,
         file_path: path,
-        extracted_text: result.text,
+        extracted_text: cleanText,
         extraction_status: result.status,
         total_pages: result.totalPages,
         pages_analyzed: result.pagesAnalyzed,
@@ -264,20 +267,43 @@ serve(async (req) => {
       });
     }
 
-    // Save document records to DB
+    // Save document records to DB (upsert by file_path to avoid duplicates)
     for (const doc of docResults) {
-      const { error: docError } = await adminClient.from("project_documents").insert({
-        project_id: projectId,
-        user_id: user.id,
-        file_name: doc.file_name,
-        file_path: doc.file_path,
-        extracted_text: doc.extracted_text || null,
-        extraction_status: doc.extraction_status,
-        total_pages: doc.total_pages,
-        pages_analyzed: doc.pages_analyzed,
-        error_message: doc.error_message,
-      });
-      if (docError) console.error("Failed to save document record:", docError);
+      // Check if record already exists
+      const { data: existing } = await adminClient
+        .from("project_documents")
+        .select("id")
+        .eq("project_id", projectId)
+        .eq("file_path", doc.file_path)
+        .maybeSingle();
+
+      if (existing) {
+        // Update existing record
+        const { error: updateErr } = await adminClient
+          .from("project_documents")
+          .update({
+            extracted_text: doc.extracted_text || null,
+            extraction_status: doc.extraction_status,
+            total_pages: doc.total_pages,
+            pages_analyzed: doc.pages_analyzed,
+            error_message: doc.error_message,
+          })
+          .eq("id", existing.id);
+        if (updateErr) console.error("Failed to update document record:", updateErr);
+      } else {
+        const { error: docError } = await adminClient.from("project_documents").insert({
+          project_id: projectId,
+          user_id: user.id,
+          file_name: doc.file_name,
+          file_path: doc.file_path,
+          extracted_text: doc.extracted_text || null,
+          extraction_status: doc.extraction_status,
+          total_pages: doc.total_pages,
+          pages_analyzed: doc.pages_analyzed,
+          error_message: doc.error_message,
+        });
+        if (docError) console.error("Failed to save document record:", docError);
+      }
     }
 
     // Update project's document_urls array
