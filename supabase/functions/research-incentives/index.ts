@@ -14,6 +14,7 @@ Deno.serve(async (req) => {
   try {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
+    const PERPLEXITY_API_KEY = Deno.env.get("PERPLEXITY_API_KEY");
 
     // Auth check
     const authHeader = req.headers.get("Authorization");
@@ -64,18 +65,51 @@ Deno.serve(async (req) => {
       });
     }
 
+    // ── Perplexity grounded incentive research ──
+    let groundedIncentiveData = "";
+    if (PERPLEXITY_API_KEY) {
+      try {
+        const pResponse = await fetch("https://api.perplexity.ai/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${PERPLEXITY_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "sonar",
+            messages: [
+              { role: "system", content: "You are a film finance and tax incentive researcher. Return factual, current data about production incentive programs including exact rates, caps, eligibility rules, and any recent changes. Cite official sources." },
+              { role: "user", content: `What are the current film and TV production tax incentives, rebates, grants, and funds available in ${jurisdiction}? Include exact percentage rates, qualifying spend rules, any caps or minimum spend requirements, and whether these programs are currently open for applications. Note any recent changes or updates to these programs.` },
+            ],
+            search_recency_filter: "month",
+          }),
+        });
+        if (pResponse.ok) {
+          const pData = await pResponse.json();
+          const pContent = pData.choices?.[0]?.message?.content || "";
+          const citations = pData.citations || [];
+          groundedIncentiveData = `\n\n=== REAL-TIME INCENTIVE DATA (cited web sources) ===\n${pContent}\n\nSources: ${citations.join(", ")}\n=== END ===`;
+          console.log("Perplexity incentive research complete, citations:", citations.length);
+        }
+      } catch (e) {
+        console.warn("Perplexity incentive research failed:", e);
+      }
+    }
+
     // Research via AI
     const systemPrompt = `You are an expert in international film finance, tax incentives, and co-production frameworks. 
 You provide accurate, current information about film and TV production incentives worldwide.
 Always cite the official source (government or film commission website).
 If you are uncertain about specific numbers or rules, say so and mark confidence as "low".
-Today's date is ${new Date().toISOString().split("T")[0]}.`;
+Today's date is ${new Date().toISOString().split("T")[0]}.
+${groundedIncentiveData ? "\nIMPORTANT: Use the REAL-TIME INCENTIVE DATA below as your primary source. It contains current, cited information about incentive rates and rules. Cross-reference your knowledge against this data and prefer cited numbers." : ""}`;
 
     const userPrompt = `Research ALL current film and TV production tax incentives, rebates, grants, and funds available in: ${jurisdiction}
 
 ${format ? `Format: ${format}` : ""}
 ${budget_range ? `Budget range: ${budget_range}` : ""}
 ${genres?.length ? `Genres: ${genres.join(", ")}` : ""}
+${groundedIncentiveData}
 
 For EACH incentive program, provide structured data.`;
 
