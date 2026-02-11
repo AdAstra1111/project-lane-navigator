@@ -2,6 +2,7 @@ import { motion } from 'framer-motion';
 import { CastTrend } from '@/hooks/useTrends';
 import { Badge } from '@/components/ui/badge';
 import { TrendScoreBadges } from '@/components/TrendScoreBadges';
+import { ShareSignalDialog } from '@/components/ShareSignalDialog';
 import { formatDistanceToNow } from 'date-fns';
 
 const TREND_TYPE_STYLES: Record<string, string> = {
@@ -87,11 +88,14 @@ export function CastTrendCard({ trend, index, isArchived }: CastTrendCardProps) 
             <span className="bg-muted/50 rounded px-1.5 py-0.5">{trend.target_buyer}</span>
           )}
         </div>
-        <span>
-          {isArchived && trend.archived_at
-            ? `Archived ${formatDistanceToNow(new Date(trend.archived_at), { addSuffix: true })}`
-            : `Detected ${formatDistanceToNow(new Date(trend.first_detected_at), { addSuffix: true })}`}
-        </span>
+        <div className="flex items-center gap-2">
+          <ShareSignalDialog signalId={trend.id} signalName={trend.actor_name} signalType="cast" />
+          <span>
+            {isArchived && trend.archived_at
+              ? `Archived ${formatDistanceToNow(new Date(trend.archived_at), { addSuffix: true })}`
+              : `Detected ${formatDistanceToNow(new Date(trend.first_detected_at), { addSuffix: true })}`}
+          </span>
+        </div>
       </div>
     </motion.div>
   );
