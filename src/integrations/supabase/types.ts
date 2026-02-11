@@ -2625,6 +2625,50 @@ export type Database = {
           },
         ]
       }
+      shared_signals: {
+        Row: {
+          created_at: string
+          id: string
+          note: string
+          project_id: string | null
+          shared_by: string
+          shared_with: string
+          signal_id: string
+          signal_name: string
+          signal_type: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          note?: string
+          project_id?: string | null
+          shared_by: string
+          shared_with: string
+          signal_id: string
+          signal_name?: string
+          signal_type?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          note?: string
+          project_id?: string | null
+          shared_by?: string
+          shared_with?: string
+          signal_id?: string
+          signal_name?: string
+          signal_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shared_signals_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       shoot_days: {
         Row: {
           created_at: string

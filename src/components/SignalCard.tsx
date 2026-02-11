@@ -2,6 +2,7 @@ import { motion } from 'framer-motion';
 import { TrendSignal } from '@/hooks/useTrends';
 import { Badge } from '@/components/ui/badge';
 import { TrendScoreBadges } from '@/components/TrendScoreBadges';
+import { ShareSignalDialog } from '@/components/ShareSignalDialog';
 import { formatDistanceToNow } from 'date-fns';
 
 const CATEGORY_STYLES: Record<string, string> = {
@@ -77,11 +78,14 @@ export function SignalCard({ signal, index, isArchived }: SignalCardProps) {
             <span className="bg-muted/50 rounded px-1.5 py-0.5">{signal.budget_tier}</span>
           )}
         </div>
-        <span>
-          {isArchived && signal.archived_at
-            ? `Archived ${formatDistanceToNow(new Date(signal.archived_at), { addSuffix: true })}`
-            : `Detected ${formatDistanceToNow(new Date(signal.first_detected_at), { addSuffix: true })}`}
-        </span>
+        <div className="flex items-center gap-2">
+          <ShareSignalDialog signalId={signal.id} signalName={signal.name} signalType="story" />
+          <span>
+            {isArchived && signal.archived_at
+              ? `Archived ${formatDistanceToNow(new Date(signal.archived_at), { addSuffix: true })}`
+              : `Detected ${formatDistanceToNow(new Date(signal.first_detected_at), { addSuffix: true })}`}
+          </span>
+        </div>
       </div>
     </motion.div>
   );
