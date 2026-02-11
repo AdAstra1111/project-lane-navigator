@@ -8,18 +8,18 @@ const ONBOARDING_KEY = 'iffy-onboarding-seen';
 const steps = [
   {
     icon: FolderOpen,
-    title: 'Projects are living dossiers.',
-    body: 'Attach cast, partners, scripts, and heads of department — the project updates itself.',
+    title: 'From inception to recoup.',
+    body: 'IFFY — Intelligent Film Flow & Yield — guides your project from first idea through production to monetisation.',
   },
   {
     icon: Landmark,
     title: 'Finance is built in.',
-    body: 'Incentives and co-productions are evaluated automatically based on your project details.',
+    body: 'Incentives, co-productions, and capital stacks are evaluated automatically based on your project details.',
   },
   {
     icon: Target,
-    title: 'Decisions matter.',
-    body: 'Every change moves the project closer to — or further from — finance-ready.',
+    title: 'Every decision matters.',
+    body: 'Each change moves your project closer to — or further from — finance-ready. Context and ownership are preserved at every stage.',
   },
   {
     icon: Footprints,

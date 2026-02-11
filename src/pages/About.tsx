@@ -17,11 +17,12 @@ export default function About() {
       <main className="container max-w-2xl py-16 space-y-16">
         {/* Hero */}
         <motion.section {...fadeUp()} className="text-center space-y-4">
+          <p className="text-xs font-display uppercase tracking-[0.2em] text-primary">Intelligent Film Flow & Yield</p>
           <h1 className="text-4xl sm:text-5xl font-display font-bold text-foreground tracking-tight leading-tight">
-            From <span className="text-gradient">iffy</span> to finance-ready
+            From <span className="text-gradient">inception</span> to recoup.
           </h1>
           <p className="text-xl text-muted-foreground font-display">
-            — one decision at a time.
+            One decision at a time.
           </p>
         </motion.section>
 
@@ -29,7 +30,7 @@ export default function About() {
         <motion.section {...fadeUp(0.1)} className="space-y-4">
           <h2 className="text-2xl font-display font-semibold text-foreground">What IFFY is</h2>
           <p className="text-muted-foreground leading-relaxed">
-            IFFY is a decision-support tool for international film and television finance. It helps producers evaluate whether a project is financeable — and what to do next to get there.
+            IFFY is a project intelligence system that guides film and TV projects from inception through production to monetisation and recoup — preserving context, ownership, and financial clarity at every stage.
           </p>
           <p className="text-muted-foreground leading-relaxed">
             It doesn't replace your instincts. It gives your instincts better information.
@@ -85,7 +86,7 @@ export default function About() {
         {/* The promise */}
         <motion.section {...fadeUp(0.3)} className="glass-card rounded-xl p-8 text-center space-y-4 border-l-4 border-primary">
           <p className="text-lg font-display font-semibold text-foreground">
-            Every project starts iffy. IFFY helps you make it less so.
+            From inception to recoup.
           </p>
           <p className="text-muted-foreground">
             One decision at a time.

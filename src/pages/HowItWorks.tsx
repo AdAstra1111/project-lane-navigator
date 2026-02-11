@@ -67,11 +67,12 @@ export default function HowItWorks() {
       <Header />
       <main className="container max-w-2xl py-16 space-y-12">
         <motion.div {...fadeUp()} className="space-y-3">
+          <p className="text-xs font-display uppercase tracking-[0.2em] text-primary">Intelligent Film Flow & Yield</p>
           <h1 className="text-3xl sm:text-4xl font-display font-bold text-foreground tracking-tight">
             How IFFY Works
           </h1>
           <p className="text-muted-foreground text-lg">
-            The mental model is simple: your project is a living dossier. Every decision you make updates its finance readiness.
+            From inception to recoup — your project is a living dossier. Every decision updates its finance readiness.
           </p>
         </motion.div>
 

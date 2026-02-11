@@ -18,7 +18,7 @@ const faqs = [
   },
   {
     q: 'What does IFFY stand for?',
-    a: 'Incentives, Finance, Foreign, and Yield — the four pillars of international film finance that IFFY helps you navigate.',
+    a: 'Intelligent Film Flow & Yield — IFFY is a project intelligence system that guides film and TV projects from inception through production to monetisation and recoup.',
   },
   // ─── Readiness & Analysis ───
   {
