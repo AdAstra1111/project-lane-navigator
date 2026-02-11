@@ -11,6 +11,7 @@ import { OnboardingChecklist } from '@/components/OnboardingChecklist';
 import { DashboardAnalytics } from '@/components/DashboardAnalytics';
 import { DailyBriefing } from '@/components/DailyBriefing';
 import { DashboardActivityFeed } from '@/components/DashboardActivityFeed';
+import { DashboardCountdowns } from '@/components/DashboardCountdowns';
 import { RoleDashboard } from '@/components/RoleDashboard';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { PageTransition } from '@/components/PageTransition';
@@ -200,6 +201,7 @@ export default function Dashboard() {
               <DailyBriefing projects={projects} projectScores={projectScores} />
               <OnboardingChecklist projectCount={projects.length} />
               <DashboardAnalytics projects={projects} />
+              <DashboardCountdowns projectTitleMap={Object.fromEntries(projects.map(p => [p.id, p.title]))} />
               <DashboardActivityFeed />
               {roleView !== 'none' && (
                 <RoleDashboard projects={projects} role={roleView as any} />
