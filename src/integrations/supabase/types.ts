@@ -2414,6 +2414,78 @@ export type Database = {
           },
         ]
       }
+      territory_cost_index: {
+        Row: {
+          accommodation_day: number
+          confidence: string
+          cost_index: number
+          created_at: string
+          crew_day_rate_high: number
+          crew_day_rate_low: number
+          currency: string
+          id: string
+          incentive_headline: string
+          infrastructure_rating: string
+          labor_quality: string
+          last_verified_at: string
+          location_permit_avg: number
+          notes: string
+          per_diem: number
+          region: string
+          source_url: string
+          stage_day_rate: number
+          territory: string
+          timezone: string
+          updated_at: string
+        }
+        Insert: {
+          accommodation_day?: number
+          confidence?: string
+          cost_index?: number
+          created_at?: string
+          crew_day_rate_high?: number
+          crew_day_rate_low?: number
+          currency?: string
+          id?: string
+          incentive_headline?: string
+          infrastructure_rating?: string
+          labor_quality?: string
+          last_verified_at?: string
+          location_permit_avg?: number
+          notes?: string
+          per_diem?: number
+          region?: string
+          source_url?: string
+          stage_day_rate?: number
+          territory: string
+          timezone?: string
+          updated_at?: string
+        }
+        Update: {
+          accommodation_day?: number
+          confidence?: string
+          cost_index?: number
+          created_at?: string
+          crew_day_rate_high?: number
+          crew_day_rate_low?: number
+          currency?: string
+          id?: string
+          incentive_headline?: string
+          infrastructure_rating?: string
+          labor_quality?: string
+          last_verified_at?: string
+          location_permit_avg?: number
+          notes?: string
+          per_diem?: number
+          region?: string
+          source_url?: string
+          stage_day_rate?: number
+          territory?: string
+          timezone?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       trend_signals: {
         Row: {
           archived_at: string | null
