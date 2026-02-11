@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Settings2, Save, RotateCcw, History, BarChart3, Loader2, Lock, Unlock } from 'lucide-react';
+import { Settings2, Save, RotateCcw, History, BarChart3, Loader2, Lock, Unlock, ShieldCheck, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { Header } from '@/components/Header';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -58,6 +58,8 @@ interface Snapshot {
 
 export default function TrendGovernance() {
   const [selectedType, setSelectedType] = useState('film');
+  const [isAuditing, setIsAuditing] = useState(false);
+  const [auditResults, setAuditResults] = useState<any>(null);
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -212,6 +214,26 @@ export default function TrendGovernance() {
     onError: () => toast({ title: 'Save failed', variant: 'destructive' }),
   });
 
+  const runAudit = async () => {
+    setIsAuditing(true);
+    setAuditResults(null);
+    try {
+      const response = await supabase.functions.invoke('audit-sources', {});
+      if (response.error) throw response.error;
+      setAuditResults(response.data);
+      queryClient.invalidateQueries({ queryKey: ['data-sources'] });
+      queryClient.invalidateQueries({ queryKey: ['model-version-log'] });
+      toast({
+        title: 'Audit complete',
+        description: `${response.data.sources_audited} sources audited, ${response.data.flagged_count} flagged.`,
+      });
+    } catch (err: any) {
+      toast({ title: 'Audit failed', description: err.message, variant: 'destructive' });
+    } finally {
+      setIsAuditing(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <Header />
@@ -343,7 +365,81 @@ export default function TrendGovernance() {
             })}
           </Accordion>
 
-          {/* Snapshots History */}
+          {/* Quarterly Source Audit */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="h-4 w-4 text-primary" />
+                <h2 className="font-display font-semibold text-foreground">Quarterly Source Audit</h2>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={runAudit}
+                disabled={isAuditing}
+              >
+                {isAuditing ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <ShieldCheck className="h-3.5 w-3.5 mr-1" />}
+                {isAuditing ? 'Auditing…' : 'Run Audit'}
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Evaluates each data source's predictive accuracy against resolved outcomes, adjusts reliability scores, and flags low-correlation sources.
+            </p>
+
+            {auditResults && (
+              <div className="space-y-2">
+                <div className="glass-card rounded-xl p-4 grid grid-cols-4 gap-3 text-center">
+                  <div>
+                    <div className="text-lg font-bold text-foreground">{auditResults.sources_audited}</div>
+                    <div className="text-[10px] text-muted-foreground uppercase">Sources</div>
+                  </div>
+                  <div>
+                    <div className="text-lg font-bold text-foreground">{auditResults.sources_updated}</div>
+                    <div className="text-[10px] text-muted-foreground uppercase">Updated</div>
+                  </div>
+                  <div>
+                    <div className={cn('text-lg font-bold', auditResults.flagged_count > 0 ? 'text-destructive' : 'text-foreground')}>
+                      {auditResults.flagged_count}
+                    </div>
+                    <div className="text-[10px] text-muted-foreground uppercase">Flagged</div>
+                  </div>
+                  <div>
+                    <div className={cn('text-lg font-bold', auditResults.stale_count > 0 ? 'text-amber-400' : 'text-foreground')}>
+                      {auditResults.stale_count}
+                    </div>
+                    <div className="text-[10px] text-muted-foreground uppercase">Stale</div>
+                  </div>
+                </div>
+
+                {auditResults.results?.length > 0 && (
+                  <div className="space-y-1.5 max-h-64 overflow-y-auto">
+                    {auditResults.results.map((r: any) => (
+                      <div key={r.source_id} className="glass-card rounded-lg px-4 py-2.5 flex items-center gap-3">
+                        {r.status_change ? (
+                          <AlertTriangle className="h-3.5 w-3.5 text-destructive shrink-0" />
+                        ) : (
+                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                        )}
+                        <span className="text-sm text-foreground flex-1 truncate">{r.source_name}</span>
+                        <span className="text-xs font-mono text-muted-foreground">
+                          {r.prev_reliability.toFixed(2)} → {r.new_reliability.toFixed(2)}
+                        </span>
+                        {r.accuracy !== null && (
+                          <Badge variant="outline" className="text-[10px]">
+                            {r.accuracy}% acc
+                          </Badge>
+                        )}
+                        {r.staleness_flag && (
+                          <Badge variant="outline" className="text-[10px] border-amber-500/30 text-amber-400">stale</Badge>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           {snapshots.length > 0 && (
             <div className="space-y-3">
               <div className="flex items-center gap-2">
