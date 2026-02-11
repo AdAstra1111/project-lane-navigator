@@ -23,9 +23,11 @@ const SOURCE_COLORS: Record<string, string> = {
   'Equity': 'hsl(var(--primary))',
   'Pre-Sales': 'hsl(210, 70%, 55%)',
   'Incentives': 'hsl(145, 60%, 45%)',
-  'Gap': 'hsl(35, 90%, 55%)',
+  'Gap': 'hsl(0, 70%, 55%)',
   'Other': 'hsl(280, 50%, 55%)',
 };
+
+const GAP_SOURCE = 'Gap';
 
 interface WaterfallBar {
   name: string;
@@ -50,8 +52,8 @@ export function FinanceWaterfall({ scenarios }: FinanceWaterfallProps) {
       { name: 'Equity', value: equity },
       { name: 'Pre-Sales', value: presales },
       { name: 'Incentives', value: incentives },
-      { name: 'Gap', value: gap },
       { name: 'Other', value: other },
+      { name: 'Gap', value: gap },
     ].filter(s => s.value > 0);
 
     let cumulative = 0;
@@ -66,12 +68,14 @@ export function FinanceWaterfall({ scenarios }: FinanceWaterfallProps) {
       return bar;
     });
 
-    return { bars, total, funded: cumulative };
+    const funded = cumulative - gap;
+
+    return { bars, total, funded, gap };
   }, [scenario]);
 
   if (!data || data.bars.length === 0) return null;
 
-  const gapPct = data.total > 0 ? Math.round(((data.total - data.funded) / data.total) * 100) : 0;
+  const gapPct = data.total > 0 ? Math.round((data.gap / data.total) * 100) : 0;
   const fundedPct = data.total > 0 ? Math.round((data.funded / data.total) * 100) : 0;
 
   return (
@@ -97,15 +101,19 @@ export function FinanceWaterfall({ scenarios }: FinanceWaterfallProps) {
               className="h-full transition-all duration-500"
               style={{
                 width: data.total > 0 ? `${(bar.value / data.total) * 100}%` : '0%',
-                backgroundColor: bar.fill,
+                backgroundColor: bar.name === GAP_SOURCE ? undefined : bar.fill,
+                background: bar.name === GAP_SOURCE
+                  ? `repeating-linear-gradient(45deg, hsl(0, 70%, 55%), hsl(0, 70%, 55%) 2px, transparent 2px, transparent 6px)`
+                  : undefined,
+                opacity: bar.name === GAP_SOURCE ? 0.6 : 1,
               }}
               title={`${bar.name}: ${formatCurrency(bar.value)}`}
             />
           ))}
         </div>
         {gapPct > 0 && (
-          <p className="text-xs text-amber-400">
-            {formatCurrency(data.total - data.funded)} gap remaining ({gapPct}%)
+          <p className="text-xs text-red-400">
+            ⚠ {formatCurrency(data.gap)} unfunded gap ({gapPct}% of budget)
           </p>
         )}
       </div>
@@ -114,6 +122,11 @@ export function FinanceWaterfall({ scenarios }: FinanceWaterfallProps) {
       <div className="h-48">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={data.bars} margin={{ top: 8, right: 0, left: 0, bottom: 0 }}>
+            <defs>
+              <pattern id="gap-stripe" patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(45)">
+                <rect width="2" height="6" fill="hsl(0, 70%, 55%)" opacity="0.5" />
+              </pattern>
+            </defs>
             <XAxis
               dataKey="name"
               tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }}
@@ -135,7 +148,10 @@ export function FinanceWaterfall({ scenarios }: FinanceWaterfallProps) {
                 fontSize: '12px',
                 color: 'hsl(var(--popover-foreground))',
               }}
-              formatter={(value: number) => [formatCurrency(value), 'Amount']}
+              formatter={(value: number, _name: string, props: any) => [
+                formatCurrency(value),
+                props.payload.name === GAP_SOURCE ? 'Unfunded Gap' : 'Amount',
+              ]}
             />
             {data.total > 0 && (
               <ReferenceLine
@@ -147,7 +163,13 @@ export function FinanceWaterfall({ scenarios }: FinanceWaterfallProps) {
             )}
             <Bar dataKey="value" radius={[4, 4, 0, 0]}>
               {data.bars.map((entry, index) => (
-                <Cell key={`cell-${index}`} fill={entry.fill} />
+                <Cell
+                  key={`cell-${index}`}
+                  fill={entry.name === GAP_SOURCE ? 'url(#gap-stripe)' : entry.fill}
+                  stroke={entry.name === GAP_SOURCE ? 'hsl(0, 70%, 55%)' : undefined}
+                  strokeWidth={entry.name === GAP_SOURCE ? 1 : 0}
+                  strokeDasharray={entry.name === GAP_SOURCE ? '4 2' : undefined}
+                />
               ))}
             </Bar>
           </BarChart>
@@ -158,9 +180,20 @@ export function FinanceWaterfall({ scenarios }: FinanceWaterfallProps) {
       <div className="flex flex-wrap gap-3 text-xs">
         {data.bars.map((bar) => (
           <div key={bar.name} className="flex items-center gap-1.5">
-            <div className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: bar.fill }} />
-            <span className="text-muted-foreground">{bar.name}</span>
-            <span className="text-foreground font-medium">{formatCurrency(bar.value)}</span>
+            {bar.name === GAP_SOURCE ? (
+              <svg className="h-2.5 w-2.5 rounded-sm" viewBox="0 0 10 10">
+                <defs>
+                  <pattern id="legend-stripe" patternUnits="userSpaceOnUse" width="3" height="3" patternTransform="rotate(45)">
+                    <rect width="1" height="3" fill="hsl(0, 70%, 55%)" opacity="0.6" />
+                  </pattern>
+                </defs>
+                <rect width="10" height="10" fill="url(#legend-stripe)" stroke="hsl(0, 70%, 55%)" strokeWidth="1" strokeDasharray="2 1" />
+              </svg>
+            ) : (
+              <div className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: bar.fill }} />
+            )}
+            <span className="text-muted-foreground">{bar.name === GAP_SOURCE ? 'Unfunded Gap' : bar.name}</span>
+            <span className={bar.name === GAP_SOURCE ? 'font-medium text-red-400' : 'text-foreground font-medium'}>{formatCurrency(bar.value)}</span>
           </div>
         ))}
       </div>
