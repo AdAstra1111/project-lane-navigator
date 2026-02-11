@@ -817,6 +817,69 @@ export type Database = {
           },
         ]
       }
+      project_cost_entries: {
+        Row: {
+          amount: number
+          budget_id: string | null
+          category: string
+          created_at: string
+          description: string
+          entry_date: string
+          id: string
+          notes: string
+          project_id: string
+          receipt_ref: string
+          updated_at: string
+          user_id: string
+          vendor: string
+        }
+        Insert: {
+          amount?: number
+          budget_id?: string | null
+          category?: string
+          created_at?: string
+          description?: string
+          entry_date?: string
+          id?: string
+          notes?: string
+          project_id: string
+          receipt_ref?: string
+          updated_at?: string
+          user_id: string
+          vendor?: string
+        }
+        Update: {
+          amount?: number
+          budget_id?: string | null
+          category?: string
+          created_at?: string
+          description?: string
+          entry_date?: string
+          id?: string
+          notes?: string
+          project_id?: string
+          receipt_ref?: string
+          updated_at?: string
+          user_id?: string
+          vendor?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_cost_entries_budget_id_fkey"
+            columns: ["budget_id"]
+            isOneToOne: false
+            referencedRelation: "project_budgets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_cost_entries_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       project_deals: {
         Row: {
           buyer_name: string
