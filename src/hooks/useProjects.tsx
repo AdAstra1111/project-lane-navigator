@@ -71,7 +71,7 @@ export function useProjects() {
   });
 
   const createProject = useMutation({
-    mutationFn: async ({ input, files }: { input: ProjectInput; files: File[] }) => {
+    mutationFn: async ({ input, files, companyId }: { input: ProjectInput; files: File[]; companyId?: string }) => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
 
@@ -187,10 +187,20 @@ export function useProjects() {
         }
       }
 
+      // 7. Auto-link to production company if specified
+      if (companyId) {
+        await supabase.from('project_company_links').insert({
+          project_id: projectId,
+          company_id: companyId,
+          user_id: user.id,
+        });
+      }
+
       return project as unknown as Project;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['projects'] });
+      queryClient.invalidateQueries({ queryKey: ['company-projects'] });
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to create project');

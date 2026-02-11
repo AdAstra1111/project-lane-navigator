@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, ArrowRight, Check, Loader2 } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, Loader2, Building2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -9,6 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Header } from '@/components/Header';
 import { FileUpload } from '@/components/FileUpload';
 import { useProjects } from '@/hooks/useProjects';
+import { useCompanies } from '@/hooks/useCompanies';
 import { ProjectFormat, ProjectInput } from '@/lib/types';
 import { GENRES, BUDGET_RANGES, TARGET_AUDIENCES, TONES, FORMAT_OPTIONS } from '@/lib/constants';
 import { cn } from '@/lib/utils';
@@ -19,8 +20,10 @@ const STEPS = ['Basics', 'Material', 'Creative', 'Commercial'];
 export default function NewProject() {
   const navigate = useNavigate();
   const { createProject } = useProjects();
+  const { companies } = useCompanies();
   const [step, setStep] = useState(0);
   const [files, setFiles] = useState<File[]>([]);
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
   const [form, setForm] = useState<ProjectInput>({
     title: '',
     format: 'film',
@@ -52,7 +55,7 @@ export default function NewProject() {
 
   const handleSubmit = async () => {
     try {
-      const result = await createProject.mutateAsync({ input: form, files });
+      const result = await createProject.mutateAsync({ input: form, files, companyId: selectedCompanyId || undefined });
       navigate(`/projects/${result.id}`);
     } catch (err: any) {
       const message = err?.message || 'Failed to create project';
@@ -154,6 +157,30 @@ export default function NewProject() {
                     ))}
                   </div>
                 </div>
+
+                {companies.length > 0 && (
+                  <div className="space-y-3">
+                    <Label className="text-foreground">Production Company <span className="text-muted-foreground font-normal">(optional)</span></Label>
+                    <div className="grid grid-cols-2 gap-3">
+                      {companies.map(c => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => setSelectedCompanyId(prev => prev === c.id ? null : c.id)}
+                          className={cn(
+                            'glass-card rounded-lg p-4 text-left transition-all duration-200 flex items-center gap-3',
+                            selectedCompanyId === c.id
+                              ? 'border-primary/60 bg-primary/10 text-foreground'
+                              : 'hover:border-border text-muted-foreground hover:text-foreground'
+                          )}
+                        >
+                          <Building2 className="h-4 w-4 shrink-0" />
+                          <span className="font-medium truncate">{c.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
