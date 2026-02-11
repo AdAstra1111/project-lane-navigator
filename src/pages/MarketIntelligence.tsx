@@ -51,7 +51,10 @@ export default function MarketIntelligence() {
 
   const allGenres = useMemo(() => {
     const set = new Set<string>();
-    signals.forEach((s: any) => (s.genre_tags || []).forEach((g: string) => set.add(g)));
+    signals.forEach((s: any) => (s.genre_tags || []).forEach((g: string) => {
+      const trimmed = g.trim();
+      if (trimmed && trimmed.toLowerCase() !== 'all') set.add(trimmed);
+    }));
     return Array.from(set).sort();
   }, [signals]);
 
