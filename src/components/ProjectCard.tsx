@@ -1,8 +1,9 @@
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Film, Tv, ArrowRight, Star } from 'lucide-react';
+import { ArrowRight, Star } from 'lucide-react';
 import { differenceInDays } from 'date-fns';
 import { Project, MonetisationLane } from '@/lib/types';
+import { getFormatMeta } from '@/lib/mode-engine';
 import { LaneBadge } from './LaneBadge';
 
 interface ProjectCardProps {
@@ -52,7 +53,8 @@ function RecencyPulse({ updatedAt }: { updatedAt: string }) {
 }
 
 export function ProjectCard({ project, index, readinessScore, financeReadinessScore, selected, onSelect, onTogglePin }: ProjectCardProps) {
-  const FormatIcon = project.format === 'tv-series' ? Tv : Film;
+  const formatMeta = getFormatMeta(project.format);
+  const FormatIcon = formatMeta.icon;
 
   return (
     <motion.div
@@ -95,9 +97,9 @@ export function ProjectCard({ project, index, readinessScore, financeReadinessSc
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-2">
-              <FormatIcon className="h-4 w-4 text-muted-foreground shrink-0" />
+              <FormatIcon className={`h-4 w-4 shrink-0 ${formatMeta.color}`} />
               <span className="text-xs text-muted-foreground uppercase tracking-wider">
-                {project.format === 'tv-series' ? 'TV Series' : 'Film'}
+                {formatMeta.shortLabel}
               </span>
               <RecencyPulse updatedAt={project.updated_at} />
               {project.pinned && (

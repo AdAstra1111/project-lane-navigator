@@ -1,4 +1,4 @@
-export type ProjectFormat = 'film' | 'tv-series';
+export type ProjectFormat = 'film' | 'tv-series' | 'short-film' | 'documentary' | 'digital-series' | 'commercial' | 'branded-content';
 
 export type TVSubformat = 'limited' | 'returning' | 'anthology';
 

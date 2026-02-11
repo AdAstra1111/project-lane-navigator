@@ -11,7 +11,8 @@ import { FileUpload } from '@/components/FileUpload';
 import { useProjects } from '@/hooks/useProjects';
 import { useCompanies } from '@/hooks/useCompanies';
 import { ProjectFormat, ProjectInput } from '@/lib/types';
-import { GENRES, BUDGET_RANGES, TARGET_AUDIENCES, TONES, FORMAT_OPTIONS } from '@/lib/constants';
+import { GENRES, BUDGET_RANGES, TARGET_AUDIENCES, TONES } from '@/lib/constants';
+import { FORMAT_META } from '@/lib/mode-engine';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
@@ -138,23 +139,30 @@ export default function NewProject() {
                   />
                 </div>
                 <div className="space-y-3">
-                  <Label className="text-foreground">Format</Label>
+                  <Label className="text-foreground">Project Type</Label>
                   <div className="grid grid-cols-2 gap-3">
-                    {FORMAT_OPTIONS.map(opt => (
-                      <button
-                        key={opt.value}
-                        type="button"
-                        onClick={() => setForm(prev => ({ ...prev, format: opt.value as ProjectFormat }))}
-                        className={cn(
-                          'glass-card rounded-lg p-4 text-center transition-all duration-200',
-                          form.format === opt.value
-                            ? 'border-primary/60 bg-primary/10 text-foreground'
-                            : 'hover:border-border text-muted-foreground hover:text-foreground'
-                        )}
-                      >
-                        <span className="font-medium">{opt.label}</span>
-                      </button>
-                    ))}
+                    {FORMAT_META.map(opt => {
+                      const Icon = opt.icon;
+                      return (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          onClick={() => setForm(prev => ({ ...prev, format: opt.value as ProjectFormat }))}
+                          className={cn(
+                            'glass-card rounded-lg p-4 text-left transition-all duration-200',
+                            form.format === opt.value
+                              ? 'border-primary/60 bg-primary/10 text-foreground'
+                              : 'hover:border-border text-muted-foreground hover:text-foreground'
+                          )}
+                        >
+                          <div className="flex items-center gap-2 mb-1">
+                            <Icon className={cn('h-4 w-4', form.format === opt.value ? opt.color : '')} />
+                            <span className="font-medium text-sm">{opt.label}</span>
+                          </div>
+                          <p className="text-xs text-muted-foreground">{opt.description}</p>
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
 

@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Film, Tv, Target, Palette, DollarSign, Users, Quote, CheckCircle2, ShieldAlert, Trash2, Loader2, AlertTriangle, MessageSquareQuote, FileText, Copy, ArrowLeftRight, Download, TrendingUp, Landmark, BarChart3, Package, StickyNote, UsersRound, ChevronDown, PieChart, FileSpreadsheet, PackageCheck, Receipt, FileSignature, Presentation, Bot, BookOpen, Calendar, Crown, Monitor, RefreshCw, Repeat, Milestone } from 'lucide-react';
+import { ArrowLeft, Target, Palette, DollarSign, Users, Quote, CheckCircle2, ShieldAlert, Trash2, Loader2, AlertTriangle, MessageSquareQuote, FileText, Copy, ArrowLeftRight, Download, TrendingUp, Landmark, BarChart3, Package, StickyNote, UsersRound, ChevronDown, PieChart, FileSpreadsheet, PackageCheck, Receipt, FileSignature, Presentation, Bot, BookOpen, Calendar, Crown, Monitor, RefreshCw, Repeat, Milestone } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { ProjectNoteInput } from '@/components/ProjectNoteInput';
 import { cn } from '@/lib/utils';
@@ -74,7 +74,10 @@ import { PlatformFitPanel } from '@/components/tv/PlatformFitPanel';
 import { RenewalProbabilityPanel } from '@/components/tv/RenewalProbabilityPanel';
 import { MultiSeasonFinancePanel } from '@/components/tv/MultiSeasonFinancePanel';
 import { TVReadinessScore } from '@/components/tv/TVReadinessScore';
+import { ModeReadinessScore } from '@/components/ModeReadinessScore';
 import { calculateTVReadiness } from '@/lib/tv-readiness-score';
+import { calculateModeReadiness } from '@/lib/mode-readiness';
+import { getFormatMeta, MODE_WORKFLOWS } from '@/lib/mode-engine';
 import { useRecoupmentScenarios, useRecoupmentTiers } from '@/hooks/useRecoupment';
 import { useProjectBudgets } from '@/hooks/useBudgets';
 import type { BudgetSummary } from '@/lib/finance-readiness';
@@ -266,6 +269,9 @@ export default function ProjectDetail() {
   }, [project, castTrends]);
 
   const isTV = project?.format === 'tv-series';
+  const isFilm = project?.format === 'film';
+  const isAlternateMode = project && !isTV && !isFilm;
+  const formatMeta = project ? getFormatMeta(project.format) : null;
 
   const readiness = useMemo(() => {
     if (!project) return null;
@@ -278,9 +284,14 @@ export default function ProjectDetail() {
   }, [project, isTV, cast, partners, scripts, financeScenarios, hods, incentiveAnalysed, budgetSummary]);
 
   const financeReadiness = useMemo(() => {
-    if (!project) return null;
+    if (!project || isAlternateMode) return null;
     return calculateFinanceReadiness(project, cast, partners, scripts, financeScenarios, hods, incentiveAnalysed, budgetSummary);
-  }, [project, cast, partners, scripts, financeScenarios, hods, incentiveAnalysed, budgetSummary]);
+  }, [project, isAlternateMode, cast, partners, scripts, financeScenarios, hods, incentiveAnalysed, budgetSummary]);
+
+  const modeReadiness = useMemo(() => {
+    if (!project || !isAlternateMode) return null;
+    return calculateModeReadiness(project, cast, partners, scripts, financeScenarios, hods, incentiveAnalysed, budgetSummary);
+  }, [project, isAlternateMode, cast, partners, scripts, financeScenarios, hods, incentiveAnalysed, budgetSummary]);
 
   // Score history: auto-save daily snapshot
   const { history: scoreHistory } = useScoreHistory(id);
@@ -433,14 +444,14 @@ export default function ProjectDetail() {
           <div className="flex items-start justify-between gap-4">
             <div>
               <div className="flex items-center gap-2 mb-2">
-                {project.format === 'tv-series' ? (
-                  <Tv className="h-4 w-4 text-muted-foreground" />
-                ) : (
-                  <Film className="h-4 w-4 text-muted-foreground" />
+                {formatMeta && (
+                  <>
+                    <formatMeta.icon className={`h-4 w-4 ${formatMeta.color}`} />
+                    <span className="text-xs text-muted-foreground uppercase tracking-wider">
+                      {formatMeta.shortLabel}
+                    </span>
+                  </>
                 )}
-                <span className="text-xs text-muted-foreground uppercase tracking-wider">
-                  {project.format === 'tv-series' ? 'TV Series' : 'Film'}
-                </span>
               </div>
               <h1 className="text-3xl font-display font-bold text-foreground tracking-tight">
                 {project.title}
@@ -523,6 +534,8 @@ export default function ProjectDetail() {
           {/* ─── ALWAYS VISIBLE: Readiness ─── */}
           {isTV && tvReadiness ? (
             <TVReadinessScore readiness={tvReadiness} />
+          ) : isAlternateMode && modeReadiness ? (
+            <ModeReadinessScore readiness={modeReadiness} format={project.format} />
           ) : (
             readiness && <ProjectReadinessScore readiness={readiness} />
           )}
