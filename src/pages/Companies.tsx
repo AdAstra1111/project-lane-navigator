@@ -14,7 +14,7 @@ function CompanyAvatar({ company }: { company: ProductionCompany }) {
   if (company.logo_url) {
     return (
       <div
-        className="h-10 w-10 rounded-lg overflow-hidden shrink-0 border border-border/50 bg-muted-foreground/10 dark:bg-muted-foreground/20 p-0.5"
+        className="h-10 max-w-[120px] min-w-[40px] rounded-lg overflow-hidden shrink-0 border border-border/50 bg-muted-foreground/10 dark:bg-muted-foreground/20 p-0.5"
         style={accent ? { borderColor: accent + '40' } : undefined}
       >
         <img src={company.logo_url} alt={company.name} className="h-full w-full object-contain" />
