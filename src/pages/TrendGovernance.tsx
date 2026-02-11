@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Settings2, Save, RotateCcw, History, BarChart3, Loader2 } from 'lucide-react';
+import { Settings2, Save, RotateCcw, History, BarChart3, Loader2, Lock, Unlock } from 'lucide-react';
 import { Header } from '@/components/Header';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -107,6 +107,7 @@ export default function TrendGovernance() {
   const [localWeights, setLocalWeights] = useState<Record<string, number>>({});
   const [localEnabled, setLocalEnabled] = useState<Record<string, boolean>>({});
   const [hasChanges, setHasChanges] = useState(false);
+  const [slidersLocked, setSlidersLocked] = useState(true);
 
   // Initialize local state when data loads
   useEffect(() => {
@@ -227,14 +228,25 @@ export default function TrendGovernance() {
               <h1 className="text-3xl font-display font-bold text-foreground tracking-tight">Engine Weights</h1>
               <p className="text-muted-foreground mt-1">Toggle engines on/off and adjust weights per production type.</p>
             </div>
-            <Button
-              size="sm"
-              onClick={() => saveMutation.mutate()}
-              disabled={!hasChanges || saveMutation.isPending}
-            >
-              {saveMutation.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Save className="h-4 w-4 mr-1" />}
-              Save & Snapshot
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant={slidersLocked ? 'outline' : 'secondary'}
+                onClick={() => setSlidersLocked(prev => !prev)}
+                className="text-xs"
+              >
+                {slidersLocked ? <Lock className="h-3.5 w-3.5 mr-1" /> : <Unlock className="h-3.5 w-3.5 mr-1" />}
+                {slidersLocked ? 'Locked' : 'Editing'}
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => saveMutation.mutate()}
+                disabled={!hasChanges || saveMutation.isPending}
+              >
+                {saveMutation.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Save className="h-4 w-4 mr-1" />}
+                Save & Snapshot
+              </Button>
+            </div>
           </div>
 
           {/* Production Type Selector */}
@@ -296,6 +308,7 @@ export default function TrendGovernance() {
                             <Switch
                               checked={enabled}
                               onCheckedChange={v => handleToggle(engine.id, v)}
+                              disabled={slidersLocked}
                             />
                             <span className="text-sm font-medium text-foreground flex-1">{engine.engine_name}</span>
                             <span className="text-xs font-mono text-muted-foreground">
@@ -308,6 +321,7 @@ export default function TrendGovernance() {
                               onValueChange={v => handleWeightChange(engine.id, v[0])}
                               min={0} max={0.5} step={0.005}
                               className="w-full"
+                              disabled={slidersLocked}
                             />
                           )}
                           <div className="flex items-center gap-2 mt-1">
