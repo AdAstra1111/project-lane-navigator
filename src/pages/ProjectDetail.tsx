@@ -89,6 +89,8 @@ import { generateProjectInsights } from '@/lib/project-insights';
 import { calculateReadiness } from '@/lib/readiness-score';
 import { calculateFinanceReadiness } from '@/lib/finance-readiness';
 import { FinanceReadinessPanel } from '@/components/FinanceReadinessPanel';
+import { useProjectScenes, useShootDays, useSceneSchedule } from '@/hooks/useProductionSchedule';
+import { computeScheduleMetrics } from '@/lib/schedule-impact';
 import { GeographySelector } from '@/components/GeographySelector';
 import { PipelineStageSuggestion } from '@/components/PipelineStageSuggestion';
 import { ScoreSparkline } from '@/components/ScoreSparkline';
@@ -250,6 +252,15 @@ export default function ProjectDetail() {
   const { entries: costEntries } = useProjectCostEntries(id);
   const { budgets, addBudget } = useProjectBudgets(id);
 
+  // Schedule data for impact engine
+  const { scenes: projectScenes } = useProjectScenes(id);
+  const { shootDays } = useShootDays(id);
+  const { schedule: sceneScheduleEntries } = useSceneSchedule(id);
+
+  const scheduleMetrics = useMemo(() => {
+    return computeScheduleMetrics(projectScenes, shootDays, sceneScheduleEntries, project?.format);
+  }, [projectScenes, shootDays, sceneScheduleEntries, project?.format]);
+
   const budgetSummary: BudgetSummary = useMemo(() => {
     const locked = budgets.filter(b => b.status === 'locked');
     return {
@@ -275,8 +286,8 @@ export default function ProjectDetail() {
 
   const readiness = useMemo(() => {
     if (!project) return null;
-    return calculateReadiness(project, cast, partners, scripts, financeScenarios, hods, incentiveAnalysed, budgetSummary);
-  }, [project, cast, partners, scripts, financeScenarios, hods, incentiveAnalysed, budgetSummary]);
+    return calculateReadiness(project, cast, partners, scripts, financeScenarios, hods, incentiveAnalysed, budgetSummary, scheduleMetrics);
+  }, [project, cast, partners, scripts, financeScenarios, hods, incentiveAnalysed, budgetSummary, scheduleMetrics]);
 
   const tvReadiness = useMemo(() => {
     if (!project || !isTV) return null;
@@ -285,8 +296,8 @@ export default function ProjectDetail() {
 
   const financeReadiness = useMemo(() => {
     if (!project || isAlternateMode) return null;
-    return calculateFinanceReadiness(project, cast, partners, scripts, financeScenarios, hods, incentiveAnalysed, budgetSummary);
-  }, [project, isAlternateMode, cast, partners, scripts, financeScenarios, hods, incentiveAnalysed, budgetSummary]);
+    return calculateFinanceReadiness(project, cast, partners, scripts, financeScenarios, hods, incentiveAnalysed, budgetSummary, scheduleMetrics);
+  }, [project, isAlternateMode, cast, partners, scripts, financeScenarios, hods, incentiveAnalysed, budgetSummary, scheduleMetrics]);
 
   const modeReadiness = useMemo(() => {
     if (!project || !isAlternateMode) return null;
