@@ -94,7 +94,7 @@ export default function Dashboard() {
                 </div>
               )}
               <h1 className="text-3xl font-display font-bold text-foreground tracking-tight">
-                Projects
+                {primaryCompany ? primaryCompany.name : 'Projects'}
               </h1>
               <p className="text-muted-foreground mt-1">
                 {projects.length} project{projects.length !== 1 ? 's' : ''} classified
