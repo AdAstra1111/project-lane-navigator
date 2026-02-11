@@ -330,6 +330,66 @@ Return ONLY a JSON array of objects. No markdown, no explanation outside the JSO
       throw new Error("Failed to save cast trends");
     }
 
+    // --- GENERATE WEEKLY BRIEF ---
+    const briefType = productionType || "film";
+    const briefSignalSummary = signalRows
+      .map((s: any) => `${s.name} (${s.cycle_phase}, strength ${s.strength}, ${s.velocity})`)
+      .join("; ");
+    const briefCastSummary = castRows
+      .map((c: any) => `${c.actor_name} (${c.trend_type}, ${c.cycle_phase})`)
+      .join("; ");
+
+    const briefPrompt = `You are a senior market intelligence analyst. Write a concise weekly signal brief (3-5 sentences) summarising the most important shifts for "${briefType}" production this week.
+
+Current signals: ${briefSignalSummary}
+Current talent trends: ${briefCastSummary}
+
+Focus on:
+- What changed (new signals, phase shifts, declining trends)
+- What producers should pay attention to right now
+- Any notable opportunities or risks
+
+Write in direct, professional prose. No bullet points, no headers. Just a tight paragraph a producer can scan in 30 seconds.`;
+
+    try {
+      const briefResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${lovableApiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "google/gemini-2.5-flash-lite",
+          messages: [{ role: "user", content: briefPrompt }],
+        }),
+      });
+
+      if (briefResponse.ok) {
+        const briefData = await briefResponse.json();
+        const briefText = briefData.choices?.[0]?.message?.content?.trim() || "";
+        if (briefText) {
+          const today = new Date();
+          const dayOfWeek = today.getDay();
+          const monday = new Date(today);
+          monday.setDate(today.getDate() - ((dayOfWeek + 6) % 7));
+          const weekStart = monday.toISOString().split("T")[0];
+
+          await supabase
+            .from("trend_weekly_briefs")
+            .upsert(
+              {
+                week_start: weekStart,
+                production_type: briefType,
+                summary: briefText,
+              },
+              { onConflict: "week_start,production_type" }
+            );
+        }
+      }
+    } catch (briefErr) {
+      console.error("Weekly brief generation failed:", briefErr);
+    }
+
     return new Response(
       JSON.stringify({
         success: true,
