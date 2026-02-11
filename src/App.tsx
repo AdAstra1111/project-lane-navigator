@@ -33,6 +33,7 @@ import Settings from "./pages/Settings";
 import Reports from "./pages/Reports";
 import Companies from "./pages/Companies";
 import CompanyDetail from "./pages/CompanyDetail";
+import PresentationMode from "./pages/PresentationMode";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -67,6 +68,7 @@ const AnimatedRoutes = () => {
         <Route path="/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
         <Route path="/companies" element={<ProtectedRoute><Companies /></ProtectedRoute>} />
         <Route path="/companies/:id" element={<ProtectedRoute><CompanyDetail /></ProtectedRoute>} />
+        <Route path="/projects/:id/present" element={<ProtectedRoute><PresentationMode /></ProtectedRoute>} />
         <Route path="/invite" element={<AcceptInvite />} />
         <Route path="*" element={<NotFound />} />
       </Routes>

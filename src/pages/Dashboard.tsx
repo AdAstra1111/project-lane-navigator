@@ -13,6 +13,8 @@ import { DailyBriefing } from '@/components/DailyBriefing';
 import { DashboardActivityFeed } from '@/components/DashboardActivityFeed';
 import { DashboardCountdowns } from '@/components/DashboardCountdowns';
 import { RoleDashboard } from '@/components/RoleDashboard';
+import { SlateMomentum } from '@/components/SlateMomentum';
+import { CrossProjectIntelligence } from '@/components/CrossProjectIntelligence';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { PageTransition } from '@/components/PageTransition';
 import { useProjects } from '@/hooks/useProjects';
@@ -200,6 +202,8 @@ export default function Dashboard() {
             <>
               <DailyBriefing projects={projects} projectScores={projectScores} />
               <OnboardingChecklist projectCount={projects.length} />
+              <SlateMomentum projects={projects} projectScores={projectScores} />
+              <CrossProjectIntelligence projects={projects} projectScores={projectScores} />
               <DashboardAnalytics projects={projects} />
               <DashboardCountdowns projectTitleMap={Object.fromEntries(projects.map(p => [p.id, p.title]))} />
               <DashboardActivityFeed />

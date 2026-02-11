@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Film, Tv, Target, Palette, DollarSign, Users, Quote, CheckCircle2, ShieldAlert, Trash2, Loader2, AlertTriangle, MessageSquareQuote, FileText, Copy, ArrowLeftRight, Download, TrendingUp, Landmark, BarChart3, Package, StickyNote, UsersRound, ChevronDown, PieChart, FileSpreadsheet, PackageCheck, Receipt, FileSignature } from 'lucide-react';
+import { ArrowLeft, Film, Tv, Target, Palette, DollarSign, Users, Quote, CheckCircle2, ShieldAlert, Trash2, Loader2, AlertTriangle, MessageSquareQuote, FileText, Copy, ArrowLeftRight, Download, TrendingUp, Landmark, BarChart3, Package, StickyNote, UsersRound, ChevronDown, PieChart, FileSpreadsheet, PackageCheck, Receipt, FileSignature, Presentation, Bot, BookOpen } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { ProjectNoteInput } from '@/components/ProjectNoteInput';
 import { cn } from '@/lib/utils';
@@ -56,6 +56,8 @@ import { CostTrackingPanel } from '@/components/CostTrackingPanel';
 import { ContractManagerPanel } from '@/components/ContractManagerPanel';
 import { ProjectActivityFeed } from '@/components/ProjectActivityFeed';
 import { DeadlinePanel } from '@/components/DeadlinePanel';
+import { DecisionJournal } from '@/components/DecisionJournal';
+import { ProjectChat } from '@/components/ProjectChat';
 import { useProjectBudgets } from '@/hooks/useBudgets';
 import type { BudgetSummary } from '@/lib/finance-readiness';
 import { useTalentTriage } from '@/hooks/useTalentTriage';
@@ -454,6 +456,11 @@ export default function ProjectDetail() {
               <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary shrink-0" title="Duplicate as scenario" onClick={handleDuplicate} disabled={duplicate.isPending}>
                 {duplicate.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Copy className="h-4 w-4" />}
               </Button>
+              <Link to={`/projects/${id}/present`}>
+                <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary shrink-0" title="Presentation Mode">
+                  <Presentation className="h-4 w-4" />
+                </Button>
+              </Link>
               <Link to="/compare">
                 <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary shrink-0" title="Compare scenarios">
                   <ArrowLeftRight className="h-4 w-4" />
@@ -772,6 +779,7 @@ export default function ProjectDetail() {
           {/* 6. Notes & Documents */}
           <Section icon={StickyNote} title="Notes & Documents">
             {id && <ProjectNoteInput projectId={id} />}
+            {id && <DecisionJournal projectId={id} />}
             <div>
               <div className="flex items-center justify-between mb-3">
                 <h4 className="font-display font-semibold text-foreground text-lg">
@@ -787,6 +795,11 @@ export default function ProjectDetail() {
                 />
               </div>
             </div>
+          </Section>
+
+          {/* AI Chat */}
+          <Section icon={Bot} title="AI Project Chat">
+            {id && <ProjectChat projectId={id} />}
           </Section>
 
           {/* 7. Team & Activity */}
