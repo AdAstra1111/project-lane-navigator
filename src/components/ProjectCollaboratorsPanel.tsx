@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Users, UserPlus, X, Shield, Eye, Pencil, Crown, Link2, Copy, Check, Trash2 } from 'lucide-react';
+import { Users, UserPlus, X, Shield, Eye, Pencil, Crown, Link2, Copy, Check, Trash2, Building2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -24,6 +24,8 @@ import {
   type ProjectCollaborator,
 } from '@/hooks/useCollaboration';
 import { useInviteLinks } from '@/hooks/useInviteLinks';
+import { useProjectCompanies } from '@/hooks/useCompanies';
+import { useCompanyMembers } from '@/hooks/useCompanyMembers';
 import { toast } from 'sonner';
 
 const ROLE_ICONS: Record<ProjectRole, React.ElementType> = {
@@ -104,9 +106,14 @@ interface ProjectCollaboratorsPanelProps {
 export function ProjectCollaboratorsPanel({ projectId, isOwner }: ProjectCollaboratorsPanelProps) {
   const { collaborators, isLoading, remove, updateRole } = useProjectCollaborators(projectId);
   const { links, create: createLink, remove: removeLink, getInviteUrl } = useInviteLinks(projectId);
+  const { linkedCompanyIds } = useProjectCompanies(projectId);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [role, setRole] = useState<ProjectRole>('creative');
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
+
+  // Gather company members from the first linked company (primary)
+  const primaryCompanyId = linkedCompanyIds.length > 0 ? linkedCompanyIds[0] : undefined;
+  const { members: companyMembers } = useCompanyMembers(primaryCompanyId);
 
   const handleCreateLink = async () => {
     const result = await createLink.mutateAsync({ role });
@@ -181,6 +188,44 @@ export function ProjectCollaboratorsPanel({ projectId, isOwner }: ProjectCollabo
                   {createLink.isPending ? 'Creating…' : 'Create & Copy Link'}
                 </Button>
 
+                {companyMembers.length > 0 && (
+                  <div className="border-t border-border pt-3 space-y-2">
+                    <div className="flex items-center gap-1.5">
+                      <Building2 className="h-3 w-3 text-muted-foreground" />
+                      <p className="text-xs text-muted-foreground font-medium">Quick add from company roster</p>
+                    </div>
+                    {companyMembers
+                      .filter(m => !collaborators.some(c => c.email === m.email))
+                      .map(member => (
+                        <div key={member.id} className="flex items-center justify-between text-xs bg-muted/50 rounded-lg px-3 py-2">
+                          <div className="min-w-0">
+                            <span className="font-medium text-foreground">{member.display_name || member.email}</span>
+                            <span className="text-muted-foreground ml-2">{ROLE_LABELS[member.default_role as ProjectRole] || member.default_role}</span>
+                          </div>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-6 text-[10px] px-2"
+                            onClick={async () => {
+                              setRole(member.default_role as ProjectRole);
+                              const result = await createLink.mutateAsync({ role: member.default_role as ProjectRole });
+                              const url = getInviteUrl(result.token);
+                              await navigator.clipboard.writeText(url);
+                              toast.success(`Invite link for ${member.display_name || member.email} copied!`);
+                            }}
+                            disabled={createLink.isPending}
+                          >
+                            <Link2 className="h-2.5 w-2.5 mr-0.5" />
+                            Create Link
+                          </Button>
+                        </div>
+                      ))}
+                    {companyMembers.every(m => collaborators.some(c => c.email === m.email)) && (
+                      <p className="text-xs text-muted-foreground text-center py-1">All company members already added</p>
+                    )}
+                  </div>
+                )}
+
                 {links.length > 0 && (
                   <div className="border-t border-border pt-3 space-y-2">
                     <p className="text-xs text-muted-foreground font-medium">Active Links</p>
@@ -197,7 +242,7 @@ export function ProjectCollaboratorsPanel({ projectId, isOwner }: ProjectCollabo
                             variant="ghost" size="icon" className="h-6 w-6"
                             onClick={() => handleCopyLink(link.token)}
                           >
-                            {copiedToken === link.token ? <Check className="h-3 w-3 text-emerald-500" /> : <Copy className="h-3 w-3" />}
+                            {copiedToken === link.token ? <Check className="h-3 w-3 text-primary" /> : <Copy className="h-3 w-3" />}
                           </Button>
                           <Button
                             variant="ghost" size="icon" className="h-6 w-6"

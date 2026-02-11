@@ -1,19 +1,22 @@
 import { useState, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Building2, LinkIcon, Unlink, ArrowLeft, Upload, Palette, MapPin, Pencil, Check, X } from 'lucide-react';
+import { Building2, LinkIcon, Unlink, ArrowLeft, Upload, Palette, MapPin, Pencil, Check, X, UserPlus, Trash2, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Badge } from '@/components/ui/badge';
 import { Header } from '@/components/Header';
 import { PageTransition } from '@/components/PageTransition';
 import { ProjectCard } from '@/components/ProjectCard';
 import { useCompany, useCompanyProjects, useProjectCompanies, useCompanies } from '@/hooks/useCompanies';
+import { useCompanyMembers } from '@/hooks/useCompanyMembers';
 import { useProjects } from '@/hooks/useProjects';
 import { useDashboardScores } from '@/hooks/useDashboardScores';
 import { Project } from '@/lib/types';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { ROLE_LABELS, type ProjectRole } from '@/hooks/useCollaboration';
 
 const ACCENT_PRESETS = [
   '#C4913A', '#3B82F6', '#10B981', '#EF4444', '#8B5CF6',
@@ -180,6 +183,136 @@ function CompanyBrandingSection({ companyId, logoUrl, colorAccent, jurisdiction 
   );
 }
 
+function CompanyMembersSection({ companyId }: { companyId: string }) {
+  const { members, isLoading, addMember, removeMember, updateMember } = useCompanyMembers(companyId);
+  const [adding, setAdding] = useState(false);
+  const [email, setEmail] = useState('');
+  const [name, setName] = useState('');
+  const [role, setRole] = useState<string>('creative');
+
+  const handleAdd = () => {
+    if (!email.trim()) return;
+    addMember.mutate(
+      { email: email.trim(), displayName: name.trim() || email.trim(), defaultRole: role },
+      { onSuccess: () => { setEmail(''); setName(''); setAdding(false); } }
+    );
+  };
+
+  return (
+    <div className="glass-card rounded-lg p-5 mb-8">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <Users className="h-4 w-4 text-primary" />
+          <h3 className="text-sm font-semibold text-foreground">Company Partners</h3>
+          {members.length > 0 && (
+            <span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-full">
+              {members.length}
+            </span>
+          )}
+        </div>
+        <Button variant="outline" size="sm" className="text-xs" onClick={() => setAdding(!adding)}>
+          <UserPlus className="h-3 w-3 mr-1" />
+          Add Partner
+        </Button>
+      </div>
+
+      {adding && (
+        <motion.div
+          initial={{ opacity: 0, height: 0 }}
+          animate={{ opacity: 1, height: 'auto' }}
+          className="border border-border/50 rounded-lg p-4 mb-4 space-y-3"
+        >
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <Input
+              value={name}
+              onChange={e => setName(e.target.value)}
+              placeholder="Name"
+              className="text-sm"
+            />
+            <Input
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              placeholder="Email"
+              className="text-sm"
+              type="email"
+            />
+            <Select value={role} onValueChange={setRole}>
+              <SelectTrigger className="text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(Object.keys(ROLE_LABELS) as ProjectRole[]).map(r => (
+                  <SelectItem key={r} value={r}>{ROLE_LABELS[r]}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex gap-2 justify-end">
+            <Button variant="ghost" size="sm" onClick={() => setAdding(false)}>Cancel</Button>
+            <Button size="sm" onClick={handleAdd} disabled={!email.trim() || addMember.isPending}>
+              {addMember.isPending ? 'Adding…' : 'Add to Roster'}
+            </Button>
+          </div>
+        </motion.div>
+      )}
+
+      {isLoading ? (
+        <div className="space-y-2">
+          {[...Array(2)].map((_, i) => <div key={i} className="h-10 bg-muted rounded animate-pulse" />)}
+        </div>
+      ) : members.length === 0 ? (
+        <p className="text-sm text-muted-foreground text-center py-4">
+          No partners added yet. Add team members to quickly invite them to linked projects.
+        </p>
+      ) : (
+        <div className="space-y-1">
+          {members.map(member => (
+            <div key={member.id} className="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-muted/30 transition-colors group">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                  <span className="text-xs font-display font-semibold text-primary">
+                    {(member.display_name || member.email).charAt(0).toUpperCase()}
+                  </span>
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-foreground truncate">{member.display_name || member.email}</p>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground">{member.email}</span>
+                    <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                      {ROLE_LABELS[member.default_role as ProjectRole] || member.default_role}
+                    </Badge>
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <Select
+                  value={member.default_role}
+                  onValueChange={v => updateMember.mutate({ id: member.id, default_role: v })}
+                >
+                  <SelectTrigger className="h-7 w-[120px] text-xs border-border/50">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(Object.keys(ROLE_LABELS) as ProjectRole[]).map(r => (
+                      <SelectItem key={r} value={r} className="text-xs">{ROLE_LABELS[r]}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  variant="ghost" size="icon" className="h-7 w-7"
+                  onClick={() => removeMember.mutate(member.id)}
+                >
+                  <Trash2 className="h-3 w-3 text-muted-foreground" />
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function CompanyDetail() {
   const { id } = useParams<{ id: string }>();
   const { data: company, isLoading: companyLoading } = useCompany(id);
@@ -262,6 +395,8 @@ export default function CompanyDetail() {
                 colorAccent={company.color_accent}
                 jurisdiction={company.jurisdiction}
               />
+
+              <CompanyMembersSection companyId={company.id} />
 
               {companyProjects.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-24 text-center">
