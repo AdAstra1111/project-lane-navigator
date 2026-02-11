@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import iffyLogo from '@/assets/iffy-logo-v3.png';
+import heroBoardroom from '@/assets/hero-boardroom.jpg';
 import {
   FolderOpen, DollarSign, Users, BarChart3, Sparkles,
-  ArrowRight, Play, X, ChevronRight,
+  ArrowRight, Play, X, ChevronRight, TrendingUp,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
@@ -12,34 +13,40 @@ const INTRO_KEY = 'iffy-intro-seen';
 /* ── Cinematic slides ── */
 const brandSlides = [
   {
-    phase: 'brand',
+    phase: 'brand' as const,
     subtitle: 'Intelligent Film Flow & Yield',
     title: 'IFFY',
     body: 'From inception to recoup.',
   },
   {
-    phase: 'value',
+    phase: 'value' as const,
     icon: FolderOpen,
     title: 'Living dossiers, not documents',
-    body: 'Every attachment — script, cast, partners — updates your project assessment automatically.',
+    body: 'Every attachment — script, cast, partners — updates your project assessment automatically. No manual recalculation.',
   },
   {
-    phase: 'value',
+    phase: 'value' as const,
     icon: DollarSign,
     title: 'Finance built in from day one',
-    body: 'Incentives, co-productions, and capital stacks evaluated in context of your project.',
+    body: 'Incentives, co-productions, and capital stacks evaluated in context. Build your deal structure deal by deal.',
   },
   {
-    phase: 'value',
+    phase: 'value' as const,
     icon: Users,
     title: 'Smart packaging & buyer matching',
-    body: 'AI-powered talent recommendations and buyer scoring based on your project metadata.',
+    body: 'AI-powered talent recommendations and scored buyer matches based on your project\'s specific metadata.',
   },
   {
-    phase: 'value',
-    icon: BarChart3,
+    phase: 'value' as const,
+    icon: TrendingUp,
     title: 'Market intelligence finds you',
-    body: 'Trend signals matched to your genre, tone, and format. Always current, always relevant.',
+    body: 'Trend signals, cast momentum, and genre cycles matched to your project. Always current, always relevant.',
+  },
+  {
+    phase: 'value' as const,
+    icon: BarChart3,
+    title: 'Every decision moves the needle',
+    body: 'Readiness scores update in real time. IFFY always shows the single best next step to close the gap.',
   },
 ];
 
@@ -49,31 +56,31 @@ const tourSteps = [
     icon: Sparkles,
     title: 'Create your first project',
     body: 'Click "New Project" to build a living dossier. Add a title, genre, budget range, and territory to get started.',
-    highlight: 'top-right',
+    highlight: 'top-right' as const,
   },
   {
     icon: FolderOpen,
     title: 'Attach and enrich',
-    body: 'Upload scripts, add cast, attach partners. Every change updates your readiness score and finance picture automatically.',
-    highlight: 'center',
+    body: 'Upload scripts, add cast, attach partners. Every change updates your readiness score and finance picture.',
+    highlight: 'center' as const,
   },
   {
     icon: DollarSign,
     title: 'Track your capital stack',
-    body: 'Navigate to the Finance tab to log deals across pre-sales, equity, incentives, gap, and more. Visualise secured vs pipeline funding.',
-    highlight: 'center',
+    body: 'Navigate to the Finance tab to log deals across pre-sales, equity, incentives, gap, and more.',
+    highlight: 'center' as const,
   },
   {
     icon: BarChart3,
     title: 'Explore trends & buyers',
     body: 'Use the nav bar to access market trends, buyer matching, incentive finders, and production calendars.',
-    highlight: 'top-nav',
+    highlight: 'top-nav' as const,
   },
   {
     icon: Users,
     title: 'Collaborate with your team',
-    body: "Invite collaborators with role-based access. Producers, sales agents, lawyers, and creatives see only what\u2019s relevant.",
-    highlight: 'center',
+    body: "Invite collaborators with role-based access. Everyone works from the same living dossier.",
+    highlight: 'center' as const,
   },
 ];
 
@@ -126,32 +133,39 @@ export function IntroExperience() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          transition={{ duration: 0.5 }}
+          transition={{ duration: 0.6 }}
           className="fixed inset-0 z-[200] flex items-center justify-center overflow-hidden"
         >
-          {/* Dramatic background */}
-          <div className="absolute inset-0 bg-[hsl(225,18%,4%)]" />
+          {/* Background image with overlay */}
+          <div className="absolute inset-0">
+            <img src={heroBoardroom} alt="" className="w-full h-full object-cover" />
+            <div className="absolute inset-0 bg-[hsl(225,18%,4%)]/90" />
+          </div>
           
           {/* Ambient glow */}
           <motion.div
-            animate={{ scale: [1, 1.2, 1], opacity: [0.15, 0.25, 0.15] }}
-            transition={{ duration: 6, repeat: Infinity, ease: 'easeInOut' }}
-            className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full bg-primary/20 blur-[120px]"
+            animate={{ scale: [1, 1.3, 1], opacity: [0.1, 0.2, 0.1] }}
+            transition={{ duration: 8, repeat: Infinity, ease: 'easeInOut' }}
+            className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] rounded-full bg-primary/15 blur-[160px]"
           />
           
-          {/* Film grain overlay */}
-          <div className="absolute inset-0 opacity-[0.03] pointer-events-none"
+          {/* Film grain */}
+          <div className="absolute inset-0 opacity-[0.02] pointer-events-none"
             style={{
               backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='1'/%3E%3C/svg%3E")`,
             }}
           />
 
+          {/* Cinematic letterbox bars */}
+          <div className="absolute top-0 left-0 right-0 h-[8%] bg-black/60" />
+          <div className="absolute bottom-0 left-0 right-0 h-[8%] bg-black/60" />
+
           {/* Skip button */}
           <button
             onClick={dismiss}
-            className="absolute top-6 right-6 z-10 text-white/40 hover:text-white/80 transition-colors"
+            className="absolute top-[10%] right-6 z-10 text-white/30 hover:text-white/70 transition-colors text-xs font-display uppercase tracking-wider flex items-center gap-1"
           >
-            <X className="h-5 w-5" />
+            Skip <X className="h-3.5 w-3.5" />
           </button>
 
           {/* Content */}
@@ -163,35 +177,35 @@ export function IntroExperience() {
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0, y: -20 }}
-                  transition={{ duration: 0.6 }}
-                  className="text-center space-y-8"
+                  transition={{ duration: 0.7 }}
+                  className="text-center space-y-10"
                 >
                   {/* Logo */}
                   <motion.div
-                    initial={{ scale: 0.5, opacity: 0 }}
+                    initial={{ scale: 0.3, opacity: 0 }}
                     animate={{ scale: 1, opacity: 1 }}
-                    transition={{ delay: 0.2, duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+                    transition={{ delay: 0.3, duration: 1, ease: [0.16, 1, 0.3, 1] }}
                     className="mx-auto"
                   >
-                    <img src={iffyLogo} alt="IFFY logo" className="h-20 w-20 rounded-2xl mx-auto shadow-[0_0_60px_hsl(38_65%_55%/0.3)]" />
+                    <img src={iffyLogo} alt="IFFY logo" className="h-24 w-24 rounded-2xl mx-auto shadow-[0_0_80px_hsl(38_65%_55%/0.35)]" />
                   </motion.div>
 
                   {/* Subtitle */}
                   <motion.p
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.6, duration: 0.5 }}
-                    className="text-xs font-display uppercase tracking-[0.25em] text-primary"
+                    transition={{ delay: 0.8, duration: 0.5 }}
+                    className="text-xs font-display uppercase tracking-[0.3em] text-primary/80"
                   >
                     {brandSlides[slideIndex].subtitle}
                   </motion.p>
 
                   {/* Title */}
                   <motion.h1
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.8, duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
-                    className="text-6xl sm:text-7xl font-display font-bold text-white tracking-tight"
+                    initial={{ opacity: 0, y: 30, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    transition={{ delay: 1, duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+                    className="text-7xl sm:text-8xl font-display font-bold text-white tracking-tight"
                   >
                     {brandSlides[slideIndex].title}
                   </motion.h1>
@@ -200,27 +214,27 @@ export function IntroExperience() {
                   <motion.p
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
-                    transition={{ delay: 1.2, duration: 0.6 }}
-                    className="text-lg text-white/60 font-display"
+                    transition={{ delay: 1.5, duration: 0.6 }}
+                    className="text-xl text-white/50 font-display"
                   >
                     {brandSlides[slideIndex].body}
                   </motion.p>
 
-                  {/* Divider line */}
+                  {/* Divider */}
                   <motion.div
                     initial={{ scaleX: 0 }}
                     animate={{ scaleX: 1 }}
-                    transition={{ delay: 1.5, duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
-                    className="h-px w-24 mx-auto bg-gradient-to-r from-transparent via-primary/60 to-transparent"
+                    transition={{ delay: 1.8, duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+                    className="h-px w-32 mx-auto bg-gradient-to-r from-transparent via-primary/50 to-transparent"
                   />
 
                   {/* CTA */}
                   <motion.div
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 1.8, duration: 0.5 }}
+                    transition={{ delay: 2.2, duration: 0.5 }}
                   >
-                    <Button onClick={nextSlide} className="gap-2">
+                    <Button onClick={nextSlide} className="gap-2 px-6">
                       <Play className="h-4 w-4" /> Discover IFFY
                     </Button>
                   </motion.div>
@@ -228,19 +242,19 @@ export function IntroExperience() {
               ) : (
                 <motion.div
                   key={`value-${slideIndex}`}
-                  initial={{ opacity: 0, x: 40 }}
+                  initial={{ opacity: 0, x: 50 }}
                   animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -40 }}
-                  transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+                  exit={{ opacity: 0, x: -50 }}
+                  transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
                   className="space-y-6"
                 >
-                  {/* Progress dots */}
-                  <div className="flex items-center gap-1.5">
+                  {/* Progress bar */}
+                  <div className="flex items-center gap-1">
                     {brandSlides.map((_, i) => (
                       <div
                         key={i}
-                        className={`h-1 rounded-full transition-all duration-300 ${
-                          i <= slideIndex ? 'bg-primary w-6' : 'bg-white/20 w-3'
+                        className={`h-0.5 rounded-full transition-all duration-500 ${
+                          i <= slideIndex ? 'bg-primary w-8' : 'bg-white/15 w-4'
                         }`}
                       />
                     ))}
@@ -248,38 +262,38 @@ export function IntroExperience() {
 
                   {/* Icon */}
                   <motion.div
-                    initial={{ scale: 0.8, opacity: 0 }}
+                    initial={{ scale: 0.7, opacity: 0 }}
                     animate={{ scale: 1, opacity: 1 }}
                     transition={{ delay: 0.1, duration: 0.3 }}
                   >
                     {brandSlides[slideIndex].icon && (
-                      <div className="h-14 w-14 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center">
+                      <div className="h-16 w-16 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center backdrop-blur-sm">
                         {(() => {
                           const Icon = brandSlides[slideIndex].icon!;
-                          return <Icon className="h-7 w-7 text-primary" />;
+                          return <Icon className="h-8 w-8 text-primary" />;
                         })()}
                       </div>
                     )}
                   </motion.div>
 
                   {/* Step label */}
-                  <p className="text-xs font-display uppercase tracking-[0.2em] text-primary">
+                  <p className="text-xs font-display uppercase tracking-[0.2em] text-primary/70">
                     {slideIndex} of {totalCinematic - 1}
                   </p>
 
                   {/* Title */}
-                  <h2 className="text-2xl sm:text-3xl font-display font-bold text-white tracking-tight">
+                  <h2 className="text-3xl sm:text-4xl font-display font-bold text-white tracking-tight leading-tight">
                     {brandSlides[slideIndex].title}
                   </h2>
 
                   {/* Body */}
-                  <p className="text-white/60 text-lg leading-relaxed">
+                  <p className="text-white/50 text-lg leading-relaxed">
                     {brandSlides[slideIndex].body}
                   </p>
 
                   {/* Actions */}
-                  <div className="flex items-center justify-between pt-4">
-                    <button onClick={dismiss} className="text-xs text-white/30 hover:text-white/60 transition-colors">
+                  <div className="flex items-center justify-between pt-6">
+                    <button onClick={dismiss} className="text-xs text-white/25 hover:text-white/50 transition-colors font-display uppercase tracking-wider">
                       Skip intro
                     </button>
                     <Button onClick={nextSlide} size="sm" className="gap-1.5">
@@ -309,17 +323,17 @@ export function IntroExperience() {
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="absolute inset-0 bg-background/70 backdrop-blur-sm"
+            className="absolute inset-0 bg-background/80 backdrop-blur-md"
             onClick={dismiss}
           />
 
           {/* Spotlight ring animation */}
           {tourSteps[tourIndex].highlight === 'top-right' && (
             <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
               className="absolute top-2 right-4 sm:right-8 w-40 h-14 rounded-xl border-2 border-primary/50 pointer-events-none"
-              style={{ boxShadow: '0 0 30px hsl(38 65% 55% / 0.2)' }}
+              style={{ boxShadow: '0 0 40px hsl(38 65% 55% / 0.25)' }}
             />
           )}
           {tourSteps[tourIndex].highlight === 'top-nav' && (
@@ -327,23 +341,23 @@ export function IntroExperience() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               className="absolute top-0 left-0 right-0 h-16 border-b-2 border-primary/40 pointer-events-none"
-              style={{ boxShadow: '0 4px 30px hsl(38 65% 55% / 0.15)' }}
+              style={{ boxShadow: '0 4px 40px hsl(38 65% 55% / 0.2)' }}
             />
           )}
 
           {/* Tour card */}
           <motion.div
             key={tourIndex}
-            initial={{ opacity: 0, y: 30, scale: 0.97 }}
+            initial={{ opacity: 0, y: 40, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -20 }}
-            transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
-            className="relative z-10 glass-card rounded-2xl p-6 sm:p-8 max-w-md w-full mx-4 mb-4 sm:mb-0 space-y-4 border border-border/50"
+            transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+            className="relative z-10 glass-card rounded-2xl p-7 sm:p-9 max-w-md w-full mx-4 mb-4 sm:mb-0 space-y-5 border border-border/50"
           >
             {/* Close */}
             <button
               onClick={dismiss}
-              className="absolute top-4 right-4 text-muted-foreground hover:text-foreground transition-colors"
+              className="absolute top-5 right-5 text-muted-foreground hover:text-foreground transition-colors"
             >
               <X className="h-4 w-4" />
             </button>
@@ -361,7 +375,7 @@ export function IntroExperience() {
               {tourSteps.map((_, i) => (
                 <div
                   key={i}
-                  className={`h-1 flex-1 rounded-full transition-all duration-300 ${
+                  className={`h-1 flex-1 rounded-full transition-all duration-400 ${
                     i <= tourIndex ? 'bg-primary' : 'bg-muted'
                   }`}
                 />
@@ -369,10 +383,10 @@ export function IntroExperience() {
             </div>
 
             {/* Icon */}
-            <div className="h-11 w-11 rounded-xl bg-primary/10 flex items-center justify-center">
+            <div className="h-12 w-12 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center">
               {(() => {
                 const Icon = tourSteps[tourIndex].icon;
-                return <Icon className="h-5 w-5 text-primary" />;
+                return <Icon className="h-6 w-6 text-primary" />;
               })()}
             </div>
 
@@ -387,7 +401,7 @@ export function IntroExperience() {
             </div>
 
             {/* Actions */}
-            <div className="flex items-center justify-between pt-2">
+            <div className="flex items-center justify-between pt-3">
               <button
                 onClick={dismiss}
                 className="text-xs text-muted-foreground hover:text-foreground transition-colors"
