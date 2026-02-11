@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { LogOut, Plus, Radio, Landmark, HelpCircle, ChevronDown, Calendar, Users, LayoutGrid, Globe, BarChart3, Settings, Menu, X } from 'lucide-react';
 import { NotificationBell } from '@/components/NotificationBell';
 import { GlobalSearch } from '@/components/GlobalSearch';
+import { ThemeToggle } from '@/components/ThemeToggle';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -81,6 +82,7 @@ export function Header() {
             </DropdownMenuContent>
           </DropdownMenu>
           <GlobalSearch />
+          <ThemeToggle />
           <NotificationBell />
           <Button
             variant="outline"
@@ -104,6 +106,7 @@ export function Header() {
         {/* Mobile controls */}
         <div className="flex md:hidden items-center gap-2">
           <GlobalSearch />
+          <ThemeToggle />
           <NotificationBell />
           <Button variant="ghost" size="icon" onClick={() => setMobileOpen(!mobileOpen)}>
             {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}

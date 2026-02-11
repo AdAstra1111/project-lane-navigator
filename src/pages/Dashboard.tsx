@@ -8,6 +8,7 @@ import { Header } from '@/components/Header';
 import { ProjectCard } from '@/components/ProjectCard';
 import { OnboardingOverlay } from '@/components/OnboardingOverlay';
 import { DashboardAnalytics } from '@/components/DashboardAnalytics';
+import { DashboardActivityFeed } from '@/components/DashboardActivityFeed';
 import { RoleDashboard } from '@/components/RoleDashboard';
 import { useProjects } from '@/hooks/useProjects';
 import { useDashboardScores } from '@/hooks/useDashboardScores';
@@ -106,6 +107,7 @@ export default function Dashboard() {
           ) : (
             <>
               <DashboardAnalytics projects={projects} />
+              <DashboardActivityFeed />
               {roleView !== 'none' && (
                 <RoleDashboard projects={projects} role={roleView as any} />
               )}

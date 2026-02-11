@@ -5,58 +5,59 @@
 @tailwind utilities;
 
 @layer base {
-  :root {
-    --background: 225 18% 7%;
-    --foreground: 40 6% 90%;
+  :root,
+  .light {
+    --background: 40 20% 97%;
+    --foreground: 225 20% 12%;
 
-    --card: 225 16% 10%;
-    --card-foreground: 40 6% 90%;
+    --card: 40 15% 95%;
+    --card-foreground: 225 20% 12%;
 
-    --popover: 225 16% 10%;
-    --popover-foreground: 40 6% 90%;
+    --popover: 40 15% 95%;
+    --popover-foreground: 225 20% 12%;
 
-    --primary: 38 65% 55%;
-    --primary-foreground: 225 18% 7%;
+    --primary: 38 65% 45%;
+    --primary-foreground: 40 20% 97%;
 
-    --secondary: 225 12% 16%;
-    --secondary-foreground: 40 6% 80%;
+    --secondary: 225 12% 90%;
+    --secondary-foreground: 225 15% 30%;
 
-    --muted: 225 10% 14%;
-    --muted-foreground: 225 8% 50%;
+    --muted: 225 10% 92%;
+    --muted-foreground: 225 8% 45%;
 
     --accent: 38 45% 40%;
-    --accent-foreground: 40 6% 90%;
+    --accent-foreground: 40 20% 97%;
 
     --destructive: 0 62% 50%;
-    --destructive-foreground: 40 6% 90%;
+    --destructive-foreground: 40 20% 97%;
 
-    --border: 225 12% 18%;
-    --input: 225 12% 18%;
-    --ring: 38 65% 55%;
+    --border: 225 12% 85%;
+    --input: 225 12% 85%;
+    --ring: 38 65% 45%;
 
     --radius: 0.5rem;
 
-    --sidebar-background: 225 18% 7%;
-    --sidebar-foreground: 40 6% 90%;
-    --sidebar-primary: 38 65% 55%;
-    --sidebar-primary-foreground: 225 18% 7%;
-    --sidebar-accent: 225 10% 14%;
-    --sidebar-accent-foreground: 40 6% 90%;
-    --sidebar-border: 225 12% 18%;
-    --sidebar-ring: 38 65% 55%;
+    --sidebar-background: 40 20% 97%;
+    --sidebar-foreground: 225 20% 12%;
+    --sidebar-primary: 38 65% 45%;
+    --sidebar-primary-foreground: 40 20% 97%;
+    --sidebar-accent: 225 10% 92%;
+    --sidebar-accent-foreground: 225 20% 12%;
+    --sidebar-border: 225 12% 85%;
+    --sidebar-ring: 38 65% 45%;
 
     /* Lane colors */
-    --lane-studio: 215 70% 55%;
-    --lane-independent: 260 50% 55%;
-    --lane-lowbudget: 145 55% 42%;
-    --lane-copro: 175 60% 42%;
-    --lane-genre: 0 65% 52%;
-    --lane-prestige: 38 75% 55%;
-    --lane-fast: 25 80% 55%;
+    --lane-studio: 215 70% 45%;
+    --lane-independent: 260 50% 45%;
+    --lane-lowbudget: 145 55% 35%;
+    --lane-copro: 175 60% 35%;
+    --lane-genre: 0 65% 45%;
+    --lane-prestige: 38 75% 45%;
+    --lane-fast: 25 80% 45%;
 
     /* Custom */
-    --glass: 225 16% 10% / 0.8;
-    --glow-primary: 38 65% 55% / 0.15;
+    --glass: 40 15% 95% / 0.8;
+    --glow-primary: 38 65% 45% / 0.1;
   }
 
   .dark {
