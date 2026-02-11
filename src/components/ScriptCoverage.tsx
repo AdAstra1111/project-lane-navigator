@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { useExtractDocuments } from '@/hooks/useExtractDocuments';
+import { OperationProgress, COVERAGE_STAGES, EXTRACT_STAGES } from '@/components/OperationProgress';
 
 interface Theme {
   name: string;
@@ -124,6 +125,8 @@ export function ScriptCoverage({ projectId, projectTitle, format, genres, hasDoc
             </Button>
           </div>
         </div>
+        <OperationProgress isActive={extract.isPending} stages={EXTRACT_STAGES} />
+        <OperationProgress isActive={isLoading} stages={COVERAGE_STAGES} />
       </motion.div>
     );
   }
