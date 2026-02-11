@@ -471,6 +471,59 @@ export type Database = {
           },
         ]
       }
+      prediction_outcomes: {
+        Row: {
+          actual_financing_outcome: string
+          created_at: string
+          distribution_type: string
+          id: string
+          notes: string
+          outcome_recorded_at: string | null
+          predicted_at: string
+          predicted_viability: number
+          project_id: string
+          revenue_if_known: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          actual_financing_outcome?: string
+          created_at?: string
+          distribution_type?: string
+          id?: string
+          notes?: string
+          outcome_recorded_at?: string | null
+          predicted_at?: string
+          predicted_viability?: number
+          project_id: string
+          revenue_if_known?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          actual_financing_outcome?: string
+          created_at?: string
+          distribution_type?: string
+          id?: string
+          notes?: string
+          outcome_recorded_at?: string | null
+          predicted_at?: string
+          predicted_viability?: number
+          project_id?: string
+          revenue_if_known?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "prediction_outcomes_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       production_companies: {
         Row: {
           color_accent: string
@@ -503,6 +556,41 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      production_engine_weights: {
+        Row: {
+          created_at: string
+          engine_id: string
+          id: string
+          production_type: string
+          updated_at: string
+          weight_value: number
+        }
+        Insert: {
+          created_at?: string
+          engine_id: string
+          id?: string
+          production_type: string
+          updated_at?: string
+          weight_value?: number
+        }
+        Update: {
+          created_at?: string
+          engine_id?: string
+          id?: string
+          production_type?: string
+          updated_at?: string
+          weight_value?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "production_engine_weights_engine_id_fkey"
+            columns: ["engine_id"]
+            isOneToOne: false
+            referencedRelation: "trend_engines"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       profiles: {
         Row: {
@@ -1449,6 +1537,63 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "project_documents_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_engine_scores: {
+        Row: {
+          confidence: string
+          created_at: string
+          engine_id: string
+          id: string
+          last_scored_at: string
+          notes: string
+          project_id: string
+          score: number
+          source: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          confidence?: string
+          created_at?: string
+          engine_id: string
+          id?: string
+          last_scored_at?: string
+          notes?: string
+          project_id: string
+          score?: number
+          source?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          confidence?: string
+          created_at?: string
+          engine_id?: string
+          id?: string
+          last_scored_at?: string
+          notes?: string
+          project_id?: string
+          score?: number
+          source?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_engine_scores_engine_id_fkey"
+            columns: ["engine_id"]
+            isOneToOne: false
+            referencedRelation: "trend_engines"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_engine_scores_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"
@@ -2562,6 +2707,48 @@ export type Database = {
           stage_day_rate?: number
           territory?: string
           timezone?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      trend_engines: {
+        Row: {
+          base_weight_default: number
+          confidence: string
+          created_at: string
+          description: string
+          engine_name: string
+          engine_type: string
+          id: string
+          last_refresh: string | null
+          refresh_frequency: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          base_weight_default?: number
+          confidence?: string
+          created_at?: string
+          description?: string
+          engine_name: string
+          engine_type?: string
+          id?: string
+          last_refresh?: string | null
+          refresh_frequency?: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          base_weight_default?: number
+          confidence?: string
+          created_at?: string
+          description?: string
+          engine_name?: string
+          engine_type?: string
+          id?: string
+          last_refresh?: string | null
+          refresh_frequency?: string
+          status?: string
           updated_at?: string
         }
         Relationships: []
