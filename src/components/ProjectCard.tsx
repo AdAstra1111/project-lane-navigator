@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Film, Tv, ArrowRight, Star } from 'lucide-react';
+import { differenceInDays } from 'date-fns';
 import { Project, MonetisationLane } from '@/lib/types';
 import { LaneBadge } from './LaneBadge';
 
@@ -29,6 +30,25 @@ function MiniScoreRing({ score, size = 28 }: { score: number; size?: number }) {
       <span className="absolute inset-0 flex items-center justify-center text-[9px] font-bold text-foreground">{score}</span>
     </div>
   );
+}
+
+function RecencyPulse({ updatedAt }: { updatedAt: string }) {
+  const days = differenceInDays(new Date(), new Date(updatedAt));
+  if (days <= 3) {
+    return (
+      <span className="relative flex h-2 w-2" title="Updated recently">
+        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+        <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+      </span>
+    );
+  }
+  if (days <= 14) {
+    return <span className="h-2 w-2 rounded-full bg-amber-500/60" title={`Updated ${days}d ago`} />;
+  }
+  if (days > 30) {
+    return <span className="h-2 w-2 rounded-full bg-muted-foreground/30" title={`Dormant — ${days}d ago`} />;
+  }
+  return null;
 }
 
 export function ProjectCard({ project, index, readinessScore, financeReadinessScore, selected, onSelect, onTogglePin }: ProjectCardProps) {
@@ -79,6 +99,7 @@ export function ProjectCard({ project, index, readinessScore, financeReadinessSc
               <span className="text-xs text-muted-foreground uppercase tracking-wider">
                 {project.format === 'tv-series' ? 'TV Series' : 'Film'}
               </span>
+              <RecencyPulse updatedAt={project.updated_at} />
               {project.pinned && (
                 <span className="text-[10px] text-primary font-medium">Pinned</span>
               )}

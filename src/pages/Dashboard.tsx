@@ -9,6 +9,7 @@ import { ProjectCard } from '@/components/ProjectCard';
 import { IntroExperience } from '@/components/IntroExperience';
 import { OnboardingChecklist } from '@/components/OnboardingChecklist';
 import { DashboardAnalytics } from '@/components/DashboardAnalytics';
+import { DailyBriefing } from '@/components/DailyBriefing';
 import { DashboardActivityFeed } from '@/components/DashboardActivityFeed';
 import { RoleDashboard } from '@/components/RoleDashboard';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
@@ -173,6 +174,7 @@ export default function Dashboard() {
             </div>
           ) : (
             <>
+              <DailyBriefing projects={projects} projectScores={projectScores} />
               <OnboardingChecklist projectCount={projects.length} />
               <DashboardAnalytics projects={projects} />
               <DashboardActivityFeed />
