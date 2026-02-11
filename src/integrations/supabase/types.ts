@@ -664,6 +664,65 @@ export type Database = {
           },
         ]
       }
+      project_cashflow_sources: {
+        Row: {
+          amount: number
+          created_at: string
+          duration_months: number
+          id: string
+          name: string
+          origin: string
+          origin_ref_id: string | null
+          project_id: string
+          sort_order: number
+          source_type: string
+          start_month: number
+          timing: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          amount?: number
+          created_at?: string
+          duration_months?: number
+          id?: string
+          name?: string
+          origin?: string
+          origin_ref_id?: string | null
+          project_id: string
+          sort_order?: number
+          source_type?: string
+          start_month?: number
+          timing?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          duration_months?: number
+          id?: string
+          name?: string
+          origin?: string
+          origin_ref_id?: string | null
+          project_id?: string
+          sort_order?: number
+          source_type?: string
+          start_month?: number
+          timing?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_cashflow_sources_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       project_cast: {
         Row: {
           actor_name: string

@@ -803,7 +803,12 @@ export default function ProjectDetail() {
             {id && <DeadlinePanel projectId={id} />}
             {id && (
               <CashflowModelPanel
+                projectId={id}
                 totalBudget={budgets.find(b => b.status === 'locked')?.total_amount ? Number(budgets.find(b => b.status === 'locked')?.total_amount) : undefined}
+                deals={deals}
+                budgets={budgets}
+                incentiveScenarios={financeScenarios}
+                shootDayCount={scheduleMetrics.shootDayCount}
               />
             )}
           </Section>
