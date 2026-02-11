@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Link, useNavigate } from 'react-router-dom';
 import { LogOut, Plus, Radio, Landmark, HelpCircle, ChevronDown, Calendar, Users, LayoutGrid, Globe, BarChart3, Settings, Menu, X, Building2, GraduationCap } from 'lucide-react';
 import iffyLogo from '@/assets/iffy-logo-v3.png';
@@ -168,8 +169,9 @@ export function Header() {
         </div>
       )}
 
-      {showTutorial && (
-        <GuidedTutorial onClose={() => setShowTutorial(false)} />
+      {showTutorial && createPortal(
+        <GuidedTutorial onClose={() => setShowTutorial(false)} />,
+        document.body
       )}
     </header>
   );
