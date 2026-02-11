@@ -188,7 +188,7 @@ export default function Dashboard() {
                 Start by adding a project
               </h2>
               <p className="text-muted-foreground mb-6 max-w-sm">
-                From inception to recoup — one decision at a time. Start with a concept, pitch, or cast attachment.
+                From inception to legacy — one decision at a time. Start with a concept, pitch, or cast attachment.
               </p>
               <Link to="/projects/new">
                 <Button className="bg-primary text-primary-foreground hover:bg-primary/90">

@@ -119,7 +119,7 @@ const scenes = [
     phase: 'cta',
     bg: heroBoardroom,
     preTitle: null,
-    title: "Inception to recoup.\nNothing missing.",
+    title: "Inception to legacy.\nNothing missing.",
     body: 'Stop guessing. Start knowing.',
     stat: null,
   },

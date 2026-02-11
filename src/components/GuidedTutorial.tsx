@@ -39,7 +39,7 @@ const chapters: Chapter[] = [
         layout: 'hero',
         title: 'IFFY',
         subtitle: 'Intelligent Film Flow & Yield',
-        body: 'Your complete command centre for independent film — from inception to recoup. Every decision tracked, every signal surfaced, every path to finance illuminated.',
+        body: 'Your complete command centre for independent film — from inception to legacy. Every decision tracked, every signal surfaced, every path to finance illuminated.',
       },
     ],
   },
@@ -158,7 +158,7 @@ const chapters: Chapter[] = [
       {
         layout: 'finale',
         title: 'You\'re ready.',
-        subtitle: 'From inception to recoup.',
+        subtitle: 'From inception to legacy.',
         body: 'Start by creating your first project, or explore the dashboard to see what IFFY can do. You can replay this tutorial anytime from the Help menu.',
       },
     ],

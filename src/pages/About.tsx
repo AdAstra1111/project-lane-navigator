@@ -51,7 +51,7 @@ export default function About() {
           >
             <p className="text-xs font-display uppercase tracking-[0.25em] text-primary">Intelligent Film Flow & Yield</p>
             <h1 className="text-5xl sm:text-7xl font-display font-bold text-foreground tracking-tight leading-[1.05]">
-              From <span className="text-gradient">inception</span><br />to recoup.
+              From <span className="text-gradient">inception</span><br />to legacy.
             </h1>
             <p className="text-xl text-muted-foreground font-display max-w-md">
               One decision at a time.
@@ -75,7 +75,7 @@ export default function About() {
           </h2>
           <div className="space-y-4 text-lg text-muted-foreground leading-relaxed">
             <p>
-              IFFY is a project intelligence system that guides film and TV projects from inception through production to monetisation and recoup — preserving context, ownership, and financial clarity at every stage.
+              IFFY is a project intelligence system that guides film and TV projects from inception through production to monetisation and beyond — preserving context, ownership, and financial clarity at every stage.
             </p>
             <p>
               It doesn't replace your instincts. <span className="text-foreground font-medium">It gives your instincts better information.</span>
@@ -137,7 +137,7 @@ export default function About() {
           <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent" />
           <div className="relative space-y-4">
             <p className="text-2xl sm:text-3xl font-display font-bold text-foreground">
-              From inception to recoup.
+              From inception to legacy.
             </p>
             <p className="text-lg text-muted-foreground">
               One decision at a time.
