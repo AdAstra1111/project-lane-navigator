@@ -50,3 +50,6 @@ verify_jwt = false
 
 [functions.schedule-intelligence]
 verify_jwt = false
+
+[functions.audit-sources]
+verify_jwt = false
