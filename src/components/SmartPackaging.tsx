@@ -9,6 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { CastInfoDialog } from '@/components/CastInfoDialog';
 import { CharacterSelector } from '@/components/CharacterSelector';
 import { TalentTriageBoard } from '@/components/TalentTriageBoard';
+import { TalentSearch } from '@/components/TalentSearch';
 import { useTalentTriage } from '@/hooks/useTalentTriage';
 import { usePersonImage } from '@/hooks/usePersonImage';
 import type { ScriptCharacter } from '@/hooks/useScriptCharacters';
@@ -248,6 +249,14 @@ export function SmartPackaging({ projectId, projectTitle, format, genres, budget
         />
         <p className="text-[10px] text-muted-foreground mt-1 text-right">{customBrief.length}/500</p>
       </div>
+
+      {/* TMDb talent search */}
+      <TalentSearch
+        mode={mode}
+        onAddToTriage={triage.addItems}
+        existingNames={new Set(filteredItems.map(i => i.person_name.toLowerCase()))}
+        projectContext={projectContext}
+      />
 
       {/* Show triage board if there are items */}
       <TalentTriageBoard
