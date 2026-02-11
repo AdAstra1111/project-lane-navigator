@@ -234,16 +234,19 @@ export function useArchivedSignals(productionType?: string) {
   });
 }
 
-export function useLatestWeeklyBrief() {
+export function useLatestWeeklyBrief(productionType?: string) {
   return useQuery({
-    queryKey: ['trend-weekly-brief', 'latest'],
+    queryKey: ['trend-weekly-brief', productionType || 'all'],
     queryFn: async () => {
-      const { data, error } = await supabase
+      let query = supabase
         .from('trend_weekly_briefs')
         .select('*')
         .order('week_start', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+        .limit(1);
+      if (productionType) {
+        query = query.eq('production_type', productionType);
+      }
+      const { data, error } = await query.maybeSingle();
       if (error) throw error;
       return data as unknown as TrendWeeklyBrief | null;
     },
