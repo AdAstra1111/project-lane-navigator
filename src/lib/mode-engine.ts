@@ -206,11 +206,12 @@ export const MODE_SCORING: Record<ProjectFormat, ScoringDimension[]> = {
     { key: 'cultural-impact', label: 'Cultural Impact', weight: 15, description: 'Cultural significance and reach' },
   ],
   'vertical-drama': [
-    { key: 'hook-strength', label: 'Hook Strength', weight: 25, description: 'Episode cliffhanger & scroll-stopping power' },
-    { key: 'cast-social', label: 'Cast Social Reach', weight: 20, description: 'Cast social media following & engagement' },
-    { key: 'platform-fit', label: 'Platform Fit', weight: 20, description: 'Alignment with target platform audience' },
-    { key: 'binge-design', label: 'Binge Design', weight: 20, description: 'Episode pacing & series arc retention' },
-    { key: 'brand-potential', label: 'Brand Potential', weight: 15, description: 'Brand integration & sponsorship appeal' },
+    { key: 'speed-breakeven', label: 'Speed to Break-Even', weight: 22, description: 'How fast the title reaches profitability on platform' },
+    { key: 'episode-scalability', label: 'Episode Count Scalability', weight: 18, description: 'Potential for multi-season episode expansion' },
+    { key: 'cpm-potential', label: 'CPM Potential', weight: 18, description: 'Ad revenue CPM and in-app purchase viability' },
+    { key: 'micro-transaction', label: 'Micro-Transaction Viability', weight: 15, description: 'Episode unlock, coin purchase, and IAP potential' },
+    { key: 'subscriber-funnel', label: 'Subscriber Funnel Strength', weight: 15, description: 'Free-to-paid conversion and retention funnel' },
+    { key: 'hook-strength', label: 'Hook & Retention Design', weight: 12, description: 'Cliffhanger density and scroll-stopping power' },
   ],
 };
 
@@ -311,9 +312,11 @@ export const MODE_KPIS: Record<ProjectFormat, KPIDefinition[]> = {
   'vertical-drama': [
     { key: 'episode-completion', label: 'Episode Completion Rate', description: 'Avg % of episode watched', unit: 'percentage' },
     { key: 'series-retention', label: 'Series Retention', description: 'Viewers who watch 3+ episodes', unit: 'percentage' },
+    { key: 'speed-breakeven', label: 'Days to Break-Even', description: 'Days from launch to profitability', unit: 'count' },
+    { key: 'cpm-revenue', label: 'CPM Revenue', description: 'Average CPM across ad placements', unit: 'currency' },
+    { key: 'iap-revenue', label: 'IAP Revenue', description: 'In-app purchase & episode unlock revenue', unit: 'currency' },
+    { key: 'subscriber-conversion', label: 'Subscriber Conversion', description: 'Free-to-paid conversion rate', unit: 'percentage' },
     { key: 'total-views', label: 'Total Views', description: 'Cross-platform episode views', unit: 'count' },
-    { key: 'brand-deals', label: 'Brand Deals', description: 'Active brand integrations', unit: 'count' },
-    { key: 'revenue', label: 'Revenue', description: 'Total platform & ad revenue', unit: 'currency' },
   ],
 };
 
