@@ -999,6 +999,53 @@ export type Database = {
           },
         ]
       }
+      project_deadlines: {
+        Row: {
+          completed: boolean
+          created_at: string
+          deadline_type: string
+          due_date: string
+          id: string
+          label: string
+          notes: string
+          project_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          completed?: boolean
+          created_at?: string
+          deadline_type?: string
+          due_date: string
+          id?: string
+          label?: string
+          notes?: string
+          project_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          completed?: boolean
+          created_at?: string
+          deadline_type?: string
+          due_date?: string
+          id?: string
+          label?: string
+          notes?: string
+          project_id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_deadlines_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       project_deals: {
         Row: {
           buyer_name: string

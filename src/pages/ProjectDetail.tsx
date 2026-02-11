@@ -55,6 +55,7 @@ import { DeliveryIntelligencePanel } from '@/components/DeliveryIntelligencePane
 import { CostTrackingPanel } from '@/components/CostTrackingPanel';
 import { ContractManagerPanel } from '@/components/ContractManagerPanel';
 import { ProjectActivityFeed } from '@/components/ProjectActivityFeed';
+import { DeadlinePanel } from '@/components/DeadlinePanel';
 import { useProjectBudgets } from '@/hooks/useBudgets';
 import type { BudgetSummary } from '@/lib/finance-readiness';
 import { useTalentTriage } from '@/hooks/useTalentTriage';
@@ -692,6 +693,7 @@ export default function ProjectDetail() {
               />
             )}
             {id && <DealTracker projectId={id} />}
+            {id && <DeadlinePanel projectId={id} />}
           </Section>
 
           {/* 5. Budget */}
