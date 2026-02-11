@@ -19,6 +19,7 @@ import type {
   ProjectFinanceScenario,
   ProjectHOD,
 } from '@/hooks/useProjectAttachments';
+import type { ScheduleMetrics } from '@/lib/schedule-impact';
 
 export interface BudgetSummary {
   count: number;
@@ -147,6 +148,7 @@ export function calculateFinanceReadiness(
   hods: ProjectHOD[],
   hasIncentiveInsights: boolean,
   budgetSummary?: BudgetSummary,
+  scheduleMetrics?: ScheduleMetrics,
 ): FinanceReadinessResult {
   const analysis = project.analysis_passes as FullAnalysis | null;
   const genres = project.genres || [];
@@ -355,10 +357,22 @@ export function calculateFinanceReadiness(
         break;
 
       case 'Schedule':
-        scopeConfidence = currentScript && analysis ? 'Medium' : 'Low';
-        volatilityRisk = hasActionSignals(analysis, genres) || countLocations(analysis) >= 3 ? 'High' : 'Medium';
-        narrativePressure = hasActionSignals(analysis, genres) ? 'Action/logistics elements increase schedule pressure' : 'Standard schedule complexity';
-        marketPressure = currentScript ? 'Script available for scheduling' : 'No current script for schedule estimation';
+        if (scheduleMetrics?.hasSchedule) {
+          scopeConfidence = scheduleMetrics.scheduleConfidence === 'high' ? 'High' : scheduleMetrics.scheduleConfidence === 'medium' ? 'Medium' : 'Low';
+          volatilityRisk = scheduleMetrics.overtimeRiskLevel === 'high' ? 'High' : scheduleMetrics.overtimeRiskLevel === 'medium' ? 'Medium' : 'Low';
+          narrativePressure = `${scheduleMetrics.shootDayCount} shoot days, ${scheduleMetrics.avgPagesPerDay} pg/day avg, ${scheduleMetrics.uniqueLocations} locations`;
+          marketPressure = scheduleMetrics.schedulingFlags.length > 0 ? scheduleMetrics.schedulingFlags[0] : 'Schedule created — no major flags';
+        } else if (scheduleMetrics && scheduleMetrics.totalScenes > 0) {
+          scopeConfidence = 'Low';
+          volatilityRisk = 'Medium';
+          narrativePressure = `${scheduleMetrics.totalScenes} scenes extracted but no schedule created`;
+          marketPressure = 'Create shoot days to improve schedule confidence';
+        } else {
+          scopeConfidence = currentScript && analysis ? 'Medium' : 'Low';
+          volatilityRisk = hasActionSignals(analysis, genres) || countLocations(analysis) >= 3 ? 'High' : 'Medium';
+          narrativePressure = hasActionSignals(analysis, genres) ? 'Action/logistics elements increase schedule pressure' : 'Standard schedule complexity';
+          marketPressure = currentScript ? 'Script available for scheduling' : 'No current script for schedule estimation';
+        }
         break;
 
       case 'Post-Production':
@@ -414,8 +428,20 @@ export function calculateFinanceReadiness(
     });
   }
 
-  // Schedule volatility
-  if (volatilityIndex === 'High') {
+  // Schedule volatility — use real metrics if available
+  if (scheduleMetrics?.overtimeRiskLevel === 'high') {
+    riskFlags.push({
+      tag: 'Schedule Overtime Risk',
+      explanation: `Schedule analysis flags high overtime risk: ${scheduleMetrics.schedulingFlags.slice(0, 2).join('; ') || 'multiple pressure factors detected'}.`,
+      mitigation: 'Review shoot day assignments, reduce company moves, and consider splitting heavy days.',
+    });
+  } else if (scheduleMetrics && scheduleMetrics.totalScenes > 0 && !scheduleMetrics.hasSchedule) {
+    riskFlags.push({
+      tag: 'No Schedule Created',
+      explanation: `${scheduleMetrics.totalScenes} scenes extracted but no shoot days created — schedule impact on budget cannot be assessed.`,
+      mitigation: 'Create shoot days and assign scenes to enable schedule-aware budget assessment.',
+    });
+  } else if (volatilityIndex === 'High') {
     riskFlags.push({
       tag: 'Schedule Volatility',
       explanation: 'Multiple scale factors (VFX, action, locations, period) create high schedule uncertainty.',
