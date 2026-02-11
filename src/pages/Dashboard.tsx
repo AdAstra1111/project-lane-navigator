@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Header } from '@/components/Header';
 import { ProjectCard } from '@/components/ProjectCard';
 import { IntroExperience } from '@/components/IntroExperience';
+import { GuidedTutorial } from '@/components/GuidedTutorial';
 import { OnboardingChecklist } from '@/components/OnboardingChecklist';
 import { DashboardAnalytics } from '@/components/DashboardAnalytics';
 import { DailyBriefing } from '@/components/DailyBriefing';
@@ -64,6 +65,7 @@ export default function Dashboard() {
     <div className="min-h-screen bg-background">
       <Header />
       <IntroExperience />
+      <GuidedTutorial autoShow />
       <main className="container py-10">
         <motion.div
           initial={{ opacity: 0, y: 12 }}
