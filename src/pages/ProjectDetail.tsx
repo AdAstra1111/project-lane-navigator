@@ -50,6 +50,8 @@ import { CompAnalysis } from '@/components/CompAnalysis';
 import { DealTracker } from '@/components/DealTracker';
 import { OwnershipWaterfallPanel } from '@/components/OwnershipWaterfallPanel';
 import { BudgetPanel } from '@/components/BudgetPanel';
+import { useProjectBudgets } from '@/hooks/useBudgets';
+import type { BudgetSummary } from '@/lib/finance-readiness';
 import { useTalentTriage } from '@/hooks/useTalentTriage';
 import { MarketWindowAlerts } from '@/components/MarketWindowAlerts';
 import { ProjectFestivalMatches } from '@/components/ProjectFestivalMatches';
@@ -210,6 +212,16 @@ export default function ProjectDetail() {
   const { scripts } = useProjectScripts(id);
   const { scenarios: financeScenarios } = useProjectFinance(id);
   const { hods } = useProjectHODs(id);
+  const { budgets } = useProjectBudgets(id);
+
+  const budgetSummary: BudgetSummary = useMemo(() => {
+    const locked = budgets.filter(b => b.status === 'locked');
+    return {
+      count: budgets.length,
+      hasLocked: locked.length > 0,
+      lockedTotal: locked.reduce((s, b) => s + Number(b.total_amount), 0),
+    };
+  }, [budgets]);
 
   // Incentive analysis is considered done if either: already persisted in DB or run this session
   const incentiveAnalysed = incentiveAnalysedThisSession || !!(project as any)?.incentive_insights;
@@ -222,13 +234,13 @@ export default function ProjectDetail() {
 
   const readiness = useMemo(() => {
     if (!project) return null;
-    return calculateReadiness(project, cast, partners, scripts, financeScenarios, hods, incentiveAnalysed);
-  }, [project, cast, partners, scripts, financeScenarios, hods, incentiveAnalysed]);
+    return calculateReadiness(project, cast, partners, scripts, financeScenarios, hods, incentiveAnalysed, budgetSummary);
+  }, [project, cast, partners, scripts, financeScenarios, hods, incentiveAnalysed, budgetSummary]);
 
   const financeReadiness = useMemo(() => {
     if (!project) return null;
-    return calculateFinanceReadiness(project, cast, partners, scripts, financeScenarios, hods, incentiveAnalysed);
-  }, [project, cast, partners, scripts, financeScenarios, hods, incentiveAnalysed]);
+    return calculateFinanceReadiness(project, cast, partners, scripts, financeScenarios, hods, incentiveAnalysed, budgetSummary);
+  }, [project, cast, partners, scripts, financeScenarios, hods, incentiveAnalysed, budgetSummary]);
 
   // Score history: auto-save daily snapshot
   const { history: scoreHistory } = useScoreHistory(id);
