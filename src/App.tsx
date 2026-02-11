@@ -24,6 +24,7 @@ import About from "./pages/About";
 import HowItWorks from "./pages/HowItWorks";
 import FAQ from "./pages/FAQ";
 import AcceptInvite from "./pages/AcceptInvite";
+import Notifications from "./pages/Notifications";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -54,6 +55,7 @@ const App = () => (
           <Route path="/festivals" element={<ProtectedRoute><FestivalCalendar /></ProtectedRoute>} />
           <Route path="/calendar" element={<ProtectedRoute><ProductionCalendar /></ProtectedRoute>} />
           <Route path="/buyer-crm" element={<ProtectedRoute><BuyerCRM /></ProtectedRoute>} />
+          <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
           <Route path="/invite" element={<AcceptInvite />} />
           <Route path="*" element={<NotFound />} />
         </Routes>

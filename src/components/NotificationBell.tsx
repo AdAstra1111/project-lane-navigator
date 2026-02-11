@@ -86,7 +86,8 @@ export function NotificationBell() {
               No notifications yet
             </div>
           ) : (
-            notifications.map(n => {
+            <>
+            {notifications.slice(0, 8).map(n => {
               const Icon = TYPE_ICONS[n.type] || Info;
               return (
                 <button
@@ -112,7 +113,14 @@ export function NotificationBell() {
                   )}
                 </button>
               );
-            })
+            })}
+            <button
+              onClick={() => { navigate('/notifications'); setOpen(false); }}
+              className="w-full text-center py-2.5 text-xs font-medium text-primary hover:bg-muted/50 transition-colors border-t border-border"
+            >
+              View all notifications
+            </button>
+            </>
           )}
         </div>
       </PopoverContent>
