@@ -80,8 +80,7 @@ export default function Dashboard() {
                     <img
                       src={primaryCompany.logo_url}
                       alt={primaryCompany.name}
-                      className="h-8 w-8 rounded-md object-cover border border-border/50"
-                      style={primaryCompany.color_accent ? { borderColor: primaryCompany.color_accent + '40' } : undefined}
+                      className="h-8 max-w-[200px] rounded-md object-contain"
                     />
                   ) : (
                     <div
