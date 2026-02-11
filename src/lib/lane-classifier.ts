@@ -163,8 +163,18 @@ function getRecommendations(lane: MonetisationLane, input: ProjectInput): Recomm
   return recs[lane] || [];
 }
 
-export function classifyProject(input: ProjectInput): ClassificationResult {
+export function classifyProject(input: ProjectInput, trendLaneInfluences?: import('@/lib/trend-influence').TrendLaneInfluence[]): ClassificationResult {
   const scores = scoreProject(input);
+
+  // Apply trend lane influences
+  if (trendLaneInfluences) {
+    for (const influence of trendLaneInfluences) {
+      const lane = influence.lane as MonetisationLane;
+      if (lane in scores) {
+        scores[lane] = Math.max(0, scores[lane] + influence.boost);
+      }
+    }
+  }
   
   const sorted = Object.entries(scores).sort(([, a], [, b]) => b - a) as [MonetisationLane, number][];
   const [topLane, topScore] = sorted[0];
