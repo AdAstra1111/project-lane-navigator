@@ -85,17 +85,20 @@ export function SmartPackaging({ projectId, projectTitle, format, genres, budget
       // Exclude passed/no'd names so they don't reappear
       const excludeNames = [...filteredByStatus('pass'), ...filteredByStatus('no')].map(p => p.person_name);
 
+      // Request more suggestions to ensure enough fresh options after dedup
+      const existingNames = new Set(triage.items.map(i => i.person_name.toLowerCase()));
+      const alreadyKnown = [...excludeNames.map(n => n.toLowerCase()), ...existingNames];
       const { data, error } = await supabase.functions.invoke('smart-packaging', {
-        body: { projectTitle, format, genres, budgetRange, tone, assignedLane, mode, excludeNames: excludeNames.length > 0 ? excludeNames : undefined, customBrief: customBrief.trim().slice(0, 500) || undefined, targetDepartment: mode === 'crew' ? targetDepartment : undefined, targetCharacter: (mode === 'cast' && targetCharacter) ? { name: targetCharacter.name, description: targetCharacter.description, scene_count: targetCharacter.scene_count, gender: targetCharacter.gender } : undefined },
+        body: { projectTitle, format, genres, budgetRange, tone, assignedLane, mode, maxSuggestions: 10, excludeNames: alreadyKnown.length > 0 ? [...new Set(alreadyKnown)] : undefined, customBrief: customBrief.trim().slice(0, 500) || undefined, targetDepartment: mode === 'crew' ? targetDepartment : undefined, targetCharacter: (mode === 'cast' && targetCharacter) ? { name: targetCharacter.name, description: targetCharacter.description, scene_count: targetCharacter.scene_count, gender: targetCharacter.gender } : undefined },
       });
       if (error) throw error;
       const results: PackagingSuggestion[] = data?.suggestions || [];
       setSuggestions(results);
 
       // Auto-save to triage (skip duplicates by name)
-      const existingNames = new Set(triage.items.map(i => i.person_name.toLowerCase()));
+      const knownNames = new Set(triage.items.map(i => i.person_name.toLowerCase()));
       const newItems = results
-        .filter(s => !existingNames.has(s.name.toLowerCase()))
+        .filter(s => !knownNames.has(s.name.toLowerCase()))
         .map(s => ({
           person_name: s.name,
           person_type: mode === 'crew' ? 'crew' : 'cast',
