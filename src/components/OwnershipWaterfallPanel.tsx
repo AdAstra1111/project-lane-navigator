@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { Users, FileSignature, PieChart, Layers, Plus, Trash2, X, Check, ChevronDown, ChevronUp, GripVertical } from 'lucide-react';
+import { Users, FileSignature, PieChart, Layers, Plus, Trash2, X, Check, ChevronDown, ChevronUp, GripVertical, Play, DollarSign } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -466,6 +466,262 @@ function WaterfallTab({ projectId }: { projectId: string }) {
   );
 }
 
+// ---- Simulate Tab ----
+
+interface SimTier {
+  ruleName: string;
+  ruleType: string;
+  participantName: string;
+  allocated: number;
+  capped: boolean;
+}
+
+function runWaterfallSimulation(
+  totalRevenue: number,
+  rules: ProjectWaterfallRule[],
+  participants: ProjectParticipant[],
+): { tiers: SimTier[]; remaining: number } {
+  let remaining = totalRevenue;
+  const tiers: SimTier[] = [];
+
+  for (const rule of rules) {
+    if (remaining <= 0) {
+      tiers.push({
+        ruleName: rule.rule_name,
+        ruleType: rule.rule_type,
+        participantName: participants.find(p => p.id === rule.participant_id)?.participant_name || 'Unlinked',
+        allocated: 0,
+        capped: false,
+      });
+      continue;
+    }
+
+    const pct = Number(rule.percentage) || 0;
+    const cap = rule.cap_amount ? parseFloat(rule.cap_amount) : null;
+    const premiumPct = Number(rule.premium_pct) || 0;
+    const corridorPct = Number(rule.corridor_pct) || 0;
+
+    let amount = 0;
+
+    switch (rule.rule_type) {
+      case 'recoupment': {
+        // Recoup up to cap (investment amount), or percentage of remaining
+        if (cap && cap > 0) {
+          const withPremium = cap * (1 + premiumPct / 100);
+          amount = Math.min(remaining, withPremium);
+        } else if (pct > 0) {
+          amount = remaining * (pct / 100);
+        } else {
+          amount = remaining;
+        }
+        break;
+      }
+      case 'commission': {
+        // Commission takes a percentage off the top of what's available
+        amount = remaining * (pct / 100);
+        if (cap && cap > 0) amount = Math.min(amount, parseFloat(rule.cap_amount));
+        break;
+      }
+      case 'corridor': {
+        // Corridor: participant gets corridor_pct of remaining before main split
+        amount = remaining * (corridorPct / 100);
+        if (cap && cap > 0) amount = Math.min(amount, parseFloat(rule.cap_amount));
+        break;
+      }
+      case 'deferment': {
+        // Fixed amount deferred
+        if (cap && cap > 0) {
+          amount = Math.min(remaining, parseFloat(rule.cap_amount));
+        } else {
+          amount = remaining * (pct / 100);
+        }
+        break;
+      }
+      case 'profit-split': {
+        // Split remaining profits by percentage
+        amount = remaining * (pct / 100);
+        break;
+      }
+      case 'premium': {
+        // Premium on top of recoupment
+        if (cap && cap > 0) {
+          const base = parseFloat(rule.cap_amount);
+          amount = Math.min(remaining, base * (premiumPct / 100));
+        } else {
+          amount = remaining * (pct / 100);
+        }
+        break;
+      }
+      case 'cap': {
+        // Hard cap — takes up to cap amount
+        if (cap && cap > 0) {
+          amount = Math.min(remaining, parseFloat(rule.cap_amount));
+        }
+        break;
+      }
+      case 'override': {
+        // Override percentage of total (not remaining)
+        amount = Math.min(remaining, totalRevenue * (pct / 100));
+        break;
+      }
+      default:
+        amount = remaining * (pct / 100);
+    }
+
+    const wasCapped = cap !== null && cap > 0 && amount >= parseFloat(rule.cap_amount);
+
+    tiers.push({
+      ruleName: rule.rule_name,
+      ruleType: rule.rule_type,
+      participantName: participants.find(p => p.id === rule.participant_id)?.participant_name || 'Unlinked',
+      allocated: Math.max(0, Math.round(amount * 100) / 100),
+      capped: wasCapped,
+    });
+
+    remaining -= amount;
+    remaining = Math.max(0, remaining);
+  }
+
+  return { tiers, remaining: Math.round(remaining * 100) / 100 };
+}
+
+function SimulateTab({ projectId }: { projectId: string }) {
+  const { rules } = useProjectWaterfall(projectId);
+  const { participants } = useProjectParticipants(projectId);
+  const [revenueInput, setRevenueInput] = useState('1000000');
+
+  const revenue = parseFloat(revenueInput) || 0;
+  const { tiers, remaining } = useMemo(
+    () => runWaterfallSimulation(revenue, rules, participants),
+    [revenue, rules, participants],
+  );
+
+  const maxAlloc = Math.max(...tiers.map(t => t.allocated), remaining, 1);
+
+  if (rules.length === 0) {
+    return (
+      <div className="text-center py-6 space-y-2">
+        <Play className="h-8 w-8 mx-auto text-muted-foreground/40" />
+        <p className="text-sm font-medium text-foreground">Waterfall Simulator</p>
+        <p className="text-xs text-muted-foreground leading-relaxed max-w-sm mx-auto">
+          Add waterfall rules first, then simulate how revenue flows through each tier to each participant. Enter any hypothetical revenue amount to preview payouts.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Revenue input */}
+      <div className="flex items-center gap-2 bg-muted/30 rounded-lg px-3 py-2.5">
+        <DollarSign className="h-4 w-4 text-primary shrink-0" />
+        <div className="flex-1">
+          <label className="text-[10px] text-muted-foreground uppercase tracking-wide">Total Revenue</label>
+          <Input
+            type="number"
+            value={revenueInput}
+            onChange={e => setRevenueInput(e.target.value)}
+            className="h-8 text-sm font-semibold border-0 bg-transparent px-0 focus-visible:ring-0"
+            placeholder="Enter revenue amount"
+          />
+        </div>
+        <span className="text-xs text-muted-foreground">USD</span>
+      </div>
+
+      {/* Waterfall flow */}
+      <div className="space-y-1.5">
+        {tiers.map((tier, i) => {
+          const pctOfTotal = revenue > 0 ? (tier.allocated / revenue) * 100 : 0;
+          return (
+            <motion.div
+              key={i}
+              initial={{ opacity: 0, x: -8 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: i * 0.05 }}
+              className="bg-muted/30 rounded-lg px-3 py-2"
+            >
+              <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className="flex items-center justify-center h-5 w-5 rounded-full bg-primary/20 text-primary text-[9px] font-bold shrink-0">
+                    {i + 1}
+                  </div>
+                  <span className="text-xs font-medium text-foreground truncate">{tier.ruleName}</span>
+                  <span className="text-[10px] text-muted-foreground bg-muted rounded px-1 py-0.5">{tier.ruleType}</span>
+                  {tier.capped && (
+                    <span className="text-[9px] text-amber-400 bg-amber-500/10 rounded px-1 py-0.5">CAPPED</span>
+                  )}
+                </div>
+                <div className="text-right shrink-0 ml-2">
+                  <span className="text-sm font-semibold text-foreground">
+                    ${tier.allocated.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                  </span>
+                  <span className="text-[10px] text-muted-foreground ml-1">
+                    ({pctOfTotal.toFixed(1)}%)
+                  </span>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
+                  <motion.div
+                    className="h-full rounded-full"
+                    initial={{ width: 0 }}
+                    animate={{ width: `${revenue > 0 ? (tier.allocated / maxAlloc) * 100 : 0}%` }}
+                    transition={{ delay: i * 0.05 + 0.1, duration: 0.4 }}
+                    style={{ background: tier.allocated > 0 ? 'hsl(var(--primary))' : 'transparent' }}
+                  />
+                </div>
+                <span className="text-[10px] text-muted-foreground w-20 text-right truncate">
+                  → {tier.participantName}
+                </span>
+              </div>
+            </motion.div>
+          );
+        })}
+
+        {/* Remaining */}
+        <div className="bg-muted/20 rounded-lg px-3 py-2 border border-dashed border-border">
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-muted-foreground">Remaining (unallocated)</span>
+            <div className="text-right">
+              <span className={`text-sm font-semibold ${remaining > 0 ? 'text-emerald-400' : 'text-muted-foreground'}`}>
+                ${remaining.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+              </span>
+              <span className="text-[10px] text-muted-foreground ml-1">
+                ({revenue > 0 ? ((remaining / revenue) * 100).toFixed(1) : '0.0'}%)
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Summary by participant */}
+      {tiers.length > 0 && (
+        <div className="bg-muted/30 rounded-lg px-3 py-2.5 space-y-2">
+          <p className="text-[10px] text-muted-foreground uppercase tracking-wide font-medium">By Participant</p>
+          {Object.entries(
+            tiers.reduce((acc, t) => {
+              acc[t.participantName] = (acc[t.participantName] || 0) + t.allocated;
+              return acc;
+            }, {} as Record<string, number>),
+          )
+            .sort(([, a], [, b]) => b - a)
+            .map(([name, total]) => (
+              <div key={name} className="flex items-center justify-between text-xs">
+                <span className="text-foreground">{name}</span>
+                <span className="font-medium text-foreground">
+                  ${total.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                  <span className="text-muted-foreground ml-1">
+                    ({revenue > 0 ? ((total / revenue) * 100).toFixed(1) : '0.0'}%)
+                  </span>
+                </span>
+              </div>
+            ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ---- Main Panel ----
 interface Props {
   projectId: string;
@@ -479,7 +735,7 @@ export function OwnershipWaterfallPanel({ projectId }: Props) {
       transition={{ delay: 0.2, duration: 0.3 }}
     >
       <Tabs defaultValue="participants" className="space-y-4">
-        <TabsList className="bg-muted/50 w-full grid grid-cols-4">
+        <TabsList className="bg-muted/50 w-full grid grid-cols-5">
           <TabsTrigger value="participants" className="gap-1.5 text-xs">
             <Users className="h-3.5 w-3.5" /> Participants
           </TabsTrigger>
@@ -491,6 +747,9 @@ export function OwnershipWaterfallPanel({ projectId }: Props) {
           </TabsTrigger>
           <TabsTrigger value="waterfall" className="gap-1.5 text-xs">
             <Layers className="h-3.5 w-3.5" /> Waterfall
+          </TabsTrigger>
+          <TabsTrigger value="simulate" className="gap-1.5 text-xs">
+            <Play className="h-3.5 w-3.5" /> Simulate
           </TabsTrigger>
         </TabsList>
 
@@ -505,6 +764,9 @@ export function OwnershipWaterfallPanel({ projectId }: Props) {
         </TabsContent>
         <TabsContent value="waterfall">
           <WaterfallTab projectId={projectId} />
+        </TabsContent>
+        <TabsContent value="simulate">
+          <SimulateTab projectId={projectId} />
         </TabsContent>
       </Tabs>
     </motion.div>
