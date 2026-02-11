@@ -154,6 +154,16 @@ export function ScriptToBudgetPanel({ projectId, scriptText, format, genres, bud
         <Brain className="h-6 w-6 mx-auto text-primary/40" />
         <p className="text-xs text-muted-foreground">Script detected — extracting text for budget estimation…</p>
         <Progress value={undefined} className="h-1.5 mx-auto max-w-[200px] animate-pulse" />
+        <Button
+          variant="outline"
+          size="sm"
+          className="text-xs gap-1.5"
+          onClick={() => extract.mutate()}
+          disabled={extract.isPending}
+        >
+          <RotateCw className={`h-3 w-3 ${extract.isPending ? 'animate-spin' : ''}`} />
+          {extract.isPending ? 'Extracting…' : 'Extract Now'}
+        </Button>
       </Card>
     );
   }
