@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { Brain, Loader2, Zap, DollarSign } from 'lucide-react';
+import { Brain, Loader2, Zap, DollarSign, RotateCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
@@ -9,6 +9,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { useMutation } from '@tanstack/react-query';
 import { BUDGET_CATEGORIES } from '@/hooks/useBudgets';
+import { useExtractDocuments } from '@/hooks/useExtractDocuments';
 
 interface AutoBudgetLine {
   category: string;
@@ -53,6 +54,7 @@ export function ScriptToBudgetPanel({ projectId, scriptText, format, genres, bud
   const [progress, setProgress] = useState(0);
   const [progressLabel, setProgressLabel] = useState('');
   const progressTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const extract = useExtractDocuments(projectId);
 
   // If scriptText is the sentinel, fetch extracted text from project_documents
   const needsFetch = scriptText === '__SCRIPT_EXISTS_NO_TEXT__';
@@ -158,9 +160,22 @@ export function ScriptToBudgetPanel({ projectId, scriptText, format, genres, bud
 
   if (needsFetch && !resolvedText && fetchFailed) {
     return (
-      <Card className="p-4 border-dashed border-2 border-border/50 bg-card/30 text-center">
-        <Brain className="h-6 w-6 mx-auto mb-2 text-muted-foreground/40" />
-        <p className="text-xs text-muted-foreground">Script text not yet extracted. Try re-uploading the script or use "Estimate Budget" after extraction completes.</p>
+      <Card className="p-4 border-dashed border-2 border-border/50 bg-card/30 text-center space-y-3">
+        <Brain className="h-6 w-6 mx-auto text-muted-foreground/40" />
+        <p className="text-xs text-muted-foreground">Script text not yet extracted.</p>
+        <Button
+          variant="outline"
+          size="sm"
+          className="text-xs gap-1.5"
+          onClick={() => {
+            setFetchFailed(false);
+            extract.mutate();
+          }}
+          disabled={extract.isPending}
+        >
+          <RotateCw className={`h-3 w-3 ${extract.isPending ? 'animate-spin' : ''}`} />
+          {extract.isPending ? 'Extracting…' : 'Extract Document Text'}
+        </Button>
       </Card>
     );
   }

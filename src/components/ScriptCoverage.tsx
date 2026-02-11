@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { FileSearch, Loader2, ThumbsUp, ThumbsDown, Minus, BookOpen, Users2, TrendingUp, Lightbulb, AlertCircle, Film } from 'lucide-react';
+import { FileSearch, Loader2, ThumbsUp, ThumbsDown, Minus, BookOpen, Users2, TrendingUp, Lightbulb, AlertCircle, Film, RotateCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { useExtractDocuments } from '@/hooks/useExtractDocuments';
 
 interface Theme {
   name: string;
@@ -46,6 +47,7 @@ const REC_STYLES: Record<string, { icon: React.ElementType; color: string; bg: s
 export function ScriptCoverage({ projectId, projectTitle, format, genres, hasDocuments }: Props) {
   const [coverage, setCoverage] = useState<CoverageData | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const extract = useExtractDocuments(projectId);
 
   const handleGenerate = async () => {
     setIsLoading(true);
@@ -65,7 +67,7 @@ export function ScriptCoverage({ projectId, projectTitle, format, genres, hasDoc
         .join('\n\n---\n\n');
 
       if (!scriptText || scriptText.length < 100) {
-        toast.error('No extracted script text found. Ensure documents have been processed.');
+        toast.error('No extracted text found — try the "Extract Text" button first.');
         return;
       }
 
@@ -102,19 +104,25 @@ export function ScriptCoverage({ projectId, projectTitle, format, genres, hasDoc
               <p className="text-sm text-muted-foreground">AI-generated professional coverage notes</p>
             </div>
           </div>
-          <Button onClick={handleGenerate} disabled={isLoading}>
-            {isLoading ? (
-              <>
-                <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
-                Analysing…
-              </>
-            ) : (
-              <>
-                <FileSearch className="h-4 w-4 mr-1.5" />
-                Generate Coverage
-              </>
-            )}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => extract.mutate()} disabled={extract.isPending} className="text-xs gap-1.5">
+              <RotateCw className={`h-3 w-3 ${extract.isPending ? 'animate-spin' : ''}`} />
+              {extract.isPending ? 'Extracting…' : 'Extract Text'}
+            </Button>
+            <Button onClick={handleGenerate} disabled={isLoading}>
+              {isLoading ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+                  Analysing…
+                </>
+              ) : (
+                <>
+                  <FileSearch className="h-4 w-4 mr-1.5" />
+                  Generate Coverage
+                </>
+              )}
+            </Button>
+          </div>
         </div>
       </motion.div>
     );
