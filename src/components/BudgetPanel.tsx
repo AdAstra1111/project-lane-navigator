@@ -17,6 +17,7 @@ import {
   type ProjectBudget,
 } from '@/hooks/useBudgets';
 import { BudgetCompareView } from '@/components/BudgetCompareView';
+import { MovieMagicImport } from '@/components/MovieMagicImport';
 import { exportBudgetXLSX } from '@/lib/xls-export';
 import { exportBudgetCSV } from '@/lib/csv-export';
 
@@ -222,6 +223,10 @@ function BudgetDetailView({
                 {importing ? <Loader2 className="h-3 w-3 animate-spin" /> : <FileText className="h-3 w-3" />}
                 {importing ? 'Importing…' : 'PDF'}
               </Button>
+              <MovieMagicImport
+                onImport={(lines) => addLines.mutate(lines)}
+                disabled={isLocked}
+              />
             </>
           )}
           <Button variant="outline" size="sm" className="text-xs gap-1.5" onClick={() => {
