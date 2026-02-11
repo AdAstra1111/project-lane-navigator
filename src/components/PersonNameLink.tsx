@@ -5,13 +5,23 @@ import { CastInfoDialog } from '@/components/CastInfoDialog';
 import { usePersonLookup } from '@/hooks/usePersonImage';
 import type { ProjectContext } from '@/components/ProjectAttachmentTabs';
 
+interface ContactFields {
+  agent_name: string;
+  manager_name: string;
+  agency: string;
+  contact_phone: string;
+  contact_email: string;
+}
+
 interface PersonNameLinkProps {
   personName: string;
   reason: string;
   projectContext?: ProjectContext;
   size?: 'sm' | 'md';
-  /** If provided, will auto-correct the stored name to Wikipedia's canonical spelling */
   onNameCorrected?: (canonicalName: string) => void;
+  contactFields?: ContactFields;
+  onContactSave?: (fields: ContactFields) => void;
+  onExternalIds?: (ids: { imdb_id?: string; tmdb_id?: string }) => void;
 }
 
 const sizeClasses = {
@@ -19,13 +29,12 @@ const sizeClasses = {
   md: { avatar: 'h-10 w-10', fallbackIcon: 'h-4 w-4', text: 'text-sm', fallbackText: 'text-xs' },
 };
 
-export function PersonNameLink({ personName, reason, projectContext, size = 'sm', onNameCorrected }: PersonNameLinkProps) {
+export function PersonNameLink({ personName, reason, projectContext, size = 'sm', onNameCorrected, contactFields, onContactSave, onExternalIds }: PersonNameLinkProps) {
   const [open, setOpen] = useState(false);
   const { imageUrl, canonicalName } = usePersonLookup(personName);
   const correctedRef = useRef(false);
   const s = sizeClasses[size];
 
-  // Auto-correct name when Wikipedia confirms a match (has photo) and canonical name differs
   useEffect(() => {
     if (
       canonicalName &&
@@ -64,6 +73,9 @@ export function PersonNameLink({ personName, reason, projectContext, size = 'sm'
         open={open}
         onOpenChange={setOpen}
         projectContext={projectContext}
+        contactFields={contactFields}
+        onContactSave={onContactSave}
+        onExternalIds={onExternalIds}
       />
     </>
   );
