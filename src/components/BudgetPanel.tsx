@@ -1,11 +1,12 @@
 import { useState, useMemo, useRef } from 'react';
-import { motion } from 'framer-motion';
-import { DollarSign, Plus, Trash2, Check, X, Upload, FileSpreadsheet, Lock, Unlock, ChevronDown } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { DollarSign, Plus, Trash2, Check, X, Upload, FileSpreadsheet, Lock, Unlock, ChevronDown, Info } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import {
   useProjectBudgets,
   useBudgetLines,
@@ -14,6 +15,61 @@ import {
   BUDGET_CATEGORIES,
   type ProjectBudget,
 } from '@/hooks/useBudgets';
+
+// ---- Template options ----
+const TEMPLATE_OPTIONS = [
+  { value: 'studio-streamer', label: 'Studio / Streamer', desc: 'High-budget studio or streaming platform project with significant VFX and top-tier cast.' },
+  { value: 'independent-film', label: 'Independent Film', desc: 'Mid-range indie with balanced crew spend, moderate cast, and room for deferrals.' },
+  { value: 'low-budget', label: 'Low Budget / Micro', desc: 'Lean production relying on skeleton crew, deferred pay, and higher contingency.' },
+  { value: 'genre-market', label: 'Genre / Market-Driven', desc: 'Commercial genre title prioritising cast name-value and VFX/practical effects.' },
+  { value: 'default', label: 'General Purpose', desc: 'Balanced default split suitable for any format or lane.' },
+];
+
+function TemplatePreviewDialog({ open, onOpenChange, templateKey }: { open: boolean; onOpenChange: (v: boolean) => void; templateKey: string }) {
+  const template = getTemplateForLane(templateKey);
+  const opt = TEMPLATE_OPTIONS.find(t => t.value === templateKey);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="text-base">{opt?.label || templateKey} Template</DialogTitle>
+          <DialogDescription className="text-xs">{opt?.desc}</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-1.5 mt-2">
+          {template.map((t, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <Badge className={`text-[9px] px-1.5 py-0 border shrink-0 ${CAT_STYLES[t.category] || CAT_STYLES.other}`}>
+                {BUDGET_CATEGORIES.find(b => b.value === t.category)?.label || t.category}
+              </Badge>
+              <span className="text-xs text-foreground flex-1">{t.line_name}</span>
+              <span className="text-xs font-semibold text-foreground">{t.pct}%</span>
+            </div>
+          ))}
+        </div>
+        <div className="h-3 rounded-full bg-muted overflow-hidden flex mt-3">
+          {template.map((t, i) => (
+            <div
+              key={i}
+              className="h-full"
+              style={{
+                width: `${t.pct}%`,
+                background: t.category === 'atl' ? 'hsl(270,60%,60%)'
+                  : t.category === 'btl' ? 'hsl(200,70%,55%)'
+                  : t.category === 'post' ? 'hsl(35,80%,55%)'
+                  : t.category === 'vfx' ? 'hsl(340,65%,55%)'
+                  : t.category === 'contingency' ? 'hsl(25,85%,55%)'
+                  : t.category === 'soft-money' ? 'hsl(80,60%,50%)'
+                  : 'hsl(var(--primary))',
+              }}
+              title={`${t.line_name}: ${t.pct}%`}
+            />
+          ))}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 // ---- Category Colors ----
 const CAT_STYLES: Record<string, string> = {
@@ -224,30 +280,31 @@ export function BudgetPanel({ projectId, assignedLane }: Props) {
   const { budgets, addBudget, deleteBudget } = useProjectBudgets(projectId);
   const [selectedBudgetId, setSelectedBudgetId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
-  const [form, setForm] = useState({ version_label: '', total_amount: '', useTemplate: true });
+  const [form, setForm] = useState({ version_label: '', total_amount: '', selectedTemplate: assignedLane || 'default' });
+  const [previewTemplate, setPreviewTemplate] = useState<string | null>(null);
 
   const selectedBudget = budgets.find(b => b.id === selectedBudgetId);
 
   const handleCreate = () => {
     const total = parseFloat(form.total_amount) || 0;
-    const lane = assignedLane || '';
+    const templateKey = form.selectedTemplate === 'none' ? '' : form.selectedTemplate;
 
     addBudget.mutate(
       {
         version_label: form.version_label || `Budget v${budgets.length + 1}`,
         total_amount: total,
-        lane_template: form.useTemplate ? lane : '',
+        lane_template: templateKey || '',
       },
       {
         onSuccess: async (newBudget: any) => {
           setCreating(false);
-          setForm({ version_label: '', total_amount: '', useTemplate: true });
+          setForm({ version_label: '', total_amount: '', selectedTemplate: assignedLane || 'default' });
           setSelectedBudgetId(newBudget.id);
           // Auto-generate template lines
-          if (form.useTemplate && total > 0 && lane) {
+          if (templateKey && total > 0) {
             const { data: { user } } = await supabase.auth.getUser();
             if (!user) return;
-            const template = getTemplateForLane(lane);
+            const template = getTemplateForLane(templateKey);
             const rows = template.map((t, i) => ({
               budget_id: newBudget.id,
               project_id: projectId,
@@ -326,24 +383,37 @@ export function BudgetPanel({ projectId, assignedLane }: Props) {
             onChange={e => setForm(f => ({ ...f, version_label: e.target.value }))}
             className="h-8 text-sm"
           />
+          <Input
+            placeholder="Total budget amount"
+            value={form.total_amount}
+            onChange={e => setForm(f => ({ ...f, total_amount: e.target.value }))}
+            className="h-8 text-sm"
+            type="number"
+          />
           <div className="flex items-center gap-2">
-            <Input
-              placeholder="Total budget amount"
-              value={form.total_amount}
-              onChange={e => setForm(f => ({ ...f, total_amount: e.target.value }))}
-              className="h-8 text-sm flex-1"
-              type="number"
-            />
-            {assignedLane && (
-              <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={form.useTemplate}
-                  onChange={e => setForm(f => ({ ...f, useTemplate: e.target.checked }))}
-                  className="rounded"
-                />
-                Use {assignedLane} template
-              </label>
+            <Select value={form.selectedTemplate} onValueChange={v => setForm(f => ({ ...f, selectedTemplate: v }))}>
+              <SelectTrigger className="h-8 text-xs flex-1">
+                <SelectValue placeholder="Choose a template…" />
+              </SelectTrigger>
+              <SelectContent className="bg-popover z-50">
+                {TEMPLATE_OPTIONS.map(t => (
+                  <SelectItem key={t.value} value={t.value} className="text-xs">
+                    {t.label}
+                  </SelectItem>
+                ))}
+                <SelectItem value="none" className="text-xs text-muted-foreground">No template (blank)</SelectItem>
+              </SelectContent>
+            </Select>
+            {form.selectedTemplate && form.selectedTemplate !== 'none' && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 shrink-0 text-muted-foreground hover:text-primary"
+                onClick={() => setPreviewTemplate(form.selectedTemplate)}
+                type="button"
+              >
+                <Info className="h-3.5 w-3.5" />
+              </Button>
             )}
           </div>
           <div className="flex items-center gap-2">
@@ -367,6 +437,13 @@ export function BudgetPanel({ projectId, assignedLane }: Props) {
           </Button>
         </div>
       )}
+
+      {/* Template preview dialog */}
+      <TemplatePreviewDialog
+        open={!!previewTemplate}
+        onOpenChange={() => setPreviewTemplate(null)}
+        templateKey={previewTemplate || 'default'}
+      />
     </motion.div>
   );
 }
