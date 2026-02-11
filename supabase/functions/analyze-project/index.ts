@@ -284,23 +284,23 @@ const ANALYSIS_TOOLS = [
           },
           structural_read: {
             type: "object",
-            description: "Step 2: Structural analysis. Assess format clarity, protagonist + goal clarity (0–2), act progression / structure (0–2), narrative momentum (0–2). Reference concrete evidence.",
+            description: "Step 2: Structural analysis adapted to material type. For scripts: format, protagonist, structure, momentum. For decks/treatments/bibles: concept clarity, world-building, character definition, commercial positioning. Always state what type of material you received.",
             properties: {
               format_detected: {
                 type: "string",
-                description: "Detected format: feature screenplay, TV pilot, pitch deck, treatment, one-pager, etc.",
+                description: "Detected material type: feature screenplay, TV pilot script, pitch deck, series bible, treatment, lookbook, one-pager, outline, sizzle concept, budget top-sheet, or combination. Be specific about what you received — this determines how the rest of the analysis is framed.",
               },
               genre_as_written: {
                 type: "string",
-                description: "The genre as evidenced by the writing itself, not what the creator claims. Include short quoted evidence.",
+                description: "The genre as evidenced by the material itself, not what the creator claims. Include short quoted evidence.",
               },
               protagonist_goal_clarity: {
                 type: "string",
-                description: "Direct assessment of protagonist definition and goal clarity. Include specific evidence from the material.",
+                description: "For scripts: protagonist definition and goal clarity with evidence. For decks/treatments: character concept strength and emotional hook clarity. For bibles: series-level character arcs and world rules. Adapt to what the material provides.",
               },
               structure_clarity: {
                 type: "string",
-                description: "Assessment of narrative structure — acts, turning points, pacing. Cite specific moments.",
+                description: "For scripts: acts, turning points, pacing with specific moments. For decks: narrative flow, slide logic, commercial argument structure. For treatments: story progression and completeness. For bibles: world coherence and episode potential. State what you CAN and CANNOT assess from this material type.",
               },
             },
             required: ["format_detected", "genre_as_written", "protagonist_goal_clarity", "structure_clarity"],
@@ -507,14 +507,23 @@ serve(async (req) => {
     // ---- BUILD AI PROMPT ----
     const systemPrompt = `You are IFFY, an opinionated internal development executive for film and TV producers.
 Your role is to assess projects based on their actual execution, not marketing intent, and to make clear, defensible judgements about market positioning.
-When documents (scripts, decks, treatments) are provided, your analysis must be based PRIMARILY on the extracted document text. User-entered form data is secondary and used only to fill gaps or identify inconsistencies.
+
+DOCUMENT TYPE AWARENESS (CRITICAL):
+A project can be started with ANY type of material — a full screenplay, a pitch deck, a series bible, a treatment, a lookbook, a one-pager, a sizzle concept, or even just a bare idea with no documents. You must:
+1. IDENTIFY what type of document(s) you've received (screenplay, pitch deck, treatment, series bible, lookbook, one-pager, outline, budget top-sheet, etc.)
+2. ADAPT your analysis depth to what the material actually provides. A pitch deck gives you commercial positioning and visual tone but NOT structural screenplay analysis. A treatment gives you story arc but NOT dialogue quality. A series bible gives you world-building and character depth but NOT episode-level structure.
+3. NEVER assume a document is a script unless it clearly IS one (contains scene headings, dialogue, action lines in screenplay format).
+4. EXPLICITLY STATE what type of material you received and what that allows you to assess vs. what remains unknown.
+5. ACKNOWLEDGE what's missing — if you only have a deck, say "Without a script, I cannot assess dialogue quality or scene-level structure, but the deck reveals..."
+
+When documents are provided, your analysis must be based PRIMARILY on the extracted document text. User-entered form data is secondary and used only to fill gaps or identify inconsistencies.
 
 ${LANE_DESCRIPTIONS}
 
 ANALYSIS PROCESS (MANDATORY ORDER):
-Step 1 — Determine Primary Monetisation Lane (FIRST, ONCE ONLY). Based on the material as written, assign exactly one lane. Do not reconsider or change this lane later.
-Step 2 — Structural Read: Format clarity, protagonist + goal clarity, act progression / structure, narrative momentum. Reference concrete evidence.
-Step 3 — Creative Signal: Originality of premise, tonal consistency, emotional engine, standout elements. Anchor conclusions to specific aspects.
+Step 1 — Determine Primary Monetisation Lane (FIRST, ONCE ONLY). Based on the material as written/presented, assign exactly one lane. Do not reconsider or change this lane later.
+Step 2 — Structural Read: Adapt to material type. For scripts: format clarity, protagonist + goal clarity, act progression, narrative momentum. For decks/treatments/bibles: concept clarity, world-building depth, character definition, commercial positioning, visual identity. Reference concrete evidence from whatever material is present.
+Step 3 — Creative Signal: Originality of premise, tonal consistency, emotional engine, standout elements. Anchor conclusions to specific aspects found in the actual material.
 Step 4 — Market Reality Check: Likely audience based on execution, comparable titles (execution-based, not aspirational), budget implications, commercial risks.
 Step 5 — Decision Output (LOCKED TO PRIMARY LANE): All conclusions must support or stress-test the Primary Lane. Provide confidence, rationale, 3 DO NEXT, 3 AVOID, and which lane this is NOT suitable for.
 
