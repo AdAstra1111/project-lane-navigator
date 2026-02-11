@@ -71,11 +71,27 @@ function scoreProject(input: ProjectInput): Record<MonetisationLane, number> {
     case 'light-comedic': scores['studio-streamer'] += 1; scores['fast-turnaround'] += 1; break;
   }
 
-  // Format scoring
-  if (input.format === 'tv-series') {
-    scores['studio-streamer'] += 2; scores['fast-turnaround'] += 1;
-  } else {
-    scores['independent-film'] += 1; scores['prestige-awards'] += 1;
+  // Format scoring — production type aware
+  switch (input.format) {
+    case 'tv-series':
+    case 'digital-series':
+    case 'documentary-series':
+      scores['studio-streamer'] += 2; scores['fast-turnaround'] += 1;
+      break;
+    case 'commercial':
+    case 'branded-content':
+    case 'music-video':
+      scores['fast-turnaround'] += 3; scores['genre-market'] += 1;
+      break;
+    case 'short-film':
+    case 'proof-of-concept':
+      scores['low-budget'] += 3; scores['prestige-awards'] += 1;
+      break;
+    case 'hybrid':
+      scores['fast-turnaround'] += 2; scores['independent-film'] += 1;
+      break;
+    default:
+      scores['independent-film'] += 1; scores['prestige-awards'] += 1;
   }
 
   return scores;
