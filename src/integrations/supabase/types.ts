@@ -2043,6 +2043,7 @@ export type Database = {
         Args: { _file_path: string; _user_id: string }
         Returns: boolean
       }
+      get_deal_finance_summary: { Args: { _project_id: string }; Returns: Json }
       get_project_role: {
         Args: { _project_id: string; _user_id: string }
         Returns: string

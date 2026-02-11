@@ -192,5 +192,55 @@ export function useProjectDeals(projectId: string | undefined) {
     return acc;
   }, {} as Record<DealCategory, number>);
 
-  return { deals, isLoading, addDeal, updateDeal, deleteDeal, totalMG, dealsByCategory, categoryTotals };
+  // Sync closed deal totals into a finance scenario
+  const syncToFinance = useMutation({
+    mutationFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user || !projectId) throw new Error('Not authenticated');
+
+      // Call the DB function for aggregated totals
+      const { data: summary, error: sumErr } = await supabase.rpc('get_deal_finance_summary', { _project_id: projectId });
+      if (sumErr) throw sumErr;
+      const s = summary as any;
+
+      // Look for an existing "Deal Sync" scenario
+      const { data: existing } = await supabase
+        .from('project_finance_scenarios')
+        .select('id')
+        .eq('project_id', projectId)
+        .eq('scenario_name', 'Deal Sync (Auto)')
+        .limit(1);
+
+      const payload = {
+        presales_amount: String(s.presales_total || 0),
+        equity_amount: String(s.equity_total || 0),
+        incentive_amount: String(s.incentive_total || 0),
+        gap_amount: String(s.gap_total || 0),
+        other_sources: String(s.other_total || 0),
+        total_budget: String(s.total_closed || 0),
+        confidence: (s.closed_count >= 3 ? 'high' : s.closed_count >= 1 ? 'medium' : 'low') as string,
+        notes: `Auto-synced from ${s.closed_count} closed deal(s). Pipeline: ${s.pipeline_count} deal(s) worth $${s.pipeline_total}.`,
+      };
+
+      if (existing && existing.length > 0) {
+        const { error } = await supabase.from('project_finance_scenarios').update(payload).eq('id', existing[0].id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from('project_finance_scenarios').insert({
+          project_id: projectId,
+          user_id: user.id,
+          scenario_name: 'Deal Sync (Auto)',
+          ...payload,
+        });
+        if (error) throw error;
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['project-finance', projectId] });
+      toast.success('Finance scenario synced from deals');
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  return { deals, isLoading, addDeal, updateDeal, deleteDeal, totalMG, dealsByCategory, categoryTotals, syncToFinance };
 }

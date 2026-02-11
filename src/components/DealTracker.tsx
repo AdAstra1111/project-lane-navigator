@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Handshake, TrendingUp, X, ChevronDown, ChevronUp, DollarSign, Landmark, Gift, PiggyBank, CreditCard, Package } from 'lucide-react';
+import { Plus, Handshake, TrendingUp, X, ChevronDown, ChevronUp, DollarSign, Landmark, Gift, PiggyBank, CreditCard, Package, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -228,7 +228,7 @@ function CategorySection({
 }
 
 export function DealTracker({ projectId }: { projectId: string }) {
-  const { deals, addDeal, updateDeal, deleteDeal, totalMG, dealsByCategory, categoryTotals } =
+  const { deals, addDeal, updateDeal, deleteDeal, totalMG, dealsByCategory, categoryTotals, syncToFinance } =
     useProjectDeals(projectId);
   const [addingCategory, setAddingCategory] = useState<DealCategory | null>(null);
   const [form, setForm] = useState<DealFormState>(emptyForm('sales'));
@@ -262,6 +262,18 @@ export function DealTracker({ projectId }: { projectId: string }) {
           <TrendingUp className="h-5 w-5 text-primary" />
           <h3 className="font-display font-semibold text-foreground">Finance Tracker</h3>
         </div>
+        {deals.some(d => d.status === 'closed') && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="text-xs"
+            onClick={() => syncToFinance.mutate()}
+            disabled={syncToFinance.isPending}
+          >
+            <RefreshCw className={`h-3 w-3 mr-1 ${syncToFinance.isPending ? 'animate-spin' : ''}`} />
+            Sync to Finance
+          </Button>
+        )}
       </div>
 
       {/* Summary */}
