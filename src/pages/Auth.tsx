@@ -96,11 +96,11 @@ export default function Auth() {
           transition={{ duration: 0.5 }}
           className="w-full max-w-sm"
         >
-          <div className="flex items-center gap-2 mb-10">
-            <div className="h-10 w-10 rounded-md bg-primary flex items-center justify-center">
-              <span className="font-display font-bold text-primary-foreground">IF</span>
+          <div className="flex items-center gap-3 mb-10">
+            <div className="h-12 w-12 rounded-lg bg-primary flex items-center justify-center shrink-0">
+              <span className="font-display font-bold text-lg text-primary-foreground">IF</span>
             </div>
-            <span className="font-display font-bold text-2xl tracking-tight text-foreground">IFFY</span>
+            <span className="font-display font-bold text-3xl tracking-tight text-foreground">IFFY</span>
           </div>
 
           {view === 'forgot-password' && (
