@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Star, ThumbsDown, HelpCircle, RotateCcw, ChevronDown, ChevronUp,
-  GripVertical, Trash2, ArrowUp, ArrowDown, Sparkles, Ban, User,
+  GripVertical, Trash2, ArrowUp, ArrowDown, Sparkles, Ban, User, UserPlus,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -20,6 +20,7 @@ interface Props {
   onUpdatePriority: (id: string, rank: number) => void;
   onDelete: (id: string) => void;
   onRequestReplacement?: (item: TalentTriageItem) => void;
+  onPromoteToCast?: (item: TalentTriageItem) => void;
   projectContext?: { title: string; format: string; budget_range: string; genres: string[] };
 }
 
@@ -37,6 +38,7 @@ function TriageCard({
   onUpdatePriority,
   onDelete,
   onRequestReplacement,
+  onPromoteToCast,
   showPriorityControls,
   listLength,
   projectContext,
@@ -46,6 +48,7 @@ function TriageCard({
   onUpdatePriority: (id: string, rank: number) => void;
   onDelete: (id: string) => void;
   onRequestReplacement?: (item: TalentTriageItem) => void;
+  onPromoteToCast?: (item: TalentTriageItem) => void;
   showPriorityControls: boolean;
   listLength: number;
   projectContext?: Props['projectContext'];
@@ -151,6 +154,12 @@ function TriageCard({
                   <Sparkles className="h-3 w-3 mr-1" /> Suggest replacement
                 </Button>
               )}
+              {item.status === 'shortlist' && onPromoteToCast && (
+                <Button size="sm" variant="outline" className="h-6 px-2 text-xs text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/10"
+                  onClick={() => onPromoteToCast(item)}>
+                  <UserPlus className="h-3 w-3 mr-1" /> Move to {item.person_type === 'crew' || item.person_type === 'hod' || item.person_type === 'director' ? 'Crew' : 'Cast'}
+                </Button>
+              )}
             </div>
           </div>
 
@@ -183,6 +192,7 @@ function TriageColumn({
   onUpdatePriority,
   onDelete,
   onRequestReplacement,
+  onPromoteToCast,
   defaultOpen = true,
   projectContext,
 }: {
@@ -192,6 +202,7 @@ function TriageColumn({
   onUpdatePriority: Props['onUpdatePriority'];
   onDelete: Props['onDelete'];
   onRequestReplacement?: Props['onRequestReplacement'];
+  onPromoteToCast?: Props['onPromoteToCast'];
   defaultOpen?: boolean;
   projectContext?: Props['projectContext'];
 }) {
@@ -233,6 +244,7 @@ function TriageColumn({
                   onUpdatePriority={onUpdatePriority}
                   onDelete={onDelete}
                   onRequestReplacement={onRequestReplacement}
+                  onPromoteToCast={onPromoteToCast}
                   showPriorityControls={status === 'shortlist'}
                   listLength={items.length}
                   projectContext={projectContext}
@@ -248,7 +260,7 @@ function TriageColumn({
 
 export function TalentTriageBoard({
   unsorted, shortlisted, maybes, nos, passed,
-  onUpdateStatus, onUpdatePriority, onDelete, onRequestReplacement,
+  onUpdateStatus, onUpdatePriority, onDelete, onRequestReplacement, onPromoteToCast,
   projectContext,
 }: Props) {
   const total = unsorted.length + shortlisted.length + maybes.length + nos.length + passed.length;
@@ -268,7 +280,7 @@ export function TalentTriageBoard({
 
         <TriageColumn status="shortlist" items={shortlisted}
           onUpdateStatus={onUpdateStatus} onUpdatePriority={onUpdatePriority}
-          onDelete={onDelete} projectContext={projectContext} />
+          onDelete={onDelete} onPromoteToCast={onPromoteToCast} projectContext={projectContext} />
 
         <TriageColumn status="maybe" items={maybes}
           onUpdateStatus={onUpdateStatus} onUpdatePriority={onUpdatePriority}
