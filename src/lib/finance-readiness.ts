@@ -179,8 +179,20 @@ export function calculateFinanceReadiness(
   const salesAgent = partners.find(p => p.partner_type === 'sales-agent' && (p.status === 'confirmed' || p.status === 'in-discussion'));
 
   if (attachedCast.length > 0) {
-    packagingStrength += Math.min(8, 4 + attachedCast.length * 2);
-    strengths.push(`${attachedCast.length} cast member${attachedCast.length > 1 ? 's' : ''} attached`);
+    // Base points for having attached cast
+    let castPoints = 4 + attachedCast.length * 2;
+    // Bonus for market tier quality
+    const CAST_TIER_BONUS: Record<string, number> = { marquee: 4, 'a-list': 3, 'b-list': 1, emerging: 0, unknown: 0 };
+    const bestTier = Math.max(...attachedCast.map(c => CAST_TIER_BONUS[(c as any).market_value_tier] || 0));
+    castPoints += bestTier;
+    packagingStrength += Math.min(10, castPoints);
+    const tierLabel = attachedCast.find(c => CAST_TIER_BONUS[(c as any).market_value_tier] === bestTier);
+    const tierName = (tierLabel as any)?.market_value_tier;
+    if (tierName && tierName !== 'unknown') {
+      strengths.push(`${attachedCast.length} cast attached (best: ${tierName})`);
+    } else {
+      strengths.push(`${attachedCast.length} cast member${attachedCast.length > 1 ? 's' : ''} attached`);
+    }
   } else if (approachedCast.length > 0) {
     packagingStrength += 3;
   }

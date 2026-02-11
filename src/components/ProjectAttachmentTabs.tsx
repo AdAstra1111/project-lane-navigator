@@ -192,6 +192,18 @@ function CastTab({ projectId, projectContext }: { projectId: string; projectCont
                 <SelectItem value="passed">Passed</SelectItem>
               </SelectContent>
             </Select>
+            <Select value={(c as any).market_value_tier || 'unknown'} onValueChange={v => updateCast.mutate({ id: c.id, market_value_tier: v } as any)}>
+              <SelectTrigger className="w-24 h-7 text-xs border border-border/50">
+                <SelectValue placeholder="Tier" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="marquee">Marquee</SelectItem>
+                <SelectItem value="a-list">A-List</SelectItem>
+                <SelectItem value="b-list">B-List</SelectItem>
+                <SelectItem value="emerging">Emerging</SelectItem>
+                <SelectItem value="unknown">Unknown</SelectItem>
+              </SelectContent>
+            </Select>
             <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => deleteCast.mutate(c.id)}>
               <Trash2 className="h-3.5 w-3.5" />
             </Button>

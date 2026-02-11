@@ -675,6 +675,7 @@ export type Database = {
           id: string
           imdb_id: string
           manager_name: string
+          market_value_tier: string
           notes: string
           project_id: string
           role_name: string
@@ -694,6 +695,7 @@ export type Database = {
           id?: string
           imdb_id?: string
           manager_name?: string
+          market_value_tier?: string
           notes?: string
           project_id: string
           role_name?: string
@@ -713,6 +715,7 @@ export type Database = {
           id?: string
           imdb_id?: string
           manager_name?: string
+          market_value_tier?: string
           notes?: string
           project_id?: string
           role_name?: string
