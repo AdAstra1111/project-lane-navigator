@@ -110,7 +110,7 @@ function CompanyBrandingSection({ companyId, logoUrl, colorAccent, jurisdiction 
             onClick={() => fileInputRef.current?.click()}
           >
             {logoUrl ? (
-              <img src={logoUrl} alt="Logo" className="h-full w-full object-cover" />
+              <img src={logoUrl} alt="Logo" className="h-full w-full object-contain" />
             ) : (
               <Upload className="h-5 w-5 text-muted-foreground" />
             )}
@@ -356,7 +356,7 @@ export default function CompanyDetail() {
                       className="h-14 w-14 rounded-lg overflow-hidden border border-border/50"
                       style={company.color_accent ? { borderColor: company.color_accent + '40' } : undefined}
                     >
-                      <img src={company.logo_url} alt={company.name} className="h-full w-full object-cover" />
+                      <img src={company.logo_url} alt={company.name} className="h-full w-full object-contain" />
                     </div>
                   ) : (
                     <div
