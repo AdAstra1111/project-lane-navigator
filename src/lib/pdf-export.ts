@@ -30,11 +30,11 @@ interface ExportData {
 }
 
 const COLORS = {
-  primary: [59, 130, 246] as [number, number, number],      // blue
-  dark: [15, 23, 42] as [number, number, number],            // slate-900
-  muted: [100, 116, 139] as [number, number, number],        // slate-500
-  light: [241, 245, 249] as [number, number, number],        // slate-100
-  success: [34, 197, 94] as [number, number, number],
+  primary: [196, 145, 58] as [number, number, number],       // amber gold #C4913A
+  dark: [20, 21, 25] as [number, number, number],             // charcoal #141519
+  muted: [120, 115, 108] as [number, number, number],         // warm grey
+  light: [245, 242, 237] as [number, number, number],         // warm off-white
+  success: [34, 160, 80] as [number, number, number],
   white: [255, 255, 255] as [number, number, number],
 };
 
@@ -58,40 +58,60 @@ export function exportProjectPDF(data: ExportData) {
 
   // ---- Header Band ----
   doc.setFillColor(...COLORS.dark);
-  doc.rect(0, 0, pageWidth, 38, 'F');
+  doc.rect(0, 0, pageWidth, 42, 'F');
 
+  // Accent stripe
+  doc.setFillColor(...COLORS.primary);
+  doc.rect(0, 42, pageWidth, 1.2, 'F');
+
+  // Brand mark
+  doc.setFillColor(...COLORS.primary);
+  doc.roundedRect(margin, 8, 10, 10, 2, 2, 'F');
+  doc.setTextColor(...COLORS.dark);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7);
+  doc.text('IF', margin + 3, 14.5);
+
+  // Brand name
   doc.setTextColor(...COLORS.white);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(22);
-  doc.text(project.title, margin, 16);
+  doc.setFontSize(8);
+  doc.text('IFFY', margin + 13, 14);
+
+  // Project title
+  doc.setTextColor(...COLORS.white);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(20);
+  doc.text(project.title, margin, 28);
 
   doc.setFontSize(9);
   doc.setFont('helvetica', 'normal');
+  doc.setTextColor(...COLORS.primary);
   const subtitleParts = [
     project.format === 'tv-series' ? 'TV Series' : 'Film',
     ...(project.genres || []),
   ];
-  doc.text(subtitleParts.join(' · '), margin, 24);
+  doc.text(subtitleParts.join(' \u00B7 '), margin, 34);
 
   // Lane badge
   if (project.assigned_lane) {
     const laneLabel = LANE_LABELS[project.assigned_lane as MonetisationLane] || project.assigned_lane;
-    doc.setFillColor(...COLORS.primary);
     const laneW = doc.getTextWidth(laneLabel) + 8;
-    doc.roundedRect(margin, 28, laneW, 6, 1.5, 1.5, 'F');
-    doc.setTextColor(...COLORS.white);
+    doc.setFillColor(...COLORS.primary);
+    doc.roundedRect(pageWidth - margin - laneW, 8, laneW, 6, 1.5, 1.5, 'F');
+    doc.setTextColor(...COLORS.dark);
     doc.setFontSize(7);
     doc.setFont('helvetica', 'bold');
-    doc.text(laneLabel, margin + 4, 32.5);
+    doc.text(laneLabel, pageWidth - margin - laneW + 4, 12.5);
   }
 
   // Date
-  doc.setTextColor(180, 190, 210);
+  doc.setTextColor(160, 155, 148);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7);
-  doc.text(`Generated ${new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`, pageWidth - margin, 34, { align: 'right' });
+  doc.text(`Generated ${new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`, pageWidth - margin, 37, { align: 'right' });
 
-  y = 46;
+  y = 50;
 
   // ---- Readiness Score ----
   if (readiness) {
@@ -469,9 +489,13 @@ export function exportProjectPDF(data: ExportData) {
   const totalPages = doc.getNumberOfPages();
   for (let p = 1; p <= totalPages; p++) {
     doc.setPage(p);
+    // Footer line
+    doc.setDrawColor(...COLORS.primary);
+    doc.setLineWidth(0.3);
+    doc.line(margin, doc.internal.pageSize.getHeight() - 10, pageWidth - margin, doc.internal.pageSize.getHeight() - 10);
     doc.setFontSize(6);
     doc.setTextColor(...COLORS.muted);
-    doc.text('IFFY — Project One-Pager', margin, doc.internal.pageSize.getHeight() - 6);
+    doc.text('IFFY \u2014 Intelligent Film Flow & Yield', margin, doc.internal.pageSize.getHeight() - 6);
     doc.text(`Page ${p} of ${totalPages}`, pageWidth - margin, doc.internal.pageSize.getHeight() - 6, { align: 'right' });
   }
 
@@ -482,10 +506,10 @@ export function exportProjectPDF(data: ExportData) {
 
 function sectionTitle(doc: jsPDF, text: string, x: number, y: number) {
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(10);
-  doc.setTextColor(...COLORS.dark);
+  doc.setFontSize(9);
+  doc.setTextColor(...COLORS.primary);
   doc.text(text.toUpperCase(), x, y);
   doc.setDrawColor(...COLORS.primary);
-  doc.setLineWidth(0.5);
-  doc.line(x, y + 1.5, x + doc.getTextWidth(text.toUpperCase()), y + 1.5);
+  doc.setLineWidth(0.4);
+  doc.line(x, y + 1.5, x + doc.getTextWidth(text.toUpperCase()) + 2, y + 1.5);
 }

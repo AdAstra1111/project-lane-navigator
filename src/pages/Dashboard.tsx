@@ -7,9 +7,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Header } from '@/components/Header';
 import { ProjectCard } from '@/components/ProjectCard';
 import { IntroExperience } from '@/components/IntroExperience';
+import { OnboardingChecklist } from '@/components/OnboardingChecklist';
 import { DashboardAnalytics } from '@/components/DashboardAnalytics';
 import { DashboardActivityFeed } from '@/components/DashboardActivityFeed';
 import { RoleDashboard } from '@/components/RoleDashboard';
+import { PageTransition } from '@/components/PageTransition';
 import { useProjects } from '@/hooks/useProjects';
 import { useDashboardScores } from '@/hooks/useDashboardScores';
 
@@ -19,6 +21,7 @@ export default function Dashboard() {
   const { data: projectScores = {} } = useDashboardScores(projects);
 
   return (
+    <PageTransition>
     <div className="min-h-screen bg-background">
       <Header />
       <IntroExperience />
@@ -106,6 +109,7 @@ export default function Dashboard() {
             </div>
           ) : (
             <>
+              <OnboardingChecklist projectCount={projects.length} />
               <DashboardAnalytics projects={projects} />
               <DashboardActivityFeed />
               {roleView !== 'none' && (
@@ -127,5 +131,6 @@ export default function Dashboard() {
         </motion.div>
       </main>
     </div>
+    </PageTransition>
   );
 }
