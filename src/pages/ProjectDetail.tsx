@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Film, Tv, Target, Palette, DollarSign, Users, Quote, CheckCircle2, ShieldAlert, Trash2, Loader2, AlertTriangle, MessageSquareQuote, FileText, Copy, ArrowLeftRight, Download, TrendingUp, Landmark, BarChart3, Package, StickyNote, UsersRound, ChevronDown, PieChart, FileSpreadsheet, PackageCheck, Receipt, FileSignature, Presentation, Bot, BookOpen, Calendar } from 'lucide-react';
+import { ArrowLeft, Film, Tv, Target, Palette, DollarSign, Users, Quote, CheckCircle2, ShieldAlert, Trash2, Loader2, AlertTriangle, MessageSquareQuote, FileText, Copy, ArrowLeftRight, Download, TrendingUp, Landmark, BarChart3, Package, StickyNote, UsersRound, ChevronDown, PieChart, FileSpreadsheet, PackageCheck, Receipt, FileSignature, Presentation, Bot, BookOpen, Calendar, Crown, Monitor, RefreshCw, Repeat, Milestone } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { ProjectNoteInput } from '@/components/ProjectNoteInput';
 import { cn } from '@/lib/utils';
@@ -66,6 +66,15 @@ import { ScheduleIntelligencePanel } from '@/components/ScheduleIntelligencePane
 import { CashflowModelPanel } from '@/components/CashflowModelPanel';
 import { IRRSalesProjectionPanel } from '@/components/IRRSalesProjectionPanel';
 import { ScriptToBudgetPanel } from '@/components/ScriptToBudgetPanel';
+import { StoryEnginePanel } from '@/components/tv/StoryEnginePanel';
+import { SeasonArcPanel } from '@/components/tv/SeasonArcPanel';
+import { SeriesBiblePanel } from '@/components/tv/SeriesBiblePanel';
+import { ShowrunnerViabilityPanel } from '@/components/tv/ShowrunnerViabilityPanel';
+import { PlatformFitPanel } from '@/components/tv/PlatformFitPanel';
+import { RenewalProbabilityPanel } from '@/components/tv/RenewalProbabilityPanel';
+import { MultiSeasonFinancePanel } from '@/components/tv/MultiSeasonFinancePanel';
+import { TVReadinessScore } from '@/components/tv/TVReadinessScore';
+import { calculateTVReadiness } from '@/lib/tv-readiness-score';
 import { useRecoupmentScenarios, useRecoupmentTiers } from '@/hooks/useRecoupment';
 import { useProjectBudgets } from '@/hooks/useBudgets';
 import type { BudgetSummary } from '@/lib/finance-readiness';
@@ -256,10 +265,17 @@ export default function ProjectDetail() {
     return generateProjectInsights(project, castTrends);
   }, [project, castTrends]);
 
+  const isTV = project?.format === 'tv-series';
+
   const readiness = useMemo(() => {
     if (!project) return null;
     return calculateReadiness(project, cast, partners, scripts, financeScenarios, hods, incentiveAnalysed, budgetSummary);
   }, [project, cast, partners, scripts, financeScenarios, hods, incentiveAnalysed, budgetSummary]);
+
+  const tvReadiness = useMemo(() => {
+    if (!project || !isTV) return null;
+    return calculateTVReadiness(project, cast, partners, scripts, financeScenarios, hods, incentiveAnalysed, budgetSummary);
+  }, [project, isTV, cast, partners, scripts, financeScenarios, hods, incentiveAnalysed, budgetSummary]);
 
   const financeReadiness = useMemo(() => {
     if (!project) return null;
@@ -505,7 +521,11 @@ export default function ProjectDetail() {
           </div>
 
           {/* ─── ALWAYS VISIBLE: Readiness ─── */}
-          {readiness && <ProjectReadinessScore readiness={readiness} />}
+          {isTV && tvReadiness ? (
+            <TVReadinessScore readiness={tvReadiness} />
+          ) : (
+            readiness && <ProjectReadinessScore readiness={readiness} />
+          )}
 
           {/* ─── Score Trend Sparklines ─── */}
           {scoreHistory.length >= 2 && (
@@ -659,6 +679,47 @@ export default function ProjectDetail() {
           {insights && (
             <Section icon={Target} title="Intelligence">
               <ProjectInsightPanel insights={insights} />
+            </Section>
+          )}
+
+          {/* ═══ TV SERIES ENGINE (only for TV projects) ═══ */}
+          {isTV && id && (
+            <Section icon={Repeat} title="TV Series Engine" defaultOpen>
+              <StoryEnginePanel
+                projectId={id}
+                projectTitle={project.title}
+                format={project.format}
+                genres={project.genres || []}
+                scriptText={scriptText}
+              />
+              <SeasonArcPanel projectTitle={project.title} scriptText={scriptText} />
+              <SeriesBiblePanel projectTitle={project.title} scriptText={scriptText} />
+            </Section>
+          )}
+
+          {isTV && (
+            <Section icon={Crown} title="Showrunner & Platform">
+              <ShowrunnerViabilityPanel hods={hods} />
+              <PlatformFitPanel
+                format={project.format}
+                genres={project.genres || []}
+                budgetRange={project.budget_range}
+                tone={project.tone}
+                targetAudience={project.target_audience}
+                assignedLane={project.assigned_lane}
+              />
+              <RenewalProbabilityPanel
+                genres={project.genres || []}
+                budgetRange={project.budget_range}
+                cast={cast}
+                hods={hods}
+              />
+            </Section>
+          )}
+
+          {isTV && (
+            <Section icon={DollarSign} title="Multi-Season Finance">
+              <MultiSeasonFinancePanel />
             </Section>
           )}
 

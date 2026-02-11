@@ -1,5 +1,7 @@
 export type ProjectFormat = 'film' | 'tv-series';
 
+export type TVSubformat = 'limited' | 'returning' | 'anthology';
+
 export type MonetisationLane =
   | 'studio-streamer'
   | 'independent-film'
@@ -8,6 +10,32 @@ export type MonetisationLane =
   | 'genre-market'
   | 'prestige-awards'
   | 'fast-turnaround';
+
+export type TVMonetisationLane =
+  | 'streamer-original'
+  | 'broadcaster-commission'
+  | 'international-copro-series'
+  | 'premium-cable'
+  | 'fast-channel'
+  | 'hybrid-platform';
+
+export const TV_LANE_LABELS: Record<TVMonetisationLane, string> = {
+  'streamer-original': 'Streamer Original',
+  'broadcaster-commission': 'Broadcaster Commission',
+  'international-copro-series': 'International Co-Pro Series',
+  'premium-cable': 'Premium Cable',
+  'fast-channel': 'FAST Channel',
+  'hybrid-platform': 'Hybrid / Multi-Platform',
+};
+
+export const TV_LANE_COLORS: Record<TVMonetisationLane, string> = {
+  'streamer-original': 'bg-purple-500/15 text-purple-400 border-purple-500/30',
+  'broadcaster-commission': 'bg-blue-500/15 text-blue-400 border-blue-500/30',
+  'international-copro-series': 'bg-teal-500/15 text-teal-400 border-teal-500/30',
+  'premium-cable': 'bg-amber-500/15 text-amber-400 border-amber-500/30',
+  'fast-channel': 'bg-rose-500/15 text-rose-400 border-rose-500/30',
+  'hybrid-platform': 'bg-indigo-500/15 text-indigo-400 border-indigo-500/30',
+};
 
 // ---- Analysis Types ----
 

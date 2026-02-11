@@ -37,3 +37,17 @@ export const FORMAT_OPTIONS = [
   { value: 'film', label: 'Film' },
   { value: 'tv-series', label: 'TV Series' },
 ] as const;
+
+export const TV_SUBFORMAT_OPTIONS = [
+  { value: 'limited', label: 'Limited Series' },
+  { value: 'returning', label: 'Returning Series' },
+  { value: 'anthology', label: 'Anthology' },
+] as const;
+
+export const TV_BUDGET_RANGES = [
+  { value: 'under-500k-ep', label: 'Under $500K / ep' },
+  { value: '500k-2m-ep', label: '$500K – $2M / ep' },
+  { value: '2m-5m-ep', label: '$2M – $5M / ep' },
+  { value: '5m-10m-ep', label: '$5M – $10M / ep' },
+  { value: '10m-plus-ep', label: '$10M+ / ep' },
+] as const;
