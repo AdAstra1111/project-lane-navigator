@@ -2,10 +2,16 @@ import { useState, useEffect } from 'react';
 
 const imageCache = new Map<string, string | null>();
 
+// Title-case a name so Wikipedia lookup works regardless of how it was stored
+function titleCase(name: string): string {
+  return name.replace(/\b\w/g, c => c.toUpperCase());
+}
+
 async function fetchWikipediaThumb(name: string): Promise<string | null> {
+  const normalized = titleCase(name.trim());
   try {
     const res = await fetch(
-      `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(name)}`
+      `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(normalized)}`
     );
     if (!res.ok) return null;
     const data = await res.json();
