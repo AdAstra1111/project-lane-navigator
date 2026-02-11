@@ -39,15 +39,32 @@ serve(async (req) => {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
 
+    // Production type conditioning
+    const FORMAT_LABELS: Record<string, string> = {
+      film: 'Feature Film', 'tv-series': 'TV Series', documentary: 'Documentary Feature',
+      'documentary-series': 'Documentary Series', commercial: 'Commercial / Advert',
+      'branded-content': 'Branded Content', 'short-film': 'Short Film',
+      'music-video': 'Music Video', 'proof-of-concept': 'Proof of Concept',
+      'digital-series': 'Digital / Social Series', hybrid: 'Hybrid Project',
+    };
+    const formatLabel = FORMAT_LABELS[format] || 'Film';
+    const isNarrativeFormat = ['film', 'tv-series', 'short-film'].includes(format);
+    const isDocFormat = ['documentary', 'documentary-series'].includes(format);
+    const isCommercialFormat = ['commercial', 'branded-content', 'music-video'].includes(format);
+
     const systemPrompt = `You are a professional script reader and coverage analyst working for a film/TV production company. You provide sharp, industry-standard coverage notes that help producers assess a project's viability.
+
+PRODUCTION TYPE: ${formatLabel}
+${isCommercialFormat ? 'Adapt your coverage for commercial/branded content — assess treatment strength, brand alignment, and visual concept rather than traditional narrative structure.' : ''}
+${isDocFormat ? 'Adapt your coverage for documentary — assess subject access, editorial stance, archive potential, and impact potential rather than fictional narrative structure.' : ''}
 
 Your coverage must include:
 1. LOGLINE: A single compelling sentence (25 words max)
 2. SYNOPSIS: 3-4 sentence summary covering setup, conflict, and resolution direction
 3. THEMES: 3-5 key themes with one sentence each
-4. STRUCTURAL ANALYSIS: Assessment of act structure, pacing, and narrative momentum (3-4 sentences)
-5. CHARACTER ANALYSIS: Brief assessment of protagonist complexity, antagonist strength, and supporting cast (3-4 sentences)
-6. COMPARABLE TITLES: 3-5 recent comparable films/shows with brief reasoning
+4. STRUCTURAL ANALYSIS: Assessment of ${isCommercialFormat ? 'treatment structure, visual flow, and brand narrative' : isDocFormat ? 'subject access, editorial approach, and story arc' : 'act structure, pacing, and narrative momentum'} (3-4 sentences)
+5. CHARACTER ANALYSIS: Brief assessment of ${isDocFormat ? 'subject complexity and narrative voice' : 'protagonist complexity, antagonist strength, and supporting cast'} (3-4 sentences)
+6. COMPARABLE TITLES: 3-5 recent comparable ${formatLabel.toLowerCase()}s with brief reasoning
 7. STRENGTHS: 3-5 bullet points of what works well
 8. WEAKNESSES: 3-5 bullet points of areas that need work
 9. MARKET POSITIONING: 2-3 sentences on where this sits in the current market
@@ -58,7 +75,7 @@ Be honest, specific, and cite moments from the script where possible. Avoid gene
     const userPrompt = `Provide professional script coverage for the following:
 
 PROJECT: ${projectTitle || 'Untitled'}
-FORMAT: ${format === 'tv-series' ? 'TV Series' : 'Film'}
+FORMAT: ${formatLabel}
 GENRES: ${(genres || []).join(', ') || 'Not specified'}
 
 SCRIPT TEXT:

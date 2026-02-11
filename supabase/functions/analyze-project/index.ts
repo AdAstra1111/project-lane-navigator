@@ -504,9 +504,29 @@ serve(async (req) => {
 
     const hasDocumentText = combinedText.trim().length > 50;
 
+    // ---- PRODUCTION TYPE CONDITIONING ----
+    const FORMAT_CONDITIONING: Record<string, string> = {
+      film: 'This is a NARRATIVE FEATURE FILM. Evaluate through the lens of theatrical/streaming distribution, festival strategy, pre-sales potential, and traditional film financing structures. Do NOT reference series concepts, brand clients, ad revenue, or digital-first metrics.',
+      'tv-series': 'This is a NARRATIVE TV SERIES. Evaluate through the lens of platform/broadcaster commissioning, showrunner strength, series engine sustainability, multi-season potential, and per-episode economics. Do NOT reference theatrical distribution, one-off film financing, or brand clients.',
+      documentary: 'This is a DOCUMENTARY FEATURE. Evaluate through the lens of subject access exclusivity, grant funding eligibility, broadcaster/streamer fit, impact campaign potential, and rights clearance. Do NOT reference narrative cast packaging, fictional script structure, or commercial brand clients.',
+      'documentary-series': 'This is a DOCUMENTARY SERIES. Evaluate through the lens of multi-episode storytelling, broadcaster/platform commissioning, subject access sustainability, per-episode economics, and impact campaign potential. Do NOT reference narrative cast packaging, fictional scripts, or commercial brand clients.',
+      commercial: 'This is a COMMERCIAL / ADVERTISEMENT. Evaluate through the lens of client brief alignment, production margin, director fit, brand guidelines compliance, usage rights, and deliverables matrix. Do NOT reference film financing, festival strategy, equity, pre-sales, or streaming deals.',
+      'branded-content': 'This is BRANDED CONTENT. Evaluate through the lens of brand story alignment, cultural authenticity, platform amplification potential, audience engagement, and long-tail IP value. Do NOT reference traditional film financing, festival strategy, equity, pre-sales, or broadcaster commissioning.',
+      'short-film': 'This is a SHORT FILM. Evaluate through the lens of festival circuit strategy, talent showcase potential, proof-of-concept viability, and IP expansion possibilities. Do NOT reference feature film financing structures, pre-sales, equity, gap financing, or commercial brand clients.',
+      'music-video': 'This is a MUSIC VIDEO. Evaluate through the lens of visual storytelling, artist brand alignment, label/commissioner relationship, director treatment strength, and social media release strategy. Do NOT reference film financing, festival strategy, equity, pre-sales, or broadcasting deals.',
+      'proof-of-concept': 'This is a PROOF OF CONCEPT. Evaluate through the lens of IP demonstration potential, feature/series development viability, investor pitch readiness, and technical showcase quality. This is NOT a finished product. Do NOT reference distribution, sales, or recoupment.',
+      'digital-series': 'This is a DIGITAL / SOCIAL SERIES. Evaluate through the lens of platform-native audience growth, content scalability, brand integration potential, subscriber/ad revenue models, and algorithm optimization. Do NOT reference traditional film/TV financing, theatrical distribution, or festival strategy.',
+      hybrid: 'This is a HYBRID project spanning multiple formats or media types. Evaluate through the lens of cross-platform storytelling, transmedia potential, innovation fund eligibility, and experiential audience engagement. Be flexible with financing and distribution models.',
+    };
+    
+    const formatContext = FORMAT_CONDITIONING[projectInput.format] || FORMAT_CONDITIONING.film;
+
     // ---- BUILD AI PROMPT ----
     const systemPrompt = `You are IFFY, an opinionated internal development executive for film and TV producers.
 Your role is to assess projects based on their actual execution, not marketing intent, and to make clear, defensible judgements about market positioning.
+
+PRODUCTION TYPE CONTEXT (CRITICAL — governs your entire analysis):
+${formatContext}
 
 DOCUMENT TYPE AWARENESS (CRITICAL):
 A project can be started with ANY type of material — a full screenplay, a pitch deck, a series bible, a treatment, a lookbook, a one-pager, a sizzle concept, or even just a bare idea with no documents. You must:
@@ -522,7 +542,7 @@ ${LANE_DESCRIPTIONS}
 
 ANALYSIS PROCESS (MANDATORY ORDER):
 Step 1 — Determine Primary Monetisation Lane (FIRST, ONCE ONLY). Based on the material as written/presented, assign exactly one lane. Do not reconsider or change this lane later.
-Step 2 — Structural Read: Adapt to material type. For scripts: format clarity, protagonist + goal clarity, act progression, narrative momentum. For decks/treatments/bibles: concept clarity, world-building depth, character definition, commercial positioning, visual identity. Reference concrete evidence from whatever material is present.
+Step 2 — Structural Read: Adapt to material type. For scripts: format clarity, protagonist + goal clarity, act progression, narrative momentum. For decks/treatments/bibles: concept clarity, world-building depth, character definition, commercial positioning. Reference concrete evidence from whatever material is present.
 Step 3 — Creative Signal: Originality of premise, tonal consistency, emotional engine, standout elements. Anchor conclusions to specific aspects found in the actual material.
 Step 4 — Market Reality Check: Likely audience based on execution, comparable titles (execution-based, not aspirational), budget implications, commercial risks.
 Step 5 — Decision Output (LOCKED TO PRIMARY LANE): All conclusions must support or stress-test the Primary Lane. Provide confidence, rationale, 3 DO NEXT, 3 AVOID, and which lane this is NOT suitable for.

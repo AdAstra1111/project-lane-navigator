@@ -32,6 +32,18 @@ serve(async (req) => {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
 
+    // Production type conditioning
+    const FORMAT_LABELS: Record<string, string> = {
+      film: 'Feature Film', 'tv-series': 'TV Series', documentary: 'Documentary Feature',
+      'documentary-series': 'Documentary Series', commercial: 'Commercial / Advert',
+      'branded-content': 'Branded Content', 'short-film': 'Short Film',
+      'music-video': 'Music Video', 'proof-of-concept': 'Proof of Concept',
+      'digital-series': 'Digital / Social Series', hybrid: 'Hybrid Project',
+    };
+    const formatLabel = FORMAT_LABELS[format] || 'Film';
+    const isCommercialFormat = ['commercial', 'branded-content', 'music-video'].includes(format);
+    const isDocFormat = ['documentary', 'documentary-series'].includes(format);
+
     const count = maxSuggestions || 8;
     const excludeClause = excludeNames?.length
       ? `\n\nIMPORTANT: Do NOT suggest these names (already passed on): ${excludeNames.join(', ')}`
@@ -48,6 +60,13 @@ serve(async (req) => {
     const departmentClause = (isCrew && targetDepartment)
       ? `\n\nTARGET DEPARTMENT: The producer is specifically looking for a "${targetDepartment}". Suggest ONLY people who work as ${targetDepartment}s. Do NOT suggest people from other departments.`
       : '';
+
+    // Format-specific packaging context
+    const formatPackagingContext = isCommercialFormat
+      ? `\n\nPRODUCTION TYPE CONTEXT: This is a ${formatLabel}. Focus on directors with commercial/branded reel, DoPs known for high-end commercial work, and talent with brand endorsement track records. Do NOT suggest packaging strategies meant for narrative features or TV series.`
+      : isDocFormat
+      ? `\n\nPRODUCTION TYPE CONTEXT: This is a ${formatLabel}. Focus on documentary-specialist directors, cinematographers with vérité/observational experience, and editors known for non-fiction storytelling. Do NOT suggest narrative feature talent.`
+      : `\n\nPRODUCTION TYPE CONTEXT: This is a ${formatLabel}.`;
 
     const crewPrompt = isCrew
       ? `You are an expert film/TV crew packaging strategist. Given a project, suggest ${count} specific ${targetDepartment ? targetDepartment + 's' : 'department heads (HODs) and key crew members'} that would maximize its production value and market credibility.`
@@ -82,11 +101,11 @@ Focus on talent that:
     const prompt = `${crewPrompt}
 
 Project: "${projectTitle}"
-Format: ${format}
+Format: ${formatLabel}
 Genres: ${genres?.join(', ')}
 Budget: ${budgetRange}
 Tone: ${tone}
-Lane: ${assignedLane || 'unclassified'}${characterClause}${departmentClause}${excludeClause}${replacementClause}${customBrief ? `\n\nPRODUCER BRIEF: The producer has given the following specific instructions — follow them closely:\n"${String(customBrief).slice(0, 500)}"` : ''}
+Lane: ${assignedLane || 'unclassified'}${formatPackagingContext}${characterClause}${departmentClause}${excludeClause}${replacementClause}${customBrief ? `\n\nPRODUCER BRIEF: The producer has given the following specific instructions — follow them closely:\n"${String(customBrief).slice(0, 500)}"` : ''}
 
 ${crewFields}`;
 
