@@ -1,0 +1,1 @@
+ALTER TABLE public.trend_signals DROP CONSTRAINT trend_signals_category_check;
