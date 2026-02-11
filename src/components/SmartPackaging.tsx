@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { Sparkles, Loader2, Users, Star, User, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -11,6 +11,7 @@ import { CharacterSelector } from '@/components/CharacterSelector';
 import { TalentTriageBoard } from '@/components/TalentTriageBoard';
 import { TalentSearch } from '@/components/TalentSearch';
 import { useTalentTriage } from '@/hooks/useTalentTriage';
+import { useProjectCast, useProjectHODs } from '@/hooks/useProjectAttachments';
 import { usePersonImage } from '@/hooks/usePersonImage';
 import type { ScriptCharacter } from '@/hooks/useScriptCharacters';
 
@@ -60,6 +61,12 @@ export function SmartPackaging({ projectId, projectTitle, format, genres, budget
   const [customBrief, setCustomBrief] = useState('');
 
   const triage = useTalentTriage(projectId);
+  const { cast, addCast } = useProjectCast(projectId);
+  const { hods, addHOD } = useProjectHODs(projectId);
+
+  const castNames = useMemo(() => new Set(cast.map(c => c.actor_name.toLowerCase())), [cast]);
+  const hodNames = useMemo(() => new Set(hods.map(h => h.person_name.toLowerCase())), [hods]);
+  const existingWishlistNames = mode === 'cast' ? castNames : hodNames;
 
   // Filter triage items by mode: cast tab sees cast items, crew tab sees crew/director items
   const isCastType = (type: string) => type === 'cast' || type === 'actor';
@@ -254,7 +261,15 @@ export function SmartPackaging({ projectId, projectTitle, format, genres, budget
       <TalentSearch
         mode={mode}
         onAddToTriage={triage.addItems}
+        onAddToWishlist={(input) => {
+          if (mode === 'cast') {
+            addCast.mutate({ actor_name: input.actor_name, role_name: input.role_name, status: 'wishlist' });
+          } else {
+            addHOD.mutate({ person_name: input.actor_name, department: input.role_name || 'Director', status: 'wishlist' });
+          }
+        }}
         existingNames={new Set(filteredItems.map(i => i.person_name.toLowerCase()))}
+        existingCastNames={existingWishlistNames}
         projectContext={projectContext}
       />
 

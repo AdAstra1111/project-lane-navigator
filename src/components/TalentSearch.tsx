@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { Search, Loader2, Plus, User, ExternalLink } from 'lucide-react';
+import { Search, Loader2, Plus, User, ExternalLink, Star } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -28,15 +28,18 @@ interface Props {
     suggestion_context?: string;
     role_suggestion?: string;
   }[]) => Promise<void>;
+  onAddToWishlist?: (input: { actor_name: string; role_name: string; status: string }) => void;
   existingNames: Set<string>;
+  existingCastNames?: Set<string>;
   projectContext?: { title: string; format: string; budget_range: string; genres: string[] };
 }
 
-export function TalentSearch({ mode, onAddToTriage, existingNames, projectContext }: Props) {
+export function TalentSearch({ mode, onAddToTriage, onAddToWishlist, existingNames, existingCastNames, projectContext }: Props) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<TmdbSearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [addingId, setAddingId] = useState<number | null>(null);
+  const [addingWishlistId, setAddingWishlistId] = useState<number | null>(null);
   const [selectedPerson, setSelectedPerson] = useState<{ name: string; reason: string } | null>(null);
 
   const search = useCallback(async () => {
@@ -76,7 +79,23 @@ export function TalentSearch({ mode, onAddToTriage, existingNames, projectContex
     }
   };
 
+  const handleAddToWishlist = async (result: TmdbSearchResult) => {
+    if (!onAddToWishlist) return;
+    setAddingWishlistId(result.tmdb_id);
+    try {
+      onAddToWishlist({
+        actor_name: result.name,
+        role_name: result.known_for_department || '',
+        status: 'wishlist',
+      });
+      toast.success(`${result.name} added to wishlist`);
+    } finally {
+      setAddingWishlistId(null);
+    }
+  };
+
   const alreadyExists = (name: string) => existingNames.has(name.toLowerCase());
+  const alreadyInCast = (name: string) => existingCastNames?.has(name.toLowerCase()) ?? false;
 
   return (
     <div className="mb-4">
@@ -138,7 +157,7 @@ export function TalentSearch({ mode, onAddToTriage, existingNames, projectContex
                   </div>
 
                   {exists ? (
-                    <Badge variant="secondary" className="text-[10px] shrink-0">Already added</Badge>
+                    <Badge variant="secondary" className="text-[10px] shrink-0">In triage</Badge>
                   ) : (
                     <Button
                       size="sm"
@@ -150,9 +169,28 @@ export function TalentSearch({ mode, onAddToTriage, existingNames, projectContex
                       {addingId === r.tmdb_id ? (
                         <Loader2 className="h-3 w-3 animate-spin" />
                       ) : (
-                        <><Plus className="h-3 w-3 mr-1" /> Add to Triage</>
+                        <><Plus className="h-3 w-3 mr-1" /> Triage</>
                       )}
                     </Button>
+                  )}
+                  {onAddToWishlist && (
+                    alreadyInCast(r.name) ? (
+                      <Badge variant="secondary" className="text-[10px] shrink-0">On wishlist</Badge>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 px-2 text-xs text-emerald-400 hover:text-emerald-300 shrink-0"
+                        onClick={() => handleAddToWishlist(r)}
+                        disabled={addingWishlistId === r.tmdb_id}
+                      >
+                        {addingWishlistId === r.tmdb_id ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <><Star className="h-3 w-3 mr-1" /> Wishlist</>
+                        )}
+                      </Button>
+                    )
                   )}
                 </motion.div>
               );
