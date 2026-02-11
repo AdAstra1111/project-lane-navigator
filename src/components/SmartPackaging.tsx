@@ -284,6 +284,25 @@ export function SmartPackaging({ projectId, projectTitle, format, genres, budget
         onUpdatePriority={triage.updatePriorityRank}
         onDelete={triage.deleteItem}
         onRequestReplacement={handleRequestReplacement}
+        onPromoteToCast={(item) => {
+          const isCrew = item.person_type === 'crew' || item.person_type === 'hod' || item.person_type === 'director';
+          if (isCrew) {
+            addHOD.mutate({
+              person_name: item.person_name,
+              department: item.role_suggestion || 'Director',
+              status: 'wishlist',
+              notes: [item.creative_fit, item.commercial_case].filter(Boolean).join(' · '),
+            });
+          } else {
+            addCast.mutate({
+              actor_name: item.person_name,
+              role_name: item.role_suggestion || '',
+              status: 'wishlist',
+              notes: [item.creative_fit, item.commercial_case].filter(Boolean).join(' · '),
+            });
+          }
+          triage.deleteItem(item.id);
+        }}
         projectContext={projectContext}
       />
 
