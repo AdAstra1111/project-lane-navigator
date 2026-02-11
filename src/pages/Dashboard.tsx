@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Plus, Clapperboard, ArrowLeftRight, Kanban, Archive, FileDown, X } from 'lucide-react';
+import { Plus, Clapperboard, ArrowLeftRight, Kanban, Archive, FileDown, X, Building2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Header } from '@/components/Header';
@@ -15,12 +15,15 @@ import { RoleDashboard } from '@/components/RoleDashboard';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { PageTransition } from '@/components/PageTransition';
 import { useProjects } from '@/hooks/useProjects';
+import { useCompanies } from '@/hooks/useCompanies';
 import { useDashboardScores } from '@/hooks/useDashboardScores';
 import { exportProjectsCsv } from '@/lib/csv-export';
 import { toast } from 'sonner';
 
 export default function Dashboard() {
   const { projects, isLoading, togglePin, deleteProject } = useProjects();
+  const { companies } = useCompanies();
+  const primaryCompany = companies.length > 0 ? companies[0] : null;
   const [roleView, setRoleView] = useState<string>('none');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const { data: projectScores = {} } = useDashboardScores(projects);
@@ -66,6 +69,26 @@ export default function Dashboard() {
         >
           <div className="flex items-end justify-between mb-8">
             <div>
+              {primaryCompany && (
+                <div className="flex items-center gap-2.5 mb-3">
+                  {primaryCompany.logo_url ? (
+                    <img
+                      src={primaryCompany.logo_url}
+                      alt={primaryCompany.name}
+                      className="h-8 w-8 rounded-md object-cover border border-border/50"
+                      style={primaryCompany.color_accent ? { borderColor: primaryCompany.color_accent + '40' } : undefined}
+                    />
+                  ) : (
+                    <div
+                      className="h-8 w-8 rounded-md flex items-center justify-center"
+                      style={{ backgroundColor: primaryCompany.color_accent ? primaryCompany.color_accent + '20' : 'hsl(var(--primary) / 0.1)' }}
+                    >
+                      <Building2 className="h-4 w-4" style={{ color: primaryCompany.color_accent || 'hsl(var(--primary))' }} />
+                    </div>
+                  )}
+                  <span className="text-sm font-medium text-muted-foreground">{primaryCompany.name}</span>
+                </div>
+              )}
               <h1 className="text-3xl font-display font-bold text-foreground tracking-tight">
                 Projects
               </h1>
