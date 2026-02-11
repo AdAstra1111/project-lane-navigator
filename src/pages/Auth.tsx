@@ -1,17 +1,21 @@
 import { useState } from 'react';
 import { useNavigate, Navigate, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
+import { ArrowLeft } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
+import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import authBg from '@/assets/auth-bg.jpg';
 
+type AuthView = 'sign-in' | 'sign-up' | 'forgot-password';
+
 export default function Auth() {
   const { user, loading, signIn, signUp } = useAuth();
   const [searchParams] = useSearchParams();
   const redirectTo = searchParams.get('redirect');
-  const [isSignUp, setIsSignUp] = useState(false);
+  const [view, setView] = useState<AuthView>('sign-in');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -37,7 +41,16 @@ export default function Auth() {
     setSubmitting(true);
 
     try {
-      if (isSignUp) {
+      if (view === 'forgot-password') {
+        const { error } = await supabase.auth.resetPasswordForEmail(email, {
+          redirectTo: `${window.location.origin}/settings`,
+        });
+        if (error) {
+          setError(error.message);
+        } else {
+          setMessage('Check your email for a password reset link.');
+        }
+      } else if (view === 'sign-up') {
         const { error } = await signUp(email, password);
         if (error) {
           setError(error.message);
@@ -53,6 +66,24 @@ export default function Auth() {
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const switchView = (v: AuthView) => {
+    setView(v);
+    setError('');
+    setMessage('');
+  };
+
+  const titles: Record<AuthView, string> = {
+    'sign-in': 'Welcome back',
+    'sign-up': 'Create your account',
+    'forgot-password': 'Reset your password',
+  };
+
+  const subtitles: Record<AuthView, string> = {
+    'sign-in': 'Sign in to manage your projects.',
+    'sign-up': 'Start classifying your creative projects.',
+    'forgot-password': 'Enter your email and we\'ll send you a reset link.',
   };
 
   return (
@@ -72,13 +103,21 @@ export default function Auth() {
             <span className="font-display font-bold text-2xl tracking-tight text-foreground">IFFY</span>
           </div>
 
+          {view === 'forgot-password' && (
+            <button
+              onClick={() => switchView('sign-in')}
+              className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground mb-4 transition-colors"
+            >
+              <ArrowLeft className="h-3.5 w-3.5" />
+              Back to sign in
+            </button>
+          )}
+
           <h1 className="text-2xl font-display font-semibold text-foreground mb-1">
-            {isSignUp ? 'Create your account' : 'Welcome back'}
+            {titles[view]}
           </h1>
           <p className="text-sm text-muted-foreground mb-8">
-            {isSignUp
-              ? 'Start classifying your creative projects.'
-              : 'Sign in to manage your projects.'}
+            {subtitles[view]}
           </p>
 
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -94,19 +133,21 @@ export default function Auth() {
                 className="bg-muted border-border/50 focus:border-primary"
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="password" className="text-sm text-foreground">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                required
-                minLength={6}
-                className="bg-muted border-border/50 focus:border-primary"
-              />
-            </div>
+            {view !== 'forgot-password' && (
+              <div className="space-y-2">
+                <Label htmlFor="password" className="text-sm text-foreground">Password</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  required
+                  minLength={6}
+                  className="bg-muted border-border/50 focus:border-primary"
+                />
+              </div>
+            )}
 
             {error && (
               <p className="text-sm text-destructive">{error}</p>
@@ -120,24 +161,38 @@ export default function Auth() {
               className="w-full bg-primary text-primary-foreground hover:bg-primary/90"
               disabled={submitting}
             >
-              {submitting ? 'Please wait…' : isSignUp ? 'Create Account' : 'Sign In'}
+              {submitting
+                ? 'Please wait…'
+                : view === 'sign-up'
+                ? 'Create Account'
+                : view === 'forgot-password'
+                ? 'Send Reset Link'
+                : 'Sign In'}
             </Button>
           </form>
 
-          <p className="mt-6 text-center text-sm text-muted-foreground">
-            {isSignUp ? 'Already have an account?' : "Don't have an account?"}{' '}
+          {view === 'sign-in' && (
             <button
               type="button"
-              onClick={() => {
-                setIsSignUp(!isSignUp);
-                setError('');
-                setMessage('');
-              }}
-              className="text-primary hover:underline font-medium"
+              onClick={() => switchView('forgot-password')}
+              className="mt-3 block w-full text-center text-sm text-muted-foreground hover:text-primary transition-colors"
             >
-              {isSignUp ? 'Sign in' : 'Create one'}
+              Forgot your password?
             </button>
-          </p>
+          )}
+
+          {view !== 'forgot-password' && (
+            <p className="mt-6 text-center text-sm text-muted-foreground">
+              {view === 'sign-up' ? 'Already have an account?' : "Don't have an account?"}{' '}
+              <button
+                type="button"
+                onClick={() => switchView(view === 'sign-up' ? 'sign-in' : 'sign-up')}
+                className="text-primary hover:underline font-medium"
+              >
+                {view === 'sign-up' ? 'Sign in' : 'Create one'}
+              </button>
+            </p>
+          )}
         </motion.div>
       </div>
 
