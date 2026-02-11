@@ -59,6 +59,7 @@ import { DeadlinePanel } from '@/components/DeadlinePanel';
 import { DecisionJournal } from '@/components/DecisionJournal';
 import { ProjectChat } from '@/components/ProjectChat';
 import { RecoupmentWaterfallPanel } from '@/components/RecoupmentWaterfallPanel';
+import { CastImpactPanel } from '@/components/CastImpactPanel';
 import { useProjectBudgets } from '@/hooks/useBudgets';
 import type { BudgetSummary } from '@/lib/finance-readiness';
 import { useTalentTriage } from '@/hooks/useTalentTriage';
@@ -669,6 +670,7 @@ export default function ProjectDetail() {
               scriptCharacters={scriptCharacters}
               scriptCharactersLoading={scriptCharsLoading}
             />}
+            <CastImpactPanel cast={cast} hods={hods} />
             {id && hasDocuments && (
               <ScriptCoverage
                 projectId={id}
