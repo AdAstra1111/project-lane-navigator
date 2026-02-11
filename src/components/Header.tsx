@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { LogOut, Plus, Radio, Landmark, HelpCircle, ChevronDown, Calendar, Users, LayoutGrid, Globe, BarChart3, Settings, Menu, X, Building2 } from 'lucide-react';
+import { LogOut, Plus, Radio, Landmark, HelpCircle, ChevronDown, Calendar, Users, LayoutGrid, Globe, BarChart3, Settings, Menu, X, Building2, GraduationCap } from 'lucide-react';
 import { NotificationBell } from '@/components/NotificationBell';
 import { GlobalSearch } from '@/components/GlobalSearch';
 import { ThemeToggle } from '@/components/ThemeToggle';
+import { GuidedTutorial } from '@/components/GuidedTutorial';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -18,6 +19,7 @@ export function Header() {
   const { signOut } = useAuth();
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [showTutorial, setShowTutorial] = useState(false);
 
   const handleSignOut = async () => {
     await signOut();
@@ -73,6 +75,9 @@ export function Header() {
                 <Calendar className="h-4 w-4 mr-2" /> Festivals
               </DropdownMenuItem>
               <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => setShowTutorial(true)}>
+                <GraduationCap className="h-4 w-4 mr-2" /> Tutorial
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={() => navigate('/about')}>About IFFY</DropdownMenuItem>
               <DropdownMenuItem onClick={() => navigate('/how-it-works')}>How It Works</DropdownMenuItem>
               <DropdownMenuItem onClick={() => navigate('/faq')}>FAQ</DropdownMenuItem>
@@ -159,6 +164,10 @@ export function Header() {
             Sign Out
           </button>
         </div>
+      )}
+
+      {showTutorial && (
+        <GuidedTutorial onClose={() => setShowTutorial(false)} />
       )}
     </header>
   );
