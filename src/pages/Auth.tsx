@@ -199,6 +199,13 @@ export default function Auth() {
               </button>
             </p>
           )}
+
+          <Link to="/demo" className="mt-6 inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-primary transition-colors group lg:hidden">
+            <span className="h-8 w-8 rounded-full bg-primary/10 group-hover:bg-primary/20 flex items-center justify-center transition-colors">
+              <Play className="h-3.5 w-3.5 fill-primary text-primary" />
+            </span>
+            Watch the trailer
+          </Link>
         </motion.div>
       </div>
 
