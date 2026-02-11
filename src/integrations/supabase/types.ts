@@ -427,6 +427,116 @@ export type Database = {
         }
         Relationships: []
       }
+      project_budget_lines: {
+        Row: {
+          amount: number
+          budget_id: string
+          category: string
+          created_at: string
+          id: string
+          line_name: string
+          notes: string
+          project_id: string
+          sort_order: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          amount?: number
+          budget_id: string
+          category?: string
+          created_at?: string
+          id?: string
+          line_name?: string
+          notes?: string
+          project_id: string
+          sort_order?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          amount?: number
+          budget_id?: string
+          category?: string
+          created_at?: string
+          id?: string
+          line_name?: string
+          notes?: string
+          project_id?: string
+          sort_order?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_budget_lines_budget_id_fkey"
+            columns: ["budget_id"]
+            isOneToOne: false
+            referencedRelation: "project_budgets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_budget_lines_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_budgets: {
+        Row: {
+          created_at: string
+          currency: string
+          id: string
+          lane_template: string
+          notes: string
+          project_id: string
+          source: string
+          status: string
+          total_amount: number
+          updated_at: string
+          user_id: string
+          version_label: string
+        }
+        Insert: {
+          created_at?: string
+          currency?: string
+          id?: string
+          lane_template?: string
+          notes?: string
+          project_id: string
+          source?: string
+          status?: string
+          total_amount?: number
+          updated_at?: string
+          user_id: string
+          version_label?: string
+        }
+        Update: {
+          created_at?: string
+          currency?: string
+          id?: string
+          lane_template?: string
+          notes?: string
+          project_id?: string
+          source?: string
+          status?: string
+          total_amount?: number
+          updated_at?: string
+          user_id?: string
+          version_label?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_budgets_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       project_cast: {
         Row: {
           actor_name: string
