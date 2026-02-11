@@ -50,6 +50,7 @@ import { CompAnalysis } from '@/components/CompAnalysis';
 import { DealTracker } from '@/components/DealTracker';
 import { useTalentTriage } from '@/hooks/useTalentTriage';
 import { MarketWindowAlerts } from '@/components/MarketWindowAlerts';
+import { ProjectFestivalMatches } from '@/components/ProjectFestivalMatches';
 import { useProjectCast, useProjectPartners, useProjectScripts, useProjectFinance, useProjectHODs } from '@/hooks/useProjectAttachments';
 import { generateProjectInsights } from '@/lib/project-insights';
 import { calculateReadiness } from '@/lib/readiness-score';
@@ -626,6 +627,16 @@ export default function ProjectDetail() {
           {/* 5. Market & Buyers */}
           <Section icon={BarChart3} title="Market & Buyers">
             {project && <ProjectBuyerMatches project={project} />}
+            {project && (
+              <ProjectFestivalMatches
+                format={project.format}
+                genres={project.genres || []}
+                budgetRange={project.budget_range}
+                tone={project.tone}
+                assignedLane={project.assigned_lane}
+                pipelineStage={project.pipeline_stage}
+              />
+            )}
             {project && trendSignals.length > 0 && (
               <MarketWindowAlerts
                 genres={project.genres || []}
