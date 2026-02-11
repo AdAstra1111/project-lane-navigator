@@ -71,32 +71,10 @@ serve(async (req) => {
       extractedText = fallbackDocs?.[0]?.extracted_text || "";
     }
 
-    // --- If still no text, download the PDF from storage and send as base64 to AI ---
-    let pdfBase64: string | null = null;
-
-    if (!extractedText && scriptFilePath) {
-      console.log("No extracted text found, downloading PDF from storage:", scriptFilePath);
-      const { data: fileData, error: downloadError } = await adminClient.storage
-        .from("project-documents")
-        .download(scriptFilePath);
-
-      if (downloadError) {
-        console.error("Storage download error:", downloadError);
-      } else if (fileData) {
-        const arrayBuffer = await fileData.arrayBuffer();
-        const bytes = new Uint8Array(arrayBuffer);
-        let binary = "";
-        for (let i = 0; i < bytes.length; i++) {
-          binary += String.fromCharCode(bytes[i]);
-        }
-        pdfBase64 = btoa(binary);
-        console.log(`Downloaded PDF, size: ${bytes.length} bytes`);
-      }
-    }
-
-    // If we have neither extracted text nor a PDF, return empty
-    if (!extractedText && !pdfBase64) {
-      console.log("No text or PDF available for character extraction");
+    // If no extracted text is available, return empty — avoid downloading
+    // large PDFs into memory which can exceed edge function limits.
+    if (!extractedText) {
+      console.log("No extracted text available for character extraction — skipping PDF download to avoid memory limits");
       return new Response(JSON.stringify({ characters: [] }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -111,31 +89,12 @@ serve(async (req) => {
       content: `You are a script analysis tool. Extract all named speaking characters from the screenplay/script text provided. For each character, count how many distinct scenes they appear in and determine their gender. A scene is typically marked by a scene heading (INT./EXT. or similar slug line). Return character names as they appear in the script. Exclude generic descriptions like "MAN", "WOMAN", "WAITER" unless they are clearly recurring characters with multiple scenes. Focus on characters who have dialogue or are named specifically. For gender, use "male", "female", or "unknown" based on pronouns, character descriptions, dialogue context, or name conventions in the script.`,
     };
 
-    let userMessage: any;
-    if (extractedText) {
-      const words = extractedText.split(/\s+/);
-      const truncated = words.length > 20000 ? words.slice(0, 20000).join(" ") : extractedText;
-      userMessage = {
-        role: "user",
-        content: `Extract all named character names from this script, and count how many scenes each character appears in:\n\n${truncated}`,
-      };
-    } else {
-      userMessage = {
-        role: "user",
-        content: [
-          {
-            type: "text",
-            text: "Extract all named speaking character names from this screenplay/script PDF. For each character, count how many scenes they appear in.",
-          },
-          {
-            type: "image_url",
-            image_url: {
-              url: `data:application/pdf;base64,${pdfBase64}`,
-            },
-          },
-        ],
-      };
-    }
+    const words = extractedText.split(/\s+/);
+    const truncated = words.length > 20000 ? words.slice(0, 20000).join(" ") : extractedText;
+    const userMessage = {
+      role: "user",
+      content: `Extract all named character names from this script, and count how many scenes each character appears in:\n\n${truncated}`,
+    };
 
     const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
