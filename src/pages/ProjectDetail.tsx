@@ -429,9 +429,18 @@ export default function ProjectDetail() {
   const hasScript = scripts.length > 0;
   const scriptText = useMemo(() => {
     if (!documents.length) return null;
-    const scriptDoc = documents.find(d => d.extracted_text && d.file_name.match(/\.(pdf|txt|fdx)$/i));
-    return scriptDoc?.extracted_text || null;
-  }, [documents]);
+    // First try to find a document linked to the current script
+    if (currentScript) {
+      const scriptDoc = documents.find(d => d.extracted_text && d.file_path === currentScript.file_path);
+      if (scriptDoc?.extracted_text) return scriptDoc.extracted_text;
+    }
+    // Fallback: find any document with extracted text (script-like extensions first, then any)
+    const scriptDoc = documents.find(d => d.extracted_text && d.file_name.match(/\.(pdf|txt|fdx|fountain|docx|doc|md)$/i));
+    if (scriptDoc?.extracted_text) return scriptDoc.extracted_text;
+    // Last resort: any document with extracted text
+    const anyDoc = documents.find(d => d.extracted_text);
+    return anyDoc?.extracted_text || null;
+  }, [documents, currentScript]);
 
   return (
     <div className="min-h-screen bg-background">
