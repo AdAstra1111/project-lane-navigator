@@ -8,6 +8,7 @@
 
 import type { Project, FullAnalysis } from '@/lib/types';
 import type { ProjectCastMember, ProjectPartner, ProjectScript, ProjectFinanceScenario, ProjectHOD } from '@/hooks/useProjectAttachments';
+import type { BudgetSummary } from '@/lib/finance-readiness';
 
 export type ReadinessStage = 'Early' | 'Building' | 'Packaged' | 'Finance-Ready';
 
@@ -40,6 +41,7 @@ export function calculateReadiness(
   financeScenarios: ProjectFinanceScenario[],
   hods: ProjectHOD[],
   hasIncentiveInsights: boolean,
+  budgetSummary?: BudgetSummary,
 ): ReadinessResult {
   const strengths: string[] = [];
   const blockers: string[] = [];
@@ -143,6 +145,17 @@ export function calculateReadiness(
 
   if (project.assigned_lane) {
     financeScore += 2;
+  }
+
+  // Budget bonus (up to 3 pts within the 25 cap)
+  if (budgetSummary) {
+    if (budgetSummary.hasLocked) {
+      financeScore += 3;
+    } else if (budgetSummary.count > 0) {
+      financeScore += 1;
+    }
+  } else {
+    blockers.push('No budget created');
   }
 
   // ---- Market & Timing (20 points) ----

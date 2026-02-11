@@ -20,6 +20,12 @@ import type {
   ProjectHOD,
 } from '@/hooks/useProjectAttachments';
 
+export interface BudgetSummary {
+  count: number;
+  hasLocked: boolean;
+  lockedTotal: number;
+}
+
 // ---- Types ----
 
 export type VolatilityLevel = 'Low' | 'Medium' | 'High';
@@ -140,6 +146,7 @@ export function calculateFinanceReadiness(
   financeScenarios: ProjectFinanceScenario[],
   hods: ProjectHOD[],
   hasIncentiveInsights: boolean,
+  budgetSummary?: BudgetSummary,
 ): FinanceReadinessResult {
   const analysis = project.analysis_passes as FullAnalysis | null;
   const genres = project.genres || [];
@@ -217,6 +224,17 @@ export function calculateFinanceReadiness(
 
   if (project.assigned_lane) financeStructure += 2;
   if (confirmedPartners.some(p => p.partner_type === 'financier')) financeStructure += 2;
+
+  // Budget detail bonus (up to 4 pts within the 25 cap)
+  if (budgetSummary) {
+    if (budgetSummary.hasLocked) {
+      financeStructure += 4;
+      strengths.push('Locked budget version exists');
+    } else if (budgetSummary.count > 0) {
+      financeStructure += 2;
+      strengths.push('Budget draft created');
+    }
+  }
 
   // ── Market Position (15) ──
   let marketPosition = 0;
@@ -417,6 +435,21 @@ export function calculateFinanceReadiness(
       tag: 'No Sales Path',
       explanation: 'No sales agent or distribution partner identified. Pre-sales and territory revenue cannot be estimated.',
       mitigation: 'Engage a sales agent or identify distribution partners for key territories.',
+    });
+  }
+
+  // No budget created
+  if (!budgetSummary || budgetSummary.count === 0) {
+    riskFlags.push({
+      tag: 'No Budget',
+      explanation: 'No budget version created — financiers expect at least a top-sheet or template budget.',
+      mitigation: 'Create a budget using a lane-aware template to strengthen your finance structure.',
+    });
+  } else if (!budgetSummary.hasLocked) {
+    riskFlags.push({
+      tag: 'Budget Not Locked',
+      explanation: 'Budget exists but is still in draft. Locking signals confidence to financiers.',
+      mitigation: 'Review and lock your budget version to indicate it is ready for financing conversations.',
     });
   }
 
