@@ -11,7 +11,7 @@ import { FileUpload } from '@/components/FileUpload';
 import { useProjects } from '@/hooks/useProjects';
 import { useCompanies } from '@/hooks/useCompanies';
 import { ProjectFormat, ProjectInput } from '@/lib/types';
-import { GENRES, BUDGET_RANGES, TARGET_AUDIENCES, TONES } from '@/lib/constants';
+import { MODE_GENRES, MODE_AUDIENCES, MODE_TONES, MODE_BUDGETS, MODE_COMPARABLE_CONFIG, MODE_CREATIVE_LABEL, MODE_COMMERCIAL_LABEL } from '@/lib/constants';
 import { FORMAT_META } from '@/lib/mode-engine';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -147,7 +147,7 @@ export default function NewProject() {
                         <button
                           key={opt.value}
                           type="button"
-                          onClick={() => setForm(prev => ({ ...prev, format: opt.value as ProjectFormat }))}
+                          onClick={() => setForm(prev => ({ ...prev, format: opt.value as ProjectFormat, genres: [], target_audience: '', tone: '', budget_range: '' }))}
                           className={cn(
                             'glass-card rounded-lg p-4 text-left transition-all duration-200',
                             form.format === opt.value
@@ -222,13 +222,13 @@ export default function NewProject() {
             {step === 2 && (
               <div className="space-y-6">
                 <div>
-                  <h2 className="text-2xl font-display font-bold text-foreground mb-1">Creative Profile</h2>
-                  <p className="text-muted-foreground">Describe the creative identity of your project.</p>
+                  <h2 className="text-2xl font-display font-bold text-foreground mb-1">{MODE_CREATIVE_LABEL[form.format].title}</h2>
+                  <p className="text-muted-foreground">{MODE_CREATIVE_LABEL[form.format].subtitle}</p>
                 </div>
                 <div className="space-y-3">
-                  <Label className="text-foreground">Genre <span className="text-muted-foreground font-normal">(select all that apply)</span></Label>
+                  <Label className="text-foreground">{MODE_CREATIVE_LABEL[form.format].genreLabel} <span className="text-muted-foreground font-normal">(select all that apply)</span></Label>
                   <div className="flex flex-wrap gap-2">
-                    {GENRES.map(genre => (
+                    {MODE_GENRES[form.format].map(genre => (
                       <button
                         key={genre}
                         type="button"
@@ -248,7 +248,7 @@ export default function NewProject() {
                 <div className="space-y-3">
                   <Label className="text-foreground">Target Audience</Label>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {TARGET_AUDIENCES.map(opt => (
+                    {MODE_AUDIENCES[form.format].map(opt => (
                       <button
                         key={opt.value}
                         type="button"
@@ -268,7 +268,7 @@ export default function NewProject() {
                 <div className="space-y-3">
                   <Label className="text-foreground">Tone</Label>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {TONES.map(opt => (
+                    {MODE_TONES[form.format].map(opt => (
                       <button
                         key={opt.value}
                         type="button"
@@ -292,13 +292,13 @@ export default function NewProject() {
             {step === 3 && (
               <div className="space-y-6">
                 <div>
-                  <h2 className="text-2xl font-display font-bold text-foreground mb-1">Commercial Profile</h2>
-                  <p className="text-muted-foreground">Help us understand the market positioning.</p>
+                  <h2 className="text-2xl font-display font-bold text-foreground mb-1">{MODE_COMMERCIAL_LABEL[form.format].title}</h2>
+                  <p className="text-muted-foreground">{MODE_COMMERCIAL_LABEL[form.format].subtitle}</p>
                 </div>
                 <div className="space-y-3">
                   <Label className="text-foreground">Budget Range</Label>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                    {BUDGET_RANGES.map(opt => (
+                    {MODE_BUDGETS[form.format].map(opt => (
                       <button
                         key={opt.value}
                         type="button"
@@ -316,17 +316,17 @@ export default function NewProject() {
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <Label className="text-foreground">Comparable Titles <span className="text-muted-foreground font-normal">(optional)</span></Label>
+                  <Label className="text-foreground">{MODE_COMPARABLE_CONFIG[form.format].label} <span className="text-muted-foreground font-normal">(optional)</span></Label>
                   <Textarea
                     value={form.comparable_titles}
                     onChange={(e) => setForm(prev => ({ ...prev, comparable_titles: e.target.value }))}
-                    placeholder="e.g. Moonlight meets The Rider, with elements of Nomadland"
+                    placeholder={MODE_COMPARABLE_CONFIG[form.format].placeholder}
                     className="bg-muted border-border/50 focus:border-primary resize-none"
                     rows={3}
                     maxLength={500}
                   />
                   <p className="text-xs text-muted-foreground">
-                    Reference films or shows that share a similar tone, audience, or market positioning.
+                    {MODE_COMPARABLE_CONFIG[form.format].hint}
                   </p>
                 </div>
               </div>
