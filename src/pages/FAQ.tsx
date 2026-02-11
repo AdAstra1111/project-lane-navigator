@@ -75,7 +75,7 @@ export default function FAQ() {
               Everything you need to know
             </h1>
             <p className="text-lg text-muted-foreground max-w-xl">
-              The producer's guide to IFFY — from first project to closing your finance.
+              The producer's guide to IFFY — from inception to recoup.
             </p>
           </motion.div>
         </div>
