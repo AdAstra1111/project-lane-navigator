@@ -967,7 +967,7 @@ export default function ProjectDetail() {
                   {hasDocuments ? 'Uploaded Documents' : 'Documents'}
                 </h4>
               </div>
-              {hasDocuments && <DocumentsList documents={documents} />}
+              {hasDocuments && <DocumentsList documents={documents} projectId={id} />}
               <div className={hasDocuments ? 'mt-4' : ''}>
                 <AddDocumentsUpload
                   existingCount={documents.length}

@@ -1,6 +1,8 @@
 import { motion } from 'framer-motion';
-import { FileText, File, CheckCircle2, AlertCircle, AlertTriangle } from 'lucide-react';
+import { FileText, File, CheckCircle2, AlertCircle, AlertTriangle, RotateCw } from 'lucide-react';
 import { ProjectDocument } from '@/lib/types';
+import { Button } from '@/components/ui/button';
+import { useExtractDocuments } from '@/hooks/useExtractDocuments';
 
 function getStatusIcon(status: string) {
   switch (status) {
@@ -32,10 +34,14 @@ function getStatusLabel(doc: ProjectDocument) {
 
 interface DocumentsListProps {
   documents: ProjectDocument[];
+  projectId?: string;
 }
 
-export function DocumentsList({ documents }: DocumentsListProps) {
+export function DocumentsList({ documents, projectId }: DocumentsListProps) {
   if (documents.length === 0) return null;
+
+  const hasUnextracted = documents.some(d => d.extraction_status !== 'success' || !d.extracted_text);
+  const extract = useExtractDocuments(projectId);
 
   return (
     <div>
@@ -63,6 +69,19 @@ export function DocumentsList({ documents }: DocumentsListProps) {
           </motion.div>
         ))}
       </div>
+
+      {hasUnextracted && projectId && (
+        <Button
+          variant="outline"
+          size="sm"
+          className="mt-3 w-full text-xs gap-1.5"
+          onClick={() => extract.mutate()}
+          disabled={extract.isPending}
+        >
+          <RotateCw className={`h-3 w-3 ${extract.isPending ? 'animate-spin' : ''}`} />
+          {extract.isPending ? 'Extracting…' : 'Re-extract Document Text'}
+        </Button>
+      )}
     </div>
   );
 }
