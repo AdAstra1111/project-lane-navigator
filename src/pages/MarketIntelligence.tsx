@@ -16,6 +16,8 @@ import { supabase } from '@/integrations/supabase/client';
 import { useQuery } from '@tanstack/react-query';
 import { TerritoryCostBrowser } from '@/components/TerritoryCostBrowser';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { ShareSignalDialog } from '@/components/ShareSignalDialog';
+import { usePersonImage } from '@/hooks/usePersonImage';
 
 /* ── Festivals (same canonical list) ── */
 const UPCOMING_FESTIVALS = [
@@ -155,12 +157,13 @@ export default function MarketIntelligence() {
                                 <Badge variant="outline" className={cn('text-[10px]', phase.color)}>{phase.label}</Badge>
                               </div>
                               <p className="text-xs text-muted-foreground line-clamp-2">{signal.explanation}</p>
-                              <div className="flex gap-1 mt-1 flex-wrap">
-                                {(signal.genre_tags || []).slice(0, 3).map((g: string) => (
+                              <div className="flex items-center gap-1 mt-1 flex-wrap">
+                                {(signal.genre_tags || []).filter((g: string) => g.toLowerCase() !== 'all').slice(0, 3).map((g: string) => (
                                   <Badge key={g} variant="secondary" className="text-[10px]">{g}</Badge>
                                 ))}
                               </div>
                             </div>
+                            <ShareSignalDialog signalId={signal.id} signalName={signal.name} signalType="story" />
                           </motion.div>
                         );
                       })
@@ -176,21 +179,7 @@ export default function MarketIntelligence() {
                   </h2>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {castTrends.slice(0, 6).map((ct: any, i: number) => (
-                      <motion.div
-                        key={ct.id}
-                        initial={{ opacity: 0, y: 6 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: i * 0.04 }}
-                        className="p-3 rounded-lg border border-border hover:bg-muted/30 transition-colors cursor-pointer"
-                        onClick={() => navigate('/trends/cast')}
-                      >
-                        <p className="text-sm font-medium text-foreground">{ct.actor_name}</p>
-                        <div className="flex items-center gap-2 mt-1">
-                          <Badge variant="outline" className="text-[10px]">{ct.trend_type}</Badge>
-                          <span className="text-[10px] text-muted-foreground">{ct.region}</span>
-                        </div>
-                        <p className="text-xs text-muted-foreground mt-1 line-clamp-1">{ct.explanation}</p>
-                      </motion.div>
+                      <CastSignalCard key={ct.id} ct={ct} index={i} onNavigate={() => navigate('/trends/cast')} />
                     ))}
                     {castTrends.length === 0 && (
                       <p className="text-sm text-muted-foreground col-span-2 py-4 text-center">No cast trends available.</p>
@@ -298,5 +287,55 @@ export default function MarketIntelligence() {
         </Tabs>
       </main>
     </div>
+  );
+}
+
+function CastSignalCard({ ct, index, onNavigate }: { ct: any; index: number; onNavigate: () => void }) {
+  const imageUrl = usePersonImage(ct.actor_name);
+
+  return (
+    <motion.div
+      key={ct.id}
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: index * 0.04 }}
+      className="p-3 rounded-lg border border-border hover:bg-muted/30 transition-colors"
+    >
+      <div className="flex items-start gap-3">
+        {/* Photo */}
+        <div
+          className="h-10 w-10 rounded-full bg-muted/60 overflow-hidden shrink-0 border border-border/50 cursor-pointer"
+          onClick={onNavigate}
+        >
+          {imageUrl ? (
+            <img src={imageUrl} alt={ct.actor_name} className="h-full w-full object-cover" />
+          ) : (
+            <div className="h-full w-full flex items-center justify-center text-muted-foreground text-xs font-medium">
+              {ct.actor_name.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()}
+            </div>
+          )}
+        </div>
+        <div className="flex-1 min-w-0 cursor-pointer" onClick={onNavigate}>
+          <p className="text-sm font-medium text-foreground">{ct.actor_name}</p>
+          <div className="flex items-center gap-2 mt-0.5">
+            <Badge variant="outline" className="text-[10px]">{ct.trend_type}</Badge>
+            {ct.region && <span className="text-[10px] text-muted-foreground">{ct.region}</span>}
+            {ct.cycle_phase && <span className="text-[10px] text-muted-foreground">· {ct.cycle_phase}</span>}
+          </div>
+          <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{ct.explanation}</p>
+        </div>
+      </div>
+      <div className="flex items-center justify-between mt-2">
+        <div className="flex gap-1 flex-wrap">
+          {(ct.genre_relevance || []).slice(0, 2).map((g: string) => (
+            <Badge key={g} variant="secondary" className="text-[10px]">{g}</Badge>
+          ))}
+          {ct.sales_leverage && (
+            <span className="text-[10px] bg-primary/10 text-primary rounded px-1.5 py-0.5">{ct.sales_leverage}</span>
+          )}
+        </div>
+        <ShareSignalDialog signalId={ct.id} signalName={ct.actor_name} signalType="cast" />
+      </div>
+    </motion.div>
   );
 }
