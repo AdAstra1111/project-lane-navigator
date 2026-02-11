@@ -1,7 +1,8 @@
 import { useState, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { DollarSign, Plus, Trash2, Check, X, Upload, FileSpreadsheet, Lock, Unlock, ChevronDown, Info, ArrowLeftRight } from 'lucide-react';
+import { DollarSign, Plus, Trash2, Check, X, Upload, FileSpreadsheet, Lock, Unlock, ChevronDown, Info, ArrowLeftRight, FileText, Loader2 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -99,7 +100,9 @@ function BudgetDetailView({
   const { updateBudget } = useProjectBudgets(projectId);
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState({ category: 'atl', line_name: '', amount: '' });
+  const [importing, setImporting] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const pdfRef = useRef<HTMLInputElement>(null);
 
   const totalFromLines = useMemo(() => lines.reduce((s, l) => s + Number(l.amount), 0), [lines]);
   const byCategory = useMemo(() => {
@@ -133,6 +136,55 @@ function BudgetDetailView({
     e.target.value = '';
   };
 
+  const handlePDFImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+
+    setImporting(true);
+    try {
+      let text = '';
+
+      if (file.name.toLowerCase().endsWith('.csv') || file.name.toLowerCase().endsWith('.txt')) {
+        // For CSV/text files, read as text and use client-side parser first
+        text = await file.text();
+        const parsed = parseCSVBudget(text);
+        if (parsed.length > 0) {
+          addLines.mutate(parsed);
+          setImporting(false);
+          return;
+        }
+        // If CSV parser returns nothing, fall through to AI extraction
+      } else {
+        // For PDFs/other files, read as text (best effort)
+        text = await file.text();
+      }
+
+      // Use AI extraction edge function
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Not authenticated');
+
+      const response = await supabase.functions.invoke('extract-budget', {
+        body: { text: text.slice(0, 50000), file_name: file.name },
+      });
+
+      if (response.error) throw new Error(response.error.message);
+      const result = response.data;
+
+      if (!result.success || !result.lines?.length) {
+        toast.error('Could not extract budget lines from this file');
+        return;
+      }
+
+      addLines.mutate(result.lines);
+      toast.success(`Imported ${result.lines.length} line items ($${Math.round(result.total).toLocaleString()})`);
+    } catch (err: any) {
+      toast.error(err.message || 'Import failed');
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const handleLockToggle = () => {
     updateBudget.mutate({
       id: budget.id,
@@ -156,10 +208,17 @@ function BudgetDetailView({
         </div>
         <div className="flex items-center gap-1.5">
           <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={handleCSV} />
+          <input ref={pdfRef} type="file" accept=".pdf,.csv,.txt,.xlsx" className="hidden" onChange={handlePDFImport} />
           {!isLocked && (
-            <Button variant="outline" size="sm" className="text-xs gap-1.5" onClick={() => fileRef.current?.click()}>
-              <Upload className="h-3 w-3" /> CSV
-            </Button>
+            <>
+              <Button variant="outline" size="sm" className="text-xs gap-1.5" onClick={() => fileRef.current?.click()}>
+                <Upload className="h-3 w-3" /> CSV
+              </Button>
+              <Button variant="outline" size="sm" className="text-xs gap-1.5" onClick={() => pdfRef.current?.click()} disabled={importing}>
+                {importing ? <Loader2 className="h-3 w-3 animate-spin" /> : <FileText className="h-3 w-3" />}
+                {importing ? 'Importing…' : 'PDF'}
+              </Button>
+            </>
           )}
           <Button variant="outline" size="sm" className="text-xs gap-1.5" onClick={handleLockToggle}>
             {isLocked ? <Unlock className="h-3 w-3" /> : <Lock className="h-3 w-3" />}
