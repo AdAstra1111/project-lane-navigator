@@ -21,11 +21,24 @@ export function useExtractDocuments(projectId: string | undefined) {
         .or('extracted_text.is.null,extraction_status.neq.success');
 
       if (fetchErr) throw fetchErr;
-      if (!docs || docs.length === 0) {
-        throw new Error('All documents already have extracted text');
-      }
 
-      const documentPaths = docs.map(d => d.file_path);
+      let documentPaths = (docs || []).map(d => d.file_path);
+
+      // Fallback: if no project_documents rows, check project.document_urls
+      if (documentPaths.length === 0) {
+        const { data: project } = await supabase
+          .from('projects')
+          .select('document_urls')
+          .eq('id', projectId)
+          .single();
+
+        const urls = (project?.document_urls as string[]) || [];
+        if (urls.length > 0) {
+          documentPaths = urls;
+        } else {
+          throw new Error('No documents found to extract');
+        }
+      }
 
       const { data, error } = await supabase.functions.invoke('extract-documents', {
         body: { projectId, documentPaths },
