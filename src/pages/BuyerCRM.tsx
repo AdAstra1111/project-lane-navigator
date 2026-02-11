@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Plus, Users, Search, MessageSquare, Phone, Mail, X, ChevronDown, Landmark, Radio, BookOpen } from 'lucide-react';
+import { Plus, Users, Search, MessageSquare, Phone, Mail, X, ChevronDown, Landmark, Radio, BookOpen, CalendarIcon } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,6 +10,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Header } from '@/components/Header';
 import { useBuyerContacts, useBuyerMeetings, type BuyerContact } from '@/hooks/useBuyerCRM';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { exportMeetingToICS, composeBuyerEmail } from '@/lib/ics-export';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 const RELATIONSHIP_STATUSES = ['new', 'warm', 'active', 'priority', 'dormant'] as const;
 const STATUS_COLORS: Record<string, string> = {
@@ -67,11 +69,18 @@ function MeetingLog({ contactId }: { contactId: string }) {
       ) : (
         <div className="space-y-1.5">
           {meetings.map(m => (
-            <div key={m.id} className="text-xs p-2 rounded bg-muted/30">
+            <div key={m.id} className="text-xs p-2 rounded bg-muted/30 group">
               <div className="flex items-center gap-2 text-muted-foreground mb-1">
                 <Badge variant="outline" className="text-[10px]">{m.meeting_type}</Badge>
                 <span>{new Date(m.meeting_date).toLocaleDateString()}</span>
                 {m.location && <span>· {m.location}</span>}
+                <button
+                  onClick={() => exportMeetingToICS({ buyer_name: contactId, meeting_type: m.meeting_type, meeting_date: m.meeting_date, location: m.location, notes: m.notes })}
+                  className="ml-auto opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-primary transition-all"
+                  title="Add to calendar"
+                >
+                  <CalendarIcon className="h-3 w-3" />
+                </button>
               </div>
               {m.notes && <p className="text-foreground">{m.notes}</p>}
               {m.outcome && <p className="text-muted-foreground mt-1">→ {m.outcome}</p>}
@@ -191,9 +200,16 @@ export default function BuyerCRM() {
                       </div>
                       <div className="flex items-center gap-1.5">
                         {contact.email && (
-                          <a href={`mailto:${contact.email}`}>
-                            <Button size="icon" variant="ghost" className="h-7 w-7"><Mail className="h-3.5 w-3.5" /></Button>
-                          </a>
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => composeBuyerEmail({ buyer_name: contact.buyer_name, email: contact.email, company: contact.company })}>
+                                  <Mail className="h-3.5 w-3.5" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>Compose email with context</TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
                         )}
                         <Select value={contact.relationship_status} onValueChange={v => updateContact.mutate({ id: contact.id, relationship_status: v })}>
                           <SelectTrigger className="h-7 w-24 text-xs"><SelectValue /></SelectTrigger>

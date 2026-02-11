@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Clock, Check, Trash2, CalendarIcon } from 'lucide-react';
+import { Plus, Clock, Check, Trash2, CalendarIcon, Download } from 'lucide-react';
 import { format, differenceInDays, isPast } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,6 +9,7 @@ import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
 import { useDeadlines } from '@/hooks/useDeadlines';
+import { exportDeadlineToICS, exportAllDeadlinesToICS } from '@/lib/ics-export';
 
 const DEADLINE_TYPES = [
   { value: 'market-submission', label: 'Market Submission' },
@@ -63,10 +64,17 @@ export function DeadlinePanel({ projectId }: { projectId: string }) {
             <span className="text-xs text-muted-foreground">({active.length})</span>
           )}
         </div>
-        <Button variant="ghost" size="sm" onClick={() => setShowForm(!showForm)}>
-          <Plus className="h-3.5 w-3.5 mr-1" />
-          Add
-        </Button>
+        <div className="flex items-center gap-1">
+          {active.length > 0 && (
+            <Button variant="ghost" size="sm" onClick={() => exportAllDeadlinesToICS(active.map(d => ({ label: d.label, due_date: d.due_date, notes: d.notes })))} title="Export all to calendar">
+              <Download className="h-3.5 w-3.5" />
+            </Button>
+          )}
+          <Button variant="ghost" size="sm" onClick={() => setShowForm(!showForm)}>
+            <Plus className="h-3.5 w-3.5 mr-1" />
+            Add
+          </Button>
+        </div>
       </div>
 
       <AnimatePresence>
@@ -163,6 +171,13 @@ export function DeadlinePanel({ projectId }: { projectId: string }) {
                 <span className={cn('text-xs tabular-nums shrink-0', urgency.className)}>
                   {urgency.text}
                 </span>
+                <button
+                  onClick={() => exportDeadlineToICS(d)}
+                  className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-primary transition-all shrink-0"
+                  title="Add to calendar"
+                >
+                  <CalendarIcon className="h-3 w-3" />
+                </button>
                 <button
                   onClick={() => deleteDeadline.mutate(d.id)}
                   className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all shrink-0"
