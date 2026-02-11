@@ -876,6 +876,65 @@ export type Database = {
           },
         ]
       }
+      project_deliverables: {
+        Row: {
+          buyer_name: string
+          created_at: string
+          deliverable_type: string
+          due_date: string | null
+          format_spec: string
+          id: string
+          item_name: string
+          notes: string
+          project_id: string
+          rights_window: string
+          status: string
+          territory: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          buyer_name?: string
+          created_at?: string
+          deliverable_type?: string
+          due_date?: string | null
+          format_spec?: string
+          id?: string
+          item_name?: string
+          notes?: string
+          project_id: string
+          rights_window?: string
+          status?: string
+          territory?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          buyer_name?: string
+          created_at?: string
+          deliverable_type?: string
+          due_date?: string | null
+          format_spec?: string
+          id?: string
+          item_name?: string
+          notes?: string
+          project_id?: string
+          rights_window?: string
+          status?: string
+          territory?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_deliverables_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       project_documents: {
         Row: {
           created_at: string

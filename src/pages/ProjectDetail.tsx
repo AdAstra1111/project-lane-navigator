@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Film, Tv, Target, Palette, DollarSign, Users, Quote, CheckCircle2, ShieldAlert, Trash2, Loader2, AlertTriangle, MessageSquareQuote, FileText, Copy, ArrowLeftRight, Download, TrendingUp, Landmark, BarChart3, Package, StickyNote, UsersRound, ChevronDown, PieChart, FileSpreadsheet } from 'lucide-react';
+import { ArrowLeft, Film, Tv, Target, Palette, DollarSign, Users, Quote, CheckCircle2, ShieldAlert, Trash2, Loader2, AlertTriangle, MessageSquareQuote, FileText, Copy, ArrowLeftRight, Download, TrendingUp, Landmark, BarChart3, Package, StickyNote, UsersRound, ChevronDown, PieChart, FileSpreadsheet, PackageCheck } from 'lucide-react';
 import { ProjectNoteInput } from '@/components/ProjectNoteInput';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -50,6 +50,7 @@ import { CompAnalysis } from '@/components/CompAnalysis';
 import { DealTracker } from '@/components/DealTracker';
 import { OwnershipWaterfallPanel } from '@/components/OwnershipWaterfallPanel';
 import { BudgetPanel } from '@/components/BudgetPanel';
+import { DeliveryIntelligencePanel } from '@/components/DeliveryIntelligencePanel';
 import { useProjectBudgets } from '@/hooks/useBudgets';
 import type { BudgetSummary } from '@/lib/finance-readiness';
 import { useTalentTriage } from '@/hooks/useTalentTriage';
@@ -634,7 +635,14 @@ export default function ProjectDetail() {
             </Section>
           )}
 
-          {/* 6. Ownership & Waterfall */}
+          {/* 6. Delivery Intelligence */}
+          {id && (
+            <Section icon={PackageCheck} title="Delivery Intelligence">
+              <DeliveryIntelligencePanel projectId={id} />
+            </Section>
+          )}
+
+          {/* 7. Ownership & Waterfall */}
           {id && (
             <Section icon={PieChart} title="Ownership & Waterfall">
               <OwnershipWaterfallPanel projectId={id} />
