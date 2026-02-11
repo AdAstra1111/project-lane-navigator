@@ -43,7 +43,7 @@ export function Header() {
           <img src={iffyLogo} alt="IFFY logo" className="h-8 w-8 rounded-md" />
           <div className="flex flex-col leading-none">
             <span className="font-display font-semibold text-lg tracking-tight text-foreground">IFFY</span>
-            <span className="text-[10px] text-muted-foreground tracking-widest uppercase">From inception to recoup</span>
+            <span className="text-[10px] text-muted-foreground tracking-widest uppercase">Intelligent Film Flow & Yield</span>
           </div>
         </Link>
 
