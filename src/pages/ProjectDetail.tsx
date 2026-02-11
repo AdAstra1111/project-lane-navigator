@@ -1,10 +1,12 @@
 import { useState, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Film, Tv, Target, Palette, DollarSign, Users, Quote, CheckCircle2, ShieldAlert, Trash2, Loader2, AlertTriangle, MessageSquareQuote, FileText, Copy, ArrowLeftRight, Download, TrendingUp, Landmark, BarChart3, Package, StickyNote, UsersRound, ChevronDown, PieChart, FileSpreadsheet, PackageCheck, Receipt, FileSignature, Presentation, Bot, BookOpen } from 'lucide-react';
+import { ArrowLeft, Film, Tv, Target, Palette, DollarSign, Users, Quote, CheckCircle2, ShieldAlert, Trash2, Loader2, AlertTriangle, MessageSquareQuote, FileText, Copy, ArrowLeftRight, Download, TrendingUp, Landmark, BarChart3, Package, StickyNote, UsersRound, ChevronDown, PieChart, FileSpreadsheet, PackageCheck, Receipt, FileSignature, Presentation, Bot, BookOpen, Calendar } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { ProjectNoteInput } from '@/components/ProjectNoteInput';
 import { cn } from '@/lib/utils';
+import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import {
   AlertDialog,
@@ -63,6 +65,7 @@ import { CastImpactPanel } from '@/components/CastImpactPanel';
 import { ScheduleIntelligencePanel } from '@/components/ScheduleIntelligencePanel';
 import { CashflowModelPanel } from '@/components/CashflowModelPanel';
 import { IRRSalesProjectionPanel } from '@/components/IRRSalesProjectionPanel';
+import { ScriptToBudgetPanel } from '@/components/ScriptToBudgetPanel';
 import { useRecoupmentScenarios, useRecoupmentTiers } from '@/hooks/useRecoupment';
 import { useProjectBudgets } from '@/hooks/useBudgets';
 import type { BudgetSummary } from '@/lib/finance-readiness';
@@ -233,7 +236,7 @@ export default function ProjectDetail() {
   const { deals } = useProjectDeals(id);
   const { deliverables } = useProjectDeliverables(id);
   const { entries: costEntries } = useProjectCostEntries(id);
-  const { budgets } = useProjectBudgets(id);
+  const { budgets, addBudget } = useProjectBudgets(id);
 
   const budgetSummary: BudgetSummary = useMemo(() => {
     const locked = budgets.filter(b => b.status === 'locked');
@@ -386,6 +389,11 @@ export default function ProjectDetail() {
   const hasDocuments = documents.length > 0;
   const currentScript = scripts.find(s => s.status === 'current');
   const hasScript = scripts.length > 0;
+  const scriptText = useMemo(() => {
+    if (!documents.length) return null;
+    const scriptDoc = documents.find(d => d.extracted_text && d.file_name.match(/\.(pdf|txt|fdx)$/i));
+    return scriptDoc?.extracted_text || null;
+  }, [documents]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -708,12 +716,53 @@ export default function ProjectDetail() {
             )}
             {id && <DealTracker projectId={id} />}
             {id && <DeadlinePanel projectId={id} />}
+            {id && (
+              <CashflowModelPanel
+                totalBudget={budgets.find(b => b.status === 'locked')?.total_amount ? Number(budgets.find(b => b.status === 'locked')?.total_amount) : undefined}
+              />
+            )}
           </Section>
 
           {/* 5. Budget */}
           {id && (
             <Section icon={FileSpreadsheet} title="Budget">
               <BudgetPanel projectId={id} assignedLane={project?.assigned_lane} projectTitle={project?.title} />
+              <ScriptToBudgetPanel
+                projectId={id}
+                scriptText={scriptText}
+                format={project?.format}
+                genres={project?.genres || []}
+                budgetRange={project?.budget_range}
+                lane={project?.assigned_lane}
+                totalBudget={budgets.find(b => b.status === 'locked')?.total_amount ? Number(budgets.find(b => b.status === 'locked')?.total_amount) : undefined}
+                onImport={async (lines, estimatedTotal) => {
+                  addBudget.mutate(
+                    {
+                      version_label: `AI Estimate v${budgets.length + 1}`,
+                      total_amount: estimatedTotal,
+                      lane_template: '',
+                      source: 'ai-estimate',
+                    },
+                    {
+                      onSuccess: async (newBudget: any) => {
+                        const { data: { user } } = await supabase.auth.getUser();
+                        if (!user) return;
+                        const rows = lines.map((l, i) => ({
+                          budget_id: newBudget.id,
+                          project_id: id,
+                          user_id: user.id,
+                          category: l.category,
+                          line_name: l.line_name,
+                          amount: l.amount,
+                          sort_order: i,
+                        }));
+                        await supabase.from('project_budget_lines').insert(rows as any);
+                        toast.success(`Created budget with ${lines.length} AI-estimated lines`);
+                      },
+                    }
+                  );
+                }}
+              />
             </Section>
           )}
 
@@ -749,6 +798,21 @@ export default function ProjectDetail() {
           {id && (
             <Section icon={TrendingUp} title="Recoupment Waterfall">
               <RecoupmentWaterfallPanel projectId={id} />
+              <IRRSalesProjectionPanel
+                totalBudget={budgets.find(b => b.status === 'locked')?.total_amount ? Number(budgets.find(b => b.status === 'locked')?.total_amount) : undefined}
+              />
+            </Section>
+          )}
+
+          {/* Schedule Intelligence */}
+          {id && (
+            <Section icon={Calendar} title="Schedule Intelligence">
+              <ScheduleIntelligencePanel
+                projectId={id}
+                format={project?.format}
+                genres={project?.genres || []}
+                budgetRange={project?.budget_range}
+              />
             </Section>
           )}
 
