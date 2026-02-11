@@ -1,16 +1,24 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Building2, Plus, LinkIcon, Unlink, ArrowLeft } from 'lucide-react';
+import { Building2, LinkIcon, Unlink, ArrowLeft, Upload, Palette, MapPin, Pencil, Check, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Header } from '@/components/Header';
 import { PageTransition } from '@/components/PageTransition';
 import { ProjectCard } from '@/components/ProjectCard';
-import { useCompany, useCompanyProjects, useProjectCompanies } from '@/hooks/useCompanies';
+import { useCompany, useCompanyProjects, useProjectCompanies, useCompanies } from '@/hooks/useCompanies';
 import { useProjects } from '@/hooks/useProjects';
 import { useDashboardScores } from '@/hooks/useDashboardScores';
 import { Project } from '@/lib/types';
+import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
+
+const ACCENT_PRESETS = [
+  '#C4913A', '#3B82F6', '#10B981', '#EF4444', '#8B5CF6',
+  '#F59E0B', '#EC4899', '#06B6D4', '#84CC16', '#F97316',
+];
 
 function LinkProjectControl({ companyId, existingProjectIds }: { companyId: string; existingProjectIds: string[] }) {
   const { projects } = useProjects();
@@ -43,6 +51,131 @@ function LinkProjectControl({ companyId, existingProjectIds }: { companyId: stri
         <LinkIcon className="h-3.5 w-3.5 mr-1" />
         Link
       </Button>
+    </div>
+  );
+}
+
+function CompanyBrandingSection({ companyId, logoUrl, colorAccent, jurisdiction }: {
+  companyId: string;
+  logoUrl: string;
+  colorAccent: string;
+  jurisdiction: string;
+}) {
+  const { updateCompany } = useCompanies();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [editingJurisdiction, setEditingJurisdiction] = useState(false);
+  const [jurisdictionDraft, setJurisdictionDraft] = useState(jurisdiction);
+  const [uploading, setUploading] = useState(false);
+
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+      const ext = file.name.split('.').pop()?.toLowerCase() || 'png';
+      const path = `${user.id}/${companyId}.${ext}`;
+      const { error: uploadErr } = await supabase.storage.from('company-logos').upload(path, file, { upsert: true });
+      if (uploadErr) throw uploadErr;
+      const { data: { publicUrl } } = supabase.storage.from('company-logos').getPublicUrl(path);
+      updateCompany.mutate({ id: companyId, logo_url: publicUrl });
+    } catch (err: any) {
+      toast.error(err.message || 'Upload failed');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleAccentChange = (color: string) => {
+    updateCompany.mutate({ id: companyId, color_accent: color });
+  };
+
+  const saveJurisdiction = () => {
+    updateCompany.mutate({ id: companyId, jurisdiction: jurisdictionDraft.trim() });
+    setEditingJurisdiction(false);
+  };
+
+  return (
+    <div className="glass-card rounded-lg p-5 mb-8">
+      <h3 className="text-sm font-semibold text-foreground mb-4">Company Branding</h3>
+      <div className="flex flex-wrap gap-6">
+        {/* Logo */}
+        <div className="flex flex-col items-center gap-2">
+          <div
+            className="h-16 w-16 rounded-lg border-2 border-dashed border-border overflow-hidden flex items-center justify-center cursor-pointer hover:border-primary/50 transition-colors"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            {logoUrl ? (
+              <img src={logoUrl} alt="Logo" className="h-full w-full object-cover" />
+            ) : (
+              <Upload className="h-5 w-5 text-muted-foreground" />
+            )}
+          </div>
+          <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleLogoUpload} />
+          <span className="text-[10px] text-muted-foreground">{uploading ? 'Uploading...' : 'Logo'}</span>
+        </div>
+
+        {/* Accent colour */}
+        <div>
+          <div className="flex items-center gap-1.5 mb-2">
+            <Palette className="h-3.5 w-3.5 text-muted-foreground" />
+            <span className="text-xs text-muted-foreground">Accent Colour</span>
+          </div>
+          <div className="flex gap-1.5 flex-wrap">
+            {ACCENT_PRESETS.map(c => (
+              <button
+                key={c}
+                onClick={() => handleAccentChange(c)}
+                className={`h-6 w-6 rounded-full border-2 transition-all ${
+                  colorAccent === c ? 'border-foreground scale-110' : 'border-transparent hover:scale-105'
+                }`}
+                style={{ backgroundColor: c }}
+              />
+            ))}
+            {colorAccent && !ACCENT_PRESETS.includes(colorAccent) && (
+              <div
+                className="h-6 w-6 rounded-full border-2 border-foreground"
+                style={{ backgroundColor: colorAccent }}
+              />
+            )}
+          </div>
+        </div>
+
+        {/* Jurisdiction */}
+        <div>
+          <div className="flex items-center gap-1.5 mb-2">
+            <MapPin className="h-3.5 w-3.5 text-muted-foreground" />
+            <span className="text-xs text-muted-foreground">Jurisdiction</span>
+          </div>
+          {editingJurisdiction ? (
+            <div className="flex items-center gap-1.5">
+              <Input
+                value={jurisdictionDraft}
+                onChange={e => setJurisdictionDraft(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && saveJurisdiction()}
+                placeholder="e.g. UK, Ireland, France..."
+                className="h-8 w-44 text-sm"
+                autoFocus
+              />
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={saveJurisdiction}>
+                <Check className="h-3.5 w-3.5" />
+              </Button>
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEditingJurisdiction(false)}>
+                <X className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          ) : (
+            <button
+              onClick={() => { setJurisdictionDraft(jurisdiction); setEditingJurisdiction(true); }}
+              className="text-sm text-foreground hover:text-primary transition-colors flex items-center gap-1"
+            >
+              {jurisdiction || 'Not set'}
+              <Pencil className="h-3 w-3 text-muted-foreground" />
+            </button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -83,18 +216,38 @@ export default function CompanyDetail() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.3 }}
             >
-              <div className="flex items-start justify-between mb-8">
+              <div className="flex items-start justify-between mb-6">
                 <div className="flex items-center gap-4">
-                  <div className="h-12 w-12 rounded-lg bg-primary/10 flex items-center justify-center">
-                    <Building2 className="h-6 w-6 text-primary" />
-                  </div>
+                  {company.logo_url ? (
+                    <div
+                      className="h-14 w-14 rounded-lg overflow-hidden border border-border/50"
+                      style={company.color_accent ? { borderColor: company.color_accent + '40' } : undefined}
+                    >
+                      <img src={company.logo_url} alt={company.name} className="h-full w-full object-cover" />
+                    </div>
+                  ) : (
+                    <div
+                      className="h-14 w-14 rounded-lg flex items-center justify-center"
+                      style={{ backgroundColor: company.color_accent ? company.color_accent + '20' : 'hsl(var(--primary) / 0.1)' }}
+                    >
+                      <Building2 className="h-7 w-7" style={{ color: company.color_accent || 'hsl(var(--primary))' }} />
+                    </div>
+                  )}
                   <div>
                     <h1 className="text-3xl font-display font-bold text-foreground tracking-tight">
                       {company.name}
                     </h1>
-                    <p className="text-muted-foreground mt-1">
-                      {companyProjects.length} project{companyProjects.length !== 1 ? 's' : ''} linked
-                    </p>
+                    <div className="flex items-center gap-3 mt-1">
+                      <p className="text-muted-foreground">
+                        {companyProjects.length} project{companyProjects.length !== 1 ? 's' : ''} linked
+                      </p>
+                      {company.jurisdiction && (
+                        <span className="text-xs text-muted-foreground flex items-center gap-1">
+                          <MapPin className="h-3 w-3" />
+                          {company.jurisdiction}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
                 <LinkProjectControl
@@ -102,6 +255,13 @@ export default function CompanyDetail() {
                   existingProjectIds={companyProjects.map((p: any) => p.id)}
                 />
               </div>
+
+              <CompanyBrandingSection
+                companyId={company.id}
+                logoUrl={company.logo_url}
+                colorAccent={company.color_accent}
+                jurisdiction={company.jurisdiction}
+              />
 
               {companyProjects.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-24 text-center">

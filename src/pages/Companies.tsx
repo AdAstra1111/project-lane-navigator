@@ -1,13 +1,35 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Plus, Building2, Trash2 } from 'lucide-react';
+import { Plus, Building2, Trash2, MapPin } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Header } from '@/components/Header';
 import { PageTransition } from '@/components/PageTransition';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
-import { useCompanies } from '@/hooks/useCompanies';
+import { useCompanies, ProductionCompany } from '@/hooks/useCompanies';
+
+function CompanyAvatar({ company }: { company: ProductionCompany }) {
+  const accent = company.color_accent || undefined;
+  if (company.logo_url) {
+    return (
+      <div
+        className="h-10 w-10 rounded-lg overflow-hidden shrink-0 border border-border/50"
+        style={accent ? { borderColor: accent + '40' } : undefined}
+      >
+        <img src={company.logo_url} alt={company.name} className="h-full w-full object-cover" />
+      </div>
+    );
+  }
+  return (
+    <div
+      className="h-10 w-10 rounded-lg flex items-center justify-center shrink-0"
+      style={{ backgroundColor: accent ? accent + '20' : 'hsl(var(--primary) / 0.1)' }}
+    >
+      <Building2 className="h-5 w-5" style={{ color: accent || 'hsl(var(--primary))' }} />
+    </div>
+  );
+}
 
 export default function Companies() {
   const { companies, isLoading, createCompany, deleteCompany } = useCompanies();
@@ -107,19 +129,30 @@ export default function Companies() {
                     <Link
                       to={`/companies/${company.id}`}
                       className="block glass-card rounded-lg p-6 transition-all duration-300 hover:border-primary/30 hover:shadow-[0_0_30px_hsl(var(--glow-primary))]"
+                      style={company.color_accent ? { borderColor: company.color_accent + '30' } : undefined}
                     >
                       <div className="flex items-start gap-3">
-                        <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                          <Building2 className="h-5 w-5 text-primary" />
-                        </div>
+                        <CompanyAvatar company={company} />
                         <div className="flex-1 min-w-0">
                           <h3 className="text-lg font-display font-semibold text-foreground truncate group-hover:text-primary transition-colors">
                             {company.name}
                           </h3>
+                          {company.jurisdiction && (
+                            <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">
+                              <MapPin className="h-3 w-3" />
+                              {company.jurisdiction}
+                            </p>
+                          )}
                           <p className="text-xs text-muted-foreground mt-1">
                             Created {new Date(company.created_at).toLocaleDateString()}
                           </p>
                         </div>
+                        {company.color_accent && (
+                          <div
+                            className="h-3 w-3 rounded-full shrink-0 mt-1"
+                            style={{ backgroundColor: company.color_accent }}
+                          />
+                        )}
                       </div>
                     </Link>
                     <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity">
