@@ -33,15 +33,17 @@ function PipelineProjectCard({ project, nextStage }: { project: Project; nextSta
   const { scenarios: financeScenarios } = useProjectFinance(project.id);
   const { hods } = useProjectHODs(project.id);
 
+  const hasIncentiveInsights = !!(project as any).incentive_insights;
+
   const currentGates = useMemo(() =>
-    getStageGates(project.pipeline_stage as PipelineStage, project, cast, partners, scripts, financeScenarios, hods, false),
-    [project, cast, partners, scripts, financeScenarios, hods]
+    getStageGates(project.pipeline_stage as PipelineStage, project, cast, partners, scripts, financeScenarios, hods, hasIncentiveInsights),
+    [project, cast, partners, scripts, financeScenarios, hods, hasIncentiveInsights]
   );
 
   const nextGates = useMemo(() => {
     if (!nextStage) return null;
-    return getStageGates(nextStage, project, cast, partners, scripts, financeScenarios, hods, false);
-  }, [nextStage, project, cast, partners, scripts, financeScenarios, hods]);
+    return getStageGates(nextStage, project, cast, partners, scripts, financeScenarios, hods, hasIncentiveInsights);
+  }, [nextStage, project, cast, partners, scripts, financeScenarios, hods, hasIncentiveInsights]);
 
   const metCount = currentGates.gates.filter(g => g.met).length;
   const totalCount = currentGates.gates.length;
