@@ -10,7 +10,6 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    // Auth check
     const authHeader = req.headers.get("Authorization");
     if (!authHeader?.startsWith("Bearer ")) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
@@ -31,8 +30,53 @@ serve(async (req) => {
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
+    const PERPLEXITY_API_KEY = Deno.env.get("PERPLEXITY_API_KEY");
 
-    const prompt = `You are a film industry market analyst. Given a project, identify 4-6 comparable titles that have been produced and released. For each, provide real market performance data based on your knowledge.
+    // ── STEP 1: Perplexity grounded research (if available) ──
+    let groundedData = "";
+    if (PERPLEXITY_API_KEY) {
+      try {
+        const searchQuery = `${title || ""} ${(genres || []).join(" ")} ${format || "film"} comparable movies box office performance budget ${comparable_titles || ""}`.trim();
+
+        const perplexityResponse = await fetch("https://api.perplexity.ai/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${PERPLEXITY_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "sonar",
+            messages: [
+              {
+                role: "system",
+                content: "You are a film industry market researcher. Return factual data about comparable films/shows including real box office numbers, budgets, distribution deals, and awards. Be specific with numbers and sources. Focus on titles similar in genre, tone, and budget range to the project described.",
+              },
+              {
+                role: "user",
+                content: `Research comparable titles for a ${format || "feature film"} project: "${title || "Untitled"}". Genres: ${(genres || []).join(", ")}. Budget range: ${budget_range || "not specified"}. Tone: ${tone || "not specified"}. Creator-suggested comps: ${comparable_titles || "none"}. Find 4-6 comparable titles with real box office/streaming data, budgets, distribution info, and awards.`,
+              },
+            ],
+            search_recency_filter: "year",
+          }),
+        });
+
+        if (perplexityResponse.ok) {
+          const pData = await perplexityResponse.json();
+          const pContent = pData.choices?.[0]?.message?.content || "";
+          const citations = pData.citations || [];
+          groundedData = `\n\n=== GROUNDED RESEARCH DATA (from real-time web search) ===\n${pContent}\n\nSources: ${citations.join(", ")}\n=== END GROUNDED DATA ===`;
+          console.log("Perplexity comp research complete, citations:", citations.length);
+        } else {
+          console.warn("Perplexity search failed:", perplexityResponse.status);
+        }
+      } catch (pErr) {
+        console.warn("Perplexity lookup failed, proceeding with AI knowledge:", pErr);
+      }
+    }
+
+    // ── STEP 2: Gemini strategic analysis ──
+    const prompt = `You are a film industry market analyst. Given a project, identify 4-6 comparable titles that have been produced and released. For each, provide real market performance data.
+${groundedData ? "\nIMPORTANT: Use the GROUNDED RESEARCH DATA below as your primary source of facts. Cross-reference and correct any data points using it. Prefer cited numbers over estimates." : ""}
 
 Project:
 - Title: ${title}
@@ -41,6 +85,7 @@ Project:
 - Budget Range: ${budget_range}
 - Tone: ${tone}
 - Creator Comparables: ${comparable_titles || "None provided"}
+${groundedData}
 
 For each comparable title, return:
 - title: The film/show title
@@ -74,7 +119,7 @@ Return ONLY valid JSON with this structure:
       body: JSON.stringify({
         model: "google/gemini-2.5-flash",
         messages: [
-          { role: "system", content: "You are a film industry market analyst with deep knowledge of box office performance, streaming data, and international sales. Return only valid JSON." },
+          { role: "system", content: "You are a film industry market analyst with deep knowledge of box office performance, streaming data, and international sales. Return only valid JSON. When grounded research data is provided, prioritize those real numbers over estimates." },
           { role: "user", content: prompt },
         ],
       }),

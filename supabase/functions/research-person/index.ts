@@ -14,6 +14,7 @@ Deno.serve(async (req) => {
   try {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
+    const PERPLEXITY_API_KEY = Deno.env.get("PERPLEXITY_API_KEY");
 
     const authHeader = req.headers.get("Authorization");
     if (!authHeader?.startsWith("Bearer ")) {
@@ -87,7 +88,7 @@ Deno.serve(async (req) => {
                       type: "object",
                       properties: {
                         name: { type: "string", description: "Full name" },
-                        descriptor: { type: "string", description: "Brief identifier, e.g. 'British director of 12 Years a Slave' or 'Australian director of The Rover'" },
+                        descriptor: { type: "string", description: "Brief identifier" },
                         known_for: { type: "string", description: "1-2 most famous credits" },
                       },
                       required: ["name", "descriptor", "known_for"],
@@ -127,25 +128,64 @@ Deno.serve(async (req) => {
 
       const { candidates } = JSON.parse(disambigCall.function.arguments);
 
-      // If only one candidate, skip straight to assessment
       if (candidates.length === 1) {
-        // Fall through to assessment with the confirmed identity
+        // Fall through to assessment
       } else {
-        // Return candidates for user to pick
         return new Response(JSON.stringify({ disambiguation: true, candidates }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
     }
 
-    // ── STEP 2: Full Assessment ──
+    // ── STEP 2: Perplexity grounded research (if available) ──
+    let groundedResearch = "";
+    if (PERPLEXITY_API_KEY) {
+      try {
+        const perplexityResponse = await fetch("https://api.perplexity.ai/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${PERPLEXITY_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "sonar",
+            messages: [
+              {
+                role: "system",
+                content: "You are a film/TV industry researcher. Return factual, current information about this person including recent projects, awards, upcoming releases, box office performance of recent films, any news or controversies. Be specific with dates and numbers.",
+              },
+              {
+                role: "user",
+                content: `Research ${person_name} (${disambiguation_hint || roleContext}${knownForHint}). What are their most recent projects (last 2 years), current career trajectory, any recent news, awards, upcoming releases, and market perception in the entertainment industry?`,
+              },
+            ],
+            search_recency_filter: "month",
+          }),
+        });
+
+        if (perplexityResponse.ok) {
+          const pData = await perplexityResponse.json();
+          const pContent = pData.choices?.[0]?.message?.content || "";
+          const citations = pData.citations || [];
+          groundedResearch = `\n\n=== REAL-TIME RESEARCH (cited web sources) ===\n${pContent}\n\nSources: ${citations.join(", ")}\n=== END RESEARCH ===`;
+          console.log("Perplexity person research complete, citations:", citations.length);
+        } else {
+          console.warn("Perplexity person research failed:", perplexityResponse.status);
+        }
+      } catch (pErr) {
+        console.warn("Perplexity lookup failed, proceeding with AI knowledge:", pErr);
+      }
+    }
+
+    // ── STEP 3: Full Assessment with Gemini ──
     const identityHint = disambiguation_hint
-      ? `\nIMPORTANT: The user has confirmed they mean specifically: ${disambiguation_hint}. Assess ONLY this person, not anyone else with the same name.`
+      ? `\nIMPORTANT: The user has confirmed they mean specifically: ${disambiguation_hint}. Assess ONLY this person.`
       : known_for
-        ? `\nIMPORTANT: The user has specified this person is known for: ${known_for}. Use this to identify the correct individual.`
+        ? `\nIMPORTANT: The user has specified this person is known for: ${known_for}.`
         : "";
 
     const systemPrompt = `You are IFFY, a film finance intelligence tool. A producer is considering attaching a person to their project. Assess this person's current market value and how they affect the project's finance readiness.${identityHint}
+${groundedResearch ? "\nIMPORTANT: Use the REAL-TIME RESEARCH data below as your primary factual source. It contains current, cited information. Base your assessment on these facts rather than potentially outdated training data." : ""}
 
 Be specific about:
 - Their notable recent work (last 5 years)
@@ -158,6 +198,7 @@ ${project_context ? `- Title: ${project_context.title || "Untitled"}
 - Format: ${project_context.format || "Feature"}
 - Budget: ${project_context.budget_range || "Not set"}
 - Genres: ${(project_context.genres || []).join(", ") || "Not set"}` : "No project context provided"}
+${groundedResearch}
 
 Keep your response to 4-6 sentences. Be direct and producer-facing.`;
 
@@ -169,30 +210,11 @@ Keep your response to 4-6 sentences. Be direct and producer-facing.`;
         parameters: {
           type: "object",
           properties: {
-            summary: {
-              type: "string",
-              description: "3-6 sentence assessment of this person's current market value and impact on the project",
-            },
-            market_trajectory: {
-              type: "string",
-              enum: ["rising", "peak", "steady", "declining", "breakout", "unknown"],
-              description: "Current career trajectory",
-            },
-            packaging_impact: {
-              type: "string",
-              enum: ["transformative", "strong", "moderate", "marginal", "neutral", "risky"],
-              description: "How much this attachment strengthens the project's package",
-            },
-            notable_credits: {
-              type: "array",
-              items: { type: "string" },
-              description: "2-4 most relevant recent credits",
-            },
-            risk_flags: {
-              type: "array",
-              items: { type: "string" },
-              description: "Any concerns (empty array if none)",
-            },
+            summary: { type: "string", description: "3-6 sentence assessment of this person's current market value and impact on the project" },
+            market_trajectory: { type: "string", enum: ["rising", "peak", "steady", "declining", "breakout", "unknown"] },
+            packaging_impact: { type: "string", enum: ["transformative", "strong", "moderate", "marginal", "neutral", "risky"] },
+            notable_credits: { type: "array", items: { type: "string" }, description: "2-4 most relevant recent credits" },
+            risk_flags: { type: "array", items: { type: "string" }, description: "Any concerns (empty array if none)" },
           },
           required: ["summary", "market_trajectory", "packaging_impact", "notable_credits", "risk_flags"],
           additionalProperties: false,
