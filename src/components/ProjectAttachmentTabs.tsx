@@ -110,7 +110,7 @@ function CastTab({ projectId, projectContext }: { projectId: string; projectCont
           <div className="flex items-start gap-3 bg-muted/30 rounded-lg px-3 py-3">
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <PersonNameLink personName={c.actor_name} reason={c.role_name || 'Cast'} projectContext={projectContext} size="md" />
+                <PersonNameLink personName={c.actor_name} reason={c.role_name || 'Cast'} projectContext={projectContext} size="md" onNameCorrected={(name) => updateCast.mutate({ id: c.id, actor_name: name })} />
                 {c.role_name && <span className="text-xs text-muted-foreground">as <span className="font-medium text-foreground/80">{c.role_name}</span></span>}
               </div>
               {c.territory_tags.length > 0 && (
@@ -678,7 +678,7 @@ function HODsTab({ projectId, projectContext }: { projectId: string; projectCont
             <div className="flex items-start gap-3">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <PersonNameLink personName={h.person_name} reason={`${h.department} · ${h.known_for}`} projectContext={projectContext} size="md" />
+                  <PersonNameLink personName={h.person_name} reason={`${h.department} · ${h.known_for}`} projectContext={projectContext} size="md" onNameCorrected={(name) => updateHOD.mutate({ id: h.id, person_name: name })} />
                   <span className="text-[10px] text-muted-foreground bg-muted rounded px-1.5 py-0.5">{h.department}</span>
                   <Badge className={`text-[10px] px-1.5 py-0 border ${REPUTATION_STYLES[h.reputation_tier] || ''}`}>
                     {h.reputation_tier}

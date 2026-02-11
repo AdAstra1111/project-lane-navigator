@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { User } from 'lucide-react';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { CastInfoDialog } from '@/components/CastInfoDialog';
-import { usePersonImage } from '@/hooks/usePersonImage';
+import { usePersonLookup } from '@/hooks/usePersonImage';
 import type { ProjectContext } from '@/components/ProjectAttachmentTabs';
 
 interface PersonNameLinkProps {
@@ -10,6 +10,8 @@ interface PersonNameLinkProps {
   reason: string;
   projectContext?: ProjectContext;
   size?: 'sm' | 'md';
+  /** If provided, will auto-correct the stored name to Wikipedia's canonical spelling */
+  onNameCorrected?: (canonicalName: string) => void;
 }
 
 const sizeClasses = {
@@ -17,10 +19,27 @@ const sizeClasses = {
   md: { avatar: 'h-10 w-10', fallbackIcon: 'h-4 w-4', text: 'text-sm', fallbackText: 'text-xs' },
 };
 
-export function PersonNameLink({ personName, reason, projectContext, size = 'sm' }: PersonNameLinkProps) {
+export function PersonNameLink({ personName, reason, projectContext, size = 'sm', onNameCorrected }: PersonNameLinkProps) {
   const [open, setOpen] = useState(false);
-  const imageUrl = usePersonImage(personName);
+  const { imageUrl, canonicalName } = usePersonLookup(personName);
+  const correctedRef = useRef(false);
   const s = sizeClasses[size];
+
+  // Auto-correct name when Wikipedia confirms a match (has photo) and canonical name differs
+  useEffect(() => {
+    if (
+      canonicalName &&
+      imageUrl &&
+      onNameCorrected &&
+      !correctedRef.current &&
+      canonicalName !== personName.trim()
+    ) {
+      correctedRef.current = true;
+      onNameCorrected(canonicalName);
+    }
+  }, [canonicalName, imageUrl, personName, onNameCorrected]);
+
+  const displayName = (canonicalName && imageUrl) ? canonicalName : personName;
 
   return (
     <>
@@ -30,17 +49,17 @@ export function PersonNameLink({ personName, reason, projectContext, size = 'sm'
         onClick={() => setOpen(true)}
       >
         <Avatar className={`${s.avatar} shrink-0`}>
-          {imageUrl && <AvatarImage src={imageUrl} alt={personName} className="object-cover" />}
+          {imageUrl && <AvatarImage src={imageUrl} alt={displayName} className="object-cover" />}
           <AvatarFallback className={s.fallbackText}>
             <User className={s.fallbackIcon} />
           </AvatarFallback>
         </Avatar>
         <span className={`${s.text} font-medium text-foreground truncate hover:underline cursor-pointer`}>
-          {personName}
+          {displayName}
         </span>
       </button>
       <CastInfoDialog
-        personName={personName}
+        personName={displayName}
         reason={reason}
         open={open}
         onOpenChange={setOpen}
