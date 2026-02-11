@@ -298,6 +298,108 @@ export type Database = {
         }
         Relationships: []
       }
+      data_sources: {
+        Row: {
+          created_at: string
+          data_staleness_score: number
+          description: string
+          id: string
+          intelligence_layer: string
+          last_refresh: string | null
+          production_types_supported: string[]
+          refresh_frequency: string
+          region: string
+          reliability_score: number
+          source_name: string
+          source_type: string
+          status: string
+          updated_at: string
+          volatility_score: number
+        }
+        Insert: {
+          created_at?: string
+          data_staleness_score?: number
+          description?: string
+          id?: string
+          intelligence_layer?: string
+          last_refresh?: string | null
+          production_types_supported?: string[]
+          refresh_frequency?: string
+          region?: string
+          reliability_score?: number
+          source_name: string
+          source_type?: string
+          status?: string
+          updated_at?: string
+          volatility_score?: number
+        }
+        Update: {
+          created_at?: string
+          data_staleness_score?: number
+          description?: string
+          id?: string
+          intelligence_layer?: string
+          last_refresh?: string | null
+          production_types_supported?: string[]
+          refresh_frequency?: string
+          region?: string
+          reliability_score?: number
+          source_name?: string
+          source_type?: string
+          status?: string
+          updated_at?: string
+          volatility_score?: number
+        }
+        Relationships: []
+      }
+      engine_source_map: {
+        Row: {
+          created_at: string
+          engine_id: string
+          id: string
+          source_id: string
+          source_weight: number
+          status: string
+          updated_at: string
+          validation_method: string
+        }
+        Insert: {
+          created_at?: string
+          engine_id: string
+          id?: string
+          source_id: string
+          source_weight?: number
+          status?: string
+          updated_at?: string
+          validation_method?: string
+        }
+        Update: {
+          created_at?: string
+          engine_id?: string
+          id?: string
+          source_id?: string
+          source_weight?: number
+          status?: string
+          updated_at?: string
+          validation_method?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "engine_source_map_engine_id_fkey"
+            columns: ["engine_id"]
+            isOneToOne: false
+            referencedRelation: "trend_engines"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "engine_source_map_source_id_fkey"
+            columns: ["source_id"]
+            isOneToOne: false
+            referencedRelation: "data_sources"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       engine_weight_snapshots: {
         Row: {
           created_at: string
@@ -454,6 +556,39 @@ export type Database = {
           territories?: string[]
           tone_preferences?: string[]
           updated_at?: string
+        }
+        Relationships: []
+      }
+      model_version_log: {
+        Row: {
+          change_type: string
+          changes: Json
+          created_at: string
+          id: string
+          production_type: string
+          reason: string
+          triggered_by: string
+          version_label: string
+        }
+        Insert: {
+          change_type?: string
+          changes?: Json
+          created_at?: string
+          id?: string
+          production_type?: string
+          reason?: string
+          triggered_by?: string
+          version_label?: string
+        }
+        Update: {
+          change_type?: string
+          changes?: Json
+          created_at?: string
+          id?: string
+          production_type?: string
+          reason?: string
+          triggered_by?: string
+          version_label?: string
         }
         Relationships: []
       }
