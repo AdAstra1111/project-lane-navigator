@@ -18,48 +18,41 @@ const items: ChecklistItem[] = [
   {
     id: 'project',
     label: 'Create your first project',
-    description: 'Start a living dossier with title, genre, and territory.',
+    description: 'Start with anything \u2014 a concept, a pitch, a cast attachment, or a script. Every project begins differently.',
     link: '/projects/new',
     linkLabel: 'New Project',
   },
   {
-    id: 'script',
-    label: 'Attach a script',
-    description: 'Upload a script to unlock coverage analysis and scene breakdowns.',
-  },
-  {
-    id: 'cast',
-    label: 'Add cast or packaging',
-    description: 'Attach cast members or use Smart Packaging for AI recommendations.',
+    id: 'enrich',
+    label: 'Enrich your dossier',
+    description: 'Add any combination of script, cast, partners, or HODs. Each attachment sharpens the assessment.',
   },
   {
     id: 'finance',
-    label: 'Set up finance',
-    description: 'Add a budget, log deals, or explore incentive programmes.',
+    label: 'Explore finance options',
+    description: 'Set a budget range, log deals, or browse incentive programmes relevant to your territory.',
   },
   {
     id: 'collaborate',
     label: 'Invite a collaborator',
-    description: 'Share your project with team members using role-based access.',
+    description: 'Share your project with team members using role-based access \u2014 producer, sales agent, lawyer, or creative.',
   },
 ];
 
 interface Props {
   projectCount: number;
-  hasScript?: boolean;
-  hasCast?: boolean;
+  hasEnrichment?: boolean;
   hasFinance?: boolean;
   hasCollaborator?: boolean;
 }
 
-export function OnboardingChecklist({ projectCount, hasScript, hasCast, hasFinance, hasCollaborator }: Props) {
+export function OnboardingChecklist({ projectCount, hasEnrichment, hasFinance, hasCollaborator }: Props) {
   const [dismissed, setDismissed] = useState(() => localStorage.getItem(CHECKLIST_DISMISSED_KEY) === 'true');
   const [expanded, setExpanded] = useState(true);
 
   const completedMap: Record<string, boolean> = {
     project: projectCount > 0,
-    script: !!hasScript,
-    cast: !!hasCast,
+    enrich: !!hasEnrichment,
     finance: !!hasFinance,
     collaborate: !!hasCollaborator,
   };
