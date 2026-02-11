@@ -1,14 +1,7 @@
-import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Users, Lightbulb, Clock, AlertTriangle, TrendingUp, MapPin, Sparkles, Loader2 } from 'lucide-react';
+import { Lightbulb, Clock, AlertTriangle, TrendingUp } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { CastInfoDialog } from '@/components/CastInfoDialog';
-import { CharacterSelector } from '@/components/CharacterSelector';
-import { supabase } from '@/integrations/supabase/client';
-import { toast } from 'sonner';
-import type { ProjectInsights, CastSuggestion } from '@/lib/project-insights';
-import type { ScriptCharacter } from '@/hooks/useScriptCharacters';
+import type { ProjectInsights } from '@/lib/project-insights';
 
 const SATURATION_STYLES: Record<string, { label: string; className: string }> = {
   emerging: { label: 'Emerging', className: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' },
@@ -17,97 +10,13 @@ const SATURATION_STYLES: Record<string, { label: string; className: string }> = 
   cooling: { label: 'Cooling', className: 'bg-red-500/15 text-red-400 border-red-500/30' },
 };
 
-const TRAJECTORY_STYLES: Record<string, string> = {
-  rising: 'text-emerald-400',
-  peak: 'text-primary',
-  steady: 'text-muted-foreground',
-};
-
-interface AICastSuggestion {
-  name: string;
-  role_type: string;
-  rationale: string;
-  market_trajectory: string;
-  territory_value: string;
-}
-
-interface SaveToTriageInput {
-  person_name: string;
-  person_type: string;
-  suggestion_source: string;
-  suggestion_context?: string;
-  role_suggestion?: string;
-  creative_fit?: string;
-  commercial_case?: string;
-}
-
 interface ProjectInsightPanelProps {
   insights: ProjectInsights;
-  projectContext?: {
-    title?: string;
-    format?: string;
-    budget_range?: string;
-    genres?: string[];
-    tone?: string;
-    assigned_lane?: string | null;
-  };
-  onSaveToTriage?: (items: SaveToTriageInput[]) => Promise<void>;
-  existingTriageNames?: Set<string>;
-  scriptCharacters?: ScriptCharacter[];
-  scriptCharactersLoading?: boolean;
 }
 
-export function ProjectInsightPanel({ insights, projectContext, onSaveToTriage, existingTriageNames, scriptCharacters = [], scriptCharactersLoading }: ProjectInsightPanelProps) {
-  const { cast, idea, timing } = insights;
+export function ProjectInsightPanel({ insights }: ProjectInsightPanelProps) {
+  const { idea, timing } = insights;
   const saturation = SATURATION_STYLES[idea.saturation] || SATURATION_STYLES['well-timed'];
-  const [selectedPerson, setSelectedPerson] = useState<{ name: string; reason: string } | null>(null);
-  const [aiSuggestions, setAiSuggestions] = useState<AICastSuggestion[]>([]);
-  const [aiLoading, setAiLoading] = useState(false);
-  const [targetCharacter, setTargetCharacter] = useState<ScriptCharacter | null>(null);
-
-  const fetchAiSuggestions = async () => {
-    setAiLoading(true);
-    try {
-      const { data, error } = await supabase.functions.invoke('suggest-cast', {
-        body: {
-          projectTitle: projectContext?.title,
-          format: projectContext?.format,
-          genres: projectContext?.genres,
-          budgetRange: projectContext?.budget_range,
-          tone: projectContext?.tone,
-          assignedLane: projectContext?.assigned_lane,
-          targetCharacter: targetCharacter ? { name: targetCharacter.name, description: targetCharacter.description, scene_count: targetCharacter.scene_count } : undefined,
-        },
-      });
-      if (error) throw error;
-      const results: AICastSuggestion[] = data?.suggestions || [];
-      setAiSuggestions(results);
-
-      // Auto-save to triage if callback provided
-      if (onSaveToTriage && results.length > 0) {
-        const names = existingTriageNames || new Set<string>();
-        const newItems = results
-          .filter(s => !names.has(s.name.toLowerCase()))
-          .map(s => ({
-            person_name: s.name,
-            person_type: 'cast',
-            suggestion_source: 'cast-explorer',
-            suggestion_context: s.rationale,
-            role_suggestion: s.role_type,
-            creative_fit: s.rationale,
-            commercial_case: `Trajectory: ${s.market_trajectory} · Territory value: ${s.territory_value}`,
-          }));
-        if (newItems.length > 0) {
-          await onSaveToTriage(newItems);
-          toast.success(`${newItems.length} suggestion${newItems.length > 1 ? 's' : ''} added to triage`);
-        }
-      }
-    } catch (e: any) {
-      toast.error(e.message || 'Failed to get AI suggestions');
-    } finally {
-      setAiLoading(false);
-    }
-  };
 
   return (
     <motion.div
@@ -119,109 +28,6 @@ export function ProjectInsightPanel({ insights, projectContext, onSaveToTriage, 
       <div className="flex items-center gap-2 mb-1">
         <TrendingUp className="h-4 w-4 text-primary" />
         <h3 className="font-display font-semibold text-foreground text-xl">Intelligence Panel</h3>
-      </div>
-
-      {/* Cast Intelligence */}
-      <div className="glass-card rounded-xl p-5 space-y-4">
-        <div className="flex items-center gap-2">
-          <Users className="h-4 w-4 text-primary" />
-          <h4 className="font-display font-semibold text-foreground">Cast Intelligence</h4>
-        </div>
-        <p className="text-sm text-muted-foreground leading-relaxed">{cast.archetype_guidance}</p>
-        <div className="flex items-start gap-2 text-xs text-muted-foreground">
-          <MapPin className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-          <span>{cast.territory_note}</span>
-        </div>
-        {cast.warning && (
-          <div className="flex items-start gap-2 text-xs text-amber-400 bg-amber-500/10 rounded-lg px-3 py-2">
-            <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-            <span>{cast.warning}</span>
-          </div>
-        )}
-
-        {/* Trending cast pool */}
-        {cast.suggested_cast.length > 0 && (
-          <div className="space-y-2 pt-1">
-            <p className="text-xs text-muted-foreground uppercase tracking-wider font-medium">Trending Talent Matches</p>
-            <div className="space-y-2">
-              {cast.suggested_cast.map(c => (
-                <button
-                  key={c.name}
-                  onClick={() => setSelectedPerson(c)}
-                  className="w-full text-left bg-muted/30 hover:bg-muted/50 rounded-lg px-3 py-3 transition-colors cursor-pointer group"
-                >
-                  <div className="flex items-center gap-2 mb-1.5">
-                    <span className="font-medium text-sm text-foreground group-hover:text-primary transition-colors">{c.name}</span>
-                    <span className="text-[10px] text-primary/80 bg-primary/10 rounded px-1.5 py-0.5">{c.suggested_role}</span>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-xs text-muted-foreground leading-relaxed">
-                      <span className="text-foreground/70 font-medium">Creative: </span>{c.creative_fit}
-                    </p>
-                    <p className="text-xs text-muted-foreground leading-relaxed">
-                      <span className="text-foreground/70 font-medium">Commercial: </span>{c.commercial_case}
-                    </p>
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* AI Explore More */}
-        <div className="pt-2 border-t border-border/50">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-xs text-muted-foreground uppercase tracking-wider font-medium">AI Cast Explorer</p>
-            <Button size="sm" variant="outline" onClick={fetchAiSuggestions} disabled={aiLoading} className="h-7 text-xs">
-              {aiLoading ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Sparkles className="h-3 w-3 mr-1" />}
-              {aiSuggestions.length > 0 ? 'Refresh' : 'Explore Talent'}
-            </Button>
-          </div>
-          <div className="mb-3">
-            <CharacterSelector
-              characters={scriptCharacters}
-              selected={targetCharacter}
-              onSelect={setTargetCharacter}
-              loading={scriptCharactersLoading}
-            />
-          </div>
-          {targetCharacter && (
-            <div className="mb-3 bg-muted/30 rounded-lg px-3 py-2 text-xs">
-              <span className="font-medium text-foreground">Casting for: </span>
-              <span className="text-primary font-semibold">{targetCharacter.name}</span>
-              {targetCharacter.description && (
-                <p className="text-muted-foreground mt-1">{targetCharacter.description}</p>
-              )}
-            </div>
-          )}
-          {!aiLoading && aiSuggestions.length === 0 && (
-            <p className="text-xs text-muted-foreground">Get AI-powered suggestions tailored to this project's budget, tone, and genre{targetCharacter ? ` — specifically for ${targetCharacter.name}` : ''}.</p>
-          )}
-          {aiSuggestions.length > 0 && (
-            <div className="space-y-2">
-              {aiSuggestions.map((s, i) => (
-                <motion.button
-                  key={s.name}
-                  initial={{ opacity: 0, x: -8 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: i * 0.06 }}
-                  onClick={() => setSelectedPerson({ name: s.name, reason: `${s.role_type} · ${s.rationale}` })}
-                  className="w-full text-left bg-muted/30 hover:bg-muted/50 rounded-lg px-3 py-2.5 transition-colors cursor-pointer group"
-                >
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="font-medium text-sm text-foreground group-hover:text-primary transition-colors">{s.name}</span>
-                    <span className="text-[10px] text-muted-foreground">· {s.role_type}</span>
-                    <span className={`text-[10px] ml-auto ${TRAJECTORY_STYLES[s.market_trajectory] || 'text-muted-foreground'}`}>
-                      {s.market_trajectory === 'rising' ? '↑' : s.market_trajectory === 'peak' ? '●' : '—'} {s.market_trajectory}
-                    </span>
-                  </div>
-                  <p className="text-xs text-muted-foreground leading-relaxed">{s.rationale}</p>
-                  <p className="text-[10px] text-muted-foreground mt-1">Territory value: {s.territory_value}</p>
-                </motion.button>
-              ))}
-            </div>
-          )}
-        </div>
       </div>
 
       {/* Idea Positioning */}
@@ -262,17 +68,6 @@ export function ProjectInsightPanel({ insights, projectContext, onSaveToTriage, 
           </div>
         )}
       </div>
-
-      {/* Cast Info Dialog */}
-      {selectedPerson && (
-        <CastInfoDialog
-          personName={selectedPerson.name}
-          reason={selectedPerson.reason}
-          open={!!selectedPerson}
-          onOpenChange={(open) => { if (!open) setSelectedPerson(null); }}
-          projectContext={projectContext}
-        />
-      )}
     </motion.div>
   );
 }

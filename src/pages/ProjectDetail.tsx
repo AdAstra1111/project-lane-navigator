@@ -586,23 +586,9 @@ export default function ProjectDetail() {
           </Section>
 
           {/* 3. Intelligence */}
-          {insights && project && id && (
+          {insights && (
             <Section icon={Target} title="Intelligence">
-              <ProjectInsightPanel
-                insights={insights}
-                projectContext={{
-                  title: project.title,
-                  format: project.format,
-                  budget_range: project.budget_range,
-                  genres: project.genres || [],
-                  tone: project.tone,
-                  assigned_lane: project.assigned_lane,
-                }}
-                onSaveToTriage={insightTriage.addItems}
-                existingTriageNames={new Set(insightTriage.items.map(i => i.person_name.toLowerCase()))}
-                scriptCharacters={scriptCharacters}
-                scriptCharactersLoading={scriptCharsLoading}
-              />
+              <ProjectInsightPanel insights={insights} />
             </Section>
           )}
 
