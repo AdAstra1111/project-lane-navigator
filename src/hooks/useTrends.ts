@@ -117,6 +117,7 @@ export const PRODUCTION_TYPE_TREND_CATEGORIES: Record<string, { label: string; s
   'digital-series': { label: 'Digital / Social', storyCategories: ['Platform Algorithm', 'Creator Economy', 'Brand Integration', 'Audience Behaviour', 'Format Innovation'], castLabel: 'Creator Trends' },
   'proof-of-concept': { label: 'Proof of Concept', storyCategories: ['Lab Cycles', 'Investor Appetite', 'IP Demonstration', 'Technology Trends', 'Development Deals'], castLabel: 'Emerging Talent' },
   hybrid: { label: 'Hybrid', storyCategories: ['Cross-Platform', 'Immersive Tech', 'Innovation Funds', 'Experiential Demand', 'Transmedia'], castLabel: 'Creative Leads' },
+  'vertical-drama': { label: 'Vertical Drama', storyCategories: ['Platform Algorithm', 'Scroll Retention', 'Genre Momentum', 'Cast Social Value', 'Brand Integration', 'Global Expansion'], castLabel: 'Cast Trends' },
 };
 
 export const TARGET_BUYER_OPTIONS: Record<string, { value: string; label: string }[]> = {
@@ -163,6 +164,10 @@ export const TARGET_BUYER_OPTIONS: Record<string, { value: string; label: string
   hybrid: [
     { value: 'Tech Partner', label: 'Tech Partner' }, { value: 'Brand', label: 'Brand' },
     { value: 'Arts Council', label: 'Arts Council' },
+  ],
+  'vertical-drama': [
+    { value: 'Platform', label: 'Platform (ReelShort, ShortMax, etc.)' }, { value: 'Brand', label: 'Brand' },
+    { value: 'Distributor', label: 'Global Distributor' }, { value: 'Ad Network', label: 'Ad Network' },
   ],
 };
 

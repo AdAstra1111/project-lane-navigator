@@ -4,7 +4,7 @@
  */
 
 import type { ProjectFormat } from '@/lib/types';
-import { Film, Tv, Clapperboard, FileVideo, Monitor, Megaphone, Sparkles, Music, FlaskConical, Shuffle, Video } from 'lucide-react';
+import { Film, Tv, Clapperboard, FileVideo, Monitor, Megaphone, Sparkles, Music, FlaskConical, Shuffle, Video, Smartphone } from 'lucide-react';
 
 // ─── Workflow Stages per Format ───
 
@@ -105,6 +105,16 @@ export const MODE_WORKFLOWS: Record<ProjectFormat, { value: string; label: strin
     { value: 'launch', label: 'Launch' },
     { value: 'iteration', label: 'Iteration' },
   ],
+  'vertical-drama': [
+    { value: 'concept', label: 'Concept / Hook' },
+    { value: 'script', label: 'Script (Episodes)' },
+    { value: 'packaging', label: 'Packaging / Cast' },
+    { value: 'platform-pitch', label: 'Platform Pitch' },
+    { value: 'production', label: 'Production' },
+    { value: 'post', label: 'Post / Edit' },
+    { value: 'platform-launch', label: 'Platform Launch' },
+    { value: 'growth', label: 'Growth / Renewal' },
+  ],
 };
 
 // ─── Scoring Dimensions per Format ───
@@ -195,6 +205,13 @@ export const MODE_SCORING: Record<ProjectFormat, ScoringDimension[]> = {
     { key: 'funding-fit', label: 'Funding Fit', weight: 20, description: 'Innovation fund and partner alignment' },
     { key: 'cultural-impact', label: 'Cultural Impact', weight: 15, description: 'Cultural significance and reach' },
   ],
+  'vertical-drama': [
+    { key: 'hook-strength', label: 'Hook Strength', weight: 25, description: 'Episode cliffhanger & scroll-stopping power' },
+    { key: 'cast-social', label: 'Cast Social Reach', weight: 20, description: 'Cast social media following & engagement' },
+    { key: 'platform-fit', label: 'Platform Fit', weight: 20, description: 'Alignment with target platform audience' },
+    { key: 'binge-design', label: 'Binge Design', weight: 20, description: 'Episode pacing & series arc retention' },
+    { key: 'brand-potential', label: 'Brand Potential', weight: 15, description: 'Brand integration & sponsorship appeal' },
+  ],
 };
 
 // ─── Finance Model Labels per Format ───
@@ -211,6 +228,7 @@ export const MODE_FINANCE_LABELS: Record<ProjectFormat, string[]> = {
   'music-video': ['Label Budget', 'Artist Budget', 'Production Fee', 'Director Fee', 'Post Budget', 'Contingency'],
   'proof-of-concept': ['Self-Funded', 'Grants', 'In-Kind', 'Investor Seed', 'Crowdfunding'],
   hybrid: ['Brand Partners', 'Arts Council', 'Innovation Funds', 'Platform Deals', 'Experiential Budget', 'Tech Partners'],
+  'vertical-drama': ['Platform Deal', 'Brand Integration', 'Ad Revenue', 'Sponsorship', 'Creator Fund', 'Pre-Sales'],
 };
 
 // ─── KPI Definitions per Format ───
@@ -290,6 +308,13 @@ export const MODE_KPIS: Record<ProjectFormat, KPIDefinition[]> = {
     { key: 'partner-engagement', label: 'Partner Engagement', description: 'Active technology/brand partners', unit: 'count' },
     { key: 'cultural-impact', label: 'Cultural Impact', description: 'Cultural significance rating', unit: 'score' },
   ],
+  'vertical-drama': [
+    { key: 'episode-completion', label: 'Episode Completion Rate', description: 'Avg % of episode watched', unit: 'percentage' },
+    { key: 'series-retention', label: 'Series Retention', description: 'Viewers who watch 3+ episodes', unit: 'percentage' },
+    { key: 'total-views', label: 'Total Views', description: 'Cross-platform episode views', unit: 'count' },
+    { key: 'brand-deals', label: 'Brand Deals', description: 'Active brand integrations', unit: 'count' },
+    { key: 'revenue', label: 'Revenue', description: 'Total platform & ad revenue', unit: 'currency' },
+  ],
 };
 
 // ─── Format Metadata ───
@@ -315,6 +340,7 @@ export const FORMAT_META: FormatMeta[] = [
   { value: 'proof-of-concept', label: 'Proof of Concept', shortLabel: 'PoC', description: 'IP demonstration, investor teaser', icon: FlaskConical, color: 'text-orange-400' },
   { value: 'digital-series', label: 'Digital / Social', shortLabel: 'Digital', description: 'Platform-native, high velocity content', icon: Monitor, color: 'text-rose-400' },
   { value: 'hybrid', label: 'Hybrid', shortLabel: 'Hybrid', description: 'Cross-platform, transmedia, immersive', icon: Shuffle, color: 'text-violet-400' },
+  { value: 'vertical-drama', label: 'Vertical Drama', shortLabel: 'Vertical', description: 'Mobile-first, short-form episodic drama', icon: Smartphone, color: 'text-fuchsia-400' },
 ];
 
 export function getFormatMeta(format: string): FormatMeta {
@@ -335,4 +361,5 @@ export const MODE_STRATEGIC_ROLES: Record<ProjectFormat, string[]> = {
   'music-video': ['Director showcase', 'Artist relationships', 'Awards entry', 'Visual portfolio'],
   'proof-of-concept': ['IP incubation', 'Investor engagement', 'Festival labs', 'Feature development'],
   hybrid: ['Innovation leadership', 'Cross-platform storytelling', 'Technology partnerships', 'Cultural impact'],
+  'vertical-drama': ['Mobile audience growth', 'Platform relationships', 'Brand partnerships', 'Cast social leverage', 'IP franchise potential'],
 };

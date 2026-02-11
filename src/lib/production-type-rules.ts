@@ -274,6 +274,30 @@ export const PRODUCTION_TYPE_RULES: Record<ProjectFormat, ProductionTypeRule> = 
     marketStrategyFocus: ['Cross-platform distribution', 'Innovation fund applications', 'Experiential venue partnerships', 'Transmedia narrative design', 'Technology partner engagement'],
     dashboardSummaryLabel: 'Hybrid Intelligence',
   },
+  'vertical-drama': {
+    type: 'vertical-drama',
+    label: 'Vertical Drama',
+    emoji: '📲',
+    allowedConcepts: [
+      'platform-deal', 'brand-integration', 'episode-scalability', 'social-distribution',
+      'mobile-first', 'vertical-format', 'short-form-episode', 'swipe-narrative',
+      'creator-fund', 'ad-revenue', 'sponsorship', 'audience-retention',
+      'platform-algorithm', 'cliffhanger-design', 'binge-mechanics', 'cast-packaging',
+      'influencer-integration', 'youth-audience', 'global-distribution',
+    ],
+    disallowedConcepts: [
+      'theatrical-release', 'p&a', 'day-and-date', 'festival-premiere',
+      'dcp', 'sales-agent', 'minimum-guarantee', 'recoupment-waterfall',
+      'co-production', 'gap-finance', 'grants', 'ngo-partners',
+      'archive-clearance', 'impact-campaign',
+    ],
+    financingModel: ['Platform Deal', 'Brand Integration', 'Ad Revenue', 'Sponsorship', 'Creator Fund', 'Pre-Sales'],
+    stakeholderTemplate: ['Creator', 'Producer', 'Director', 'Cast', 'Platform Buyer', 'Brand Partner', 'Social Strategist', 'Editor'],
+    deliverablesTemplate: ['Episode Masters (9:16)', 'Trailer (Vertical)', 'Social Clips', 'Thumbnails', 'BTS', 'Analytics Report', 'Brand Integration Report'],
+    aiConditioningContext: 'This is a VERTICAL DRAMA — short-form, mobile-first narrative content designed for platforms like TikTok, YouTube Shorts, Instagram Reels, Snapchat, or dedicated vertical drama apps (ReelShort, ShortMax, FlexTV). Evaluate through the lens of episode pacing (1–3 min episodes), cliffhanger design, swipe retention, cast social reach, youth audience appeal, platform algorithm optimization, and brand integration potential. Do NOT reference theatrical distribution, festival strategy, traditional film financing, or long-form television structures.',
+    marketStrategyFocus: ['Platform selection & algorithm strategy', 'Cast social reach optimization', 'Cliffhanger & retention design', 'Brand partnership development', 'Global multi-platform distribution', 'Youth audience targeting'],
+    dashboardSummaryLabel: 'Vertical Drama Intelligence',
+  },
 };
 
 // ─── Governance Validation ───
