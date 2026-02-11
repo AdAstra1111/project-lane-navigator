@@ -1,14 +1,15 @@
 import { useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Activity, BarChart3, ChevronDown, Gauge, RefreshCw, AlertTriangle, TrendingUp, TrendingDown, Minus, Zap, Edit3, Check, X } from 'lucide-react';
+import { Activity, BarChart3, ChevronDown, Gauge, RefreshCw, AlertTriangle, TrendingUp, TrendingDown, Minus, Zap, Edit3, Check, X, Bot, Settings2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Slider } from '@/components/ui/slider';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { cn } from '@/lib/utils';
-import { useTrendEngines, useEngineWeights, useProjectEngineScores } from '@/hooks/useTrendEngines';
+import { useTrendEngines, useEngineWeights, useProjectEngineScores, useAIEngineScoring, useRecalibrateWeights } from '@/hooks/useTrendEngines';
 import { calculateTrendViability, type TrendViabilityResult, type CyclePosition, type DynamicModifierContext } from '@/lib/trend-viability';
+import { PredictionOutcomePanel } from '@/components/PredictionOutcomePanel';
 
 const CYCLE_CONFIG: Record<CyclePosition, { color: string; icon: typeof TrendingUp; label: string }> = {
   Boom: { color: 'text-emerald-400', icon: TrendingUp, label: 'Boom' },
@@ -63,6 +64,8 @@ export function TrendIntelligencePanel({ projectId, format, budgetRange, primary
   const { data: engines = [] } = useTrendEngines();
   const { data: weights = [] } = useEngineWeights(format);
   const { scores, upsertScore } = useProjectEngineScores(projectId);
+  const { scoreEngines, isScoring } = useAIEngineScoring(projectId);
+  const { recalibrate, isRecalibrating } = useRecalibrateWeights();
   const [enginesOpen, setEnginesOpen] = useState(false);
   const [editingEngine, setEditingEngine] = useState<string | null>(null);
   const [editValue, setEditValue] = useState(5);
@@ -108,6 +111,17 @@ export function TrendIntelligencePanel({ projectId, format, budgetRange, primary
                   'Challenging market conditions — consider repositioning or timing.'}
             </p>
           </div>
+        </div>
+        {/* Action buttons */}
+        <div className="flex flex-wrap gap-2 mt-4 pt-3 border-t border-border/30">
+          <Button size="sm" variant="outline" onClick={scoreEngines} disabled={isScoring} className="text-xs">
+            <Bot className="h-3 w-3 mr-1" />
+            {isScoring ? 'Scoring…' : 'AI Score Engines'}
+          </Button>
+          <Button size="sm" variant="outline" onClick={recalibrate} disabled={isRecalibrating} className="text-xs">
+            <Settings2 className="h-3 w-3 mr-1" />
+            {isRecalibrating ? 'Recalibrating…' : 'Recalibrate Weights'}
+          </Button>
         </div>
       </div>
 
@@ -207,6 +221,9 @@ export function TrendIntelligencePanel({ projectId, format, budgetRange, primary
           </div>
         </CollapsibleContent>
       </Collapsible>
+
+      {/* Prediction Accuracy Tracking */}
+      <PredictionOutcomePanel projectId={projectId} currentTrendScore={result.trendScore} />
     </div>
   );
 }
