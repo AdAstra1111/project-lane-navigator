@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { Brain, Loader2, Zap, DollarSign } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
+import { Progress } from '@/components/ui/progress';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { useMutation } from '@tanstack/react-query';
@@ -49,6 +50,9 @@ const CAT_STYLES: Record<string, string> = {
 export function ScriptToBudgetPanel({ projectId, scriptText, format, genres, budgetRange, lane, totalBudget, onImport }: Props) {
   const [result, setResult] = useState<AutoBudgetResult | null>(null);
   const [resolvedText, setResolvedText] = useState<string | null>(null);
+  const [progress, setProgress] = useState(0);
+  const [progressLabel, setProgressLabel] = useState('');
+  const progressTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // If scriptText is the sentinel, fetch extracted text from project_documents
   const needsFetch = scriptText === '__SCRIPT_EXISTS_NO_TEXT__';
@@ -68,9 +72,42 @@ export function ScriptToBudgetPanel({ projectId, scriptText, format, genres, bud
     })();
   }, [needsFetch, projectId]);
 
+  const STAGES = [
+    { at: 5, label: 'Parsing script structure…' },
+    { at: 15, label: 'Counting scenes & locations…' },
+    { at: 30, label: 'Analysing cast & crew needs…' },
+    { at: 50, label: 'Estimating department budgets…' },
+    { at: 70, label: 'Applying format & genre rules…' },
+    { at: 85, label: 'Finalising line items…' },
+    { at: 95, label: 'Almost done…' },
+  ];
+
+  const startProgress = () => {
+    setProgress(0);
+    setProgressLabel('Preparing script…');
+    let current = 0;
+    progressTimer.current = setInterval(() => {
+      current += Math.random() * 3 + 0.5;
+      if (current > 96) current = 96;
+      setProgress(current);
+      const stage = [...STAGES].reverse().find(s => current >= s.at);
+      if (stage) setProgressLabel(stage.label);
+    }, 600);
+  };
+
+  const stopProgress = () => {
+    if (progressTimer.current) clearInterval(progressTimer.current);
+    progressTimer.current = null;
+    setProgress(100);
+    setProgressLabel('Done!');
+  };
+
+  useEffect(() => () => { if (progressTimer.current) clearInterval(progressTimer.current); }, []);
+
   const estimate = useMutation({
     mutationFn: async () => {
       if (!effectiveText) throw new Error('No script text available');
+      startProgress();
 
       const { data, error } = await supabase.functions.invoke('script-to-budget', {
         body: { scriptText: effectiveText, format, genres, budgetRange, lane, totalBudget },
@@ -79,8 +116,8 @@ export function ScriptToBudgetPanel({ projectId, scriptText, format, genres, bud
       if (data?.error) throw new Error(data.error);
       return data as AutoBudgetResult;
     },
-    onSuccess: (data) => setResult(data),
-    onError: (e: Error) => toast.error(e.message),
+    onSuccess: (data) => { stopProgress(); setResult(data); },
+    onError: (e: Error) => { stopProgress(); toast.error(e.message); },
   });
 
   if (!scriptText) {
@@ -125,6 +162,13 @@ export function ScriptToBudgetPanel({ projectId, scriptText, format, genres, bud
           )}
         </Button>
       </div>
+
+      {estimate.isPending && (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-1.5">
+          <Progress value={progress} className="h-2" />
+          <p className="text-[11px] text-muted-foreground text-center">{progressLabel}</p>
+        </motion.div>
+      )}
 
       {result && (
         <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-3">
