@@ -213,6 +213,13 @@ serve(async (req) => {
       throw new Error("Missing projectId or documentPaths");
     }
 
+    // Validate user has access to this project
+    const { data: hasAccess } = await supabase.rpc('has_project_access', {
+      _user_id: user.id,
+      _project_id: projectId
+    });
+    if (!hasAccess) throw new Error("Unauthorized: You do not have access to this project");
+
     const adminClient = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!

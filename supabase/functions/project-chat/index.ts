@@ -26,6 +26,13 @@ Deno.serve(async (req) => {
     const { projectId, question } = await req.json();
     if (!projectId || !question) throw new Error("Missing projectId or question");
 
+    // Validate user has access to this project
+    const { data: hasAccess } = await supabase.rpc('has_project_access', {
+      _user_id: user.id,
+      _project_id: projectId
+    });
+    if (!hasAccess) throw new Error("Unauthorized: You do not have access to this project");
+
     // Fetch project data
     const [projectRes, castRes, partnersRes, financeRes, dealsRes, docsRes] = await Promise.all([
       supabase.from("projects").select("*").eq("id", projectId).single(),
