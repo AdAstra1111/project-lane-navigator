@@ -14,6 +14,7 @@ import { useToast } from '@/hooks/use-toast';
 import { PRODUCTION_TYPE_TREND_CATEGORIES } from '@/hooks/useTrends';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
+import { SourceSandboxPanel } from '@/components/SourceSandboxPanel';
 
 const PRODUCTION_TYPES = Object.entries(PRODUCTION_TYPE_TREND_CATEGORIES).map(([value, config]) => ({
   value,
@@ -459,6 +460,9 @@ export default function TrendGovernance() {
               </div>
             </div>
           )}
+
+          {/* Source Sandbox */}
+          <SourceSandboxPanel />
 
           <div className="text-xs text-muted-foreground border-t border-border/50 pt-6">
             <p>Weights are normalised to 1.0 at scoring time. Each save creates a versioned snapshot for audit and rollback.</p>
