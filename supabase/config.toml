@@ -41,3 +41,12 @@ verify_jwt = false
 
 [functions.suggest-cast]
 verify_jwt = false
+
+[functions.extract-budget]
+verify_jwt = false
+
+[functions.script-to-budget]
+verify_jwt = false
+
+[functions.schedule-intelligence]
+verify_jwt = false
