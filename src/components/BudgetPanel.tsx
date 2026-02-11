@@ -1,6 +1,6 @@
 import { useState, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { DollarSign, Plus, Trash2, Check, X, Upload, FileSpreadsheet, Lock, Unlock, ChevronDown, Info } from 'lucide-react';
+import { DollarSign, Plus, Trash2, Check, X, Upload, FileSpreadsheet, Lock, Unlock, ChevronDown, Info, ArrowLeftRight } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,6 +15,7 @@ import {
   BUDGET_CATEGORIES,
   type ProjectBudget,
 } from '@/hooks/useBudgets';
+import { BudgetCompareView } from '@/components/BudgetCompareView';
 
 // ---- Template options ----
 const TEMPLATE_OPTIONS = [
@@ -280,6 +281,7 @@ export function BudgetPanel({ projectId, assignedLane }: Props) {
   const { budgets, addBudget, deleteBudget } = useProjectBudgets(projectId);
   const [selectedBudgetId, setSelectedBudgetId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [comparing, setComparing] = useState(false);
   const [form, setForm] = useState({ version_label: '', total_amount: '', selectedTemplate: assignedLane || 'default' });
   const [previewTemplate, setPreviewTemplate] = useState<string | null>(null);
 
@@ -320,6 +322,15 @@ export function BudgetPanel({ projectId, assignedLane }: Props) {
       },
     );
   };
+
+  // Compare view
+  if (comparing) {
+    return (
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+        <BudgetCompareView budgets={budgets} projectId={projectId} onBack={() => setComparing(false)} />
+      </motion.div>
+    );
+  }
 
   // If a budget is selected, show detail view
   if (selectedBudget) {
@@ -435,6 +446,11 @@ export function BudgetPanel({ projectId, assignedLane }: Props) {
           <Button variant="outline" size="sm" onClick={() => setCreating(true)} className="w-full">
             <Plus className="h-3.5 w-3.5 mr-1.5" /> New Budget Version
           </Button>
+          {budgets.length >= 2 && (
+            <Button variant="outline" size="sm" onClick={() => setComparing(true)} className="w-full">
+              <ArrowLeftRight className="h-3.5 w-3.5 mr-1.5" /> Compare Versions
+            </Button>
+          )}
         </div>
       )}
 
