@@ -55,6 +55,11 @@ export function CharacterSelector({ characters, selected, onSelect, loading }: P
             >
               <div className="flex items-center gap-2">
                 <span className="font-medium text-sm truncate">{c.name}</span>
+                {c.gender && c.gender !== 'unknown' && (
+                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 shrink-0 capitalize">
+                    {c.gender}
+                  </Badge>
+                )}
                 {c.scene_count && (
                   <Badge variant="secondary" className="text-[10px] px-1.5 py-0 shrink-0">
                     {c.scene_count} scenes

@@ -5,6 +5,7 @@ export interface ScriptCharacter {
   name: string;
   description: string;
   scene_count?: number;
+  gender?: 'male' | 'female' | 'unknown';
 }
 
 export function useScriptCharacters(projectId: string | undefined) {
