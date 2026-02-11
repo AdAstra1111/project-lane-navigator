@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Target, Palette, DollarSign, Users, Quote, CheckCircle2, ShieldAlert, Trash2, Loader2, AlertTriangle, MessageSquareQuote, FileText, Copy, ArrowLeftRight, Download, TrendingUp, Landmark, BarChart3, Package, StickyNote, UsersRound, ChevronDown, PieChart, FileSpreadsheet, PackageCheck, Receipt, FileSignature, Presentation, Bot, BookOpen, Calendar, Crown, Monitor, RefreshCw, Repeat, Milestone } from 'lucide-react';
+import { ArrowLeft, Target, Palette, DollarSign, Users, Quote, CheckCircle2, ShieldAlert, Trash2, Loader2, AlertTriangle, MessageSquareQuote, FileText, Copy, ArrowLeftRight, Download, TrendingUp, Landmark, BarChart3, Package, StickyNote, UsersRound, ChevronDown, PieChart, FileSpreadsheet, PackageCheck, Receipt, FileSignature, Presentation, Bot, BookOpen, Calendar, Crown, Monitor, RefreshCw, Repeat, Milestone, Activity } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { ProjectNoteInput } from '@/components/ProjectNoteInput';
 import { cn } from '@/lib/utils';
@@ -93,6 +93,7 @@ import { FinanceReadinessPanel } from '@/components/FinanceReadinessPanel';
 import { useProjectScenes, useShootDays, useSceneSchedule } from '@/hooks/useProductionSchedule';
 import { computeScheduleMetrics } from '@/lib/schedule-impact';
 import { GeographySelector } from '@/components/GeographySelector';
+import { TrendIntelligencePanel } from '@/components/TrendIntelligencePanel';
 import { PipelineStageSuggestion } from '@/components/PipelineStageSuggestion';
 import { ScoreSparkline } from '@/components/ScoreSparkline';
 import { useScoreHistory, useAutoSaveScore } from '@/hooks/useScoreHistory';
@@ -676,6 +677,19 @@ export default function ProjectDetail() {
               />
             )}
           </Section>
+
+          {/* Trend Intelligence */}
+          {id && (
+            <Section icon={Activity} title="Trend Intelligence">
+              <TrendIntelligencePanel
+                projectId={id}
+                format={project.format}
+                budgetRange={project.budget_range}
+                primaryTerritory={(project as any).primary_territory || ''}
+                assignedLane={project.assigned_lane}
+              />
+            </Section>
+          )}
 
           {/* 2. Analysis & Signals */}
           <Section icon={TrendingUp} title="Analysis & Signals">
