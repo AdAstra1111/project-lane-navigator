@@ -4,7 +4,7 @@
  */
 
 import type { ProjectFormat } from '@/lib/types';
-import { Film, Tv, Clapperboard, FileVideo, Monitor, Megaphone, Sparkles } from 'lucide-react';
+import { Film, Tv, Clapperboard, FileVideo, Monitor, Megaphone, Sparkles, Music, FlaskConical, Shuffle, Video } from 'lucide-react';
 
 // ─── Workflow Stages per Format ───
 
@@ -60,13 +60,41 @@ export const MODE_WORKFLOWS: Record<ProjectFormat, { value: string; label: strin
     { value: 'invoice', label: 'Invoice' },
     { value: 'paid', label: 'Paid' },
   ],
-  'branded-content': [
-    { value: 'brand-strategy', label: 'Brand Strategy' },
-    { value: 'creative-development', label: 'Creative Development' },
-    { value: 'funding-confirmed', label: 'Funding Confirmed' },
+  'documentary-series': [
+    { value: 'development', label: 'Development' },
+    { value: 'access-secured', label: 'Access Secured' },
+    { value: 'funding-raised', label: 'Funding Raised' },
     { value: 'production', label: 'Production' },
-    { value: 'distribution-strategy', label: 'Distribution Strategy' },
-    { value: 'performance-analytics', label: 'Performance Analytics' },
+    { value: 'post', label: 'Post' },
+    { value: 'festival-broadcast', label: 'Festival / Broadcast' },
+    { value: 'distribution', label: 'Distribution' },
+  ],
+  'music-video': [
+    { value: 'brief', label: 'Brief / Commission' },
+    { value: 'treatment', label: 'Treatment' },
+    { value: 'awarded', label: 'Awarded' },
+    { value: 'pre-pro', label: 'Pre-Pro' },
+    { value: 'shoot', label: 'Shoot' },
+    { value: 'post', label: 'Post' },
+    { value: 'delivery', label: 'Delivery' },
+    { value: 'release', label: 'Release' },
+  ],
+  'proof-of-concept': [
+    { value: 'concept', label: 'Concept' },
+    { value: 'script-treatment', label: 'Script / Treatment' },
+    { value: 'funding', label: 'Funding' },
+    { value: 'production', label: 'Production' },
+    { value: 'post', label: 'Post' },
+    { value: 'pitch-ready', label: 'Pitch-Ready' },
+    { value: 'development-deal', label: 'Development Deal' },
+  ],
+  hybrid: [
+    { value: 'concept', label: 'Concept' },
+    { value: 'design', label: 'Design / Prototype' },
+    { value: 'funding', label: 'Funding' },
+    { value: 'build', label: 'Build / Production' },
+    { value: 'launch', label: 'Launch' },
+    { value: 'iteration', label: 'Iteration' },
   ],
 };
 
@@ -129,6 +157,35 @@ export const MODE_SCORING: Record<ProjectFormat, ScoringDimension[]> = {
     { key: 'ip-expansion', label: 'IP Expansion', weight: 15, description: 'Long-tail IP potential' },
     { key: 'engagement', label: 'Audience Engagement', weight: 20, description: 'Audience engagement forecast' },
   ],
+  'documentary-series': [
+    { key: 'cultural-relevance', label: 'Cultural Relevance', weight: 20, description: 'Timeliness and cultural significance' },
+    { key: 'access', label: 'Access Sustainability', weight: 20, description: 'Multi-episode subject access' },
+    { key: 'format', label: 'Format Strength', weight: 15, description: 'Episodic format and structure' },
+    { key: 'broadcaster-fit', label: 'Broadcaster Fit', weight: 20, description: 'Broadcaster and streamer alignment' },
+    { key: 'impact', label: 'Impact Campaign', weight: 15, description: 'Social impact and campaign potential' },
+    { key: 'clearance', label: 'Clearance Risk', weight: 10, description: 'Archive and rights clearance risk' },
+  ],
+  'music-video': [
+    { key: 'visual-concept', label: 'Visual Concept', weight: 30, description: 'Treatment strength and originality' },
+    { key: 'director-fit', label: 'Director Fit', weight: 25, description: 'Director suitability for artist/genre' },
+    { key: 'production-scope', label: 'Production Scope', weight: 20, description: 'Budget vs ambition alignment' },
+    { key: 'release-strategy', label: 'Release Strategy', weight: 15, description: 'Platform and timing strategy' },
+    { key: 'portfolio-value', label: 'Portfolio Value', weight: 10, description: 'Career and awards value' },
+  ],
+  'proof-of-concept': [
+    { key: 'ip-demonstration', label: 'IP Demonstration', weight: 30, description: 'How well the concept proves the larger project' },
+    { key: 'technical-showcase', label: 'Technical Showcase', weight: 20, description: 'VFX, tone, or world-building proof' },
+    { key: 'pitch-readiness', label: 'Pitch Readiness', weight: 25, description: 'Supporting materials and development package' },
+    { key: 'talent-signal', label: 'Talent Signal', weight: 15, description: 'Director/cast attachment strength' },
+    { key: 'market-viability', label: 'Market Viability', weight: 10, description: 'Target project market potential' },
+  ],
+  hybrid: [
+    { key: 'innovation', label: 'Innovation Factor', weight: 25, description: 'Novelty and cross-platform originality' },
+    { key: 'audience-design', label: 'Audience Design', weight: 20, description: 'Multi-touchpoint audience strategy' },
+    { key: 'tech-feasibility', label: 'Technical Feasibility', weight: 20, description: 'Technology stack viability' },
+    { key: 'funding-fit', label: 'Funding Fit', weight: 20, description: 'Innovation fund and partner alignment' },
+    { key: 'cultural-impact', label: 'Cultural Impact', weight: 15, description: 'Cultural significance and reach' },
+  ],
 };
 
 // ─── Finance Model Labels per Format ───
@@ -138,9 +195,13 @@ export const MODE_FINANCE_LABELS: Record<ProjectFormat, string[]> = {
   'tv-series': ['Platform Deal', 'Broadcaster', 'Co-Pro', 'Incentives', 'Deficit Finance', 'Other'],
   'short-film': ['Self-Funded', 'Grants', 'Brand Support', 'In-Kind', 'Crowdfunding'],
   documentary: ['Grants', 'Broadcaster Pre-Sales', 'NGO Partners', 'Impact Investors', 'Sales Agent', 'Territory Splits'],
+  'documentary-series': ['Broadcaster Commission', 'Platform Deal', 'Grants', 'Co-Pro', 'Impact Investors', 'Territory Splits'],
   'digital-series': ['Brand Integration', 'Platform Deal', 'Ad Revenue', 'Sponsorship', 'Subscriber Model'],
   commercial: ['Client Budget', 'Production Fee', 'Director Fee', 'Post', 'Agency Commission', 'Contingency'],
   'branded-content': ['Brand Funding', 'Performance Bonus', 'IP Ownership', 'Distribution Deal', 'Long-tail Revenue'],
+  'music-video': ['Label Budget', 'Artist Budget', 'Production Fee', 'Director Fee', 'Post Budget', 'Contingency'],
+  'proof-of-concept': ['Self-Funded', 'Grants', 'In-Kind', 'Investor Seed', 'Crowdfunding'],
+  hybrid: ['Brand Partners', 'Arts Council', 'Innovation Funds', 'Platform Deals', 'Experiential Budget', 'Tech Partners'],
 };
 
 // ─── KPI Definitions per Format ───
@@ -196,6 +257,30 @@ export const MODE_KPIS: Record<ProjectFormat, KPIDefinition[]> = {
     { key: 'engagement-rate', label: 'Engagement Rate', description: 'Content engagement rate', unit: 'percentage' },
     { key: 'ip-value', label: 'IP Value', description: 'Long-tail IP value assessment', unit: 'score' },
   ],
+  'documentary-series': [
+    { key: 'grants-secured', label: 'Grants Secured', description: 'Total grant funding', unit: 'currency' },
+    { key: 'broadcaster-interest', label: 'Broadcaster Interest', description: 'Broadcasters engaged', unit: 'count' },
+    { key: 'episodes-funded', label: 'Episodes Funded', description: 'Funded episode count', unit: 'count' },
+    { key: 'impact-score', label: 'Impact Score', description: 'Social impact measurement', unit: 'score' },
+  ],
+  'music-video': [
+    { key: 'views', label: 'Total Views', description: 'Cross-platform view count', unit: 'count' },
+    { key: 'margin', label: 'Production Margin', description: 'Net production margin', unit: 'percentage' },
+    { key: 'awards', label: 'Awards', description: 'Awards and nominations', unit: 'count' },
+    { key: 'portfolio-value', label: 'Portfolio Value', description: 'Strategic portfolio contribution', unit: 'score' },
+  ],
+  'proof-of-concept': [
+    { key: 'development-interest', label: 'Development Interest', description: 'Industry interest generated', unit: 'count' },
+    { key: 'funding-unlocked', label: 'Funding Unlocked', description: 'Development funding secured', unit: 'currency' },
+    { key: 'lab-selections', label: 'Lab Selections', description: 'Festival lab acceptances', unit: 'count' },
+    { key: 'readiness', label: 'Pitch Readiness', description: 'Full project pitch readiness', unit: 'score' },
+  ],
+  hybrid: [
+    { key: 'audience-reach', label: 'Audience Reach', description: 'Cross-platform audience', unit: 'count' },
+    { key: 'innovation-score', label: 'Innovation Score', description: 'Technical innovation rating', unit: 'score' },
+    { key: 'partner-engagement', label: 'Partner Engagement', description: 'Active technology/brand partners', unit: 'count' },
+    { key: 'cultural-impact', label: 'Cultural Impact', description: 'Cultural significance rating', unit: 'score' },
+  ],
 };
 
 // ─── Format Metadata ───
@@ -210,13 +295,17 @@ export interface FormatMeta {
 }
 
 export const FORMAT_META: FormatMeta[] = [
-  { value: 'film', label: 'Feature Film', shortLabel: 'Film', description: 'Theatrical or streaming feature', icon: Film, color: 'text-primary' },
-  { value: 'tv-series', label: 'TV Series', shortLabel: 'TV Series', description: 'Limited, returning, or anthology series', icon: Tv, color: 'text-purple-400' },
-  { value: 'short-film', label: 'Short Film', shortLabel: 'Short', description: 'Festivals, talent showcase, proof of concept', icon: Clapperboard, color: 'text-emerald-400' },
-  { value: 'documentary', label: 'Documentary', shortLabel: 'Doc', description: 'Feature or series documentary', icon: FileVideo, color: 'text-sky-400' },
-  { value: 'digital-series', label: 'Digital Series', shortLabel: 'Digital', description: 'Platform-native, high velocity content', icon: Monitor, color: 'text-rose-400' },
+  { value: 'film', label: 'Narrative Feature', shortLabel: 'Film', description: 'Theatrical or streaming feature', icon: Film, color: 'text-primary' },
+  { value: 'tv-series', label: 'Narrative Series', shortLabel: 'Series', description: 'Limited, returning, or anthology series', icon: Tv, color: 'text-purple-400' },
+  { value: 'documentary', label: 'Documentary Feature', shortLabel: 'Doc', description: 'Feature-length documentary', icon: FileVideo, color: 'text-sky-400' },
+  { value: 'documentary-series', label: 'Documentary Series', shortLabel: 'Doc Series', description: 'Multi-episode documentary', icon: Video, color: 'text-cyan-400' },
   { value: 'commercial', label: 'Commercial / Advert', shortLabel: 'Commercial', description: 'Brand-commissioned, margin-driven', icon: Megaphone, color: 'text-amber-400' },
   { value: 'branded-content', label: 'Branded Content', shortLabel: 'Branded', description: 'Brand-funded, IP-adjacent long form', icon: Sparkles, color: 'text-indigo-400' },
+  { value: 'music-video', label: 'Music Video', shortLabel: 'MV', description: 'Label or artist-commissioned', icon: Music, color: 'text-pink-400' },
+  { value: 'short-film', label: 'Short Film', shortLabel: 'Short', description: 'Festivals, talent showcase, proof of concept', icon: Clapperboard, color: 'text-emerald-400' },
+  { value: 'proof-of-concept', label: 'Proof of Concept', shortLabel: 'PoC', description: 'IP demonstration, investor teaser', icon: FlaskConical, color: 'text-orange-400' },
+  { value: 'digital-series', label: 'Digital / Social', shortLabel: 'Digital', description: 'Platform-native, high velocity content', icon: Monitor, color: 'text-rose-400' },
+  { value: 'hybrid', label: 'Hybrid', shortLabel: 'Hybrid', description: 'Cross-platform, transmedia, immersive', icon: Shuffle, color: 'text-violet-400' },
 ];
 
 export function getFormatMeta(format: string): FormatMeta {
@@ -230,7 +319,11 @@ export const MODE_STRATEGIC_ROLES: Record<ProjectFormat, string[]> = {
   'tv-series': ['Recurring revenue', 'Platform relationships', 'IP franchise', 'Talent pipeline'],
   'short-film': ['Talent showcase', 'Proof of concept', 'Festival strategy', 'IP incubation', 'Director launchpad'],
   documentary: ['Cultural impact', 'Brand positioning', 'Educational value', 'Rights library'],
+  'documentary-series': ['Cultural impact', 'Platform relationships', 'Multi-season potential', 'Format licensing'],
   'digital-series': ['Audience building', 'Platform leverage', 'Brand partnerships', 'Data-driven iteration'],
   commercial: ['Revenue margin', 'Client relationships', 'Director showcase', 'Awards (Cannes Lions)'],
   'branded-content': ['Brand partnerships', 'IP ownership', 'Audience engagement', 'Long-tail revenue'],
+  'music-video': ['Director showcase', 'Artist relationships', 'Awards entry', 'Visual portfolio'],
+  'proof-of-concept': ['IP incubation', 'Investor engagement', 'Festival labs', 'Feature development'],
+  hybrid: ['Innovation leadership', 'Cross-platform storytelling', 'Technology partnerships', 'Cultural impact'],
 };
