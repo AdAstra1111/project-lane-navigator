@@ -34,6 +34,8 @@ export interface PitchIdea {
   score_saturation_risk: number;
   score_company_fit: number;
   score_total: number;
+  concept_lock_status: string;
+  concept_lock_version: number;
   created_at: string;
   updated_at: string;
 }

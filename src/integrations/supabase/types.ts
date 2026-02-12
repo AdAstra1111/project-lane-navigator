@@ -247,6 +247,170 @@ export type Database = {
           },
         ]
       }
+      concept_expansions: {
+        Row: {
+          arc_map: string
+          character_bible: string
+          created_at: string
+          id: string
+          pitch_idea_id: string
+          production_type: string
+          raw_response: Json | null
+          tone_doc: string
+          treatment: string
+          updated_at: string
+          user_id: string
+          version: number
+          world_bible: string
+        }
+        Insert: {
+          arc_map?: string
+          character_bible?: string
+          created_at?: string
+          id?: string
+          pitch_idea_id: string
+          production_type?: string
+          raw_response?: Json | null
+          tone_doc?: string
+          treatment?: string
+          updated_at?: string
+          user_id: string
+          version?: number
+          world_bible?: string
+        }
+        Update: {
+          arc_map?: string
+          character_bible?: string
+          created_at?: string
+          id?: string
+          pitch_idea_id?: string
+          production_type?: string
+          raw_response?: Json | null
+          tone_doc?: string
+          treatment?: string
+          updated_at?: string
+          user_id?: string
+          version?: number
+          world_bible?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "concept_expansions_pitch_idea_id_fkey"
+            columns: ["pitch_idea_id"]
+            isOneToOne: false
+            referencedRelation: "pitch_ideas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      concept_lock_versions: {
+        Row: {
+          expansion_id: string | null
+          id: string
+          locked_at: string
+          locked_fields: Json
+          pitch_idea_id: string
+          stress_test_id: string | null
+          unlock_reason: string | null
+          unlocked_at: string | null
+          user_id: string
+          version: number
+        }
+        Insert: {
+          expansion_id?: string | null
+          id?: string
+          locked_at?: string
+          locked_fields?: Json
+          pitch_idea_id: string
+          stress_test_id?: string | null
+          unlock_reason?: string | null
+          unlocked_at?: string | null
+          user_id: string
+          version?: number
+        }
+        Update: {
+          expansion_id?: string | null
+          id?: string
+          locked_at?: string
+          locked_fields?: Json
+          pitch_idea_id?: string
+          stress_test_id?: string | null
+          unlock_reason?: string | null
+          unlocked_at?: string | null
+          user_id?: string
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "concept_lock_versions_expansion_id_fkey"
+            columns: ["expansion_id"]
+            isOneToOne: false
+            referencedRelation: "concept_expansions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "concept_lock_versions_pitch_idea_id_fkey"
+            columns: ["pitch_idea_id"]
+            isOneToOne: false
+            referencedRelation: "pitch_ideas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "concept_lock_versions_stress_test_id_fkey"
+            columns: ["stress_test_id"]
+            isOneToOne: false
+            referencedRelation: "concept_stress_tests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      concept_stress_tests: {
+        Row: {
+          created_at: string
+          details: Json | null
+          expansion_id: string
+          id: string
+          passed: boolean
+          score_creative_structure: number
+          score_engine_sustainability: number
+          score_market_alignment: number
+          score_total: number
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          details?: Json | null
+          expansion_id: string
+          id?: string
+          passed?: boolean
+          score_creative_structure?: number
+          score_engine_sustainability?: number
+          score_market_alignment?: number
+          score_total?: number
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          details?: Json | null
+          expansion_id?: string
+          id?: string
+          passed?: boolean
+          score_creative_structure?: number
+          score_engine_sustainability?: number
+          score_market_alignment?: number
+          score_total?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "concept_stress_tests_expansion_id_fkey"
+            columns: ["expansion_id"]
+            isOneToOne: false
+            referencedRelation: "concept_expansions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       copro_frameworks: {
         Row: {
           confidence: string
@@ -1288,6 +1452,8 @@ export type Database = {
           brief_id: string | null
           budget_band: string
           comps: string[]
+          concept_lock_status: string
+          concept_lock_version: number
           created_at: string
           development_sprint: Json
           genre: string
@@ -1322,6 +1488,8 @@ export type Database = {
           brief_id?: string | null
           budget_band?: string
           comps?: string[]
+          concept_lock_status?: string
+          concept_lock_version?: number
           created_at?: string
           development_sprint?: Json
           genre?: string
@@ -1356,6 +1524,8 @@ export type Database = {
           brief_id?: string | null
           budget_band?: string
           comps?: string[]
+          concept_lock_status?: string
+          concept_lock_version?: number
           created_at?: string
           development_sprint?: Json
           genre?: string
