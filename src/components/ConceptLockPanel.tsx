@@ -1,9 +1,10 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Lock, Unlock, FlaskConical, ScrollText, Users, Globe, Palette, Map,
   Loader2, CheckCircle2, XCircle, AlertTriangle, ChevronDown, ChevronUp,
-  Copy, Shield, History, RefreshCw,
+  Copy, Shield, History, RefreshCw, Rocket,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -16,6 +17,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { useConceptExpansion, useStressTest, useConceptLockVersions } from '@/hooks/useConceptLock';
+import { usePromoteIdea } from '@/hooks/usePromoteIdea';
+import { PromoteToProjectDialog } from '@/components/PromoteToProjectDialog';
 import type { PitchIdea } from '@/hooks/usePitchIdeas';
 
 interface Props {
@@ -27,16 +30,20 @@ const PASS_THRESHOLD = 70;
 const MIN_DIMENSION = 50;
 
 export function ConceptLockPanel({ idea, onUpdate }: Props) {
+  const navigate = useNavigate();
   const { latestExpansion, expand, expanding } = useConceptExpansion(idea.id);
   const { latestTest, runTest, testing } = useStressTest(latestExpansion?.id || null);
   const { versions, lock, unlock } = useConceptLockVersions(idea.id);
+  const { promote, promoting } = usePromoteIdea();
   const [activeDocTab, setActiveDocTab] = useState('treatment');
   const [unlockDialogOpen, setUnlockDialogOpen] = useState(false);
+  const [promoteDialogOpen, setPromoteDialogOpen] = useState(false);
   const [unlockReason, setUnlockReason] = useState('');
   const [versionHistoryOpen, setVersionHistoryOpen] = useState(false);
 
   const isLocked = (idea as any).concept_lock_status === 'locked';
   const lockVersion = (idea as any).concept_lock_version || 0;
+  const isPromoted = !!(idea as any).promoted_to_project_id;
 
   const handleExpand = async () => {
     await expand({ pitchIdea: idea, productionType: idea.production_type });
@@ -117,6 +124,16 @@ export function ConceptLockPanel({ idea, onUpdate }: Props) {
           {versions.length > 0 && (
             <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={() => setVersionHistoryOpen(!versionHistoryOpen)}>
               <History className="h-3 w-3" /> v{lockVersion}
+            </Button>
+          )}
+          {isLocked && !isPromoted && (
+            <Button size="sm" className="h-7 text-xs gap-1" onClick={() => setPromoteDialogOpen(true)}>
+              <Rocket className="h-3 w-3" /> Promote to Project
+            </Button>
+          )}
+          {isPromoted && (
+            <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={() => navigate(`/projects/${(idea as any).promoted_to_project_id}`)}>
+              <Rocket className="h-3 w-3" /> View Project
             </Button>
           )}
           {isLocked && (
@@ -325,6 +342,26 @@ export function ConceptLockPanel({ idea, onUpdate }: Props) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Promote to Project Dialog */}
+      <PromoteToProjectDialog
+        idea={idea}
+        open={promoteDialogOpen}
+        onOpenChange={setPromoteDialogOpen}
+        onPromote={async (params) => {
+          const result = await promote({
+            pitchIdeaId: idea.id,
+            title: params.title,
+            budgetBand: params.budgetBand,
+            lane: params.lane,
+          });
+          setPromoteDialogOpen(false);
+          if (result?.projectId) {
+            navigate(`/projects/${result.projectId}`);
+          }
+        }}
+        promoting={promoting}
+      />
     </div>
   );
 }
