@@ -90,9 +90,9 @@ export function Header() {
               <DropdownMenuItem onClick={() => setShowTutorial(true)}>
                 <GraduationCap className="h-4 w-4 mr-2" /> Tutorial
               </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => navigate('/faq')}>Help Centre</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => navigate('/how-iffy-thinks')}>How IFFY Thinks</DropdownMenuItem>
               <DropdownMenuItem onClick={() => navigate('/about')}>About IFFY</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => navigate('/how-it-works')}>How It Works</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => navigate('/faq')}>FAQ</DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => navigate('/settings')}>
                 <Settings className="h-4 w-4 mr-2" /> Settings
