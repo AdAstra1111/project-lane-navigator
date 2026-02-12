@@ -424,15 +424,19 @@ serve(async (req) => {
       const draftText = await callAI(prompt, false);
       console.log(`[draft] AI returned ${typeof draftText === 'string' ? draftText.length : 0} chars`);
 
-      // Store batch in storage
+      // Store batch in storage with proper naming
       const { data: scriptRow } = await supabase.from("scripts").select("draft_number, version").eq("id", scriptId).single();
       const currentDraft = scriptRow?.draft_number || 0;
       const scriptVersion = scriptRow?.version || 1;
       const batchIndex = Math.ceil(batchStart / batchSize);
-      const path = `scripts/${projectId}/v${scriptVersion}/draft_${currentDraft + 1}_batch_${batchIndex}.txt`;
+      const safeTitle = (project.title || "Untitled").replace(/[^a-zA-Z0-9 _-]/g, "").replace(/\s+/g, "_");
+      const path = `scripts/${projectId}/v${scriptVersion}/${safeTitle}_Draft_${currentDraft + 1}_Batch_${batchIndex}.txt`;
 
       const encoder = new TextEncoder();
-      const { error: uploadError } = await supabase.storage.from("scripts").upload(path, encoder.encode(draftText), {
+      const draftTextStr = typeof draftText === 'string' ? draftText : JSON.stringify(draftText);
+      const encoded = encoder.encode(draftTextStr);
+
+      const { error: uploadError } = await supabase.storage.from("scripts").upload(path, encoded, {
         contentType: "text/plain", upsert: true,
       });
       if (uploadError) {
@@ -472,12 +476,70 @@ serve(async (req) => {
         console.log(`[draft] script_versions created: ${svRow?.id}`);
       }
 
-      // Return the FULL draft text (not truncated) so UI can display immediately
-      const draftTextStr = typeof draftText === 'string' ? draftText : JSON.stringify(draftText);
+      // When draft is complete, import into project documents + scripts for coverage
+      let documentId: string | null = null;
+      if (isComplete) {
+        const docFileName = `${safeTitle} - Draft ${newDraftNum}.txt`;
+        const docPath = `${user.id}/${Date.now()}-engine-${docFileName.replace(/\s+/g, '_')}`;
+
+        // Copy to project-documents bucket
+        const { error: docUploadErr } = await supabase.storage
+          .from("project-documents")
+          .upload(docPath, encoded, { contentType: "text/plain", upsert: true });
+
+        if (docUploadErr) {
+          console.error(`[draft] project-documents upload failed:`, docUploadErr);
+        } else {
+          console.log(`[draft] Copied to project-documents: ${docPath}`);
+
+          // Create project_documents row with extracted text for coverage
+          const { data: docRow, error: docInsertErr } = await supabase
+            .from("project_documents")
+            .insert({
+              project_id: projectId,
+              user_id: user.id,
+              file_name: docFileName,
+              file_path: docPath,
+              extraction_status: "completed",
+              extracted_text: draftTextStr,
+            })
+            .select("id")
+            .single();
+
+          if (docInsertErr) {
+            console.error(`[draft] project_documents insert failed:`, docInsertErr);
+          } else {
+            documentId = docRow?.id || null;
+            console.log(`[draft] project_documents created: ${documentId}`);
+          }
+
+          // Archive existing current scripts, then create new project_scripts row
+          await supabase
+            .from("project_scripts")
+            .update({ status: "archived" })
+            .eq("project_id", projectId)
+            .eq("status", "current");
+
+          const { error: psErr } = await supabase.from("project_scripts").insert({
+            project_id: projectId,
+            user_id: user.id,
+            version_label: `${project.title || "Untitled"} - Draft ${newDraftNum} (Engine)`,
+            status: "current",
+            file_path: docPath,
+            notes: `Engine-generated draft ${newDraftNum}`,
+          });
+          if (psErr) {
+            console.error(`[draft] project_scripts insert failed:`, psErr);
+          } else {
+            console.log(`[draft] project_scripts created as current`);
+          }
+        }
+      }
 
       return new Response(JSON.stringify({
         batchStart, batchEnd, isComplete, storagePath: path,
         scriptVersionId: svRow?.id || null,
+        documentId,
         draftNumber: isComplete ? newDraftNum : currentDraft,
         batchIndex,
         nextBatch: isComplete ? null : { batchStart: batchEnd + 1, batchEnd: Math.min(batchEnd + batchSize, maxScene) },
@@ -578,17 +640,23 @@ serve(async (req) => {
       const prompt = getRewritePrompt(pass, scriptText, scores, project);
       const rewrittenText = await callAI(prompt, false);
 
-      // Store rewrite
-      const { data: script } = await supabase.from("scripts").select("draft_number").eq("id", scriptId).single();
+      // Store rewrite with proper naming
+      const { data: script } = await supabase.from("scripts").select("draft_number, version").eq("id", scriptId).single();
       const newDraft = (script?.draft_number || 0) + 1;
-      const path = `scripts/${projectId}/v${Date.now()}/rewrite_${pass}_d${newDraft}.txt`;
+      const safeTitle = (project.title || "Untitled").replace(/[^a-zA-Z0-9 _-]/g, "").replace(/\s+/g, "_");
+      const path = `scripts/${projectId}/v${script?.version || 1}/${safeTitle}_Draft_${newDraft}_Rewrite_${pass}.txt`;
       const encoder = new TextEncoder();
-      await supabase.storage.from("scripts").upload(path, encoder.encode(rewrittenText), {
+      const rewrittenStr = typeof rewrittenText === 'string' ? rewrittenText : JSON.stringify(rewrittenText);
+      const encoded = encoder.encode(rewrittenStr);
+
+      await supabase.storage.from("scripts").upload(path, encoded, {
         contentType: "text/plain", upsert: true,
       });
 
       await supabase.from("scripts").update({
         status: `DRAFT_${newDraft}`, draft_number: newDraft,
+        latest_draft_number: newDraft,
+        latest_batch_storage_path: path,
       }).eq("id", scriptId);
 
       await supabase.from("script_versions").insert({
@@ -596,6 +664,34 @@ serve(async (req) => {
         full_text_storage_path: path, rewrite_pass: pass,
         notes: `Rewrite pass: ${pass}`,
       });
+
+      // Import rewrite into project documents + scripts for coverage
+      const docFileName = `${safeTitle} - Draft ${newDraft} (${pass} rewrite).txt`;
+      const docPath = `${user.id}/${Date.now()}-engine-${docFileName.replace(/\s+/g, '_')}`;
+
+      const { error: docUploadErr } = await supabase.storage
+        .from("project-documents")
+        .upload(docPath, encoded, { contentType: "text/plain", upsert: true });
+
+      if (!docUploadErr) {
+        await supabase.from("project_documents").insert({
+          project_id: projectId, user_id: user.id,
+          file_name: docFileName, file_path: docPath,
+          extraction_status: "completed", extracted_text: rewrittenStr,
+        });
+
+        await supabase.from("project_scripts")
+          .update({ status: "archived" })
+          .eq("project_id", projectId)
+          .eq("status", "current");
+
+        await supabase.from("project_scripts").insert({
+          project_id: projectId, user_id: user.id,
+          version_label: `${project.title || "Untitled"} - Draft ${newDraft} (${pass} rewrite, Engine)`,
+          status: "current", file_path: docPath,
+          notes: `Engine rewrite pass: ${pass}`,
+        });
+      }
 
       return new Response(JSON.stringify({ draftNumber: newDraft, pass, storagePath: path }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
