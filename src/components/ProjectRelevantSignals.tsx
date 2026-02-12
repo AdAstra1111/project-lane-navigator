@@ -1,6 +1,6 @@
-import { useMemo } from 'react';
-import { motion } from 'framer-motion';
-import { Radio } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Radio, ChevronDown } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '@/components/ui/accordion';
 import { useActiveSignals, TrendSignal } from '@/hooks/useTrends';
@@ -48,6 +48,7 @@ const PHASE_STYLES: Record<string, string> = {
 };
 
 export function ProjectRelevantSignals({ project }: Props) {
+  const [expanded, setExpanded] = useState(false);
   const { data: allSignals = [], isLoading } = useActiveSignals();
 
   const relevantSignals = useMemo(() => {
@@ -79,12 +80,16 @@ export function ProjectRelevantSignals({ project }: Props) {
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.15, duration: 0.3 }}
-      className="space-y-3"
+      className="glass-card rounded-xl overflow-hidden"
     >
-      <div className="flex items-center justify-between">
+      {/* Collapsible header */}
+      <button
+        onClick={() => setExpanded(e => !e)}
+        className="w-full flex items-center justify-between px-5 py-4 hover:bg-muted/30 transition-colors"
+      >
         <div className="flex items-center gap-2">
           <Radio className="h-4 w-4 text-primary" />
-          <h3 className="font-display font-semibold text-foreground text-xl">Relevant Signals</h3>
+          <h3 className="font-display font-semibold text-foreground text-lg">Relevant Signals</h3>
           <Badge variant="secondary" className="text-xs ml-1">{relevantSignals.length}</Badge>
         </div>
         <div className="flex items-center gap-3">
@@ -94,30 +99,46 @@ export function ProjectRelevantSignals({ project }: Props) {
               {count} {phase}
             </div>
           ))}
+          <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`} />
         </div>
-      </div>
+      </button>
 
-      <Accordion type="multiple" className="space-y-1.5">
-        {relevantSignals.map(({ signal }) => (
-          <AccordionItem key={signal.id} value={signal.id} className="glass-card rounded-lg border-none">
-            <AccordionTrigger className="px-4 py-3 hover:no-underline gap-3">
-              <div className="flex items-center gap-2 text-left min-w-0 flex-1">
-                <span className="font-display font-semibold text-foreground text-sm truncate">{signal.name}</span>
-                <Badge className={`text-[10px] px-1.5 py-0 border shrink-0 ${CATEGORY_STYLES[signal.category] ?? ''}`}>
-                  {signal.category}
-                </Badge>
-                <Badge className={`text-[10px] px-1.5 py-0 border shrink-0 ${PHASE_STYLES[signal.cycle_phase] ?? ''}`}>
-                  {signal.cycle_phase}
-                </Badge>
-              </div>
-              <TrendScoreBadges strength={signal.strength} velocity={signal.velocity} saturationRisk={signal.saturation_risk} compact />
-            </AccordionTrigger>
-            <AccordionContent className="px-4 pb-4 pt-0">
-              <SignalCard signal={signal} index={0} />
-            </AccordionContent>
-          </AccordionItem>
-        ))}
-      </Accordion>
+      {/* Collapsible content */}
+      <AnimatePresence initial={false}>
+        {expanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+            className="overflow-hidden"
+          >
+            <div className="px-5 pb-4 space-y-1.5">
+              <Accordion type="multiple" className="space-y-1.5">
+                {relevantSignals.map(({ signal }) => (
+                  <AccordionItem key={signal.id} value={signal.id} className="glass-card rounded-lg border-none">
+                    <AccordionTrigger className="px-4 py-3 hover:no-underline gap-3">
+                      <div className="flex items-center gap-2 text-left min-w-0 flex-1">
+                        <span className="font-display font-semibold text-foreground text-sm truncate">{signal.name}</span>
+                        <Badge className={`text-[10px] px-1.5 py-0 border shrink-0 ${CATEGORY_STYLES[signal.category] ?? ''}`}>
+                          {signal.category}
+                        </Badge>
+                        <Badge className={`text-[10px] px-1.5 py-0 border shrink-0 ${PHASE_STYLES[signal.cycle_phase] ?? ''}`}>
+                          {signal.cycle_phase}
+                        </Badge>
+                      </div>
+                      <TrendScoreBadges strength={signal.strength} velocity={signal.velocity} saturationRisk={signal.saturation_risk} compact />
+                    </AccordionTrigger>
+                    <AccordionContent className="px-4 pb-4 pt-0">
+                      <SignalCard signal={signal} index={0} />
+                    </AccordionContent>
+                  </AccordionItem>
+                ))}
+              </Accordion>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }
