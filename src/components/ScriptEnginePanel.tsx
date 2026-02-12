@@ -637,6 +637,30 @@ export function ScriptEnginePanel({ projectId, productionType }: Props) {
         </div>
       )}
 
+      {/* Below Corpus Minimum Warning */}
+      {activeScript && calibration && activeScript.latest_page_count_est != null && calibration.p25_page_count != null && 
+       activeScript.latest_page_count_est < Math.round(calibration.p25_page_count) && !isLocked && (
+        <div className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 flex items-center gap-3">
+          <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0" />
+          <div className="flex-1">
+            <p className="text-xs font-medium text-amber-300">Below corpus minimum length</p>
+            <p className="text-[10px] text-muted-foreground">
+              Current: ~{activeScript.latest_page_count_est} pages · Corpus minimum (p25): ~{Math.round(calibration.p25_page_count)} pages
+            </p>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            className="text-xs border-amber-500/30 hover:bg-amber-500/20"
+            onClick={() => generateDraft.mutate({})}
+            disabled={isAnyLoading}
+          >
+            {generateDraft.isPending ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <ArrowRight className="h-3 w-3 mr-1" />}
+            Continue Drafting
+          </Button>
+        </div>
+      )}
+
       {/* Import for Coverage button */}
       {hasDraft && status.startsWith('DRAFT_') && (
         <div className="mt-3 flex items-center gap-2">

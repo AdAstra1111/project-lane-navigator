@@ -163,7 +163,9 @@ GOLD BENCHMARK DATA (from ${goldBaseline.sample_size || 'N/A'} top-quality scrip
 - Gold quality score: ${goldBaseline.median_quality_score || 'N/A'}
 - Gold midpoint position: ${goldBaseline.median_midpoint_position || 'N/A'}
 
-Include a "Gold Benchmark Deviation" section noting how this script compares to the best-in-class corpus scripts. Highlight gaps between current draft and gold standard.`;
+Include a "Gold Benchmark Deviation" section noting how this script compares to the best-in-class corpus scripts. Highlight gaps between current draft and gold standard.
+
+IMPORTANT: Do NOT imitate or copy any specific screenplay from the corpus. Use only numeric/structural targets derived from aggregate statistics.`;
     }
 
     const projectMeta = `TYPE: ${formatLabel} | GENRES: ${(genres || []).join(", ") || "N/A"} | LANE: ${lane || "N/A"}`;
