@@ -75,12 +75,12 @@ export default function Dashboard() {
           <div className="flex items-end justify-between mb-8">
             <div>
               {primaryCompany && (
-                <div className="flex items-center gap-2.5 mb-3">
+                <div className="mb-3">
                   {primaryCompany.logo_url ? (
                     <img
                       src={primaryCompany.logo_url}
                       alt={primaryCompany.name}
-                      className="h-14 max-w-[280px] object-contain dark:invert"
+                      className="h-12 max-w-[320px] object-contain rounded-lg"
                     />
                   ) : (
                     <div
