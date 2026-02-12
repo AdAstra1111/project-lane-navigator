@@ -293,7 +293,7 @@ export default function ProjectDetail() {
 
   const readiness = useMemo(() => {
     if (!project) return null;
-    return calculateReadiness(project, cast, partners, scripts, financeScenarios, hods, incentiveAnalysed, budgetSummary, scheduleMetrics, trendInfluence?.readinessAdjustment);
+    return calculateReadiness(project, cast, partners, scripts, financeScenarios, hods, incentiveAnalysed, budgetSummary, scheduleMetrics, trendInfluence?.readinessAdjustment, project.script_coverage_verdict);
   }, [project, cast, partners, scripts, financeScenarios, hods, incentiveAnalysed, budgetSummary, scheduleMetrics, trendInfluence]);
 
   const tvReadiness = useMemo(() => {

@@ -174,6 +174,7 @@ export interface Project {
   document_urls: string[];
   analysis_passes: FullAnalysis | null;
   pipeline_stage: PipelineStage;
+  script_coverage_verdict: string;
   pinned: boolean;
   created_at: string;
   updated_at: string;

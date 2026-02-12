@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import { FileSearch, Loader2, ThumbsUp, ThumbsDown, Minus, BookOpen, Users2, TrendingUp, Lightbulb, AlertCircle, Film, RotateCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -49,6 +50,7 @@ export function ScriptCoverage({ projectId, projectTitle, format, genres, hasDoc
   const [coverage, setCoverage] = useState<CoverageData | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const extract = useExtractDocuments(projectId);
+  const queryClient = useQueryClient();
 
   const handleGenerate = async () => {
     setIsLoading(true);
@@ -110,7 +112,18 @@ export function ScriptCoverage({ projectId, projectTitle, format, genres, hasDoc
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
 
-      setCoverage(data as CoverageData);
+      const coverageData = data as CoverageData;
+      setCoverage(coverageData);
+
+      // Persist verdict to project for readiness scoring
+      await supabase
+        .from('projects')
+        .update({ script_coverage_verdict: coverageData.recommendation })
+        .eq('id', projectId);
+
+      // Invalidate project query so readiness score recalculates
+      queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+
       toast.success('Coverage analysis complete');
     } catch (e: any) {
       toast.error(e.message || 'Failed to generate coverage');

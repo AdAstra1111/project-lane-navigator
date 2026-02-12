@@ -2598,6 +2598,7 @@ export type Database = {
           primary_territory: string
           reasoning: string | null
           recommendations: Json | null
+          script_coverage_verdict: string
           secondary_territories: string[]
           target_audience: string
           title: string
@@ -2622,6 +2623,7 @@ export type Database = {
           primary_territory?: string
           reasoning?: string | null
           recommendations?: Json | null
+          script_coverage_verdict?: string
           secondary_territories?: string[]
           target_audience?: string
           title: string
@@ -2646,6 +2648,7 @@ export type Database = {
           primary_territory?: string
           reasoning?: string | null
           recommendations?: Json | null
+          script_coverage_verdict?: string
           secondary_territories?: string[]
           target_audience?: string
           title?: string
