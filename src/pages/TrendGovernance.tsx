@@ -15,6 +15,7 @@ import { PRODUCTION_TYPE_TREND_CATEGORIES } from '@/hooks/useTrends';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { SourceSandboxPanel } from '@/components/SourceSandboxPanel';
+import { ModelAccuracyDashboard } from '@/components/ModelAccuracyDashboard';
 
 const PRODUCTION_TYPES = Object.entries(PRODUCTION_TYPE_TREND_CATEGORIES).map(([value, config]) => ({
   value,
@@ -460,6 +461,9 @@ export default function TrendGovernance() {
               </div>
             </div>
           )}
+
+          {/* Model Accuracy Tracker */}
+          <ModelAccuracyDashboard productionType={selectedType} />
 
           {/* Source Sandbox */}
           <SourceSandboxPanel />
