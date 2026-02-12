@@ -34,6 +34,7 @@ const BuyerCRM = lazy(() => import("./pages/BuyerCRM"));
 const About = lazy(() => import("./pages/About"));
 const HowItWorks = lazy(() => import("./pages/HowItWorks"));
 const FAQ = lazy(() => import("./pages/FAQ"));
+const HowIFFYThinks = lazy(() => import("./pages/HowIFFYThinks"));
 const AcceptInvite = lazy(() => import("./pages/AcceptInvite"));
 const Notifications = lazy(() => import("./pages/Notifications"));
 const MarketIntelligence = lazy(() => import("./pages/MarketIntelligence"));
@@ -78,6 +79,7 @@ const AnimatedRoutes = () => {
           <Route path="/about" element={<ProtectedRoute><About /></ProtectedRoute>} />
           <Route path="/how-it-works" element={<ProtectedRoute><HowItWorks /></ProtectedRoute>} />
           <Route path="/faq" element={<ProtectedRoute><FAQ /></ProtectedRoute>} />
+          <Route path="/how-iffy-thinks" element={<ProtectedRoute><HowIFFYThinks /></ProtectedRoute>} />
           <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
           <Route path="/projects/new" element={<ProtectedRoute><NewProject /></ProtectedRoute>} />
           <Route path="/projects/:id" element={<ProtectedRoute><ProjectDetail /></ProtectedRoute>} />
