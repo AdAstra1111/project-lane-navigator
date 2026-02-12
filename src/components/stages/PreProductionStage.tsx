@@ -5,6 +5,7 @@
 
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { StageReadinessScore } from '@/components/StageReadinessScore';
 import { BudgetPanel } from '@/components/BudgetPanel';
 import { ScheduleTab } from '@/components/ScheduleTab';
 import { ScheduleIntelligencePanel } from '@/components/ScheduleIntelligencePanel';
@@ -14,6 +15,7 @@ import { ScriptToBudgetPanel } from '@/components/ScriptToBudgetPanel';
 import { ContractManagerPanel } from '@/components/ContractManagerPanel';
 import { DeadlinePanel } from '@/components/DeadlinePanel';
 import type { Project } from '@/lib/types';
+import type { StageReadinessResult } from '@/lib/stage-readiness';
 
 interface Props {
   project: Project;
@@ -25,14 +27,16 @@ interface Props {
   scheduleMetrics: any;
   scriptText: string | null;
   onIncentiveAnalysed: (v: boolean) => void;
+  stageReadiness: StageReadinessResult | null;
 }
 
 export function PreProductionStage({
   project, projectId, budgets, addBudget, deals, financeScenarios,
-  scheduleMetrics, scriptText, onIncentiveAnalysed,
+  scheduleMetrics, scriptText, onIncentiveAnalysed, stageReadiness,
 }: Props) {
   return (
     <div className="space-y-4">
+      {stageReadiness && <StageReadinessScore readiness={stageReadiness} />}
       <ScheduleTab projectId={projectId} />
       <ScheduleIntelligencePanel
         projectId={projectId}

@@ -5,6 +5,7 @@
 
 import { useMemo } from 'react';
 import { FileText, TrendingUp, AlertTriangle, Quote, CheckCircle2, ShieldAlert, MessageSquareQuote } from 'lucide-react';
+import { StageReadinessScore } from '@/components/StageReadinessScore';
 import { ScriptCoverage } from '@/components/ScriptCoverage';
 import { ProjectInsightPanel } from '@/components/ProjectInsightPanel';
 import { AnalysisPassesDisplay } from '@/components/AnalysisPassesDisplay';
@@ -16,6 +17,7 @@ import { AddDocumentsUpload } from '@/components/AddDocumentsUpload';
 import { DocumentsList } from '@/components/DocumentsList';
 import type { Project, FullAnalysis, Recommendation } from '@/lib/types';
 import type { ProjectDocument } from '@/lib/types';
+import type { StageReadinessResult } from '@/lib/stage-readiness';
 import { BUDGET_RANGES, TARGET_AUDIENCES, TONES } from '@/lib/constants';
 
 interface Props {
@@ -32,6 +34,7 @@ interface Props {
   onUpload: (files: File[], scriptInfo?: any) => void;
   isUploading: boolean;
   scriptText: string | null;
+  stageReadiness: StageReadinessResult | null;
 }
 
 function getLabel(value: string, list: readonly { value: string; label: string }[]) {
@@ -41,12 +44,14 @@ function getLabel(value: string, list: readonly { value: string; label: string }
 export function DevelopmentStage({
   project, projectId, analysis, hasNewAnalysis, insights,
   scripts, currentScript, hasDocuments, hasScript, documents,
-  onUpload, isUploading, scriptText,
+  onUpload, isUploading, scriptText, stageReadiness,
 }: Props) {
   const legacyRecs = (project.recommendations || []) as Recommendation[];
 
   return (
     <div className="space-y-4">
+      {/* Stage Readiness */}
+      {stageReadiness && <StageReadinessScore readiness={stageReadiness} />}
       {/* Script Status */}
       <div className={`flex items-center gap-3 glass-card rounded-lg px-4 py-2.5 text-sm ${
         currentScript ? 'border-l-4 border-emerald-500/50' : hasScript ? 'border-l-4 border-amber-500/50' : 'border-l-4 border-muted'

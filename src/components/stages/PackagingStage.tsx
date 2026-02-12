@@ -5,6 +5,7 @@
 
 import { ProjectAttachmentTabs } from '@/components/ProjectAttachmentTabs';
 import { CastImpactPanel } from '@/components/CastImpactPanel';
+import { StageReadinessScore } from '@/components/StageReadinessScore';
 import { StoryEnginePanel } from '@/components/tv/StoryEnginePanel';
 import { SeasonArcPanel } from '@/components/tv/SeasonArcPanel';
 import { SeriesBiblePanel } from '@/components/tv/SeriesBiblePanel';
@@ -13,6 +14,7 @@ import { PlatformFitPanel } from '@/components/tv/PlatformFitPanel';
 import { RenewalProbabilityPanel } from '@/components/tv/RenewalProbabilityPanel';
 import type { Project } from '@/lib/types';
 import type { ProjectCastMember, ProjectHOD } from '@/hooks/useProjectAttachments';
+import type { StageReadinessResult } from '@/lib/stage-readiness';
 
 interface Props {
   project: Project;
@@ -23,14 +25,16 @@ interface Props {
   scriptCharactersLoading: boolean;
   scriptText: string | null;
   isTV: boolean;
+  stageReadiness: StageReadinessResult | null;
 }
 
 export function PackagingStage({
   project, projectId, cast, hods,
-  scriptCharacters, scriptCharactersLoading, scriptText, isTV,
+  scriptCharacters, scriptCharactersLoading, scriptText, isTV, stageReadiness,
 }: Props) {
   return (
     <div className="space-y-4">
+      {stageReadiness && <StageReadinessScore readiness={stageReadiness} />}
       <ProjectAttachmentTabs
         projectId={projectId}
         projectContext={{ title: project.title, format: project.format, budget_range: project.budget_range, genres: project.genres }}
