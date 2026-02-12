@@ -39,30 +39,30 @@ const chapters: Chapter[] = [
         layout: 'hero',
         title: 'IFFY',
         subtitle: 'Intelligent Film Flow & Yield',
-        body: 'Your complete command centre for independent film — from inception to legacy. Every decision tracked, every signal surfaced, every path to finance illuminated.',
+        body: 'Your complete command centre for independent film — from inception to legacy. Six lifecycle stages, per-stage readiness scoring, and stage-aware intelligence at every step.',
       },
     ],
   },
   {
-    id: 'dossier',
-    label: 'Living Dossiers',
-    icon: FolderOpen,
+    id: 'lifecycle',
+    label: 'Lifecycle Stages',
+    icon: Layers,
     slides: [
       {
         layout: 'split',
-        title: 'Living dossiers, not documents',
-        body: 'Each project is a living entity. Attach scripts, cast, partners, budgets, and contracts — every change automatically recalculates your readiness score and finance picture.',
+        title: 'Six stages. One living dossier.',
+        body: 'Every project moves through Development → Packaging → Pre-Production → Production → Post-Production → Sales & Delivery. Each stage has its own readiness score, intelligence panel, and risk assessment.',
         mockup: 'project',
       },
       {
         layout: 'grid',
-        title: 'Everything connected',
-        body: 'Your project dossier links every dimension together.',
+        title: 'Per-stage intelligence',
+        body: 'Each stage is powered by dedicated AI analysis.',
         features: [
-          { icon: FileText, label: 'Scripts & Coverage', desc: 'AI-powered script analysis with scene breakdowns and character extraction' },
-          { icon: Users, label: 'Cast & Crew', desc: 'Track attachments, talent triage board, and smart packaging suggestions' },
-          { icon: Layers, label: 'Contracts & Rights', desc: 'Ownership waterfall, participant tracking, and territory management' },
-          { icon: MessageSquare, label: 'AI Project Chat', desc: 'Ask your project questions — it knows everything attached to it' },
+          { icon: FileText, label: 'Development', desc: 'Risk index, audience clarity, commercial tension, and draft-to-draft delta tracking' },
+          { icon: Users, label: 'Packaging', desc: 'Delta engine tracking finance probability shifts as attachments change' },
+          { icon: Shield, label: 'Pre-Production', desc: 'Sensitivity modelling, cost-risk heat maps, and completion bond readiness' },
+          { icon: Zap, label: 'Production → Sales', desc: 'Stability scoring, post-production milestones, and revenue probability index' },
         ],
       },
     ],
@@ -98,8 +98,8 @@ const chapters: Chapter[] = [
     slides: [
       {
         layout: 'split',
-        title: 'Market intelligence finds you',
-        body: 'Trend signals matched to your genre, tone, and format. Cast momentum tracking, comp analysis, and buyer appetite — always current, always relevant.',
+        title: 'Stage-aware market intelligence',
+        body: 'Trend signals adapt to your project\'s current stage — narrative trends in Development, talent heat in Packaging, platform demand in Sales. Staleness thresholds tighten as you near market.',
         mockup: 'trends',
       },
       {
@@ -150,7 +150,7 @@ const chapters: Chapter[] = [
         body: 'Work faster with built-in productivity features.',
         features: [
           { icon: Sparkles, label: '⌘K Command Palette', desc: 'Instant search and navigation to any project or section' },
-          { icon: BarChart3, label: 'Pipeline View', desc: 'Kanban board showing all projects by stage' },
+          { icon: BarChart3, label: 'Lifecycle View', desc: 'Six-stage sidebar with readiness scores and stage gates' },
           { icon: Users, label: 'Team Collaboration', desc: 'Role-based access for producers, agents, and lawyers' },
           { icon: TrendingUp, label: 'Cross-Project Intel', desc: 'Aggregate insights across your entire slate' },
         ],
@@ -164,7 +164,6 @@ const chapters: Chapter[] = [
     ],
   },
 ];
-
 /* ─── Animated mockup component ─── */
 
 function AnimatedMockup({ type }: { type: string }) {
