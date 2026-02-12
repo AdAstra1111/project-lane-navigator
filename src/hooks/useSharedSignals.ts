@@ -73,12 +73,15 @@ export function useSharedSignals() {
 
       // Create notifications for each recipient
       for (const rid of params.recipientIds) {
+        const link = params.signalType === 'coverage' && params.projectId
+          ? `/projects/${params.projectId}`
+          : '/trends';
         await supabase.from('notifications').insert({
           user_id: rid,
           type: 'shared-signal',
           title: `Signal shared: ${params.signalName}`,
           body: params.note || `A team member shared a ${params.signalType} signal with you.`,
-          link: '/trends',
+          link,
         } as any);
       }
     },

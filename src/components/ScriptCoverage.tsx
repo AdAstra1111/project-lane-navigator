@@ -25,6 +25,7 @@ import { GreatNotesLibrary } from '@/components/GreatNotesLibrary';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { NotesReview } from '@/components/NotesReview';
 import { StructuredNote } from '@/hooks/useNoteFeedback';
+import { ShareSignalDialog } from '@/components/ShareSignalDialog';
 
 const COVERAGE_3PASS_STAGES = [
   { at: 5, label: 'Pass A: Analyst diagnosis…' },
@@ -772,6 +773,11 @@ export function ScriptCoverage({ projectId, projectTitle, format, genres, hasDoc
                 <Button variant="outline" size="sm" className="text-xs gap-1.5" onClick={() => setShowLibrary(true)}>
                   <BookOpen className="h-3 w-3" /> Great Notes Library
                 </Button>
+                <ShareSignalDialog
+                  signalId={selectedRun.id}
+                  signalName={`${projectTitle} — ${selectedRun.draft_label} Coverage`}
+                  signalType="coverage"
+                />
                 <ConfirmDialog
                   title={`Delete "${selectedRun?.draft_label}" coverage?`}
                   description="This will permanently remove this coverage run and all associated feedback. This cannot be undone."
