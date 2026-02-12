@@ -84,6 +84,53 @@ const PRODUCTION_TYPE_PROMPTS: Record<string, string> = {
 - Arc Map: self-contained dramatic arc that serves as both standalone and pilot/opening for larger work`,
 };
 
+function parseSections(text: string): Record<string, string> {
+  const sections: Record<string, string> = {
+    treatment: '',
+    character_bible: '',
+    world_bible: '',
+    tone_doc: '',
+    arc_map: '',
+  };
+
+  const markers = [
+    { key: 'treatment', patterns: ['## TREATMENT', '## Treatment', '# TREATMENT', '# Treatment', '**TREATMENT**', '**Treatment**'] },
+    { key: 'character_bible', patterns: ['## CHARACTER BIBLE', '## Character Bible', '# CHARACTER BIBLE', '# Character Bible', '**CHARACTER BIBLE**', '**Character Bible**'] },
+    { key: 'world_bible', patterns: ['## WORLD BIBLE', '## World Bible', '# WORLD BIBLE', '# World Bible', '**WORLD BIBLE**', '**World Bible**'] },
+    { key: 'tone_doc', patterns: ['## TONE DOC', '## Tone Doc', '# TONE DOC', '# Tone Doc', '**TONE DOC**', '**Tone Doc**', '## TONE DOCUMENT', '## Tone Document'] },
+    { key: 'arc_map', patterns: ['## ARC MAP', '## Arc Map', '# ARC MAP', '# Arc Map', '**ARC MAP**', '**Arc Map**'] },
+  ];
+
+  // Find positions of each section
+  const positions: { key: string; index: number }[] = [];
+  for (const m of markers) {
+    for (const p of m.patterns) {
+      const idx = text.indexOf(p);
+      if (idx !== -1) {
+        positions.push({ key: m.key, index: idx });
+        break;
+      }
+    }
+  }
+
+  positions.sort((a, b) => a.index - b.index);
+
+  for (let i = 0; i < positions.length; i++) {
+    const start = positions[i].index;
+    const end = i + 1 < positions.length ? positions[i + 1].index : text.length;
+    // Skip the header line itself
+    const headerEnd = text.indexOf('\n', start);
+    sections[positions[i].key] = text.slice(headerEnd !== -1 ? headerEnd + 1 : start, end).trim();
+  }
+
+  // Fallback: if no sections found, put everything in treatment
+  if (positions.length === 0) {
+    sections.treatment = text;
+  }
+
+  return sections;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -99,7 +146,13 @@ serve(async (req) => {
 
 ${typePrompt}
 
-CRITICAL RULES:
+CRITICAL FORMAT RULES:
+- Use these exact markdown headers to separate each section:
+  ## TREATMENT
+  ## CHARACTER BIBLE
+  ## WORLD BIBLE
+  ## TONE DOC
+  ## ARC MAP
 - Every output must be specific to this concept — no generic templates
 - Treatment must be detailed narrative prose (8-15 pages equivalent), not bullet points
 - Character bible must include psychological depth, not just descriptions
@@ -120,7 +173,7 @@ RISK LEVEL: ${pitchIdea.risk_level}
 COMPARABLES: ${(pitchIdea.comps || []).join(', ')}
 WHY US: ${pitchIdea.why_us || 'N/A'}
 
-Generate the complete development package.`;
+Generate the complete development package with all five sections using the exact headers specified.`;
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -134,26 +187,7 @@ Generate the complete development package.`;
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
         ],
-        tools: [{
-          type: "function",
-          function: {
-            name: "expansion_package",
-            description: "Return the full concept expansion development package",
-            parameters: {
-              type: "object",
-              properties: {
-                treatment: { type: "string", description: "Full narrative treatment (8-15 pages equivalent in prose)" },
-                character_bible: { type: "string", description: "Detailed character bible with all characters" },
-                world_bible: { type: "string", description: "Complete world bible" },
-                tone_doc: { type: "string", description: "Tone and style document" },
-                arc_map: { type: "string", description: "Complete narrative arc map" },
-              },
-              required: ["treatment", "character_bible", "world_bible", "tone_doc", "arc_map"],
-              additionalProperties: false,
-            },
-          },
-        }],
-        tool_choice: { type: "function", function: { name: "expansion_package" } },
+        max_tokens: 16000,
       }),
     });
 
@@ -166,10 +200,10 @@ Generate the complete development package.`;
     }
 
     const data = await response.json();
-    const toolCall = data.choices?.[0]?.message?.tool_calls?.[0];
-    if (!toolCall) throw new Error("No tool call in response");
+    const content = data.choices?.[0]?.message?.content;
+    if (!content) throw new Error("No content in AI response");
 
-    const expansion = JSON.parse(toolCall.function.arguments);
+    const expansion = parseSections(content);
 
     return new Response(JSON.stringify(expansion), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
