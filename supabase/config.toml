@@ -74,3 +74,6 @@ verify_jwt = false
 
 [functions.analyze-corpus]
 verify_jwt = false
+
+[functions.nightly-corpus-integrity]
+verify_jwt = false
