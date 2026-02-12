@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
-import { FileSearch, Loader2, ThumbsUp, ThumbsDown, Minus, BookOpen, Users2, TrendingUp, Lightbulb, AlertCircle, Film, RotateCw } from 'lucide-react';
+import { FileSearch, Loader2, ThumbsUp, ThumbsDown, Minus, BookOpen, Users2, TrendingUp, Lightbulb, AlertCircle, Film, RotateCw, ChevronDown } from 'lucide-react';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
@@ -179,137 +180,146 @@ export function ScriptCoverage({ projectId, projectTitle, format, genres, hasDoc
   const RecIcon = recStyle.icon;
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="glass-card rounded-xl p-6 space-y-5"
-    >
-      <div className="flex items-center gap-3">
-        <FileSearch className="h-5 w-5 text-primary" />
-        <h3 className="font-display font-semibold text-foreground">Script Coverage</h3>
-      </div>
-
-      {/* Recommendation Badge */}
-      <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg border ${recStyle.bg}`}>
-        <RecIcon className={`h-5 w-5 ${recStyle.color}`} />
-        <span className={`font-display font-bold ${recStyle.color}`}>{coverage.recommendation}</span>
-        <span className="text-sm text-muted-foreground ml-2">{coverage.recommendation_reason}</span>
-      </div>
-
-      {/* Logline */}
-      <div>
-        <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Logline</p>
-        <p className="text-foreground font-medium italic">{coverage.logline}</p>
-      </div>
-
-      {/* Synopsis */}
-      <div>
-        <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Synopsis</p>
-        <p className="text-sm text-muted-foreground leading-relaxed">{coverage.synopsis}</p>
-      </div>
-
-      {/* Themes */}
-      {coverage.themes?.length > 0 && (
-        <div>
-          <div className="flex items-center gap-2 mb-2">
-            <Lightbulb className="h-4 w-4 text-primary" />
-            <p className="text-xs text-muted-foreground uppercase tracking-wider">Themes</p>
+    <Collapsible defaultOpen>
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="glass-card rounded-xl p-6"
+      >
+        <CollapsibleTrigger className="w-full">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <FileSearch className="h-5 w-5 text-primary" />
+              <h3 className="font-display font-semibold text-foreground">Script Coverage</h3>
+              <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs ${recStyle.bg}`}>
+                <RecIcon className={`h-3.5 w-3.5 ${recStyle.color}`} />
+                <span className={`font-bold ${recStyle.color}`}>{coverage.recommendation}</span>
+              </div>
+            </div>
+            <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform [[data-state=open]_&]:rotate-180" />
           </div>
-          <div className="flex flex-wrap gap-2">
-            {coverage.themes.map((t, i) => (
-              <span
-                key={i}
-                className="text-xs px-2.5 py-1 rounded-full bg-primary/10 text-primary border border-primary/20"
-                title={t.description}
-              >
-                {t.name}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
+        </CollapsibleTrigger>
 
-      {/* Structure & Character */}
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div>
-          <div className="flex items-center gap-2 mb-2">
-            <BookOpen className="h-4 w-4 text-primary" />
-            <p className="text-xs text-muted-foreground uppercase tracking-wider">Structure</p>
-          </div>
-          <p className="text-sm text-muted-foreground leading-relaxed">{coverage.structural_analysis}</p>
-        </div>
-        <div>
-          <div className="flex items-center gap-2 mb-2">
-            <Users2 className="h-4 w-4 text-primary" />
-            <p className="text-xs text-muted-foreground uppercase tracking-wider">Characters</p>
-          </div>
-          <p className="text-sm text-muted-foreground leading-relaxed">{coverage.character_analysis}</p>
-        </div>
-      </div>
+        <CollapsibleContent className="space-y-5 mt-5">
+          {/* Recommendation reason */}
+          <p className="text-sm text-muted-foreground">{coverage.recommendation_reason}</p>
 
-      {/* Strengths / Weaknesses */}
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div>
-          <p className="text-xs text-muted-foreground uppercase tracking-wider mb-2">Strengths</p>
-          <ul className="space-y-1.5">
-            {coverage.strengths?.map((s, i) => (
-              <li key={i} className="flex gap-2 text-sm">
-                <span className="text-emerald-400 shrink-0">✓</span>
-                <span className="text-foreground">{s}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-        <div>
-          <p className="text-xs text-muted-foreground uppercase tracking-wider mb-2">Weaknesses</p>
-          <ul className="space-y-1.5">
-            {coverage.weaknesses?.map((w, i) => (
-              <li key={i} className="flex gap-2 text-sm">
-                <AlertCircle className="h-3.5 w-3.5 text-amber-400 shrink-0 mt-0.5" />
-                <span className="text-foreground">{w}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      </div>
-
-      {/* Comparables */}
-      {coverage.comparable_titles?.length > 0 && (
-        <div>
-          <div className="flex items-center gap-2 mb-2">
-            <Film className="h-4 w-4 text-primary" />
-            <p className="text-xs text-muted-foreground uppercase tracking-wider">Comparable Titles</p>
+          {/* Logline */}
+          <div>
+            <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Logline</p>
+            <p className="text-foreground font-medium italic">{coverage.logline}</p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            {coverage.comparable_titles.map((c, i) => (
-              <span
-                key={i}
-                className="text-xs px-2.5 py-1.5 rounded-lg bg-muted/50 text-foreground border border-border/50"
-                title={c.reason}
-              >
-                {c.title}
-              </span>
-            ))}
+
+          {/* Synopsis */}
+          <div>
+            <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Synopsis</p>
+            <p className="text-sm text-muted-foreground leading-relaxed">{coverage.synopsis}</p>
           </div>
-        </div>
-      )}
 
-      {/* Market Positioning */}
-      <div>
-        <div className="flex items-center gap-2 mb-2">
-          <TrendingUp className="h-4 w-4 text-primary" />
-          <p className="text-xs text-muted-foreground uppercase tracking-wider">Market Positioning</p>
-        </div>
-        <p className="text-sm text-muted-foreground leading-relaxed">{coverage.market_positioning}</p>
-      </div>
+          {/* Themes */}
+          {coverage.themes?.length > 0 && (
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <Lightbulb className="h-4 w-4 text-primary" />
+                <p className="text-xs text-muted-foreground uppercase tracking-wider">Themes</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {coverage.themes.map((t, i) => (
+                  <span
+                    key={i}
+                    className="text-xs px-2.5 py-1 rounded-full bg-primary/10 text-primary border border-primary/20"
+                    title={t.description}
+                  >
+                    {t.name}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
 
-      {/* Regenerate */}
-      <div className="pt-2 border-t border-border/50">
-        <Button variant="ghost" size="sm" onClick={handleGenerate} disabled={isLoading}>
-          {isLoading ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <FileSearch className="h-3 w-3 mr-1" />}
-          Regenerate Coverage
-        </Button>
-      </div>
-    </motion.div>
+          {/* Structure & Character */}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <BookOpen className="h-4 w-4 text-primary" />
+                <p className="text-xs text-muted-foreground uppercase tracking-wider">Structure</p>
+              </div>
+              <p className="text-sm text-muted-foreground leading-relaxed">{coverage.structural_analysis}</p>
+            </div>
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <Users2 className="h-4 w-4 text-primary" />
+                <p className="text-xs text-muted-foreground uppercase tracking-wider">Characters</p>
+              </div>
+              <p className="text-sm text-muted-foreground leading-relaxed">{coverage.character_analysis}</p>
+            </div>
+          </div>
+
+          {/* Strengths / Weaknesses */}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <p className="text-xs text-muted-foreground uppercase tracking-wider mb-2">Strengths</p>
+              <ul className="space-y-1.5">
+                {coverage.strengths?.map((s, i) => (
+                  <li key={i} className="flex gap-2 text-sm">
+                    <span className="text-emerald-400 shrink-0">✓</span>
+                    <span className="text-foreground">{s}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground uppercase tracking-wider mb-2">Weaknesses</p>
+              <ul className="space-y-1.5">
+                {coverage.weaknesses?.map((w, i) => (
+                  <li key={i} className="flex gap-2 text-sm">
+                    <AlertCircle className="h-3.5 w-3.5 text-amber-400 shrink-0 mt-0.5" />
+                    <span className="text-foreground">{w}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+
+          {/* Comparables */}
+          {coverage.comparable_titles?.length > 0 && (
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <Film className="h-4 w-4 text-primary" />
+                <p className="text-xs text-muted-foreground uppercase tracking-wider">Comparable Titles</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {coverage.comparable_titles.map((c, i) => (
+                  <span
+                    key={i}
+                    className="text-xs px-2.5 py-1.5 rounded-lg bg-muted/50 text-foreground border border-border/50"
+                    title={c.reason}
+                  >
+                    {c.title}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Market Positioning */}
+          <div>
+            <div className="flex items-center gap-2 mb-2">
+              <TrendingUp className="h-4 w-4 text-primary" />
+              <p className="text-xs text-muted-foreground uppercase tracking-wider">Market Positioning</p>
+            </div>
+            <p className="text-sm text-muted-foreground leading-relaxed">{coverage.market_positioning}</p>
+          </div>
+
+          {/* Regenerate */}
+          <div className="pt-2 border-t border-border/50">
+            <Button variant="ghost" size="sm" onClick={handleGenerate} disabled={isLoading}>
+              {isLoading ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <FileSearch className="h-3 w-3 mr-1" />}
+              Regenerate Coverage
+            </Button>
+          </div>
+        </CollapsibleContent>
+      </motion.div>
+    </Collapsible>
   );
 }
