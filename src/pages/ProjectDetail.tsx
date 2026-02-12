@@ -370,6 +370,8 @@ export default function ProjectDetail() {
             financeScenarios={financeScenarios}
             scheduleMetrics={scheduleMetrics}
             scriptText={scriptText}
+            hods={hods}
+            budgetLines={[]}
             onIncentiveAnalysed={setIncentiveAnalysedThisSession}
             stageReadiness={preProReadiness}
           />
