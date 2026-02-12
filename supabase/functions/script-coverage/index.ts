@@ -127,13 +127,18 @@ serve(async (req) => {
     // =========== PASS B: PRODUCER (final coverage + structured notes) ===========
     const passBSystem = promptVersion.producer_prompt + `
 
-ALSO include a "structured_notes" JSON array at the end of your response inside a \`\`\`json block.
+CRITICAL FORMAT INSTRUCTIONS:
+1. Write your ENTIRE coverage report in plain English prose with markdown headings (##) and bullet points.
+2. Start with the verdict line: **VERDICT: RECOMMEND** or **VERDICT: CONSIDER** or **VERDICT: PASS**
+3. Include sections: Logline, Summary, Strengths, Areas for Improvement, Key Diagnostics, Market Assessment.
+4. DO NOT return JSON for the main coverage. Write it as a readable document a producer would expect.
+5. AFTER the prose coverage, include a "structured_notes" JSON array inside a \`\`\`json block.
 Each note: {"note_id":"N-001","section":"string","category":"structure|character|dialogue|theme|market|pacing|stakes|tone","priority":1-3,"title":"short","note_text":"full note","prescription":"what to do","tags":["act1"]}`;
 
     const passBResult = await callAI(
       LOVABLE_API_KEY,
       passBSystem,
-      `${projectMeta}\n\nANALYST DIAGNOSTICS:\n${passAResult}\n\nProduce FINAL COVERAGE with verdict (RECOMMEND/CONSIDER/PASS).`,
+      `${projectMeta}\n\nANALYST DIAGNOSTICS:\n${passAResult}\n\nWrite a FINAL COVERAGE REPORT in plain English prose (not JSON) with verdict (RECOMMEND/CONSIDER/PASS). Use markdown headings and bullet points.`,
       0.3
     );
     console.log(`[coverage] B done ${Date.now() - t0}ms`);
@@ -250,7 +255,26 @@ Each note: {"note_id":"N-001","section":"string","category":"structure|character
     }
     
     if (!finalCoverage || finalCoverage.length < 20) {
-      finalCoverage = passBResult; // fallback: show raw if stripping removed too much
+      // Last resort: generate minimal coverage from whatever we have
+      if (parsed) {
+        const fallbackParts: string[] = ['**VERDICT: CONSIDER**\n'];
+        // Pull any text fields from the parsed object
+        for (const [key, val] of Object.entries(parsed)) {
+          if (typeof val === 'string' && val.length > 20 && key !== 'structured_notes') {
+            fallbackParts.push(`**${key.replace(/_/g, ' ')}:** ${val}\n`);
+          }
+          if (Array.isArray(val) && val.length > 0 && typeof val[0] === 'object') {
+            fallbackParts.push(`\n## ${key.replace(/_/g, ' ')}`);
+            for (const item of val.slice(0, 10)) {
+              const text = item.finding || item.diagnosis || item.note_text || JSON.stringify(item);
+              fallbackParts.push(`- ${text}`);
+            }
+          }
+        }
+        finalCoverage = fallbackParts.join('\n');
+      } else {
+        finalCoverage = '**VERDICT: CONSIDER**\n\nCoverage analysis completed but output could not be formatted. Please check the Analysis Passes tab for raw results.';
+      }
     }
     
     const recommendation = finalCoverage.match(/RECOMMEND|CONSIDER|PASS/)?.[0] || "CONSIDER";
