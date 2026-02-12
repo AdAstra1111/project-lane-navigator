@@ -804,34 +804,58 @@ serve(async (req) => {
       const draftNum = scriptRow.draft_number || 1;
       const safeTitle = (project.title || "Untitled").replace(/[^a-zA-Z0-9 _-]/g, "").replace(/\s+/g, "_");
 
-      // Try assembled file first, then concatenate batches
-      const assembledPath = `scripts/${projectId}/v${scriptVersion}/${safeTitle}_Draft_${draftNum}.txt`;
+      // Strategy: try latest_batch_storage_path first, then assembled file, then batch files for each draft number
       let fullText = "";
 
-      const { data: assembledFile } = await supabase.storage.from("scripts").download(assembledPath);
-      if (assembledFile) {
-        fullText = await assembledFile.text();
-        console.log(`[import-to-docs] Found assembled draft: ${fullText.length} chars`);
+      // 1) Try downloading from latest_batch_storage_path directly
+      if (scriptRow.latest_batch_storage_path) {
+        const { data: latestFile } = await supabase.storage.from("scripts").download(scriptRow.latest_batch_storage_path);
+        if (latestFile) {
+          fullText = await latestFile.text();
+          console.log(`[import-to-docs] Got text from latest_batch_storage_path: ${fullText.length} chars`);
+        }
       }
 
+      // 2) Try script_versions with full_text_storage_path (most recent first)
       if (!fullText) {
-        // Concatenate batch files
+        const { data: svRows } = await supabase.from("script_versions")
+          .select("full_text_storage_path")
+          .eq("script_id", scriptId)
+          .not("full_text_storage_path", "is", null)
+          .order("created_at", { ascending: false })
+          .limit(5);
+
+        for (const sv of (svRows || [])) {
+          if (!sv.full_text_storage_path) continue;
+          const { data: svFile } = await supabase.storage.from("scripts").download(sv.full_text_storage_path);
+          if (svFile) {
+            fullText = await svFile.text();
+            console.log(`[import-to-docs] Got text from script_version path: ${fullText.length} chars`);
+            break;
+          }
+        }
+      }
+
+      // 3) List ALL files in the scripts directory and concatenate batch files (any draft number)
+      if (!fullText) {
         const batchDir = `scripts/${projectId}/v${scriptVersion}/`;
-        const { data: batchFiles } = await supabase.storage.from("scripts")
+        const { data: allFiles } = await supabase.storage.from("scripts")
           .list(batchDir, { sortBy: { column: "name", order: "asc" } });
 
-        const draftBatches = (batchFiles || [])
-          .filter((f: any) => f.name.includes(`Draft_${draftNum}_Batch_`))
+        const allBatches = (allFiles || [])
+          .filter((f: any) => f.name.includes(`_Batch_`) || f.name.includes(`_Rewrite_`))
           .sort((a: any, b: any) => a.name.localeCompare(b.name));
 
-        for (const file of draftBatches) {
+        console.log(`[import-to-docs] Found ${allBatches.length} files in ${batchDir}`);
+
+        for (const file of allBatches) {
           const { data: fileData } = await supabase.storage.from("scripts").download(`${batchDir}${file.name}`);
           if (fileData) {
             const text = await fileData.text();
             fullText += (fullText ? "\n\n" : "") + text;
           }
         }
-        console.log(`[import-to-docs] Assembled from ${draftBatches.length} batches: ${fullText.length} chars`);
+        console.log(`[import-to-docs] Assembled from files: ${fullText.length} chars`);
       }
 
       if (!fullText) throw new Error("No draft text found to import");
