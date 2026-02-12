@@ -9,7 +9,7 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const { productionType, genre, budgetBand, region, platformTarget, riskLevel, count, coverageContext, feedbackContext } = await req.json();
+    const { productionType, genre, subgenre, budgetBand, region, platformTarget, audienceDemo, riskLevel, count, coverageContext, feedbackContext, briefNotes } = await req.json();
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
@@ -23,21 +23,34 @@ serve(async (req) => {
       ? `\n\nPREVIOUS USER FEEDBACK (use to improve ranking and style):\n${JSON.stringify(feedbackContext)}`
       : "";
 
+    const notesSection = briefNotes ? `\n\nADDITIONAL BRIEF NOTES FROM PRODUCER:\n${briefNotes}` : "";
+
     const systemPrompt = `You are IFFY's Development Pitch Engine — an expert development executive who generates production-ready concept pitches for the entertainment industry.
 
 PRODUCTION TYPE: ${typeLabel}
 ALL outputs MUST be strictly constrained to this production type. Do not suggest formats, budgets, distribution, or packaging strategies that don't apply to ${typeLabel}.
 
-Generate exactly ${count || 3} ranked development concepts.${coverageSection}${feedbackSection}
+Generate exactly ${count || 3} ranked development concepts.${coverageSection}${feedbackSection}${notesSection}
+
+For each idea, you MUST also provide weighted scores (0-100 each) for:
+- market_heat: How hot is this genre/concept in the current market
+- feasibility: How realistic is this to produce given budget and constraints
+- lane_fit: How well does this match the recommended monetisation lane
+- saturation_risk: INVERSE score — high = low saturation (good), low = oversaturated market
+- company_fit: How well this suits an independent producer's strengths
+
+The total_score should be calculated as: (market_heat × 0.30) + (feasibility × 0.25) + (lane_fit × 0.20) + (saturation_risk × 0.15) + (company_fit × 0.10)
+
+RANK ideas by total_score descending.
 
 For each idea, you MUST call the submit_pitches function with the structured output.`;
 
     const userPrompt = `Generate ${count || 3} ranked pitch ideas with these filters:
 - Production Type: ${typeLabel}
-- Genre: ${genre || "any"}
+- Genre: ${genre || "any"}${subgenre ? `\n- Subgenre: ${subgenre}` : ""}
 - Budget Band: ${budgetBand || "any"}
 - Region: ${region || "global"}
-- Platform Target: ${platformTarget || "any"}
+- Platform Target: ${platformTarget || "any"}${audienceDemo ? `\n- Audience Demo: ${audienceDemo}` : ""}
 - Risk Level: ${riskLevel || "medium"}
 ${coverageContext ? "\nMode: Coverage Transformer — pivot the existing coverage into new concepts." : "Mode: Greenlight Radar — generate fresh original concepts."}`;
 
@@ -58,7 +71,7 @@ ${coverageContext ? "\nMode: Coverage Transformer — pivot the existing coverag
             type: "function",
             function: {
               name: "submit_pitches",
-              description: "Submit generated pitch ideas",
+              description: "Submit generated pitch ideas with scoring",
               parameters: {
                 type: "object",
                 properties: {
@@ -116,9 +129,15 @@ ${coverageContext ? "\nMode: Coverage Transformer — pivot the existing coverag
                           }
                         },
                         why_us: { type: "string", description: "Why this team/company should make this" },
-                        risk_level: { type: "string", enum: ["low", "medium", "high"] }
+                        risk_level: { type: "string", enum: ["low", "medium", "high"] },
+                        score_market_heat: { type: "number", description: "0-100 market heat score" },
+                        score_feasibility: { type: "number", description: "0-100 feasibility score" },
+                        score_lane_fit: { type: "number", description: "0-100 lane fit score" },
+                        score_saturation_risk: { type: "number", description: "0-100 inverse saturation score" },
+                        score_company_fit: { type: "number", description: "0-100 company fit score" },
+                        score_total: { type: "number", description: "Weighted total score" }
                       },
-                      required: ["title", "logline", "one_page_pitch", "comps", "recommended_lane", "lane_confidence", "budget_band", "genre", "packaging_suggestions", "development_sprint", "risks_mitigations", "why_us", "risk_level"],
+                      required: ["title", "logline", "one_page_pitch", "comps", "recommended_lane", "lane_confidence", "budget_band", "genre", "packaging_suggestions", "development_sprint", "risks_mitigations", "why_us", "risk_level", "score_market_heat", "score_feasibility", "score_lane_fit", "score_saturation_risk", "score_company_fit", "score_total"],
                       additionalProperties: false
                     }
                   }

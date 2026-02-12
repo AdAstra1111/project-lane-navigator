@@ -1,41 +1,21 @@
 import { useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { Lightbulb, Radar, RefreshCw, Loader2, Download, Filter, X } from 'lucide-react';
+import { Lightbulb, Radar, RefreshCw, Loader2, Download, X } from 'lucide-react';
 import { Header } from '@/components/Header';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { PitchIdeaCard } from '@/components/PitchIdeaCard';
+import { DevelopmentBriefBuilder } from '@/components/DevelopmentBriefBuilder';
 import { usePitchIdeas, type PitchIdea } from '@/hooks/usePitchIdeas';
 import { useProjects } from '@/hooks/useProjects';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import jsPDF from 'jspdf';
-import { GENRES, BUDGET_RANGES } from '@/lib/constants';
-import { LANE_LABELS, type MonetisationLane } from '@/lib/types';
-
-const PRODUCTION_TYPES = [
-  { value: 'film', label: 'Film' },
-  { value: 'tv-series', label: 'TV Series' },
-  { value: 'documentary', label: 'Documentary' },
-  { value: 'short-film', label: 'Short Film' },
-  { value: 'digital-series', label: 'Digital Series' },
-  { value: 'commercial', label: 'Commercial / Advert' },
-  { value: 'branded-content', label: 'Branded Content' },
-  { value: 'vertical-drama', label: 'Vertical Drama' },
-];
-
-const RISK_LEVELS = [
-  { value: 'low', label: 'Low Risk' },
-  { value: 'medium', label: 'Medium Risk' },
-  { value: 'high', label: 'High Risk' },
-];
-
-const REGIONS = ['Global', 'North America', 'Europe', 'UK', 'Asia-Pacific', 'Latin America', 'Middle East & Africa'];
-const PLATFORMS = ['Any', 'Theatrical', 'Netflix', 'Amazon', 'Apple TV+', 'HBO/Max', 'Disney+', 'Broadcast', 'YouTube', 'TikTok/Mobile', 'FAST'];
+import type { DevelopmentBrief } from '@/hooks/useDevelopmentBriefs';
 
 export default function PitchIdeas() {
   const { user } = useAuth();
@@ -43,28 +23,21 @@ export default function PitchIdeas() {
   const { projects } = useProjects();
   const [generating, setGenerating] = useState(false);
   const [mode, setMode] = useState<'greenlight' | 'coverage-transform'>('greenlight');
-  const [showFilters, setShowFilters] = useState(false);
   const [selectedProject, setSelectedProject] = useState<string>('');
-
-  // Filters
-  const [productionType, setProductionType] = useState('film');
-  const [genre, setGenre] = useState('');
-  const [budgetBand, setBudgetBand] = useState('');
-  const [lane, setLane] = useState('');
-  const [region, setRegion] = useState('');
-  const [platformTarget, setPlatformTarget] = useState('');
-  const [riskLevel, setRiskLevel] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [typeFilter, setTypeFilter] = useState('');
 
   const filteredIdeas = useMemo(() => {
-    return ideas.filter(i => {
-      if (statusFilter && i.status !== statusFilter) return false;
-      if (productionType && i.production_type !== productionType) return false;
-      return true;
-    });
-  }, [ideas, statusFilter, productionType]);
+    return ideas
+      .filter(i => {
+        if (statusFilter && i.status !== statusFilter) return false;
+        if (typeFilter && i.production_type !== typeFilter) return false;
+        return true;
+      })
+      .sort((a, b) => (Number(b.score_total) || 0) - (Number(a.score_total) || 0));
+  }, [ideas, statusFilter, typeFilter]);
 
-  const generate = async () => {
+  const generate = async (brief: DevelopmentBrief) => {
     setGenerating(true);
     try {
       let coverageContext: string | undefined;
@@ -77,12 +50,15 @@ export default function PitchIdeas() {
 
       const { data, error } = await supabase.functions.invoke('generate-pitch', {
         body: {
-          productionType,
-          genre,
-          budgetBand,
-          region,
-          platformTarget,
-          riskLevel,
+          productionType: brief.production_type,
+          genre: brief.genre,
+          subgenre: brief.subgenre,
+          budgetBand: brief.budget_band,
+          region: brief.region,
+          platformTarget: brief.platform_target,
+          audienceDemo: brief.audience_demo,
+          riskLevel: brief.risk_appetite,
+          briefNotes: brief.notes,
           count: 3,
           coverageContext,
         },
@@ -95,24 +71,31 @@ export default function PitchIdeas() {
       for (const idea of pitchIdeas) {
         await save({
           mode,
-          production_type: productionType,
+          production_type: brief.production_type,
+          brief_id: brief.id,
           title: idea.title,
           logline: idea.logline,
           one_page_pitch: idea.one_page_pitch,
           comps: idea.comps || [],
           recommended_lane: idea.recommended_lane || '',
           lane_confidence: idea.lane_confidence || 0,
-          budget_band: idea.budget_band || budgetBand,
+          budget_band: idea.budget_band || brief.budget_band,
           packaging_suggestions: idea.packaging_suggestions || [],
           development_sprint: idea.development_sprint || [],
           risks_mitigations: idea.risks_mitigations || [],
           why_us: idea.why_us || '',
-          genre: idea.genre || genre,
-          region: region,
-          platform_target: platformTarget,
-          risk_level: idea.risk_level || riskLevel || 'medium',
+          genre: idea.genre || brief.genre,
+          region: brief.region,
+          platform_target: brief.platform_target,
+          risk_level: idea.risk_level || brief.risk_appetite || 'medium',
           project_id: selectedProject || null,
           raw_response: idea,
+          score_market_heat: idea.score_market_heat || 0,
+          score_feasibility: idea.score_feasibility || 0,
+          score_lane_fit: idea.score_lane_fit || 0,
+          score_saturation_risk: idea.score_saturation_risk || 0,
+          score_company_fit: idea.score_company_fit || 0,
+          score_total: idea.score_total || 0,
         });
       }
       toast.success(`${pitchIdeas.length} ideas generated`);
@@ -131,13 +114,15 @@ export default function PitchIdeas() {
     y += 12;
 
     for (const idea of filteredIdeas) {
-      if (y > 260) { doc.addPage(); y = 20; }
+      if (y > 250) { doc.addPage(); y = 20; }
       doc.setFontSize(14);
       doc.text(idea.title, 14, y); y += 7;
       doc.setFontSize(10);
       const logLines = doc.splitTextToSize(idea.logline, 180);
       doc.text(logLines, 14, y); y += logLines.length * 5 + 3;
-      doc.text(`Lane: ${idea.recommended_lane} (${idea.lane_confidence}%) | Budget: ${idea.budget_band} | Risk: ${idea.risk_level}`, 14, y);
+      doc.text(`Score: ${Number(idea.score_total).toFixed(0)} | Lane: ${idea.recommended_lane} (${idea.lane_confidence}%) | Budget: ${idea.budget_band} | Risk: ${idea.risk_level}`, 14, y);
+      y += 5;
+      doc.text(`  Market: ${idea.score_market_heat} | Feasibility: ${idea.score_feasibility} | Lane Fit: ${idea.score_lane_fit} | Saturation: ${idea.score_saturation_risk} | Company: ${idea.score_company_fit}`, 14, y);
       y += 7;
       const pitchLines = doc.splitTextToSize(idea.one_page_pitch, 180);
       doc.text(pitchLines, 14, y); y += pitchLines.length * 5 + 5;
@@ -168,20 +153,14 @@ export default function PitchIdeas() {
               <Lightbulb className="h-7 w-7 text-primary" />
               Pitch Ideas
             </h1>
-            <p className="text-muted-foreground mt-1">AI-powered development concepts ranked by market viability</p>
+            <p className="text-muted-foreground mt-1">AI-powered development concepts ranked by weighted viability scoring</p>
           </div>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => setShowFilters(!showFilters)}>
-              <Filter className="h-4 w-4 mr-1" />
-              Filters
+          {filteredIdeas.length > 0 && (
+            <Button variant="outline" size="sm" onClick={exportPDF}>
+              <Download className="h-4 w-4 mr-1" />
+              Export PDF
             </Button>
-            {filteredIdeas.length > 0 && (
-              <Button variant="outline" size="sm" onClick={exportPDF}>
-                <Download className="h-4 w-4 mr-1" />
-                Export PDF
-              </Button>
-            )}
-          </div>
+          )}
         </div>
 
         {/* Mode tabs */}
@@ -198,19 +177,10 @@ export default function PitchIdeas() {
           </TabsList>
 
           <TabsContent value="greenlight" className="mt-4">
-            <Card className="border-border/50">
-              <CardContent className="pt-5 space-y-4">
-                <p className="text-sm text-muted-foreground">Generate fresh development concepts based on current market trends, genre cycles, and your filters.</p>
-                {showFilters && <FiltersPanel {...{ productionType, setProductionType, genre, setGenre, budgetBand, setBudgetBand, lane, setLane, region, setRegion, platformTarget, setPlatformTarget, riskLevel, setRiskLevel }} />}
-                <Button onClick={generate} disabled={generating} className="gap-2">
-                  {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Radar className="h-4 w-4" />}
-                  {generating ? 'Generating…' : 'Generate Ideas'}
-                </Button>
-              </CardContent>
-            </Card>
+            <DevelopmentBriefBuilder onGenerate={generate} generating={generating} />
           </TabsContent>
 
-          <TabsContent value="coverage-transform" className="mt-4">
+          <TabsContent value="coverage-transform" className="mt-4 space-y-4">
             <Card className="border-border/50">
               <CardContent className="pt-5 space-y-4">
                 <p className="text-sm text-muted-foreground">Transform an existing project's coverage into pivot pitches — new angles on existing IP.</p>
@@ -224,13 +194,9 @@ export default function PitchIdeas() {
                     ))}
                   </SelectContent>
                 </Select>
-                {showFilters && <FiltersPanel {...{ productionType, setProductionType, genre, setGenre, budgetBand, setBudgetBand, lane, setLane, region, setRegion, platformTarget, setPlatformTarget, riskLevel, setRiskLevel }} />}
-                <Button onClick={generate} disabled={generating || !selectedProject} className="gap-2">
-                  {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                  {generating ? 'Generating…' : 'Generate Pivots'}
-                </Button>
               </CardContent>
             </Card>
+            <DevelopmentBriefBuilder onGenerate={generate} generating={generating || !selectedProject} />
           </TabsContent>
         </Tabs>
 
@@ -243,7 +209,7 @@ export default function PitchIdeas() {
               className="cursor-pointer"
               onClick={() => setStatusFilter(s)}
             >
-              {s || 'All'} {s ? `(${ideas.filter(i => i.status === s && (!productionType || i.production_type === productionType)).length})` : `(${ideas.filter(i => !productionType || i.production_type === productionType).length})`}
+              {s || 'All'} ({ideas.filter(i => s ? i.status === s : true).length})
             </Badge>
           ))}
         </div>
@@ -255,7 +221,7 @@ export default function PitchIdeas() {
           <Card className="border-border/30">
             <CardContent className="py-12 text-center text-muted-foreground">
               <Lightbulb className="h-10 w-10 mx-auto mb-3 opacity-40" />
-              <p>No pitch ideas yet. Generate some above!</p>
+              <p>No pitch ideas yet. Complete a brief above to generate ideas.</p>
             </CardContent>
           </Card>
         ) : (
@@ -272,60 +238,6 @@ export default function PitchIdeas() {
           </div>
         )}
       </motion.main>
-    </div>
-  );
-}
-
-// Filters sub-component
-function FiltersPanel({ productionType, setProductionType, genre, setGenre, budgetBand, setBudgetBand, lane, setLane, region, setRegion, platformTarget, setPlatformTarget, riskLevel, setRiskLevel }: any) {
-  return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 p-4 rounded-lg border border-border/30 bg-muted/30">
-      <Select value={productionType} onValueChange={setProductionType}>
-        <SelectTrigger><SelectValue placeholder="Production Type" /></SelectTrigger>
-        <SelectContent>{PRODUCTION_TYPES.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}</SelectContent>
-      </Select>
-      <Select value={genre} onValueChange={setGenre}>
-        <SelectTrigger><SelectValue placeholder="Genre" /></SelectTrigger>
-        <SelectContent>
-          <SelectItem value="">Any Genre</SelectItem>
-          {GENRES.map(g => <SelectItem key={g} value={g}>{g}</SelectItem>)}
-        </SelectContent>
-      </Select>
-      <Select value={budgetBand} onValueChange={setBudgetBand}>
-        <SelectTrigger><SelectValue placeholder="Budget" /></SelectTrigger>
-        <SelectContent>
-          <SelectItem value="">Any Budget</SelectItem>
-          {BUDGET_RANGES.map(b => <SelectItem key={b.value} value={b.value}>{b.label}</SelectItem>)}
-        </SelectContent>
-      </Select>
-      <Select value={lane} onValueChange={setLane}>
-        <SelectTrigger><SelectValue placeholder="Lane" /></SelectTrigger>
-        <SelectContent>
-          <SelectItem value="">Any Lane</SelectItem>
-          {Object.entries(LANE_LABELS).map(([k, v]) => <SelectItem key={k} value={k}>{v}</SelectItem>)}
-        </SelectContent>
-      </Select>
-      <Select value={region} onValueChange={setRegion}>
-        <SelectTrigger><SelectValue placeholder="Region" /></SelectTrigger>
-        <SelectContent>
-          <SelectItem value="">Global</SelectItem>
-          {REGIONS.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}
-        </SelectContent>
-      </Select>
-      <Select value={platformTarget} onValueChange={setPlatformTarget}>
-        <SelectTrigger><SelectValue placeholder="Platform" /></SelectTrigger>
-        <SelectContent>
-          <SelectItem value="">Any</SelectItem>
-          {PLATFORMS.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}
-        </SelectContent>
-      </Select>
-      <Select value={riskLevel} onValueChange={setRiskLevel}>
-        <SelectTrigger><SelectValue placeholder="Risk Level" /></SelectTrigger>
-        <SelectContent>
-          <SelectItem value="">Any</SelectItem>
-          {RISK_LEVELS.map(r => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}
-        </SelectContent>
-      </Select>
     </div>
   );
 }

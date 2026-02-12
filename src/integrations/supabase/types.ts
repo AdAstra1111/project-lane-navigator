@@ -739,6 +739,63 @@ export type Database = {
         }
         Relationships: []
       }
+      development_briefs: {
+        Row: {
+          audience_demo: string | null
+          budget_band: string | null
+          created_at: string
+          genre: string
+          id: string
+          lane_preference: string | null
+          name: string
+          notes: string | null
+          platform_target: string | null
+          production_type: string
+          region: string | null
+          risk_appetite: string | null
+          status: string
+          subgenre: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          audience_demo?: string | null
+          budget_band?: string | null
+          created_at?: string
+          genre: string
+          id?: string
+          lane_preference?: string | null
+          name?: string
+          notes?: string | null
+          platform_target?: string | null
+          production_type: string
+          region?: string | null
+          risk_appetite?: string | null
+          status?: string
+          subgenre?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          audience_demo?: string | null
+          budget_band?: string | null
+          created_at?: string
+          genre?: string
+          id?: string
+          lane_preference?: string | null
+          name?: string
+          notes?: string | null
+          platform_target?: string | null
+          production_type?: string
+          region?: string | null
+          risk_appetite?: string | null
+          status?: string
+          subgenre?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       edit_versions: {
         Row: {
           created_at: string
@@ -1228,6 +1285,7 @@ export type Database = {
       }
       pitch_ideas: {
         Row: {
+          brief_id: string | null
           budget_band: string
           comps: string[]
           created_at: string
@@ -1247,6 +1305,12 @@ export type Database = {
           region: string
           risk_level: string
           risks_mitigations: Json
+          score_company_fit: number | null
+          score_feasibility: number | null
+          score_lane_fit: number | null
+          score_market_heat: number | null
+          score_saturation_risk: number | null
+          score_total: number | null
           source_coverage_run_id: string | null
           status: string
           title: string
@@ -1255,6 +1319,7 @@ export type Database = {
           why_us: string
         }
         Insert: {
+          brief_id?: string | null
           budget_band?: string
           comps?: string[]
           created_at?: string
@@ -1274,6 +1339,12 @@ export type Database = {
           region?: string
           risk_level?: string
           risks_mitigations?: Json
+          score_company_fit?: number | null
+          score_feasibility?: number | null
+          score_lane_fit?: number | null
+          score_market_heat?: number | null
+          score_saturation_risk?: number | null
+          score_total?: number | null
           source_coverage_run_id?: string | null
           status?: string
           title?: string
@@ -1282,6 +1353,7 @@ export type Database = {
           why_us?: string
         }
         Update: {
+          brief_id?: string | null
           budget_band?: string
           comps?: string[]
           created_at?: string
@@ -1301,6 +1373,12 @@ export type Database = {
           region?: string
           risk_level?: string
           risks_mitigations?: Json
+          score_company_fit?: number | null
+          score_feasibility?: number | null
+          score_lane_fit?: number | null
+          score_market_heat?: number | null
+          score_saturation_risk?: number | null
+          score_total?: number | null
           source_coverage_run_id?: string | null
           status?: string
           title?: string
@@ -1309,6 +1387,13 @@ export type Database = {
           why_us?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "pitch_ideas_brief_id_fkey"
+            columns: ["brief_id"]
+            isOneToOne: false
+            referencedRelation: "development_briefs"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "pitch_ideas_project_id_fkey"
             columns: ["project_id"]

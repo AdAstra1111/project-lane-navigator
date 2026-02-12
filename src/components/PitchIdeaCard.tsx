@@ -110,6 +110,11 @@ export function PitchIdeaCard({ idea, onDelete, onUpdate, onLinkProject, rank }:
           </div>
         </div>
         <div className="flex flex-wrap gap-1.5 mt-3">
+          {Number(idea.score_total) > 0 && (
+            <Badge variant="default" className="text-xs font-bold">
+              Score: {Number(idea.score_total).toFixed(0)}
+            </Badge>
+          )}
           <Badge variant="secondary" className="text-xs">{idea.genre}</Badge>
           <Badge variant="outline" className="text-xs">{idea.budget_band}</Badge>
           <Badge variant="outline" className="text-xs">{laneLabel} ({idea.lane_confidence}%)</Badge>
@@ -117,6 +122,16 @@ export function PitchIdeaCard({ idea, onDelete, onUpdate, onLinkProject, rank }:
             Risk: {idea.risk_level}
           </Badge>
         </div>
+        {/* Score breakdown */}
+        {Number(idea.score_total) > 0 && (
+          <div className="flex flex-wrap gap-3 mt-2 text-xs text-muted-foreground">
+            <span>Market Heat: <span className="font-medium text-foreground">{Number(idea.score_market_heat).toFixed(0)}</span></span>
+            <span>Feasibility: <span className="font-medium text-foreground">{Number(idea.score_feasibility).toFixed(0)}</span></span>
+            <span>Lane Fit: <span className="font-medium text-foreground">{Number(idea.score_lane_fit).toFixed(0)}</span></span>
+            <span>Saturation: <span className="font-medium text-foreground">{Number(idea.score_saturation_risk).toFixed(0)}</span></span>
+            <span>Company Fit: <span className="font-medium text-foreground">{Number(idea.score_company_fit).toFixed(0)}</span></span>
+          </div>
+        )}
       </CardHeader>
 
       <CardContent className="pt-0 space-y-4">
