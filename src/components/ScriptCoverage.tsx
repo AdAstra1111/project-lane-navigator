@@ -708,29 +708,36 @@ export function ScriptCoverage({ projectId, projectTitle, format, genres, hasDoc
 
   if (!selectedRun) {
     return (
-      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="glass-card rounded-xl p-6">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <FileSearch className="h-5 w-5 text-primary" />
-            <div>
-              <h3 className="font-display font-semibold text-foreground">Script Coverage</h3>
-              <p className="text-sm text-muted-foreground">3-pass AI coverage: Analyst → Producer → QC</p>
+      <Collapsible defaultOpen={false}>
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="glass-card rounded-xl p-6">
+          <CollapsibleTrigger className="w-full">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <FileSearch className="h-5 w-5 text-primary" />
+                <div className="text-left">
+                  <h3 className="font-display font-semibold text-foreground">Script Coverage</h3>
+                  <p className="text-sm text-muted-foreground">3-pass AI coverage: Analyst → Producer → QC</p>
+                </div>
+              </div>
+              <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform duration-200 [[data-state=open]_&]:rotate-180" />
             </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <Input value={draftLabel} onChange={e => setDraftLabel(e.target.value)} placeholder="Draft label…" className="h-8 w-32 text-xs" />
-            <Button variant="outline" size="sm" onClick={() => extract.mutate()} disabled={extract.isPending} className="text-xs gap-1.5">
-              <RotateCw className={`h-3 w-3 ${extract.isPending ? 'animate-spin' : ''}`} />
-              Extract Text
-            </Button>
-            <Button onClick={handleGenerate} disabled={isLoading}>
-              {isLoading ? <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" />Analysing…</> : <><FileSearch className="h-4 w-4 mr-1.5" />Generate Coverage</>}
-            </Button>
-          </div>
-        </div>
-        <OperationProgress isActive={extract.isPending} stages={EXTRACT_STAGES} />
-        <OperationProgress isActive={isLoading} stages={COVERAGE_3PASS_STAGES} />
-      </motion.div>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <div className="flex items-center gap-2 mt-4">
+              <Input value={draftLabel} onChange={e => setDraftLabel(e.target.value)} placeholder="Draft label…" className="h-8 w-32 text-xs" />
+              <Button variant="outline" size="sm" onClick={() => extract.mutate()} disabled={extract.isPending} className="text-xs gap-1.5">
+                <RotateCw className={`h-3 w-3 ${extract.isPending ? 'animate-spin' : ''}`} />
+                Extract Text
+              </Button>
+              <Button onClick={handleGenerate} disabled={isLoading}>
+                {isLoading ? <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" />Analysing…</> : <><FileSearch className="h-4 w-4 mr-1.5" />Generate Coverage</>}
+              </Button>
+            </div>
+            <OperationProgress isActive={extract.isPending} stages={EXTRACT_STAGES} />
+            <OperationProgress isActive={isLoading} stages={COVERAGE_3PASS_STAGES} />
+          </CollapsibleContent>
+        </motion.div>
+      </Collapsible>
     );
   }
 
