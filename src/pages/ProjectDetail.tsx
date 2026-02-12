@@ -377,7 +377,14 @@ export default function ProjectDetail() {
           />
         );
       case 'production':
-        return <ProductionStage projectId={id!} stageReadiness={prodReadiness} />;
+        return (
+          <ProductionStage
+            projectId={id!}
+            totalPlannedScenes={scheduleMetrics.totalScenes || 0}
+            totalShootDays={scheduleMetrics.shootDayCount || 0}
+            stageReadiness={prodReadiness}
+          />
+        );
       case 'post-production':
         return <PostProductionStage projectId={id!} stageReadiness={postReadiness} />;
       case 'sales-delivery':
