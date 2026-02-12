@@ -201,11 +201,6 @@ export default function Dashboard() {
             <>
               <DailyBriefing projects={projects} projectScores={projectScores} />
               <OnboardingChecklist projectCount={projects.length} />
-              <SlateMomentum projects={projects} projectScores={projectScores} />
-              <CrossProjectIntelligence projects={projects} projectScores={projectScores} />
-              <DashboardAnalytics projects={projects} />
-              <DashboardCountdowns projectTitleMap={Object.fromEntries(projects.map(p => [p.id, p.title]))} />
-              <DashboardActivityFeed />
               {roleView !== 'none' && (
                 <RoleDashboard projects={projects} role={roleView as any} />
               )}
@@ -223,6 +218,11 @@ export default function Dashboard() {
                   />
                 ))}
               </div>
+              <SlateMomentum projects={projects} projectScores={projectScores} />
+              <CrossProjectIntelligence projects={projects} projectScores={projectScores} />
+              <DashboardAnalytics projects={projects} />
+              <DashboardCountdowns projectTitleMap={Object.fromEntries(projects.map(p => [p.id, p.title]))} />
+              <DashboardActivityFeed />
             </>
           )}
         </motion.div>
