@@ -1188,6 +1188,143 @@ export type Database = {
           },
         ]
       }
+      pitch_feedback: {
+        Row: {
+          created_at: string
+          direction: string | null
+          id: string
+          pitch_idea_id: string
+          rating: string
+          tags: string[]
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          direction?: string | null
+          id?: string
+          pitch_idea_id: string
+          rating: string
+          tags?: string[]
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          direction?: string | null
+          id?: string
+          pitch_idea_id?: string
+          rating?: string
+          tags?: string[]
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pitch_feedback_pitch_idea_id_fkey"
+            columns: ["pitch_idea_id"]
+            isOneToOne: false
+            referencedRelation: "pitch_ideas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pitch_ideas: {
+        Row: {
+          budget_band: string
+          comps: string[]
+          created_at: string
+          development_sprint: Json
+          genre: string
+          id: string
+          lane_confidence: number
+          logline: string
+          mode: string
+          one_page_pitch: string
+          packaging_suggestions: Json
+          platform_target: string
+          production_type: string
+          project_id: string | null
+          raw_response: Json | null
+          recommended_lane: string
+          region: string
+          risk_level: string
+          risks_mitigations: Json
+          source_coverage_run_id: string | null
+          status: string
+          title: string
+          updated_at: string
+          user_id: string
+          why_us: string
+        }
+        Insert: {
+          budget_band?: string
+          comps?: string[]
+          created_at?: string
+          development_sprint?: Json
+          genre?: string
+          id?: string
+          lane_confidence?: number
+          logline?: string
+          mode?: string
+          one_page_pitch?: string
+          packaging_suggestions?: Json
+          platform_target?: string
+          production_type?: string
+          project_id?: string | null
+          raw_response?: Json | null
+          recommended_lane?: string
+          region?: string
+          risk_level?: string
+          risks_mitigations?: Json
+          source_coverage_run_id?: string | null
+          status?: string
+          title?: string
+          updated_at?: string
+          user_id: string
+          why_us?: string
+        }
+        Update: {
+          budget_band?: string
+          comps?: string[]
+          created_at?: string
+          development_sprint?: Json
+          genre?: string
+          id?: string
+          lane_confidence?: number
+          logline?: string
+          mode?: string
+          one_page_pitch?: string
+          packaging_suggestions?: Json
+          platform_target?: string
+          production_type?: string
+          project_id?: string | null
+          raw_response?: Json | null
+          recommended_lane?: string
+          region?: string
+          risk_level?: string
+          risks_mitigations?: Json
+          source_coverage_run_id?: string | null
+          status?: string
+          title?: string
+          updated_at?: string
+          user_id?: string
+          why_us?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pitch_ideas_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pitch_ideas_source_coverage_run_id_fkey"
+            columns: ["source_coverage_run_id"]
+            isOneToOne: false
+            referencedRelation: "coverage_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       post_milestones: {
         Row: {
           completed_date: string | null
