@@ -103,7 +103,13 @@ function VerdictBadge({ recommendation }: { recommendation: string }) {
 }
 
 function CoverageMarkdown({ markdown }: { markdown: string }) {
-  const lines = markdown.split('\n');
+  // Strip any JSON code blocks or trailing structured_notes objects that leaked through
+  const cleaned = markdown
+    .replace(/```(?:json)?\s*[\s\S]*?```/g, '')
+    .replace(/\{[\s\S]*?"structured_notes"[\s\S]*$/g, '')
+    .replace(/\[?\s*\{[\s\S]*?"note_id"[\s\S]*$/g, '')
+    .trim();
+  const lines = cleaned.split('\n');
   return (
     <div className="prose prose-sm prose-invert max-w-none space-y-1">
       {lines.map((line, i) => {
