@@ -154,7 +154,8 @@ async function getCorpusCalibrationResolved(db: ReturnType<typeof createClient>,
             (d.lane || "").toLowerCase() === g;
         });
         if (match?.pattern && (match.pattern.sample_size || 0) >= 8) {
-          const minPages = Math.max(match.pattern.p25_page_count || 0, marketMin);
+          const rawMin = Math.max(match.pattern.p25_page_count || 0, marketMin);
+          const minPages = Math.min(rawMin, 110); // Length clamp
           return { pattern: match.pattern, source: 'genre_baseline', confidence: 'high', sampleSize: match.pattern.sample_size, minimumPages: minPages };
         }
       }
@@ -173,7 +174,8 @@ async function getCorpusCalibrationResolved(db: ReturnType<typeof createClient>,
       if (match?.pattern) {
         const ss = match.pattern.sample_size || 0;
         if (ss >= 3) {
-          const minPages = Math.max(match.pattern.p25_page_count || 0, marketMin);
+          const rawMin = Math.max(match.pattern.p25_page_count || 0, marketMin);
+          const minPages = Math.min(rawMin, 110); // Length clamp
           return { pattern: match.pattern, source: 'type_calibration', confidence: ss >= 8 ? 'high' : 'medium', sampleSize: ss, minimumPages: minPages };
         }
       }
@@ -191,7 +193,8 @@ async function getCorpusCalibrationResolved(db: ReturnType<typeof createClient>,
       }) || goldData.find((d: any) => d.production_type === 'all');
       if (match?.pattern && (match.pattern.sample_size || 0) >= 3) {
         const ss = match.pattern.sample_size || 0;
-        const minPages = Math.max(match.pattern.p25_page_count || 0, marketMin);
+        const rawMin = Math.max(match.pattern.p25_page_count || 0, marketMin);
+        const minPages = Math.min(rawMin, 110); // Length clamp
         return { pattern: match.pattern, source: 'gold_baseline', confidence: ss >= 8 ? 'high' : 'medium', sampleSize: ss, minimumPages: minPages };
       }
     }

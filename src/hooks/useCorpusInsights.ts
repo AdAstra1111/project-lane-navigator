@@ -234,7 +234,7 @@ export function useResolvedCalibration(productionType: string | undefined, genre
       b.genre?.toLowerCase() === g
     );
     if (match && (match.sample_size || 0) >= 8) {
-      const minPages = Math.max(match.p25_page_count || 0, MARKET_DEFAULT_MINS[pt] || 80);
+      const minPages = Math.min(Math.max(match.p25_page_count || 0, MARKET_DEFAULT_MINS[pt] || 80), 110);
       return { pattern: match, confidence: 'high' as CalibrationConfidence, source: 'genre_baseline' as CalibrationSource, minimumPages: minPages };
     }
   }
@@ -246,19 +246,19 @@ export function useResolvedCalibration(productionType: string | undefined, genre
       return cpt === pt || pt.includes(cpt) || cpt.includes(pt);
     });
     if (match && (match.sample_size || 0) >= 8) {
-      const minPages = Math.max(match.p25_page_count || 0, MARKET_DEFAULT_MINS[pt] || 80);
+      const minPages = Math.min(Math.max(match.p25_page_count || 0, MARKET_DEFAULT_MINS[pt] || 80), 110);
       return { pattern: match, confidence: 'high' as CalibrationConfidence, source: 'type_calibration' as CalibrationSource, minimumPages: minPages };
     }
     // sample 3-7: medium confidence
     if (match && (match.sample_size || 0) >= 3) {
-      const minPages = Math.max(match.p25_page_count || 0, MARKET_DEFAULT_MINS[pt] || 80);
+      const minPages = Math.min(Math.max(match.p25_page_count || 0, MARKET_DEFAULT_MINS[pt] || 80), 110);
       return { pattern: match, confidence: 'medium' as CalibrationConfidence, source: 'type_calibration' as CalibrationSource, minimumPages: minPages };
     }
   }
 
   // 3. Try gold baseline as fallback
   if (goldData && (goldData.sample_size || 0) >= 3) {
-    const minPages = Math.max(goldData.p25_page_count || 0, MARKET_DEFAULT_MINS[pt] || 80);
+    const minPages = Math.min(Math.max(goldData.p25_page_count || 0, MARKET_DEFAULT_MINS[pt] || 80), 110);
     const conf: CalibrationConfidence = (goldData.sample_size || 0) >= 8 ? 'high' : 'medium';
     return { pattern: goldData, confidence: conf, source: 'gold_baseline' as CalibrationSource, minimumPages: minPages };
   }
@@ -432,7 +432,7 @@ export function useCorpusHealth() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('corpus_scripts' as any)
-        .select('id, title, production_type, word_count, page_count, page_count_estimate, scene_count, ingestion_source, is_truncated, truncation_reason, parse_confidence, ingestion_status, analysis_status, approved_sources(title)')
+        .select('id, title, production_type, word_count, clean_word_count, page_count, page_count_estimate, normalized_page_est, raw_page_est, scene_count, ingestion_source, is_truncated, truncation_reason, parse_confidence, ingestion_status, analysis_status, is_transcript, transcript_confidence, exclude_from_baselines, approved_sources(title)')
         .order('is_truncated', { ascending: false });
       if (error) throw error;
       return data || [];

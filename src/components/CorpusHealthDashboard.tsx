@@ -1,10 +1,13 @@
-import { useState, useMemo, useRef } from 'react';
-import { AlertTriangle, CheckCircle2, Activity, FileText, Upload, Download, Loader2, CheckSquare, Square } from 'lucide-react';
+import { useState, useMemo, useRef, useCallback } from 'react';
+import { AlertTriangle, CheckCircle2, Activity, FileText, Upload, Download, Loader2, CheckSquare, Square, Ban, Mic, ShieldCheck } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
+import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useCorpusHealth, useReingestScript } from '@/hooks/useCorpusInsights';
+import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
 export function CorpusHealthDashboard() {
@@ -20,14 +23,16 @@ export function CorpusHealthDashboard() {
     if (!scripts.length) return null;
     const total = scripts.length;
     const truncated = scripts.filter((s: any) => s.is_truncated);
-    const healthy = scripts.filter((s: any) => !s.is_truncated);
+    const healthy = scripts.filter((s: any) => !s.is_truncated && !s.is_transcript && !s.exclude_from_baselines);
+    const transcripts = scripts.filter((s: any) => s.is_transcript);
+    const excluded = scripts.filter((s: any) => s.exclude_from_baselines);
 
     const byType: Record<string, { words: number[]; pages: number[] }> = {};
     for (const s of scripts) {
       const pt = (s as any).production_type || 'unknown';
       if (!byType[pt]) byType[pt] = { words: [], pages: [] };
       if ((s as any).word_count) byType[pt].words.push((s as any).word_count);
-      const pc = (s as any).page_count || (s as any).page_count_estimate;
+      const pc = (s as any).normalized_page_est || (s as any).page_count || (s as any).page_count_estimate;
       if (pc) byType[pt].pages.push(pc);
     }
 
@@ -44,7 +49,7 @@ export function CorpusHealthDashboard() {
       .sort((a: any, b: any) => (a.word_count || 0) - (b.word_count || 0))
       .slice(0, 10);
 
-    return { total, truncatedCount: truncated.length, healthyCount: healthy.length, truncatedScripts: truncated, formatStats, top10Worst };
+    return { total, truncatedCount: truncated.length, healthyCount: healthy.length, transcriptCount: transcripts.length, excludedCount: excluded.length, truncatedScripts: truncated, formatStats, top10Worst };
   }, [scripts]);
 
   const handleReplace = (scriptId: string) => {
@@ -131,12 +136,31 @@ export function CorpusHealthDashboard() {
     fileInputRef.current?.click();
   };
 
+  const toggleExclude = useCallback(async (scriptId: string, currentValue: boolean) => {
+    await supabase.from('corpus_scripts' as any).update({ exclude_from_baselines: !currentValue } as any).eq('id', scriptId);
+    toast.success(!currentValue ? 'Excluded from baselines' : 'Included in baselines');
+    // Refetch handled by React Query invalidation on next render
+  }, []);
+
+  function ScriptBadges({ script }: { script: any }) {
+    return (
+      <div className="flex items-center gap-1">
+        {script.is_truncated && <Badge variant="destructive" className="text-[9px] px-1.5 py-0">TRUNCATED</Badge>}
+        {script.is_transcript && <Badge variant="outline" className="text-[9px] px-1.5 py-0 border-amber-500/50 text-amber-500"><Mic className="w-2.5 h-2.5 mr-0.5" />TRANSCRIPT</Badge>}
+        {script.exclude_from_baselines && <Badge variant="outline" className="text-[9px] px-1.5 py-0 border-muted-foreground/50"><Ban className="w-2.5 h-2.5 mr-0.5" />EXCLUDED</Badge>}
+        {!script.is_truncated && !script.is_transcript && !script.exclude_from_baselines && <Badge variant="outline" className="text-[9px] px-1.5 py-0 border-emerald-500/50 text-emerald-500"><ShieldCheck className="w-2.5 h-2.5 mr-0.5" />CLEAN</Badge>}
+        <Badge variant="outline" className="text-[9px] px-1.5 py-0">{script.ingestion_source || 'unknown'}</Badge>
+      </div>
+    );
+  }
+
   if (isLoading) return <div className="text-sm text-muted-foreground py-4 text-center">Loading corpus health…</div>;
   if (!stats) return <div className="text-sm text-muted-foreground py-4 text-center">No corpus scripts found.</div>;
 
   const healthPct = Math.round((stats.healthyCount / stats.total) * 100);
 
   return (
+    <TooltipProvider>
     <div className="space-y-4">
       <input ref={fileInputRef} type="file" accept=".pdf,.fdx,.txt,.fountain" className="hidden" onChange={handleFileSelected} />
 
@@ -160,18 +184,26 @@ export function CorpusHealthDashboard() {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
         <div className="border border-border rounded-lg p-3 bg-card">
           <p className="text-xs text-muted-foreground">Total Scripts</p>
           <p className="text-2xl font-bold text-foreground">{stats.total}</p>
         </div>
         <div className="border border-border rounded-lg p-3 bg-card">
-          <p className="text-xs text-muted-foreground">Healthy (Full Text)</p>
-          <p className="text-2xl font-bold text-foreground">{stats.healthyCount}</p>
+          <Tooltip><TooltipTrigger asChild>
+            <div>
+              <p className="text-xs text-muted-foreground">Eligible for Baselines</p>
+              <p className="text-2xl font-bold text-foreground">{stats.healthyCount}</p>
+            </div>
+          </TooltipTrigger><TooltipContent><p>Not truncated, not transcript, not manually excluded</p></TooltipContent></Tooltip>
         </div>
         <div className="border border-border rounded-lg p-3 bg-card">
           <p className="text-xs text-muted-foreground">Truncated</p>
-          <p className="text-2xl font-bold text-foreground">{stats.truncatedCount}</p>
+          <p className="text-2xl font-bold text-destructive">{stats.truncatedCount}</p>
+        </div>
+        <div className="border border-border rounded-lg p-3 bg-card">
+          <p className="text-xs text-muted-foreground">Transcripts</p>
+          <p className="text-2xl font-bold text-amber-500">{stats.transcriptCount}</p>
         </div>
         <div className="border border-border rounded-lg p-3 bg-card">
           <p className="text-xs text-muted-foreground">Health Score</p>
@@ -262,19 +294,27 @@ export function CorpusHealthDashboard() {
                   <FileText className="w-3 h-3 text-muted-foreground shrink-0" />
                   <span className="text-foreground truncate">{s.title || s.approved_sources?.title || '(untitled)'}</span>
                   <span className="text-muted-foreground shrink-0">{((s.word_count || 0)).toLocaleString()} words</span>
+                  <ScriptBadges script={s} />
                 </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="text-xs ml-2 shrink-0"
-                  onClick={() => handleReplace(s.id)}
-                  disabled={reingest.isPending && replacingId === s.id}
-                >
-                  {reingest.isPending && replacingId === s.id
-                    ? <Loader2 className="w-3 h-3 animate-spin mr-1" />
-                    : <Upload className="w-3 h-3 mr-1" />}
-                  Replace
-                </Button>
+                <div className="flex items-center gap-2 shrink-0">
+                  <Tooltip><TooltipTrigger asChild>
+                    <div className="flex items-center gap-1">
+                      <Switch checked={!s.exclude_from_baselines} onCheckedChange={() => toggleExclude(s.id, s.exclude_from_baselines)} className="scale-75" />
+                    </div>
+                  </TooltipTrigger><TooltipContent><p>{s.exclude_from_baselines ? 'Excluded from baselines' : 'Included in baselines'}</p></TooltipContent></Tooltip>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-xs ml-1 shrink-0"
+                    onClick={() => handleReplace(s.id)}
+                    disabled={reingest.isPending && replacingId === s.id}
+                  >
+                    {reingest.isPending && replacingId === s.id
+                      ? <Loader2 className="w-3 h-3 animate-spin mr-1" />
+                      : <Upload className="w-3 h-3 mr-1" />}
+                    Replace
+                  </Button>
+                </div>
               </div>
             ))}
           </div>
@@ -299,7 +339,12 @@ export function CorpusHealthDashboard() {
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <span className="text-muted-foreground">{((s.word_count || 0)).toLocaleString()} words</span>
-                  <Badge variant="outline" className="text-[9px]">{s.ingestion_source || 'unknown'}</Badge>
+                  <ScriptBadges script={s} />
+                  <Tooltip><TooltipTrigger asChild>
+                    <div className="flex items-center">
+                      <Switch checked={!s.exclude_from_baselines} onCheckedChange={() => toggleExclude(s.id, s.exclude_from_baselines)} className="scale-75" />
+                    </div>
+                  </TooltipTrigger><TooltipContent><p>Toggle baseline inclusion</p></TooltipContent></Tooltip>
                   <Button
                     size="sm"
                     variant="ghost"
@@ -318,5 +363,6 @@ export function CorpusHealthDashboard() {
         </div>
       )}
     </div>
+    </TooltipProvider>
   );
 }

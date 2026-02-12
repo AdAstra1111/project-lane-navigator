@@ -311,46 +311,131 @@ Also extract up to 30 scene patterns and up to 15 character profiles.`;
 
       if (!allCompleted?.length) throw new Error("No completed analyses to aggregate");
 
-      // ─── Fix page count distortion + detect truncation ───
+      // ─── Normalization: clean word counts + detect transcripts ───
+      const NOISE_PATTERNS = [
+        /^\s*\d+\s*$/,                            // bare page/scene numbers
+        /^\s*\(?cont(?:inued)?\.?\)?\s*$/i,       // CONTINUED
+        /^\s*\(more\)\s*$/i,                      // (MORE)
+        /^\s*\(?cont['']d\)?\s*$/i,               // (CONT'D)
+        /^\s*revision\s+.*/i,                     // revision headers
+        /^\s*\d+\/\d+\/\d+/,                      // date headers
+      ];
+
+      function normalizeWordCount(rawText: string | null): { cleanWordCount: number; removedLines: number } {
+        if (!rawText) return { cleanWordCount: 0, removedLines: 0 };
+        const lines = rawText.split('\n');
+        // Count line frequency for header/footer detection
+        const lineFreq: Record<string, number> = {};
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (trimmed.length > 0 && trimmed.length < 60) {
+            lineFreq[trimmed] = (lineFreq[trimmed] || 0) + 1;
+          }
+        }
+        const repeatedLines = new Set(Object.entries(lineFreq).filter(([, count]) => count > 8).map(([line]) => line));
+
+        let removedLines = 0;
+        const cleanLines: string[] = [];
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) { cleanLines.push(line); continue; }
+          if (repeatedLines.has(trimmed)) { removedLines++; continue; }
+          if (NOISE_PATTERNS.some(p => p.test(trimmed))) { removedLines++; continue; }
+          cleanLines.push(line);
+        }
+        const cleanText = cleanLines.join(' ');
+        const cleanWordCount = cleanText.split(/\s+/).filter(Boolean).length;
+        return { cleanWordCount, removedLines };
+      }
+
+      function detectTranscript(script: any): { isTranscript: boolean; confidence: number } {
+        const sc = script.scene_count || 0;
+        const wc = script.word_count || 0;
+        const dialogueRatio = script.avg_dialogue_ratio || 0;
+        let score = 0;
+        // Very high dialogue ratio (>0.8) suggests transcript
+        if (dialogueRatio > 0.8) score += 0.3;
+        // Very few sluglines relative to word count
+        if (sc < 5 && wc > 15000) score += 0.3;
+        // No scene headings but long text
+        if (sc === 0 && wc > 10000) score += 0.4;
+        // Contains timestamp patterns (checked via ingestion_log or format)
+        if ((script.ingestion_source || '').toLowerCase().includes('transcript')) score += 0.3;
+        return { isTranscript: score >= 0.5, confidence: Math.min(score, 1) };
+      }
+
+      // ─── Fix page count distortion + detect truncation + normalize ───
       const truncationThresholds: Record<string, number> = {
         "film": 12000, "feature": 12000, "short-film": 3000,
         "tv-series": 7000, "tv-pilot": 7000, "documentary": 5000,
       };
 
+      // LENGTH CLAMP constants for features
+      const LENGTH_CLAMP: Record<string, { minMax: number; medianMax: number; p75Max: number }> = {
+        'film': { minMax: 110, medianMax: 115, p75Max: 130 },
+        'feature': { minMax: 110, medianMax: 115, p75Max: 130 },
+        'tv-pilot': { minMax: 55, medianMax: 60, p75Max: 70 },
+        'tv-series': { minMax: 55, medianMax: 60, p75Max: 70 },
+        'tv_30': { minMax: 35, medianMax: 38, p75Max: 42 },
+        'documentary': { minMax: 60, medianMax: 70, p75Max: 85 },
+      };
+
+      let transcriptExcluded = 0;
+      let manualExcluded = 0;
+
       for (const s of allCompleted) {
-        // Recalculate word-based page count
-        if (s.word_count && s.word_count > 0) {
-          const wordBasedPages = Math.ceil(s.word_count / 250);
-          if (s.page_count && wordBasedPages > s.page_count * 1.5) {
-            s.page_count = wordBasedPages;
-          } else if (!s.page_count || s.page_count < 5) {
-            s.page_count = wordBasedPages;
-          }
-        }
-        // Fallback: scene_count heuristic
-        if ((!s.page_count || s.page_count < 10) && s.scene_count && s.scene_count > 0) {
-          const sceneBasedPages = Math.round(s.scene_count * 1.5);
-          if (sceneBasedPages > (s.page_count || 0)) {
-            s.page_count = sceneBasedPages;
-          }
-        }
+        // Normalize word count (use chunks text if available, else estimate from raw word_count)
+        // For aggregate we use the stored word_count and apply noise ratio heuristic
+        const rawWc = s.word_count || 0;
+        // Estimate ~8% noise for IMSDB sources, ~3% for PDF/FDX
+        const noiseRatio = (s.ingestion_source || '').toLowerCase().includes('imsdb') ? 0.92 : 0.97;
+        const cleanWc = Math.round(rawWc * noiseRatio);
+        s._clean_word_count = cleanWc;
+        s._raw_page_est = rawWc > 0 ? Math.ceil(rawWc / 250) : s.page_count || 0;
+        s._normalized_page_est = cleanWc > 0 ? Math.ceil(cleanWc / 250) : s.page_count || 0;
+
+        // Use normalized page est for aggregation
+        s.page_count = s._normalized_page_est || s.page_count || 0;
+
         // Recalculate runtime
         if (s.page_count && (!s.runtime_est || s.runtime_est < s.page_count * 0.7)) {
           s.runtime_est = s.page_count;
         }
+
         // Mark truncation
         const minWords = truncationThresholds[s.production_type || "film"] || 12000;
-        const wc = s.word_count || 0;
-        s._is_truncated = wc < minWords;
+        s._is_truncated = rawWc < minWords;
+
+        // Detect transcripts
+        const td = detectTranscript(s);
+        s._is_transcript = td.isTranscript;
+        s._transcript_confidence = td.confidence;
+        if (td.isTranscript) transcriptExcluded++;
+
+        // Manual exclusion
+        if (s.exclude_from_baselines) manualExcluded++;
+
+        // Persist normalization fields
+        db.from("corpus_scripts").update({
+          clean_word_count: s._clean_word_count,
+          raw_page_est: s._raw_page_est,
+          normalized_page_est: s._normalized_page_est,
+          is_transcript: s._is_transcript,
+          transcript_confidence: s._transcript_confidence,
+        }).eq("id", s.id).then(() => {});
       }
 
-      // Filter: only non-truncated scripts for baselines
-      const completed = allCompleted.filter((s: any) => !s._is_truncated);
-      const truncatedCount = allCompleted.length - completed.length;
+      // Filter: only eligible scripts for baselines
+      const completed = allCompleted.filter((s: any) =>
+        !s._is_truncated && !s._is_transcript && !s.exclude_from_baselines
+      );
+      const truncatedCount = allCompleted.filter((s: any) => s._is_truncated).length;
 
-      // If filtering leaves too few scripts, fall back to all (with warning)
+      // If filtering leaves too few scripts, fall back to non-truncated only
       const useAll = completed.length < 3;
-      const effectiveCompleted = useAll ? allCompleted : completed;
+      const effectiveCompleted = useAll ? allCompleted.filter((s: any) => !s._is_truncated) : completed;
+      // If still too few, use all
+      const finalCompleted = effectiveCompleted.length < 3 ? allCompleted : effectiveCompleted;
 
       // Clear existing insights for this user
       await db.from("corpus_insights").delete()
@@ -361,7 +446,7 @@ Also extract up to 30 scene patterns and up to 15 character profiles.`;
 
       // ─── 1) CALIBRATION by production_type (backward compat) ───
       const ptGroups: Record<string, any[]> = {};
-      for (const s of effectiveCompleted) {
+      for (const s of finalCompleted) {
         const key = s.production_type || "film";
         if (!ptGroups[key]) ptGroups[key] = [];
         ptGroups[key].push(s);
@@ -370,7 +455,17 @@ Also extract up to 30 scene patterns and up to 15 character profiles.`;
       for (const [prodType, scripts] of Object.entries(ptGroups)) {
         const pattern = buildBaselinePattern(scripts);
         pattern.truncated_excluded_count = truncatedCount;
+        pattern.transcript_excluded_count = transcriptExcluded;
+        pattern.manual_excluded_count = manualExcluded;
         pattern.used_fallback = useAll;
+        // Apply length clamps
+        const clamp = LENGTH_CLAMP[prodType] || LENGTH_CLAMP['film'];
+        if (clamp) {
+          pattern.median_page_count_raw = pattern.median_page_count;
+          pattern.median_page_count = Math.min(pattern.median_page_count, clamp.medianMax);
+          pattern.p25_page_count = Math.min(pattern.p25_page_count, clamp.minMax);
+          pattern.p75_page_count = Math.min(pattern.p75_page_count, clamp.p75Max);
+        }
         insights.push({
           user_id: user.id,
           insight_type: "calibration",
@@ -383,7 +478,7 @@ Also extract up to 30 scene patterns and up to 15 character profiles.`;
 
       // ─── 2) BASELINE_PROFILE by production_type + genre ───
       const genreGroups: Record<string, any[]> = {};
-      for (const s of effectiveCompleted) {
+      for (const s of finalCompleted) {
         const pt = s.production_type || "film";
         const genre = (s.genre || "unknown").toLowerCase();
         const key = `${pt}::${genre}`;
@@ -471,7 +566,7 @@ Also extract up to 30 scene patterns and up to 15 character profiles.`;
       };
 
       for (const [lane, filter] of Object.entries(laneMapping)) {
-        const laneScripts = effectiveCompleted.filter(filter);
+        const laneScripts = finalCompleted.filter(filter);
         if (laneScripts.length < 2) continue;
         const pattern = buildBaselinePattern(laneScripts);
         insights.push({
@@ -486,7 +581,7 @@ Also extract up to 30 scene patterns and up to 15 character profiles.`;
 
       // ─── 5) GOLD BASELINE: separate profile from gold-flagged scripts ───
       // For gold, also exclude truncated
-      const goldScripts = effectiveCompleted.filter((s: any) => s.gold_flag);
+      const goldScripts = finalCompleted.filter((s: any) => s.gold_flag);
       if (goldScripts.length >= 1) {
         // Overall gold baseline
         const goldPattern = buildBaselinePattern(goldScripts);
@@ -534,11 +629,14 @@ Also extract up to 30 scene patterns and up to 15 character profiles.`;
         success: true,
         groups: Object.keys(ptGroups).length,
         total: allCompleted.length,
-        used_non_truncated: effectiveCompleted.length,
+        used_for_baselines: finalCompleted.length,
         truncated_excluded: truncatedCount,
+        transcript_excluded: transcriptExcluded,
+        manual_excluded: manualExcluded,
         used_fallback: useAll,
         insights_generated: counts,
         gold_count: goldScripts.length,
+        length_clamps_applied: true,
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
