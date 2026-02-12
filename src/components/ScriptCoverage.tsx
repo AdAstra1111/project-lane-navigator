@@ -102,13 +102,59 @@ function VerdictBadge({ recommendation }: { recommendation: string }) {
   );
 }
 
+function stripJsonFromCoverage(raw: string): string {
+  const lines = raw.split('\n');
+  const result: string[] = [];
+  let inCodeBlock = false;
+  let jsonDepth = 0;
+  
+  for (const line of lines) {
+    const trimmed = line.trim();
+    
+    // Track fenced code blocks
+    if (trimmed.startsWith('```')) {
+      inCodeBlock = !inCodeBlock;
+      continue; // skip the fence line itself
+    }
+    if (inCodeBlock) continue; // skip everything inside code blocks
+    
+    // Track loose JSON objects/arrays (not in a code block)
+    if (!inCodeBlock && jsonDepth === 0) {
+      // Detect start of a JSON block
+      if ((trimmed.startsWith('{') || trimmed.startsWith('[')) && 
+          (trimmed.includes('"note_id"') || trimmed.includes('"structured_notes"') || 
+           trimmed.includes('"finding"') || trimmed.includes('"diagnosis"') ||
+           trimmed.includes('"script_facts"') || trimmed.includes('"strengths_with_evidence"') ||
+           trimmed.includes('"problems_with_evidence"'))) {
+        jsonDepth = 1;
+        continue;
+      }
+    }
+    
+    if (jsonDepth > 0) {
+      // Count braces to track when the JSON block ends
+      for (const ch of trimmed) {
+        if (ch === '{' || ch === '[') jsonDepth++;
+        if (ch === '}' || ch === ']') jsonDepth--;
+      }
+      if (jsonDepth <= 0) jsonDepth = 0;
+      continue; // skip JSON lines
+    }
+    
+    // Skip lines that look like raw JSON properties
+    if (trimmed.match(/^"[a-z_]+":\s*[\[{"]/)) continue;
+    if (trimmed.match(/^\{?\s*"note_id"/)) continue;
+    if (trimmed.match(/^\},?\s*$/)) continue;
+    if (trimmed.match(/^\]\s*$/)) continue;
+    
+    result.push(line);
+  }
+  
+  return result.join('\n').trim();
+}
+
 function CoverageMarkdown({ markdown }: { markdown: string }) {
-  // Strip any JSON code blocks or trailing structured_notes objects that leaked through
-  const cleaned = markdown
-    .replace(/```(?:json)?\s*[\s\S]*?```/g, '')
-    .replace(/\{[\s\S]*?"structured_notes"[\s\S]*$/g, '')
-    .replace(/\[?\s*\{[\s\S]*?"note_id"[\s\S]*$/g, '')
-    .trim();
+  const cleaned = stripJsonFromCoverage(markdown);
   const lines = cleaned.split('\n');
   return (
     <div className="prose prose-sm prose-invert max-w-none space-y-1">
