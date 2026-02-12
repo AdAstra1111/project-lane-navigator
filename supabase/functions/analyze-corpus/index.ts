@@ -35,7 +35,6 @@ async function callAIWithTools(apiKey: string, systemPrompt: string, userPrompt:
     const data = await resp.json();
     const toolCall = data.choices?.[0]?.message?.tool_calls?.[0];
     if (toolCall) return JSON.parse(toolCall.function.arguments);
-    // Fallback: parse content as JSON
     const content = data.choices?.[0]?.message?.content || "";
     const m = content.match(/\{[\s\S]*\}/);
     return m ? JSON.parse(m[0]) : {};
@@ -49,6 +48,76 @@ function median(arr: number[]): number {
   const sorted = [...arr].sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
   return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+}
+
+function percentile(arr: number[], p: number): number {
+  if (arr.length === 0) return 0;
+  const sorted = [...arr].sort((a, b) => a - b);
+  const idx = (p / 100) * (sorted.length - 1);
+  const lo = Math.floor(idx);
+  const hi = Math.ceil(idx);
+  return lo === hi ? sorted[lo] : sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo);
+}
+
+function buildBaselinePattern(scripts: any[]) {
+  const nums = (key: string) => scripts.map(s => s[key]).filter((v: any) => v != null && v !== 0) as number[];
+  const pageNums = nums('page_count');
+  const sceneNums = nums('scene_count');
+  const dialogueNums = nums('avg_dialogue_ratio');
+  const runtimeNums = nums('runtime_est');
+  const castNums = nums('cast_count');
+  const locationNums = nums('location_count');
+  const sceneLenNums = nums('avg_scene_length');
+  const midpointNums = nums('midpoint_position');
+  const climaxNums = nums('climax_position');
+  const qualityNums = nums('quality_score_est');
+  const intExtNums = nums('int_ext_ratio');
+  const dayNightNums = nums('day_night_ratio');
+
+  return {
+    sample_size: scripts.length,
+    // Core metrics with ranges
+    median_page_count: median(pageNums),
+    min_page_count: pageNums.length ? Math.min(...pageNums) : 0,
+    max_page_count: pageNums.length ? Math.max(...pageNums) : 0,
+    p25_page_count: percentile(pageNums, 25),
+    p75_page_count: percentile(pageNums, 75),
+    median_scene_count: median(sceneNums),
+    min_scene_count: sceneNums.length ? Math.min(...sceneNums) : 0,
+    max_scene_count: sceneNums.length ? Math.max(...sceneNums) : 0,
+    p25_scene_count: percentile(sceneNums, 25),
+    p75_scene_count: percentile(sceneNums, 75),
+    median_runtime: median(runtimeNums),
+    median_dialogue_ratio: median(dialogueNums),
+    p25_dialogue_ratio: percentile(dialogueNums, 25),
+    p75_dialogue_ratio: percentile(dialogueNums, 75),
+    median_cast_size: median(castNums),
+    p25_cast_size: percentile(castNums, 25),
+    p75_cast_size: percentile(castNums, 75),
+    median_location_count: median(locationNums),
+    p25_location_count: percentile(locationNums, 25),
+    p75_location_count: percentile(locationNums, 75),
+    // Structure
+    median_midpoint_position: median(midpointNums),
+    median_climax_position: median(climaxNums),
+    median_avg_scene_length: median(sceneLenNums),
+    median_quality_score: median(qualityNums),
+    // Feasibility
+    median_int_ext_ratio: median(intExtNums),
+    median_day_night_ratio: median(dayNightNums),
+    vfx_rate: scripts.filter(s => s.vfx_flag).length / scripts.length,
+    budget_distribution: scripts.reduce((acc: Record<string, number>, s: any) => {
+      const tier = s.budget_tier_est || "unknown";
+      acc[tier] = (acc[tier] || 0) + 1;
+      return acc;
+    }, {}),
+    // Style profile (derived from metrics)
+    style_profile: {
+      avg_scene_length: median(sceneLenNums),
+      dialogue_action_ratio: median(dialogueNums),
+      pacing_density: sceneNums.length && pageNums.length ? median(sceneNums) / median(pageNums) : 0,
+    },
+  };
 }
 
 serve(async (req) => {
@@ -78,7 +147,6 @@ serve(async (req) => {
       const { script_id } = params;
       if (!script_id) throw new Error("script_id required");
 
-      // Get script + its chunks for text
       const { data: script, error: sErr } = await db
         .from("corpus_scripts")
         .select("*, approved_sources(title)")
@@ -87,10 +155,8 @@ serve(async (req) => {
         .single();
       if (sErr || !script) throw new Error("Script not found");
 
-      // Mark as analyzing
       await db.from("corpus_scripts").update({ analysis_status: "analyzing" }).eq("id", script_id);
 
-      // Get script text from chunks
       const { data: chunks } = await db
         .from("corpus_chunks")
         .select("chunk_text")
@@ -178,7 +244,6 @@ Also extract up to 30 scene patterns and up to 15 character profiles.`;
         type: "function", function: { name: "store_analysis" },
       });
 
-      // Update corpus_scripts with analysis results
       await db.from("corpus_scripts").update({
         title: result.title || title,
         production_type: result.production_type || "film",
@@ -204,9 +269,7 @@ Also extract up to 30 scene patterns and up to 15 character profiles.`;
         analysis_status: "complete",
       }).eq("id", script_id);
 
-      // Insert scene patterns
       if (result.scene_patterns?.length) {
-        // Clear existing
         await db.from("corpus_scene_patterns").delete().eq("corpus_script_id", script_id);
         const rows = result.scene_patterns.map((sp: any) => ({
           corpus_script_id: script_id,
@@ -220,7 +283,6 @@ Also extract up to 30 scene patterns and up to 15 character profiles.`;
         await db.from("corpus_scene_patterns").insert(rows);
       }
 
-      // Insert character profiles
       if (result.character_profiles?.length) {
         await db.from("corpus_character_profiles").delete().eq("corpus_script_id", script_id);
         const rows = result.character_profiles.map((cp: any) => ({
@@ -239,7 +301,7 @@ Also extract up to 30 scene patterns and up to 15 character profiles.`;
       });
     }
 
-    // ═══ ACTION: AGGREGATE (build calibration models) ═══
+    // ═══ ACTION: AGGREGATE (build calibration + baseline models) ═══
     if (action === "aggregate") {
       const { data: completed } = await db
         .from("corpus_scripts")
@@ -249,39 +311,23 @@ Also extract up to 30 scene patterns and up to 15 character profiles.`;
 
       if (!completed?.length) throw new Error("No completed analyses to aggregate");
 
-      // Group by production_type
-      const groups: Record<string, any[]> = {};
-      for (const s of completed) {
-        const key = s.production_type || "film";
-        if (!groups[key]) groups[key] = [];
-        groups[key].push(s);
-      }
-
-      // Clear existing insights for this user
-      await db.from("corpus_insights").delete().eq("user_id", user.id).eq("insight_type", "calibration");
+      // Clear existing insights for this user (calibration + baseline_profile + style_profile + lane_norm)
+      await db.from("corpus_insights").delete()
+        .eq("user_id", user.id)
+        .in("insight_type", ["calibration", "baseline_profile", "style_profile", "lane_norm"]);
 
       const insights: any[] = [];
-      for (const [prodType, scripts] of Object.entries(groups)) {
-        const pattern = {
-          sample_size: scripts.length,
-          median_page_count: median(scripts.map(s => s.page_count).filter(Boolean)),
-          median_scene_count: median(scripts.map(s => s.scene_count).filter(Boolean)),
-          median_runtime: median(scripts.map(s => s.runtime_est).filter(Boolean)),
-          median_dialogue_ratio: median(scripts.map(s => s.avg_dialogue_ratio).filter(Boolean)),
-          median_cast_size: median(scripts.map(s => s.cast_count).filter(Boolean)),
-          median_location_count: median(scripts.map(s => s.location_count).filter(Boolean)),
-          median_midpoint_position: median(scripts.map(s => s.midpoint_position).filter(Boolean)),
-          median_climax_position: median(scripts.map(s => s.climax_position).filter(Boolean)),
-          median_avg_scene_length: median(scripts.map(s => s.avg_scene_length).filter(Boolean)),
-          median_quality_score: median(scripts.map(s => s.quality_score_est).filter(Boolean)),
-          vfx_rate: scripts.filter(s => s.vfx_flag).length / scripts.length,
-          budget_distribution: scripts.reduce((acc: Record<string, number>, s) => {
-            const tier = s.budget_tier_est || "unknown";
-            acc[tier] = (acc[tier] || 0) + 1;
-            return acc;
-          }, {}),
-        };
 
+      // ─── 1) CALIBRATION by production_type (backward compat) ───
+      const ptGroups: Record<string, any[]> = {};
+      for (const s of completed) {
+        const key = s.production_type || "film";
+        if (!ptGroups[key]) ptGroups[key] = [];
+        ptGroups[key].push(s);
+      }
+
+      for (const [prodType, scripts] of Object.entries(ptGroups)) {
+        const pattern = buildBaselinePattern(scripts);
         insights.push({
           user_id: user.id,
           insight_type: "calibration",
@@ -292,11 +338,126 @@ Also extract up to 30 scene patterns and up to 15 character profiles.`;
         });
       }
 
+      // ─── 2) BASELINE_PROFILE by production_type + genre ───
+      const genreGroups: Record<string, any[]> = {};
+      for (const s of completed) {
+        const pt = s.production_type || "film";
+        const genre = (s.genre || "unknown").toLowerCase();
+        const key = `${pt}::${genre}`;
+        if (!genreGroups[key]) genreGroups[key] = [];
+        genreGroups[key].push(s);
+      }
+
+      for (const [key, scripts] of Object.entries(genreGroups)) {
+        if (scripts.length < 2) continue; // need at least 2 for a meaningful baseline
+        const [prodType, genre] = key.split("::");
+        const pattern = buildBaselinePattern(scripts);
+        insights.push({
+          user_id: user.id,
+          insight_type: "baseline_profile",
+          production_type: prodType,
+          lane: genre, // store genre in lane field for baseline_profile
+          pattern: { ...pattern, genre },
+          weight: scripts.length,
+        });
+      }
+
+      // ─── 3) STYLE_PROFILE by production_type ───
+      for (const [prodType, scripts] of Object.entries(ptGroups)) {
+        const dialogueNums = scripts.map(s => s.avg_dialogue_ratio).filter(Boolean) as number[];
+        const sceneLenNums = scripts.map(s => s.avg_scene_length).filter(Boolean) as number[];
+        const sceneNums = scripts.map(s => s.scene_count).filter(Boolean) as number[];
+        const pageNums = scripts.map(s => s.page_count).filter(Boolean) as number[];
+
+        const medDialogue = median(dialogueNums);
+        const medSceneLen = median(sceneLenNums);
+        const pacingDensity = sceneNums.length && pageNums.length ? median(sceneNums) / median(pageNums) : 0;
+
+        // Classify into style archetypes
+        const styles: any[] = [];
+        // "Lean & fast"
+        styles.push({
+          name: "Lean & Fast",
+          description: "Short scenes, high pacing density, action-forward",
+          target_scene_length: percentile(sceneLenNums, 25),
+          target_dialogue_ratio: percentile(dialogueNums, 25),
+          target_pacing_density: percentile(sceneNums.length ? sceneNums.map((sc, i) => pageNums[i] ? sc / pageNums[i] : 0).filter(Boolean) : [0], 75),
+        });
+        // "Character-forward"
+        styles.push({
+          name: "Character-Forward",
+          description: "Longer scenes, higher dialogue ratio, character-driven",
+          target_scene_length: percentile(sceneLenNums, 75),
+          target_dialogue_ratio: percentile(dialogueNums, 75),
+          target_pacing_density: percentile(sceneNums.length ? sceneNums.map((sc, i) => pageNums[i] ? sc / pageNums[i] : 0).filter(Boolean) : [0], 25),
+        });
+        // "Balanced"
+        styles.push({
+          name: "Balanced",
+          description: "Median pacing and dialogue density",
+          target_scene_length: medSceneLen,
+          target_dialogue_ratio: medDialogue,
+          target_pacing_density: pacingDensity,
+        });
+        // "Action-Forward"
+        styles.push({
+          name: "Action-Forward",
+          description: "Low dialogue, high scene turnover, visual storytelling",
+          target_scene_length: percentile(sceneLenNums, 30),
+          target_dialogue_ratio: percentile(dialogueNums, 15),
+          target_pacing_density: percentile(sceneNums.length ? sceneNums.map((sc, i) => pageNums[i] ? sc / pageNums[i] : 0).filter(Boolean) : [0], 80),
+        });
+
+        insights.push({
+          user_id: user.id,
+          insight_type: "style_profile",
+          production_type: prodType,
+          lane: null,
+          pattern: { styles },
+          weight: scripts.length,
+        });
+      }
+
+      // ─── 4) LANE_NORM: approximate lane classification ───
+      // Use budget tier + quality to approximate lanes
+      const laneMapping: Record<string, (s: any) => boolean> = {
+        "prestige": (s) => (s.quality_score_est || 0) >= 75 && ["high", "mega"].includes(s.budget_tier_est || ""),
+        "indie": (s) => ["micro", "low"].includes(s.budget_tier_est || ""),
+        "genre_market": (s) => ["action", "horror", "thriller", "sci-fi", "comedy"].includes((s.genre || "").toLowerCase()),
+        "streamer": (s) => (s.production_type || "").includes("tv") || (s.production_type || "").includes("series"),
+      };
+
+      for (const [lane, filter] of Object.entries(laneMapping)) {
+        const laneScripts = completed.filter(filter);
+        if (laneScripts.length < 2) continue;
+        const pattern = buildBaselinePattern(laneScripts);
+        insights.push({
+          user_id: user.id,
+          insight_type: "lane_norm",
+          production_type: null,
+          lane,
+          pattern: { ...pattern, lane_name: lane },
+          weight: laneScripts.length,
+        });
+      }
+
       if (insights.length > 0) {
         await db.from("corpus_insights").insert(insights);
       }
 
-      return new Response(JSON.stringify({ success: true, groups: Object.keys(groups).length, total: completed.length }), {
+      // Count by type
+      const counts: Record<string, number> = {};
+      for (const i of insights) {
+        counts[i.insight_type] = (counts[i.insight_type] || 0) + 1;
+      }
+
+      return new Response(JSON.stringify({
+        success: true,
+        groups: Object.keys(ptGroups).length,
+        total: completed.length,
+        insights_generated: counts,
+        gold_count: completed.filter((s: any) => s.gold_flag).length,
+      }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -314,16 +475,36 @@ Also extract up to 30 scene patterns and up to 15 character profiles.`;
 
       if (!topScripts?.length) throw new Error("No high-quality scripts analyzed yet");
 
+      // Fetch baselines to inform playbook triggers
+      const { data: baselines } = await db
+        .from("corpus_insights")
+        .select("pattern, production_type")
+        .eq("user_id", user.id)
+        .eq("insight_type", "calibration");
+
+      const baselineContext = baselines?.length
+        ? `\n\nCORPUS BASELINES:\n${baselines.map((b: any) => `${b.production_type}: pages=${b.pattern?.median_page_count}, scenes=${b.pattern?.median_scene_count}, dialogue=${Math.round((b.pattern?.median_dialogue_ratio || 0) * 100)}%, cast=${b.pattern?.median_cast_size}, locations=${b.pattern?.median_location_count}`).join('\n')}`
+        : '';
+
       const scriptSummaries = topScripts.map(s =>
         `"${s.title}" (${s.production_type}, ${s.genre}) — pages: ${s.page_count}, scenes: ${s.scene_count}, dialogue: ${Math.round((s.avg_dialogue_ratio || 0) * 100)}%, midpoint: ${s.midpoint_position}, quality: ${s.quality_score_est}`
       ).join("\n");
 
-      const systemPrompt = "You are a screenplay development strategist. Extract rewrite playbooks from patterns in successful scripts.";
-      const userPrompt = `From these top-scoring scripts, extract 5-8 rewrite playbooks — actionable structural patterns that can improve weaker drafts:
+      const systemPrompt = "You are a screenplay development strategist. Extract rewrite playbooks from patterns in successful scripts. Each playbook should include specific DEVIATION TRIGGERS — conditions under which the playbook should automatically activate.";
+      const userPrompt = `From these top-scoring scripts and corpus baselines, extract 8-12 rewrite playbooks:
+${baselineContext}
 
+TOP SCRIPTS:
 ${scriptSummaries}
 
-Each playbook should have: name, description, operations (array of specific rewrite steps), applicable_production_types, and priority (1-3).`;
+Each playbook should have:
+- name: short descriptive name
+- description: what it fixes
+- operations: array of specific rewrite steps
+- applicable_production_types: which formats it applies to
+- priority: 1-3 (1=critical)
+- trigger_conditions: array of deviation conditions that trigger this playbook, e.g. ["hook_page > baseline_range", "dialogue_ratio > p75", "scene_count < p25"]
+- target_scores: which quality scores this improves (structural, dialogue, economy, budget, lane_alignment)`;
 
       const tools = [{
         type: "function",
@@ -343,6 +524,8 @@ Each playbook should have: name, description, operations (array of specific rewr
                     operations: { type: "array", items: { type: "string" } },
                     applicable_production_types: { type: "array", items: { type: "string" } },
                     priority: { type: "integer" },
+                    trigger_conditions: { type: "array", items: { type: "string" } },
+                    target_scores: { type: "array", items: { type: "string" } },
                   },
                   required: ["name", "description", "operations"],
                 },
@@ -357,7 +540,6 @@ Each playbook should have: name, description, operations (array of specific rewr
         type: "function", function: { name: "store_playbooks" },
       });
 
-      // Clear existing playbooks and store new
       await db.from("corpus_insights").delete().eq("user_id", user.id).eq("insight_type", "playbook");
 
       if (result.playbooks?.length) {
@@ -373,6 +555,16 @@ Each playbook should have: name, description, operations (array of specific rewr
       }
 
       return new Response(JSON.stringify({ success: true, playbooks: result.playbooks?.length || 0 }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ═══ ACTION: TOGGLE-GOLD ═══
+    if (action === "toggle-gold") {
+      const { script_id, gold } = params;
+      if (!script_id) throw new Error("script_id required");
+      await db.from("corpus_scripts").update({ gold_flag: !!gold }).eq("id", script_id).eq("user_id", user.id);
+      return new Response(JSON.stringify({ success: true, gold_flag: !!gold }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }

@@ -21,10 +21,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import { useScriptEngine, type ScriptScene } from '@/hooks/useScriptEngine';
+import { useCalibrationForType } from '@/hooks/useCorpusInsights';
+import { DeviationGauge } from '@/components/DeviationGauge';
 import { toast } from 'sonner';
 
 interface Props {
   projectId: string;
+  productionType?: string;
 }
 
 const STATUS_ORDER = ['BLUEPRINT', 'ARCHITECTURE', 'DRAFTING', 'DRAFT_1', 'DRAFT_2', 'DRAFT_3', 'LOCKED'];
@@ -157,7 +160,8 @@ function DraftViewer({ text, storagePath, onDownload, onCopy }: {
   );
 }
 
-export function ScriptEnginePanel({ projectId }: Props) {
+export function ScriptEnginePanel({ projectId, productionType }: Props) {
+  const calibration = useCalibrationForType(productionType);
   const {
     activeScript, scenes, versions, blueprint, isLoading,
     draftText, draftStoragePath, setDraftText,
@@ -606,6 +610,16 @@ export function ScriptEnginePanel({ projectId }: Props) {
             <ScoreBar label="Budget" score={activeScript.budget_score} tooltip="Location/cast/VFX creep vs budget band" />
             <ScoreBar label="Lane Alignment" score={activeScript.lane_alignment_score} tooltip="Tone drift, market lane match, audience fit" />
           </div>
+
+          {/* Corpus Deviation Gauges */}
+          {calibration && (
+            <DeviationGauge
+              pageCount={activeScript.latest_page_count_est}
+              sceneCount={scenes.length > 0 ? scenes.length : null}
+              runtime={activeScript.latest_runtime_min_est}
+              calibration={calibration}
+            />
+          )}
         </div>
       )}
 

@@ -868,6 +868,7 @@ export type Database = {
           day_night_ratio: number | null
           format_subtype: string | null
           genre: string | null
+          gold_flag: boolean
           id: string
           ingestion_log: string
           ingestion_status: string
@@ -903,6 +904,7 @@ export type Database = {
           day_night_ratio?: number | null
           format_subtype?: string | null
           genre?: string | null
+          gold_flag?: boolean
           id?: string
           ingestion_log?: string
           ingestion_status?: string
@@ -938,6 +940,7 @@ export type Database = {
           day_night_ratio?: number | null
           format_subtype?: string | null
           genre?: string | null
+          gold_flag?: boolean
           id?: string
           ingestion_log?: string
           ingestion_status?: string

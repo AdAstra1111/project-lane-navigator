@@ -91,22 +91,65 @@ Return as JSON with keys: three_act_breakdown (object with act_1, act_2, act_3),
 }
 
 // ─── Scene Architecture Prompt ───
-async function getCorpusCalibration(db: ReturnType<typeof createClient>, productionType: string) {
+async function getCorpusCalibration(db: ReturnType<typeof createClient>, productionType: string, genre?: string) {
   try {
     const pt = productionType.toLowerCase();
+    // Try genre-specific baseline first
+    if (genre) {
+      const g = genre.toLowerCase();
+      const { data: baselines } = await db
+        .from("corpus_insights")
+        .select("pattern, production_type, lane")
+        .eq("insight_type", "baseline_profile");
+      if (baselines?.length) {
+        const match = baselines.find((d: any) => {
+          const cpt = (d.production_type || "").toLowerCase();
+          return (cpt === pt || pt.includes(cpt) || cpt.includes(pt)) &&
+            (d.lane || "").toLowerCase() === g;
+        });
+        if (match?.pattern) return match.pattern;
+      }
+    }
+    // Fall back to production type calibration
     const { data } = await db
       .from("corpus_insights")
-      .select("pattern")
+      .select("pattern, production_type")
       .eq("insight_type", "calibration");
     if (!data?.length) return null;
-    // Find best match
     const match = data.find((d: any) => {
-      const cpt = (d as any).production_type?.toLowerCase() || "";
+      const cpt = (d.production_type || "").toLowerCase();
       return cpt === pt || pt.includes(cpt) || cpt.includes(pt);
     }) || data[0];
     return match?.pattern || null;
   } catch {
     return null;
+  }
+}
+
+async function getLaneNorm(db: ReturnType<typeof createClient>, lane: string) {
+  try {
+    if (!lane) return null;
+    const { data } = await db
+      .from("corpus_insights")
+      .select("pattern")
+      .eq("insight_type", "lane_norm")
+      .eq("lane", lane.toLowerCase());
+    return data?.[0]?.pattern || null;
+  } catch {
+    return null;
+  }
+}
+
+async function getCorpusPlaybooks(db: ReturnType<typeof createClient>, userId: string) {
+  try {
+    const { data } = await db
+      .from("corpus_insights")
+      .select("pattern")
+      .eq("user_id", userId)
+      .eq("insight_type", "playbook");
+    return (data || []).map((d: any) => d.pattern);
+  } catch {
+    return [];
   }
 }
 
@@ -181,8 +224,38 @@ Return the screenplay pages as plain text in standard format.`;
 }
 
 // ─── Quality Scoring Prompt ───
-function getScoringPrompt(scriptText: string, project: any) {
+function getScoringPrompt(scriptText: string, project: any, calibration?: any, laneNorm?: any) {
+  let corpusBlock = "";
+  if (calibration) {
+    corpusBlock = `
+
+CORPUS BASELINES (from ${calibration.sample_size || 'N/A'} analyzed scripts):
+- Page count: median ${calibration.median_page_count || 'N/A'}, range ${calibration.p25_page_count || 'N/A'}–${calibration.p75_page_count || 'N/A'}
+- Scene count: median ${calibration.median_scene_count || 'N/A'}, range ${calibration.p25_scene_count || 'N/A'}–${calibration.p75_scene_count || 'N/A'}
+- Dialogue ratio: median ${calibration.median_dialogue_ratio ? Math.round(calibration.median_dialogue_ratio * 100) + '%' : 'N/A'}, range ${calibration.p25_dialogue_ratio ? Math.round(calibration.p25_dialogue_ratio * 100) + '%' : 'N/A'}–${calibration.p75_dialogue_ratio ? Math.round(calibration.p75_dialogue_ratio * 100) + '%' : 'N/A'}
+- Cast size: median ${calibration.median_cast_size || 'N/A'}, range ${calibration.p25_cast_size || 'N/A'}–${calibration.p75_cast_size || 'N/A'}
+- Location count: median ${calibration.median_location_count || 'N/A'}, range ${calibration.p25_location_count || 'N/A'}–${calibration.p75_location_count || 'N/A'}
+- VFX rate in corpus: ${calibration.vfx_rate ? Math.round(calibration.vfx_rate * 100) + '%' : 'N/A'}
+
+PENALIZE scores when the script significantly deviates from these baselines without creative justification:
+- If locations >> ${calibration.p75_location_count || 'N/A'}, penalize budget score and flag feasibility risk
+- If cast >> ${calibration.p75_cast_size || 'N/A'}, penalize budget score
+- If dialogue ratio outside ${calibration.p25_dialogue_ratio ? Math.round(calibration.p25_dialogue_ratio * 100) : 'N/A'}–${calibration.p75_dialogue_ratio ? Math.round(calibration.p75_dialogue_ratio * 100) : 'N/A'}%, note in dialogue score`;
+  }
+
+  let laneBlock = "";
+  if (laneNorm) {
+    laneBlock = `
+
+LANE NORMS (${laneNorm.lane_name || 'target'} lane, from ${laneNorm.sample_size || 'N/A'} scripts):
+- Typical dialogue ratio: ${laneNorm.median_dialogue_ratio ? Math.round(laneNorm.median_dialogue_ratio * 100) + '%' : 'N/A'}
+- Typical cast size: ${laneNorm.median_cast_size || 'N/A'}
+- Typical pacing density: ${laneNorm.style_profile?.pacing_density ? laneNorm.style_profile.pacing_density.toFixed(2) + ' scenes/page' : 'N/A'}
+Use these to score lane_alignment — flag mismatches.`;
+  }
+
   return `You are IFFY's Quality Scoring Engine. Analyze this script draft for "${project.title}" (${project.format}, ${project.assigned_lane || "unassigned"} lane, ${project.budget_range} budget).
+${corpusBlock}${laneBlock}
 
 SCRIPT TEXT (excerpt):
 ${scriptText.substring(0, 12000)}
@@ -459,7 +532,8 @@ serve(async (req) => {
       if (!blueprint) throw new Error("Blueprint not found — generate blueprint first");
 
       const productionType = project.format;
-      const calibration = await getCorpusCalibration(supabase, productionType);
+      const genres = project.genres || [];
+      const calibration = await getCorpusCalibration(supabase, productionType, genres[0]);
       const prompt = getArchitecturePrompt(productionType, blueprint, project, calibration);
       const architecture = await callAI(prompt);
 
@@ -772,7 +846,10 @@ serve(async (req) => {
 
       if (!scriptText) throw new Error("No script text found to score");
 
-      const prompt = getScoringPrompt(scriptText, project);
+      // Fetch corpus calibration + lane norms for scoring
+      const scoreCalibration = await getCorpusCalibration(supabase, project.format, (project.genres || [])[0]);
+      const scoreLaneNorm = await getLaneNorm(supabase, project.assigned_lane || "");
+      const prompt = getScoringPrompt(scriptText, project, scoreCalibration, scoreLaneNorm);
       const scores = await callAI(prompt);
 
       // Update script record
@@ -944,23 +1021,53 @@ serve(async (req) => {
         lane_alignment_score: scriptRow?.lane_alignment_score,
       };
 
-      // 3) Select matching playbooks
+      // 3) Select matching playbooks — try corpus playbooks first, then legacy rewrite_playbooks
       const pt = (project.format || 'film').toLowerCase();
-      const { data: playbooks } = await supabase.from("rewrite_playbooks")
-        .select("*")
-        .or(`production_type.eq.${pt},production_type.eq.film`);
-
-      const goalPlaybookMap: Record<string, string[]> = {
-        make_commercial: ['Make It More Commercial', 'Increase Hook Intensity'],
-        emotional_impact: ['Boost Protagonist Agency', 'Sharpen Dialogue Voice'],
-        tighten_pacing: ['Tighten Act 2 Sag', 'Increase Hook Intensity'],
-        character_arcs: ['Boost Protagonist Agency', 'Sharpen Dialogue Voice'],
-        sharper_dialogue: ['Reduce On-The-Nose Dialogue', 'Sharpen Dialogue Voice'],
-        lower_budget: ['Lower Budget Footprint'],
-        more_original: ['Make It More Commercial', 'Boost Protagonist Agency'],
-      };
-      const targetNames = goalPlaybookMap[goal] || goalPlaybookMap['make_commercial'];
-      const selectedPlaybooks = (playbooks || []).filter((p: any) => targetNames.some(n => p.name.includes(n))).slice(0, 3);
+      const corpusPlaybooks = await getCorpusPlaybooks(supabase, user.id);
+      
+      let selectedPlaybooks: any[] = [];
+      if (corpusPlaybooks.length > 0) {
+        // Use corpus-derived playbooks with trigger conditions
+        selectedPlaybooks = corpusPlaybooks
+          .filter((p: any) => {
+            const types = (p.applicable_production_types || []).map((t: string) => t.toLowerCase());
+            return types.length === 0 || types.includes(pt) || types.includes('film');
+          })
+          .filter((p: any) => {
+            // Match by goal → target_scores mapping
+            const targets = p.target_scores || [];
+            const goalScoreMap: Record<string, string[]> = {
+              make_commercial: ['lane_alignment', 'structural'],
+              emotional_impact: ['structural', 'dialogue'],
+              tighten_pacing: ['economy', 'structural'],
+              character_arcs: ['structural', 'dialogue'],
+              sharper_dialogue: ['dialogue'],
+              lower_budget: ['budget'],
+              more_original: ['lane_alignment'],
+            };
+            const goalTargets = goalScoreMap[goal] || [];
+            return targets.length === 0 || goalTargets.some((g: string) => targets.includes(g));
+          })
+          .slice(0, 4);
+      }
+      
+      // Fallback to legacy rewrite_playbooks if no corpus playbooks matched
+      if (selectedPlaybooks.length === 0) {
+        const { data: playbooks } = await supabase.from("rewrite_playbooks")
+          .select("*")
+          .or(`production_type.eq.${pt},production_type.eq.film`);
+        const goalPlaybookMap: Record<string, string[]> = {
+          make_commercial: ['Make It More Commercial', 'Increase Hook Intensity'],
+          emotional_impact: ['Boost Protagonist Agency', 'Sharpen Dialogue Voice'],
+          tighten_pacing: ['Tighten Act 2 Sag', 'Increase Hook Intensity'],
+          character_arcs: ['Boost Protagonist Agency', 'Sharpen Dialogue Voice'],
+          sharper_dialogue: ['Reduce On-The-Nose Dialogue', 'Sharpen Dialogue Voice'],
+          lower_budget: ['Lower Budget Footprint'],
+          more_original: ['Make It More Commercial', 'Boost Protagonist Agency'],
+        };
+        const targetNames = goalPlaybookMap[goal] || goalPlaybookMap['make_commercial'];
+        selectedPlaybooks = (playbooks || []).filter((p: any) => targetNames.some(n => p.name.includes(n))).slice(0, 3);
+      }
 
       // 4) Get user + project preferences
       const { data: userPrefRow } = await supabase.from("user_preferences").select("prefs").eq("owner_id", user.id).single();
@@ -1024,8 +1131,10 @@ serve(async (req) => {
         runtime_min_high: metrics.runtimeMinHigh, runtime_per_episode_est: metrics.runtimePerEpisodeEst,
       }).select("id").single();
 
-      // 8) Re-score
-      const scorePrompt = getScoringPrompt(improvedText, project);
+      // 8) Re-score with corpus calibration
+      const improveCalibration = await getCorpusCalibration(supabase, project.format, (project.genres || [])[0]);
+      const improveLaneNorm = await getLaneNorm(supabase, project.assigned_lane || "");
+      const scorePrompt = getScoringPrompt(improvedText, project, improveCalibration, improveLaneNorm);
       const afterScores = await callAI(scorePrompt);
 
       await supabase.from("scripts").update({
