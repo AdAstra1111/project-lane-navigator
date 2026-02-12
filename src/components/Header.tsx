@@ -51,6 +51,8 @@ export function Header() {
 
         {/* Desktop nav */}
         <div className="hidden md:flex items-center gap-3">
+          <ModeToggle />
+          <div className="h-5 w-px bg-border/50" />
           {navItems.map(item => (
             <Button
               key={item.path}
@@ -98,7 +100,6 @@ export function Header() {
             </DropdownMenuContent>
           </DropdownMenu>
           <GlobalSearch />
-          <ModeToggle />
           <ThemeToggle />
           <NotificationBell />
           <Button
@@ -134,6 +135,10 @@ export function Header() {
       {/* Mobile drawer */}
       {mobileOpen && (
         <div className="md:hidden border-t border-border/50 bg-background p-4 space-y-1 animate-in slide-in-from-top-2 duration-200">
+          <div className="flex items-center gap-2 px-3 py-2.5">
+            <ModeToggle />
+          </div>
+          <div className="border-t border-border/30 my-2" />
           {navItems.map(item => (
             <button
               key={item.path}
