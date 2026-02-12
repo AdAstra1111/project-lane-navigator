@@ -298,6 +298,311 @@ export type Database = {
         }
         Relationships: []
       }
+      coverage_benchmark_runs: {
+        Row: {
+          benchmark_id: string
+          coverage_run_id: string
+          created_at: string
+          created_by: string | null
+          id: string
+          model: string
+          prompt_version_id: string
+          scores: Json
+        }
+        Insert: {
+          benchmark_id: string
+          coverage_run_id: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          model: string
+          prompt_version_id: string
+          scores?: Json
+        }
+        Update: {
+          benchmark_id?: string
+          coverage_run_id?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          model?: string
+          prompt_version_id?: string
+          scores?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "coverage_benchmark_runs_benchmark_id_fkey"
+            columns: ["benchmark_id"]
+            isOneToOne: false
+            referencedRelation: "coverage_benchmarks"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "coverage_benchmark_runs_coverage_run_id_fkey"
+            columns: ["coverage_run_id"]
+            isOneToOne: false
+            referencedRelation: "coverage_runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "coverage_benchmark_runs_prompt_version_id_fkey"
+            columns: ["prompt_version_id"]
+            isOneToOne: false
+            referencedRelation: "coverage_prompt_versions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      coverage_benchmarks: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          gold_notes: string | null
+          id: string
+          must_catch_issues: Json
+          name: string
+          project_type: string
+          script_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          gold_notes?: string | null
+          id?: string
+          must_catch_issues?: Json
+          name: string
+          project_type: string
+          script_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          gold_notes?: string | null
+          id?: string
+          must_catch_issues?: Json
+          name?: string
+          project_type?: string
+          script_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "coverage_benchmarks_script_id_fkey"
+            columns: ["script_id"]
+            isOneToOne: false
+            referencedRelation: "scripts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      coverage_feedback: {
+        Row: {
+          accuracy_to_script: number
+          actionability: number
+          coverage_run_id: string
+          created_at: string
+          created_by: string
+          free_text: string | null
+          id: string
+          market_realism: number
+          overall_usefulness: number
+          specificity: number
+        }
+        Insert: {
+          accuracy_to_script?: number
+          actionability?: number
+          coverage_run_id: string
+          created_at?: string
+          created_by: string
+          free_text?: string | null
+          id?: string
+          market_realism?: number
+          overall_usefulness?: number
+          specificity?: number
+        }
+        Update: {
+          accuracy_to_script?: number
+          actionability?: number
+          coverage_run_id?: string
+          created_at?: string
+          created_by?: string
+          free_text?: string | null
+          id?: string
+          market_realism?: number
+          overall_usefulness?: number
+          specificity?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "coverage_feedback_coverage_run_id_fkey"
+            columns: ["coverage_run_id"]
+            isOneToOne: false
+            referencedRelation: "coverage_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      coverage_feedback_notes: {
+        Row: {
+          coverage_run_id: string
+          created_at: string
+          created_by: string
+          id: string
+          note_id: string
+          reason: string | null
+          tag: string
+          user_edit: string | null
+        }
+        Insert: {
+          coverage_run_id: string
+          created_at?: string
+          created_by: string
+          id?: string
+          note_id: string
+          reason?: string | null
+          tag: string
+          user_edit?: string | null
+        }
+        Update: {
+          coverage_run_id?: string
+          created_at?: string
+          created_by?: string
+          id?: string
+          note_id?: string
+          reason?: string | null
+          tag?: string
+          user_edit?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "coverage_feedback_notes_coverage_run_id_fkey"
+            columns: ["coverage_run_id"]
+            isOneToOne: false
+            referencedRelation: "coverage_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      coverage_prompt_versions: {
+        Row: {
+          analyst_prompt: string
+          created_at: string
+          created_by: string | null
+          id: string
+          name: string
+          output_contract: Json
+          producer_prompt: string
+          project_type_scope: string[]
+          qc_prompt: string
+          status: string
+        }
+        Insert: {
+          analyst_prompt: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          name: string
+          output_contract?: Json
+          producer_prompt: string
+          project_type_scope?: string[]
+          qc_prompt: string
+          status?: string
+        }
+        Update: {
+          analyst_prompt?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          name?: string
+          output_contract?: Json
+          producer_prompt?: string
+          project_type_scope?: string[]
+          qc_prompt?: string
+          status?: string
+        }
+        Relationships: []
+      }
+      coverage_runs: {
+        Row: {
+          created_at: string
+          created_by: string
+          draft_label: string
+          final_coverage: string
+          id: string
+          inputs: Json
+          lane: string | null
+          metrics: Json
+          model: string
+          pass_a: string
+          pass_b: string
+          pass_c: string
+          project_id: string
+          project_type: string
+          prompt_version_id: string
+          script_id: string
+          structured_notes: Json | null
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          draft_label?: string
+          final_coverage?: string
+          id?: string
+          inputs?: Json
+          lane?: string | null
+          metrics?: Json
+          model: string
+          pass_a?: string
+          pass_b?: string
+          pass_c?: string
+          project_id: string
+          project_type: string
+          prompt_version_id: string
+          script_id: string
+          structured_notes?: Json | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          draft_label?: string
+          final_coverage?: string
+          id?: string
+          inputs?: Json
+          lane?: string | null
+          metrics?: Json
+          model?: string
+          pass_a?: string
+          pass_b?: string
+          pass_c?: string
+          project_id?: string
+          project_type?: string
+          prompt_version_id?: string
+          script_id?: string
+          structured_notes?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "coverage_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "coverage_runs_prompt_version_id_fkey"
+            columns: ["prompt_version_id"]
+            isOneToOne: false
+            referencedRelation: "coverage_prompt_versions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "coverage_runs_script_id_fkey"
+            columns: ["script_id"]
+            isOneToOne: false
+            referencedRelation: "scripts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       data_sources: {
         Row: {
           created_at: string
@@ -427,6 +732,83 @@ export type Database = {
           snapshot_label?: string
           trigger_type?: string
           weights?: Json
+        }
+        Relationships: []
+      }
+      great_notes_library: {
+        Row: {
+          budget_band: string | null
+          created_at: string
+          created_by: string
+          evidence_style: string | null
+          genre: string | null
+          id: string
+          note_text: string
+          problem_type: string
+          project_type: string
+          source_coverage_run_id: string | null
+          tags: string[]
+        }
+        Insert: {
+          budget_band?: string | null
+          created_at?: string
+          created_by: string
+          evidence_style?: string | null
+          genre?: string | null
+          id?: string
+          note_text: string
+          problem_type: string
+          project_type: string
+          source_coverage_run_id?: string | null
+          tags?: string[]
+        }
+        Update: {
+          budget_band?: string | null
+          created_at?: string
+          created_by?: string
+          evidence_style?: string | null
+          genre?: string | null
+          id?: string
+          note_text?: string
+          problem_type?: string
+          project_type?: string
+          source_coverage_run_id?: string | null
+          tags?: string[]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "great_notes_library_source_coverage_run_id_fkey"
+            columns: ["source_coverage_run_id"]
+            isOneToOne: false
+            referencedRelation: "coverage_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      house_style: {
+        Row: {
+          created_at: string
+          id: string
+          org_id: string | null
+          preferences: Json
+          style_name: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          org_id?: string | null
+          preferences?: Json
+          style_name?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          org_id?: string | null
+          preferences?: Json
+          style_name?: string
+          updated_at?: string
         }
         Relationships: []
       }
@@ -2763,74 +3145,43 @@ export type Database = {
           },
         ]
       }
-      script_coverages: {
+      scripts: {
         Row: {
-          character_analysis: string
-          comparable_titles: Json
           created_at: string
-          document_id: string | null
-          draft_label: string
+          created_by: string
+          file_path: string | null
+          hash: string | null
           id: string
-          logline: string
-          market_positioning: string
+          page_map: Json | null
           project_id: string
-          recommendation: string
-          recommendation_reason: string
-          strengths: Json
-          structural_analysis: string
-          synopsis: string
-          themes: Json
-          user_id: string
-          weaknesses: Json
+          text_content: string | null
+          version: number
         }
         Insert: {
-          character_analysis?: string
-          comparable_titles?: Json
           created_at?: string
-          document_id?: string | null
-          draft_label?: string
+          created_by: string
+          file_path?: string | null
+          hash?: string | null
           id?: string
-          logline?: string
-          market_positioning?: string
+          page_map?: Json | null
           project_id: string
-          recommendation?: string
-          recommendation_reason?: string
-          strengths?: Json
-          structural_analysis?: string
-          synopsis?: string
-          themes?: Json
-          user_id: string
-          weaknesses?: Json
+          text_content?: string | null
+          version?: number
         }
         Update: {
-          character_analysis?: string
-          comparable_titles?: Json
           created_at?: string
-          document_id?: string | null
-          draft_label?: string
+          created_by?: string
+          file_path?: string | null
+          hash?: string | null
           id?: string
-          logline?: string
-          market_positioning?: string
+          page_map?: Json | null
           project_id?: string
-          recommendation?: string
-          recommendation_reason?: string
-          strengths?: Json
-          structural_analysis?: string
-          synopsis?: string
-          themes?: Json
-          user_id?: string
-          weaknesses?: Json
+          text_content?: string | null
+          version?: number
         }
         Relationships: [
           {
-            foreignKeyName: "script_coverages_document_id_fkey"
-            columns: ["document_id"]
-            isOneToOne: false
-            referencedRelation: "project_documents"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "script_coverages_project_id_fkey"
+            foreignKeyName: "scripts_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"
@@ -3276,6 +3627,27 @@ export type Database = {
         }
         Relationships: []
       }
+      user_roles: {
+        Row: {
+          created_at: string
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
       vertical_data_sources: {
         Row: {
           category: string
@@ -3376,8 +3748,16 @@ export type Database = {
         Args: { _project_id: string; _user_id: string }
         Returns: boolean
       }
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
     }
     Enums: {
+      app_role: "admin" | "moderator" | "user"
       project_role: "producer" | "sales_agent" | "lawyer" | "creative"
     }
     CompositeTypes: {
@@ -3506,6 +3886,7 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
+      app_role: ["admin", "moderator", "user"],
       project_role: ["producer", "sales_agent", "lawyer", "creative"],
     },
   },

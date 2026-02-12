@@ -1,47 +1,55 @@
 import { useState, useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
-import { FileSearch, Loader2, ThumbsUp, ThumbsDown, Minus, BookOpen, Users2, TrendingUp, Lightbulb, AlertCircle, Film, RotateCw, ChevronDown, History, ArrowLeftRight } from 'lucide-react';
+import {
+  FileSearch, Loader2, ThumbsUp, ThumbsDown, Minus, ChevronDown, History,
+  ArrowLeftRight, RotateCw, Star, CheckCircle2, XCircle, HelpCircle, Pencil,
+  BarChart3
+} from 'lucide-react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Slider } from '@/components/ui/slider';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { useExtractDocuments } from '@/hooks/useExtractDocuments';
-import { OperationProgress, COVERAGE_STAGES, EXTRACT_STAGES } from '@/components/OperationProgress';
+import { OperationProgress, EXTRACT_STAGES } from '@/components/OperationProgress';
 import { useAuth } from '@/hooks/useAuth';
 import { format as fmtDate } from 'date-fns';
 
-interface Theme {
-  name: string;
-  description: string;
-}
+// 3-pass coverage stages
+const COVERAGE_3PASS_STAGES = [
+  { at: 3, label: 'Pass A: Analyst diagnosis…' },
+  { at: 20, label: 'Pass A: Extracting evidence…' },
+  { at: 35, label: 'Pass B: Producer notes…' },
+  { at: 55, label: 'Pass B: Building action plan…' },
+  { at: 70, label: 'Pass C: Quality control…' },
+  { at: 85, label: 'Pass C: Enforcing contract…' },
+  { at: 95, label: 'Saving results…' },
+];
 
-interface Comparable {
-  title: string;
-  reason: string;
-}
-
-interface CoverageData {
-  logline: string;
-  synopsis: string;
-  themes: Theme[];
-  structural_analysis: string;
-  character_analysis: string;
-  comparable_titles: Comparable[];
-  strengths: string[];
-  weaknesses: string[];
-  market_positioning: string;
-  recommendation: 'CONSIDER' | 'PASS' | 'RECOMMEND';
-  recommendation_reason: string;
-}
-
-interface SavedCoverage extends CoverageData {
+interface StructuredNote {
   id: string;
-  draft_label: string;
+  text: string;
+}
+
+interface CoverageRunData {
+  id: string;
   created_at: string;
+  draft_label: string;
+  final_coverage: string;
+  structured_notes: StructuredNote[];
+  metrics: Record<string, any>;
+  pass_a: string;
+  pass_b: string;
+  pass_c: string;
+  project_type: string;
+  model: string;
+  prompt_version_id: string;
 }
 
 interface Props {
@@ -50,6 +58,7 @@ interface Props {
   format: string;
   genres: string[];
   hasDocuments: boolean;
+  lane?: string;
 }
 
 const REC_STYLES: Record<string, { icon: React.ElementType; color: string; bg: string }> = {
@@ -58,219 +67,309 @@ const REC_STYLES: Record<string, { icon: React.ElementType; color: string; bg: s
   PASS: { icon: ThumbsDown, color: 'text-red-400', bg: 'bg-red-500/10 border-red-500/30' },
 };
 
-function CoverageDetail({ coverage }: { coverage: CoverageData }) {
-  const recStyle = REC_STYLES[coverage.recommendation] || REC_STYLES.CONSIDER;
-
+function VerdictBadge({ recommendation }: { recommendation: string }) {
+  const rec = recommendation?.match(/RECOMMEND|CONSIDER|PASS/)?.[0] || 'CONSIDER';
+  const recStyle = REC_STYLES[rec] || REC_STYLES.CONSIDER;
+  const RecIcon = recStyle.icon;
   return (
-    <div className="space-y-5">
-      <p className="text-sm text-muted-foreground">{coverage.recommendation_reason}</p>
-
-      <div>
-        <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Logline</p>
-        <p className="text-foreground font-medium italic">{coverage.logline}</p>
-      </div>
-
-      <div>
-        <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Synopsis</p>
-        <p className="text-sm text-muted-foreground leading-relaxed">{coverage.synopsis}</p>
-      </div>
-
-      {coverage.themes?.length > 0 && (
-        <div>
-          <div className="flex items-center gap-2 mb-2">
-            <Lightbulb className="h-4 w-4 text-primary" />
-            <p className="text-xs text-muted-foreground uppercase tracking-wider">Themes</p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {coverage.themes.map((t, i) => (
-              <span key={i} className="text-xs px-2.5 py-1 rounded-full bg-primary/10 text-primary border border-primary/20" title={t.description}>
-                {t.name}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div>
-          <div className="flex items-center gap-2 mb-2">
-            <BookOpen className="h-4 w-4 text-primary" />
-            <p className="text-xs text-muted-foreground uppercase tracking-wider">Structure</p>
-          </div>
-          <p className="text-sm text-muted-foreground leading-relaxed">{coverage.structural_analysis}</p>
-        </div>
-        <div>
-          <div className="flex items-center gap-2 mb-2">
-            <Users2 className="h-4 w-4 text-primary" />
-            <p className="text-xs text-muted-foreground uppercase tracking-wider">Characters</p>
-          </div>
-          <p className="text-sm text-muted-foreground leading-relaxed">{coverage.character_analysis}</p>
-        </div>
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div>
-          <p className="text-xs text-muted-foreground uppercase tracking-wider mb-2">Strengths</p>
-          <ul className="space-y-1.5">
-            {coverage.strengths?.map((s, i) => (
-              <li key={i} className="flex gap-2 text-sm">
-                <span className="text-emerald-400 shrink-0">✓</span>
-                <span className="text-foreground">{s}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-        <div>
-          <p className="text-xs text-muted-foreground uppercase tracking-wider mb-2">Weaknesses</p>
-          <ul className="space-y-1.5">
-            {coverage.weaknesses?.map((w, i) => (
-              <li key={i} className="flex gap-2 text-sm">
-                <AlertCircle className="h-3.5 w-3.5 text-amber-400 shrink-0 mt-0.5" />
-                <span className="text-foreground">{w}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      </div>
-
-      {coverage.comparable_titles?.length > 0 && (
-        <div>
-          <div className="flex items-center gap-2 mb-2">
-            <Film className="h-4 w-4 text-primary" />
-            <p className="text-xs text-muted-foreground uppercase tracking-wider">Comparable Titles</p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {coverage.comparable_titles.map((c, i) => (
-              <span key={i} className="text-xs px-2.5 py-1.5 rounded-lg bg-muted/50 text-foreground border border-border/50" title={c.reason}>
-                {c.title}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div>
-        <div className="flex items-center gap-2 mb-2">
-          <TrendingUp className="h-4 w-4 text-primary" />
-          <p className="text-xs text-muted-foreground uppercase tracking-wider">Market Positioning</p>
-        </div>
-        <p className="text-sm text-muted-foreground leading-relaxed">{coverage.market_positioning}</p>
-      </div>
+    <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs ${recStyle.bg}`}>
+      <RecIcon className={`h-3.5 w-3.5 ${recStyle.color}`} />
+      <span className={`font-bold ${recStyle.color}`}>{rec}</span>
     </div>
   );
 }
 
-function CompareDialog({ coverages }: { coverages: SavedCoverage[] }) {
-  const [leftId, setLeftId] = useState(coverages[0]?.id || '');
-  const [rightId, setRightId] = useState(coverages[1]?.id || '');
+function CoverageMarkdown({ markdown }: { markdown: string }) {
+  // Render coverage markdown with section headers highlighted
+  const lines = markdown.split('\n');
+  return (
+    <div className="prose prose-sm prose-invert max-w-none space-y-1">
+      {lines.map((line, i) => {
+        if (line.match(/^#{1,3}\s/)) {
+          return <h4 key={i} className="text-primary font-display font-semibold mt-4 mb-1 text-sm">{line.replace(/^#+\s*/, '')}</h4>;
+        }
+        if (line.match(/^\*\*[A-Z]/)) {
+          return <p key={i} className="text-foreground font-semibold text-sm mt-3">{line.replace(/\*\*/g, '')}</p>;
+        }
+        if (line.match(/^[-•*]\s/)) {
+          return <p key={i} className="text-sm text-muted-foreground pl-4 before:content-['•'] before:mr-2 before:text-primary/60">{line.replace(/^[-•*]\s*/, '')}</p>;
+        }
+        if (line.trim() === '') return <div key={i} className="h-1" />;
+        return <p key={i} className="text-sm text-muted-foreground leading-relaxed">{line}</p>;
+      })}
+    </div>
+  );
+}
 
-  const left = coverages.find(c => c.id === leftId);
-  const right = coverages.find(c => c.id === rightId);
+function NoteActions({ note, runId, projectType }: { note: StructuredNote; runId: string; projectType: string }) {
+  const { user } = useAuth();
+  const [editOpen, setEditOpen] = useState(false);
+  const [editText, setEditText] = useState('');
+
+  const handleTag = async (tag: string) => {
+    if (!user) return;
+    try {
+      await supabase.from('coverage_feedback_notes').insert({
+        coverage_run_id: runId,
+        note_id: note.id,
+        tag,
+        created_by: user.id,
+      } as any);
+
+      // If "great", promote to library
+      if (tag === 'great') {
+        await supabase.from('great_notes_library').insert({
+          project_type: projectType,
+          problem_type: 'general',
+          note_text: note.text,
+          source_coverage_run_id: runId,
+          created_by: user.id,
+        } as any);
+        toast.success('Note saved to Great Notes library');
+      } else {
+        toast.success(`Note tagged as ${tag}`);
+      }
+    } catch (e: any) {
+      toast.error('Failed to tag note');
+    }
+  };
+
+  const handleEdit = async () => {
+    if (!user || !editText.trim()) return;
+    try {
+      await supabase.from('coverage_feedback_notes').insert({
+        coverage_run_id: runId,
+        note_id: note.id,
+        tag: 'edited',
+        user_edit: editText,
+        created_by: user.id,
+      } as any);
+      toast.success('Edited note saved');
+      setEditOpen(false);
+    } catch {
+      toast.error('Failed to save edit');
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+      <button onClick={() => handleTag('great')} className="p-0.5 rounded hover:bg-emerald-500/20" title="Great note">
+        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
+      </button>
+      <button onClick={() => handleTag('wrong')} className="p-0.5 rounded hover:bg-red-500/20" title="Wrong">
+        <XCircle className="h-3.5 w-3.5 text-red-400" />
+      </button>
+      <button onClick={() => handleTag('vague')} className="p-0.5 rounded hover:bg-amber-500/20" title="Too vague">
+        <HelpCircle className="h-3.5 w-3.5 text-amber-400" />
+      </button>
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogTrigger asChild>
+          <button className="p-0.5 rounded hover:bg-primary/20" title="Edit">
+            <Pencil className="h-3.5 w-3.5 text-primary" />
+          </button>
+        </DialogTrigger>
+        <DialogContent className="max-w-lg">
+          <DialogHeader><DialogTitle>Edit Note</DialogTitle></DialogHeader>
+          <p className="text-xs text-muted-foreground mb-2">Original: {note.text}</p>
+          <Textarea value={editText} onChange={e => setEditText(e.target.value)} placeholder="Your corrected version…" rows={4} />
+          <Button onClick={handleEdit} className="mt-2">Save Edit</Button>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function StructuredNotesView({ notes, runId, projectType }: { notes: StructuredNote[]; runId: string; projectType: string }) {
+  if (!notes?.length) return null;
+  return (
+    <div className="space-y-1.5 mt-4">
+      <p className="text-xs text-muted-foreground uppercase tracking-wider">Structured Notes ({notes.length})</p>
+      {notes.map(note => (
+        <div key={note.id} className="group flex items-start gap-2 text-sm py-1 px-2 rounded hover:bg-muted/30">
+          <span className="text-[10px] text-muted-foreground font-mono shrink-0 mt-0.5">{note.id}</span>
+          <span className="text-foreground flex-1">{note.text}</span>
+          <NoteActions note={note} runId={runId} projectType={projectType} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function FeedbackPanel({ runId }: { runId: string }) {
+  const { user } = useAuth();
+  const [ratings, setRatings] = useState({ overall: 3, accuracy: 3, specificity: 3, actionability: 3, market: 3 });
+  const [freeText, setFreeText] = useState('');
+  const [submitted, setSubmitted] = useState(false);
+
+  const handleSubmit = async () => {
+    if (!user) return;
+    try {
+      await supabase.from('coverage_feedback').insert({
+        coverage_run_id: runId,
+        overall_usefulness: ratings.overall,
+        accuracy_to_script: ratings.accuracy,
+        specificity: ratings.specificity,
+        actionability: ratings.actionability,
+        market_realism: ratings.market,
+        free_text: freeText || null,
+        created_by: user.id,
+      } as any);
+      toast.success('Feedback submitted');
+      setSubmitted(true);
+    } catch {
+      toast.error('Failed to submit feedback');
+    }
+  };
+
+  if (submitted) {
+    return <p className="text-xs text-emerald-400 flex items-center gap-1"><CheckCircle2 className="h-3 w-3" /> Feedback submitted</p>;
+  }
+
+  const sliders = [
+    { key: 'overall', label: 'Overall Usefulness' },
+    { key: 'accuracy', label: 'Accuracy to Script' },
+    { key: 'specificity', label: 'Specificity' },
+    { key: 'actionability', label: 'Actionability' },
+    { key: 'market', label: 'Market Realism' },
+  ] as const;
+
+  return (
+    <div className="space-y-3 p-4 rounded-lg border border-border/50 bg-muted/20">
+      <p className="text-xs text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+        <Star className="h-3 w-3" /> Rate This Coverage
+      </p>
+      {sliders.map(s => (
+        <div key={s.key} className="flex items-center gap-3">
+          <span className="text-xs text-muted-foreground w-32 shrink-0">{s.label}</span>
+          <Slider
+            value={[ratings[s.key]]}
+            onValueChange={([v]) => setRatings(prev => ({ ...prev, [s.key]: v }))}
+            min={1} max={5} step={1}
+            className="flex-1"
+          />
+          <span className="text-xs font-mono w-4 text-right">{ratings[s.key]}</span>
+        </div>
+      ))}
+      <Textarea value={freeText} onChange={e => setFreeText(e.target.value)} placeholder="Any additional feedback…" rows={2} className="text-xs" />
+      <Button size="sm" onClick={handleSubmit} className="text-xs">Submit Feedback</Button>
+    </div>
+  );
+}
+
+function MetricsBadges({ metrics }: { metrics: Record<string, any> }) {
+  if (!metrics || Object.keys(metrics).length === 0) return null;
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      {metrics.specificity_rate != null && (
+        <span className="text-[10px] px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
+          Specificity: {typeof metrics.specificity_rate === 'number' ? `${Math.round(metrics.specificity_rate * 100)}%` : metrics.specificity_rate}
+        </span>
+      )}
+      {metrics.hallucinations_count != null && (
+        <span className={`text-[10px] px-2 py-0.5 rounded-full border ${metrics.hallucinations_count === 0 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-red-500/10 text-red-400 border-red-500/20'}`}>
+          Hallucinations: {metrics.hallucinations_count}
+        </span>
+      )}
+      {metrics.contract_compliance != null && (
+        <span className={`text-[10px] px-2 py-0.5 rounded-full border ${metrics.contract_compliance ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-amber-500/10 text-amber-400 border-amber-500/20'}`}>
+          Contract: {metrics.contract_compliance ? '✓' : 'Partial'}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function CompareDialog({ runs }: { runs: CoverageRunData[] }) {
+  const [leftId, setLeftId] = useState(runs[0]?.id || '');
+  const [rightId, setRightId] = useState(runs[1]?.id || '');
+  const left = runs.find(r => r.id === leftId);
+  const right = runs.find(r => r.id === rightId);
 
   return (
     <Dialog>
       <DialogTrigger asChild>
         <Button variant="outline" size="sm" className="text-xs gap-1.5">
-          <ArrowLeftRight className="h-3 w-3" />
-          Compare Drafts
+          <ArrowLeftRight className="h-3 w-3" /> Compare Drafts
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-5xl max-h-[85vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Compare Script Coverages</DialogTitle>
-        </DialogHeader>
+      <DialogContent className="max-w-6xl max-h-[85vh] overflow-y-auto">
+        <DialogHeader><DialogTitle>Compare Script Coverages</DialogTitle></DialogHeader>
         <div className="grid grid-cols-2 gap-4 mt-4">
           <Select value={leftId} onValueChange={setLeftId}>
             <SelectTrigger><SelectValue placeholder="Select draft" /></SelectTrigger>
             <SelectContent>
-              {coverages.filter(c => c.id !== rightId).map(c => (
-                <SelectItem key={c.id} value={c.id}>{c.draft_label} — {fmtDate(new Date(c.created_at), 'dd MMM yyyy')}</SelectItem>
+              {runs.filter(r => r.id !== rightId).map(r => (
+                <SelectItem key={r.id} value={r.id}>{r.draft_label} — {fmtDate(new Date(r.created_at), 'dd MMM yyyy')}</SelectItem>
               ))}
             </SelectContent>
           </Select>
           <Select value={rightId} onValueChange={setRightId}>
             <SelectTrigger><SelectValue placeholder="Select draft" /></SelectTrigger>
             <SelectContent>
-              {coverages.filter(c => c.id !== leftId).map(c => (
-                <SelectItem key={c.id} value={c.id}>{c.draft_label} — {fmtDate(new Date(c.created_at), 'dd MMM yyyy')}</SelectItem>
+              {runs.filter(r => r.id !== leftId).map(r => (
+                <SelectItem key={r.id} value={r.id}>{r.draft_label} — {fmtDate(new Date(r.created_at), 'dd MMM yyyy')}</SelectItem>
               ))}
             </SelectContent>
           </Select>
         </div>
         <div className="grid grid-cols-2 gap-6 mt-4">
-          <div className="space-y-4">
-            {left && (
-              <>
-                <VerdictBadge recommendation={left.recommendation} />
-                <CoverageDetail coverage={left} />
-              </>
-            )}
-          </div>
-          <div className="space-y-4">
-            {right && (
-              <>
-                <VerdictBadge recommendation={right.recommendation} />
-                <CoverageDetail coverage={right} />
-              </>
-            )}
-          </div>
+          {[left, right].map((run, idx) => (
+            <div key={idx} className="space-y-3">
+              {run && (
+                <>
+                  <div className="flex items-center gap-2">
+                    <VerdictBadge recommendation={run.final_coverage} />
+                    <MetricsBadges metrics={run.metrics} />
+                  </div>
+                  <CoverageMarkdown markdown={run.final_coverage} />
+                </>
+              )}
+            </div>
+          ))}
         </div>
       </DialogContent>
     </Dialog>
   );
 }
 
-function VerdictBadge({ recommendation }: { recommendation: string }) {
-  const recStyle = REC_STYLES[recommendation] || REC_STYLES.CONSIDER;
-  const RecIcon = recStyle.icon;
-  return (
-    <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs ${recStyle.bg}`}>
-      <RecIcon className={`h-3.5 w-3.5 ${recStyle.color}`} />
-      <span className={`font-bold ${recStyle.color}`}>{recommendation}</span>
-    </div>
-  );
-}
-
-export function ScriptCoverage({ projectId, projectTitle, format, genres, hasDocuments }: Props) {
-  const [coverage, setCoverage] = useState<CoverageData | null>(null);
-  const [savedCoverages, setSavedCoverages] = useState<SavedCoverage[]>([]);
-  const [selectedId, setSelectedId] = useState<string>('');
+export function ScriptCoverage({ projectId, projectTitle, format, genres, hasDocuments, lane }: Props) {
+  const [runs, setRuns] = useState<CoverageRunData[]>([]);
+  const [selectedId, setSelectedId] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [draftLabel, setDraftLabel] = useState('');
+  const [activeTab, setActiveTab] = useState('coverage');
   const extract = useExtractDocuments(projectId);
   const queryClient = useQueryClient();
   const { user } = useAuth();
 
-  // Load saved coverages on mount
+  const selectedRun = runs.find(r => r.id === selectedId);
+
+  // Load existing coverage runs
   useEffect(() => {
     const load = async () => {
       const { data } = await supabase
-        .from('script_coverages')
+        .from('coverage_runs')
         .select('*')
         .eq('project_id', projectId)
         .order('created_at', { ascending: false });
 
-      if (data && data.length > 0) {
-        const mapped: SavedCoverage[] = data.map((row: any) => ({
+      if (data?.length) {
+        const mapped: CoverageRunData[] = data.map((row: any) => ({
           id: row.id,
-          draft_label: row.draft_label,
           created_at: row.created_at,
-          logline: row.logline,
-          synopsis: row.synopsis,
-          themes: row.themes as Theme[],
-          structural_analysis: row.structural_analysis,
-          character_analysis: row.character_analysis,
-          comparable_titles: row.comparable_titles as Comparable[],
-          strengths: row.strengths as string[],
-          weaknesses: row.weaknesses as string[],
-          market_positioning: row.market_positioning,
-          recommendation: row.recommendation as 'CONSIDER' | 'PASS' | 'RECOMMEND',
-          recommendation_reason: row.recommendation_reason,
+          draft_label: row.draft_label,
+          final_coverage: row.final_coverage,
+          structured_notes: (row.structured_notes || []) as StructuredNote[],
+          metrics: (row.metrics || {}) as Record<string, any>,
+          pass_a: row.pass_a,
+          pass_b: row.pass_b,
+          pass_c: row.pass_c,
+          project_type: row.project_type,
+          model: row.model,
+          prompt_version_id: row.prompt_version_id,
         }));
-        setSavedCoverages(mapped);
+        setRuns(mapped);
         setSelectedId(mapped[0].id);
-        setCoverage(mapped[0]);
-        // Auto-suggest next draft label
         setDraftLabel(`Draft ${data.length + 1}`);
       } else {
         setDraftLabel('Draft 1');
@@ -279,40 +378,34 @@ export function ScriptCoverage({ projectId, projectTitle, format, genres, hasDoc
     load();
   }, [projectId]);
 
-  const handleSelectCoverage = (id: string) => {
-    setSelectedId(id);
-    const found = savedCoverages.find(c => c.id === id);
-    if (found) setCoverage(found);
-  };
-
   const handleGenerate = async () => {
     setIsLoading(true);
     try {
-      const { data: docs, error: docsError } = await supabase
+      // Get script text from extracted documents
+      const { data: docs } = await supabase
         .from('project_documents')
         .select('extracted_text')
         .eq('project_id', projectId)
         .not('extracted_text', 'is', null);
-
-      if (docsError) throw docsError;
 
       let scriptText = (docs || [])
         .map((d: any) => d.extracted_text)
         .filter((t: string) => t && t.length > 100)
         .join('\n\n---\n\n');
 
+      // If no text, try extracting from project_scripts
       if (!scriptText || scriptText.length < 100) {
         const { data: scripts } = await supabase
-          .from('project_scripts')
+          .from('project_scripts' as any)
           .select('file_path')
           .eq('project_id', projectId)
           .eq('status', 'current')
           .limit(1);
 
-        if (scripts?.length && scripts[0].file_path) {
+        if (scripts?.length && (scripts[0] as any).file_path) {
           toast.info('Extracting script text — this may take a moment…');
           await supabase.functions.invoke('extract-documents', {
-            body: { projectId, documentPaths: scripts.map(s => s.file_path) },
+            body: { projectId, documentPaths: scripts.map((s: any) => s.file_path) },
           });
 
           const { data: freshDocs } = await supabase
@@ -329,65 +422,68 @@ export function ScriptCoverage({ projectId, projectTitle, format, genres, hasDoc
       }
 
       if (!scriptText || scriptText.length < 100) {
-        toast.error('No extracted text found — try uploading the script via Documents first.');
+        toast.error('No extracted text found — upload the script via Documents first.');
         return;
       }
 
+      // Ensure we have a script record
+      let scriptId: string | null = null;
+      const { data: existingScripts } = await supabase
+        .from('scripts')
+        .select('id')
+        .eq('project_id', projectId)
+        .order('version', { ascending: false })
+        .limit(1);
+
+      if (existingScripts?.length) {
+        scriptId = existingScripts[0].id;
+      } else {
+        // Create script record
+        const { data: newScript } = await supabase
+          .from('scripts')
+          .insert({
+            project_id: projectId,
+            version: 1,
+            text_content: scriptText.slice(0, 50000), // store a chunk for reference
+            created_by: user!.id,
+          } as any)
+          .select('id')
+          .single();
+        scriptId = newScript?.id;
+      }
+
+      if (!scriptId) throw new Error('Failed to create script record');
+
+      const label = draftLabel || `Draft ${runs.length + 1}`;
+
       const { data, error } = await supabase.functions.invoke('script-coverage', {
-        body: { scriptText, projectTitle, format, genres },
+        body: { projectId, scriptId, draftLabel: label, scriptText, format, genres, lane },
       });
 
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
 
-      const coverageData = data as CoverageData;
-      setCoverage(coverageData);
+      const newRun: CoverageRunData = {
+        id: data.id || crypto.randomUUID(),
+        created_at: data.created_at || new Date().toISOString(),
+        draft_label: label,
+        final_coverage: data.final_coverage,
+        structured_notes: data.structured_notes || [],
+        metrics: data.metrics || {},
+        pass_a: data.pass_a || '',
+        pass_b: data.pass_b || '',
+        pass_c: data.pass_c || '',
+        project_type: FORMAT_LABELS[format] || 'Film',
+        model: 'google/gemini-2.5-flash',
+        prompt_version_id: '',
+      };
 
-      // Save to database
-      const label = draftLabel || `Draft ${savedCoverages.length + 1}`;
-      const { data: inserted, error: insertError } = await supabase
-        .from('script_coverages')
-        .insert({
-          project_id: projectId,
-          user_id: user?.id,
-          draft_label: label,
-          logline: coverageData.logline,
-          synopsis: coverageData.synopsis,
-          themes: coverageData.themes as any,
-          structural_analysis: coverageData.structural_analysis,
-          character_analysis: coverageData.character_analysis,
-          comparable_titles: coverageData.comparable_titles as any,
-          strengths: coverageData.strengths as any,
-          weaknesses: coverageData.weaknesses as any,
-          market_positioning: coverageData.market_positioning,
-          recommendation: coverageData.recommendation,
-          recommendation_reason: coverageData.recommendation_reason,
-        })
-        .select()
-        .single();
-
-      if (insertError) {
-        console.error('Failed to persist coverage:', insertError);
-      } else if (inserted) {
-        const newSaved: SavedCoverage = {
-          ...coverageData,
-          id: inserted.id,
-          draft_label: label,
-          created_at: inserted.created_at,
-        };
-        setSavedCoverages(prev => [newSaved, ...prev]);
-        setSelectedId(inserted.id);
-        setDraftLabel(`Draft ${savedCoverages.length + 2}`);
-      }
-
-      // Persist verdict to project for readiness scoring
-      await supabase
-        .from('projects')
-        .update({ script_coverage_verdict: coverageData.recommendation })
-        .eq('id', projectId);
+      setRuns(prev => [newRun, ...prev]);
+      setSelectedId(newRun.id);
+      setDraftLabel(`Draft ${runs.length + 2}`);
 
       queryClient.invalidateQueries({ queryKey: ['project', projectId] });
-      toast.success('Coverage analysis complete');
+      toast.success('3-pass coverage analysis complete');
     } catch (e: any) {
       toast.error(e.message || 'Failed to generate coverage');
     } finally {
@@ -397,67 +493,47 @@ export function ScriptCoverage({ projectId, projectTitle, format, genres, hasDoc
 
   if (!hasDocuments) return null;
 
-  if (!coverage) {
+  // No coverage yet — show generation UI
+  if (!selectedRun) {
     return (
-      <motion.div
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="glass-card rounded-xl p-6"
-      >
+      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="glass-card rounded-xl p-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <FileSearch className="h-5 w-5 text-primary" />
             <div>
               <h3 className="font-display font-semibold text-foreground">Script Coverage</h3>
-              <p className="text-sm text-muted-foreground">AI-generated professional coverage notes</p>
+              <p className="text-sm text-muted-foreground">3-pass AI coverage: Analyst → Producer → QC</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <Input value={draftLabel} onChange={e => setDraftLabel(e.target.value)} placeholder="Draft label…" className="h-8 w-32 text-xs" />
             <Button variant="outline" size="sm" onClick={() => extract.mutate()} disabled={extract.isPending} className="text-xs gap-1.5">
               <RotateCw className={`h-3 w-3 ${extract.isPending ? 'animate-spin' : ''}`} />
-              {extract.isPending ? 'Extracting…' : 'Extract Text'}
+              Extract Text
             </Button>
             <Button onClick={handleGenerate} disabled={isLoading}>
-              {isLoading ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
-                  Analysing…
-                </>
-              ) : (
-                <>
-                  <FileSearch className="h-4 w-4 mr-1.5" />
-                  Generate Coverage
-                </>
-              )}
+              {isLoading ? <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" />Analysing…</> : <><FileSearch className="h-4 w-4 mr-1.5" />Generate Coverage</>}
             </Button>
           </div>
         </div>
         <OperationProgress isActive={extract.isPending} stages={EXTRACT_STAGES} />
-        <OperationProgress isActive={isLoading} stages={COVERAGE_STAGES} />
+        <OperationProgress isActive={isLoading} stages={COVERAGE_3PASS_STAGES} />
       </motion.div>
     );
   }
 
-  const recStyle = REC_STYLES[coverage.recommendation] || REC_STYLES.CONSIDER;
-  const RecIcon = recStyle.icon;
-
   return (
     <Collapsible defaultOpen>
-      <motion.div
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="glass-card rounded-xl p-6"
-      >
+      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="glass-card rounded-xl p-6">
         <CollapsibleTrigger className="w-full">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <FileSearch className="h-5 w-5 text-primary" />
               <h3 className="font-display font-semibold text-foreground">Script Coverage</h3>
-              <VerdictBadge recommendation={coverage.recommendation} />
-              {savedCoverages.length > 0 && (
-                <span className="text-xs text-muted-foreground">
-                  {savedCoverages.find(c => c.id === selectedId)?.draft_label}
-                </span>
+              <VerdictBadge recommendation={selectedRun.final_coverage} />
+              <MetricsBadges metrics={selectedRun.metrics} />
+              {runs.length > 0 && (
+                <span className="text-xs text-muted-foreground">{selectedRun.draft_label}</span>
               )}
             </div>
             <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform [[data-state=open]_&]:rotate-180" />
@@ -466,47 +542,111 @@ export function ScriptCoverage({ projectId, projectTitle, format, genres, hasDoc
 
         <CollapsibleContent className="space-y-5 mt-5">
           {/* Draft selector & actions */}
-          {savedCoverages.length > 0 && (
+          {runs.length > 0 && (
             <div className="flex items-center gap-3 flex-wrap">
               <div className="flex items-center gap-2">
                 <History className="h-4 w-4 text-muted-foreground" />
-                <Select value={selectedId} onValueChange={handleSelectCoverage}>
-                  <SelectTrigger className="h-8 w-[220px] text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
+                <Select value={selectedId} onValueChange={setSelectedId}>
+                  <SelectTrigger className="h-8 w-[240px] text-xs"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {savedCoverages.map(c => (
-                      <SelectItem key={c.id} value={c.id} className="text-xs">
-                        {c.draft_label} — {fmtDate(new Date(c.created_at), 'dd MMM yyyy HH:mm')}
+                    {runs.map(r => (
+                      <SelectItem key={r.id} value={r.id} className="text-xs">
+                        {r.draft_label} — {fmtDate(new Date(r.created_at), 'dd MMM yyyy HH:mm')}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
-              {savedCoverages.length >= 2 && (
-                <CompareDialog coverages={savedCoverages} />
-              )}
+              {runs.length >= 2 && <CompareDialog runs={runs} />}
             </div>
           )}
 
-          <CoverageDetail coverage={coverage} />
+          {/* Tabs: Coverage | Passes | Feedback */}
+          <Tabs value={activeTab} onValueChange={setActiveTab}>
+            <TabsList className="bg-muted/30">
+              <TabsTrigger value="coverage" className="text-xs">Final Coverage</TabsTrigger>
+              <TabsTrigger value="passes" className="text-xs">Analysis Passes</TabsTrigger>
+              <TabsTrigger value="notes" className="text-xs">Notes ({selectedRun.structured_notes?.length || 0})</TabsTrigger>
+              <TabsTrigger value="feedback" className="text-xs gap-1"><Star className="h-3 w-3" />Rate</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="coverage" className="mt-4">
+              <CoverageMarkdown markdown={selectedRun.final_coverage} />
+            </TabsContent>
+
+            <TabsContent value="passes" className="mt-4 space-y-4">
+              <Collapsible>
+                <CollapsibleTrigger className="w-full text-left">
+                  <p className="text-xs text-muted-foreground uppercase tracking-wider flex items-center gap-1.5 cursor-pointer hover:text-foreground">
+                    <BarChart3 className="h-3 w-3" /> Pass A: Analyst Diagnostics
+                    <ChevronDown className="h-3 w-3 ml-auto transition-transform [[data-state=open]_&]:rotate-180" />
+                  </p>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <div className="mt-2 p-3 rounded-lg bg-muted/20 border border-border/30 max-h-[400px] overflow-y-auto">
+                    <CoverageMarkdown markdown={selectedRun.pass_a} />
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
+
+              <Collapsible>
+                <CollapsibleTrigger className="w-full text-left">
+                  <p className="text-xs text-muted-foreground uppercase tracking-wider flex items-center gap-1.5 cursor-pointer hover:text-foreground">
+                    <BarChart3 className="h-3 w-3" /> Pass B: Producer Notes
+                    <ChevronDown className="h-3 w-3 ml-auto transition-transform [[data-state=open]_&]:rotate-180" />
+                  </p>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <div className="mt-2 p-3 rounded-lg bg-muted/20 border border-border/30 max-h-[400px] overflow-y-auto">
+                    <CoverageMarkdown markdown={selectedRun.pass_b} />
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
+
+              <Collapsible>
+                <CollapsibleTrigger className="w-full text-left">
+                  <p className="text-xs text-muted-foreground uppercase tracking-wider flex items-center gap-1.5 cursor-pointer hover:text-foreground">
+                    <BarChart3 className="h-3 w-3" /> Pass C: QC Report
+                    <ChevronDown className="h-3 w-3 ml-auto transition-transform [[data-state=open]_&]:rotate-180" />
+                  </p>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <div className="mt-2 p-3 rounded-lg bg-muted/20 border border-border/30 max-h-[400px] overflow-y-auto">
+                    <CoverageMarkdown markdown={selectedRun.pass_c} />
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
+            </TabsContent>
+
+            <TabsContent value="notes" className="mt-4">
+              <StructuredNotesView notes={selectedRun.structured_notes} runId={selectedRun.id} projectType={selectedRun.project_type} />
+            </TabsContent>
+
+            <TabsContent value="feedback" className="mt-4">
+              <FeedbackPanel runId={selectedRun.id} />
+            </TabsContent>
+          </Tabs>
 
           {/* Regenerate */}
           <div className="pt-2 border-t border-border/50 flex items-center gap-3 flex-wrap">
-            <Input
-              value={draftLabel}
-              onChange={e => setDraftLabel(e.target.value)}
-              placeholder="Draft label…"
-              className="h-8 w-40 text-xs"
-            />
+            <Input value={draftLabel} onChange={e => setDraftLabel(e.target.value)} placeholder="Draft label…" className="h-8 w-40 text-xs" />
             <Button variant="ghost" size="sm" onClick={handleGenerate} disabled={isLoading}>
               {isLoading ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <FileSearch className="h-3 w-3 mr-1" />}
-              {savedCoverages.length > 0 ? 'New Coverage' : 'Regenerate Coverage'}
+              New Coverage
             </Button>
-            <OperationProgress isActive={isLoading} stages={COVERAGE_STAGES} />
+            <OperationProgress isActive={isLoading} stages={COVERAGE_3PASS_STAGES} />
           </div>
         </CollapsibleContent>
       </motion.div>
     </Collapsible>
   );
 }
+
+const FORMAT_LABELS: Record<string, string> = {
+  film: "Feature Film", "tv-series": "TV Series", documentary: "Documentary Feature",
+  "documentary-series": "Documentary Series", commercial: "Commercial / Advert",
+  "branded-content": "Branded Content", "short-film": "Short Film",
+  "music-video": "Music Video", "proof-of-concept": "Proof of Concept",
+  "digital-series": "Digital / Social Series", hybrid: "Hybrid Project",
+  "vertical-drama": "Vertical Drama",
+};
