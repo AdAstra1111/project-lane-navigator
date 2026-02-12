@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Copy, ChevronDown, ChevronUp, ThumbsUp, Minus, ThumbsDown, ArrowUp, ArrowDown, Trash2, Link2, Share2, Bookmark, BookmarkCheck, Lock, Shield } from 'lucide-react';
+import { Copy, ChevronDown, ChevronUp, ThumbsUp, Minus, ThumbsDown, ArrowUp, ArrowDown, Trash2, Link2, Share2, Bookmark, BookmarkCheck, Lock, Shield, Rocket } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -29,6 +29,7 @@ export function PitchIdeaCard({ idea, onDelete, onUpdate, onLinkProject, rank }:
   const userFeedback = feedback[0];
   const isLocked = (idea as any).concept_lock_status === 'locked';
   const lockVersion = (idea as any).concept_lock_version || 0;
+  const isPromoted = !!(idea as any).promoted_to_project_id;
 
   const copyBlock = (label: string, text: string) => {
     navigator.clipboard.writeText(text);
@@ -134,6 +135,11 @@ export function PitchIdeaCard({ idea, onDelete, onUpdate, onLinkProject, rank }:
           {isLocked && (
             <Badge className="bg-green-500/15 text-green-400 border-green-500/30 gap-1 text-xs">
               <Lock className="h-3 w-3" /> Locked v{lockVersion}
+            </Badge>
+          )}
+          {isPromoted && (
+            <Badge className="bg-primary/15 text-primary border-primary/30 gap-1 text-xs">
+              <Rocket className="h-3 w-3" /> Promoted
             </Badge>
           )}
           {Number(idea.score_total) > 0 && (

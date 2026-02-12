@@ -62,3 +62,6 @@ verify_jwt = false
 
 [functions.stress-test-concept]
 verify_jwt = false
+
+[functions.promote-locked-idea]
+verify_jwt = false

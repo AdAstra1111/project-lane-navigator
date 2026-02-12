@@ -303,6 +303,57 @@ export type Database = {
           },
         ]
       }
+      concept_lock_documents: {
+        Row: {
+          content: string
+          created_at: string
+          doc_type: string
+          id: string
+          pitch_idea_id: string
+          project_id: string
+          title: string
+          user_id: string
+          version: number
+        }
+        Insert: {
+          content?: string
+          created_at?: string
+          doc_type?: string
+          id?: string
+          pitch_idea_id: string
+          project_id: string
+          title?: string
+          user_id: string
+          version?: number
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          doc_type?: string
+          id?: string
+          pitch_idea_id?: string
+          project_id?: string
+          title?: string
+          user_id?: string
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "concept_lock_documents_pitch_idea_id_fkey"
+            columns: ["pitch_idea_id"]
+            isOneToOne: false
+            referencedRelation: "pitch_ideas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "concept_lock_documents_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       concept_lock_versions: {
         Row: {
           expansion_id: string | null
@@ -1466,6 +1517,7 @@ export type Database = {
           platform_target: string
           production_type: string
           project_id: string | null
+          promoted_to_project_id: string | null
           raw_response: Json | null
           recommended_lane: string
           region: string
@@ -1502,6 +1554,7 @@ export type Database = {
           platform_target?: string
           production_type?: string
           project_id?: string | null
+          promoted_to_project_id?: string | null
           raw_response?: Json | null
           recommended_lane?: string
           region?: string
@@ -1538,6 +1591,7 @@ export type Database = {
           platform_target?: string
           production_type?: string
           project_id?: string | null
+          promoted_to_project_id?: string | null
           raw_response?: Json | null
           recommended_lane?: string
           region?: string
@@ -1567,6 +1621,13 @@ export type Database = {
           {
             foreignKeyName: "pitch_ideas_project_id_fkey"
             columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pitch_ideas_promoted_to_project_id_fkey"
+            columns: ["promoted_to_project_id"]
             isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
@@ -3692,6 +3753,7 @@ export type Database = {
           assigned_lane: string | null
           budget_range: string
           comparable_titles: string
+          concept_lock_version: number | null
           confidence: number | null
           created_at: string
           document_urls: string[]
@@ -3707,6 +3769,7 @@ export type Database = {
           recommendations: Json | null
           script_coverage_verdict: string
           secondary_territories: string[]
+          source_pitch_idea_id: string | null
           target_audience: string
           title: string
           tone: string
@@ -3718,6 +3781,7 @@ export type Database = {
           assigned_lane?: string | null
           budget_range?: string
           comparable_titles?: string
+          concept_lock_version?: number | null
           confidence?: number | null
           created_at?: string
           document_urls?: string[]
@@ -3733,6 +3797,7 @@ export type Database = {
           recommendations?: Json | null
           script_coverage_verdict?: string
           secondary_territories?: string[]
+          source_pitch_idea_id?: string | null
           target_audience?: string
           title: string
           tone?: string
@@ -3744,6 +3809,7 @@ export type Database = {
           assigned_lane?: string | null
           budget_range?: string
           comparable_titles?: string
+          concept_lock_version?: number | null
           confidence?: number | null
           created_at?: string
           document_urls?: string[]
@@ -3759,13 +3825,22 @@ export type Database = {
           recommendations?: Json | null
           script_coverage_verdict?: string
           secondary_territories?: string[]
+          source_pitch_idea_id?: string | null
           target_audience?: string
           title?: string
           tone?: string
           updated_at?: string
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "projects_source_pitch_idea_id_fkey"
+            columns: ["source_pitch_idea_id"]
+            isOneToOne: false
+            referencedRelation: "pitch_ideas"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       readiness_score_history: {
         Row: {
