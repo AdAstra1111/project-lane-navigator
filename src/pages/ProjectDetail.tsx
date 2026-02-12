@@ -461,9 +461,21 @@ export default function ProjectDetail() {
     }
   };
 
+  const heroImageUrl = (project as any).hero_image_url;
+
   return (
     <div className="min-h-screen bg-background">
       <Header />
+
+      {/* Hero Image Banner */}
+      {heroImageUrl && (
+        <div className="relative h-[200px] sm:h-[260px] overflow-hidden -mb-6">
+          <img src={heroImageUrl} alt="" className="w-full h-full object-cover" />
+          <div className="absolute inset-0 bg-gradient-to-t from-background via-background/70 to-background/20" />
+          <div className="absolute inset-0 bg-gradient-to-r from-background/50 to-transparent" />
+        </div>
+      )}
+
       <main className="container max-w-6xl py-6">
         <motion.div
           initial={{ opacity: 0, y: 12 }}
