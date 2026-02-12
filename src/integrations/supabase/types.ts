@@ -2763,6 +2763,81 @@ export type Database = {
           },
         ]
       }
+      script_coverages: {
+        Row: {
+          character_analysis: string
+          comparable_titles: Json
+          created_at: string
+          document_id: string | null
+          draft_label: string
+          id: string
+          logline: string
+          market_positioning: string
+          project_id: string
+          recommendation: string
+          recommendation_reason: string
+          strengths: Json
+          structural_analysis: string
+          synopsis: string
+          themes: Json
+          user_id: string
+          weaknesses: Json
+        }
+        Insert: {
+          character_analysis?: string
+          comparable_titles?: Json
+          created_at?: string
+          document_id?: string | null
+          draft_label?: string
+          id?: string
+          logline?: string
+          market_positioning?: string
+          project_id: string
+          recommendation?: string
+          recommendation_reason?: string
+          strengths?: Json
+          structural_analysis?: string
+          synopsis?: string
+          themes?: Json
+          user_id: string
+          weaknesses?: Json
+        }
+        Update: {
+          character_analysis?: string
+          comparable_titles?: Json
+          created_at?: string
+          document_id?: string | null
+          draft_label?: string
+          id?: string
+          logline?: string
+          market_positioning?: string
+          project_id?: string
+          recommendation?: string
+          recommendation_reason?: string
+          strengths?: Json
+          structural_analysis?: string
+          synopsis?: string
+          themes?: Json
+          user_id?: string
+          weaknesses?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "script_coverages_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "project_documents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "script_coverages_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       shadow_source_evaluations: {
         Row: {
           accuracy_score: number
