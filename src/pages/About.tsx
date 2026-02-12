@@ -15,14 +15,14 @@ const fadeUp = (delay = 0) => ({
 });
 
 const capabilities = [
-  { icon: Layers, title: 'Living dossiers', desc: 'Every project is a living document. As you attach cast, partners, scripts, and HODs, the assessment updates automatically.' },
+  { icon: Layers, title: 'Six lifecycle stages', desc: 'Development → Packaging → Pre-Production → Production → Post-Production → Sales & Delivery. Each stage has its own readiness score, intelligence panel, and risk assessment.' },
   { icon: Target, title: 'Decision-support', desc: 'IFFY surfaces the best next step — not a to-do list. One decision at a time, moving you closer to finance-ready.' },
   { icon: DollarSign, title: 'Finance Tracker', desc: 'Build your capital stack deal by deal across six categories with real-time waterfall visualisation.' },
-  { icon: TrendingUp, title: 'Market intelligence', desc: 'Trend signals, cast momentum, and genre cycles tracked continuously and matched to your project.' },
+  { icon: TrendingUp, title: 'Stage-aware intelligence', desc: 'Trend signals adapt by stage — narrative trends in Development, talent heat in Packaging, platform demand in Sales.' },
   { icon: Shield, title: 'Finance integration', desc: 'Incentives, co-production treaties, and capital stacks evaluated in context — not in isolation.' },
   { icon: Users, title: 'Buyer matching & CRM', desc: 'Scored buyer matches based on genre, budget, territory, and tone — plus a CRM to track relationships.' },
   { icon: Sparkles, title: 'Smart Packaging', desc: 'AI-driven talent recommendations based on budget, genre, lane, and market trends.' },
-  { icon: GitBranch, title: 'Pipeline & stage gates', desc: 'Kanban view across Development, Packaging, Financing, and Pre-Production with automated gates.' },
+  { icon: GitBranch, title: 'Pipeline & stage gates', desc: 'Lifecycle sidebar across six stages with automated gates and per-stage readiness thresholds.' },
   { icon: UserPlus, title: 'Collaboration', desc: 'Role-based access for Producers, Sales Agents, Lawyers, and Creatives with threaded comments.' },
   { icon: FileOutput, title: 'Export & compare', desc: 'Professional PDF One-Pager. Clone and compare variants side-by-side across readiness scores.' },
 ];
@@ -75,7 +75,7 @@ export default function About() {
           </h2>
           <div className="space-y-4 text-lg text-muted-foreground leading-relaxed">
             <p>
-              IFFY is a project intelligence system that guides film and TV projects from inception through production to monetisation and beyond — preserving context, ownership, and financial clarity at every stage.
+              IFFY is a project intelligence system that guides film and TV projects through six lifecycle stages — from Development through Production to Sales & Delivery — preserving context, ownership, and financial clarity at every stage.
             </p>
             <p>
               It doesn't replace your instincts. <span className="text-foreground font-medium">It gives your instincts better information.</span>

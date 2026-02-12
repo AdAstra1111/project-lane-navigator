@@ -1,30 +1,30 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { FolderOpen, Landmark, Target, Footprints, X, ArrowRight } from 'lucide-react';
+import { Layers, Landmark, Target, Footprints, X, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 const ONBOARDING_KEY = 'iffy-onboarding-seen';
 
 const steps = [
   {
-    icon: FolderOpen,
-    title: 'From inception to legacy.',
-    body: 'IFFY — Intelligent Film Flow & Yield — guides your project from first idea through production to monetisation.',
+    icon: Layers,
+    title: 'Six stages. One journey.',
+    body: 'IFFY guides your project through Development, Packaging, Pre-Production, Production, Post-Production, and Sales & Delivery — with per-stage readiness scoring at every step.',
   },
   {
     icon: Landmark,
     title: 'Finance is built in.',
-    body: 'Incentives, co-productions, and capital stacks are evaluated automatically based on your project details.',
+    body: 'Incentives, co-productions, and capital stacks are evaluated automatically based on your project details and lifecycle stage.',
   },
   {
     icon: Target,
     title: 'Every decision matters.',
-    body: 'Each change moves your project closer to — or further from — finance-ready. Context and ownership are preserved at every stage.',
+    body: 'Each change moves your project closer to — or further from — finance-ready. Six stage scores roll up into a Master Viability Score that tracks your overall progress.',
   },
   {
     icon: Footprints,
     title: 'One decision at a time.',
-    body: 'IFFY always shows you the best next step. Follow it, and the score moves.',
+    body: 'IFFY always shows you the best next step for your current stage. Follow it, and the score moves.',
   },
 ];
 

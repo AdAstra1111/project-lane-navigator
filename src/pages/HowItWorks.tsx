@@ -26,8 +26,8 @@ const steps = [
   },
   {
     icon: RefreshCw,
-    title: 'Every decision moves the needle',
-    body: 'Attach a marquee director? Your readiness score changes. Confirm a co-production partner? The finance picture shifts. IFFY watches what matters — packaging, finance fit, and market timing — and reflects it in real time.',
+    title: 'Six stages. One journey.',
+    body: 'IFFY organises every project across six lifecycle stages: Development, Packaging, Pre-Production, Production, Post-Production, and Sales & Delivery. Each stage has its own readiness score, intelligence panel, and risk assessment.',
     accent: 'from-emerald-500/20 to-emerald-500/5',
   },
   {
@@ -56,8 +56,8 @@ const steps = [
   },
   {
     icon: BarChart3,
-    title: 'Market intelligence finds you',
-    body: 'Trend signals are automatically matched to your project based on genre, tone, format, and lane. Buyer matching scores active industry buyers against your project metadata. The pipeline gives you a Kanban view with stage gates.',
+    title: 'Stage-aware market intelligence',
+    body: 'Trend signals adapt to your project\'s current stage — narrative trends in Development, talent heat in Packaging, platform demand in Sales. Staleness thresholds tighten as you move closer to market.',
     accent: 'from-cyan-500/20 to-cyan-500/5',
   },
   {
@@ -69,7 +69,7 @@ const steps = [
   {
     icon: Footprints,
     title: 'Readiness is built step by step',
-    body: 'There\'s no "submit and wait" in IFFY. Readiness is built one decision at a time. The system always shows you the best next step — the single action most likely to move your project closer to finance-ready.',
+    body: 'There\'s no "submit and wait" in IFFY. Six stage readiness scores roll up into a Master Viability Score. The system always shows you the best next step — the single action most likely to move your project closer to finance-ready.',
     accent: 'from-primary/20 to-primary/5',
   },
 ];
@@ -99,11 +99,11 @@ export default function HowItWorks() {
           >
             <p className="text-xs font-display uppercase tracking-[0.25em] text-primary">The Producer's Workflow</p>
             <h1 className="text-4xl sm:text-6xl font-display font-bold text-foreground tracking-tight leading-[1.1]">
-              From script to<br />
-              <span className="text-gradient">closing finance.</span>
+              From inception to<br />
+              <span className="text-gradient">legacy.</span>
             </h1>
             <p className="text-lg text-muted-foreground max-w-lg">
-              Nine steps that turn a project into a financed production. Every decision updates the picture. No waiting.
+              Six stages that turn a project into a financed production. Every decision updates the picture. No waiting.
             </p>
           </motion.div>
         </motion.div>
