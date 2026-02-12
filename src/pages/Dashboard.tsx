@@ -80,7 +80,7 @@ export default function Dashboard() {
                     <img
                       src={primaryCompany.logo_url}
                       alt={primaryCompany.name}
-                      className="h-8 max-w-[200px] rounded-md object-contain"
+                      className="h-10 max-w-[220px] object-contain"
                     />
                   ) : (
                     <div
@@ -90,7 +90,6 @@ export default function Dashboard() {
                       <Building2 className="h-4 w-4" style={{ color: primaryCompany.color_accent || 'hsl(var(--primary))' }} />
                     </div>
                   )}
-                  <span className="text-sm font-medium text-muted-foreground">{primaryCompany.name}</span>
                 </div>
               )}
               
