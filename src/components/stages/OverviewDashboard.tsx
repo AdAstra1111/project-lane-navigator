@@ -3,7 +3,7 @@
  */
 
 import { motion } from 'framer-motion';
-import { Gauge, ArrowRight, Activity, Bot, UsersRound } from 'lucide-react';
+import { Gauge, ArrowRight, Activity, UsersRound } from 'lucide-react';
 import { ProjectReadinessScore } from '@/components/ProjectReadinessScore';
 import { TVReadinessScore } from '@/components/tv/TVReadinessScore';
 import { ModeReadinessScore } from '@/components/ModeReadinessScore';
@@ -179,13 +179,7 @@ export function OverviewDashboard({
       )}
 
       {/* AI Chat */}
-      <div className="glass-card rounded-xl p-5">
-        <div className="flex items-center gap-2 mb-3">
-          <Bot className="h-4 w-4 text-primary" />
-          <h3 className="font-display font-semibold text-foreground">AI Project Chat</h3>
-        </div>
-        <ProjectChat projectId={projectId} />
-      </div>
+      <ProjectChat projectId={projectId} />
 
       {/* Decision Journal */}
       <DecisionJournal projectId={projectId} />
