@@ -7,6 +7,7 @@ export interface PitchIdea {
   id: string;
   user_id: string;
   project_id: string | null;
+  brief_id: string | null;
   mode: 'greenlight' | 'coverage-transform';
   production_type: string;
   title: string;
@@ -27,6 +28,12 @@ export interface PitchIdea {
   source_coverage_run_id: string | null;
   raw_response: any;
   status: string;
+  score_market_heat: number;
+  score_feasibility: number;
+  score_lane_fit: number;
+  score_saturation_risk: number;
+  score_company_fit: number;
+  score_total: number;
   created_at: string;
   updated_at: string;
 }
