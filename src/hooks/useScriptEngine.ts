@@ -202,10 +202,18 @@ export function useScriptEngine(projectId: string) {
     onError: (e: Error) => toast.error(`Failed to load draft: ${e.message}`),
   });
 
+  const importToDocs = useMutation({
+    mutationFn: () => callEngine('import-to-docs'),
+    onSuccess: (data) => {
+      toast.success(`Draft imported as "${data.fileName}" — now available for coverage`);
+    },
+    onError: (e: Error) => toast.error(`Import failed: ${e.message}`),
+  });
+
   return {
     scripts, activeScript, scenes, versions, blueprint, isLoading,
     draftText, draftStoragePath, setDraftText,
     generateBlueprint, generateArchitecture, generateDraft,
-    scoreScript, rewritePass, lockScript, fetchDraft,
+    scoreScript, rewritePass, lockScript, fetchDraft, importToDocs,
   };
 }

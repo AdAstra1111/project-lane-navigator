@@ -476,16 +476,68 @@ serve(async (req) => {
         console.log(`[draft] script_versions created: ${svRow?.id}`);
       }
 
-      // When draft is complete, import into project documents + scripts for coverage
+      // When draft is complete, concatenate ALL batches and import into project documents for coverage
       let documentId: string | null = null;
       if (isComplete) {
+        console.log(`[draft] Draft complete — assembling full text from all batches`);
+
+        // List all batch files for this draft and concatenate them
+        const batchDir = `scripts/${projectId}/v${scriptVersion}/`;
+        const { data: batchFiles, error: listErr } = await supabase.storage
+          .from("scripts")
+          .list(batchDir, { sortBy: { column: "name", order: "asc" } });
+
+        let fullText = "";
+        if (listErr) {
+          console.error(`[draft] Failed to list batch files:`, listErr);
+          fullText = draftTextStr; // fallback to current batch only
+        } else {
+          const draftBatchFiles = (batchFiles || [])
+            .filter((f: any) => f.name.includes(`Draft_${newDraftNum}_Batch_`))
+            .sort((a: any, b: any) => a.name.localeCompare(b.name));
+
+          console.log(`[draft] Found ${draftBatchFiles.length} batch files to assemble`);
+
+          for (const file of draftBatchFiles) {
+            const { data: fileData, error: dlErr } = await supabase.storage
+              .from("scripts")
+              .download(`${batchDir}${file.name}`);
+            if (dlErr) {
+              console.error(`[draft] Failed to download ${file.name}:`, dlErr);
+              continue;
+            }
+            const text = await fileData.text();
+            fullText += (fullText ? "\n\n" : "") + text;
+          }
+
+          if (!fullText) {
+            console.error(`[draft] Assembly produced empty text, using current batch`);
+            fullText = draftTextStr;
+          }
+        }
+
+        console.log(`[draft] Assembled full text: ${fullText.length} chars`);
+
+        // Save assembled full draft to storage
+        const assembledPath = `scripts/${projectId}/v${scriptVersion}/${safeTitle}_Draft_${newDraftNum}.txt`;
+        const assembledEncoded = new TextEncoder().encode(fullText);
+        const { error: assembleUpErr } = await supabase.storage
+          .from("scripts")
+          .upload(assembledPath, assembledEncoded, { contentType: "text/plain", upsert: true });
+
+        if (assembleUpErr) {
+          console.error(`[draft] Assembled draft upload failed:`, assembleUpErr);
+        } else {
+          console.log(`[draft] Assembled draft saved: ${assembledPath}`);
+        }
+
+        // Import into project-documents bucket for coverage
         const docFileName = `${safeTitle} - Draft ${newDraftNum}.txt`;
         const docPath = `${user.id}/${Date.now()}-engine-${docFileName.replace(/\s+/g, '_')}`;
 
-        // Copy to project-documents bucket
         const { error: docUploadErr } = await supabase.storage
           .from("project-documents")
-          .upload(docPath, encoded, { contentType: "text/plain", upsert: true });
+          .upload(docPath, assembledEncoded, { contentType: "text/plain", upsert: true });
 
         if (docUploadErr) {
           console.error(`[draft] project-documents upload failed:`, docUploadErr);
@@ -501,7 +553,7 @@ serve(async (req) => {
               file_name: docFileName,
               file_path: docPath,
               extraction_status: "completed",
-              extracted_text: draftTextStr,
+              extracted_text: fullText,
             })
             .select("id")
             .single();
@@ -732,6 +784,88 @@ serve(async (req) => {
 
       const text = await fileData.text();
       return new Response(JSON.stringify({ text, storagePath }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ═══════════════════════════════════════════
+    // ACTION: IMPORT-TO-DOCS (retroactively import completed draft)
+    // ═══════════════════════════════════════════
+    if (action === "import-to-docs") {
+      if (!scriptId) throw new Error("scriptId required");
+
+      const { data: scriptRow } = await supabase.from("scripts")
+        .select("draft_number, version, status, latest_batch_storage_path")
+        .eq("id", scriptId).single();
+
+      if (!scriptRow) throw new Error("Script not found");
+
+      const scriptVersion = scriptRow.version || 1;
+      const draftNum = scriptRow.draft_number || 1;
+      const safeTitle = (project.title || "Untitled").replace(/[^a-zA-Z0-9 _-]/g, "").replace(/\s+/g, "_");
+
+      // Try assembled file first, then concatenate batches
+      const assembledPath = `scripts/${projectId}/v${scriptVersion}/${safeTitle}_Draft_${draftNum}.txt`;
+      let fullText = "";
+
+      const { data: assembledFile } = await supabase.storage.from("scripts").download(assembledPath);
+      if (assembledFile) {
+        fullText = await assembledFile.text();
+        console.log(`[import-to-docs] Found assembled draft: ${fullText.length} chars`);
+      }
+
+      if (!fullText) {
+        // Concatenate batch files
+        const batchDir = `scripts/${projectId}/v${scriptVersion}/`;
+        const { data: batchFiles } = await supabase.storage.from("scripts")
+          .list(batchDir, { sortBy: { column: "name", order: "asc" } });
+
+        const draftBatches = (batchFiles || [])
+          .filter((f: any) => f.name.includes(`Draft_${draftNum}_Batch_`))
+          .sort((a: any, b: any) => a.name.localeCompare(b.name));
+
+        for (const file of draftBatches) {
+          const { data: fileData } = await supabase.storage.from("scripts").download(`${batchDir}${file.name}`);
+          if (fileData) {
+            const text = await fileData.text();
+            fullText += (fullText ? "\n\n" : "") + text;
+          }
+        }
+        console.log(`[import-to-docs] Assembled from ${draftBatches.length} batches: ${fullText.length} chars`);
+      }
+
+      if (!fullText) throw new Error("No draft text found to import");
+
+      const docFileName = `${safeTitle} - Draft ${draftNum}.txt`;
+      const docPath = `${user.id}/${Date.now()}-engine-${docFileName.replace(/\s+/g, '_')}`;
+      const assembledEncoded = new TextEncoder().encode(fullText);
+
+      const { error: docUploadErr } = await supabase.storage
+        .from("project-documents")
+        .upload(docPath, assembledEncoded, { contentType: "text/plain", upsert: true });
+
+      if (docUploadErr) throw new Error(`Upload failed: ${docUploadErr.message}`);
+
+      const { data: docRow, error: docInsertErr } = await supabase.from("project_documents").insert({
+        project_id: projectId, user_id: user.id,
+        file_name: docFileName, file_path: docPath,
+        extraction_status: "completed", extracted_text: fullText,
+      }).select("id").single();
+
+      if (docInsertErr) throw new Error(`Document record failed: ${docInsertErr.message}`);
+
+      await supabase.from("project_scripts")
+        .update({ status: "archived" })
+        .eq("project_id", projectId).eq("status", "current");
+
+      await supabase.from("project_scripts").insert({
+        project_id: projectId, user_id: user.id,
+        version_label: `${project.title || "Untitled"} - Draft ${draftNum} (Engine)`,
+        status: "current", file_path: docPath,
+        notes: `Imported from Script Engine draft ${draftNum}`,
+      });
+
+      return new Response(JSON.stringify({ documentId: docRow?.id, fileName: docFileName }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
