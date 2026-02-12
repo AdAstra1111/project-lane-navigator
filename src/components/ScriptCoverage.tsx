@@ -147,6 +147,11 @@ function stripJsonFromCoverage(raw: string): string {
     if (trimmed.match(/^\},?\s*$/)) continue;
     if (trimmed.match(/^\]\s*$/)) continue;
     
+    // Skip "Structured Notes" headings/labels left behind after JSON stripping
+    if (trimmed.match(/^#{1,4}\s*structured.?notes/i)) continue;
+    if (trimmed.match(/^\*{1,2}structured.?notes\*{1,2}/i)) continue;
+    if (trimmed.match(/^structured.?notes\s*:?\s*$/i)) continue;
+    
     result.push(line);
   }
   
