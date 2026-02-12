@@ -68,7 +68,7 @@ async function handleIngest(
 
   if (srcErr || !source) throw new Error("Source not found or not owned by user");
   if (source.rights_status !== "APPROVED") {
-    throw new Error(`Ingestion refused: rights_status is '${source.rights_status}', must be 'APPROVED'`);
+    throw new Error(`Ingestion skipped: rights_status is '${source.rights_status}'${source.rights_status === 'UNAVAILABLE' ? ' — script not hosted at source URL' : ', must be APPROVED'}`);
   }
 
   addLog(`Starting ingestion for "${source.title}" (${source.format})`);
@@ -100,28 +100,49 @@ async function handleIngest(
     }
 
     let found = false;
+    const MAX_RETRIES = 3;
     for (const url of urlsToTry) {
-      addLog(`Trying URL: ${url}`);
-      try {
-        const resp = await fetch(url, fetchOpts);
-        addLog(`Response: ${resp.status} (${resp.statusText}), content-length: ${resp.headers.get("content-length") || "unknown"}`);
-        if (resp.ok) {
-          html = await resp.text();
-          if (html.length > 500) {
-            found = true;
-            addLog(`Got HTML: ${html.length} chars from ${url}`);
-            break;
-          } else {
-            addLog(`Page too short (${html.length} chars), trying next…`);
-          }
+      if (found) break;
+      for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+        if (attempt > 0) {
+          const delay = 1000 * Math.pow(2, attempt) + Math.random() * 1000;
+          addLog(`Retry ${attempt}/${MAX_RETRIES}, waiting ${Math.round(delay)}ms…`);
+          await new Promise(r => setTimeout(r, delay));
         }
-      } catch (fetchErr) {
-        addLog(`Fetch error for ${url}: ${fetchErr}`);
+        addLog(`Trying URL: ${url} (attempt ${attempt + 1})`);
+        try {
+          const resp = await fetch(url, fetchOpts);
+          const status = resp.status;
+          addLog(`Response: ${status} (${resp.statusText})`);
+          if (status === 403 || status === 429 || status === 503) {
+            addLog(`Rate limited or blocked (${status}), will retry…`);
+            continue;
+          }
+          if (resp.ok) {
+            html = await resp.text();
+            if (html.length > 500) {
+              found = true;
+              addLog(`Got HTML: ${html.length} chars from ${url}`);
+              break;
+            } else {
+              addLog(`Page too short (${html.length} chars), trying next URL…`);
+              break; // Try next URL, not retry same one
+            }
+          } else {
+            addLog(`Non-OK status ${status}, trying next…`);
+            break;
+          }
+        } catch (fetchErr) {
+          addLog(`Fetch error for ${url}: ${fetchErr}`);
+          if (attempt < MAX_RETRIES - 1) continue;
+        }
       }
     }
 
     if (!found) {
-      throw new Error(`Script not available (tried ${urlsToTry.length} URL patterns). Last HTML length: ${html.length}`);
+      // Auto-mark source as unavailable so batch ingestion skips it next time
+      await db.from("approved_sources").update({ rights_status: "UNAVAILABLE" }).eq("id", source_id);
+      throw new Error(`Script not found at source URL (404). Marked as UNAVAILABLE. This script may not be hosted on IMSDB.`);
     }
 
     rawText = extractHtmlText(html);
