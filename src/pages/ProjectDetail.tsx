@@ -727,6 +727,15 @@ export default function ProjectDetail() {
                 </div>
               </div>
             )}
+            {id && (hasDocuments || hasScript) && (
+              <ScriptCoverage
+                projectId={id}
+                projectTitle={project.title}
+                format={project.format}
+                genres={project.genres || []}
+                hasDocuments={hasDocuments || hasScript}
+              />
+            )}
           </Section>
 
           {/* ═══ TV SERIES ENGINE (only for TV projects) ═══ */}
@@ -791,15 +800,6 @@ export default function ProjectDetail() {
               scriptCharactersLoading={scriptCharsLoading}
             />}
             <CastImpactPanel cast={cast} hods={hods} />
-            {id && (hasDocuments || hasScript) && (
-              <ScriptCoverage
-                projectId={id}
-                projectTitle={project.title}
-                format={project.format}
-                genres={project.genres || []}
-                hasDocuments={hasDocuments || hasScript}
-              />
-            )}
           </Section>
 
           {/* 4. Finance (merged: Finance, Budget, Cost, Ownership, Recoupment) */}
