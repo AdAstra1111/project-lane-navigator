@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { ArrowLeft, Trash2, Loader2, Copy, Download, FileText, FileSpreadsheet, Presentation, ArrowLeftRight, Menu } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
@@ -88,7 +88,11 @@ export default function ProjectDetail() {
   const { user } = useAuth();
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [incentiveAnalysedThisSession, setIncentiveAnalysedThisSession] = useState(false);
-  const [activeView, setActiveView] = useState<string>('overview');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeView = searchParams.get('view') || 'overview';
+  const setActiveView = useCallback((view: string) => {
+    setSearchParams({ view }, { replace: false });
+  }, [setSearchParams]);
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
   const { cast } = useProjectCast(id);
