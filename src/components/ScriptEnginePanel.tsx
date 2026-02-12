@@ -3,19 +3,20 @@
  * Blueprint → Architecture → Batched Drafting → Quality Scoring → Rewrite → Lock
  */
 
-import { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { useState, useEffect } from 'react';
+import { motion } from 'framer-motion';
 import {
-  Pen, BookOpen, Layers, BarChart3, RefreshCw, Lock,
+  Pen, BookOpen, Layers, BarChart3, Lock,
   ChevronDown, ChevronRight, CheckCircle2, Circle, Loader2,
-  MapPin, Users, Zap, AlertTriangle
+  MapPin, Users, Download, Eye, Copy, ArrowRight
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Progress } from '@/components/ui/progress';
 import { InfoTooltip } from '@/components/InfoTooltip';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { useScriptEngine, type ScriptScene } from '@/hooks/useScriptEngine';
+import { toast } from 'sonner';
 
 interface Props {
   projectId: string;
@@ -49,7 +50,7 @@ function ScoreBar({ label, score, tooltip }: { label: string; score: number | nu
   );
 }
 
-function PhaseStep({ label, status, isCurrent }: { label: string; status: 'done' | 'current' | 'pending'; isCurrent?: boolean }) {
+function PhaseStep({ label, status }: { label: string; status: 'done' | 'current' | 'pending' }) {
   return (
     <div className={`flex items-center gap-1.5 text-xs ${
       status === 'done' ? 'text-emerald-400' : status === 'current' ? 'text-primary font-medium' : 'text-muted-foreground'
@@ -83,9 +84,9 @@ function SceneRow({ scene }: { scene: ScriptScene }) {
               <Users className="h-2.5 w-2.5" /> {scene.cast_size}
             </span>
           )}
-          <Badge className={`text-[9px] px-1 py-0 ${weightColor}`}>{scene.production_weight}</Badge>
+          <span className={`text-[9px] px-1 py-0 rounded font-medium ${weightColor}`}>{scene.production_weight}</span>
           {scene.conflict_type && (
-            <Badge variant="outline" className="text-[9px] px-1 py-0">{scene.conflict_type}</Badge>
+            <span className="text-[9px] px-1 py-0 rounded border border-border text-muted-foreground">{scene.conflict_type}</span>
           )}
         </div>
       </div>
@@ -93,23 +94,68 @@ function SceneRow({ scene }: { scene: ScriptScene }) {
   );
 }
 
+function DraftViewer({ text, storagePath, onDownload, onCopy }: {
+  text: string;
+  storagePath: string | null;
+  onDownload: () => void;
+  onCopy: () => void;
+}) {
+  return (
+    <div className="mt-4 border border-border rounded-lg overflow-hidden">
+      <div className="flex items-center justify-between px-3 py-2 bg-muted/50 border-b border-border">
+        <span className="text-xs font-medium text-foreground flex items-center gap-1.5">
+          <Eye className="h-3 w-3" /> Draft Output
+        </span>
+        <div className="flex items-center gap-1">
+          <Button size="sm" variant="ghost" className="h-6 text-[10px] px-2" onClick={onCopy}>
+            <Copy className="h-3 w-3 mr-1" /> Copy
+          </Button>
+          <Button size="sm" variant="ghost" className="h-6 text-[10px] px-2" onClick={onDownload}>
+            <Download className="h-3 w-3 mr-1" /> Download
+          </Button>
+        </div>
+      </div>
+      <ScrollArea className="h-80">
+        <pre className="p-4 text-xs font-mono text-foreground whitespace-pre-wrap leading-relaxed">
+          {text}
+        </pre>
+      </ScrollArea>
+    </div>
+  );
+}
+
 export function ScriptEnginePanel({ projectId }: Props) {
   const {
     activeScript, scenes, versions, blueprint, isLoading,
+    draftText, draftStoragePath, setDraftText,
     generateBlueprint, generateArchitecture, generateDraft,
-    scoreScript, rewritePass, lockScript,
+    scoreScript, rewritePass, lockScript, fetchDraft,
   } = useScriptEngine(projectId);
 
   const [showScenes, setShowScenes] = useState(false);
   const [showBlueprint, setShowBlueprint] = useState(false);
+  const [showDraft, setShowDraft] = useState(true);
+
+  // Auto-load latest draft text from storage when panel mounts (if we have a path but no text)
+  useEffect(() => {
+    if (!draftText && activeScript?.latest_batch_storage_path && !fetchDraft.isPending) {
+      fetchDraft.mutate(activeScript.latest_batch_storage_path);
+    }
+  }, [activeScript?.latest_batch_storage_path]);
 
   const status = activeScript?.status || '';
   const isLocked = status === 'LOCKED';
-  const hasDraft = status.startsWith('DRAFT_');
+  const hasDraft = status.startsWith('DRAFT_') || status === 'DRAFTING';
   const hasArchitecture = scenes.length > 0;
   const hasBlueprint = !!blueprint;
   const isAnyLoading = generateBlueprint.isPending || generateArchitecture.isPending ||
     generateDraft.isPending || scoreScript.isPending || rewritePass.isPending || lockScript.isPending;
+
+  // Compute next batch info
+  const maxScene = hasArchitecture ? Math.max(...scenes.map(s => s.scene_number)) : 0;
+  const lastBatchIndex = activeScript?.latest_batch_index || 0;
+  const nextBatchStart = lastBatchIndex > 0 ? (lastBatchIndex * 15) + 1 : 1;
+  const allBatchesDone = nextBatchStart > maxScene;
 
   function getPhaseStatus(phase: string): 'done' | 'current' | 'pending' {
     const order = STATUS_ORDER;
@@ -121,19 +167,38 @@ export function ScriptEnginePanel({ projectId }: Props) {
     return 'pending';
   }
 
-  const avgScore = activeScript && [
+  const scores = activeScript ? [
     activeScript.structural_score, activeScript.dialogue_score,
     activeScript.economy_score, activeScript.budget_score, activeScript.lane_alignment_score,
-  ].filter(s => s != null).length > 0
-    ? Math.round(
-        [activeScript.structural_score, activeScript.dialogue_score,
-         activeScript.economy_score, activeScript.budget_score, activeScript.lane_alignment_score]
-          .filter(s => s != null)
-          .reduce((a, b) => a! + b!, 0)! / [activeScript.structural_score, activeScript.dialogue_score,
-           activeScript.economy_score, activeScript.budget_score, activeScript.lane_alignment_score]
-            .filter(s => s != null).length
-      )
+  ].filter(s => s != null) : [];
+  const avgScore = scores.length > 0
+    ? Math.round(scores.reduce((a, b) => a! + b!, 0)! / scores.length)
     : null;
+
+  function handleCopyDraft() {
+    if (draftText) {
+      navigator.clipboard.writeText(draftText);
+      toast.success('Draft text copied');
+    }
+  }
+
+  function handleDownloadDraft() {
+    if (draftText) {
+      const blob = new Blob([draftText], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `draft_${activeScript?.draft_number || 1}.txt`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+  }
+
+  function handleContinueNextBatch() {
+    if (!allBatchesDone) {
+      generateDraft.mutate({ batchStart: nextBatchStart, batchEnd: Math.min(nextBatchStart + 14, maxScene) });
+    }
+  }
 
   return (
     <motion.div
@@ -164,7 +229,7 @@ export function ScriptEnginePanel({ projectId }: Props) {
         <ChevronRight className="h-3 w-3 text-muted-foreground/50" />
         <PhaseStep label="Draft" status={getPhaseStatus('DRAFTING')} />
         <ChevronRight className="h-3 w-3 text-muted-foreground/50" />
-        <PhaseStep label="Score & Rewrite" status={hasDraft ? 'current' : 'pending'} />
+        <PhaseStep label="Score & Rewrite" status={hasDraft && status.startsWith('DRAFT_') ? 'current' : 'pending'} />
         <ChevronRight className="h-3 w-3 text-muted-foreground/50" />
         <PhaseStep label="Locked" status={getPhaseStatus('LOCKED')} />
       </div>
@@ -199,7 +264,7 @@ export function ScriptEnginePanel({ projectId }: Props) {
             disabled={isAnyLoading || !hasArchitecture}
           >
             {generateDraft.isPending ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Pen className="h-3 w-3 mr-1" />}
-            Draft Script
+            {status === 'DRAFTING' && !allBatchesDone ? 'Continue Draft' : 'Draft Script'}
           </Button>
 
           <Button
@@ -226,9 +291,66 @@ export function ScriptEnginePanel({ projectId }: Props) {
         </div>
       )}
 
+      {/* Draft Output Viewer */}
+      {draftText && showDraft && (
+        <DraftViewer
+          text={draftText}
+          storagePath={draftStoragePath}
+          onDownload={handleDownloadDraft}
+          onCopy={handleCopyDraft}
+        />
+      )}
+
+      {/* Continue Next Batch button */}
+      {status === 'DRAFTING' && !allBatchesDone && !isLocked && draftText && (
+        <div className="mt-3 flex items-center gap-2">
+          <Button
+            size="sm"
+            onClick={handleContinueNextBatch}
+            disabled={isAnyLoading}
+          >
+            {generateDraft.isPending ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <ArrowRight className="h-3 w-3 mr-1" />}
+            Continue Next Batch (scenes {nextBatchStart}–{Math.min(nextBatchStart + 14, maxScene)})
+          </Button>
+          <span className="text-xs text-muted-foreground">
+            {lastBatchIndex} of {Math.ceil(maxScene / 15)} batches complete
+          </span>
+        </div>
+      )}
+
+      {/* Toggle draft viewer when draft exists but is hidden */}
+      {draftText && !showDraft && (
+        <button
+          onClick={() => setShowDraft(true)}
+          className="text-xs text-primary hover:underline mt-2"
+        >
+          Show draft output
+        </button>
+      )}
+
+      {/* Load draft from storage if we have versions with paths but no text loaded */}
+      {!draftText && hasDraft && versions.some(v => v.full_text_storage_path) && (
+        <div className="mt-3">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              const latestWithPath = versions.find(v => v.full_text_storage_path);
+              if (latestWithPath?.full_text_storage_path) {
+                fetchDraft.mutate(latestWithPath.full_text_storage_path);
+              }
+            }}
+            disabled={fetchDraft.isPending}
+          >
+            {fetchDraft.isPending ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Eye className="h-3 w-3 mr-1" />}
+            Open Draft
+          </Button>
+        </div>
+      )}
+
       {/* Quality Scores */}
       {activeScript && avgScore != null && (
-        <div className="mb-4">
+        <div className="mb-4 mt-4">
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-medium text-foreground">Quality Scores</span>
             <span className={`text-sm font-mono font-bold ${
@@ -246,7 +368,7 @@ export function ScriptEnginePanel({ projectId }: Props) {
       )}
 
       {/* Rewrite Passes */}
-      {hasDraft && !isLocked && (
+      {hasDraft && status.startsWith('DRAFT_') && !isLocked && (
         <div className="mb-4">
           <p className="text-xs font-medium text-foreground mb-2">Rewrite Passes</p>
           <div className="flex flex-wrap gap-1.5">
@@ -306,13 +428,23 @@ export function ScriptEnginePanel({ projectId }: Props) {
         <div className="mt-3">
           <p className="text-xs font-medium text-foreground mb-2">Draft History</p>
           <div className="space-y-1">
-            {versions.filter(v => v.draft_number > 0).map(v => (
+            {versions.filter(v => v.draft_number > 0 || v.full_text_storage_path).map(v => (
               <div key={v.id} className="flex items-center justify-between text-xs py-1 border-b border-border/30 last:border-0">
                 <span className="text-foreground">
-                  Draft {v.draft_number}
+                  {v.is_partial ? `Batch ${v.batch_index}` : `Draft ${v.draft_number}`}
                   {v.rewrite_pass && <span className="text-muted-foreground ml-1">({v.rewrite_pass} pass)</span>}
                 </span>
-                <span className="text-muted-foreground">{new Date(v.created_at).toLocaleDateString()}</span>
+                <div className="flex items-center gap-2">
+                  {v.full_text_storage_path && (
+                    <button
+                      onClick={() => fetchDraft.mutate(v.full_text_storage_path!)}
+                      className="text-primary hover:underline text-[10px]"
+                    >
+                      View
+                    </button>
+                  )}
+                  <span className="text-muted-foreground">{new Date(v.created_at).toLocaleDateString()}</span>
+                </div>
               </div>
             ))}
           </div>
