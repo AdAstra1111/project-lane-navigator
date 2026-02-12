@@ -1269,6 +1269,91 @@ export type Database = {
         }
         Relationships: []
       }
+      improvement_runs: {
+        Row: {
+          after_scores: Json
+          after_version_id: string | null
+          before_scores: Json
+          before_version_id: string | null
+          changes_summary: string
+          created_at: string
+          goal: string
+          id: string
+          intensity: string
+          owner_id: string
+          playbooks_used: Json
+          project_id: string
+          regression_detected: boolean
+          rolled_back: boolean
+          scene_ops: Json
+          score_deltas: Json
+          script_id: string
+          status: string
+        }
+        Insert: {
+          after_scores?: Json
+          after_version_id?: string | null
+          before_scores?: Json
+          before_version_id?: string | null
+          changes_summary?: string
+          created_at?: string
+          goal?: string
+          id?: string
+          intensity?: string
+          owner_id: string
+          playbooks_used?: Json
+          project_id: string
+          regression_detected?: boolean
+          rolled_back?: boolean
+          scene_ops?: Json
+          score_deltas?: Json
+          script_id: string
+          status?: string
+        }
+        Update: {
+          after_scores?: Json
+          after_version_id?: string | null
+          before_scores?: Json
+          before_version_id?: string | null
+          changes_summary?: string
+          created_at?: string
+          goal?: string
+          id?: string
+          intensity?: string
+          owner_id?: string
+          playbooks_used?: Json
+          project_id?: string
+          regression_detected?: boolean
+          rolled_back?: boolean
+          scene_ops?: Json
+          score_deltas?: Json
+          script_id?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "improvement_runs_after_version_id_fkey"
+            columns: ["after_version_id"]
+            isOneToOne: false
+            referencedRelation: "script_versions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "improvement_runs_before_version_id_fkey"
+            columns: ["before_version_id"]
+            isOneToOne: false
+            referencedRelation: "script_versions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "improvement_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       incentive_programs: {
         Row: {
           caps_limits: string
@@ -1521,6 +1606,51 @@ export type Database = {
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      outcome_signals: {
+        Row: {
+          created_at: string
+          id: string
+          owner_id: string
+          payload: Json
+          project_id: string
+          script_version_id: string | null
+          signal_type: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          owner_id: string
+          payload?: Json
+          project_id: string
+          script_version_id?: string | null
+          signal_type?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          owner_id?: string
+          payload?: Json
+          project_id?: string
+          script_version_id?: string | null
+          signal_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "outcome_signals_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outcome_signals_script_version_id_fkey"
+            columns: ["script_version_id"]
+            isOneToOne: false
+            referencedRelation: "script_versions"
             referencedColumns: ["id"]
           },
         ]
@@ -3464,6 +3594,38 @@ export type Database = {
           },
         ]
       }
+      project_preferences: {
+        Row: {
+          id: string
+          owner_id: string
+          prefs: Json
+          project_id: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          owner_id: string
+          prefs?: Json
+          project_id: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          owner_id?: string
+          prefs?: Json
+          project_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_preferences_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       project_recoupment_scenarios: {
         Row: {
           created_at: string
@@ -3994,6 +4156,42 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      rewrite_playbooks: {
+        Row: {
+          created_at: string
+          description: string
+          expected_impacts: Json
+          id: string
+          lane: string
+          name: string
+          operations: Json
+          production_type: string
+          triggers: Json
+        }
+        Insert: {
+          created_at?: string
+          description?: string
+          expected_impacts?: Json
+          id?: string
+          lane?: string
+          name: string
+          operations?: Json
+          production_type?: string
+          triggers?: Json
+        }
+        Update: {
+          created_at?: string
+          description?: string
+          expected_impacts?: Json
+          id?: string
+          lane?: string
+          name?: string
+          operations?: Json
+          production_type?: string
+          triggers?: Json
+        }
+        Relationships: []
       }
       scene_schedule: {
         Row: {
@@ -4787,6 +4985,24 @@ export type Database = {
           storage_bytes_used?: number
           updated_at?: string
           user_id?: string
+        }
+        Relationships: []
+      }
+      user_preferences: {
+        Row: {
+          owner_id: string
+          prefs: Json
+          updated_at: string
+        }
+        Insert: {
+          owner_id: string
+          prefs?: Json
+          updated_at?: string
+        }
+        Update: {
+          owner_id?: string
+          prefs?: Json
+          updated_at?: string
         }
         Relationships: []
       }

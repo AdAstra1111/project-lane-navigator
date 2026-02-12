@@ -210,6 +210,50 @@ ${scriptText.substring(0, 12000)}
 Rewrite the script applying ONLY this pass's focus. Maintain what works. Return the full rewritten script text.`;
 }
 
+// ─── Self-Improvement Prompt ───
+function getImprovementPrompt(scriptText: string, scores: any, project: any, goal: string, intensity: string, playbooks: any[], userPrefs: any, projectPrefs: any) {
+  const intensityGuide = intensity === 'light' ? 'Make minimal, polished changes only. Do not restructure.' :
+    intensity === 'bold' ? 'Be aggressive. Restructure if needed. Cut/merge/add scenes freely.' :
+    'Make meaningful improvements while preserving overall structure.';
+
+  const playbookOps = playbooks.map(p => `- ${p.name}: ${(p.operations || []).join('; ')}`).join('\n');
+  const avoidPatterns = projectPrefs?.anti_patterns ? `\nAVOID these patterns (user rejected before): ${JSON.stringify(projectPrefs.anti_patterns)}` : '';
+  const stylePrefs = userPrefs?.dialogue_style ? `\nUser prefers: ${userPrefs.dialogue_style} dialogue style, ${userPrefs.pacing || 'balanced'} pacing.` : '';
+
+  return `You are IFFY's Self-Improving Script Engine for "${project.title}" (${project.format}, ${project.assigned_lane || "unassigned"} lane, ${project.budget_range}).
+
+IMPROVEMENT GOAL: ${goal}
+INTENSITY: ${intensity} — ${intensityGuide}
+
+CURRENT SCORES:
+- Structural: ${scores?.structural_score || "N/A"}
+- Dialogue: ${scores?.dialogue_score || "N/A"}
+- Economy: ${scores?.economy_score || "N/A"}
+- Budget: ${scores?.budget_score || "N/A"}
+- Lane Alignment: ${scores?.lane_alignment_score || "N/A"}
+
+PLAYBOOK OPERATIONS TO APPLY:
+${playbookOps || "No specific playbooks — use best judgment for the goal."}
+${avoidPatterns}${stylePrefs}
+
+CURRENT SCRIPT (excerpt):
+${scriptText.substring(0, 12000)}
+
+INSTRUCTIONS:
+1. Apply the improvement goal using the playbook operations
+2. Return TWO things in your response:
+   a) The FULL rewritten script text
+   b) A structured summary
+
+Format your response as:
+---SCRIPT_START---
+[full rewritten script text]
+---SCRIPT_END---
+---CHANGES_START---
+[JSON object with keys: changes_summary (string, bullet list), scene_ops (array of {op: "CUT"|"MERGE"|"ADD"|"REWRITE"|"MOVE", target: string, reason: string})]
+---CHANGES_END---`;
+}
+
 // ─── Page Count + Runtime Metrics Calculator ───
 function computeDraftMetrics(text: string, productionType: string, episodeCount?: number) {
   const lines = text.split('\n');
@@ -818,6 +862,249 @@ serve(async (req) => {
       }
 
       return new Response(JSON.stringify({ draftNumber: newDraft, pass, storagePath: path }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ═══════════════════════════════════════════
+    // ACTION: IMPROVE (Self-improving one-button mode)
+    // ═══════════════════════════════════════════
+    if (action === "improve") {
+      if (!scriptId) throw new Error("scriptId required for improve");
+      const goal = body.goal || "make_commercial";
+      const intensity = body.intensity || "balanced";
+
+      // 1) Fetch current script text (same multi-fallback)
+      let scriptText = "";
+      const { data: latVer } = await supabase.from("script_versions")
+        .select("id, full_text_storage_path, structural_score, dialogue_score, economy_score, budget_score, lane_alignment_score")
+        .eq("script_id", scriptId)
+        .not("full_text_storage_path", "is", null)
+        .order("created_at", { ascending: false }).limit(5);
+
+      let beforeVersionId: string | null = null;
+      for (const sv of (latVer || [])) {
+        if (!sv.full_text_storage_path) continue;
+        const { data: fd } = await supabase.storage.from("scripts").download(sv.full_text_storage_path);
+        if (fd) { scriptText = await fd.text(); beforeVersionId = sv.id; break; }
+      }
+      if (!scriptText) {
+        const { data: sr } = await supabase.from("scripts").select("latest_batch_storage_path, text_content").eq("id", scriptId).single();
+        if (sr?.latest_batch_storage_path) {
+          const { data: fd } = await supabase.storage.from("scripts").download(sr.latest_batch_storage_path);
+          if (fd) scriptText = await fd.text();
+        }
+        if (!scriptText) scriptText = sr?.text_content || "";
+      }
+      if (!scriptText) throw new Error("No script text found to improve");
+
+      // 2) Get before scores
+      const { data: scriptRow } = await supabase.from("scripts")
+        .select("structural_score, dialogue_score, economy_score, budget_score, lane_alignment_score, draft_number, version")
+        .eq("id", scriptId).single();
+      const beforeScores = {
+        structural_score: scriptRow?.structural_score,
+        dialogue_score: scriptRow?.dialogue_score,
+        economy_score: scriptRow?.economy_score,
+        budget_score: scriptRow?.budget_score,
+        lane_alignment_score: scriptRow?.lane_alignment_score,
+      };
+
+      // 3) Select matching playbooks
+      const pt = (project.format || 'film').toLowerCase();
+      const { data: playbooks } = await supabase.from("rewrite_playbooks")
+        .select("*")
+        .or(`production_type.eq.${pt},production_type.eq.film`);
+
+      const goalPlaybookMap: Record<string, string[]> = {
+        make_commercial: ['Make It More Commercial', 'Increase Hook Intensity'],
+        emotional_impact: ['Boost Protagonist Agency', 'Sharpen Dialogue Voice'],
+        tighten_pacing: ['Tighten Act 2 Sag', 'Increase Hook Intensity'],
+        character_arcs: ['Boost Protagonist Agency', 'Sharpen Dialogue Voice'],
+        sharper_dialogue: ['Reduce On-The-Nose Dialogue', 'Sharpen Dialogue Voice'],
+        lower_budget: ['Lower Budget Footprint'],
+        more_original: ['Make It More Commercial', 'Boost Protagonist Agency'],
+      };
+      const targetNames = goalPlaybookMap[goal] || goalPlaybookMap['make_commercial'];
+      const selectedPlaybooks = (playbooks || []).filter((p: any) => targetNames.some(n => p.name.includes(n))).slice(0, 3);
+
+      // 4) Get user + project preferences
+      const { data: userPrefRow } = await supabase.from("user_preferences").select("prefs").eq("owner_id", user.id).single();
+      const { data: projPrefRow } = await supabase.from("project_preferences").select("prefs").eq("owner_id", user.id).eq("project_id", projectId).single();
+      const userPrefs = (userPrefRow?.prefs || {}) as any;
+      const projectPrefs = (projPrefRow?.prefs || {}) as any;
+
+      // 5) Create improvement run record
+      const { data: runRow } = await supabase.from("improvement_runs").insert({
+        owner_id: user.id, project_id: projectId, script_id: scriptId,
+        before_version_id: beforeVersionId, goal, intensity,
+        playbooks_used: selectedPlaybooks.map((p: any) => ({ id: p.id, name: p.name })),
+        before_scores: beforeScores, status: 'running',
+      }).select("id").single();
+      const runId = runRow?.id;
+
+      // 6) Generate improved script via AI
+      const prompt = getImprovementPrompt(scriptText, beforeScores, project, goal, intensity, selectedPlaybooks, userPrefs, projectPrefs);
+      const aiResult = await callAI(prompt, false);
+      const resultStr = typeof aiResult === 'string' ? aiResult : JSON.stringify(aiResult);
+
+      let improvedText = resultStr;
+      let changesSummary = "";
+      let sceneOps: any[] = [];
+      const scriptMatch = resultStr.match(/---SCRIPT_START---([\s\S]*?)---SCRIPT_END---/);
+      const changesMatch = resultStr.match(/---CHANGES_START---([\s\S]*?)---CHANGES_END---/);
+      if (scriptMatch) improvedText = scriptMatch[1].trim();
+      if (changesMatch) {
+        try {
+          const parsed = JSON.parse(changesMatch[1].trim());
+          changesSummary = parsed.changes_summary || "";
+          sceneOps = parsed.scene_ops || [];
+        } catch { changesSummary = changesMatch[1].trim(); }
+      }
+
+      // 7) Store improved draft
+      const newDraft = (scriptRow?.draft_number || 0) + 1;
+      const safeTitle = (project.title || "Untitled").replace(/[^a-zA-Z0-9 _-]/g, "").replace(/\s+/g, "_");
+      const path = `scripts/${projectId}/v${scriptRow?.version || 1}/${safeTitle}_Draft_${newDraft}_Improve_${goal}.txt`;
+      const encoded = new TextEncoder().encode(improvedText);
+      await supabase.storage.from("scripts").upload(path, encoded, { contentType: "text/plain", upsert: true });
+
+      const metrics = computeDraftMetrics(improvedText, project.format);
+
+      await supabase.from("scripts").update({
+        status: `DRAFT_${newDraft}`, draft_number: newDraft,
+        latest_draft_number: newDraft, latest_batch_storage_path: path,
+        latest_page_count_est: metrics.pageCountEst,
+        latest_runtime_min_est: metrics.runtimeMinEst,
+        latest_runtime_min_low: metrics.runtimeMinLow,
+        latest_runtime_min_high: metrics.runtimeMinHigh,
+      }).eq("id", scriptId);
+
+      const { data: svRow } = await supabase.from("script_versions").insert({
+        script_id: scriptId, draft_number: newDraft,
+        full_text_storage_path: path, rewrite_pass: `improve:${goal}`,
+        notes: `Self-improvement: ${goal} (${intensity})`,
+        word_count: metrics.wordCount, line_count: metrics.lineCount,
+        page_count_est: metrics.pageCountEst,
+        runtime_min_est: metrics.runtimeMinEst, runtime_min_low: metrics.runtimeMinLow,
+        runtime_min_high: metrics.runtimeMinHigh, runtime_per_episode_est: metrics.runtimePerEpisodeEst,
+      }).select("id").single();
+
+      // 8) Re-score
+      const scorePrompt = getScoringPrompt(improvedText, project);
+      const afterScores = await callAI(scorePrompt);
+
+      await supabase.from("scripts").update({
+        structural_score: afterScores.structural_score,
+        dialogue_score: afterScores.dialogue_score,
+        economy_score: afterScores.economy_score,
+        budget_score: afterScores.budget_score,
+        lane_alignment_score: afterScores.lane_alignment_score,
+      }).eq("id", scriptId);
+
+      if (svRow?.id) {
+        await supabase.from("script_versions").update({
+          structural_score: afterScores.structural_score,
+          dialogue_score: afterScores.dialogue_score,
+          economy_score: afterScores.economy_score,
+          budget_score: afterScores.budget_score,
+          lane_alignment_score: afterScores.lane_alignment_score,
+        }).eq("id", svRow.id);
+      }
+
+      // 9) Compute deltas + regression check
+      const deltas: Record<string, number> = {};
+      let regression = false;
+      for (const k of ['structural_score', 'dialogue_score', 'economy_score', 'budget_score', 'lane_alignment_score']) {
+        const before = (beforeScores as any)[k] || 0;
+        const after = afterScores[k] || 0;
+        deltas[k] = Math.round((after - before) * 10) / 10;
+        if ((k === 'structural_score' || k === 'lane_alignment_score') && deltas[k] < -0.7) {
+          regression = true;
+        }
+      }
+
+      // 10) Update improvement run
+      await supabase.from("improvement_runs").update({
+        after_version_id: svRow?.id,
+        after_scores: afterScores,
+        score_deltas: deltas,
+        regression_detected: regression,
+        rolled_back: false,
+        changes_summary: changesSummary,
+        scene_ops: sceneOps,
+        status: regression ? 'regression' : 'completed',
+      }).eq("id", runId);
+
+      // 11) Record outcome signal
+      await supabase.from("outcome_signals").insert({
+        owner_id: user.id, project_id: projectId, script_version_id: svRow?.id,
+        signal_type: 'COVERAGE_DELTA',
+        payload: { goal, intensity, deltas, regression, before: beforeScores, after: afterScores },
+      });
+
+      return new Response(JSON.stringify({
+        draftNumber: newDraft, storagePath: path, runId,
+        beforeScores, afterScores, deltas, regression,
+        changesSummary, sceneOps, metrics,
+      }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ═══════════════════════════════════════════
+    // ACTION: ROLLBACK
+    // ═══════════════════════════════════════════
+    if (action === "rollback") {
+      if (!scriptId) throw new Error("scriptId required");
+      const runId = body.runId;
+      if (!runId) throw new Error("runId required for rollback");
+
+      const { data: run } = await supabase.from("improvement_runs")
+        .select("before_version_id, before_scores")
+        .eq("id", runId).single();
+
+      if (!run?.before_version_id) throw new Error("No previous version to rollback to");
+
+      const { data: beforeVer } = await supabase.from("script_versions")
+        .select("draft_number, full_text_storage_path")
+        .eq("id", run.before_version_id).single();
+
+      if (beforeVer) {
+        const bs = (run.before_scores || {}) as any;
+        await supabase.from("scripts").update({
+          status: `DRAFT_${beforeVer.draft_number}`,
+          draft_number: beforeVer.draft_number,
+          latest_draft_number: beforeVer.draft_number,
+          latest_batch_storage_path: beforeVer.full_text_storage_path,
+          structural_score: bs.structural_score,
+          dialogue_score: bs.dialogue_score,
+          economy_score: bs.economy_score,
+          budget_score: bs.budget_score,
+          lane_alignment_score: bs.lane_alignment_score,
+        }).eq("id", scriptId);
+      }
+
+      await supabase.from("improvement_runs").update({
+        rolled_back: true, status: 'rolled_back',
+      }).eq("id", runId);
+
+      // Record anti-pattern in project preferences
+      const { data: runFull } = await supabase.from("improvement_runs")
+        .select("goal, scene_ops").eq("id", runId).single();
+      if (runFull) {
+        const { data: existingPrefs } = await supabase.from("project_preferences")
+          .select("prefs").eq("owner_id", user.id).eq("project_id", projectId).single();
+        const currentPrefs = (existingPrefs?.prefs || {}) as any;
+        const antiPatterns = currentPrefs.anti_patterns || [];
+        antiPatterns.push({ goal: runFull.goal, ops: runFull.scene_ops, reason: 'regression_rollback' });
+        await supabase.from("project_preferences").upsert({
+          owner_id: user.id, project_id: projectId,
+          prefs: { ...currentPrefs, anti_patterns: antiPatterns },
+        }, { onConflict: 'owner_id,project_id' });
+      }
+
+      return new Response(JSON.stringify({ rolledBack: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
