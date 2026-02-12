@@ -11,8 +11,6 @@ import { StageReadinessScore } from '@/components/StageReadinessScore';
 import { BudgetPanel } from '@/components/BudgetPanel';
 import { ScheduleTab } from '@/components/ScheduleTab';
 import { ScheduleIntelligencePanel } from '@/components/ScheduleIntelligencePanel';
-import { ProjectIncentivePanel } from '@/components/ProjectIncentivePanel';
-import { CashflowModelPanel } from '@/components/CashflowModelPanel';
 import { ScriptToBudgetPanel } from '@/components/ScriptToBudgetPanel';
 import { ContractManagerPanel } from '@/components/ContractManagerPanel';
 import { DeadlinePanel } from '@/components/DeadlinePanel';
@@ -83,13 +81,6 @@ export function PreProductionStage({
         genres={project?.genres || []}
         budgetRange={project?.budget_range}
       />
-      <ProjectIncentivePanel
-        projectId={projectId}
-        format={project.format}
-        budget_range={project.budget_range}
-        genres={project.genres || []}
-        onAnalysed={onIncentiveAnalysed}
-      />
       <BudgetPanel projectId={projectId} assignedLane={project?.assigned_lane} projectTitle={project?.title} />
       <ScriptToBudgetPanel
         projectId={projectId}
@@ -126,14 +117,6 @@ export function PreProductionStage({
             }
           );
         }}
-      />
-      <CashflowModelPanel
-        projectId={projectId}
-        totalBudget={totalBudget}
-        deals={deals}
-        budgets={budgets}
-        incentiveScenarios={financeScenarios}
-        shootDayCount={scheduleMetrics.shootDayCount}
       />
       <ContractManagerPanel projectId={projectId} />
       <DeadlinePanel projectId={projectId} />
