@@ -95,12 +95,22 @@ ${JSON.stringify(sceneSummary)}`;
 
     const aiData = await aiResponse.json();
     let content = aiData.choices?.[0]?.message?.content || "{}";
-    content = content.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
+    // Strip markdown fences
+    content = content.replace(/^```[\s\S]*?\n/, "").replace(/\n?```\s*$/, "");
+    // Find the actual JSON object boundaries
+    if (!content.trim().startsWith("{") && !content.trim().startsWith("[")) {
+      const objStart = content.indexOf("{");
+      if (objStart >= 0) content = content.slice(objStart);
+    }
+    const lastBracket = Math.max(content.lastIndexOf("}"), content.lastIndexOf("]"));
+    if (lastBracket >= 0) content = content.slice(0, lastBracket + 1);
+    content = content.trim();
 
     let result: any;
     try {
       result = JSON.parse(content);
     } catch {
+      console.error("Failed to parse AI content:", content.slice(0, 500));
       return new Response(JSON.stringify({ error: "Failed to parse AI response" }), {
         status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
