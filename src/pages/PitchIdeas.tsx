@@ -176,11 +176,7 @@ export default function PitchIdeas() {
             </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="greenlight" className="mt-4">
-            <DevelopmentBriefBuilder onGenerate={generate} generating={generating} />
-          </TabsContent>
-
-          <TabsContent value="coverage-transform" className="mt-4 space-y-4">
+          <TabsContent value="coverage-transform" className="mt-4">
             <Card className="border-border/50">
               <CardContent className="pt-5 space-y-4">
                 <p className="text-sm text-muted-foreground">Transform an existing project's coverage into pivot pitches — new angles on existing IP.</p>
@@ -196,9 +192,14 @@ export default function PitchIdeas() {
                 </Select>
               </CardContent>
             </Card>
-            <DevelopmentBriefBuilder onGenerate={generate} generating={generating || !selectedProject} />
           </TabsContent>
         </Tabs>
+
+        {/* Shared brief builder across both modes */}
+        <DevelopmentBriefBuilder
+          onGenerate={generate}
+          generating={generating || (mode === 'coverage-transform' && !selectedProject)}
+        />
 
         {/* Status filter */}
         <div className="flex gap-2 flex-wrap">
