@@ -19,6 +19,10 @@ export interface EngineScript {
   latest_batch_storage_path: string | null;
   latest_draft_number: number | null;
   latest_batch_index: number | null;
+  latest_page_count_est: number | null;
+  latest_runtime_min_est: number | null;
+  latest_runtime_min_low: number | null;
+  latest_runtime_min_high: number | null;
   created_at: string;
 }
 
@@ -53,6 +57,13 @@ export interface ScriptVersion {
   rewrite_pass: string | null;
   batch_index: number | null;
   is_partial: boolean | null;
+  word_count: number | null;
+  line_count: number | null;
+  page_count_est: number | null;
+  runtime_min_est: number | null;
+  runtime_min_low: number | null;
+  runtime_min_high: number | null;
+  runtime_per_episode_est: number | null;
   notes: string | null;
   created_at: string;
 }
@@ -73,7 +84,7 @@ export function useScriptEngine(projectId: string) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('scripts')
-        .select('id, project_id, version, draft_number, status, structural_score, dialogue_score, economy_score, budget_score, lane_alignment_score, version_label, is_current, latest_batch_storage_path, latest_draft_number, latest_batch_index, created_at')
+        .select('id, project_id, version, draft_number, status, structural_score, dialogue_score, economy_score, budget_score, lane_alignment_score, version_label, is_current, latest_batch_storage_path, latest_draft_number, latest_batch_index, latest_page_count_est, latest_runtime_min_est, latest_runtime_min_low, latest_runtime_min_high, created_at')
         .eq('project_id', projectId)
         .not('status', 'is', null)
         .order('created_at', { ascending: false });

@@ -4137,10 +4137,17 @@ export type Database = {
           id: string
           is_partial: boolean | null
           lane_alignment_score: number | null
+          line_count: number | null
           notes: string | null
+          page_count_est: number | null
           rewrite_pass: string | null
+          runtime_min_est: number | null
+          runtime_min_high: number | null
+          runtime_min_low: number | null
+          runtime_per_episode_est: number | null
           script_id: string
           structural_score: number | null
+          word_count: number | null
         }
         Insert: {
           batch_index?: number | null
@@ -4154,10 +4161,17 @@ export type Database = {
           id?: string
           is_partial?: boolean | null
           lane_alignment_score?: number | null
+          line_count?: number | null
           notes?: string | null
+          page_count_est?: number | null
           rewrite_pass?: string | null
+          runtime_min_est?: number | null
+          runtime_min_high?: number | null
+          runtime_min_low?: number | null
+          runtime_per_episode_est?: number | null
           script_id: string
           structural_score?: number | null
+          word_count?: number | null
         }
         Update: {
           batch_index?: number | null
@@ -4171,10 +4185,17 @@ export type Database = {
           id?: string
           is_partial?: boolean | null
           lane_alignment_score?: number | null
+          line_count?: number | null
           notes?: string | null
+          page_count_est?: number | null
           rewrite_pass?: string | null
+          runtime_min_est?: number | null
+          runtime_min_high?: number | null
+          runtime_min_low?: number | null
+          runtime_per_episode_est?: number | null
           script_id?: string
           structural_score?: number | null
+          word_count?: number | null
         }
         Relationships: [
           {
@@ -4202,6 +4223,10 @@ export type Database = {
           latest_batch_index: number | null
           latest_batch_storage_path: string | null
           latest_draft_number: number | null
+          latest_page_count_est: number | null
+          latest_runtime_min_est: number | null
+          latest_runtime_min_high: number | null
+          latest_runtime_min_low: number | null
           owner_id: string | null
           page_map: Json | null
           project_id: string
@@ -4226,6 +4251,10 @@ export type Database = {
           latest_batch_index?: number | null
           latest_batch_storage_path?: string | null
           latest_draft_number?: number | null
+          latest_page_count_est?: number | null
+          latest_runtime_min_est?: number | null
+          latest_runtime_min_high?: number | null
+          latest_runtime_min_low?: number | null
           owner_id?: string | null
           page_map?: Json | null
           project_id: string
@@ -4250,6 +4279,10 @@ export type Database = {
           latest_batch_index?: number | null
           latest_batch_storage_path?: string | null
           latest_draft_number?: number | null
+          latest_page_count_est?: number | null
+          latest_runtime_min_est?: number | null
+          latest_runtime_min_high?: number | null
+          latest_runtime_min_low?: number | null
           owner_id?: string | null
           page_map?: Json | null
           project_id?: string

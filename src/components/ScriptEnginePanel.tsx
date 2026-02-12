@@ -8,7 +8,7 @@ import { motion } from 'framer-motion';
 import {
   Pen, BookOpen, Layers, BarChart3, Lock,
   ChevronDown, ChevronRight, CheckCircle2, Circle, Loader2,
-  MapPin, Users, Download, Eye, Copy, ArrowRight, FileText
+  MapPin, Users, Download, Eye, Copy, ArrowRight, FileText, Clock, FileCode
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -220,6 +220,31 @@ export function ScriptEnginePanel({ projectId }: Props) {
           </Badge>
         )}
       </div>
+
+      {/* Page Count + Runtime Metrics */}
+      {activeScript && (activeScript.latest_page_count_est || activeScript.latest_runtime_min_est) && (
+        <div className="flex items-center gap-4 mb-3 text-xs">
+          {activeScript.latest_page_count_est && (
+            <span className="flex items-center gap-1 text-muted-foreground">
+              <FileCode className="h-3 w-3" />
+              <span className="font-medium text-foreground">~{Math.round(activeScript.latest_page_count_est)} pages</span>
+            </span>
+          )}
+          {activeScript.latest_runtime_min_est && (
+            <span className="flex items-center gap-1 text-muted-foreground">
+              <Clock className="h-3 w-3" />
+              <span className="font-medium text-foreground">
+                ~{Math.round(activeScript.latest_runtime_min_est)} min
+              </span>
+              {activeScript.latest_runtime_min_low && activeScript.latest_runtime_min_high && (
+                <span className="text-muted-foreground">
+                  ({Math.round(activeScript.latest_runtime_min_low)}–{Math.round(activeScript.latest_runtime_min_high)})
+                </span>
+              )}
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Phase Progress */}
       <div className="flex items-center gap-3 mb-4 flex-wrap">
@@ -447,11 +472,23 @@ export function ScriptEnginePanel({ projectId }: Props) {
           <p className="text-xs font-medium text-foreground mb-2">Draft History</p>
           <div className="space-y-1">
             {versions.filter(v => v.draft_number > 0 || v.full_text_storage_path).map(v => (
-              <div key={v.id} className="flex items-center justify-between text-xs py-1 border-b border-border/30 last:border-0">
-                <span className="text-foreground">
-                  {v.is_partial ? `Batch ${v.batch_index}` : `Draft ${v.draft_number}`}
-                  {v.rewrite_pass && <span className="text-muted-foreground ml-1">({v.rewrite_pass} pass)</span>}
-                </span>
+              <div key={v.id} className="flex items-center justify-between text-xs py-1.5 border-b border-border/30 last:border-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-foreground">
+                    {v.is_partial ? `Batch ${v.batch_index}` : `Draft ${v.draft_number}`}
+                    {v.rewrite_pass && <span className="text-muted-foreground ml-1">({v.rewrite_pass})</span>}
+                  </span>
+                  {v.page_count_est != null && (
+                    <span className="text-muted-foreground text-[10px]">~{Math.round(v.page_count_est)} pg</span>
+                  )}
+                  {v.runtime_min_est != null && (
+                    <span className="text-muted-foreground text-[10px]">
+                      ~{Math.round(v.runtime_min_est)} min
+                      {v.runtime_min_low != null && v.runtime_min_high != null &&
+                        ` (${Math.round(v.runtime_min_low)}–${Math.round(v.runtime_min_high)})`}
+                    </span>
+                  )}
+                </div>
                 <div className="flex items-center gap-2">
                   {v.full_text_storage_path && (
                     <button
