@@ -195,12 +195,71 @@ serve(async (req) => {
     metrics.inferred_problem_types = inferredTypes;
     metrics.exemplar_count = exemplarBlock ? (exemplarBlock.match(/\d+\./g)?.length || 0) : 0;
 
-    // Parse structured notes from final coverage
-    const noteLines = finalCoverage.split("\n").filter((l: string) => l.match(/^[-•*]\s|^\d+\./));
-    const structuredNotes = noteLines.map((line: string, i: number) => {
-      const section = "S" + Math.floor(i / 5 + 1);
-      return { id: `${section}-N${(i % 5) + 1}`, text: line.replace(/^[-•*\d.]+\s*/, "").trim() };
-    });
+    // =========== PASS D: STRUCTURED NOTES EXTRACTION ===========
+    const passDSystem = `You are a JSON extractor. Given coverage notes, extract every actionable note into a structured array.
+Return ONLY valid JSON — no markdown fences.
+
+Output schema (array):
+[{
+  "note_id": "N-001",          // sequential stable ID
+  "section": "WHAT'S NOT WORKING", // section heading the note falls under
+  "category": "structure",     // one of: structure|character|dialogue|theme|market|pacing|stakes|tone
+  "priority": 1,               // 1=core, 2=important, 3=optional
+  "title": "Short title",
+  "note_text": "Full note text",
+  "evidence": [{"type":"scene","ref":"SCENE 12 — ..."},{"type":"quote","ref":"..."}],
+  "prescription": "What to do about it",
+  "safe_fix": "Conservative fix suggestion",
+  "bold_fix": "Ambitious fix suggestion",
+  "tags": ["act1","stakes"]
+}]
+
+Rules:
+- Extract ALL notes, not just top ones
+- Every note MUST have evidence (scene ref or quote)
+- Category must be one of the 8 allowed values
+- Priority 1 = structural/fatal issues, 2 = significant, 3 = polish
+- note_id must be sequential: N-001, N-002, etc.`;
+
+    const passDUser = `FINAL COVERAGE:\n${finalCoverage}\n\nPASS A DIAGNOSTICS:\n${passAResult.slice(0, 10000)}\n\nExtract ALL notes into the structured JSON array.`;
+    const passDResult = await callAI(LOVABLE_API_KEY, passDSystem, passDUser, 0.1);
+    
+    let structuredNotes: any[] = [];
+    try {
+      const parsed = parseJSON(passDResult);
+      structuredNotes = Array.isArray(parsed) ? parsed : (parsed?.notes || []);
+      // Ensure stable IDs
+      structuredNotes = structuredNotes.map((n: any, i: number) => ({
+        note_id: n.note_id || `N-${String(i + 1).padStart(3, '0')}`,
+        section: n.section || 'GENERAL',
+        category: n.category || 'general',
+        priority: n.priority || 2,
+        title: n.title || n.note_text?.slice(0, 60) || `Note ${i + 1}`,
+        note_text: n.note_text || '',
+        evidence: Array.isArray(n.evidence) ? n.evidence : [],
+        prescription: n.prescription || '',
+        safe_fix: n.safe_fix || '',
+        bold_fix: n.bold_fix || '',
+        tags: Array.isArray(n.tags) ? n.tags : [],
+      }));
+    } catch {
+      // Fallback: parse bullet points
+      const noteLines = finalCoverage.split("\n").filter((l: string) => l.match(/^[-•*]\s|^\d+\./));
+      structuredNotes = noteLines.map((line: string, i: number) => ({
+        note_id: `N-${String(i + 1).padStart(3, '0')}`,
+        section: 'GENERAL',
+        category: 'general',
+        priority: 2,
+        title: line.replace(/^[-•*\d.]+\s*/, "").trim().slice(0, 60),
+        note_text: line.replace(/^[-•*\d.]+\s*/, "").trim(),
+        evidence: [],
+        prescription: '',
+        safe_fix: '',
+        bold_fix: '',
+        tags: [],
+      }));
+    }
+    console.log(`Extracted ${structuredNotes.length} structured notes`);
 
     // Save coverage run
     const runData = {

@@ -443,14 +443,102 @@ export type Database = {
       }
       coverage_feedback_notes: {
         Row: {
+          category: string | null
+          coverage_run_id: string
+          created_at: string
+          created_by: string
+          id: string
+          last_updated_at: string | null
+          note_id: string
+          note_snapshot: Json | null
+          priority: number | null
+          reason: string | null
+          section: string | null
+          tag: string
+          user_edit: string | null
+          writer_status: string
+        }
+        Insert: {
+          category?: string | null
+          coverage_run_id: string
+          created_at?: string
+          created_by: string
+          id?: string
+          last_updated_at?: string | null
+          note_id: string
+          note_snapshot?: Json | null
+          priority?: number | null
+          reason?: string | null
+          section?: string | null
+          tag: string
+          user_edit?: string | null
+          writer_status?: string
+        }
+        Update: {
+          category?: string | null
+          coverage_run_id?: string
+          created_at?: string
+          created_by?: string
+          id?: string
+          last_updated_at?: string | null
+          note_id?: string
+          note_snapshot?: Json | null
+          priority?: number | null
+          reason?: string | null
+          section?: string | null
+          tag?: string
+          user_edit?: string | null
+          writer_status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "coverage_feedback_notes_coverage_run_id_fkey"
+            columns: ["coverage_run_id"]
+            isOneToOne: false
+            referencedRelation: "coverage_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      coverage_note_comments: {
+        Row: {
+          comment: string
+          created_at: string
+          created_by: string
+          id: string
+          thread_id: string
+        }
+        Insert: {
+          comment: string
+          created_at?: string
+          created_by: string
+          id?: string
+          thread_id: string
+        }
+        Update: {
+          comment?: string
+          created_at?: string
+          created_by?: string
+          id?: string
+          thread_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "coverage_note_comments_thread_id_fkey"
+            columns: ["thread_id"]
+            isOneToOne: false
+            referencedRelation: "coverage_note_threads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      coverage_note_threads: {
+        Row: {
           coverage_run_id: string
           created_at: string
           created_by: string
           id: string
           note_id: string
-          reason: string | null
-          tag: string
-          user_edit: string | null
         }
         Insert: {
           coverage_run_id: string
@@ -458,9 +546,6 @@ export type Database = {
           created_by: string
           id?: string
           note_id: string
-          reason?: string | null
-          tag: string
-          user_edit?: string | null
         }
         Update: {
           coverage_run_id?: string
@@ -468,13 +553,10 @@ export type Database = {
           created_by?: string
           id?: string
           note_id?: string
-          reason?: string | null
-          tag?: string
-          user_edit?: string | null
         }
         Relationships: [
           {
-            foreignKeyName: "coverage_feedback_notes_coverage_run_id_fkey"
+            foreignKeyName: "coverage_note_threads_coverage_run_id_fkey"
             columns: ["coverage_run_id"]
             isOneToOne: false
             referencedRelation: "coverage_runs"
