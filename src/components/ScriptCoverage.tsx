@@ -22,6 +22,7 @@ import { OperationProgress, EXTRACT_STAGES } from '@/components/OperationProgres
 import { useAuth } from '@/hooks/useAuth';
 import { format as fmtDate } from 'date-fns';
 import { GreatNotesLibrary } from '@/components/GreatNotesLibrary';
+import { CorpusLibrary } from '@/components/CorpusLibrary';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { NotesReview } from '@/components/NotesReview';
 import { StructuredNote } from '@/hooks/useNoteFeedback';
@@ -507,6 +508,7 @@ export function ScriptCoverage({ projectId, projectTitle, format, genres, hasDoc
   const [activeTab, setActiveTab] = useState('coverage');
   const [noteFeedbackMap, setNoteFeedbackMap] = useState<Record<string, NoteFeedback>>({});
   const [showLibrary, setShowLibrary] = useState(false);
+  const [useCorpusBenchmark, setUseCorpusBenchmark] = useState(false);
   const extract = useExtractDocuments(projectId);
   const queryClient = useQueryClient();
   const { user } = useAuth();
@@ -857,6 +859,10 @@ export function ScriptCoverage({ projectId, projectTitle, format, genres, hasDoc
 
             <div className="pt-2 border-t border-border/50 flex items-center gap-3 flex-wrap">
               <Input value={draftLabel} onChange={e => setDraftLabel(e.target.value)} placeholder="Draft label…" className="h-8 w-40 text-xs" />
+              <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
+                <input type="checkbox" checked={useCorpusBenchmark} onChange={e => setUseCorpusBenchmark(e.target.checked)} className="rounded border-border" />
+                Use Great Script Benchmarking
+              </label>
               <Button variant="ghost" size="sm" onClick={handleGenerate} disabled={isLoading}>
                 {isLoading ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <FileSearch className="h-3 w-3 mr-1" />}
                 New Coverage
@@ -871,7 +877,14 @@ export function ScriptCoverage({ projectId, projectTitle, format, genres, hasDoc
       <Dialog open={showLibrary} onOpenChange={setShowLibrary}>
         <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Great Notes Library</DialogTitle></DialogHeader>
-          <GreatNotesLibrary />
+          <Tabs defaultValue="notes">
+            <TabsList className="mb-4">
+              <TabsTrigger value="notes">Great Notes</TabsTrigger>
+              <TabsTrigger value="corpus">Great Scripts</TabsTrigger>
+            </TabsList>
+            <TabsContent value="notes"><GreatNotesLibrary /></TabsContent>
+            <TabsContent value="corpus"><CorpusLibrary /></TabsContent>
+          </Tabs>
         </DialogContent>
       </Dialog>
     </>

@@ -14,6 +14,45 @@ export type Database = {
   }
   public: {
     Tables: {
+      approved_sources: {
+        Row: {
+          added_by: string
+          created_at: string
+          format: string
+          id: string
+          license_reference: string
+          rights_status: string
+          source_url: string
+          title: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          added_by?: string
+          created_at?: string
+          format?: string
+          id?: string
+          license_reference?: string
+          rights_status?: string
+          source_url?: string
+          title?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          added_by?: string
+          created_at?: string
+          format?: string
+          id?: string
+          license_reference?: string
+          rights_status?: string
+          source_url?: string
+          title?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       budget_assumptions: {
         Row: {
           budget_band: string | null
@@ -577,6 +616,176 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      corpus_chunks: {
+        Row: {
+          chunk_index: number
+          chunk_text: string
+          created_at: string
+          embedding: string | null
+          id: string
+          script_id: string
+          search_vector: unknown
+          user_id: string
+        }
+        Insert: {
+          chunk_index?: number
+          chunk_text?: string
+          created_at?: string
+          embedding?: string | null
+          id?: string
+          script_id: string
+          search_vector?: unknown
+          user_id: string
+        }
+        Update: {
+          chunk_index?: number
+          chunk_text?: string
+          created_at?: string
+          embedding?: string | null
+          id?: string
+          script_id?: string
+          search_vector?: unknown
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "corpus_chunks_script_id_fkey"
+            columns: ["script_id"]
+            isOneToOne: false
+            referencedRelation: "corpus_scripts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      corpus_derived_artifacts: {
+        Row: {
+          artifact_type: string
+          created_at: string
+          id: string
+          json_data: Json
+          script_id: string
+          user_id: string
+        }
+        Insert: {
+          artifact_type?: string
+          created_at?: string
+          id?: string
+          json_data?: Json
+          script_id: string
+          user_id: string
+        }
+        Update: {
+          artifact_type?: string
+          created_at?: string
+          id?: string
+          json_data?: Json
+          script_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "corpus_derived_artifacts_script_id_fkey"
+            columns: ["script_id"]
+            isOneToOne: false
+            referencedRelation: "corpus_scripts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      corpus_scenes: {
+        Row: {
+          created_at: string
+          id: string
+          location: string
+          scene_number: number
+          scene_text: string
+          script_id: string
+          slugline: string
+          time_of_day: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          location?: string
+          scene_number?: number
+          scene_text?: string
+          script_id: string
+          slugline?: string
+          time_of_day?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          location?: string
+          scene_number?: number
+          scene_text?: string
+          script_id?: string
+          slugline?: string
+          time_of_day?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "corpus_scenes_script_id_fkey"
+            columns: ["script_id"]
+            isOneToOne: false
+            referencedRelation: "corpus_scripts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      corpus_scripts: {
+        Row: {
+          checksum: string
+          created_at: string
+          id: string
+          ingestion_log: string
+          ingestion_status: string
+          page_count_estimate: number | null
+          parsed_storage_path: string
+          raw_storage_path: string
+          source_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          checksum?: string
+          created_at?: string
+          id?: string
+          ingestion_log?: string
+          ingestion_status?: string
+          page_count_estimate?: number | null
+          parsed_storage_path?: string
+          raw_storage_path?: string
+          source_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          checksum?: string
+          created_at?: string
+          id?: string
+          ingestion_log?: string
+          ingestion_status?: string
+          page_count_estimate?: number | null
+          parsed_storage_path?: string
+          raw_storage_path?: string
+          source_id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "corpus_scripts_source_id_fkey"
+            columns: ["source_id"]
+            isOneToOne: false
+            referencedRelation: "approved_sources"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       coverage_benchmark_runs: {
         Row: {
@@ -1191,6 +1400,74 @@ export type Database = {
           weights?: Json
         }
         Relationships: []
+      }
+      format_profiles: {
+        Row: {
+          created_at: string
+          episode_count: number | null
+          episode_length_target: number | null
+          format_subtype: string
+          id: string
+          max_page_count: number
+          max_runtime_min: number
+          min_page_count: number
+          min_runtime_min: number
+          owner_id: string
+          platform_target: string | null
+          production_type: string
+          project_id: string
+          strict_enforcement: boolean
+          target_page_count: number
+          target_runtime_min: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          episode_count?: number | null
+          episode_length_target?: number | null
+          format_subtype?: string
+          id?: string
+          max_page_count?: number
+          max_runtime_min?: number
+          min_page_count?: number
+          min_runtime_min?: number
+          owner_id: string
+          platform_target?: string | null
+          production_type?: string
+          project_id: string
+          strict_enforcement?: boolean
+          target_page_count?: number
+          target_runtime_min?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          episode_count?: number | null
+          episode_length_target?: number | null
+          format_subtype?: string
+          id?: string
+          max_page_count?: number
+          max_runtime_min?: number
+          min_page_count?: number
+          min_runtime_min?: number
+          owner_id?: string
+          platform_target?: string | null
+          production_type?: string
+          project_id?: string
+          strict_enforcement?: boolean
+          target_page_count?: number
+          target_runtime_min?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "format_profiles_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: true
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       great_notes_library: {
         Row: {
@@ -5183,6 +5460,16 @@ export type Database = {
           _user_id: string
         }
         Returns: boolean
+      }
+      search_corpus_chunks: {
+        Args: { match_count?: number; p_user_id?: string; search_query: string }
+        Returns: {
+          chunk_index: number
+          chunk_text: string
+          id: string
+          rank: number
+          script_id: string
+        }[]
       }
     }
     Enums: {

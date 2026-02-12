@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { User, Mail, LogOut, Save, Loader2, Crown } from 'lucide-react';
+import { User, Mail, LogOut, Save, Loader2, Crown, BookOpen } from 'lucide-react';
 import { useSubscription } from '@/hooks/useSubscription';
 import { Header } from '@/components/Header';
 import { Button } from '@/components/ui/button';
@@ -11,6 +11,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from '@/hooks/use-toast';
+import { CorpusSourceManager } from '@/components/CorpusSourceManager';
 
 export default function Settings() {
   const { user, signOut } = useAuth();
@@ -195,11 +196,24 @@ export default function Settings() {
           </Button>
         </motion.section>
 
-        {/* About */}
+        {/* Script Corpus */}
         <motion.section
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.15 }}
+          className="glass-card rounded-xl p-6 mb-6"
+        >
+          <h2 className="font-display font-semibold text-foreground mb-4 flex items-center gap-2">
+            <BookOpen className="h-5 w-5 text-primary" /> Script Corpus
+          </h2>
+          <CorpusSourceManager />
+        </motion.section>
+
+        {/* About */}
+        <motion.section
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2 }}
           className="glass-card rounded-xl p-6 mb-6"
         >
           <h2 className="font-display font-semibold text-foreground mb-2">About IFFY</h2>
