@@ -440,6 +440,146 @@ function stableStringifyArray(arr: any[]): string {
   }));
 }
 
+// ══════════════════════════════════════════════════════════════════════
+// Per-user self-test logic (pure, no side effects except DB insert)
+// ══════════════════════════════════════════════════════════════════════
+async function runSelfTestForUser(db: any, userId: string) {
+  const failures: string[] = [];
+  const checks: Record<string, boolean> = {};
+
+  // 1) schema_ok
+  const { data: sampleRow, error: sampleErr } = await db
+    .from("corpus_scripts")
+    .select("clean_word_count, raw_page_est, normalized_page_est, normalization_removed_lines, is_transcript, transcript_confidence, exclude_from_baselines")
+    .limit(1)
+    .maybeSingle();
+  checks.schema_ok = !sampleErr;
+  if (sampleErr) failures.push(`schema_ok: ${sampleErr.message}`);
+
+  // 2) ingest_storage_ok
+  const { data: recentScripts } = await db
+    .from("corpus_scripts")
+    .select("id, clean_word_count, normalized_page_est, title")
+    .eq("user_id", userId)
+    .eq("analysis_status", "complete")
+    .order("created_at", { ascending: false })
+    .limit(20);
+  const missingNorm = (recentScripts || []).filter((s: any) => s.clean_word_count == null || s.normalized_page_est == null);
+  checks.ingest_storage_ok = missingNorm.length === 0;
+  if (missingNorm.length > 0) failures.push(`ingest_storage_ok: ${missingNorm.length}/20 scripts missing normalization fields`);
+
+  // 3) strategy_ok
+  const { data: latestCal } = await db
+    .from("corpus_insights")
+    .select("pattern, production_type, created_at")
+    .eq("user_id", userId)
+    .eq("insight_type", "calibration")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const strategy = latestCal?.pattern?.normalization_strategy;
+  checks.strategy_ok = strategy === 'stored_clean_word_count';
+  if (!checks.strategy_ok) failures.push(`strategy_ok: expected 'stored_clean_word_count', got '${strategy}'`);
+
+  // 4) sanity_ok
+  const medRaw = latestCal?.pattern?.median_raw_pages ?? 0;
+  const medNorm = latestCal?.pattern?.median_normalized_pages ?? 0;
+  const medClamped = latestCal?.pattern?.median_page_count ?? 0;
+  const prodType = latestCal?.production_type || 'film';
+  const clampCeiling = (LENGTH_CLAMP[prodType] || LENGTH_CLAMP['film']).medianMax;
+  checks.sanity_ok = medRaw >= medNorm && medClamped <= clampCeiling;
+  if (medRaw < medNorm) failures.push(`sanity_ok: median_raw (${medRaw}) < median_normalized (${medNorm})`);
+  if (medClamped > clampCeiling) failures.push(`sanity_ok: median_clamped (${medClamped}) > ceiling (${clampCeiling})`);
+
+  // 5) eligibility_counts_ok
+  const { data: allScripts } = await db
+    .from("corpus_scripts")
+    .select("is_truncated, is_transcript, exclude_from_baselines, word_count, production_type")
+    .eq("user_id", userId)
+    .eq("analysis_status", "complete");
+  let dbTruncated = 0, dbTranscript = 0, dbManual = 0;
+  for (const s of (allScripts || [])) {
+    let isTrunc = s.is_truncated;
+    if (isTrunc == null) {
+      const minW = TRUNCATION_THRESHOLDS[s.production_type || 'film'] || 12000;
+      isTrunc = (s.word_count || 0) < minW;
+    }
+    if (isTrunc) dbTruncated++;
+    if (s.is_transcript) dbTranscript++;
+    if (s.exclude_from_baselines) dbManual++;
+  }
+  const patTrunc = latestCal?.pattern?.excluded_truncated_count ?? latestCal?.pattern?.truncated_excluded_count ?? -1;
+  const patTransc = latestCal?.pattern?.excluded_transcript_count ?? latestCal?.pattern?.transcript_excluded_count ?? -1;
+  const patManual = latestCal?.pattern?.excluded_manual_count ?? latestCal?.pattern?.manual_excluded_count ?? -1;
+  checks.eligibility_counts_ok =
+    Math.abs(patTrunc - dbTruncated) <= 1 &&
+    Math.abs(patTransc - dbTranscript) <= 1 &&
+    Math.abs(patManual - dbManual) <= 1;
+  if (!checks.eligibility_counts_ok) {
+    failures.push(`eligibility_counts_ok: pattern(${patTrunc}/${patTransc}/${patManual}) vs db(${dbTruncated}/${dbTranscript}/${dbManual})`);
+  }
+
+  // 6) async_leak_ok
+  checks.async_leak_ok = true;
+
+  // 7) idempotent_ok
+  let hash1 = '', hash2 = '';
+  const { data: allCompleted } = await db
+    .from("corpus_scripts")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("analysis_status", "complete");
+  if (allCompleted && allCompleted.length > 0) {
+    const clone1 = JSON.parse(JSON.stringify(allCompleted));
+    const clone2 = JSON.parse(JSON.stringify(allCompleted));
+    const result1 = computeInsights(clone1, userId);
+    const result2 = computeInsights(clone2, userId);
+    const str1 = stableStringifyArray(result1.insights);
+    const str2 = stableStringifyArray(result2.insights);
+    hash1 = await hashString(str1);
+    hash2 = await hashString(str2);
+    checks.idempotent_ok = hash1 === hash2;
+    if (!checks.idempotent_ok) failures.push(`idempotent_ok: hash mismatch ${hash1} vs ${hash2}`);
+  } else {
+    checks.idempotent_ok = true;
+  }
+
+  const pass = Object.values(checks).every(Boolean);
+
+  const evidence = {
+    latest_calibration: latestCal?.pattern ? {
+      production_type: latestCal.production_type,
+      normalization_strategy: strategy,
+      median_raw_pages: medRaw,
+      median_normalized_pages: medNorm,
+      median_page_count_clamped: medClamped,
+      sample_size: latestCal.pattern.sample_size,
+      sample_size_used: latestCal.pattern.sample_size_used,
+    } : null,
+    counts: {
+      total_complete: (allScripts || []).length,
+      normalized_present: (recentScripts || []).length - missingNorm.length,
+      truncated: dbTruncated,
+      transcripts: dbTranscript,
+      manual_excluded: dbManual,
+      eligible: (allScripts || []).length - dbTruncated - dbTranscript - dbManual,
+    },
+    idempotency_hashes: { run1: hash1, run2: hash2 },
+  };
+
+  // Persist
+  await db.from("system_health_checks").insert({
+    user_id: userId,
+    check_name: 'corpus_integrity',
+    pass,
+    checks,
+    evidence,
+    failures,
+  });
+
+  return { user_id: userId, pass, timestamp: new Date().toISOString(), checks, evidence, failures };
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -453,14 +593,22 @@ serve(async (req) => {
     const lovableKey = Deno.env.get("LOVABLE_API_KEY");
     if (!lovableKey) throw new Error("LOVABLE_API_KEY not configured");
 
-    const userClient = createClient(supabaseUrl, anonKey, {
-      global: { headers: { Authorization: authHeader } },
-    });
-    const { data: { user }, error: authErr } = await userClient.auth.getUser();
-    if (authErr || !user) throw new Error("Unauthorized");
-
     const db = createClient(supabaseUrl, supabaseKey);
     const { action, ...params } = await req.json();
+
+    // Detect if caller is service role (scheduler) or normal user
+    const token = authHeader.replace("Bearer ", "");
+    const isServiceRole = token === supabaseKey;
+
+    let user: any = null;
+    if (!isServiceRole) {
+      const userClient = createClient(supabaseUrl, anonKey, {
+        global: { headers: { Authorization: authHeader } },
+      });
+      const { data: { user: authUser }, error: authErr } = await userClient.auth.getUser();
+      if (authErr || !authUser) throw new Error("Unauthorized");
+      user = authUser;
+    }
 
     // ═══ ACTION: ANALYZE (single script) ═══
     if (action === "analyze") {
@@ -696,153 +844,42 @@ Also extract up to 30 scene patterns and up to 15 character profiles.`;
 
     // ═══ ACTION: SELF_TEST ═══
     if (action === "self_test") {
-      const failures: string[] = [];
-      const checks: Record<string, boolean> = {};
+      if (isServiceRole) {
+        // Multi-tenant: run for all users with corpus scripts
+        const { data: userRows } = await db
+          .from("corpus_scripts")
+          .select("user_id")
+          .eq("analysis_status", "complete");
+        const uniqueUsers = [...new Set((userRows || []).map((r: any) => r.user_id))];
+        console.log(`self_test (service role): running for ${uniqueUsers.length} users`);
 
-      // 1) schema_ok: confirm required columns exist
-      const requiredCols = ['clean_word_count', 'raw_page_est', 'normalized_page_est',
-        'normalization_removed_lines', 'is_transcript', 'transcript_confidence', 'exclude_from_baselines'];
-      const { data: colRows } = await db.rpc('', {}).maybeSingle(); // can't query info schema via JS SDK
-      // Use a direct query via corpus_scripts select to verify columns exist
-      const { data: sampleRow, error: sampleErr } = await db
-        .from("corpus_scripts")
-        .select("clean_word_count, raw_page_est, normalized_page_est, normalization_removed_lines, is_transcript, transcript_confidence, exclude_from_baselines")
-        .limit(1)
-        .maybeSingle();
-      checks.schema_ok = !sampleErr;
-      if (sampleErr) failures.push(`schema_ok: ${sampleErr.message}`);
-
-      // 2) ingest_storage_ok: sample 20 recent complete scripts, check normalization populated
-      const { data: recentScripts } = await db
-        .from("corpus_scripts")
-        .select("id, clean_word_count, normalized_page_est, title")
-        .eq("user_id", user.id)
-        .eq("analysis_status", "complete")
-        .order("created_at", { ascending: false })
-        .limit(20);
-      const missingNorm = (recentScripts || []).filter((s: any) => s.clean_word_count == null || s.normalized_page_est == null);
-      checks.ingest_storage_ok = missingNorm.length === 0;
-      if (missingNorm.length > 0) failures.push(`ingest_storage_ok: ${missingNorm.length}/20 scripts missing normalization fields`);
-
-      // 3) strategy_ok: latest calibration uses stored_clean_word_count
-      const { data: latestCal } = await db
-        .from("corpus_insights")
-        .select("pattern, production_type, created_at")
-        .eq("user_id", user.id)
-        .eq("insight_type", "calibration")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      const strategy = latestCal?.pattern?.normalization_strategy;
-      checks.strategy_ok = strategy === 'stored_clean_word_count';
-      if (!checks.strategy_ok) failures.push(`strategy_ok: expected 'stored_clean_word_count', got '${strategy}'`);
-
-      // 4) sanity_ok: median_raw >= median_normalized, and clamped <= ceiling
-      const medRaw = latestCal?.pattern?.median_raw_pages ?? 0;
-      const medNorm = latestCal?.pattern?.median_normalized_pages ?? 0;
-      const medClamped = latestCal?.pattern?.median_page_count ?? 0;
-      const prodType = latestCal?.production_type || 'film';
-      const clampCeiling = (LENGTH_CLAMP[prodType] || LENGTH_CLAMP['film']).medianMax;
-      checks.sanity_ok = medRaw >= medNorm && medClamped <= clampCeiling;
-      if (medRaw < medNorm) failures.push(`sanity_ok: median_raw (${medRaw}) < median_normalized (${medNorm})`);
-      if (medClamped > clampCeiling) failures.push(`sanity_ok: median_clamped (${medClamped}) > ceiling (${clampCeiling})`);
-
-      // 5) eligibility_counts_ok: pattern exclusion counts match actual DB counts
-      const { data: allScripts } = await db
-        .from("corpus_scripts")
-        .select("is_truncated, is_transcript, exclude_from_baselines, word_count, production_type")
-        .eq("user_id", user.id)
-        .eq("analysis_status", "complete");
-      let dbTruncated = 0, dbTranscript = 0, dbManual = 0;
-      for (const s of (allScripts || [])) {
-        let isTrunc = s.is_truncated;
-        if (isTrunc == null) {
-          const minW = TRUNCATION_THRESHOLDS[s.production_type || 'film'] || 12000;
-          isTrunc = (s.word_count || 0) < minW;
+        const results: any[] = [];
+        for (const uid of uniqueUsers) {
+          try {
+            const r = await runSelfTestForUser(db, uid);
+            results.push(r);
+          } catch (e: any) {
+            results.push({ user_id: uid, pass: false, error: e.message });
+          }
         }
-        if (isTrunc) dbTruncated++;
-        if (s.is_transcript) dbTranscript++;
-        if (s.exclude_from_baselines) dbManual++;
-      }
-      const patTrunc = latestCal?.pattern?.excluded_truncated_count ?? latestCal?.pattern?.truncated_excluded_count ?? -1;
-      const patTransc = latestCal?.pattern?.excluded_transcript_count ?? latestCal?.pattern?.transcript_excluded_count ?? -1;
-      const patManual = latestCal?.pattern?.excluded_manual_count ?? latestCal?.pattern?.manual_excluded_count ?? -1;
-      checks.eligibility_counts_ok =
-        Math.abs(patTrunc - dbTruncated) <= 1 &&
-        Math.abs(patTransc - dbTranscript) <= 1 &&
-        Math.abs(patManual - dbManual) <= 1;
-      if (!checks.eligibility_counts_ok) {
-        failures.push(`eligibility_counts_ok: pattern(${patTrunc}/${patTransc}/${patManual}) vs db(${dbTruncated}/${dbTranscript}/${dbManual})`);
-      }
 
-      // 6) async_leak_ok: always true (we refactored, no runtime check needed — code-level guarantee)
-      checks.async_leak_ok = true;
-
-      // 7) idempotent_ok: compute insights twice in-memory, hash compare
-      let hash1 = '', hash2 = '';
-      const { data: allCompleted } = await db
-        .from("corpus_scripts")
-        .select("*")
-        .eq("user_id", user.id)
-        .eq("analysis_status", "complete");
-      if (allCompleted && allCompleted.length > 0) {
-        // Deep-clone to avoid mutation leaking between runs
-        const clone1 = JSON.parse(JSON.stringify(allCompleted));
-        const clone2 = JSON.parse(JSON.stringify(allCompleted));
-        const result1 = computeInsights(clone1, user.id);
-        const result2 = computeInsights(clone2, user.id);
-        const str1 = stableStringifyArray(result1.insights);
-        const str2 = stableStringifyArray(result2.insights);
-        hash1 = await hashString(str1);
-        hash2 = await hashString(str2);
-        checks.idempotent_ok = hash1 === hash2;
-        if (!checks.idempotent_ok) failures.push(`idempotent_ok: hash mismatch ${hash1} vs ${hash2}`);
+        const allPass = results.every((r: any) => r.pass);
+        return new Response(JSON.stringify({
+          pass: allPass,
+          timestamp: new Date().toISOString(),
+          users_checked: uniqueUsers.length,
+          results,
+        }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       } else {
-        checks.idempotent_ok = true; // no data = vacuously true
+        // Single user
+        if (!user) throw new Error("Unauthorized");
+        const result = await runSelfTestForUser(db, user.id);
+        return new Response(JSON.stringify(result), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
-
-      const pass = Object.values(checks).every(Boolean);
-
-      const result = {
-        pass,
-        timestamp: new Date().toISOString(),
-        checks,
-        evidence: {
-          latest_calibration: latestCal?.pattern ? {
-            production_type: latestCal.production_type,
-            normalization_strategy: strategy,
-            median_raw_pages: medRaw,
-            median_normalized_pages: medNorm,
-            median_page_count_clamped: medClamped,
-            sample_size: latestCal.pattern.sample_size,
-            sample_size_used: latestCal.pattern.sample_size_used,
-          } : null,
-          counts: {
-            total_complete: (allScripts || []).length,
-            normalized_present: (recentScripts || []).length - missingNorm.length,
-            truncated: dbTruncated,
-            transcripts: dbTranscript,
-            manual_excluded: dbManual,
-            eligible: (allScripts || []).length - dbTruncated - dbTranscript - dbManual,
-          },
-          idempotency_hashes: { run1: hash1, run2: hash2 },
-        },
-        failures,
-      };
-
-      // Persist result to system_health_checks (service role insert)
-      await db.from("system_health_checks").insert({
-        user_id: user.id,
-        check_name: 'corpus_integrity',
-        pass,
-        checks,
-        evidence: result.evidence,
-        failures,
-      });
-
-      return new Response(JSON.stringify(result), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
     }
 
     // ═══ ACTION: GENERATE-PLAYBOOKS ═══
