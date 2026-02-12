@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { useState } from 'react';
 
 export interface EngineScript {
   id: string;
@@ -15,6 +16,9 @@ export interface EngineScript {
   lane_alignment_score: number | null;
   version_label: string | null;
   is_current: boolean;
+  latest_batch_storage_path: string | null;
+  latest_draft_number: number | null;
+  latest_batch_index: number | null;
   created_at: string;
 }
 
@@ -47,25 +51,29 @@ export interface ScriptVersion {
   budget_score: number | null;
   lane_alignment_score: number | null;
   rewrite_pass: string | null;
+  batch_index: number | null;
+  is_partial: boolean | null;
   notes: string | null;
   created_at: string;
 }
 
 export function useScriptEngine(projectId: string) {
   const qc = useQueryClient();
+  const [draftText, setDraftText] = useState<string | null>(null);
+  const [draftStoragePath, setDraftStoragePath] = useState<string | null>(null);
+
   const keys = {
     scripts: ['engine-scripts', projectId],
     scenes: (sid: string) => ['engine-scenes', sid],
     versions: (sid: string) => ['engine-versions', sid],
   };
 
-  // Fetch engine scripts for project
   const { data: scripts = [], isLoading } = useQuery({
     queryKey: keys.scripts,
     queryFn: async () => {
       const { data, error } = await supabase
         .from('scripts')
-        .select('id, project_id, version, draft_number, status, structural_score, dialogue_score, economy_score, budget_score, lane_alignment_score, version_label, is_current, created_at')
+        .select('id, project_id, version, draft_number, status, structural_score, dialogue_score, economy_score, budget_score, lane_alignment_score, version_label, is_current, latest_batch_storage_path, latest_draft_number, latest_batch_index, created_at')
         .eq('project_id', projectId)
         .not('status', 'is', null)
         .order('created_at', { ascending: false });
@@ -77,7 +85,6 @@ export function useScriptEngine(projectId: string) {
 
   const activeScript = scripts.find(s => s.is_current) || scripts[0] || null;
 
-  // Fetch scenes for active script
   const { data: scenes = [] } = useQuery({
     queryKey: keys.scenes(activeScript?.id || ''),
     queryFn: async () => {
@@ -93,7 +100,6 @@ export function useScriptEngine(projectId: string) {
     enabled: !!activeScript?.id,
   });
 
-  // Fetch versions for active script
   const { data: versions = [] } = useQuery({
     queryKey: keys.versions(activeScript?.id || ''),
     queryFn: async () => {
@@ -111,7 +117,6 @@ export function useScriptEngine(projectId: string) {
 
   const blueprint = versions.find(v => v.blueprint_json)?.blueprint_json || null;
 
-  // Generic action caller
   async function callEngine(action: string, extra: Record<string, any> = {}) {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) throw new Error('Not authenticated');
@@ -138,19 +143,13 @@ export function useScriptEngine(projectId: string) {
 
   const generateBlueprint = useMutation({
     mutationFn: () => callEngine('blueprint'),
-    onSuccess: (data) => {
-      toast.success('Blueprint generated');
-      invalidateAll();
-    },
+    onSuccess: () => { toast.success('Blueprint generated'); invalidateAll(); },
     onError: (e: Error) => toast.error(e.message),
   });
 
   const generateArchitecture = useMutation({
     mutationFn: () => callEngine('architecture'),
-    onSuccess: () => {
-      toast.success('Scene architecture generated');
-      invalidateAll();
-    },
+    onSuccess: () => { toast.success('Scene architecture generated'); invalidateAll(); },
     onError: (e: Error) => toast.error(e.message),
   });
 
@@ -158,6 +157,11 @@ export function useScriptEngine(projectId: string) {
     mutationFn: (params?: { batchStart?: number; batchEnd?: number }) =>
       callEngine('draft', params || {}),
     onSuccess: (data) => {
+      // Store the draft text for immediate display
+      if (data.batchTextPreview) {
+        setDraftText(data.batchTextPreview);
+        setDraftStoragePath(data.storagePath || null);
+      }
       if (data.isComplete) {
         toast.success(`Draft ${data.draftNumber || ''} complete`);
       } else {
@@ -170,10 +174,7 @@ export function useScriptEngine(projectId: string) {
 
   const scoreScript = useMutation({
     mutationFn: () => callEngine('score'),
-    onSuccess: () => {
-      toast.success('Quality scores updated');
-      invalidateAll();
-    },
+    onSuccess: () => { toast.success('Quality scores updated'); invalidateAll(); },
     onError: (e: Error) => toast.error(e.message),
   });
 
@@ -188,16 +189,23 @@ export function useScriptEngine(projectId: string) {
 
   const lockScript = useMutation({
     mutationFn: () => callEngine('lock'),
-    onSuccess: () => {
-      toast.success('Script locked');
-      invalidateAll();
-    },
+    onSuccess: () => { toast.success('Script locked'); invalidateAll(); },
     onError: (e: Error) => toast.error(e.message),
+  });
+
+  const fetchDraft = useMutation({
+    mutationFn: (storagePath: string) => callEngine('fetch-draft', { storagePath }),
+    onSuccess: (data) => {
+      setDraftText(data.text);
+      setDraftStoragePath(data.storagePath);
+    },
+    onError: (e: Error) => toast.error(`Failed to load draft: ${e.message}`),
   });
 
   return {
     scripts, activeScript, scenes, versions, blueprint, isLoading,
+    draftText, draftStoragePath, setDraftText,
     generateBlueprint, generateArchitecture, generateDraft,
-    scoreScript, rewritePass, lockScript,
+    scoreScript, rewritePass, lockScript, fetchDraft,
   };
 }

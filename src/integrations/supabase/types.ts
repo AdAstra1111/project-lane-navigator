@@ -4126,6 +4126,7 @@ export type Database = {
       }
       script_versions: {
         Row: {
+          batch_index: number | null
           blueprint_json: Json | null
           budget_score: number | null
           created_at: string
@@ -4134,6 +4135,7 @@ export type Database = {
           economy_score: number | null
           full_text_storage_path: string | null
           id: string
+          is_partial: boolean | null
           lane_alignment_score: number | null
           notes: string | null
           rewrite_pass: string | null
@@ -4141,6 +4143,7 @@ export type Database = {
           structural_score: number | null
         }
         Insert: {
+          batch_index?: number | null
           blueprint_json?: Json | null
           budget_score?: number | null
           created_at?: string
@@ -4149,6 +4152,7 @@ export type Database = {
           economy_score?: number | null
           full_text_storage_path?: string | null
           id?: string
+          is_partial?: boolean | null
           lane_alignment_score?: number | null
           notes?: string | null
           rewrite_pass?: string | null
@@ -4156,6 +4160,7 @@ export type Database = {
           structural_score?: number | null
         }
         Update: {
+          batch_index?: number | null
           blueprint_json?: Json | null
           budget_score?: number | null
           created_at?: string
@@ -4164,6 +4169,7 @@ export type Database = {
           economy_score?: number | null
           full_text_storage_path?: string | null
           id?: string
+          is_partial?: boolean | null
           lane_alignment_score?: number | null
           notes?: string | null
           rewrite_pass?: string | null
@@ -4193,6 +4199,9 @@ export type Database = {
           id: string
           is_current: boolean | null
           lane_alignment_score: number | null
+          latest_batch_index: number | null
+          latest_batch_storage_path: string | null
+          latest_draft_number: number | null
           owner_id: string | null
           page_map: Json | null
           project_id: string
@@ -4214,6 +4223,9 @@ export type Database = {
           id?: string
           is_current?: boolean | null
           lane_alignment_score?: number | null
+          latest_batch_index?: number | null
+          latest_batch_storage_path?: string | null
+          latest_draft_number?: number | null
           owner_id?: string | null
           page_map?: Json | null
           project_id: string
@@ -4235,6 +4247,9 @@ export type Database = {
           id?: string
           is_current?: boolean | null
           lane_alignment_score?: number | null
+          latest_batch_index?: number | null
+          latest_batch_storage_path?: string | null
+          latest_draft_number?: number | null
           owner_id?: string | null
           page_map?: Json | null
           project_id?: string

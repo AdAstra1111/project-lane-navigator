@@ -410,50 +410,78 @@ serve(async (req) => {
 
       if (!scenes?.length) throw new Error("No scene architecture — generate architecture first");
 
-      const { data: versions } = await supabase
+      const { data: bpVersions } = await supabase
         .from("script_versions")
         .select("blueprint_json")
         .eq("script_id", scriptId)
         .not("blueprint_json", "is", null)
         .order("created_at", { ascending: false })
         .limit(1);
-      const blueprint = versions?.[0]?.blueprint_json || {};
+      const blueprint = bpVersions?.[0]?.blueprint_json || {};
 
       const prompt = getDraftPrompt(scenes, batchStart, batchEnd, project, blueprint);
+      console.log(`[draft] Generating batch ${batchStart}-${batchEnd} for script ${scriptId}`);
       const draftText = await callAI(prompt, false);
+      console.log(`[draft] AI returned ${typeof draftText === 'string' ? draftText.length : 0} chars`);
 
       // Store batch in storage
-      const path = `scripts/${projectId}/v${Date.now()}/batch_${batchStart}_${batchEnd}.txt`;
+      const { data: scriptRow } = await supabase.from("scripts").select("draft_number, version").eq("id", scriptId).single();
+      const currentDraft = scriptRow?.draft_number || 0;
+      const scriptVersion = scriptRow?.version || 1;
+      const batchIndex = Math.ceil(batchStart / batchSize);
+      const path = `scripts/${projectId}/v${scriptVersion}/draft_${currentDraft + 1}_batch_${batchIndex}.txt`;
+
       const encoder = new TextEncoder();
-      await supabase.storage.from("scripts").upload(path, encoder.encode(draftText), {
+      const { error: uploadError } = await supabase.storage.from("scripts").upload(path, encoder.encode(draftText), {
         contentType: "text/plain", upsert: true,
       });
+      if (uploadError) {
+        console.error(`[draft] Storage upload FAILED:`, uploadError);
+        throw new Error(`Failed to save draft to storage: ${uploadError.message}`);
+      }
+      console.log(`[draft] Storage upload OK: ${path}`);
 
       // Check if this is the final batch
       const maxScene = Math.max(...scenes.map((s: any) => s.scene_number));
       const isComplete = batchEnd >= maxScene;
+      const newDraftNum = isComplete ? currentDraft + 1 : currentDraft;
+      const newStatus = isComplete ? `DRAFT_${newDraftNum}` : "DRAFTING";
 
-      if (isComplete) {
-        // Get current draft number
-        const { data: script } = await supabase.from("scripts").select("draft_number").eq("id", scriptId).single();
-        const newDraftNum = (script?.draft_number || 0) + 1;
+      // Always update scripts with latest batch info
+      await supabase.from("scripts").update({
+        status: newStatus,
+        draft_number: newDraftNum,
+        latest_draft_number: newDraftNum || currentDraft,
+        latest_batch_index: batchIndex,
+        latest_batch_storage_path: path,
+      }).eq("id", scriptId);
 
-        await supabase.from("scripts").update({
-          status: `DRAFT_${newDraftNum}`, draft_number: newDraftNum,
-        }).eq("id", scriptId);
+      // Always create script_versions row per batch
+      const { data: svRow, error: svError } = await supabase.from("script_versions").insert({
+        script_id: scriptId,
+        draft_number: isComplete ? newDraftNum : currentDraft,
+        batch_index: batchIndex,
+        is_partial: !isComplete,
+        full_text_storage_path: path,
+        notes: isComplete ? `Draft ${newDraftNum} complete` : `Batch ${batchStart}-${batchEnd} drafted`,
+      }).select("id").single();
 
-        await supabase.from("script_versions").insert({
-          script_id: scriptId, draft_number: newDraftNum,
-          full_text_storage_path: path, notes: `Draft ${newDraftNum} complete`,
-        });
+      if (svError) {
+        console.error(`[draft] script_versions insert FAILED:`, svError);
       } else {
-        await supabase.from("scripts").update({ status: "DRAFTING" }).eq("id", scriptId);
+        console.log(`[draft] script_versions created: ${svRow?.id}`);
       }
+
+      // Return the FULL draft text (not truncated) so UI can display immediately
+      const draftTextStr = typeof draftText === 'string' ? draftText : JSON.stringify(draftText);
 
       return new Response(JSON.stringify({
         batchStart, batchEnd, isComplete, storagePath: path,
+        scriptVersionId: svRow?.id || null,
+        draftNumber: isComplete ? newDraftNum : currentDraft,
+        batchIndex,
         nextBatch: isComplete ? null : { batchStart: batchEnd + 1, batchEnd: Math.min(batchEnd + batchSize, maxScene) },
-        draftText: draftText.substring(0, 500) + "...",
+        batchTextPreview: draftTextStr,
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -590,6 +618,24 @@ serve(async (req) => {
         .neq("id", scriptId);
 
       return new Response(JSON.stringify({ locked: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ═══════════════════════════════════════════
+    // ACTION: FETCH-DRAFT (read draft text from storage)
+    // ═══════════════════════════════════════════
+    if (action === "fetch-draft") {
+      const storagePath = body.storagePath;
+      if (!storagePath) throw new Error("storagePath required");
+
+      const { data: fileData, error: dlErr } = await supabase.storage
+        .from("scripts")
+        .download(storagePath);
+      if (dlErr || !fileData) throw new Error("Could not download draft: " + (dlErr?.message || "not found"));
+
+      const text = await fileData.text();
+      return new Response(JSON.stringify({ text, storagePath }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
