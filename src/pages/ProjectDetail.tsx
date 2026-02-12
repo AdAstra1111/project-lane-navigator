@@ -1,9 +1,8 @@
-import { useState, useMemo, useCallback, useEffect } from 'react';
-import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { useState, useMemo, useEffect } from 'react';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Trash2, Loader2, Copy, Download, FileText, FileSpreadsheet, Presentation, ArrowLeftRight, Menu } from 'lucide-react';
+import { ArrowLeft, Trash2, Loader2, Copy, Download, FileText, FileSpreadsheet, Presentation, ArrowLeftRight } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -19,7 +18,7 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { Header } from '@/components/Header';
-import { LaneBadge } from '@/components/LaneBadge';
+
 import { useProject, useProjectDocuments } from '@/hooks/useProjects';
 import { useProjects } from '@/hooks/useProjects';
 import { useAddDocuments } from '@/hooks/useAddDocuments';
@@ -63,20 +62,14 @@ import { type LifecycleStage } from '@/lib/lifecycle-stages';
 import { usePostMilestones, useEditVersions, useVfxShots } from '@/hooks/usePostProduction';
 
 
+import { useUIMode } from '@/hooks/useUIMode';
+import { getEffectiveMode } from '@/lib/visibility';
 
-// Stage components
-import { LifecycleSidebar } from '@/components/LifecycleSidebar';
-import { OverviewDashboard } from '@/components/stages/OverviewDashboard';
-import { DevelopmentStage } from '@/components/stages/DevelopmentStage';
-import { PackagingStage } from '@/components/stages/PackagingStage';
-import { PreProductionStage } from '@/components/stages/PreProductionStage';
-import { ProductionStage } from '@/components/stages/ProductionStage';
-import { PostProductionStage } from '@/components/stages/PostProductionStage';
-import { SalesDeliveryStage } from '@/components/stages/SalesDeliveryStage';
-import { FinancingLayer } from '@/components/stages/FinancingLayer';
-import { BudgetingLayer } from '@/components/stages/BudgetingLayer';
-import { RecoupmentLayer } from '@/components/stages/RecoupmentLayer';
-import { TrendsLayer } from '@/components/stages/TrendsLayer';
+// New architecture components
+import { ProjectSummaryBar } from '@/components/project/ProjectSummaryBar';
+import { SimpleProjectView } from '@/components/project/SimpleProjectView';
+import { AdvancedProjectView } from '@/components/project/AdvancedProjectView';
+
 
 export default function ProjectDetail() {
   const { id } = useParams();
@@ -92,12 +85,7 @@ export default function ProjectDetail() {
   const { user } = useAuth();
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [incentiveAnalysedThisSession, setIncentiveAnalysedThisSession] = useState(false);
-  const [searchParams, setSearchParams] = useSearchParams();
-  const activeView = searchParams.get('view') || 'overview';
-  const setActiveView = useCallback((view: string) => {
-    setSearchParams({ view }, { replace: false });
-  }, [setSearchParams]);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+
 
   const { cast } = useProjectCast(id);
   const { partners } = useProjectPartners(id);
@@ -333,135 +321,9 @@ export default function ProjectDetail() {
   const hasDocuments = documents.length > 0;
   const hasScript = scripts.length > 0;
 
-  const renderStageContent = () => {
-    switch (activeView) {
-      case 'overview':
-        return (
-          <OverviewDashboard
-            project={project}
-            projectId={id!}
-            readiness={readiness}
-            tvReadiness={tvReadiness}
-            modeReadiness={modeReadiness}
-            isTV={!!isTV}
-            isAlternateMode={!!isAlternateMode}
-            scoreHistory={scoreHistory}
-            nextStageGates={nextStageGates}
-            currentUserId={user?.id || null}
-            lifecycleStage={lifecycleStage}
-            onNavigateToStage={setActiveView}
-            masterViability={masterViability}
-          />
-        );
-      case 'development':
-        return (
-          <DevelopmentStage
-            project={project}
-            projectId={id!}
-            analysis={analysis}
-            hasNewAnalysis={hasNewAnalysis}
-            insights={insights}
-            scripts={scripts}
-            currentScript={currentScript}
-            hasDocuments={hasDocuments}
-            hasScript={hasScript}
-            documents={documents}
-            onUpload={(files, scriptInfo) => addDocuments.mutate({ files, scriptInfo })}
-            isUploading={addDocuments.isPending}
-            scriptText={scriptText}
-            stageReadiness={devReadiness}
-          />
-        );
-      case 'packaging':
-        return (
-          <PackagingStage
-            project={project}
-            projectId={id!}
-            cast={cast}
-            hods={hods}
-            scriptCharacters={scriptCharacters}
-            scriptCharactersLoading={scriptCharsLoading}
-            scriptText={scriptText}
-            isTV={!!isTV}
-            stageReadiness={pkgReadiness}
-          />
-        );
-      case 'pre-production':
-        return (
-          <PreProductionStage
-            project={project}
-            projectId={id!}
-            budgets={budgets}
-            addBudget={addBudget}
-            deals={deals}
-            financeScenarios={financeScenarios}
-            scheduleMetrics={scheduleMetrics}
-            scriptText={scriptText}
-            hods={hods}
-            budgetLines={[]}
-            onIncentiveAnalysed={setIncentiveAnalysedThisSession}
-            stageReadiness={preProReadiness}
-          />
-        );
-      case 'production':
-        return (
-          <ProductionStage
-            projectId={id!}
-            totalPlannedScenes={scheduleMetrics.totalScenes || 0}
-            totalShootDays={scheduleMetrics.shootDayCount || 0}
-            stageReadiness={prodReadiness}
-          />
-        );
-      case 'post-production':
-        return <PostProductionStage projectId={id!} stageReadiness={postReadiness} />;
-      case 'sales-delivery':
-        return (
-          <SalesDeliveryStage
-            project={project}
-            projectId={id!}
-            cast={cast}
-            partners={partners}
-            deals={deals}
-            deliverables={deliverables as any}
-            trendSignals={trendSignals}
-            stageReadiness={salesReadiness}
-          />
-        );
-      case 'financing':
-        return (
-          <FinancingLayer
-            project={project}
-            projectId={id!}
-            financeReadiness={financeReadiness}
-            financeScenarios={financeScenarios}
-            onIncentiveAnalysed={setIncentiveAnalysedThisSession}
-          />
-        );
-      case 'budgeting':
-        return (
-          <BudgetingLayer
-            project={project}
-            projectId={id!}
-            budgets={budgets}
-            deals={deals}
-            financeScenarios={financeScenarios}
-            isTV={!!isTV}
-            shootDayCount={scheduleMetrics.shootDayCount || 0}
-          />
-        );
-      case 'recoupment':
-        return (
-          <RecoupmentLayer
-            projectId={id!}
-            budgets={budgets}
-          />
-        );
-      case 'trends':
-        return <TrendsLayer project={project} projectId={id!} lifecycleStage={lifecycleStage} />;
-      default:
-        return null;
-    }
-  };
+  // Resolve effective mode
+  const { mode: userMode, setMode } = useUIMode();
+  const effectiveMode = getEffectiveMode(userMode, (project as any).ui_mode_override);
 
   const heroImageUrl = (project as any).hero_image_url;
 
@@ -484,51 +346,23 @@ export default function ProjectDetail() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3 }}
         >
-          {/* Header */}
-          <div className="flex items-start justify-between gap-4 mb-6">
+          {/* Project Header (compact) */}
+          <div className="flex items-start justify-between gap-4 mb-2">
             <div className="flex items-center gap-3">
               <button
-                onClick={() => {
-                  if (activeView !== 'overview') {
-                    setActiveView('overview');
-                    setSidebarOpen(true);
-                  } else {
-                    navigate('/dashboard');
-                  }
-                }}
+                onClick={() => navigate('/dashboard')}
                 className="inline-flex items-center justify-center h-8 w-8 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
               >
                 <ArrowLeft className="h-4 w-4" />
               </button>
               <div>
-                <div className="flex items-center gap-2 mb-0.5">
-                  {formatMeta && (
-                    <>
-                      <formatMeta.icon className={`h-3.5 w-3.5 ${formatMeta.color}`} />
-                      <span className="text-xs text-muted-foreground uppercase tracking-wider">
-                        {formatMeta.shortLabel}
-                      </span>
-                    </>
-                  )}
-                </div>
-                <h1 className="text-2xl font-display font-bold text-foreground tracking-tight">
-                  {project.title}
-                </h1>
                 {project.genres && project.genres.length > 0 && (
-                  <p className="text-sm text-muted-foreground">{project.genres.join(' · ')}</p>
+                  <p className="text-xs text-muted-foreground">{project.genres.join(' · ')}</p>
                 )}
               </div>
             </div>
 
             <div className="flex items-center gap-1">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="lg:hidden text-muted-foreground"
-                onClick={() => setSidebarOpen(!sidebarOpen)}
-              >
-                <Menu className="h-4 w-4" />
-              </Button>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary shrink-0" title="Export">
@@ -594,31 +428,70 @@ export default function ProjectDetail() {
             </div>
           </div>
 
+          {/* Sticky Summary Bar */}
+          <ProjectSummaryBar project={project} readiness={readiness} />
 
-          {/* Lifecycle Layout: Sidebar + Content */}
-          <div className="flex gap-6">
-            {/* Sidebar - hidden on mobile unless toggled */}
-            <div className={cn(
-              'transition-all duration-200 lg:block',
-              sidebarOpen ? 'block' : 'hidden'
-            )}>
-              <LifecycleSidebar
-                currentLifecycleStage={lifecycleStage}
-                activeView={activeView}
-                onViewChange={(view) => {
-                  setActiveView(view);
-                  // Only auto-close on mobile
-                  if (window.innerWidth < 1024) setSidebarOpen(false);
-                }}
-                stageScores={masterViability?.stageScores}
-              />
-            </div>
-
-            {/* Main content */}
-            <div className="flex-1 min-w-0">
-              {renderStageContent()}
-            </div>
-          </div>
+          {/* Mode-based content */}
+          {effectiveMode === 'simple' ? (
+            <SimpleProjectView
+              project={project}
+              readiness={readiness}
+              analysis={analysis}
+              scriptCount={scripts.length}
+              castCount={cast.length}
+              partnerCount={partners.length}
+              hodCount={hods.length}
+              financeScenarioCount={financeScenarios.length}
+              onSwitchToAdvanced={() => setMode('advanced')}
+            />
+          ) : (
+            <AdvancedProjectView
+              project={project}
+              projectId={id!}
+              readiness={readiness}
+              tvReadiness={tvReadiness}
+              modeReadiness={modeReadiness}
+              isTV={!!isTV}
+              isAlternateMode={!!isAlternateMode}
+              scoreHistory={scoreHistory}
+              nextStageGates={nextStageGates}
+              currentUserId={user?.id || null}
+              lifecycleStage={lifecycleStage}
+              masterViability={masterViability}
+              analysis={analysis}
+              hasNewAnalysis={hasNewAnalysis}
+              insights={insights}
+              scripts={scripts}
+              currentScript={currentScript}
+              hasDocuments={hasDocuments}
+              hasScript={hasScript}
+              documents={documents}
+              onUpload={(files, scriptInfo) => addDocuments.mutate({ files, scriptInfo })}
+              isUploading={addDocuments.isPending}
+              scriptText={scriptText}
+              devReadiness={devReadiness}
+              cast={cast}
+              hods={hods}
+              scriptCharacters={scriptCharacters}
+              scriptCharactersLoading={scriptCharsLoading}
+              pkgReadiness={pkgReadiness}
+              budgets={budgets}
+              addBudget={addBudget}
+              deals={deals}
+              financeScenarios={financeScenarios}
+              scheduleMetrics={scheduleMetrics}
+              preProReadiness={preProReadiness}
+              prodReadiness={prodReadiness}
+              postReadiness={postReadiness}
+              partners={partners}
+              deliverables={deliverables as any}
+              trendSignals={trendSignals}
+              salesReadiness={salesReadiness}
+              financeReadiness={financeReadiness}
+              onIncentiveAnalysed={setIncentiveAnalysedThisSession}
+              costEntries={costEntries}
+            />
+          )}
         </motion.div>
       </main>
     </div>
