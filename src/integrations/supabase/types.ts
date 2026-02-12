@@ -739,6 +739,44 @@ export type Database = {
         }
         Relationships: []
       }
+      edit_versions: {
+        Row: {
+          created_at: string
+          id: string
+          notes: string
+          project_id: string
+          screening_score: number | null
+          user_id: string
+          version_label: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          notes?: string
+          project_id: string
+          screening_score?: number | null
+          user_id: string
+          version_label?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          notes?: string
+          project_id?: string
+          screening_score?: number | null
+          user_id?: string
+          version_label?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "edit_versions_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       engine_source_map: {
         Row: {
           created_at: string
@@ -1093,6 +1131,56 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "notifications_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      post_milestones: {
+        Row: {
+          completed_date: string | null
+          created_at: string
+          due_date: string | null
+          id: string
+          label: string
+          milestone_type: string
+          notes: string
+          project_id: string
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          completed_date?: string | null
+          created_at?: string
+          due_date?: string | null
+          id?: string
+          label?: string
+          milestone_type?: string
+          notes?: string
+          project_id: string
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          completed_date?: string | null
+          created_at?: string
+          due_date?: string | null
+          id?: string
+          label?: string
+          milestone_type?: string
+          notes?: string
+          project_id?: string
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "post_milestones_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"
@@ -3925,6 +4013,56 @@ export type Database = {
           top_micro_genres?: Json
         }
         Relationships: []
+      }
+      vfx_shots: {
+        Row: {
+          complexity: string
+          created_at: string
+          due_date: string | null
+          id: string
+          notes: string
+          project_id: string
+          shot_id: string
+          status: string
+          updated_at: string
+          user_id: string
+          vendor: string
+        }
+        Insert: {
+          complexity?: string
+          created_at?: string
+          due_date?: string | null
+          id?: string
+          notes?: string
+          project_id: string
+          shot_id?: string
+          status?: string
+          updated_at?: string
+          user_id: string
+          vendor?: string
+        }
+        Update: {
+          complexity?: string
+          created_at?: string
+          due_date?: string | null
+          id?: string
+          notes?: string
+          project_id?: string
+          shot_id?: string
+          status?: string
+          updated_at?: string
+          user_id?: string
+          vendor?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vfx_shots_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {
