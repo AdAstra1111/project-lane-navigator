@@ -80,7 +80,7 @@ export default function Dashboard() {
                     <img
                       src={primaryCompany.logo_url}
                       alt={primaryCompany.name}
-                      className="h-14 max-w-[280px] object-contain invert dark:invert-0"
+                      className="h-14 max-w-[280px] object-contain dark:invert"
                     />
                   ) : (
                     <div
