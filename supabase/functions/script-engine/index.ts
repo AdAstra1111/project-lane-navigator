@@ -824,10 +824,33 @@ serve(async (req) => {
       const storagePath = body.storagePath;
       if (!storagePath) throw new Error("storagePath required");
 
-      const { data: fileData, error: dlErr } = await supabase.storage
+      // Try the requested path first
+      let { data: fileData, error: dlErr } = await supabase.storage
         .from("scripts")
         .download(storagePath);
-      if (dlErr || !fileData) throw new Error("Could not download draft: " + (dlErr?.message || "not found"));
+
+      // Fallback: if file not found, try the latest script_version with a valid path
+      if (dlErr || !fileData) {
+        console.log(`[fetch-draft] Primary path failed (${storagePath}), trying fallback`);
+        const { data: svRows } = await supabase.from("script_versions")
+          .select("full_text_storage_path")
+          .eq("script_id", scriptId || body.scriptId || "")
+          .not("full_text_storage_path", "is", null)
+          .order("created_at", { ascending: false })
+          .limit(5);
+
+        for (const sv of (svRows || [])) {
+          if (!sv.full_text_storage_path) continue;
+          const fallback = await supabase.storage.from("scripts").download(sv.full_text_storage_path);
+          if (fallback.data) {
+            fileData = fallback.data;
+            console.log(`[fetch-draft] Fallback succeeded: ${sv.full_text_storage_path}`);
+            break;
+          }
+        }
+      }
+
+      if (!fileData) throw new Error("Could not download draft — file not found in storage");
 
       const text = await fileData.text();
       return new Response(JSON.stringify({ text, storagePath }), {
