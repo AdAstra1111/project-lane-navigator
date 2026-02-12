@@ -108,13 +108,10 @@ export function getPrevStage(stage: LifecycleStage): LifecycleStage | null {
   return prev?.value ?? null;
 }
 
-/** Check if a stage is unlocked (all prior stages exist or override) */
+/** All stages are always accessible */
 export function isStageAccessible(
-  targetStage: LifecycleStage,
-  currentStage: LifecycleStage,
+  _targetStage: LifecycleStage,
+  _currentStage: LifecycleStage,
 ): boolean {
-  // All stages up to and including current are accessible, plus one ahead
-  const currentOrder = getStageOrder(currentStage);
-  const targetOrder = getStageOrder(targetStage);
-  return targetOrder <= currentOrder + 1;
+  return true;
 }
