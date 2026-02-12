@@ -14,6 +14,71 @@ export type Database = {
   }
   public: {
     Tables: {
+      budget_assumptions: {
+        Row: {
+          budget_band: string | null
+          cast_level: string | null
+          created_at: string
+          currency: string | null
+          estimated_total: number | null
+          id: string
+          location_count: number | null
+          notes: string | null
+          project_id: string
+          schedule_weeks: number | null
+          shoot_days: number | null
+          union_level: string | null
+          updated_at: string
+          user_id: string
+          version: number | null
+          vfx_level: string | null
+        }
+        Insert: {
+          budget_band?: string | null
+          cast_level?: string | null
+          created_at?: string
+          currency?: string | null
+          estimated_total?: number | null
+          id?: string
+          location_count?: number | null
+          notes?: string | null
+          project_id: string
+          schedule_weeks?: number | null
+          shoot_days?: number | null
+          union_level?: string | null
+          updated_at?: string
+          user_id: string
+          version?: number | null
+          vfx_level?: string | null
+        }
+        Update: {
+          budget_band?: string | null
+          cast_level?: string | null
+          created_at?: string
+          currency?: string | null
+          estimated_total?: number | null
+          id?: string
+          location_count?: number | null
+          notes?: string | null
+          project_id?: string
+          schedule_weeks?: number | null
+          shoot_days?: number | null
+          union_level?: string | null
+          updated_at?: string
+          user_id?: string
+          version?: number | null
+          vfx_level?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "budget_assumptions_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       buyer_contacts: {
         Row: {
           appetite_notes: string
@@ -1453,6 +1518,56 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "notifications_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      packaging_items: {
+        Row: {
+          archetype: string | null
+          created_at: string
+          id: string
+          item_type: string
+          name: string | null
+          notes: string | null
+          priority: number | null
+          project_id: string
+          status: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          archetype?: string | null
+          created_at?: string
+          id?: string
+          item_type?: string
+          name?: string | null
+          notes?: string | null
+          priority?: number | null
+          project_id: string
+          status?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          archetype?: string | null
+          created_at?: string
+          id?: string
+          item_type?: string
+          name?: string | null
+          notes?: string | null
+          priority?: number | null
+          project_id?: string
+          status?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "packaging_items_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"
@@ -4113,6 +4228,56 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "shoot_days_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      stage_gates: {
+        Row: {
+          blockers: string[] | null
+          created_at: string
+          gate_name: string
+          id: string
+          project_id: string
+          required_artifacts: string[] | null
+          score: number | null
+          sort_order: number | null
+          status: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          blockers?: string[] | null
+          created_at?: string
+          gate_name: string
+          id?: string
+          project_id: string
+          required_artifacts?: string[] | null
+          score?: number | null
+          sort_order?: number | null
+          status?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          blockers?: string[] | null
+          created_at?: string
+          gate_name?: string
+          id?: string
+          project_id?: string
+          required_artifacts?: string[] | null
+          score?: number | null
+          sort_order?: number | null
+          status?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stage_gates_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"
