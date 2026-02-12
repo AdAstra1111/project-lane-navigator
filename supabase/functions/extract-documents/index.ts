@@ -11,7 +11,6 @@ const MAX_PAGES = 300;
 const WORDS_PER_PAGE = 250;
 const MAX_WORDS = MAX_PAGES * WORDS_PER_PAGE;
 
-// ---- TYPES ----
 interface ExtractionResult {
   text: string;
   totalPages: number | null;
@@ -20,8 +19,70 @@ interface ExtractionResult {
   error: string | null;
 }
 
-// ---- TEXT EXTRACTION (same as analyze-project) ----
+// ---- Gemini-based PDF extraction (reliable for all PDFs) ----
+async function extractPDFWithGemini(data: ArrayBuffer): Promise<ExtractionResult> {
+  const apiKey = Deno.env.get("LOVABLE_API_KEY");
+  if (!apiKey) {
+    return { text: "", totalPages: null, pagesAnalyzed: null, status: "failed", error: "No API key for AI extraction" };
+  }
 
+  const base64 = btoa(String.fromCharCode(...new Uint8Array(data)));
+
+  const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "google/gemini-2.5-flash-lite",
+      messages: [
+        {
+          role: "system",
+          content: "You are a document text extractor. Extract ALL text content from the provided PDF document. Preserve paragraph structure with line breaks. Output ONLY the extracted text, nothing else. No commentary, no summaries, no markdown formatting.",
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "file",
+              file: {
+                filename: "document.pdf",
+                file_data: `data:application/pdf;base64,${base64}`,
+              },
+            },
+            { type: "text", text: "Extract all text from this PDF document. Output only the raw text content." },
+          ],
+        },
+      ],
+      temperature: 0,
+      max_tokens: 16000,
+    }),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    console.error("Gemini extraction error:", response.status, errText);
+    return { text: "", totalPages: null, pagesAnalyzed: null, status: "failed", error: `AI extraction failed: ${response.status}` };
+  }
+
+  const result = await response.json();
+  const text = result.choices?.[0]?.message?.content?.trim() || "";
+
+  if (text.length < 50) {
+    return { text: "", totalPages: null, pagesAnalyzed: null, status: "failed", error: "AI could not extract readable text from this PDF" };
+  }
+
+  const wordCount = text.split(/\s+/).length;
+  const estimatedPages = Math.ceil(wordCount / WORDS_PER_PAGE);
+
+  return {
+    text,
+    totalPages: estimatedPages,
+    pagesAnalyzed: estimatedPages,
+    status: "success",
+    error: null,
+  };
+}
+
+// ---- Basic PDF text extraction (for simple uncompressed PDFs) ----
 function basicPDFExtract(bytes: Uint8Array): string {
   const raw = new TextDecoder("latin1").decode(bytes);
   const parts: string[] = [];
@@ -57,60 +118,34 @@ function basicPDFExtract(bytes: Uint8Array): string {
     .trim();
 }
 
+function isGarbageText(text: string): boolean {
+  if (text.length < 100) return true;
+  // Check if text has a high ratio of non-printable/non-ASCII characters
+  const printable = text.replace(/[^\x20-\x7E\n\r\t]/g, "");
+  return printable.length / text.length < 0.5;
+}
+
 async function extractFromPDF(data: ArrayBuffer): Promise<ExtractionResult> {
-  try {
-    // @ts-ignore
-    const pdfjsLib = await import("https://esm.sh/pdfjs-dist@4.8.69/legacy/build/pdf.mjs");
-    pdfjsLib.GlobalWorkerOptions.workerSrc = "";
+  // Try basic extraction first (fast, works for simple PDFs)
+  const bytes = new Uint8Array(data);
+  const basicText = basicPDFExtract(bytes);
 
-    const doc = await pdfjsLib.getDocument({ data: new Uint8Array(data), useWorkerFetch: false, isEvalSupported: false, useSystemFonts: true }).promise;
-    const totalPages = doc.numPages;
-    const pagesToRead = Math.min(totalPages, MAX_PAGES);
-
-    const pageTexts: string[] = [];
-    for (let i = 1; i <= pagesToRead; i++) {
-      const page = await doc.getPage(i);
-      const content = await page.getTextContent();
-      const text = content.items
-        .filter((item: any) => "str" in item)
-        .map((item: any) => item.str)
-        .join(" ");
-      pageTexts.push(text);
-    }
-
-    const fullText = pageTexts.join("\n\n");
-    if (fullText.trim().length < 50) {
-      return { text: "", totalPages, pagesAnalyzed: null, status: "failed", error: "Couldn't read text from this file." };
-    }
-
-    return {
-      text: fullText.trim(),
-      totalPages,
-      pagesAnalyzed: pagesToRead,
-      status: pagesToRead < totalPages ? "partial" : "success",
-      error: null,
-    };
-  } catch (pdfJsErr) {
-    console.warn("pdf.js failed, trying basic fallback:", pdfJsErr);
-    const bytes = new Uint8Array(data);
-    const text = basicPDFExtract(bytes);
-
-    if (text.length < 50) {
-      return { text: "", totalPages: null, pagesAnalyzed: null, status: "failed", error: "Couldn't read text from this file." };
-    }
-
-    const wordCount = text.split(/\s+/).length;
+  if (basicText.length >= 200 && !isGarbageText(basicText)) {
+    const wordCount = basicText.split(/\s+/).length;
     const estimatedPages = Math.ceil(wordCount / WORDS_PER_PAGE);
     const isPartial = wordCount > MAX_WORDS;
-
     return {
-      text: isPartial ? text.split(/\s+/).slice(0, MAX_WORDS).join(" ") : text,
+      text: isPartial ? basicText.split(/\s+/).slice(0, MAX_WORDS).join(" ") : basicText,
       totalPages: estimatedPages,
       pagesAnalyzed: isPartial ? MAX_PAGES : estimatedPages,
       status: isPartial ? "partial" : "success",
       error: null,
     };
   }
+
+  // Basic extraction failed or produced garbage — use Gemini
+  console.log("[extract] Basic PDF extraction insufficient, using AI extraction");
+  return extractPDFWithGemini(data);
 }
 
 async function extractFromDOCX(data: ArrayBuffer): Promise<ExtractionResult> {
@@ -276,7 +311,6 @@ serve(async (req) => {
 
     // Save document records to DB (upsert by file_path to avoid duplicates)
     for (const doc of docResults) {
-      // Check if record already exists
       const { data: existing } = await adminClient
         .from("project_documents")
         .select("id")
@@ -285,7 +319,6 @@ serve(async (req) => {
         .maybeSingle();
 
       if (existing) {
-        // Update existing record
         const { error: updateErr } = await adminClient
           .from("project_documents")
           .update({
