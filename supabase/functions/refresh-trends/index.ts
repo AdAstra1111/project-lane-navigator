@@ -265,9 +265,18 @@ Return ONLY a JSON array of objects. No markdown, no explanation outside the JSO
 
     const parseJson = (raw: string) => {
       let cleaned = raw.trim();
-      if (cleaned.startsWith("```")) {
-        cleaned = cleaned.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
+      // Strip any markdown code fences (```json ... ``` or ``` ... ```)
+      cleaned = cleaned.replace(/^```[\s\S]*?\n/, "").replace(/\n?```\s*$/, "");
+      // If still not starting with [ or {, try to find the first array/object
+      if (!cleaned.startsWith("[") && !cleaned.startsWith("{")) {
+        const arrStart = cleaned.indexOf("[");
+        const objStart = cleaned.indexOf("{");
+        const start = arrStart >= 0 && objStart >= 0 ? Math.min(arrStart, objStart) : Math.max(arrStart, objStart);
+        if (start >= 0) cleaned = cleaned.slice(start);
       }
+      // Trim trailing content after last ] or }
+      const lastBracket = Math.max(cleaned.lastIndexOf("]"), cleaned.lastIndexOf("}"));
+      if (lastBracket >= 0) cleaned = cleaned.slice(0, lastBracket + 1);
       return JSON.parse(cleaned);
     };
 
