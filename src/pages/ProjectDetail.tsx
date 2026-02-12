@@ -71,7 +71,9 @@ import { PreProductionStage } from '@/components/stages/PreProductionStage';
 import { ProductionStage } from '@/components/stages/ProductionStage';
 import { PostProductionStage } from '@/components/stages/PostProductionStage';
 import { SalesDeliveryStage } from '@/components/stages/SalesDeliveryStage';
-import { FinanceLayer } from '@/components/stages/FinanceLayer';
+import { FinancingLayer } from '@/components/stages/FinancingLayer';
+import { BudgetingLayer } from '@/components/stages/BudgetingLayer';
+import { RecoupmentLayer } from '@/components/stages/RecoupmentLayer';
 import { TrendsLayer } from '@/components/stages/TrendsLayer';
 
 export default function ProjectDetail() {
@@ -409,18 +411,33 @@ export default function ProjectDetail() {
             stageReadiness={salesReadiness}
           />
         );
-      case 'finance':
+      case 'financing':
         return (
-          <FinanceLayer
+          <FinancingLayer
             project={project}
             projectId={id!}
             financeReadiness={financeReadiness}
             financeScenarios={financeScenarios}
+            onIncentiveAnalysed={setIncentiveAnalysedThisSession}
+          />
+        );
+      case 'budgeting':
+        return (
+          <BudgetingLayer
+            project={project}
+            projectId={id!}
             budgets={budgets}
             deals={deals}
+            financeScenarios={financeScenarios}
             isTV={!!isTV}
             shootDayCount={scheduleMetrics.shootDayCount || 0}
-            onIncentiveAnalysed={setIncentiveAnalysedThisSession}
+          />
+        );
+      case 'recoupment':
+        return (
+          <RecoupmentLayer
+            projectId={id!}
+            budgets={budgets}
           />
         );
       case 'trends':
