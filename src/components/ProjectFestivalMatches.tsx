@@ -1,6 +1,6 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Calendar, MapPin, Clock, ExternalLink, Sparkles } from 'lucide-react';
+import { Calendar, MapPin, Clock, ExternalLink, Sparkles, ChevronDown, ChevronUp } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 
@@ -229,6 +229,8 @@ interface Props {
 }
 
 export function ProjectFestivalMatches({ format, genres, budgetRange, tone, assignedLane, pipelineStage }: Props) {
+  const [collapsed, setCollapsed] = useState(true);
+
   const matches = useMemo(() => {
     const now = new Date();
     const budgetKeys = normaliseBudget(budgetRange);
@@ -238,24 +240,20 @@ export function ProjectFestivalMatches({ format, genres, budgetRange, tone, assi
       const reasons: string[] = [];
       let score = 0;
 
-      // Lane match (strongest signal)
       if (assignedLane && fest.laneAffinity.includes(assignedLane)) {
         score += 4;
         const laneLabel = assignedLane.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
         reasons.push(`Aligns with your ${laneLabel} lane`);
       }
 
-      // Format match
       if (fest.formatAffinity.includes(format)) {
         score += 3;
       } else {
-        // Format mismatch is a deal-breaker for TV at film-only festivals
         if (format === 'tv-series' && !fest.formatAffinity.includes('tv-series')) {
           continue;
         }
       }
 
-      // Genre overlap
       const genreOverlap = genres.filter(g =>
         fest.genreAffinity.some(fg => fg.toLowerCase() === g.toLowerCase())
       );
@@ -264,25 +262,21 @@ export function ProjectFestivalMatches({ format, genres, budgetRange, tone, assi
         reasons.push(`Genre fit: ${genreOverlap.join(', ')}`);
       }
 
-      // Budget fit
       if (budgetKeys.some(bk => fest.budgetAffinity.includes(bk))) {
         score += 2;
         reasons.push('Budget range suits this market');
       }
 
-      // Pipeline stage fit
       if (fest.stageAffinity.includes(pipelineStage)) {
         score += 2;
         reasons.push(`Relevant at your ${pipelineStage} stage`);
       }
 
-      // Market/hybrid bonus for financing stage
       if (pipelineStage === 'financing' && (fest.type === 'market' || fest.type === 'hybrid')) {
         score += 2;
         reasons.push('Active market for closing finance');
       }
 
-      // Deadline proximity bonus (upcoming = more actionable)
       const daysTillDeadline = Math.ceil((fest.deadlineDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
 
       if (score >= 5 && reasons.length > 0) {
@@ -303,13 +297,27 @@ export function ProjectFestivalMatches({ format, genres, budgetRange, tone, assi
       animate={{ opacity: 1, y: 0 }}
       className="glass-card rounded-xl p-6"
     >
-      <div className="flex items-center gap-2 mb-1">
-        <Calendar className="h-5 w-5 text-primary" />
-        <h3 className="font-display font-semibold text-foreground">Target Festivals & Markets</h3>
-      </div>
-      <p className="text-xs text-muted-foreground mb-5">
-        Matched to your project's lane, format, genre, budget, and current stage.
-      </p>
+      <button
+        onClick={() => setCollapsed(!collapsed)}
+        className="flex items-center justify-between w-full"
+      >
+        <div>
+          <div className="flex items-center gap-2">
+            <Calendar className="h-5 w-5 text-primary" />
+            <h3 className="font-display font-semibold text-foreground">Target Festivals & Markets</h3>
+            <span className="text-xs text-muted-foreground bg-muted rounded-full px-2 py-0.5">
+              {matches.length}
+            </span>
+          </div>
+        </div>
+        {collapsed ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronUp className="h-4 w-4 text-muted-foreground" />}
+      </button>
+
+      {!collapsed && (
+        <div className="mt-4">
+          <p className="text-xs text-muted-foreground mb-5">
+            Matched to your project's lane, format, genre, budget, and current stage.
+          </p>
 
       <div className="space-y-3">
         {matches.map((match, i) => {
@@ -394,6 +402,8 @@ export function ProjectFestivalMatches({ format, genres, budgetRange, tone, assi
           );
         })}
       </div>
+        </div>
+      )}
     </motion.div>
   );
 }
