@@ -1,20 +1,25 @@
 /**
  * Script Engine Panel: Multi-phase script development pipeline.
  * Blueprint → Architecture → Batched Drafting → Quality Scoring → Rewrite → Lock
+ * + Self-Improving "Improve Draft" mode with regression guards
  */
 
 import { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
   Pen, BookOpen, Layers, BarChart3, Lock,
   ChevronDown, ChevronRight, CheckCircle2, Circle, Loader2,
-  MapPin, Users, Download, Eye, Copy, ArrowRight, FileText, Clock, FileCode
+  MapPin, Users, Download, Eye, Copy, ArrowRight, FileText, Clock, FileCode,
+  Sparkles, RotateCcw, Zap, TrendingUp, TrendingDown, Settings2, List
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { InfoTooltip } from '@/components/InfoTooltip';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Slider } from '@/components/ui/slider';
+import { Switch } from '@/components/ui/switch';
 import { useScriptEngine, type ScriptScene } from '@/hooks/useScriptEngine';
 import { toast } from 'sonner';
 
@@ -31,6 +36,18 @@ const REWRITE_PASSES = [
   { key: 'production', label: 'Production Realism', icon: MapPin },
 ];
 
+const IMPROVEMENT_GOALS = [
+  { value: 'make_commercial', label: 'Make it more commercial' },
+  { value: 'emotional_impact', label: 'Increase emotional impact' },
+  { value: 'tighten_pacing', label: 'Tighten pacing' },
+  { value: 'character_arcs', label: 'Stronger character arcs' },
+  { value: 'sharper_dialogue', label: 'Sharper dialogue' },
+  { value: 'lower_budget', label: 'Lower budget footprint' },
+  { value: 'more_original', label: 'More original without losing lane' },
+];
+
+const INTENSITY_LABELS = ['Light polish', 'Balanced', 'Bold restructure'];
+
 function ScoreBar({ label, score, tooltip }: { label: string; score: number | null; tooltip?: string }) {
   if (score == null) return null;
   const color = score >= 80 ? 'bg-emerald-500' : score >= 60 ? 'bg-amber-500' : 'bg-red-500';
@@ -46,6 +63,22 @@ function ScoreBar({ label, score, tooltip }: { label: string; score: number | nu
       <div className="h-1.5 rounded-full bg-muted overflow-hidden">
         <div className={`h-full rounded-full ${color} transition-all`} style={{ width: `${score}%` }} />
       </div>
+    </div>
+  );
+}
+
+function ScoreDelta({ label, delta }: { label: string; delta: number }) {
+  if (delta === 0) return null;
+  const isPositive = delta > 0;
+  return (
+    <div className="flex items-center gap-1.5 text-xs">
+      <span className="text-muted-foreground">{label}</span>
+      <span className={`font-mono font-medium flex items-center gap-0.5 ${
+        isPositive ? 'text-emerald-400' : 'text-red-400'
+      }`}>
+        {isPositive ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+        {isPositive ? '+' : ''}{delta}
+      </span>
     </div>
   );
 }
@@ -128,15 +161,33 @@ export function ScriptEnginePanel({ projectId }: Props) {
   const {
     activeScript, scenes, versions, blueprint, isLoading,
     draftText, draftStoragePath, setDraftText,
+    improvementRuns, lastImproveResult,
     generateBlueprint, generateArchitecture, generateDraft,
     scoreScript, rewritePass, lockScript, fetchDraft, importToDocs,
+    improveDraft, rollbackImprovement,
+    getSmartDefaultGoal, getSmartDefaultIntensity,
   } = useScriptEngine(projectId);
 
   const [showScenes, setShowScenes] = useState(false);
   const [showBlueprint, setShowBlueprint] = useState(false);
   const [showDraft, setShowDraft] = useState(true);
+  const [proMode, setProMode] = useState(false);
+  const [improveGoal, setImproveGoal] = useState<string>('');
+  const [improveIntensity, setImproveIntensity] = useState<number[]>([1]);
+  const [showChanges, setShowChanges] = useState(false);
+  const [showSceneOps, setShowSceneOps] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
 
-  // Auto-load latest draft text from storage when panel mounts (if we have a path but no text)
+  // Set smart defaults when script loads
+  useEffect(() => {
+    if (activeScript && !improveGoal) {
+      setImproveGoal(getSmartDefaultGoal());
+      const def = getSmartDefaultIntensity();
+      setImproveIntensity([def === 'light' ? 0 : def === 'bold' ? 2 : 1]);
+    }
+  }, [activeScript?.id]);
+
+  // Auto-load latest draft text from storage when panel mounts
   useEffect(() => {
     if (!draftText && activeScript?.latest_batch_storage_path && !fetchDraft.isPending) {
       fetchDraft.mutate(activeScript.latest_batch_storage_path);
@@ -149,13 +200,16 @@ export function ScriptEnginePanel({ projectId }: Props) {
   const hasArchitecture = scenes.length > 0;
   const hasBlueprint = !!blueprint;
   const isAnyLoading = generateBlueprint.isPending || generateArchitecture.isPending ||
-    generateDraft.isPending || scoreScript.isPending || rewritePass.isPending || lockScript.isPending;
+    generateDraft.isPending || scoreScript.isPending || rewritePass.isPending ||
+    lockScript.isPending || improveDraft.isPending || rollbackImprovement.isPending;
 
-  // Compute next batch info
   const maxScene = hasArchitecture ? Math.max(...scenes.map(s => s.scene_number)) : 0;
   const lastBatchIndex = activeScript?.latest_batch_index || 0;
   const nextBatchStart = lastBatchIndex > 0 ? (lastBatchIndex * 15) + 1 : 1;
   const allBatchesDone = nextBatchStart > maxScene;
+
+  const intensityLabel = INTENSITY_LABELS[improveIntensity[0]] || 'Balanced';
+  const intensityKey = improveIntensity[0] === 0 ? 'light' : improveIntensity[0] === 2 ? 'bold' : 'balanced';
 
   function getPhaseStatus(phase: string): 'done' | 'current' | 'pending' {
     const order = STATUS_ORDER;
@@ -200,6 +254,10 @@ export function ScriptEnginePanel({ projectId }: Props) {
     }
   }
 
+  function handleImprove() {
+    improveDraft.mutate({ goal: improveGoal || 'make_commercial', intensity: intensityKey });
+  }
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }}
@@ -210,7 +268,7 @@ export function ScriptEnginePanel({ projectId }: Props) {
       <div className="flex items-center gap-2 mb-4">
         <Pen className="h-4 w-4 text-primary" />
         <h4 className="font-display font-semibold text-foreground">Script Engine</h4>
-        <InfoTooltip text="Multi-phase AI script development: Blueprint → Architecture → Draft → Score → Rewrite → Lock" />
+        <InfoTooltip text="Multi-phase AI script development with self-improving rewrites" />
         {activeScript && (
           <Badge className={`ml-auto text-[10px] ${
             isLocked ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' :
@@ -259,7 +317,148 @@ export function ScriptEnginePanel({ projectId }: Props) {
         <PhaseStep label="Locked" status={getPhaseStatus('LOCKED')} />
       </div>
 
-      {/* Action Buttons */}
+      {/* ═══ SELF-IMPROVING: Improve Draft Section ═══ */}
+      {hasDraft && !isLocked && (
+        <div className="mb-4 border border-primary/20 rounded-lg p-4 bg-primary/5">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-primary" />
+              <span className="text-sm font-medium text-foreground">Improve Draft</span>
+              <InfoTooltip text="One-click improvement: scores before/after, auto rollback on regression" />
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] text-muted-foreground">Pro Mode</span>
+              <Switch checked={proMode} onCheckedChange={setProMode} className="scale-75" />
+            </div>
+          </div>
+
+          {/* Goal selector */}
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className="text-[10px] text-muted-foreground mb-1 block">Improvement Goal</label>
+              <Select value={improveGoal} onValueChange={setImproveGoal}>
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue placeholder="Choose goal..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {IMPROVEMENT_GOALS.map(g => (
+                    <SelectItem key={g.value} value={g.value} className="text-xs">{g.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-[10px] text-muted-foreground mb-1 block">
+                Intensity: <span className="text-foreground font-medium">{intensityLabel}</span>
+              </label>
+              <Slider
+                value={improveIntensity}
+                onValueChange={setImproveIntensity}
+                min={0} max={2} step={1}
+                className="mt-2"
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 mt-3">
+            <Button
+              size="sm"
+              onClick={handleImprove}
+              disabled={isAnyLoading}
+              className="bg-primary hover:bg-primary/90"
+            >
+              {improveDraft.isPending ? (
+                <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+              ) : (
+                <Zap className="h-3 w-3 mr-1" />
+              )}
+              {improveDraft.isPending ? 'Improving...' : 'Improve Draft'}
+            </Button>
+
+            {lastImproveResult?.runId && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => rollbackImprovement.mutate(lastImproveResult.runId)}
+                disabled={isAnyLoading}
+                className="text-xs"
+              >
+                <RotateCcw className="h-3 w-3 mr-1" /> Rollback
+              </Button>
+            )}
+          </div>
+
+          {/* Improvement Result */}
+          <AnimatePresence>
+            {lastImproveResult && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                className="mt-3 overflow-hidden"
+              >
+                <div className={`rounded-lg p-3 text-xs ${
+                  lastImproveResult.regression
+                    ? 'bg-red-500/10 border border-red-500/30'
+                    : 'bg-emerald-500/10 border border-emerald-500/30'
+                }`}>
+                  {lastImproveResult.regression && (
+                    <div className="flex items-center gap-1.5 mb-2 text-red-400 font-medium">
+                      <TrendingDown className="h-3.5 w-3.5" />
+                      Regression detected — consider rolling back
+                    </div>
+                  )}
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                    {Object.entries(lastImproveResult.deltas).map(([key, delta]) => (
+                      <ScoreDelta key={key} label={key.replace('_score', '').replace('_', ' ')} delta={delta as number} />
+                    ))}
+                  </div>
+                </div>
+
+                {/* Explain Changes / Scene Ops buttons */}
+                <div className="flex gap-2 mt-2">
+                  {lastImproveResult.changesSummary && (
+                    <button
+                      onClick={() => setShowChanges(!showChanges)}
+                      className="text-[10px] text-primary hover:underline flex items-center gap-1"
+                    >
+                      <FileText className="h-3 w-3" /> {showChanges ? 'Hide' : 'Explain'} Changes
+                    </button>
+                  )}
+                  {lastImproveResult.sceneOps?.length > 0 && (
+                    <button
+                      onClick={() => setShowSceneOps(!showSceneOps)}
+                      className="text-[10px] text-primary hover:underline flex items-center gap-1"
+                    >
+                      <List className="h-3 w-3" /> {showSceneOps ? 'Hide' : 'Show'} Scene Ops
+                    </button>
+                  )}
+                </div>
+
+                {showChanges && lastImproveResult.changesSummary && (
+                  <div className="mt-2 bg-muted/50 rounded p-2 text-xs text-foreground whitespace-pre-wrap">
+                    {lastImproveResult.changesSummary}
+                  </div>
+                )}
+
+                {showSceneOps && lastImproveResult.sceneOps?.length > 0 && (
+                  <div className="mt-2 bg-muted/50 rounded p-2 space-y-1">
+                    {lastImproveResult.sceneOps.map((op: any, i: number) => (
+                      <div key={i} className="flex items-start gap-2 text-xs">
+                        <Badge variant="outline" className="text-[9px] shrink-0">{op.op}</Badge>
+                        <span className="text-foreground">{op.target}</span>
+                        {op.reason && <span className="text-muted-foreground">— {op.reason}</span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      )}
+
+      {/* Action Buttons (Pipeline) */}
       {!isLocked && (
         <div className="flex flex-wrap gap-2 mb-4">
           <Button
@@ -343,7 +542,7 @@ export function ScriptEnginePanel({ projectId }: Props) {
         </div>
       )}
 
-      {/* Import for Coverage button — shown when draft is complete */}
+      {/* Import for Coverage button */}
       {hasDraft && status.startsWith('DRAFT_') && (
         <div className="mt-3 flex items-center gap-2">
           <Button
@@ -361,7 +560,7 @@ export function ScriptEnginePanel({ projectId }: Props) {
         </div>
       )}
 
-      {/* Toggle draft viewer when draft exists but is hidden */}
+      {/* Toggle draft viewer */}
       {draftText && !showDraft && (
         <button
           onClick={() => setShowDraft(true)}
@@ -371,7 +570,7 @@ export function ScriptEnginePanel({ projectId }: Props) {
         </button>
       )}
 
-      {/* Load draft from storage if we have versions with paths but no text loaded */}
+      {/* Load draft from storage */}
       {!draftText && hasDraft && versions.some(v => v.full_text_storage_path) && (
         <div className="mt-3">
           <Button
@@ -410,10 +609,12 @@ export function ScriptEnginePanel({ projectId }: Props) {
         </div>
       )}
 
-      {/* Rewrite Passes */}
-      {hasDraft && status.startsWith('DRAFT_') && !isLocked && (
+      {/* Rewrite Passes (Pro Mode only, or always shown if proMode is on) */}
+      {proMode && hasDraft && status.startsWith('DRAFT_') && !isLocked && (
         <div className="mb-4">
-          <p className="text-xs font-medium text-foreground mb-2">Rewrite Passes</p>
+          <p className="text-xs font-medium text-foreground mb-2 flex items-center gap-1.5">
+            <Settings2 className="h-3 w-3" /> Rewrite Passes (Pro)
+          </p>
           <div className="flex flex-wrap gap-1.5">
             {REWRITE_PASSES.map(p => (
               <Button
@@ -460,6 +661,36 @@ export function ScriptEnginePanel({ projectId }: Props) {
             <div className="max-h-80 overflow-y-auto">
               {scenes.map(scene => (
                 <SceneRow key={scene.id} scene={scene} />
+              ))}
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
+      )}
+
+      {/* Improvement History */}
+      {improvementRuns.length > 0 && (
+        <Collapsible open={showHistory} onOpenChange={setShowHistory}>
+          <CollapsibleTrigger className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors w-full mb-2 mt-2">
+            {showHistory ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+            Improvement History ({improvementRuns.length})
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <div className="space-y-1.5">
+              {improvementRuns.map(run => (
+                <div key={run.id} className="flex items-center justify-between text-xs py-1.5 border-b border-border/30 last:border-0">
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline" className={`text-[9px] ${
+                      run.regression_detected ? 'border-red-500/50 text-red-400' :
+                      run.rolled_back ? 'border-muted-foreground/50 text-muted-foreground' :
+                      'border-emerald-500/50 text-emerald-400'
+                    }`}>
+                      {run.rolled_back ? 'ROLLED BACK' : run.regression_detected ? 'REGRESSION' : 'IMPROVED'}
+                    </Badge>
+                    <span className="text-foreground capitalize">{run.goal.replace(/_/g, ' ')}</span>
+                    <span className="text-muted-foreground">({run.intensity})</span>
+                  </div>
+                  <span className="text-muted-foreground">{new Date(run.created_at).toLocaleDateString()}</span>
+                </div>
               ))}
             </div>
           </CollapsibleContent>

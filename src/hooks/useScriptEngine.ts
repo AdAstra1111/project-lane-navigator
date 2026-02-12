@@ -68,15 +68,46 @@ export interface ScriptVersion {
   created_at: string;
 }
 
+export interface ImprovementRun {
+  id: string;
+  goal: string;
+  intensity: string;
+  before_scores: any;
+  after_scores: any;
+  score_deltas: any;
+  regression_detected: boolean;
+  rolled_back: boolean;
+  changes_summary: string;
+  scene_ops: any[];
+  status: string;
+  playbooks_used: any[];
+  created_at: string;
+}
+
+export interface ImproveResult {
+  draftNumber: number;
+  storagePath: string;
+  runId: string;
+  beforeScores: Record<string, number>;
+  afterScores: Record<string, number>;
+  deltas: Record<string, number>;
+  regression: boolean;
+  changesSummary: string;
+  sceneOps: any[];
+  metrics: any;
+}
+
 export function useScriptEngine(projectId: string) {
   const qc = useQueryClient();
   const [draftText, setDraftText] = useState<string | null>(null);
   const [draftStoragePath, setDraftStoragePath] = useState<string | null>(null);
+  const [lastImproveResult, setLastImproveResult] = useState<ImproveResult | null>(null);
 
   const keys = {
     scripts: ['engine-scripts', projectId],
     scenes: (sid: string) => ['engine-scenes', sid],
     versions: (sid: string) => ['engine-versions', sid],
+    runs: (sid: string) => ['improvement-runs', sid],
   };
 
   const { data: scripts = [], isLoading } = useQuery({
@@ -126,6 +157,22 @@ export function useScriptEngine(projectId: string) {
     enabled: !!activeScript?.id,
   });
 
+  const { data: improvementRuns = [] } = useQuery({
+    queryKey: keys.runs(activeScript?.id || ''),
+    queryFn: async () => {
+      if (!activeScript) return [];
+      const { data, error } = await supabase
+        .from('improvement_runs')
+        .select('*')
+        .eq('script_id', activeScript.id)
+        .order('created_at', { ascending: false })
+        .limit(10);
+      if (error) throw error;
+      return (data || []) as ImprovementRun[];
+    },
+    enabled: !!activeScript?.id,
+  });
+
   const blueprint = versions.find(v => v.blueprint_json)?.blueprint_json || null;
 
   async function callEngine(action: string, extra: Record<string, any> = {}) {
@@ -149,6 +196,7 @@ export function useScriptEngine(projectId: string) {
     if (activeScript) {
       qc.invalidateQueries({ queryKey: keys.scenes(activeScript.id) });
       qc.invalidateQueries({ queryKey: keys.versions(activeScript.id) });
+      qc.invalidateQueries({ queryKey: keys.runs(activeScript.id) });
     }
   }
 
@@ -168,7 +216,6 @@ export function useScriptEngine(projectId: string) {
     mutationFn: (params?: { batchStart?: number; batchEnd?: number }) =>
       callEngine('draft', params || {}),
     onSuccess: (data) => {
-      // Store the draft text for immediate display
       if (data.batchTextPreview) {
         setDraftText(data.batchTextPreview);
         setDraftStoragePath(data.storagePath || null);
@@ -198,6 +245,31 @@ export function useScriptEngine(projectId: string) {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  const improveDraft = useMutation({
+    mutationFn: (params: { goal: string; intensity: string }) =>
+      callEngine('improve', params),
+    onSuccess: (data: ImproveResult) => {
+      setLastImproveResult(data);
+      if (data.regression) {
+        toast.warning('Regression detected — scores dropped. Consider rolling back.');
+      } else {
+        toast.success(`Draft improved to #${data.draftNumber}`);
+      }
+      invalidateAll();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const rollbackImprovement = useMutation({
+    mutationFn: (runId: string) => callEngine('rollback', { runId }),
+    onSuccess: () => {
+      toast.success('Rolled back to previous draft');
+      setLastImproveResult(null);
+      invalidateAll();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   const lockScript = useMutation({
     mutationFn: () => callEngine('lock'),
     onSuccess: () => { toast.success('Script locked'); invalidateAll(); },
@@ -221,10 +293,44 @@ export function useScriptEngine(projectId: string) {
     onError: (e: Error) => toast.error(`Import failed: ${e.message}`),
   });
 
+  // Smart default goal based on lowest score
+  function getSmartDefaultGoal(): string {
+    if (!activeScript) return 'make_commercial';
+    const scoreMap: [string, number | null][] = [
+      ['tighten_pacing', activeScript.economy_score],
+      ['sharper_dialogue', activeScript.dialogue_score],
+      ['make_commercial', activeScript.lane_alignment_score],
+      ['lower_budget', activeScript.budget_score],
+      ['character_arcs', activeScript.structural_score],
+    ];
+    const scored = scoreMap.filter(([, s]) => s != null).sort((a, b) => (a[1] || 100) - (b[1] || 100));
+    return scored[0]?.[0] || 'make_commercial';
+  }
+
+  // Smart default intensity based on scores
+  function getSmartDefaultIntensity(): string {
+    if (!activeScript) return 'balanced';
+    const scores = [
+      activeScript.structural_score,
+      activeScript.dialogue_score,
+      activeScript.economy_score,
+      activeScript.budget_score,
+      activeScript.lane_alignment_score,
+    ].filter(s => s != null) as number[];
+    if (scores.length === 0) return 'balanced';
+    const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
+    if (avg < 50) return 'bold';
+    if (avg >= 75) return 'light';
+    return 'balanced';
+  }
+
   return {
     scripts, activeScript, scenes, versions, blueprint, isLoading,
     draftText, draftStoragePath, setDraftText,
+    improvementRuns, lastImproveResult,
     generateBlueprint, generateArchitecture, generateDraft,
     scoreScript, rewritePass, lockScript, fetchDraft, importToDocs,
+    improveDraft, rollbackImprovement,
+    getSmartDefaultGoal, getSmartDefaultIntensity,
   };
 }
