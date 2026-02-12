@@ -4,6 +4,7 @@
 
 import { motion } from 'framer-motion';
 import { Gauge, ArrowRight, Activity, UsersRound } from 'lucide-react';
+import { ViabilityBreakdownPanel } from '@/components/ViabilityBreakdownPanel';
 import { ProjectReadinessScore } from '@/components/ProjectReadinessScore';
 import { TVReadinessScore } from '@/components/tv/TVReadinessScore';
 import { ModeReadinessScore } from '@/components/ModeReadinessScore';
@@ -94,6 +95,9 @@ export function OverviewDashboard({
               })}
             </div>
           </div>
+          {masterViability.components && (
+            <ViabilityBreakdownPanel components={masterViability.components} />
+          )}
         </div>
       )}
 

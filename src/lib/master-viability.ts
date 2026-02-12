@@ -6,12 +6,22 @@
 import type { LifecycleStage } from '@/lib/lifecycle-stages';
 import type { StageReadinessResult } from '@/lib/stage-readiness';
 
+export interface ViabilityComponents {
+  lane_fit: number;
+  structural_strength: number;
+  market_heat: number;
+  trend_alignment: number;
+  budget_feasibility: number;
+  packaging_leverage: number;
+}
+
 export interface MasterViabilityResult {
   score: number;
   stageScores: Record<LifecycleStage, number>;
   weights: Record<LifecycleStage, number>;
   dominantStage: LifecycleStage;
   label: string;
+  components: ViabilityComponents;
 }
 
 type WeightProfile = Record<LifecycleStage, number>;
@@ -97,6 +107,8 @@ export function calculateMasterViability(
   stageResults: Partial<Record<LifecycleStage, StageReadinessResult>>,
   format: string,
   currentLifecycleStage: LifecycleStage,
+  laneConfidence?: number | null,
+  trendScore?: number | null,
 ): MasterViabilityResult {
   const weights = WEIGHT_PROFILES[format] || DEFAULT_WEIGHTS;
 
@@ -145,11 +157,59 @@ export function calculateMasterViability(
     }
   }
 
+  // Derive 6-component breakdown from existing stage data
+  const devBreakdown = stageResults['development']?.breakdown || [];
+  const pkgBreakdown = stageResults['packaging']?.breakdown || [];
+  const preProBreakdown = stageResults['pre-production']?.breakdown || [];
+
+  // Lane Fit: from project lane confidence (0-1 → 0-100) + commercial tension from dev
+  const commercialItem = devBreakdown.find(b => b.label === 'Commercial Tension');
+  const commercialNorm = commercialItem ? Math.round((commercialItem.score / commercialItem.max) * 100) : 0;
+  const laneFit = laneConfidence != null
+    ? Math.round(((laneConfidence * 100) * 0.6) + (commercialNorm * 0.4))
+    : commercialNorm;
+
+  // Structural Strength: script quality + IP clarity from dev stage
+  const scriptItem = devBreakdown.find(b => b.label === 'Script Quality');
+  const ipItem = devBreakdown.find(b => b.label === 'IP Clarity');
+  const scriptNorm = scriptItem ? (scriptItem.score / scriptItem.max) * 100 : 0;
+  const ipNorm = ipItem ? (ipItem.score / ipItem.max) * 100 : 0;
+  const structuralStrength = Math.round((scriptNorm * 0.6) + (ipNorm * 0.4));
+
+  // Market Heat: audience clarity from dev + sales-delivery stage score
+  const audienceItem = devBreakdown.find(b => b.label === 'Audience Clarity');
+  const audienceNorm = audienceItem ? (audienceItem.score / audienceItem.max) * 100 : 0;
+  const salesScore = stageScores['sales-delivery'] || 0;
+  const marketHeat = Math.round((audienceNorm * 0.5) + (salesScore * 0.5));
+
+  // Trend Alignment: from trend viability score if available, else derive from market heat
+  const trendAlignment = trendScore != null ? Math.round(trendScore) : Math.round(marketHeat * 0.7);
+
+  // Budget Feasibility: from pre-production budget + finance items
+  const budgetItem = preProBreakdown.find(b => b.label === 'Budget');
+  const financeItem = preProBreakdown.find(b => b.label === 'Incentives & Finance');
+  const budgetNorm = budgetItem ? (budgetItem.score / budgetItem.max) * 100 : 0;
+  const financeNorm = financeItem ? (financeItem.score / financeItem.max) * 100 : 0;
+  const budgetFeasibility = Math.round((budgetNorm * 0.6) + (financeNorm * 0.4));
+
+  // Packaging Leverage: directly from packaging stage score
+  const packagingLeverage = stageScores['packaging'] || 0;
+
+  const components: ViabilityComponents = {
+    lane_fit: Math.min(100, Math.max(0, laneFit)),
+    structural_strength: Math.min(100, Math.max(0, structuralStrength)),
+    market_heat: Math.min(100, Math.max(0, marketHeat)),
+    trend_alignment: Math.min(100, Math.max(0, trendAlignment)),
+    budget_feasibility: Math.min(100, Math.max(0, budgetFeasibility)),
+    packaging_leverage: Math.min(100, Math.max(0, packagingLeverage)),
+  };
+
   return {
     score,
     stageScores,
     weights,
     dominantStage,
     label: getLabel(score),
+    components,
   };
 }

@@ -209,8 +209,22 @@ export default function ProjectDetail() {
     if (prodReadiness) stageResults['production'] = prodReadiness;
     if (postReadiness) stageResults['post-production'] = postReadiness;
     if (salesReadiness) stageResults['sales-delivery'] = salesReadiness;
-    return calculateMasterViability(stageResults, project.format, lifecycleStage);
-  }, [project, devReadiness, pkgReadiness, preProReadiness, prodReadiness, postReadiness, salesReadiness, lifecycleStage]);
+    return calculateMasterViability(
+      stageResults,
+      project.format,
+      lifecycleStage,
+      project.confidence,
+      trendInfluence ? (50 + (trendInfluence.readinessAdjustment.adjustment * 10)) : null,
+    );
+  }, [project, devReadiness, pkgReadiness, preProReadiness, prodReadiness, postReadiness, salesReadiness, lifecycleStage, trendInfluence]);
+
+  // Persist viability breakdown to DB
+  useEffect(() => {
+    if (!masterViability?.components || !id) return;
+    supabase.from('projects').update({
+      viability_breakdown: masterViability.components as any,
+    }).eq('id', id).then();
+  }, [masterViability?.components, id]);
 
   const currentScript = scripts.find(s => s.status === 'current');
   const scriptText = useMemo(() => {

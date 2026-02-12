@@ -4622,6 +4622,7 @@ export type Database = {
           tone: string
           updated_at: string
           user_id: string
+          viability_breakdown: Json | null
         }
         Insert: {
           analysis_passes?: Json | null
@@ -4650,6 +4651,7 @@ export type Database = {
           tone?: string
           updated_at?: string
           user_id: string
+          viability_breakdown?: Json | null
         }
         Update: {
           analysis_passes?: Json | null
@@ -4678,6 +4680,7 @@ export type Database = {
           tone?: string
           updated_at?: string
           user_id?: string
+          viability_breakdown?: Json | null
         }
         Relationships: [
           {
