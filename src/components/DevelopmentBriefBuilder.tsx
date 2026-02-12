@@ -126,15 +126,16 @@ export function DevelopmentBriefBuilder({ onGenerate, generating }: Props) {
       return;
     }
     try {
+      const clean = (v: string) => v === '__any__' ? '' : v;
       const brief = await save({
         name: name || `${productionType} — ${genre} brief`,
         production_type: productionType,
         genre,
-        subgenre,
-        budget_band: budgetBand,
-        region,
-        platform_target: platformTarget,
-        audience_demo: audienceDemo,
+        subgenre: clean(subgenre),
+        budget_band: clean(budgetBand),
+        region: clean(region),
+        platform_target: clean(platformTarget),
+        audience_demo: clean(audienceDemo),
         risk_appetite: riskAppetite,
         notes,
       });
@@ -253,7 +254,7 @@ export function DevelopmentBriefBuilder({ onGenerate, generating }: Props) {
                 <SelectValue placeholder="Optional: narrow the genre" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">Any</SelectItem>
+                <SelectItem value="__any__">Any</SelectItem>
                 {subgenres.map(sg => (
                   <SelectItem key={sg} value={sg}>{sg}</SelectItem>
                 ))}
@@ -271,7 +272,7 @@ export function DevelopmentBriefBuilder({ onGenerate, generating }: Props) {
                 <SelectValue placeholder="Any budget" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">Any</SelectItem>
+                <SelectItem value="__any__">Any</SelectItem>
                 {budgets.map((b: any) => (
                   <SelectItem key={b.value} value={b.value}>{b.label}</SelectItem>
                 ))}
@@ -286,7 +287,7 @@ export function DevelopmentBriefBuilder({ onGenerate, generating }: Props) {
                 <SelectValue placeholder="Global" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">Global</SelectItem>
+                <SelectItem value="__any__">Global</SelectItem>
                 {REGIONS.map(r => (
                   <SelectItem key={r} value={r}>{r}</SelectItem>
                 ))}
@@ -304,7 +305,7 @@ export function DevelopmentBriefBuilder({ onGenerate, generating }: Props) {
                 <SelectValue placeholder="Any platform" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">Any</SelectItem>
+                <SelectItem value="__any__">Any</SelectItem>
                 {platforms.map(p => (
                   <SelectItem key={p} value={p}>{p}</SelectItem>
                 ))}
@@ -319,7 +320,7 @@ export function DevelopmentBriefBuilder({ onGenerate, generating }: Props) {
                 <SelectValue placeholder="Any audience" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">Any</SelectItem>
+                <SelectItem value="__any__">Any</SelectItem>
                 {audiences.map((a: any) => (
                   <SelectItem key={a.value} value={a.value}>{a.label}</SelectItem>
                 ))}
