@@ -803,7 +803,7 @@ Also extract up to 30 scene patterns and up to 15 character profiles.`;
 
       const pass = Object.values(checks).every(Boolean);
 
-      return new Response(JSON.stringify({
+      const result = {
         pass,
         timestamp: new Date().toISOString(),
         checks,
@@ -828,7 +828,19 @@ Also extract up to 30 scene patterns and up to 15 character profiles.`;
           idempotency_hashes: { run1: hash1, run2: hash2 },
         },
         failures,
-      }), {
+      };
+
+      // Persist result to system_health_checks (service role insert)
+      await db.from("system_health_checks").insert({
+        user_id: user.id,
+        check_name: 'corpus_integrity',
+        pass,
+        checks,
+        evidence: result.evidence,
+        failures,
+      });
+
+      return new Response(JSON.stringify(result), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
