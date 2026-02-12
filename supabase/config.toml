@@ -71,3 +71,6 @@ verify_jwt = false
 
 [functions.ingest-corpus]
 verify_jwt = false
+
+[functions.analyze-corpus]
+verify_jwt = false

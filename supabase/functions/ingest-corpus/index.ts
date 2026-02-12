@@ -270,6 +270,8 @@ ${excerpt}`,
     ingestion_status: "complete",
     ingestion_log: log.join("\n"),
     page_count_estimate: pageEstimate,
+    analysis_status: "pending",
+    title: source.title || "",
   }).eq("id", scriptId);
 
   return new Response(JSON.stringify({ success: true, script_id: scriptId, pages: pageEstimate, scenes: scenes.length, chunks: chunks.length }), {
