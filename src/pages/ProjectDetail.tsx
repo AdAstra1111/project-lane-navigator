@@ -417,7 +417,10 @@ export default function ProjectDetail() {
             financeReadiness={financeReadiness}
             financeScenarios={financeScenarios}
             budgets={budgets}
+            deals={deals}
             isTV={!!isTV}
+            shootDayCount={scheduleMetrics.shootDayCount || 0}
+            onIncentiveAnalysed={setIncentiveAnalysedThisSession}
           />
         );
       case 'trends':
