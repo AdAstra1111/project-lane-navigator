@@ -157,18 +157,21 @@ export function useProjects() {
       }
 
       // 6. Detect scripts among uploaded files and create project_scripts records
-      // Only treat files as scripts if they have script-specific extensions or script keywords in the name
       const scriptExtensions = ['.fdx', '.fountain'];
+      const scriptLikeExtensions = ['.pdf', '.docx', '.doc', '.txt'];
       const scriptKeywordPattern = /script|screenplay|draft|teleplay|pilot|episode|treatment|_rev|\.rev|_d\d|\.d\d|v\d+[._]/i;
-      const nonScriptKeywords = /deck|pitch|lookbook|budget|schedule|synopsis|outline|bible|sizzle|one[- ]?sheet|press[- ]?kit/i;
+      const nonScriptKeywords = /deck|pitch|lookbook|budget|schedule|synopsis|outline|bible|sizzle|one[- ]?sheet|press[- ]?kit|invoice|contract|deal|memo|letter|resume|cv/i;
       const scriptFiles = files.filter(f => {
         const ext = '.' + f.name.split('.').pop()?.toLowerCase();
         // Always treat .fdx/.fountain as scripts
         if (scriptExtensions.includes(ext)) return true;
-        // Exclude files with pitch-deck / non-script keywords
+        // Exclude files with non-script keywords
         if (nonScriptKeywords.test(f.name)) return false;
-        // Only treat as script if name contains script-related keywords
-        return scriptKeywordPattern.test(f.name);
+        // If name contains script-related keywords, treat as script
+        if (scriptKeywordPattern.test(f.name)) return true;
+        // If there's only 1 file and it's a common doc format, assume it's a script
+        if (files.length === 1 && scriptLikeExtensions.includes(ext)) return true;
+        return false;
       });
 
       if (scriptFiles.length > 0) {
