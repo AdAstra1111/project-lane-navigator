@@ -122,13 +122,11 @@ serve(async (req) => {
         .in("insight_type", ["calibration", "gold_baseline"]);
       if (calData?.length) {
         const pt = (format || "").toLowerCase();
-        // Get calibration
         const calRows = calData.filter((d: any) => d.insight_type === "calibration");
         corpusCalibration = calRows.find((d: any) => {
           const cpt = (d.production_type || "").toLowerCase();
           return cpt === pt || pt.includes(cpt) || cpt.includes(pt);
         })?.pattern || calRows[0]?.pattern;
-        // Get gold baseline
         const goldRows = calData.filter((d: any) => d.insight_type === "gold_baseline");
         goldBaseline = goldRows.find((d: any) => {
           const cpt = (d.production_type || "").toLowerCase();
@@ -137,7 +135,58 @@ serve(async (req) => {
       }
     } catch { /* non-critical */ }
 
-    console.log(`[coverage] db done ${Date.now() - t0}ms, corpus=${corpusCalibration ? 'yes' : 'no'}, gold=${goldBaseline ? 'yes' : 'no'}`);
+    // Fetch Masterwork Canon benchmarks for genre-matched structural comparison
+    let masterworkBlock = "";
+    try {
+      const scriptGenre = ((genres || [])[0] || "").toLowerCase();
+      const scriptFormat = (format || "film").includes("tv") ? "tv-pilot" : "film";
+      let query = adminClient.from("masterwork_canon").select("*").eq("active", true);
+      // Try genre match first, fall back to format match
+      const { data: genreMatches } = await query.eq("genre", scriptGenre).eq("format", scriptFormat).limit(5);
+      let masterworks = genreMatches || [];
+      if (masterworks.length < 3) {
+        const { data: formatMatches } = await adminClient.from("masterwork_canon").select("*").eq("active", true).eq("format", scriptFormat).limit(6);
+        masterworks = formatMatches || [];
+      }
+      if (masterworks.length > 0) {
+        const avgAct1 = masterworks.reduce((s: number, m: any) => s + (m.act1_break_pct || 0), 0) / masterworks.length;
+        const avgMidpoint = masterworks.reduce((s: number, m: any) => s + (m.midpoint_pct || 0), 0) / masterworks.length;
+        const avgAct2 = masterworks.reduce((s: number, m: any) => s + (m.act2_break_pct || 0), 0) / masterworks.length;
+        const avgInciting = masterworks.reduce((s: number, m: any) => s + (m.inciting_incident_pct || 0), 0) / masterworks.length;
+        const commonEscalation = masterworks.map((m: any) => m.escalation_pattern).filter(Boolean);
+        const commonThirdAct = masterworks.map((m: any) => m.third_act_type).filter(Boolean);
+        const commonDialogue = masterworks.map((m: any) => m.dialogue_density).filter(Boolean);
+        const commonDepth = masterworks.map((m: any) => m.thematic_depth).filter(Boolean);
+
+        masterworkBlock = `
+
+MASTERWORK CANON BENCHMARKS (from ${masterworks.length} proven ${scriptGenre || scriptFormat} scripts):
+- Act 1 break: ~${Math.round(avgAct1)}% of script
+- Inciting incident: ~${Math.round(avgInciting)}% of script
+- Midpoint power shift: ~${Math.round(avgMidpoint)}% of script
+- Act 2 break / Act 3 start: ~${Math.round(avgAct2)}% of script
+- Common escalation patterns: ${[...new Set(commonEscalation)].join(", ")}
+- Common third act types: ${[...new Set(commonThirdAct)].join(", ")}
+- Typical dialogue density: ${[...new Set(commonDialogue)].join(", ")}
+- Typical thematic depth: ${[...new Set(commonDepth)].join(", ")}
+- Scene purpose density standard: ${masterworks[0]?.scene_purpose_density || "high"} to very-high
+- Character objective clarity standard: ${masterworks[0]?.character_objective_clarity || "strong"} to razor-sharp
+- Dialogue compression standard: ${masterworks[0]?.dialogue_compression || "tight"} to surgical
+
+MASTERWORK COMPARISON RULES:
+1. Compare the submitted script's act break timing, inciting incident placement, midpoint power shift, and escalation velocity against these benchmarks.
+2. Compare scene purpose density, character objective clarity, and dialogue compression.
+3. Assess emotional layering depth against masterwork standards.
+4. If the script deviates SIGNIFICANTLY from masterwork structural norms, flag as: STRUCTURAL RISK
+5. If pacing deviates significantly (late hooks, sluggish escalation, weak midpoint), flag as: PACING RISK
+6. If character objectives are unclear or dialogue is unfocused compared to masterwork standards, flag as: CHARACTER DEPTH RISK
+7. Do NOT soften notes if deviation is clear. Be direct and specific.
+8. Reference patterns (e.g. "proven ${scriptGenre} scripts typically place the inciting incident by ${Math.round(avgInciting)}%") but do NOT name specific masterwork titles unless the user requests it.
+9. Do NOT imitate or reproduce any creative content from reference scripts.`;
+      }
+    } catch (e) { console.error("[coverage] masterwork fetch error:", e); }
+
+    console.log(`[coverage] db done ${Date.now() - t0}ms, corpus=${corpusCalibration ? 'yes' : 'no'}, gold=${goldBaseline ? 'yes' : 'no'}, masterwork=${masterworkBlock ? 'yes' : 'no'}`);
 
     let corpusDeviationBlock = "";
     if (corpusCalibration) {
@@ -173,7 +222,7 @@ IMPORTANT: Do NOT imitate or copy any specific screenplay from the corpus. Use o
     // =========== PASS A: ANALYST (diagnostic read) ===========
     const passAResult = await callAI(
       LOVABLE_API_KEY,
-      promptVersion.analyst_prompt + corpusDeviationBlock,
+      promptVersion.analyst_prompt + corpusDeviationBlock + masterworkBlock,
       `${projectMeta}\n\nSCRIPT:\n${truncatedScript}`,
       0.2
     );
