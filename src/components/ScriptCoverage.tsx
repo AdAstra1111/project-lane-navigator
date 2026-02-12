@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 import {
   FileSearch, Loader2, ThumbsUp, ThumbsDown, Minus, ChevronDown, History,
   ArrowLeftRight, RotateCw, Star, CheckCircle2, XCircle, HelpCircle, Pencil,
-  BarChart3
+  BarChart3, BookOpen
 } from 'lucide-react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Button } from '@/components/ui/button';
@@ -14,14 +14,15 @@ import { Textarea } from '@/components/ui/textarea';
 import { Slider } from '@/components/ui/slider';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { useExtractDocuments } from '@/hooks/useExtractDocuments';
 import { OperationProgress, EXTRACT_STAGES } from '@/components/OperationProgress';
 import { useAuth } from '@/hooks/useAuth';
 import { format as fmtDate } from 'date-fns';
+import { GreatNotesLibrary } from '@/components/GreatNotesLibrary';
 
-// 3-pass coverage stages
 const COVERAGE_3PASS_STAGES = [
   { at: 3, label: 'Pass A: Analyst diagnosis…' },
   { at: 20, label: 'Pass A: Extracting evidence…' },
@@ -32,9 +33,27 @@ const COVERAGE_3PASS_STAGES = [
   { at: 95, label: 'Saving results…' },
 ];
 
+const PROBLEM_TYPES = [
+  { value: 'structure', label: 'Structure' },
+  { value: 'character', label: 'Character' },
+  { value: 'dialogue', label: 'Dialogue' },
+  { value: 'theme', label: 'Theme' },
+  { value: 'market', label: 'Market' },
+  { value: 'pacing', label: 'Pacing' },
+  { value: 'stakes', label: 'Stakes' },
+  { value: 'tone', label: 'Tone' },
+  { value: 'general', label: 'General' },
+];
+
 interface StructuredNote {
   id: string;
   text: string;
+}
+
+interface NoteFeedback {
+  note_id: string;
+  tag: string;
+  user_edit?: string;
 }
 
 interface CoverageRunData {
@@ -80,7 +99,6 @@ function VerdictBadge({ recommendation }: { recommendation: string }) {
 }
 
 function CoverageMarkdown({ markdown }: { markdown: string }) {
-  // Render coverage markdown with section headers highlighted
   const lines = markdown.split('\n');
   return (
     <div className="prose prose-sm prose-invert max-w-none space-y-1">
@@ -101,13 +119,27 @@ function CoverageMarkdown({ markdown }: { markdown: string }) {
   );
 }
 
-function NoteActions({ note, runId, projectType }: { note: StructuredNote; runId: string; projectType: string }) {
+const TAG_STYLES: Record<string, { label: string; color: string }> = {
+  great: { label: '✅ Great', color: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' },
+  wrong: { label: '❌ Wrong', color: 'bg-red-500/20 text-red-400 border-red-500/30' },
+  vague: { label: '🧩 Vague', color: 'bg-amber-500/20 text-amber-400 border-amber-500/30' },
+  edited: { label: '✏️ Edited', color: 'bg-primary/20 text-primary border-primary/30' },
+};
+
+function NoteActions({ note, runId, projectType, existingTag }: { note: StructuredNote; runId: string; projectType: string; existingTag?: NoteFeedback }) {
   const { user } = useAuth();
   const [editOpen, setEditOpen] = useState(false);
+  const [greatOpen, setGreatOpen] = useState(false);
   const [editText, setEditText] = useState('');
+  const [problemType, setProblemType] = useState('general');
+  const [tagged, setTagged] = useState<string | null>(existingTag?.tag || null);
 
   const handleTag = async (tag: string) => {
     if (!user) return;
+    if (tag === 'great') {
+      setGreatOpen(true);
+      return;
+    }
     try {
       await supabase.from('coverage_feedback_notes').insert({
         coverage_run_id: runId,
@@ -115,22 +147,36 @@ function NoteActions({ note, runId, projectType }: { note: StructuredNote; runId
         tag,
         created_by: user.id,
       } as any);
-
-      // If "great", promote to library
-      if (tag === 'great') {
-        await supabase.from('great_notes_library').insert({
-          project_type: projectType,
-          problem_type: 'general',
-          note_text: note.text,
-          source_coverage_run_id: runId,
-          created_by: user.id,
-        } as any);
-        toast.success('Note saved to Great Notes library');
-      } else {
-        toast.success(`Note tagged as ${tag}`);
-      }
-    } catch (e: any) {
+      setTagged(tag);
+      toast.success(`Note tagged as ${tag}`);
+    } catch {
       toast.error('Failed to tag note');
+    }
+  };
+
+  const handlePromoteGreat = async () => {
+    if (!user) return;
+    try {
+      await supabase.from('coverage_feedback_notes').insert({
+        coverage_run_id: runId,
+        note_id: note.id,
+        tag: 'great',
+        created_by: user.id,
+      } as any);
+
+      await supabase.from('great_notes_library').insert({
+        project_type: projectType,
+        problem_type: problemType,
+        note_text: note.text,
+        source_coverage_run_id: runId,
+        created_by: user.id,
+      } as any);
+
+      setTagged('great');
+      setGreatOpen(false);
+      toast.success('Note promoted to Great Notes library');
+    } catch {
+      toast.error('Failed to promote note');
     }
   };
 
@@ -144,6 +190,7 @@ function NoteActions({ note, runId, projectType }: { note: StructuredNote; runId
         user_edit: editText,
         created_by: user.id,
       } as any);
+      setTagged('edited');
       toast.success('Edited note saved');
       setEditOpen(false);
     } catch {
@@ -152,34 +199,66 @@ function NoteActions({ note, runId, projectType }: { note: StructuredNote; runId
   };
 
   return (
-    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-      <button onClick={() => handleTag('great')} className="p-0.5 rounded hover:bg-emerald-500/20" title="Great note">
-        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
-      </button>
-      <button onClick={() => handleTag('wrong')} className="p-0.5 rounded hover:bg-red-500/20" title="Wrong">
-        <XCircle className="h-3.5 w-3.5 text-red-400" />
-      </button>
-      <button onClick={() => handleTag('vague')} className="p-0.5 rounded hover:bg-amber-500/20" title="Too vague">
-        <HelpCircle className="h-3.5 w-3.5 text-amber-400" />
-      </button>
-      <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogTrigger asChild>
-          <button className="p-0.5 rounded hover:bg-primary/20" title="Edit">
-            <Pencil className="h-3.5 w-3.5 text-primary" />
+    <div className="flex items-center gap-1">
+      {tagged && TAG_STYLES[tagged] ? (
+        <span className={`text-[10px] px-1.5 py-0.5 rounded border ${TAG_STYLES[tagged].color}`}>
+          {TAG_STYLES[tagged].label}
+        </span>
+      ) : (
+        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          <button onClick={() => handleTag('great')} className="p-0.5 rounded hover:bg-emerald-500/20" title="Great note">
+            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
           </button>
-        </DialogTrigger>
-        <DialogContent className="max-w-lg">
-          <DialogHeader><DialogTitle>Edit Note</DialogTitle></DialogHeader>
-          <p className="text-xs text-muted-foreground mb-2">Original: {note.text}</p>
-          <Textarea value={editText} onChange={e => setEditText(e.target.value)} placeholder="Your corrected version…" rows={4} />
-          <Button onClick={handleEdit} className="mt-2">Save Edit</Button>
+          <button onClick={() => handleTag('wrong')} className="p-0.5 rounded hover:bg-red-500/20" title="Wrong">
+            <XCircle className="h-3.5 w-3.5 text-red-400" />
+          </button>
+          <button onClick={() => handleTag('vague')} className="p-0.5 rounded hover:bg-amber-500/20" title="Too vague">
+            <HelpCircle className="h-3.5 w-3.5 text-amber-400" />
+          </button>
+          <Dialog open={editOpen} onOpenChange={setEditOpen}>
+            <DialogTrigger asChild>
+              <button className="p-0.5 rounded hover:bg-primary/20" title="Edit">
+                <Pencil className="h-3.5 w-3.5 text-primary" />
+              </button>
+            </DialogTrigger>
+            <DialogContent className="max-w-lg">
+              <DialogHeader><DialogTitle>Edit Note</DialogTitle></DialogHeader>
+              <p className="text-xs text-muted-foreground mb-2">Original: {note.text}</p>
+              <Textarea value={editText} onChange={e => setEditText(e.target.value)} placeholder="Your corrected version…" rows={4} />
+              <Button onClick={handleEdit} className="mt-2">Save Edit</Button>
+            </DialogContent>
+          </Dialog>
+        </div>
+      )}
+
+      {/* Great note promotion dialog with problem type selector */}
+      <Dialog open={greatOpen} onOpenChange={setGreatOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Promote to Great Notes</DialogTitle></DialogHeader>
+          <p className="text-xs text-muted-foreground mb-1">"{note.text.slice(0, 120)}…"</p>
+          <div className="space-y-3 mt-2">
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Problem Type</label>
+              <Select value={problemType} onValueChange={setProblemType}>
+                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {PROBLEM_TYPES.map(pt => (
+                    <SelectItem key={pt.value} value={pt.value} className="text-xs">{pt.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <Button size="sm" onClick={handlePromoteGreat} className="w-full text-xs gap-1.5">
+              <CheckCircle2 className="h-3 w-3" /> Save to Library
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
   );
 }
 
-function StructuredNotesView({ notes, runId, projectType }: { notes: StructuredNote[]; runId: string; projectType: string }) {
+function StructuredNotesView({ notes, runId, projectType, feedbackMap }: { notes: StructuredNote[]; runId: string; projectType: string; feedbackMap: Record<string, NoteFeedback> }) {
   if (!notes?.length) return null;
   return (
     <div className="space-y-1.5 mt-4">
@@ -188,7 +267,7 @@ function StructuredNotesView({ notes, runId, projectType }: { notes: StructuredN
         <div key={note.id} className="group flex items-start gap-2 text-sm py-1 px-2 rounded hover:bg-muted/30">
           <span className="text-[10px] text-muted-foreground font-mono shrink-0 mt-0.5">{note.id}</span>
           <span className="text-foreground flex-1">{note.text}</span>
-          <NoteActions note={note} runId={runId} projectType={projectType} />
+          <NoteActions note={note} runId={runId} projectType={projectType} existingTag={feedbackMap[note.id]} />
         </div>
       ))}
     </div>
@@ -200,6 +279,30 @@ function FeedbackPanel({ runId }: { runId: string }) {
   const [ratings, setRatings] = useState({ overall: 3, accuracy: 3, specificity: 3, actionability: 3, market: 3 });
   const [freeText, setFreeText] = useState('');
   const [submitted, setSubmitted] = useState(false);
+  const [existingFeedback, setExistingFeedback] = useState<any>(null);
+
+  useEffect(() => {
+    if (!user) return;
+    supabase
+      .from('coverage_feedback')
+      .select('*')
+      .eq('coverage_run_id', runId)
+      .eq('created_by', user.id)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data) {
+          setExistingFeedback(data);
+          setSubmitted(true);
+          setRatings({
+            overall: (data as any).overall_usefulness,
+            accuracy: (data as any).accuracy_to_script,
+            specificity: (data as any).specificity,
+            actionability: (data as any).actionability,
+            market: (data as any).market_realism,
+          });
+        }
+      });
+  }, [runId, user]);
 
   const handleSubmit = async () => {
     if (!user) return;
@@ -222,7 +325,24 @@ function FeedbackPanel({ runId }: { runId: string }) {
   };
 
   if (submitted) {
-    return <p className="text-xs text-emerald-400 flex items-center gap-1"><CheckCircle2 className="h-3 w-3" /> Feedback submitted</p>;
+    return (
+      <div className="space-y-2 p-4 rounded-lg border border-emerald-500/20 bg-emerald-500/5">
+        <p className="text-xs text-emerald-400 flex items-center gap-1"><CheckCircle2 className="h-3 w-3" /> Feedback submitted</p>
+        <div className="flex items-center gap-3 flex-wrap">
+          {[
+            { label: 'Overall', value: ratings.overall },
+            { label: 'Accuracy', value: ratings.accuracy },
+            { label: 'Specificity', value: ratings.specificity },
+            { label: 'Actionability', value: ratings.actionability },
+            { label: 'Market', value: ratings.market },
+          ].map(r => (
+            <span key={r.label} className="text-[10px] px-2 py-0.5 rounded-full bg-muted/40 text-muted-foreground">
+              {r.label}: {r.value}/5
+            </span>
+          ))}
+        </div>
+      </div>
+    );
   }
 
   const sliders = [
@@ -338,6 +458,8 @@ export function ScriptCoverage({ projectId, projectTitle, format, genres, hasDoc
   const [isLoading, setIsLoading] = useState(false);
   const [draftLabel, setDraftLabel] = useState('');
   const [activeTab, setActiveTab] = useState('coverage');
+  const [noteFeedbackMap, setNoteFeedbackMap] = useState<Record<string, NoteFeedback>>({});
+  const [showLibrary, setShowLibrary] = useState(false);
   const extract = useExtractDocuments(projectId);
   const queryClient = useQueryClient();
   const { user } = useAuth();
@@ -378,10 +500,26 @@ export function ScriptCoverage({ projectId, projectTitle, format, genres, hasDoc
     load();
   }, [projectId]);
 
+  // Load existing note feedback when run changes
+  useEffect(() => {
+    if (!selectedId || !user) return;
+    supabase
+      .from('coverage_feedback_notes')
+      .select('note_id, tag, user_edit')
+      .eq('coverage_run_id', selectedId)
+      .eq('created_by', user.id)
+      .then(({ data }) => {
+        if (data) {
+          const map: Record<string, NoteFeedback> = {};
+          (data as any[]).forEach(d => { map[d.note_id] = d; });
+          setNoteFeedbackMap(map);
+        }
+      });
+  }, [selectedId, user]);
+
   const handleGenerate = async () => {
     setIsLoading(true);
     try {
-      // Get script text from extracted documents
       const { data: docs } = await supabase
         .from('project_documents')
         .select('extracted_text')
@@ -393,7 +531,6 @@ export function ScriptCoverage({ projectId, projectTitle, format, genres, hasDoc
         .filter((t: string) => t && t.length > 100)
         .join('\n\n---\n\n');
 
-      // If no text, try extracting from project_scripts
       if (!scriptText || scriptText.length < 100) {
         const { data: scripts } = await supabase
           .from('project_scripts' as any)
@@ -426,7 +563,6 @@ export function ScriptCoverage({ projectId, projectTitle, format, genres, hasDoc
         return;
       }
 
-      // Ensure we have a script record
       let scriptId: string | null = null;
       const { data: existingScripts } = await supabase
         .from('scripts')
@@ -438,13 +574,12 @@ export function ScriptCoverage({ projectId, projectTitle, format, genres, hasDoc
       if (existingScripts?.length) {
         scriptId = existingScripts[0].id;
       } else {
-        // Create script record
         const { data: newScript } = await supabase
           .from('scripts')
           .insert({
             project_id: projectId,
             version: 1,
-            text_content: scriptText.slice(0, 50000), // store a chunk for reference
+            text_content: scriptText.slice(0, 50000),
             created_by: user!.id,
           } as any)
           .select('id')
@@ -481,6 +616,7 @@ export function ScriptCoverage({ projectId, projectTitle, format, genres, hasDoc
       setRuns(prev => [newRun, ...prev]);
       setSelectedId(newRun.id);
       setDraftLabel(`Draft ${runs.length + 2}`);
+      setNoteFeedbackMap({});
 
       queryClient.invalidateQueries({ queryKey: ['project', projectId] });
       toast.success('3-pass coverage analysis complete');
@@ -493,7 +629,6 @@ export function ScriptCoverage({ projectId, projectTitle, format, genres, hasDoc
 
   if (!hasDocuments) return null;
 
-  // No coverage yet — show generation UI
   if (!selectedRun) {
     return (
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="glass-card rounded-xl p-6">
@@ -523,122 +658,115 @@ export function ScriptCoverage({ projectId, projectTitle, format, genres, hasDoc
   }
 
   return (
-    <Collapsible defaultOpen>
-      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="glass-card rounded-xl p-6">
-        <CollapsibleTrigger className="w-full">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <FileSearch className="h-5 w-5 text-primary" />
-              <h3 className="font-display font-semibold text-foreground">Script Coverage</h3>
-              <VerdictBadge recommendation={selectedRun.final_coverage} />
-              <MetricsBadges metrics={selectedRun.metrics} />
-              {runs.length > 0 && (
-                <span className="text-xs text-muted-foreground">{selectedRun.draft_label}</span>
-              )}
-            </div>
-            <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform [[data-state=open]_&]:rotate-180" />
-          </div>
-        </CollapsibleTrigger>
-
-        <CollapsibleContent className="space-y-5 mt-5">
-          {/* Draft selector & actions */}
-          {runs.length > 0 && (
-            <div className="flex items-center gap-3 flex-wrap">
-              <div className="flex items-center gap-2">
-                <History className="h-4 w-4 text-muted-foreground" />
-                <Select value={selectedId} onValueChange={setSelectedId}>
-                  <SelectTrigger className="h-8 w-[240px] text-xs"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {runs.map(r => (
-                      <SelectItem key={r.id} value={r.id} className="text-xs">
-                        {r.draft_label} — {fmtDate(new Date(r.created_at), 'dd MMM yyyy HH:mm')}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+    <>
+      <Collapsible defaultOpen>
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="glass-card rounded-xl p-6">
+          <CollapsibleTrigger className="w-full">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <FileSearch className="h-5 w-5 text-primary" />
+                <h3 className="font-display font-semibold text-foreground">Script Coverage</h3>
+                <VerdictBadge recommendation={selectedRun.final_coverage} />
+                <MetricsBadges metrics={selectedRun.metrics} />
+                {runs.length > 0 && (
+                  <span className="text-xs text-muted-foreground">{selectedRun.draft_label}</span>
+                )}
               </div>
-              {runs.length >= 2 && <CompareDialog runs={runs} />}
+              <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform [[data-state=open]_&]:rotate-180" />
             </div>
-          )}
+          </CollapsibleTrigger>
 
-          {/* Tabs: Coverage | Passes | Feedback */}
-          <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className="bg-muted/30">
-              <TabsTrigger value="coverage" className="text-xs">Final Coverage</TabsTrigger>
-              <TabsTrigger value="passes" className="text-xs">Analysis Passes</TabsTrigger>
-              <TabsTrigger value="notes" className="text-xs">Notes ({selectedRun.structured_notes?.length || 0})</TabsTrigger>
-              <TabsTrigger value="feedback" className="text-xs gap-1"><Star className="h-3 w-3" />Rate</TabsTrigger>
-            </TabsList>
+          <CollapsibleContent className="space-y-5 mt-5">
+            {runs.length > 0 && (
+              <div className="flex items-center gap-3 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <History className="h-4 w-4 text-muted-foreground" />
+                  <Select value={selectedId} onValueChange={setSelectedId}>
+                    <SelectTrigger className="h-8 w-[240px] text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {runs.map(r => (
+                        <SelectItem key={r.id} value={r.id} className="text-xs">
+                          {r.draft_label} — {fmtDate(new Date(r.created_at), 'dd MMM yyyy HH:mm')}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {runs.length >= 2 && <CompareDialog runs={runs} />}
+                <Button variant="outline" size="sm" className="text-xs gap-1.5" onClick={() => setShowLibrary(true)}>
+                  <BookOpen className="h-3 w-3" /> Great Notes Library
+                </Button>
+              </div>
+            )}
 
-            <TabsContent value="coverage" className="mt-4">
-              <CoverageMarkdown markdown={selectedRun.final_coverage} />
-            </TabsContent>
+            <Tabs value={activeTab} onValueChange={setActiveTab}>
+              <TabsList className="bg-muted/30">
+                <TabsTrigger value="coverage" className="text-xs">Final Coverage</TabsTrigger>
+                <TabsTrigger value="passes" className="text-xs">Analysis Passes</TabsTrigger>
+                <TabsTrigger value="notes" className="text-xs">Notes ({selectedRun.structured_notes?.length || 0})</TabsTrigger>
+                <TabsTrigger value="feedback" className="text-xs gap-1"><Star className="h-3 w-3" />Rate</TabsTrigger>
+              </TabsList>
 
-            <TabsContent value="passes" className="mt-4 space-y-4">
-              <Collapsible>
-                <CollapsibleTrigger className="w-full text-left">
-                  <p className="text-xs text-muted-foreground uppercase tracking-wider flex items-center gap-1.5 cursor-pointer hover:text-foreground">
-                    <BarChart3 className="h-3 w-3" /> Pass A: Analyst Diagnostics
-                    <ChevronDown className="h-3 w-3 ml-auto transition-transform [[data-state=open]_&]:rotate-180" />
-                  </p>
-                </CollapsibleTrigger>
-                <CollapsibleContent>
-                  <div className="mt-2 p-3 rounded-lg bg-muted/20 border border-border/30 max-h-[400px] overflow-y-auto">
-                    <CoverageMarkdown markdown={selectedRun.pass_a} />
-                  </div>
-                </CollapsibleContent>
-              </Collapsible>
+              <TabsContent value="coverage" className="mt-4">
+                <CoverageMarkdown markdown={selectedRun.final_coverage} />
+              </TabsContent>
 
-              <Collapsible>
-                <CollapsibleTrigger className="w-full text-left">
-                  <p className="text-xs text-muted-foreground uppercase tracking-wider flex items-center gap-1.5 cursor-pointer hover:text-foreground">
-                    <BarChart3 className="h-3 w-3" /> Pass B: Producer Notes
-                    <ChevronDown className="h-3 w-3 ml-auto transition-transform [[data-state=open]_&]:rotate-180" />
-                  </p>
-                </CollapsibleTrigger>
-                <CollapsibleContent>
-                  <div className="mt-2 p-3 rounded-lg bg-muted/20 border border-border/30 max-h-[400px] overflow-y-auto">
-                    <CoverageMarkdown markdown={selectedRun.pass_b} />
-                  </div>
-                </CollapsibleContent>
-              </Collapsible>
+              <TabsContent value="passes" className="mt-4 space-y-4">
+                {[
+                  { label: 'Pass A: Analyst Diagnostics', content: selectedRun.pass_a },
+                  { label: 'Pass B: Producer Notes', content: selectedRun.pass_b },
+                  { label: 'Pass C: QC Report', content: selectedRun.pass_c },
+                ].map(pass => (
+                  <Collapsible key={pass.label}>
+                    <CollapsibleTrigger className="w-full text-left">
+                      <p className="text-xs text-muted-foreground uppercase tracking-wider flex items-center gap-1.5 cursor-pointer hover:text-foreground">
+                        <BarChart3 className="h-3 w-3" /> {pass.label}
+                        <ChevronDown className="h-3 w-3 ml-auto transition-transform [[data-state=open]_&]:rotate-180" />
+                      </p>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <div className="mt-2 p-3 rounded-lg bg-muted/20 border border-border/30 max-h-[400px] overflow-y-auto">
+                        <CoverageMarkdown markdown={pass.content} />
+                      </div>
+                    </CollapsibleContent>
+                  </Collapsible>
+                ))}
+              </TabsContent>
 
-              <Collapsible>
-                <CollapsibleTrigger className="w-full text-left">
-                  <p className="text-xs text-muted-foreground uppercase tracking-wider flex items-center gap-1.5 cursor-pointer hover:text-foreground">
-                    <BarChart3 className="h-3 w-3" /> Pass C: QC Report
-                    <ChevronDown className="h-3 w-3 ml-auto transition-transform [[data-state=open]_&]:rotate-180" />
-                  </p>
-                </CollapsibleTrigger>
-                <CollapsibleContent>
-                  <div className="mt-2 p-3 rounded-lg bg-muted/20 border border-border/30 max-h-[400px] overflow-y-auto">
-                    <CoverageMarkdown markdown={selectedRun.pass_c} />
-                  </div>
-                </CollapsibleContent>
-              </Collapsible>
-            </TabsContent>
+              <TabsContent value="notes" className="mt-4">
+                <StructuredNotesView
+                  notes={selectedRun.structured_notes}
+                  runId={selectedRun.id}
+                  projectType={selectedRun.project_type}
+                  feedbackMap={noteFeedbackMap}
+                />
+              </TabsContent>
 
-            <TabsContent value="notes" className="mt-4">
-              <StructuredNotesView notes={selectedRun.structured_notes} runId={selectedRun.id} projectType={selectedRun.project_type} />
-            </TabsContent>
+              <TabsContent value="feedback" className="mt-4">
+                <FeedbackPanel runId={selectedRun.id} />
+              </TabsContent>
+            </Tabs>
 
-            <TabsContent value="feedback" className="mt-4">
-              <FeedbackPanel runId={selectedRun.id} />
-            </TabsContent>
-          </Tabs>
+            <div className="pt-2 border-t border-border/50 flex items-center gap-3 flex-wrap">
+              <Input value={draftLabel} onChange={e => setDraftLabel(e.target.value)} placeholder="Draft label…" className="h-8 w-40 text-xs" />
+              <Button variant="ghost" size="sm" onClick={handleGenerate} disabled={isLoading}>
+                {isLoading ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <FileSearch className="h-3 w-3 mr-1" />}
+                New Coverage
+              </Button>
+              <OperationProgress isActive={isLoading} stages={COVERAGE_3PASS_STAGES} />
+            </div>
+          </CollapsibleContent>
+        </motion.div>
+      </Collapsible>
 
-          {/* Regenerate */}
-          <div className="pt-2 border-t border-border/50 flex items-center gap-3 flex-wrap">
-            <Input value={draftLabel} onChange={e => setDraftLabel(e.target.value)} placeholder="Draft label…" className="h-8 w-40 text-xs" />
-            <Button variant="ghost" size="sm" onClick={handleGenerate} disabled={isLoading}>
-              {isLoading ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <FileSearch className="h-3 w-3 mr-1" />}
-              New Coverage
-            </Button>
-            <OperationProgress isActive={isLoading} stages={COVERAGE_3PASS_STAGES} />
-          </div>
-        </CollapsibleContent>
-      </motion.div>
-    </Collapsible>
+      {/* Great Notes Library Dialog */}
+      <Dialog open={showLibrary} onOpenChange={setShowLibrary}>
+        <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>Great Notes Library</DialogTitle></DialogHeader>
+          <GreatNotesLibrary />
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
