@@ -68,7 +68,7 @@ export function DevelopmentStage({
       <DraftDeltaPanel projectId={projectId} />
 
       {/* Script Engine */}
-      <ScriptEnginePanel projectId={projectId} />
+      <ScriptEnginePanel projectId={projectId} productionType={project.format} genre={project.genres?.[0]} />
 
       {/* Script Status */}
       <div className={`flex items-center gap-3 glass-card rounded-lg px-4 py-2.5 text-sm ${

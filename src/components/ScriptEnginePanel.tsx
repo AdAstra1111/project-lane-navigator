@@ -22,7 +22,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import { useScriptEngine, type ScriptScene } from '@/hooks/useScriptEngine';
-import { useCalibrationForType } from '@/hooks/useCorpusInsights';
+import { useResolvedCalibration, useCalibrationForType, type ResolvedCalibration } from '@/hooks/useCorpusInsights';
 import { DeviationGauge } from '@/components/DeviationGauge';
 import { toast } from 'sonner';
 
@@ -251,8 +251,9 @@ function ImprovementRunRow({ run }: { run: import('@/hooks/useScriptEngine').Imp
   );
 }
 
-export function ScriptEnginePanel({ projectId, productionType }: Props) {
+export function ScriptEnginePanel({ projectId, productionType, genre }: Props & { genre?: string }) {
   const calibration = useCalibrationForType(productionType);
+  const resolved = useResolvedCalibration(productionType, genre);
   const {
     activeScript, scenes, versions, blueprint, isLoading,
     draftText, draftStoragePath, setDraftText,
@@ -373,6 +374,30 @@ export function ScriptEnginePanel({ projectId, productionType }: Props) {
           </Badge>
         )}
       </div>
+
+      {/* Baseline Source + Confidence */}
+      {resolved && (
+        <div className="flex items-center gap-2 mb-2 flex-wrap text-[10px]">
+          <span className="text-muted-foreground">Targets from:</span>
+          <Badge variant="outline" className={`text-[9px] ${
+            resolved.confidence === 'high' ? 'border-emerald-500/50 text-emerald-400' :
+            resolved.confidence === 'medium' ? 'border-amber-500/50 text-amber-400' :
+            'border-muted-foreground/50 text-muted-foreground'
+          }`}>
+            {resolved.source.replace(/_/g, ' ').toUpperCase()}
+          </Badge>
+          <span className="text-muted-foreground">
+            confidence: <span className="text-foreground font-medium">{resolved.confidence}</span>
+          </span>
+          <span className="text-muted-foreground">
+            n={resolved.pattern.sample_size || 0}
+          </span>
+          <span className="text-muted-foreground">
+            min pages: <span className="text-foreground font-medium">{resolved.minimumPages}</span>
+          </span>
+          <InfoTooltip text="Baselines improve as you replace truncated corpus scripts. Sources: genre baseline (best) → type calibration → gold baseline → market default." />
+        </div>
+      )}
 
       {/* Page Count + Runtime Metrics */}
       {activeScript && (activeScript.latest_page_count_est || activeScript.latest_runtime_min_est) && (
@@ -637,27 +662,43 @@ export function ScriptEnginePanel({ projectId, productionType }: Props) {
         </div>
       )}
 
-      {/* Below Corpus Minimum Warning */}
-      {activeScript && calibration && activeScript.latest_page_count_est != null && calibration.p25_page_count != null && 
-       activeScript.latest_page_count_est < Math.round(calibration.p25_page_count) && !isLocked && (
-        <div className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 flex items-center gap-3">
-          <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0" />
-          <div className="flex-1">
-            <p className="text-xs font-medium text-amber-300">Below corpus minimum length</p>
-            <p className="text-[10px] text-muted-foreground">
-              Current: ~{activeScript.latest_page_count_est} pages · Corpus minimum (p25): ~{Math.round(calibration.p25_page_count)} pages
-            </p>
+      {/* Below Minimum Length Warning — enhanced with baseline context */}
+      {activeScript && resolved && activeScript.latest_page_count_est != null && 
+       activeScript.latest_page_count_est < resolved.minimumPages && !isLocked && (
+        <div className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+          <div className="flex items-center gap-2 mb-2">
+            <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0" />
+            <p className="text-xs font-medium text-amber-300">Draft continuing to meet market minimum length</p>
           </div>
-          <Button
-            size="sm"
-            variant="outline"
-            className="text-xs border-amber-500/30 hover:bg-amber-500/20"
-            onClick={() => generateDraft.mutate({})}
-            disabled={isAnyLoading}
-          >
-            {generateDraft.isPending ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <ArrowRight className="h-3 w-3 mr-1" />}
-            Continue Drafting
-          </Button>
+          <div className="grid grid-cols-3 gap-2 text-[10px] mb-3">
+            <div className="bg-background/30 rounded p-2 text-center">
+              <div className="text-muted-foreground">Current</div>
+              <div className="font-mono font-bold text-foreground text-sm">~{Math.round(activeScript.latest_page_count_est)} pg</div>
+            </div>
+            <div className="bg-background/30 rounded p-2 text-center">
+              <div className="text-muted-foreground">Required Min</div>
+              <div className="font-mono font-bold text-amber-400 text-sm">{resolved.minimumPages} pg</div>
+            </div>
+            <div className="bg-background/30 rounded p-2 text-center">
+              <div className="text-muted-foreground">Target</div>
+              <div className="font-mono font-bold text-foreground text-sm">~{Math.round(resolved.pattern.median_page_count)} pg</div>
+            </div>
+          </div>
+          <p className="text-[10px] text-muted-foreground mb-2">
+            Source: {resolved.source.replace(/_/g, ' ')} · confidence: {resolved.confidence} · n={resolved.pattern.sample_size || 0}
+          </p>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              className="text-xs border-amber-500/30 hover:bg-amber-500/20"
+              onClick={() => generateDraft.mutate({})}
+              disabled={isAnyLoading}
+            >
+              {generateDraft.isPending ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <ArrowRight className="h-3 w-3 mr-1" />}
+              Continue Drafting
+            </Button>
+          </div>
         </div>
       )}
 

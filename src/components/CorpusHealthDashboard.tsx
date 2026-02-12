@@ -1,7 +1,8 @@
 import { useState, useMemo, useRef } from 'react';
-import { AlertTriangle, CheckCircle2, Activity, FileText, Upload, Download, Loader2 } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Activity, FileText, Upload, Download, Loader2, CheckSquare, Square } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Progress } from '@/components/ui/progress';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useCorpusHealth, useReingestScript } from '@/hooks/useCorpusInsights';
 import { toast } from 'sonner';
@@ -11,6 +12,9 @@ export function CorpusHealthDashboard() {
   const reingest = useReingestScript();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [replacingId, setReplacingId] = useState<string | null>(null);
+  const [queueMode, setQueueMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [queueProgress, setQueueProgress] = useState<{ done: number; total: number; nowHealthy: number } | null>(null);
 
   const stats = useMemo(() => {
     if (!scripts.length) return null;
@@ -36,7 +40,6 @@ export function CorpusHealthDashboard() {
         : 0,
     }));
 
-    // Top 10 worst by word_count
     const top10Worst = [...truncated]
       .sort((a: any, b: any) => (a.word_count || 0) - (b.word_count || 0))
       .slice(0, 10);
@@ -99,6 +102,35 @@ export function CorpusHealthDashboard() {
     toast.success('Exported reupload list');
   };
 
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const selectNext10 = () => {
+    if (!stats) return;
+    const next = new Set(selectedIds);
+    let added = 0;
+    for (const s of stats.top10Worst) {
+      if (added >= 10) break;
+      if (!next.has((s as any).id)) { next.add((s as any).id); added++; }
+    }
+    setSelectedIds(next);
+  };
+
+  const handleBulkUpload = () => {
+    if (selectedIds.size === 0) return;
+    // In queue mode, clicking starts a sequential upload flow
+    // We use the single file input per script approach
+    const ids = Array.from(selectedIds);
+    setQueueProgress({ done: 0, total: ids.length, nowHealthy: 0 });
+    setReplacingId(ids[0]);
+    fileInputRef.current?.click();
+  };
+
   if (isLoading) return <div className="text-sm text-muted-foreground py-4 text-center">Loading corpus health…</div>;
   if (!stats) return <div className="text-sm text-muted-foreground py-4 text-center">No corpus scripts found.</div>;
 
@@ -113,11 +145,18 @@ export function CorpusHealthDashboard() {
           <Activity className="w-5 h-5 text-primary" />
           <h3 className="text-lg font-semibold text-foreground">Corpus Health</h3>
         </div>
-        {stats.truncatedCount > 0 && (
-          <Button size="sm" variant="outline" onClick={handleExportCSV}>
-            <Download className="w-3.5 h-3.5 mr-1" /> Export Reupload List
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          {stats.truncatedCount > 0 && (
+            <>
+              <Button size="sm" variant={queueMode ? 'default' : 'outline'} onClick={() => setQueueMode(!queueMode)}>
+                {queueMode ? 'Exit Queue' : 'Queue Mode'}
+              </Button>
+              <Button size="sm" variant="outline" onClick={handleExportCSV}>
+                <Download className="w-3.5 h-3.5 mr-1" /> Export List
+              </Button>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Summary Cards */}
@@ -141,6 +180,35 @@ export function CorpusHealthDashboard() {
           </p>
         </div>
       </div>
+
+      {/* Queue Mode Progress */}
+      {queueMode && queueProgress && (
+        <div className="border border-primary/30 rounded-lg p-4 bg-primary/5">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-medium text-foreground">Reupload Progress</span>
+            <span className="text-xs text-muted-foreground">{queueProgress.done}/{queueProgress.total}</span>
+          </div>
+          <Progress value={(queueProgress.done / queueProgress.total) * 100} className="h-2 mb-2" />
+          <p className="text-[10px] text-muted-foreground">
+            {queueProgress.nowHealthy} now healthy · {queueProgress.total - queueProgress.done} remaining
+          </p>
+        </div>
+      )}
+
+      {/* Queue Mode Controls */}
+      {queueMode && stats.truncatedCount > 0 && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button size="sm" variant="outline" onClick={selectNext10}>
+            Select Next 10 Worst
+          </Button>
+          <span className="text-xs text-muted-foreground">{selectedIds.size} selected</span>
+          {selectedIds.size > 0 && (
+            <Button size="sm" onClick={handleBulkUpload} disabled={reingest.isPending}>
+              <Upload className="w-3.5 h-3.5 mr-1" /> Upload for Selected
+            </Button>
+          )}
+        </div>
+      )}
 
       {/* Format Stats */}
       <div className="border border-border rounded-lg p-4 bg-card">
@@ -186,6 +254,11 @@ export function CorpusHealthDashboard() {
             {stats.top10Worst.map((s: any) => (
               <div key={s.id} className="flex items-center justify-between text-xs py-1.5 border-b border-border/20 last:border-0">
                 <div className="flex items-center gap-2 min-w-0 flex-1">
+                  {queueMode && (
+                    <button onClick={() => toggleSelect(s.id)} className="shrink-0">
+                      {selectedIds.has(s.id) ? <CheckSquare className="w-3.5 h-3.5 text-primary" /> : <Square className="w-3.5 h-3.5 text-muted-foreground" />}
+                    </button>
+                  )}
                   <FileText className="w-3 h-3 text-muted-foreground shrink-0" />
                   <span className="text-foreground truncate">{s.title || s.approved_sources?.title || '(untitled)'}</span>
                   <span className="text-muted-foreground shrink-0">{((s.word_count || 0)).toLocaleString()} words</span>
@@ -216,6 +289,11 @@ export function CorpusHealthDashboard() {
             {stats.truncatedScripts.map((s: any) => (
               <div key={s.id} className="flex items-center justify-between text-xs py-1 border-b border-border/20 last:border-0">
                 <div className="flex items-center gap-2 min-w-0 flex-1">
+                  {queueMode && (
+                    <button onClick={() => toggleSelect(s.id)} className="shrink-0">
+                      {selectedIds.has(s.id) ? <CheckSquare className="w-3.5 h-3.5 text-primary" /> : <Square className="w-3.5 h-3.5 text-muted-foreground" />}
+                    </button>
+                  )}
                   <FileText className="w-3 h-3 text-muted-foreground shrink-0" />
                   <span className="text-foreground truncate">{s.title || s.approved_sources?.title || '(untitled)'}</span>
                 </div>
