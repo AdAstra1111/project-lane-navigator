@@ -141,7 +141,7 @@ Each note: {"note_id":"N-001","section":"string","category":"structure|character
     // Parse structured notes from Pass B
     let structuredNotes: any[] = [];
     const parsed = parseJSON(passBResult);
-    if (parsed?.structured_notes && Array.isArray(parsed.structured_notes)) {
+    if (parsed?.structured_notes && Array.isArray(parsed.structured_notes) && parsed.structured_notes.length > 0) {
       structuredNotes = parsed.structured_notes.map((n: any, i: number) => ({
         note_id: n.note_id || `N-${String(i + 1).padStart(3, '0')}`,
         section: n.section || 'GENERAL',
@@ -155,8 +155,42 @@ Each note: {"note_id":"N-001","section":"string","category":"structure|character
         bold_fix: n.bold_fix || '',
         tags: Array.isArray(n.tags) ? n.tags : [],
       }));
+    } else if (parsed?.problems_with_evidence && Array.isArray(parsed.problems_with_evidence)) {
+      // AI returned structured JSON with problems_with_evidence instead of structured_notes
+      structuredNotes = parsed.problems_with_evidence.map((p: any, i: number) => ({
+        note_id: `N-${String(i + 1).padStart(3, '0')}`,
+        section: 'GENERAL',
+        category: 'general',
+        priority: 2,
+        title: (p.finding || '').slice(0, 60),
+        note_text: p.finding || '',
+        evidence: p.evidence ? [typeof p.evidence === 'string' ? p.evidence : JSON.stringify(p.evidence)] : [],
+        prescription: '',
+        safe_fix: '',
+        bold_fix: '',
+        tags: [],
+      }));
+      // Also add top_diagnostics as higher-priority notes
+      if (parsed.top_diagnostics && Array.isArray(parsed.top_diagnostics)) {
+        const offset = structuredNotes.length;
+        for (const d of parsed.top_diagnostics) {
+          structuredNotes.push({
+            note_id: `D-${String(offset + structuredNotes.length + 1).padStart(3, '0')}`,
+            section: 'DIAGNOSTICS',
+            category: 'structure',
+            priority: 1,
+            title: (d.diagnosis || '').slice(0, 60),
+            note_text: d.diagnosis || '',
+            evidence: [],
+            prescription: '',
+            safe_fix: '',
+            bold_fix: '',
+            tags: ['diagnostic'],
+          });
+        }
+      }
     } else {
-      // Fallback: extract bullet points
+      // Fallback: extract bullet points from prose
       const noteLines = passBResult.split("\n").filter((l: string) => l.match(/^[-•*]\s|^\d+\./));
       structuredNotes = noteLines.slice(0, 20).map((line: string, i: number) => ({
         note_id: `N-${String(i + 1).padStart(3, '0')}`,
