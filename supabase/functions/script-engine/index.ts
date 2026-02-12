@@ -210,6 +210,27 @@ ${scriptText.substring(0, 12000)}
 Rewrite the script applying ONLY this pass's focus. Maintain what works. Return the full rewritten script text.`;
 }
 
+// ─── Page Count + Runtime Metrics Calculator ───
+function computeDraftMetrics(text: string, productionType: string, episodeCount?: number) {
+  const lines = text.split('\n');
+  const nonEmptyLines = lines.filter(l => l.trim() !== '');
+  const lineCount = nonEmptyLines.length;
+  const wordCount = text.split(/\s+/).filter(w => w.length > 0).length;
+  const pageCountEst = lineCount >= 200 ? Math.ceil(lineCount / 55) : Math.ceil(wordCount / 250);
+  const pt = (productionType || '').toLowerCase();
+  let baseMinutes = pageCountEst;
+  if (pt.includes('vertical')) baseMinutes = Math.round(pageCountEst * 0.75);
+  else if (pt.includes('documentary')) baseMinutes = Math.round(pageCountEst * 0.9);
+  if (pt.includes('tv') || pt.includes('series')) {
+    baseMinutes = pageCountEst <= 40 ? Math.max(20, Math.min(baseMinutes, 45)) : Math.max(40, Math.min(baseMinutes, 75));
+  }
+  const runtimeMinEst = baseMinutes;
+  const runtimeMinLow = Math.round(runtimeMinEst * 0.9);
+  const runtimeMinHigh = Math.round(runtimeMinEst * 1.1);
+  const runtimePerEpisodeEst = episodeCount && episodeCount > 0 ? Math.round(runtimeMinEst / episodeCount) : null;
+  return { wordCount, lineCount, pageCountEst, runtimeMinEst, runtimeMinLow, runtimeMinHigh, runtimePerEpisodeEst };
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -451,16 +472,24 @@ serve(async (req) => {
       const newDraftNum = isComplete ? currentDraft + 1 : currentDraft;
       const newStatus = isComplete ? `DRAFT_${newDraftNum}` : "DRAFTING";
 
-      // Always update scripts with latest batch info
+      // Compute page count + runtime metrics
+      const metrics = computeDraftMetrics(draftTextStr, project.format);
+      console.log(`[draft] Metrics: ${metrics.pageCountEst} pages, ~${metrics.runtimeMinEst} min`);
+
+      // Always update scripts with latest batch info + metrics
       await supabase.from("scripts").update({
         status: newStatus,
         draft_number: newDraftNum,
         latest_draft_number: newDraftNum || currentDraft,
         latest_batch_index: batchIndex,
         latest_batch_storage_path: path,
+        latest_page_count_est: metrics.pageCountEst,
+        latest_runtime_min_est: metrics.runtimeMinEst,
+        latest_runtime_min_low: metrics.runtimeMinLow,
+        latest_runtime_min_high: metrics.runtimeMinHigh,
       }).eq("id", scriptId);
 
-      // Always create script_versions row per batch
+      // Always create script_versions row per batch with metrics
       const { data: svRow, error: svError } = await supabase.from("script_versions").insert({
         script_id: scriptId,
         draft_number: isComplete ? newDraftNum : currentDraft,
@@ -468,6 +497,13 @@ serve(async (req) => {
         is_partial: !isComplete,
         full_text_storage_path: path,
         notes: isComplete ? `Draft ${newDraftNum} complete` : `Batch ${batchStart}-${batchEnd} drafted`,
+        word_count: metrics.wordCount,
+        line_count: metrics.lineCount,
+        page_count_est: metrics.pageCountEst,
+        runtime_min_est: metrics.runtimeMinEst,
+        runtime_min_low: metrics.runtimeMinLow,
+        runtime_min_high: metrics.runtimeMinHigh,
+        runtime_per_episode_est: metrics.runtimePerEpisodeEst,
       }).select("id").single();
 
       if (svError) {
@@ -596,6 +632,7 @@ serve(async (req) => {
         batchIndex,
         nextBatch: isComplete ? null : { batchStart: batchEnd + 1, batchEnd: Math.min(batchEnd + batchSize, maxScene) },
         batchTextPreview: draftTextStr,
+        metrics,
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -701,20 +738,30 @@ serve(async (req) => {
       const rewrittenStr = typeof rewrittenText === 'string' ? rewrittenText : JSON.stringify(rewrittenText);
       const encoded = encoder.encode(rewrittenStr);
 
-      await supabase.storage.from("scripts").upload(path, encoded, {
-        contentType: "text/plain", upsert: true,
-      });
+      // Compute metrics for rewrite
+      const rewriteMetrics = computeDraftMetrics(rewrittenStr, project.format);
 
       await supabase.from("scripts").update({
         status: `DRAFT_${newDraft}`, draft_number: newDraft,
         latest_draft_number: newDraft,
         latest_batch_storage_path: path,
+        latest_page_count_est: rewriteMetrics.pageCountEst,
+        latest_runtime_min_est: rewriteMetrics.runtimeMinEst,
+        latest_runtime_min_low: rewriteMetrics.runtimeMinLow,
+        latest_runtime_min_high: rewriteMetrics.runtimeMinHigh,
       }).eq("id", scriptId);
 
       await supabase.from("script_versions").insert({
         script_id: scriptId, draft_number: newDraft,
         full_text_storage_path: path, rewrite_pass: pass,
         notes: `Rewrite pass: ${pass}`,
+        word_count: rewriteMetrics.wordCount,
+        line_count: rewriteMetrics.lineCount,
+        page_count_est: rewriteMetrics.pageCountEst,
+        runtime_min_est: rewriteMetrics.runtimeMinEst,
+        runtime_min_low: rewriteMetrics.runtimeMinLow,
+        runtime_min_high: rewriteMetrics.runtimeMinHigh,
+        runtime_per_episode_est: rewriteMetrics.runtimePerEpisodeEst,
       });
 
       // Import rewrite into project documents + scripts for coverage
