@@ -644,27 +644,52 @@ serve(async (req) => {
     if (action === "score") {
       if (!scriptId) throw new Error("scriptId required for scoring");
 
-      // Get latest draft text
+      // Get latest draft text — multi-fallback
+      let scriptText = "";
+
+      // 1) Try script_versions full_text_storage_path
       const { data: latestVersion } = await supabase
         .from("script_versions")
-        .select("*")
+        .select("full_text_storage_path")
         .eq("script_id", scriptId)
         .not("full_text_storage_path", "is", null)
         .order("created_at", { ascending: false })
-        .limit(1);
+        .limit(5);
 
-      let scriptText = "";
-      if (latestVersion?.[0]?.full_text_storage_path) {
+      for (const sv of (latestVersion || [])) {
+        if (!sv.full_text_storage_path) continue;
         const { data: fileData } = await supabase.storage
           .from("scripts")
-          .download(latestVersion[0].full_text_storage_path);
-        if (fileData) scriptText = await fileData.text();
+          .download(sv.full_text_storage_path);
+        if (fileData) { scriptText = await fileData.text(); break; }
       }
 
-      // Fallback to scripts.text_content
+      // 2) Try scripts.latest_batch_storage_path
       if (!scriptText) {
-        const { data: script } = await supabase.from("scripts").select("text_content").eq("id", scriptId).single();
-        scriptText = script?.text_content || "";
+        const { data: scriptRow } = await supabase.from("scripts").select("latest_batch_storage_path, text_content").eq("id", scriptId).single();
+        if (scriptRow?.latest_batch_storage_path) {
+          const { data: fd } = await supabase.storage.from("scripts").download(scriptRow.latest_batch_storage_path);
+          if (fd) scriptText = await fd.text();
+        }
+        if (!scriptText) scriptText = scriptRow?.text_content || "";
+      }
+
+      // 3) Scan storage for batch/rewrite files
+      if (!scriptText) {
+        const batchDir = `${projectId}/scripts/${scriptId}`;
+        const { data: allFiles } = await supabase.storage.from("scripts").list(batchDir);
+        if (allFiles?.length) {
+          const sorted = allFiles
+            .filter(f => f.name.includes("_Batch_") || f.name.includes("_Rewrite_") || f.name.includes("Draft_"))
+            .sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
+          const parts: string[] = [];
+          for (const f of sorted.slice(0, 20)) {
+            const { data: fd } = await supabase.storage.from("scripts").download(`${batchDir}/${f.name}`);
+            if (fd) parts.push(await fd.text());
+          }
+          scriptText = parts.join("\n\n");
+        }
+        console.log(`[score] storage scan fallback found ${scriptText.length} chars`);
       }
 
       if (!scriptText) throw new Error("No script text found to score");
