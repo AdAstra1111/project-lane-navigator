@@ -304,6 +304,78 @@ export type Database = {
         }
         Relationships: []
       }
+      commercial_proof: {
+        Row: {
+          active: boolean
+          audience_target: string
+          budget_tier: string
+          concept_simplicity: string
+          created_at: string
+          dataset_type: string
+          format: string
+          franchise_potential: string
+          genre: string
+          hook_clarity: string
+          id: string
+          international_travelability: string
+          production_budget_est: string | null
+          roi_tier: string
+          streamer_appeal: string
+          title: string
+          trailer_moment_density: string
+          updated_at: string
+          weight: string
+          worldwide_gross_est: string | null
+          year: number
+        }
+        Insert: {
+          active?: boolean
+          audience_target?: string
+          budget_tier?: string
+          concept_simplicity?: string
+          created_at?: string
+          dataset_type?: string
+          format?: string
+          franchise_potential?: string
+          genre: string
+          hook_clarity?: string
+          id?: string
+          international_travelability?: string
+          production_budget_est?: string | null
+          roi_tier?: string
+          streamer_appeal?: string
+          title: string
+          trailer_moment_density?: string
+          updated_at?: string
+          weight?: string
+          worldwide_gross_est?: string | null
+          year: number
+        }
+        Update: {
+          active?: boolean
+          audience_target?: string
+          budget_tier?: string
+          concept_simplicity?: string
+          created_at?: string
+          dataset_type?: string
+          format?: string
+          franchise_potential?: string
+          genre?: string
+          hook_clarity?: string
+          id?: string
+          international_travelability?: string
+          production_budget_est?: string | null
+          roi_tier?: string
+          streamer_appeal?: string
+          title?: string
+          trailer_moment_density?: string
+          updated_at?: string
+          weight?: string
+          worldwide_gross_est?: string | null
+          year?: number
+        }
+        Relationships: []
+      }
       company_members: {
         Row: {
           company_id: string
