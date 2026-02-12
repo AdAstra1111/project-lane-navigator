@@ -154,6 +154,7 @@ export function ProjectBuyerMatches({ project }: ProjectBuyerMatchesProps) {
   const { research, isResearching } = useResearchBuyers();
   const queryClient = useQueryClient();
   const [collapsed, setCollapsed] = useState(true);
+  const [showAll, setShowAll] = useState(false);
 
   const handleResearch = async () => {
     try {
@@ -165,7 +166,7 @@ export function ProjectBuyerMatches({ project }: ProjectBuyerMatchesProps) {
     }
   };
 
-  const displayedMatches = collapsed ? matches.slice(0, 3) : matches;
+  const displayedMatches = showAll ? matches : matches.slice(0, 3);
 
   return (
     <motion.div
@@ -174,7 +175,10 @@ export function ProjectBuyerMatches({ project }: ProjectBuyerMatchesProps) {
       transition={{ delay: 0.3, duration: 0.3 }}
       className="glass-card rounded-xl p-6"
     >
-      <div className="flex items-center justify-between mb-4">
+      <button
+        onClick={() => setCollapsed(!collapsed)}
+        className="flex items-center justify-between w-full"
+      >
         <div className="flex items-center gap-2">
           <Search className="h-5 w-5 text-primary" />
           <h3 className="font-display font-semibold text-foreground text-lg">Buyer Matches</h3>
@@ -184,69 +188,77 @@ export function ProjectBuyerMatches({ project }: ProjectBuyerMatchesProps) {
             </span>
           )}
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleResearch}
-          disabled={isResearching}
-          className="text-xs"
-        >
-          {isResearching ? (
-            <>
-              <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-              Researching…
-            </>
-          ) : (
-            <>
-              <Sparkles className="h-3 w-3 mr-1" />
-              {hasBuyers ? 'Refresh' : 'Research Buyers'}
-            </>
-          )}
-        </Button>
-      </div>
+        {collapsed ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronUp className="h-4 w-4 text-muted-foreground" />}
+      </button>
 
-      {buyersLoading ? (
-        <div className="space-y-3">
-          {[...Array(3)].map((_, i) => (
-            <div key={i} className="h-16 bg-muted rounded-lg animate-pulse" />
-          ))}
-        </div>
-      ) : !hasBuyers ? (
-        <div className="text-center py-8">
-          <Building2 className="h-8 w-8 text-muted-foreground/30 mx-auto mb-3" />
-          <p className="text-sm text-muted-foreground mb-1">No buyer data yet</p>
-          <p className="text-xs text-muted-foreground/60">
-            Click "Research Buyers" to discover distributors, sales agents, and financiers that match your project.
-          </p>
-        </div>
-      ) : matches.length === 0 ? (
-        <div className="text-center py-6">
-          <p className="text-sm text-muted-foreground">No strong matches found. Try refining project details or refreshing buyer data.</p>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {displayedMatches.map((match, i) => (
-            <BuyerCard key={match.buyerId} match={match} index={i} />
-          ))}
-          {matches.length > 3 && (
+      {!collapsed && (
+        <div className="mt-4">
+          <div className="flex justify-end mb-4">
             <Button
-              variant="ghost"
+              variant="outline"
               size="sm"
-              onClick={() => setCollapsed(!collapsed)}
-              className="w-full text-xs text-muted-foreground hover:text-foreground"
+              onClick={(e) => { e.stopPropagation(); handleResearch(); }}
+              disabled={isResearching}
+              className="text-xs"
             >
-              {collapsed ? (
+              {isResearching ? (
                 <>
-                  <ChevronDown className="h-3.5 w-3.5 mr-1" />
-                  Show all {matches.length} matches
+                  <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                  Researching…
                 </>
               ) : (
                 <>
-                  <ChevronUp className="h-3.5 w-3.5 mr-1" />
-                  Show fewer
+                  <Sparkles className="h-3 w-3 mr-1" />
+                  {hasBuyers ? 'Refresh' : 'Research Buyers'}
                 </>
               )}
             </Button>
+          </div>
+
+          {buyersLoading ? (
+            <div className="space-y-3">
+              {[...Array(3)].map((_, i) => (
+                <div key={i} className="h-16 bg-muted rounded-lg animate-pulse" />
+              ))}
+            </div>
+          ) : !hasBuyers ? (
+            <div className="text-center py-8">
+              <Building2 className="h-8 w-8 text-muted-foreground/30 mx-auto mb-3" />
+              <p className="text-sm text-muted-foreground mb-1">No buyer data yet</p>
+              <p className="text-xs text-muted-foreground/60">
+                Click "Research Buyers" to discover distributors, sales agents, and financiers that match your project.
+              </p>
+            </div>
+          ) : matches.length === 0 ? (
+            <div className="text-center py-6">
+              <p className="text-sm text-muted-foreground">No strong matches found. Try refining project details or refreshing buyer data.</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {displayedMatches.map((match, i) => (
+                <BuyerCard key={match.buyerId} match={match} index={i} />
+              ))}
+              {matches.length > 3 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowAll(!showAll)}
+                  className="w-full text-xs text-muted-foreground hover:text-foreground"
+                >
+                  {showAll ? (
+                    <>
+                      <ChevronUp className="h-3.5 w-3.5 mr-1" />
+                      Show fewer
+                    </>
+                  ) : (
+                    <>
+                      <ChevronDown className="h-3.5 w-3.5 mr-1" />
+                      Show all {matches.length} matches
+                    </>
+                  )}
+                </Button>
+              )}
+            </div>
           )}
         </div>
       )}
