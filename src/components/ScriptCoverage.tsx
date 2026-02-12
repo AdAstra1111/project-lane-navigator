@@ -311,7 +311,9 @@ export function ScriptCoverage({ projectId, projectTitle, format, genres, hasDoc
 
         if (scripts?.length && scripts[0].file_path) {
           toast.info('Extracting script text — this may take a moment…');
-          await supabase.functions.invoke('extract-documents', { body: { projectId } });
+          await supabase.functions.invoke('extract-documents', {
+            body: { projectId, documentPaths: scripts.map(s => s.file_path) },
+          });
 
           const { data: freshDocs } = await supabase
             .from('project_documents')
