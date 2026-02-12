@@ -1022,7 +1022,16 @@ export function ProjectAttachmentTabs({ projectId, projectContext, projectTitle,
             <FileText className="h-3.5 w-3.5" /> Scripts
           </TabsTrigger>
         </TabsList>
-...
+        <TabsContent value="cast">
+          <CastTab projectId={projectId} projectContext={projectContext} />
+          {smartPackagingProps && <SmartPackaging {...smartPackagingProps} />}
+        </TabsContent>
+        <TabsContent value="hods">
+          <HODsTab projectId={projectId} projectContext={projectContext} />
+        </TabsContent>
+        <TabsContent value="partners">
+          <PartnersTab projectId={projectId} />
+        </TabsContent>
         <TabsContent value="scripts">
           <ScriptsTab projectId={projectId} />
         </TabsContent>
