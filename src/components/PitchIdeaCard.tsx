@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Copy, ChevronDown, ChevronUp, ThumbsUp, Minus, ThumbsDown, ArrowUp, ArrowDown, Trash2, Link2, Share2, Bookmark, BookmarkCheck } from 'lucide-react';
+import { Copy, ChevronDown, ChevronUp, ThumbsUp, Minus, ThumbsDown, ArrowUp, ArrowDown, Trash2, Link2, Share2, Bookmark, BookmarkCheck, Lock, Shield } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 import type { PitchIdea } from '@/hooks/usePitchIdeas';
 import { usePitchFeedback } from '@/hooks/usePitchIdeas';
 import { LANE_LABELS, type MonetisationLane } from '@/lib/types';
+import { ConceptLockPanel } from '@/components/ConceptLockPanel';
 
 const FEEDBACK_TAGS = ['character', 'world', 'hook', 'tone', 'budget', 'market fit'];
 
@@ -22,9 +23,12 @@ interface Props {
 
 export function PitchIdeaCard({ idea, onDelete, onUpdate, onLinkProject, rank }: Props) {
   const [expanded, setExpanded] = useState(false);
+  const [conceptLockOpen, setConceptLockOpen] = useState(false);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const { feedback, submitFeedback } = usePitchFeedback(idea.id);
   const userFeedback = feedback[0];
+  const isLocked = (idea as any).concept_lock_status === 'locked';
+  const lockVersion = (idea as any).concept_lock_version || 0;
 
   const copyBlock = (label: string, text: string) => {
     navigator.clipboard.writeText(text);
@@ -127,6 +131,11 @@ export function PitchIdeaCard({ idea, onDelete, onUpdate, onLinkProject, rank }:
           </div>
         </div>
         <div className="flex flex-wrap gap-1.5 mt-3">
+          {isLocked && (
+            <Badge className="bg-green-500/15 text-green-400 border-green-500/30 gap-1 text-xs">
+              <Lock className="h-3 w-3" /> Locked v{lockVersion}
+            </Badge>
+          )}
           {Number(idea.score_total) > 0 && (
             <Badge variant="default" className="text-xs font-bold">
               Score: {Number(idea.score_total).toFixed(0)}
@@ -186,6 +195,22 @@ export function PitchIdeaCard({ idea, onDelete, onUpdate, onLinkProject, rank }:
             </Badge>
           ))}
         </div>
+
+        {/* Concept Lock trigger */}
+        <Collapsible open={conceptLockOpen} onOpenChange={setConceptLockOpen}>
+          <CollapsibleTrigger asChild>
+            <Button variant="outline" size="sm" className="w-full justify-between text-xs gap-1">
+              <span className="flex items-center gap-1.5">
+                <Shield className="h-3.5 w-3.5" />
+                {isLocked ? `Concept Locked v${lockVersion}` : 'Concept Lock Engine'}
+              </span>
+              {conceptLockOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+            </Button>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <ConceptLockPanel idea={idea} onUpdate={onUpdate} />
+          </CollapsibleContent>
+        </Collapsible>
 
         {/* Expandable details */}
         <Collapsible open={expanded} onOpenChange={setExpanded}>

@@ -56,3 +56,9 @@ verify_jwt = false
 
 [functions.generate-pitch]
 verify_jwt = false
+
+[functions.expand-concept]
+verify_jwt = false
+
+[functions.stress-test-concept]
+verify_jwt = false
