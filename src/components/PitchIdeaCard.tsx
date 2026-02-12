@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Copy, FileText, ChevronDown, ChevronUp, ThumbsUp, Minus, ThumbsDown, ArrowUp, ArrowDown, Trash2, Link2 } from 'lucide-react';
+import { Copy, ChevronDown, ChevronUp, ThumbsUp, Minus, ThumbsDown, ArrowUp, ArrowDown, Trash2, Link2, Share2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -15,11 +15,12 @@ const FEEDBACK_TAGS = ['character', 'world', 'hook', 'tone', 'budget', 'market f
 interface Props {
   idea: PitchIdea;
   onDelete: (id: string) => void;
+  onUpdate?: (params: { id: string } & Partial<PitchIdea>) => void;
   onLinkProject?: (id: string) => void;
   rank: number;
 }
 
-export function PitchIdeaCard({ idea, onDelete, onLinkProject, rank }: Props) {
+export function PitchIdeaCard({ idea, onDelete, onUpdate, onLinkProject, rank }: Props) {
   const [expanded, setExpanded] = useState(false);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const { feedback, submitFeedback } = usePitchFeedback(idea.id);
@@ -30,8 +31,46 @@ export function PitchIdeaCard({ idea, onDelete, onLinkProject, rank }: Props) {
     toast.success(`${label} copied`);
   };
 
+  const buildFullPitchText = () => {
+    const sections = [
+      `# ${idea.title}`,
+      `**Logline:** ${idea.logline}`,
+      `**Genre:** ${idea.genre} | **Budget:** ${idea.budget_band} | **Lane:** ${laneLabel} (${idea.lane_confidence}%) | **Risk:** ${idea.risk_level}`,
+      '',
+      `## One-Page Pitch`,
+      idea.one_page_pitch,
+      '',
+      `## Comparables`,
+      idea.comps.join(', '),
+    ];
+    if (idea.packaging_suggestions?.length > 0) {
+      sections.push('', '## Packaging Suggestions');
+      idea.packaging_suggestions.forEach((p: any) => sections.push(`- ${p.role} — ${p.archetype}${p.names?.length ? ` (${p.names.join(', ')})` : ''}: ${p.rationale}`));
+    }
+    if (idea.development_sprint?.length > 0) {
+      sections.push('', '## Development Sprint');
+      idea.development_sprint.forEach((s: any) => sections.push(`- ${s.week}: ${s.milestone} → ${s.deliverable}`));
+    }
+    if (idea.risks_mitigations?.length > 0) {
+      sections.push('', '## Risks & Mitigations');
+      idea.risks_mitigations.forEach((r: any) => sections.push(`- [${r.severity}] ${r.risk} — ${r.mitigation}`));
+    }
+    if (idea.why_us) {
+      sections.push('', `## Why Us`, idea.why_us);
+    }
+    return sections.join('\n');
+  };
+
   const handleRating = async (rating: 'strong' | 'meh' | 'no') => {
     await submitFeedback({ rating, tags: selectedTags });
+    // Update idea status based on rating
+    if (onUpdate) {
+      if (rating === 'strong' && idea.status !== 'shortlisted') {
+        onUpdate({ id: idea.id, status: 'shortlisted' });
+      } else if (rating === 'no' && idea.status !== 'archived') {
+        onUpdate({ id: idea.id, status: 'archived' });
+      }
+    }
   };
 
   const handleDirection = async (direction: 'more' | 'less') => {
@@ -54,6 +93,9 @@ export function PitchIdeaCard({ idea, onDelete, onLinkProject, rank }: Props) {
             </div>
           </div>
           <div className="flex items-center gap-1.5 shrink-0">
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { copyBlock('Full pitch', buildFullPitchText()); }} title="Share full pitch">
+              <Share2 className="h-3.5 w-3.5" />
+            </Button>
             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => copyBlock('Logline', idea.logline)} title="Copy logline">
               <Copy className="h-3.5 w-3.5" />
             </Button>

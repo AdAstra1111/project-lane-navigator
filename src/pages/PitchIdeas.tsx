@@ -39,7 +39,7 @@ const PLATFORMS = ['Any', 'Theatrical', 'Netflix', 'Amazon', 'Apple TV+', 'HBO/M
 
 export default function PitchIdeas() {
   const { user } = useAuth();
-  const { ideas, isLoading, save, remove } = usePitchIdeas();
+  const { ideas, isLoading, save, update, remove } = usePitchIdeas();
   const { projects } = useProjects();
   const [generating, setGenerating] = useState(false);
   const [mode, setMode] = useState<'greenlight' | 'coverage-transform'>('greenlight');
@@ -266,6 +266,7 @@ export default function PitchIdeas() {
                 idea={idea}
                 rank={i + 1}
                 onDelete={remove}
+                onUpdate={update}
               />
             ))}
           </div>
