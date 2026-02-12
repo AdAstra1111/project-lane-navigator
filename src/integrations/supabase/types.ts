@@ -617,6 +617,47 @@ export type Database = {
         }
         Relationships: []
       }
+      corpus_character_profiles: {
+        Row: {
+          arc_type: string | null
+          character_name: string | null
+          corpus_script_id: string
+          created_at: string | null
+          dialogue_ratio: number | null
+          id: string
+          protagonist_flag: boolean | null
+          user_id: string
+        }
+        Insert: {
+          arc_type?: string | null
+          character_name?: string | null
+          corpus_script_id: string
+          created_at?: string | null
+          dialogue_ratio?: number | null
+          id?: string
+          protagonist_flag?: boolean | null
+          user_id: string
+        }
+        Update: {
+          arc_type?: string | null
+          character_name?: string | null
+          corpus_script_id?: string
+          created_at?: string | null
+          dialogue_ratio?: number | null
+          id?: string
+          protagonist_flag?: boolean | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "corpus_character_profiles_corpus_script_id_fkey"
+            columns: ["corpus_script_id"]
+            isOneToOne: false
+            referencedRelation: "corpus_scripts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       corpus_chunks: {
         Row: {
           chunk_index: number
@@ -693,6 +734,83 @@ export type Database = {
           },
         ]
       }
+      corpus_insights: {
+        Row: {
+          created_at: string | null
+          id: string
+          insight_type: string
+          lane: string | null
+          pattern: Json | null
+          production_type: string | null
+          user_id: string
+          weight: number | null
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          insight_type: string
+          lane?: string | null
+          pattern?: Json | null
+          production_type?: string | null
+          user_id: string
+          weight?: number | null
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          insight_type?: string
+          lane?: string | null
+          pattern?: Json | null
+          production_type?: string | null
+          user_id?: string
+          weight?: number | null
+        }
+        Relationships: []
+      }
+      corpus_scene_patterns: {
+        Row: {
+          act_estimate: number | null
+          conflict_type: string | null
+          corpus_script_id: string
+          created_at: string | null
+          has_turn: boolean | null
+          id: string
+          scene_length_est: number | null
+          scene_number: number | null
+          user_id: string
+        }
+        Insert: {
+          act_estimate?: number | null
+          conflict_type?: string | null
+          corpus_script_id: string
+          created_at?: string | null
+          has_turn?: boolean | null
+          id?: string
+          scene_length_est?: number | null
+          scene_number?: number | null
+          user_id: string
+        }
+        Update: {
+          act_estimate?: number | null
+          conflict_type?: string | null
+          corpus_script_id?: string
+          created_at?: string | null
+          has_turn?: boolean | null
+          id?: string
+          scene_length_est?: number | null
+          scene_number?: number | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "corpus_scene_patterns_corpus_script_id_fkey"
+            columns: ["corpus_script_id"]
+            isOneToOne: false
+            referencedRelation: "corpus_scripts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       corpus_scenes: {
         Row: {
           created_at: string
@@ -739,43 +857,109 @@ export type Database = {
       }
       corpus_scripts: {
         Row: {
+          analysis_status: string | null
+          avg_dialogue_ratio: number | null
+          avg_scene_length: number | null
+          budget_tier_est: string | null
+          cast_count: number | null
           checksum: string
+          climax_position: number | null
           created_at: string
+          day_night_ratio: number | null
+          format_subtype: string | null
+          genre: string | null
           id: string
           ingestion_log: string
           ingestion_status: string
+          int_ext_ratio: number | null
+          location_count: number | null
+          market_success_flag: boolean | null
+          midpoint_position: number | null
+          page_count: number | null
           page_count_estimate: number | null
           parsed_storage_path: string
+          production_type: string | null
+          quality_score_est: number | null
           raw_storage_path: string
+          runtime_est: number | null
+          scene_count: number | null
           source_id: string
+          subgenre: string | null
+          title: string | null
           updated_at: string
           user_id: string
+          vfx_flag: boolean | null
+          word_count: number | null
         }
         Insert: {
+          analysis_status?: string | null
+          avg_dialogue_ratio?: number | null
+          avg_scene_length?: number | null
+          budget_tier_est?: string | null
+          cast_count?: number | null
           checksum?: string
+          climax_position?: number | null
           created_at?: string
+          day_night_ratio?: number | null
+          format_subtype?: string | null
+          genre?: string | null
           id?: string
           ingestion_log?: string
           ingestion_status?: string
+          int_ext_ratio?: number | null
+          location_count?: number | null
+          market_success_flag?: boolean | null
+          midpoint_position?: number | null
+          page_count?: number | null
           page_count_estimate?: number | null
           parsed_storage_path?: string
+          production_type?: string | null
+          quality_score_est?: number | null
           raw_storage_path?: string
+          runtime_est?: number | null
+          scene_count?: number | null
           source_id: string
+          subgenre?: string | null
+          title?: string | null
           updated_at?: string
           user_id: string
+          vfx_flag?: boolean | null
+          word_count?: number | null
         }
         Update: {
+          analysis_status?: string | null
+          avg_dialogue_ratio?: number | null
+          avg_scene_length?: number | null
+          budget_tier_est?: string | null
+          cast_count?: number | null
           checksum?: string
+          climax_position?: number | null
           created_at?: string
+          day_night_ratio?: number | null
+          format_subtype?: string | null
+          genre?: string | null
           id?: string
           ingestion_log?: string
           ingestion_status?: string
+          int_ext_ratio?: number | null
+          location_count?: number | null
+          market_success_flag?: boolean | null
+          midpoint_position?: number | null
+          page_count?: number | null
           page_count_estimate?: number | null
           parsed_storage_path?: string
+          production_type?: string | null
+          quality_score_est?: number | null
           raw_storage_path?: string
+          runtime_est?: number | null
+          scene_count?: number | null
           source_id?: string
+          subgenre?: string | null
+          title?: string | null
           updated_at?: string
           user_id?: string
+          vfx_flag?: boolean | null
+          word_count?: number | null
         }
         Relationships: [
           {

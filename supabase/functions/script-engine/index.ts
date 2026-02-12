@@ -91,9 +91,36 @@ Return as JSON with keys: three_act_breakdown (object with act_1, act_2, act_3),
 }
 
 // ─── Scene Architecture Prompt ───
-function getArchitecturePrompt(productionType: string, blueprint: any, project: any) {
+async function getCorpusCalibration(db: ReturnType<typeof createClient>, productionType: string) {
+  try {
+    const pt = productionType.toLowerCase();
+    const { data } = await db
+      .from("corpus_insights")
+      .select("pattern")
+      .eq("insight_type", "calibration");
+    if (!data?.length) return null;
+    // Find best match
+    const match = data.find((d: any) => {
+      const cpt = (d as any).production_type?.toLowerCase() || "";
+      return cpt === pt || pt.includes(cpt) || cpt.includes(pt);
+    }) || data[0];
+    return match?.pattern || null;
+  } catch {
+    return null;
+  }
+}
+
+function getArchitecturePrompt(productionType: string, blueprint: any, project: any, calibration?: any) {
   const pt = productionType.toLowerCase();
-  const pageTarget = pt.includes("short") ? "15-25" : pt.includes("vertical") ? "3-5 per episode" : pt.includes("tv") ? "45-60 per episode" : "90-120";
+  let pageTarget = pt.includes("short") ? "15-25" : pt.includes("vertical") ? "3-5 per episode" : pt.includes("tv") ? "45-60 per episode" : "90-120";
+  let sceneTarget = "";
+
+  if (calibration) {
+    const mp = calibration.median_page_count;
+    const ms = calibration.median_scene_count;
+    if (mp) pageTarget = `${Math.round(mp * 0.85)}-${Math.round(mp * 1.15)}`;
+    if (ms) sceneTarget = `\nTarget scene count: ~${Math.round(ms)} scenes (corpus median ± 15%)`;
+  }
 
   return `You are IFFY, generating Scene Architecture for a ${productionType} script.
 
@@ -101,8 +128,14 @@ BLUEPRINT:
 ${JSON.stringify(blueprint, null, 2)}
 
 PROJECT: ${project.title} | Budget: ${project.budget_range} | Lane: ${project.assigned_lane || "unassigned"}
+${calibration ? `\nCORPUS CALIBRATION (from ${calibration.sample_size || 'N/A'} analyzed scripts):
+- Median page count: ${calibration.median_page_count || 'N/A'}
+- Median scene count: ${calibration.median_scene_count || 'N/A'}
+- Median dialogue ratio: ${calibration.median_dialogue_ratio ? Math.round(calibration.median_dialogue_ratio * 100) + '%' : 'N/A'}
+- Median midpoint position: ${calibration.median_midpoint_position || 'N/A'}
+Use these as structural targets. Deviate only with creative justification.` : ''}
 
-Generate scene-by-scene architecture for the FULL script (~${pageTarget} pages). For each scene provide:
+Generate scene-by-scene architecture for the FULL script (~${pageTarget} pages).${sceneTarget} For each scene provide:
 - scene_number (integer)
 - beat_summary (what happens, 1-2 sentences)
 - pov_character (whose scene)
@@ -426,7 +459,8 @@ serve(async (req) => {
       if (!blueprint) throw new Error("Blueprint not found — generate blueprint first");
 
       const productionType = project.format;
-      const prompt = getArchitecturePrompt(productionType, blueprint, project);
+      const calibration = await getCorpusCalibration(supabase, productionType);
+      const prompt = getArchitecturePrompt(productionType, blueprint, project, calibration);
       const architecture = await callAI(prompt);
 
       // Clear existing scenes and insert new

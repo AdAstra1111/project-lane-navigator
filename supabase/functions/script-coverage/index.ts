@@ -111,14 +111,45 @@ serve(async (req) => {
       : await adminClient.from("coverage_prompt_versions").select("*").eq("status", "active").limit(1).single();
 
     if (!promptVersion) throw new Error("No active prompt version found");
-    console.log(`[coverage] db done ${Date.now() - t0}ms`);
+
+    // Fetch corpus calibration for deviation scoring
+    let corpusCalibration: any = null;
+    try {
+      const { data: calData } = await adminClient
+        .from("corpus_insights")
+        .select("pattern, production_type")
+        .eq("insight_type", "calibration");
+      if (calData?.length) {
+        const pt = (format || "").toLowerCase();
+        corpusCalibration = calData.find((d: any) => {
+          const cpt = (d.production_type || "").toLowerCase();
+          return cpt === pt || pt.includes(cpt) || cpt.includes(pt);
+        })?.pattern || calData[0]?.pattern;
+      }
+    } catch { /* non-critical */ }
+
+    console.log(`[coverage] db done ${Date.now() - t0}ms, corpus=${corpusCalibration ? 'yes' : 'no'}`);
+
+    let corpusDeviationBlock = "";
+    if (corpusCalibration) {
+      corpusDeviationBlock = `
+
+CORPUS CALIBRATION DATA (from ${corpusCalibration.sample_size || 'N/A'} analyzed scripts of this format):
+- Median page count: ${corpusCalibration.median_page_count || 'N/A'}
+- Median scene count: ${corpusCalibration.median_scene_count || 'N/A'}
+- Median dialogue ratio: ${corpusCalibration.median_dialogue_ratio ? Math.round(corpusCalibration.median_dialogue_ratio * 100) + '%' : 'N/A'}
+- Median runtime: ${corpusCalibration.median_runtime || 'N/A'} min
+- Median midpoint position: ${corpusCalibration.median_midpoint_position || 'N/A'}
+
+Include a "Deviation from Corpus Norms" section in your analysis. Compare the script against these medians and note significant deviations. Penalize structural score if the script deviates significantly from median structure/length without creative justification.`;
+    }
 
     const projectMeta = `TYPE: ${formatLabel} | GENRES: ${(genres || []).join(", ") || "N/A"} | LANE: ${lane || "N/A"}`;
 
     // =========== PASS A: ANALYST (diagnostic read) ===========
     const passAResult = await callAI(
       LOVABLE_API_KEY,
-      promptVersion.analyst_prompt,
+      promptVersion.analyst_prompt + corpusDeviationBlock,
       `${projectMeta}\n\nSCRIPT:\n${truncatedScript}`,
       0.2
     );

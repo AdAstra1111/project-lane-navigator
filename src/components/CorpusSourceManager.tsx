@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, Trash2, Play, Loader2, CheckCircle2, XCircle, Clock } from 'lucide-react';
+import { Plus, Trash2, Play, Loader2, CheckCircle2, XCircle, Clock, Brain, Layers } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -8,13 +8,17 @@ import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { Progress } from '@/components/ui/progress';
 import {
   useApprovedSources,
   useAddSource,
   useUpdateSource,
   useDeleteSource,
   useIngestSource,
+  useCorpusScripts,
 } from '@/hooks/useCorpus';
+import { useAnalyzeCorpusScript, useAggregateCorpus } from '@/hooks/useCorpusInsights';
+import { toast } from 'sonner';
 
 const STATUS_BADGES: Record<string, { variant: 'default' | 'secondary' | 'destructive' | 'outline'; icon: typeof CheckCircle2 }> = {
   APPROVED: { variant: 'default', icon: CheckCircle2 },
@@ -24,13 +28,44 @@ const STATUS_BADGES: Record<string, { variant: 'default' | 'secondary' | 'destru
 
 export function CorpusSourceManager() {
   const { data: sources = [], isLoading } = useApprovedSources();
+  const { data: corpusScripts = [] } = useCorpusScripts();
   const addSource = useAddSource();
   const updateSource = useUpdateSource();
   const deleteSource = useDeleteSource();
   const ingestSource = useIngestSource();
+  const analyzeScript = useAnalyzeCorpusScript();
+  const aggregateCorpus = useAggregateCorpus();
 
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ title: '', source_url: '', format: 'pdf', license_reference: '', rights_status: 'PENDING' });
+  const [analyzeAllProgress, setAnalyzeAllProgress] = useState<{ current: number; total: number } | null>(null);
+
+  const handleAnalyzeAll = async () => {
+    // Find ingested but unanalyzed scripts
+    const pendingScripts = corpusScripts.filter(
+      (s: any) => s.ingestion_status === 'complete' && (!s.analysis_status || s.analysis_status === 'pending')
+    );
+    if (pendingScripts.length === 0) {
+      toast.info('No scripts pending analysis');
+      return;
+    }
+    setAnalyzeAllProgress({ current: 0, total: pendingScripts.length });
+    for (let i = 0; i < pendingScripts.length; i++) {
+      setAnalyzeAllProgress({ current: i + 1, total: pendingScripts.length });
+      try {
+        await analyzeScript.mutateAsync(pendingScripts[i].id);
+      } catch (e: any) {
+        toast.error(`Failed on script ${i + 1}: ${e.message}`);
+        if (e.message?.includes('Rate limit') || e.message?.includes('credits')) break;
+      }
+    }
+    // Trigger aggregation after all complete
+    try {
+      await aggregateCorpus.mutateAsync();
+    } catch { /* non-critical */ }
+    setAnalyzeAllProgress(null);
+    toast.success('Batch analysis complete');
+  };
 
   const handleFormatChange = (v: string) => {
     setForm(f => {
@@ -50,10 +85,15 @@ export function CorpusSourceManager() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold text-foreground">Approved Script Sources</h3>
-        <Dialog open={showAdd} onOpenChange={setShowAdd}>
-          <DialogTrigger asChild>
-            <Button size="sm"><Plus className="w-4 h-4 mr-1" /> Add Source</Button>
-          </DialogTrigger>
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="outline" onClick={handleAnalyzeAll} disabled={!!analyzeAllProgress || analyzeScript.isPending}>
+            {analyzeAllProgress ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Brain className="w-4 h-4 mr-1" />}
+            {analyzeAllProgress ? `Analyzing ${analyzeAllProgress.current}/${analyzeAllProgress.total}` : 'Analyze All'}
+          </Button>
+          <Dialog open={showAdd} onOpenChange={setShowAdd}>
+            <DialogTrigger asChild>
+              <Button size="sm"><Plus className="w-4 h-4 mr-1" /> Add Source</Button>
+            </DialogTrigger>
           <DialogContent>
             <DialogHeader><DialogTitle>Add Script Source</DialogTitle></DialogHeader>
             <div className="space-y-3">
@@ -91,7 +131,17 @@ export function CorpusSourceManager() {
             </div>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
+
+      {analyzeAllProgress && (
+        <div className="space-y-1">
+          <Progress value={(analyzeAllProgress.current / analyzeAllProgress.total) * 100} className="h-2" />
+          <p className="text-xs text-muted-foreground text-center">
+            Analyzing script {analyzeAllProgress.current} of {analyzeAllProgress.total}…
+          </p>
+        </div>
+      )}
 
       {isLoading ? (
         <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
