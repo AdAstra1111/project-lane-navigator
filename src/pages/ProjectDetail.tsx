@@ -443,6 +443,7 @@ export default function ProjectDetail() {
                 onClick={() => {
                   if (activeView !== 'overview') {
                     setActiveView('overview');
+                    setSidebarOpen(true);
                   } else {
                     navigate('/dashboard');
                   }
