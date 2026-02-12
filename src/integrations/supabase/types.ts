@@ -4062,39 +4062,187 @@ export type Database = {
           },
         ]
       }
+      script_scenes: {
+        Row: {
+          beat_summary: string | null
+          cast_size: number | null
+          conflict_type: string | null
+          created_at: string
+          escalation_notes: string | null
+          id: string
+          location: string | null
+          objective: string | null
+          obstacle: string | null
+          pov_character: string | null
+          production_weight: string | null
+          scene_number: number
+          scene_score: number | null
+          script_id: string
+          turn_summary: string | null
+        }
+        Insert: {
+          beat_summary?: string | null
+          cast_size?: number | null
+          conflict_type?: string | null
+          created_at?: string
+          escalation_notes?: string | null
+          id?: string
+          location?: string | null
+          objective?: string | null
+          obstacle?: string | null
+          pov_character?: string | null
+          production_weight?: string | null
+          scene_number: number
+          scene_score?: number | null
+          script_id: string
+          turn_summary?: string | null
+        }
+        Update: {
+          beat_summary?: string | null
+          cast_size?: number | null
+          conflict_type?: string | null
+          created_at?: string
+          escalation_notes?: string | null
+          id?: string
+          location?: string | null
+          objective?: string | null
+          obstacle?: string | null
+          pov_character?: string | null
+          production_weight?: string | null
+          scene_number?: number
+          scene_score?: number | null
+          script_id?: string
+          turn_summary?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "script_scenes_script_id_fkey"
+            columns: ["script_id"]
+            isOneToOne: false
+            referencedRelation: "scripts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      script_versions: {
+        Row: {
+          blueprint_json: Json | null
+          budget_score: number | null
+          created_at: string
+          dialogue_score: number | null
+          draft_number: number
+          economy_score: number | null
+          full_text_storage_path: string | null
+          id: string
+          lane_alignment_score: number | null
+          notes: string | null
+          rewrite_pass: string | null
+          script_id: string
+          structural_score: number | null
+        }
+        Insert: {
+          blueprint_json?: Json | null
+          budget_score?: number | null
+          created_at?: string
+          dialogue_score?: number | null
+          draft_number: number
+          economy_score?: number | null
+          full_text_storage_path?: string | null
+          id?: string
+          lane_alignment_score?: number | null
+          notes?: string | null
+          rewrite_pass?: string | null
+          script_id: string
+          structural_score?: number | null
+        }
+        Update: {
+          blueprint_json?: Json | null
+          budget_score?: number | null
+          created_at?: string
+          dialogue_score?: number | null
+          draft_number?: number
+          economy_score?: number | null
+          full_text_storage_path?: string | null
+          id?: string
+          lane_alignment_score?: number | null
+          notes?: string | null
+          rewrite_pass?: string | null
+          script_id?: string
+          structural_score?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "script_versions_script_id_fkey"
+            columns: ["script_id"]
+            isOneToOne: false
+            referencedRelation: "scripts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       scripts: {
         Row: {
+          budget_score: number | null
           created_at: string
           created_by: string
+          dialogue_score: number | null
+          draft_number: number | null
+          economy_score: number | null
           file_path: string | null
           hash: string | null
           id: string
+          is_current: boolean | null
+          lane_alignment_score: number | null
+          owner_id: string | null
           page_map: Json | null
           project_id: string
+          status: string | null
+          structural_score: number | null
           text_content: string | null
           version: number
+          version_label: string | null
         }
         Insert: {
+          budget_score?: number | null
           created_at?: string
           created_by: string
+          dialogue_score?: number | null
+          draft_number?: number | null
+          economy_score?: number | null
           file_path?: string | null
           hash?: string | null
           id?: string
+          is_current?: boolean | null
+          lane_alignment_score?: number | null
+          owner_id?: string | null
           page_map?: Json | null
           project_id: string
+          status?: string | null
+          structural_score?: number | null
           text_content?: string | null
           version?: number
+          version_label?: string | null
         }
         Update: {
+          budget_score?: number | null
           created_at?: string
           created_by?: string
+          dialogue_score?: number | null
+          draft_number?: number | null
+          economy_score?: number | null
           file_path?: string | null
           hash?: string | null
           id?: string
+          is_current?: boolean | null
+          lane_alignment_score?: number | null
+          owner_id?: string | null
           page_map?: Json | null
           project_id?: string
+          status?: string | null
+          structural_score?: number | null
           text_content?: string | null
           version?: number
+          version_label?: string | null
         }
         Relationships: [
           {

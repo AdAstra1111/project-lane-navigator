@@ -1,0 +1,332 @@
+/**
+ * Script Engine Panel: Multi-phase script development pipeline.
+ * Blueprint → Architecture → Batched Drafting → Quality Scoring → Rewrite → Lock
+ */
+
+import { useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import {
+  Pen, BookOpen, Layers, BarChart3, RefreshCw, Lock,
+  ChevronDown, ChevronRight, CheckCircle2, Circle, Loader2,
+  MapPin, Users, Zap, AlertTriangle
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
+import { InfoTooltip } from '@/components/InfoTooltip';
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
+import { useScriptEngine, type ScriptScene } from '@/hooks/useScriptEngine';
+
+interface Props {
+  projectId: string;
+}
+
+const STATUS_ORDER = ['BLUEPRINT', 'ARCHITECTURE', 'DRAFTING', 'DRAFT_1', 'DRAFT_2', 'DRAFT_3', 'LOCKED'];
+const REWRITE_PASSES = [
+  { key: 'structural', label: 'Structural Tightening', icon: Layers },
+  { key: 'character', label: 'Character Depth', icon: Users },
+  { key: 'dialogue', label: 'Dialogue Sharpening', icon: Pen },
+  { key: 'market', label: 'Market Alignment', icon: BarChart3 },
+  { key: 'production', label: 'Production Realism', icon: MapPin },
+];
+
+function ScoreBar({ label, score, tooltip }: { label: string; score: number | null; tooltip?: string }) {
+  if (score == null) return null;
+  const color = score >= 80 ? 'bg-emerald-500' : score >= 60 ? 'bg-amber-500' : 'bg-red-500';
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between text-xs">
+        <span className="text-muted-foreground flex items-center gap-1">
+          {label}
+          {tooltip && <InfoTooltip text={tooltip} />}
+        </span>
+        <span className="font-mono font-medium text-foreground">{score}</span>
+      </div>
+      <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+        <div className={`h-full rounded-full ${color} transition-all`} style={{ width: `${score}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function PhaseStep({ label, status, isCurrent }: { label: string; status: 'done' | 'current' | 'pending'; isCurrent?: boolean }) {
+  return (
+    <div className={`flex items-center gap-1.5 text-xs ${
+      status === 'done' ? 'text-emerald-400' : status === 'current' ? 'text-primary font-medium' : 'text-muted-foreground'
+    }`}>
+      {status === 'done' ? <CheckCircle2 className="h-3 w-3" /> :
+       status === 'current' ? <Circle className="h-3 w-3 fill-primary/20" /> :
+       <Circle className="h-3 w-3" />}
+      {label}
+    </div>
+  );
+}
+
+function SceneRow({ scene }: { scene: ScriptScene }) {
+  const weightColor = scene.production_weight === 'HIGH' ? 'text-red-400 bg-red-500/10' :
+    scene.production_weight === 'LOW' ? 'text-emerald-400 bg-emerald-500/10' : 'text-amber-400 bg-amber-500/10';
+
+  return (
+    <div className="flex items-start gap-3 py-2 border-b border-border/50 last:border-0">
+      <span className="text-xs font-mono text-muted-foreground w-6 shrink-0 pt-0.5">{scene.scene_number}</span>
+      <div className="flex-1 min-w-0">
+        <p className="text-xs text-foreground leading-relaxed">{scene.beat_summary}</p>
+        <div className="flex items-center gap-2 mt-1 flex-wrap">
+          <span className="text-[10px] text-muted-foreground">{scene.pov_character}</span>
+          {scene.location && (
+            <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
+              <MapPin className="h-2.5 w-2.5" /> {scene.location}
+            </span>
+          )}
+          {scene.cast_size > 1 && (
+            <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
+              <Users className="h-2.5 w-2.5" /> {scene.cast_size}
+            </span>
+          )}
+          <Badge className={`text-[9px] px-1 py-0 ${weightColor}`}>{scene.production_weight}</Badge>
+          {scene.conflict_type && (
+            <Badge variant="outline" className="text-[9px] px-1 py-0">{scene.conflict_type}</Badge>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function ScriptEnginePanel({ projectId }: Props) {
+  const {
+    activeScript, scenes, versions, blueprint, isLoading,
+    generateBlueprint, generateArchitecture, generateDraft,
+    scoreScript, rewritePass, lockScript,
+  } = useScriptEngine(projectId);
+
+  const [showScenes, setShowScenes] = useState(false);
+  const [showBlueprint, setShowBlueprint] = useState(false);
+
+  const status = activeScript?.status || '';
+  const isLocked = status === 'LOCKED';
+  const hasDraft = status.startsWith('DRAFT_');
+  const hasArchitecture = scenes.length > 0;
+  const hasBlueprint = !!blueprint;
+  const isAnyLoading = generateBlueprint.isPending || generateArchitecture.isPending ||
+    generateDraft.isPending || scoreScript.isPending || rewritePass.isPending || lockScript.isPending;
+
+  function getPhaseStatus(phase: string): 'done' | 'current' | 'pending' {
+    const order = STATUS_ORDER;
+    const currentIdx = order.findIndex(s => status.startsWith(s) || status === s);
+    const phaseIdx = order.indexOf(phase);
+    if (currentIdx < 0) return phase === 'BLUEPRINT' ? 'current' : 'pending';
+    if (phaseIdx < currentIdx) return 'done';
+    if (phaseIdx === currentIdx) return 'current';
+    return 'pending';
+  }
+
+  const avgScore = activeScript && [
+    activeScript.structural_score, activeScript.dialogue_score,
+    activeScript.economy_score, activeScript.budget_score, activeScript.lane_alignment_score,
+  ].filter(s => s != null).length > 0
+    ? Math.round(
+        [activeScript.structural_score, activeScript.dialogue_score,
+         activeScript.economy_score, activeScript.budget_score, activeScript.lane_alignment_score]
+          .filter(s => s != null)
+          .reduce((a, b) => a! + b!, 0)! / [activeScript.structural_score, activeScript.dialogue_score,
+           activeScript.economy_score, activeScript.budget_score, activeScript.lane_alignment_score]
+            .filter(s => s != null).length
+      )
+    : null;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="glass-card rounded-xl p-5"
+    >
+      {/* Header */}
+      <div className="flex items-center gap-2 mb-4">
+        <Pen className="h-4 w-4 text-primary" />
+        <h4 className="font-display font-semibold text-foreground">Script Engine</h4>
+        <InfoTooltip text="Multi-phase AI script development: Blueprint → Architecture → Draft → Score → Rewrite → Lock" />
+        {activeScript && (
+          <Badge className={`ml-auto text-[10px] ${
+            isLocked ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' :
+            'bg-primary/15 text-primary border-primary/30'
+          }`}>
+            {isLocked ? 'LOCKED' : status.replace('_', ' ')}
+          </Badge>
+        )}
+      </div>
+
+      {/* Phase Progress */}
+      <div className="flex items-center gap-3 mb-4 flex-wrap">
+        <PhaseStep label="Blueprint" status={getPhaseStatus('BLUEPRINT')} />
+        <ChevronRight className="h-3 w-3 text-muted-foreground/50" />
+        <PhaseStep label="Architecture" status={getPhaseStatus('ARCHITECTURE')} />
+        <ChevronRight className="h-3 w-3 text-muted-foreground/50" />
+        <PhaseStep label="Draft" status={getPhaseStatus('DRAFTING')} />
+        <ChevronRight className="h-3 w-3 text-muted-foreground/50" />
+        <PhaseStep label="Score & Rewrite" status={hasDraft ? 'current' : 'pending'} />
+        <ChevronRight className="h-3 w-3 text-muted-foreground/50" />
+        <PhaseStep label="Locked" status={getPhaseStatus('LOCKED')} />
+      </div>
+
+      {/* Action Buttons */}
+      {!isLocked && (
+        <div className="flex flex-wrap gap-2 mb-4">
+          <Button
+            size="sm"
+            variant={hasBlueprint ? "outline" : "default"}
+            onClick={() => generateBlueprint.mutate()}
+            disabled={isAnyLoading}
+          >
+            {generateBlueprint.isPending ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <BookOpen className="h-3 w-3 mr-1" />}
+            {hasBlueprint ? 'Regenerate Blueprint' : 'Generate Blueprint'}
+          </Button>
+
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => generateArchitecture.mutate()}
+            disabled={isAnyLoading || !hasBlueprint}
+          >
+            {generateArchitecture.isPending ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Layers className="h-3 w-3 mr-1" />}
+            Generate Architecture
+          </Button>
+
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => generateDraft.mutate({})}
+            disabled={isAnyLoading || !hasArchitecture}
+          >
+            {generateDraft.isPending ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Pen className="h-3 w-3 mr-1" />}
+            Draft Script
+          </Button>
+
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => scoreScript.mutate()}
+            disabled={isAnyLoading || !hasDraft}
+          >
+            {scoreScript.isPending ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <BarChart3 className="h-3 w-3 mr-1" />}
+            Score Quality
+          </Button>
+
+          {hasDraft && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => lockScript.mutate()}
+              disabled={isAnyLoading}
+              className="ml-auto"
+            >
+              <Lock className="h-3 w-3 mr-1" /> Lock Script
+            </Button>
+          )}
+        </div>
+      )}
+
+      {/* Quality Scores */}
+      {activeScript && avgScore != null && (
+        <div className="mb-4">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-medium text-foreground">Quality Scores</span>
+            <span className={`text-sm font-mono font-bold ${
+              avgScore >= 80 ? 'text-emerald-400' : avgScore >= 60 ? 'text-amber-400' : 'text-red-400'
+            }`}>{avgScore} avg</span>
+          </div>
+          <div className="grid gap-2">
+            <ScoreBar label="Structural" score={activeScript.structural_score} tooltip="Tension, stakes, act breaks, scene necessity" />
+            <ScoreBar label="Dialogue" score={activeScript.dialogue_score} tooltip="Subtext, voice differentiation, exposition density" />
+            <ScoreBar label="Economy" score={activeScript.economy_score} tooltip="Repetition, redundancy, compressibility" />
+            <ScoreBar label="Budget" score={activeScript.budget_score} tooltip="Location/cast/VFX creep vs budget band" />
+            <ScoreBar label="Lane Alignment" score={activeScript.lane_alignment_score} tooltip="Tone drift, market lane match, audience fit" />
+          </div>
+        </div>
+      )}
+
+      {/* Rewrite Passes */}
+      {hasDraft && !isLocked && (
+        <div className="mb-4">
+          <p className="text-xs font-medium text-foreground mb-2">Rewrite Passes</p>
+          <div className="flex flex-wrap gap-1.5">
+            {REWRITE_PASSES.map(p => (
+              <Button
+                key={p.key}
+                size="sm"
+                variant="outline"
+                className="text-[11px] h-7"
+                onClick={() => rewritePass.mutate(p.key)}
+                disabled={isAnyLoading}
+              >
+                {rewritePass.isPending ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <p.icon className="h-3 w-3 mr-1" />}
+                {p.label}
+              </Button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Blueprint Preview */}
+      {hasBlueprint && (
+        <Collapsible open={showBlueprint} onOpenChange={setShowBlueprint}>
+          <CollapsibleTrigger className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors w-full mb-2">
+            {showBlueprint ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+            Blueprint Preview
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <div className="bg-muted/50 rounded-lg p-3 text-xs text-foreground leading-relaxed max-h-64 overflow-y-auto">
+              <pre className="whitespace-pre-wrap font-mono text-[11px]">
+                {JSON.stringify(blueprint, null, 2)}
+              </pre>
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
+      )}
+
+      {/* Scene Architecture */}
+      {hasArchitecture && (
+        <Collapsible open={showScenes} onOpenChange={setShowScenes}>
+          <CollapsibleTrigger className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors w-full mb-2">
+            {showScenes ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+            Scene Architecture ({scenes.length} scenes)
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <div className="max-h-80 overflow-y-auto">
+              {scenes.map(scene => (
+                <SceneRow key={scene.id} scene={scene} />
+              ))}
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
+      )}
+
+      {/* Draft History */}
+      {versions.length > 0 && (
+        <div className="mt-3">
+          <p className="text-xs font-medium text-foreground mb-2">Draft History</p>
+          <div className="space-y-1">
+            {versions.filter(v => v.draft_number > 0).map(v => (
+              <div key={v.id} className="flex items-center justify-between text-xs py-1 border-b border-border/30 last:border-0">
+                <span className="text-foreground">
+                  Draft {v.draft_number}
+                  {v.rewrite_pass && <span className="text-muted-foreground ml-1">({v.rewrite_pass} pass)</span>}
+                </span>
+                <span className="text-muted-foreground">{new Date(v.created_at).toLocaleDateString()}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Empty State */}
+      {!activeScript && !isLoading && (
+        <div className="text-center py-6">
+          <Pen className="h-8 w-8 text-muted-foreground/50 mx-auto mb-2" />
+          <p className="text-sm text-muted-foreground">No engine script started</p>
+          <p className="text-xs text-muted-foreground mt-1">Generate a blueprint to begin the development pipeline</p>
+        </div>
+      )}
+    </motion.div>
+  );
+}

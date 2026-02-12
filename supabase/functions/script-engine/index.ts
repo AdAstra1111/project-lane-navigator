@@ -1,0 +1,605 @@
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
+};
+
+// ─── Production-type Blueprint Prompts ───
+function getBlueprintPrompt(productionType: string, project: any, conceptDocs: any[]) {
+  const conceptContext = conceptDocs.map(d => `[${d.doc_type}]\n${d.content?.substring(0, 3000)}`).join("\n\n");
+  const base = `You are IFFY, an elite script development AI for the entertainment industry.
+
+PROJECT CONTEXT:
+Title: ${project.title}
+Production Type: ${productionType}
+Format: ${project.format}
+Genres: ${(project.genres || []).join(", ")}
+Budget Range: ${project.budget_range}
+Lane: ${project.assigned_lane || "unassigned"}
+Tone: ${project.tone}
+Comparable Titles: ${project.comparable_titles || "none"}
+Logline: ${project.reasoning || ""}
+
+CONCEPT LOCK DOCUMENTS:
+${conceptContext || "No concept lock documents available."}
+
+`;
+
+  const pt = productionType.toLowerCase();
+  if (pt.includes("tv") || pt.includes("series")) {
+    return base + `Generate a TV SERIES BLUEPRINT with:
+1. Series Overview (premise, world, central question)
+2. Season Arc (beginning → midpoint → season climax)
+3. Episode Grid (episode titles + one-line summaries for 6-10 episodes)
+4. Pilot Beat Breakdown (10-15 key beats)
+5. Season Cliffhanger concept
+6. Multi-Season Trajectory (2-3 season arcs)
+7. Character Arc Summary (protagonist + 2-3 key characters)
+8. Thematic Spine (core theme + how it evolves)
+
+Return as JSON with keys: series_overview, season_arc, episode_grid (array), pilot_beats (array), season_cliffhanger, multi_season_trajectory, character_arcs (array), thematic_spine.`;
+  }
+
+  if (pt.includes("vertical")) {
+    return base + `Generate a VERTICAL DRAMA BLUEPRINT with:
+1. Episode Hook Cadence (how each 2-5 min ep opens)
+2. Emotional Spike Mapping (emotional peaks per episode)
+3. Cliffhanger Density (cliffhanger strategy per episode)
+4. Retention Mechanics (what keeps viewers swiping to next ep)
+5. Season Arc (compressed for short-form)
+6. Character Arc Summary
+7. Thematic Spine
+
+Return as JSON with keys: hook_cadence (array), emotional_spikes (array), cliffhanger_density, retention_mechanics, season_arc, character_arcs (array), thematic_spine.`;
+  }
+
+  if (pt.includes("documentary")) {
+    return base + `Generate a DOCUMENTARY BLUEPRINT with:
+1. POV Clarity (whose story, what angle)
+2. Narrative Spine (central question + journey)
+3. Access Dependencies (what access is needed)
+4. Act-Style Escalation (3-4 act structure adapted for doc)
+5. Key Sequences (5-8 essential scenes/interviews)
+6. Archive/Visual Strategy
+7. Thematic Spine
+
+Return as JSON with keys: pov_clarity, narrative_spine, access_dependencies (array), act_escalation (array), key_sequences (array), visual_strategy, thematic_spine.`;
+  }
+
+  // Film / default
+  return base + `Generate a FILM SCRIPT BLUEPRINT with:
+1. Three-Act Breakdown (Act 1 setup, Act 2 confrontation, Act 3 resolution)
+2. Inciting Incident (specific moment + page target)
+3. Midpoint Pivot (what changes everything)
+4. Lowest Point (protagonist's darkest moment)
+5. Climax (final confrontation)
+6. Resolution (new equilibrium)
+7. Character Arc Summary (protagonist + antagonist + 1-2 key supporting)
+8. Thematic Spine (core theme + how screenplay embodies it)
+
+VALIDATION REQUIREMENTS — the blueprint MUST pass:
+- Protagonist Agency Test: protagonist drives action, not reactive
+- Escalation Test: stakes increase act over act
+- Engine Sustainability Test: central conflict sustains full runtime
+- Budget Feasibility: locations/set pieces aligned with ${project.budget_range}
+- Lane Alignment: tone/scope matches ${project.assigned_lane || "assigned"} lane
+
+Return as JSON with keys: three_act_breakdown (object with act_1, act_2, act_3), inciting_incident, midpoint_pivot, lowest_point, climax, resolution, character_arcs (array of {name, arc}), thematic_spine, validation (object with protagonist_agency, escalation, engine_sustainability, budget_feasibility, lane_alignment — each a string verdict).`;
+}
+
+// ─── Scene Architecture Prompt ───
+function getArchitecturePrompt(productionType: string, blueprint: any, project: any) {
+  const pt = productionType.toLowerCase();
+  const pageTarget = pt.includes("short") ? "15-25" : pt.includes("vertical") ? "3-5 per episode" : pt.includes("tv") ? "45-60 per episode" : "90-120";
+
+  return `You are IFFY, generating Scene Architecture for a ${productionType} script.
+
+BLUEPRINT:
+${JSON.stringify(blueprint, null, 2)}
+
+PROJECT: ${project.title} | Budget: ${project.budget_range} | Lane: ${project.assigned_lane || "unassigned"}
+
+Generate scene-by-scene architecture for the FULL script (~${pageTarget} pages). For each scene provide:
+- scene_number (integer)
+- beat_summary (what happens, 1-2 sentences)
+- pov_character (whose scene)
+- objective (what the POV character wants)
+- obstacle (what prevents it)
+- conflict_type (emotional | physical | ideological | procedural)
+- turn_summary (how the scene shifts/changes direction)
+- escalation_notes (how this raises stakes from previous scene)
+- location (specific location)
+- cast_size (number of characters present)
+- production_weight (LOW | MEDIUM | HIGH based on complexity/cost)
+
+NO DIALOGUE. Structure only.
+
+Run these checks and include results:
+- redundant_scenes: list any scene numbers that could be merged/cut
+- escalation_gaps: any stretches where tension plateaus
+- agency_issues: scenes where protagonist is purely reactive
+
+Return as JSON: { scenes: [...], structural_check: { redundant_scenes, escalation_gaps, agency_issues } }`;
+}
+
+// ─── Batched Draft Prompt ───
+function getDraftPrompt(scenes: any[], batchStart: number, batchEnd: number, project: any, blueprint: any) {
+  const batchScenes = scenes.filter(s => s.scene_number >= batchStart && s.scene_number <= batchEnd);
+  return `You are IFFY, writing script pages for "${project.title}".
+
+BLUEPRINT CONTEXT:
+${JSON.stringify(blueprint, null, 2).substring(0, 2000)}
+
+SCENES TO DRAFT (scenes ${batchStart}-${batchEnd}):
+${JSON.stringify(batchScenes, null, 2)}
+
+Write these scenes in proper screenplay format. Rules:
+- Each scene: slug line (INT./EXT. LOCATION - DAY/NIGHT), action lines, dialogue
+- Dialogue must have SUBTEXT — never on-the-nose
+- Each character must have a distinct VOICE
+- Action lines: visual, present tense, lean
+- Budget awareness: respect production weight flags
+- Lane: ${project.assigned_lane || "general"} — match tone expectations
+
+Return the screenplay pages as plain text in standard format.`;
+}
+
+// ─── Quality Scoring Prompt ───
+function getScoringPrompt(scriptText: string, project: any) {
+  return `You are IFFY's Quality Scoring Engine. Analyze this script draft for "${project.title}" (${project.format}, ${project.assigned_lane || "unassigned"} lane, ${project.budget_range} budget).
+
+SCRIPT TEXT (excerpt):
+${scriptText.substring(0, 12000)}
+
+Score each dimension 0-100 and provide specific evidence:
+
+1. STRUCTURAL SCORE: Tension escalation, stakes clarity, midpoint presence, scene necessity ratio
+2. DIALOGUE SCORE: On-the-nose detection, subtext presence, voice differentiation per character, exposition density
+3. SCENE ECONOMY SCORE: Repetition detection, redundant exposition, compressible scenes
+4. BUDGET SCORE: Location creep, cast bloat, VFX creep, production weight imbalance vs ${project.budget_range}
+5. LANE ALIGNMENT SCORE: Tone drift, market lane mismatch vs ${project.assigned_lane}, audience alignment
+
+Return as JSON:
+{
+  structural_score: number,
+  structural_notes: string,
+  dialogue_score: number,
+  dialogue_notes: string,
+  economy_score: number,
+  economy_notes: string,
+  budget_score: number,
+  budget_notes: string,
+  lane_alignment_score: number,
+  lane_alignment_notes: string
+}`;
+}
+
+// ─── Rewrite Pass Prompt ───
+function getRewritePrompt(pass: string, scriptText: string, scores: any, project: any) {
+  const passInstructions: Record<string, string> = {
+    "structural": `PASS 1 — STRUCTURAL TIGHTENING
+Focus: Cut redundant scenes, sharpen act breaks, ensure every scene has a turn, fix escalation gaps.
+Previous structural score: ${scores?.structural_score || "N/A"}
+Notes: ${scores?.structural_notes || "None"}`,
+    "character": `PASS 2 — CHARACTER DEPTH LAYERING
+Focus: Add subtext to flat exchanges, deepen internal conflict, ensure each character has a unique want/wound/mask.
+Previous dialogue score: ${scores?.dialogue_score || "N/A"}`,
+    "dialogue": `PASS 3 — DIALOGUE SHARPENING
+Focus: Remove on-the-nose dialogue, add subtext, differentiate character voices, reduce exposition dumps.
+Previous dialogue score: ${scores?.dialogue_score || "N/A"}
+Notes: ${scores?.dialogue_notes || "None"}`,
+    "market": `PASS 4 — MARKET ALIGNMENT ADJUSTMENT
+Focus: Ensure tone matches ${project.assigned_lane || "target"} lane expectations, audience alignment, commercial viability.
+Previous lane alignment score: ${scores?.lane_alignment_score || "N/A"}`,
+    "production": `PASS 5 — PRODUCTION REALISM CORRECTION
+Focus: Reduce location bloat, consolidate sets, flag VFX-heavy scenes for simplification, ensure budget band ${project.budget_range} feasibility.
+Previous budget score: ${scores?.budget_score || "N/A"}
+Notes: ${scores?.budget_notes || "None"}`,
+  };
+
+  return `You are IFFY's Rewrite Engine working on "${project.title}".
+
+${passInstructions[pass] || passInstructions["structural"]}
+
+CURRENT SCRIPT (excerpt):
+${scriptText.substring(0, 12000)}
+
+Rewrite the script applying ONLY this pass's focus. Maintain what works. Return the full rewritten script text.`;
+}
+
+serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+
+  try {
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) throw new Error("Not authenticated");
+
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
+    const anonClient = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!);
+    const { data: { user }, error: userError } = await anonClient.auth.getUser(
+      authHeader.replace("Bearer ", "")
+    );
+    if (userError || !user) throw new Error("Invalid auth token");
+
+    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
+
+    const body = await req.json();
+    const { action, projectId, scriptId } = body;
+    if (!projectId) throw new Error("projectId required");
+
+    // Verify project access
+    const { data: project, error: projErr } = await supabase
+      .from("projects")
+      .select("*")
+      .eq("id", projectId)
+      .single();
+    if (projErr || !project) throw new Error("Project not found");
+    if (project.user_id !== user.id) {
+      const { data: collab } = await supabase
+        .from("project_collaborators")
+        .select("id")
+        .eq("project_id", projectId)
+        .eq("user_id", user.id)
+        .eq("status", "accepted")
+        .limit(1);
+      if (!collab?.length) throw new Error("No access to this project");
+    }
+
+    // Get concept lock docs
+    const { data: conceptDocs } = await supabase
+      .from("concept_lock_documents")
+      .select("doc_type, content")
+      .eq("project_id", projectId)
+      .order("version", { ascending: false });
+
+    async function callAI(prompt: string, useJson = true) {
+      const messages: any[] = [{ role: "user", content: prompt }];
+      const aiBody: any = {
+        model: "google/gemini-2.5-flash",
+        messages,
+      };
+      if (useJson) {
+        aiBody.response_format = { type: "json_object" };
+      }
+      const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify(aiBody),
+      });
+      if (!resp.ok) {
+        const t = await resp.text();
+        if (resp.status === 429) throw new Error("Rate limited — please try again shortly.");
+        if (resp.status === 402) throw new Error("AI credits exhausted — please top up.");
+        throw new Error(`AI error ${resp.status}: ${t}`);
+      }
+      const data = await resp.json();
+      const content = data.choices?.[0]?.message?.content || "";
+      if (useJson) {
+        try { return JSON.parse(content); } catch { return { raw: content }; }
+      }
+      return content;
+    }
+
+    // ═══════════════════════════════════════════
+    // ACTION: BLUEPRINT
+    // ═══════════════════════════════════════════
+    if (action === "blueprint") {
+      const productionType = project.format === "tv-series" ? "TV Series" :
+        project.format === "vertical-drama" ? "Vertical Drama" :
+        project.format === "documentary" || project.format === "documentary-series" ? "Documentary" :
+        project.format === "commercial" || project.format === "branded-content" ? "Commercial / Advert" :
+        project.format === "short-film" ? "Short Film" : "Narrative Feature";
+
+      const prompt = getBlueprintPrompt(productionType, project, conceptDocs || []);
+      const blueprint = await callAI(prompt);
+
+      // Create or update script record
+      let sid = scriptId;
+      if (!sid) {
+        const { data: existing } = await supabase
+          .from("scripts")
+          .select("id")
+          .eq("project_id", projectId)
+          .eq("status", "BLUEPRINT")
+          .limit(1);
+        if (existing?.length) {
+          sid = existing[0].id;
+        }
+      }
+
+      if (sid) {
+        await supabase.from("scripts").update({
+          status: "BLUEPRINT", draft_number: 0, owner_id: user.id,
+        }).eq("id", sid);
+      } else {
+        const maxV = await supabase.from("scripts").select("version").eq("project_id", projectId).order("version", { ascending: false }).limit(1);
+        const nextVersion = ((maxV.data?.[0]?.version) || 0) + 1;
+        const { data: newScript } = await supabase.from("scripts").insert({
+          project_id: projectId, created_by: user.id, owner_id: user.id,
+          version: nextVersion, status: "BLUEPRINT", draft_number: 0,
+          version_label: `Engine Draft v${nextVersion}`,
+        }).select().single();
+        sid = newScript?.id;
+      }
+
+      // Store blueprint as version snapshot
+      if (sid) {
+        await supabase.from("script_versions").insert({
+          script_id: sid, draft_number: 0, blueprint_json: blueprint,
+          notes: "Blueprint generated",
+        });
+      }
+
+      return new Response(JSON.stringify({ scriptId: sid, blueprint }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ═══════════════════════════════════════════
+    // ACTION: ARCHITECTURE
+    // ═══════════════════════════════════════════
+    if (action === "architecture") {
+      if (!scriptId) throw new Error("scriptId required for architecture");
+
+      // Get latest blueprint
+      const { data: versions } = await supabase
+        .from("script_versions")
+        .select("blueprint_json")
+        .eq("script_id", scriptId)
+        .not("blueprint_json", "is", null)
+        .order("created_at", { ascending: false })
+        .limit(1);
+
+      const blueprint = versions?.[0]?.blueprint_json;
+      if (!blueprint) throw new Error("Blueprint not found — generate blueprint first");
+
+      const productionType = project.format;
+      const prompt = getArchitecturePrompt(productionType, blueprint, project);
+      const architecture = await callAI(prompt);
+
+      // Clear existing scenes and insert new
+      await supabase.from("script_scenes").delete().eq("script_id", scriptId);
+
+      const scenes = architecture.scenes || [];
+      if (scenes.length > 0) {
+        const rows = scenes.map((s: any) => ({
+          script_id: scriptId,
+          scene_number: s.scene_number || 0,
+          beat_summary: s.beat_summary || "",
+          pov_character: s.pov_character || "",
+          objective: s.objective || "",
+          obstacle: s.obstacle || "",
+          conflict_type: s.conflict_type || "emotional",
+          turn_summary: s.turn_summary || "",
+          escalation_notes: s.escalation_notes || "",
+          location: s.location || "",
+          cast_size: s.cast_size || 1,
+          production_weight: s.production_weight || "MEDIUM",
+        }));
+        await supabase.from("script_scenes").insert(rows);
+      }
+
+      await supabase.from("scripts").update({ status: "ARCHITECTURE" }).eq("id", scriptId);
+
+      return new Response(JSON.stringify({ scenes: scenes.length, structural_check: architecture.structural_check }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ═══════════════════════════════════════════
+    // ACTION: DRAFT (batched)
+    // ═══════════════════════════════════════════
+    if (action === "draft") {
+      if (!scriptId) throw new Error("scriptId required for drafting");
+      const batchStart = body.batchStart || 1;
+      const batchSize = 15;
+      const batchEnd = body.batchEnd || (batchStart + batchSize - 1);
+
+      const { data: scenes } = await supabase
+        .from("script_scenes")
+        .select("*")
+        .eq("script_id", scriptId)
+        .order("scene_number", { ascending: true });
+
+      if (!scenes?.length) throw new Error("No scene architecture — generate architecture first");
+
+      const { data: versions } = await supabase
+        .from("script_versions")
+        .select("blueprint_json")
+        .eq("script_id", scriptId)
+        .not("blueprint_json", "is", null)
+        .order("created_at", { ascending: false })
+        .limit(1);
+      const blueprint = versions?.[0]?.blueprint_json || {};
+
+      const prompt = getDraftPrompt(scenes, batchStart, batchEnd, project, blueprint);
+      const draftText = await callAI(prompt, false);
+
+      // Store batch in storage
+      const path = `scripts/${projectId}/v${Date.now()}/batch_${batchStart}_${batchEnd}.txt`;
+      const encoder = new TextEncoder();
+      await supabase.storage.from("scripts").upload(path, encoder.encode(draftText), {
+        contentType: "text/plain", upsert: true,
+      });
+
+      // Check if this is the final batch
+      const maxScene = Math.max(...scenes.map((s: any) => s.scene_number));
+      const isComplete = batchEnd >= maxScene;
+
+      if (isComplete) {
+        // Get current draft number
+        const { data: script } = await supabase.from("scripts").select("draft_number").eq("id", scriptId).single();
+        const newDraftNum = (script?.draft_number || 0) + 1;
+
+        await supabase.from("scripts").update({
+          status: `DRAFT_${newDraftNum}`, draft_number: newDraftNum,
+        }).eq("id", scriptId);
+
+        await supabase.from("script_versions").insert({
+          script_id: scriptId, draft_number: newDraftNum,
+          full_text_storage_path: path, notes: `Draft ${newDraftNum} complete`,
+        });
+      } else {
+        await supabase.from("scripts").update({ status: "DRAFTING" }).eq("id", scriptId);
+      }
+
+      return new Response(JSON.stringify({
+        batchStart, batchEnd, isComplete, storagePath: path,
+        nextBatch: isComplete ? null : { batchStart: batchEnd + 1, batchEnd: Math.min(batchEnd + batchSize, maxScene) },
+        draftText: draftText.substring(0, 500) + "...",
+      }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ═══════════════════════════════════════════
+    // ACTION: SCORE
+    // ═══════════════════════════════════════════
+    if (action === "score") {
+      if (!scriptId) throw new Error("scriptId required for scoring");
+
+      // Get latest draft text
+      const { data: latestVersion } = await supabase
+        .from("script_versions")
+        .select("*")
+        .eq("script_id", scriptId)
+        .not("full_text_storage_path", "is", null)
+        .order("created_at", { ascending: false })
+        .limit(1);
+
+      let scriptText = "";
+      if (latestVersion?.[0]?.full_text_storage_path) {
+        const { data: fileData } = await supabase.storage
+          .from("scripts")
+          .download(latestVersion[0].full_text_storage_path);
+        if (fileData) scriptText = await fileData.text();
+      }
+
+      // Fallback to scripts.text_content
+      if (!scriptText) {
+        const { data: script } = await supabase.from("scripts").select("text_content").eq("id", scriptId).single();
+        scriptText = script?.text_content || "";
+      }
+
+      if (!scriptText) throw new Error("No script text found to score");
+
+      const prompt = getScoringPrompt(scriptText, project);
+      const scores = await callAI(prompt);
+
+      // Update script record
+      await supabase.from("scripts").update({
+        structural_score: scores.structural_score,
+        dialogue_score: scores.dialogue_score,
+        economy_score: scores.economy_score,
+        budget_score: scores.budget_score,
+        lane_alignment_score: scores.lane_alignment_score,
+      }).eq("id", scriptId);
+
+      // Update latest version too
+      if (latestVersion?.[0]) {
+        await supabase.from("script_versions").update({
+          structural_score: scores.structural_score,
+          dialogue_score: scores.dialogue_score,
+          economy_score: scores.economy_score,
+          budget_score: scores.budget_score,
+          lane_alignment_score: scores.lane_alignment_score,
+        }).eq("id", latestVersion[0].id);
+      }
+
+      return new Response(JSON.stringify(scores), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ═══════════════════════════════════════════
+    // ACTION: REWRITE
+    // ═══════════════════════════════════════════
+    if (action === "rewrite") {
+      if (!scriptId) throw new Error("scriptId required for rewrite");
+      const pass = body.pass || "structural";
+
+      const { data: latestVersion } = await supabase
+        .from("script_versions")
+        .select("*")
+        .eq("script_id", scriptId)
+        .not("full_text_storage_path", "is", null)
+        .order("created_at", { ascending: false })
+        .limit(1);
+
+      let scriptText = "";
+      if (latestVersion?.[0]?.full_text_storage_path) {
+        const { data: fileData } = await supabase.storage
+          .from("scripts")
+          .download(latestVersion[0].full_text_storage_path);
+        if (fileData) scriptText = await fileData.text();
+      }
+      if (!scriptText) {
+        const { data: script } = await supabase.from("scripts").select("text_content").eq("id", scriptId).single();
+        scriptText = script?.text_content || "";
+      }
+      if (!scriptText) throw new Error("No script text found to rewrite");
+
+      const scores = latestVersion?.[0] || {};
+      const prompt = getRewritePrompt(pass, scriptText, scores, project);
+      const rewrittenText = await callAI(prompt, false);
+
+      // Store rewrite
+      const { data: script } = await supabase.from("scripts").select("draft_number").eq("id", scriptId).single();
+      const newDraft = (script?.draft_number || 0) + 1;
+      const path = `scripts/${projectId}/v${Date.now()}/rewrite_${pass}_d${newDraft}.txt`;
+      const encoder = new TextEncoder();
+      await supabase.storage.from("scripts").upload(path, encoder.encode(rewrittenText), {
+        contentType: "text/plain", upsert: true,
+      });
+
+      await supabase.from("scripts").update({
+        status: `DRAFT_${newDraft}`, draft_number: newDraft,
+      }).eq("id", scriptId);
+
+      await supabase.from("script_versions").insert({
+        script_id: scriptId, draft_number: newDraft,
+        full_text_storage_path: path, rewrite_pass: pass,
+        notes: `Rewrite pass: ${pass}`,
+      });
+
+      return new Response(JSON.stringify({ draftNumber: newDraft, pass, storagePath: path }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ═══════════════════════════════════════════
+    // ACTION: LOCK
+    // ═══════════════════════════════════════════
+    if (action === "lock") {
+      if (!scriptId) throw new Error("scriptId required for lock");
+
+      await supabase.from("scripts").update({
+        status: "LOCKED", is_current: true,
+      }).eq("id", scriptId);
+
+      // Unmark other scripts as not current
+      await supabase.from("scripts").update({ is_current: false })
+        .eq("project_id", projectId)
+        .neq("id", scriptId);
+
+      return new Response(JSON.stringify({ locked: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    throw new Error(`Unknown action: ${action}`);
+  } catch (e: any) {
+    console.error("script-engine error:", e);
+    return new Response(JSON.stringify({ error: e.message }), {
+      status: 400,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+});

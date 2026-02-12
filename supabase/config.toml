@@ -65,3 +65,6 @@ verify_jwt = false
 
 [functions.promote-locked-idea]
 verify_jwt = false
+
+[functions.script-engine]
+verify_jwt = false
