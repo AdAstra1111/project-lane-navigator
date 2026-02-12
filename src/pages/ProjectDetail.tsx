@@ -62,6 +62,9 @@ import { useRecoupmentScenarios, useRecoupmentTiers } from '@/hooks/useRecoupmen
 import { type LifecycleStage } from '@/lib/lifecycle-stages';
 import { usePostMilestones, useEditVersions, useVfxShots } from '@/hooks/usePostProduction';
 
+import { useUIMode } from '@/hooks/useUIMode';
+import { getEffectiveMode } from '@/lib/visibility';
+
 // Stage components
 import { LifecycleSidebar } from '@/components/LifecycleSidebar';
 import { OverviewDashboard } from '@/components/stages/OverviewDashboard';
@@ -75,6 +78,26 @@ import { FinancingLayer } from '@/components/stages/FinancingLayer';
 import { BudgetingLayer } from '@/components/stages/BudgetingLayer';
 import { RecoupmentLayer } from '@/components/stages/RecoupmentLayer';
 import { TrendsLayer } from '@/components/stages/TrendsLayer';
+
+/** Temporary debug badge — remove once mode toggle confirmed working */
+function ModeDebugBadge({ project }: { project: any }) {
+  const { mode: userMode, loading } = useUIMode();
+  const effectiveMode = getEffectiveMode(userMode, project?.ui_mode_override);
+  return (
+    <div className="mb-4 rounded-lg border border-border/50 bg-muted/30 p-3 text-xs font-mono space-y-0.5">
+      <p className="font-semibold text-foreground text-sm mb-1">MODE DEBUG</p>
+      <p className="text-muted-foreground">loading: {String(loading)}</p>
+      <p className="text-muted-foreground">userMode: <span className="text-foreground font-medium">{userMode}</span></p>
+      <p className="text-muted-foreground">projectOverride: {String(project?.ui_mode_override)}</p>
+      <p className="text-muted-foreground">effectiveMode: <span className={effectiveMode === 'advanced' ? 'text-primary font-bold' : 'text-foreground font-medium'}>{effectiveMode}</span></p>
+      {effectiveMode === 'advanced' && (
+        <div className="mt-2 rounded-md border-2 border-destructive bg-destructive/10 p-2 text-destructive font-semibold text-sm">
+          ADVANCED MODE ENABLED — If you see this, gating works.
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function ProjectDetail() {
   const { id } = useParams();
@@ -591,6 +614,9 @@ export default function ProjectDetail() {
               </AlertDialog>
             </div>
           </div>
+
+          {/* MODE DEBUG (temporary) */}
+          <ModeDebugBadge project={project} />
 
           {/* Lifecycle Layout: Sidebar + Content */}
           <div className="flex gap-6">
