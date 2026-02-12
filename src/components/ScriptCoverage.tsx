@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 import {
   FileSearch, Loader2, ThumbsUp, ThumbsDown, Minus, ChevronDown, History,
   ArrowLeftRight, RotateCw, Star, CheckCircle2, XCircle, HelpCircle, Pencil,
-  BarChart3, BookOpen, ClipboardList
+  BarChart3, BookOpen, ClipboardList, Trash2
 } from 'lucide-react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Button } from '@/components/ui/button';
@@ -22,6 +22,7 @@ import { OperationProgress, EXTRACT_STAGES } from '@/components/OperationProgres
 import { useAuth } from '@/hooks/useAuth';
 import { format as fmtDate } from 'date-fns';
 import { GreatNotesLibrary } from '@/components/GreatNotesLibrary';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { NotesReview } from '@/components/NotesReview';
 import { StructuredNote } from '@/hooks/useNoteFeedback';
 
@@ -511,6 +512,26 @@ export function ScriptCoverage({ projectId, projectTitle, format, genres, hasDoc
 
   const selectedRun = runs.find(r => r.id === selectedId);
 
+  const handleDeleteRun = async (runId: string) => {
+    try {
+      // Delete related feedback first
+      await supabase.from('coverage_feedback_notes').delete().eq('coverage_run_id', runId);
+      await supabase.from('coverage_feedback').delete().eq('coverage_run_id', runId);
+      await supabase.from('coverage_note_threads').delete().eq('coverage_run_id', runId);
+      // Delete the run
+      const { error } = await supabase.from('coverage_runs').delete().eq('id', runId);
+      if (error) throw error;
+      setRuns(prev => prev.filter(r => r.id !== runId));
+      if (selectedId === runId) {
+        const remaining = runs.filter(r => r.id !== runId);
+        setSelectedId(remaining[0]?.id || '');
+      }
+      toast.success('Coverage deleted');
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to delete coverage');
+    }
+  };
+
   // Load existing coverage runs
   useEffect(() => {
     const load = async () => {
@@ -751,6 +772,15 @@ export function ScriptCoverage({ projectId, projectTitle, format, genres, hasDoc
                 <Button variant="outline" size="sm" className="text-xs gap-1.5" onClick={() => setShowLibrary(true)}>
                   <BookOpen className="h-3 w-3" /> Great Notes Library
                 </Button>
+                <ConfirmDialog
+                  title={`Delete "${selectedRun?.draft_label}" coverage?`}
+                  description="This will permanently remove this coverage run and all associated feedback. This cannot be undone."
+                  onConfirm={() => selectedRun && handleDeleteRun(selectedRun.id)}
+                >
+                  <Button variant="ghost" size="sm" className="text-xs gap-1.5 text-muted-foreground hover:text-destructive">
+                    <Trash2 className="h-3 w-3" /> Delete
+                  </Button>
+                </ConfirmDialog>
               </div>
             )}
 
