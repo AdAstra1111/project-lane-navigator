@@ -8,7 +8,7 @@ import { motion } from 'framer-motion';
 import {
   Pen, BookOpen, Layers, BarChart3, Lock,
   ChevronDown, ChevronRight, CheckCircle2, Circle, Loader2,
-  MapPin, Users, Download, Eye, Copy, ArrowRight
+  MapPin, Users, Download, Eye, Copy, ArrowRight, FileText
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -129,7 +129,7 @@ export function ScriptEnginePanel({ projectId }: Props) {
     activeScript, scenes, versions, blueprint, isLoading,
     draftText, draftStoragePath, setDraftText,
     generateBlueprint, generateArchitecture, generateDraft,
-    scoreScript, rewritePass, lockScript, fetchDraft,
+    scoreScript, rewritePass, lockScript, fetchDraft, importToDocs,
   } = useScriptEngine(projectId);
 
   const [showScenes, setShowScenes] = useState(false);
@@ -314,6 +314,24 @@ export function ScriptEnginePanel({ projectId }: Props) {
           </Button>
           <span className="text-xs text-muted-foreground">
             {lastBatchIndex} of {Math.ceil(maxScene / 15)} batches complete
+          </span>
+        </div>
+      )}
+
+      {/* Import for Coverage button — shown when draft is complete */}
+      {hasDraft && status.startsWith('DRAFT_') && (
+        <div className="mt-3 flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => importToDocs.mutate()}
+            disabled={isAnyLoading || importToDocs.isPending}
+          >
+            {importToDocs.isPending ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <FileText className="h-3 w-3 mr-1" />}
+            Import for Coverage
+          </Button>
+          <span className="text-xs text-muted-foreground">
+            Adds draft to Documents for Script Coverage analysis
           </span>
         </div>
       )}
