@@ -103,7 +103,7 @@ export function DevelopmentBriefBuilder({ onGenerate, generating }: Props) {
     return SUBGENRES[genre] || [];
   }, [genre]);
 
-  const isValid = productionType && genre;
+  const isValid = true;
 
   // Reset dependent fields when production type changes
   const handleProductionTypeChange = (val: string) => {
@@ -121,15 +121,11 @@ export function DevelopmentBriefBuilder({ onGenerate, generating }: Props) {
   };
 
   const handleSaveAndGenerate = async () => {
-    if (!isValid) {
-      toast.error('Production Type and Genre are required');
-      return;
-    }
     try {
       const clean = (v: string) => v === '__any__' ? '' : v;
       const brief = await save({
-        name: name || `${productionType} — ${genre} brief`,
-        production_type: productionType,
+        name: name || [productionType, genre].filter(Boolean).join(' — ') || 'Untitled brief',
+        production_type: clean(productionType),
         genre,
         subgenre: clean(subgenre),
         budget_band: clean(budgetBand),
@@ -173,7 +169,7 @@ export function DevelopmentBriefBuilder({ onGenerate, generating }: Props) {
               Development Brief
             </CardTitle>
             <CardDescription className="mt-1">
-              Define your brief before generating ideas. Production Type and Genre are required gates.
+              Define your brief before generating ideas. All filters are optional.
             </CardDescription>
           </div>
           {briefs.length > 0 && (
@@ -213,11 +209,9 @@ export function DevelopmentBriefBuilder({ onGenerate, generating }: Props) {
         {/* Row 1: Production Type + Genre (mandatory) */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="space-y-1.5">
-            <Label className="text-xs">
-              Production Type <span className="text-destructive">*</span>
-            </Label>
+            <Label className="text-xs text-muted-foreground">Production Type</Label>
             <Select value={productionType} onValueChange={handleProductionTypeChange}>
-              <SelectTrigger className={!productionType ? 'border-destructive/50' : ''}>
+              <SelectTrigger>
                 <SelectValue placeholder="Select production type" />
               </SelectTrigger>
               <SelectContent>
@@ -229,11 +223,9 @@ export function DevelopmentBriefBuilder({ onGenerate, generating }: Props) {
           </div>
 
           <div className="space-y-1.5">
-            <Label className="text-xs">
-              Genre <span className="text-destructive">*</span>
-            </Label>
+            <Label className="text-xs text-muted-foreground">Genre</Label>
             <Select value={genre} onValueChange={handleGenreChange} disabled={!productionType}>
-              <SelectTrigger className={productionType && !genre ? 'border-destructive/50' : ''}>
+              <SelectTrigger>
                 <SelectValue placeholder={productionType ? "Select genre" : "Select production type first"} />
               </SelectTrigger>
               <SelectContent>
@@ -359,9 +351,7 @@ export function DevelopmentBriefBuilder({ onGenerate, generating }: Props) {
         {/* Generate button */}
         <div className="flex items-center justify-between pt-2 border-t border-border/30">
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            {!productionType && <Badge variant="outline" className="text-destructive border-destructive/30">Set Production Type</Badge>}
-            {productionType && !genre && <Badge variant="outline" className="text-destructive border-destructive/30">Set Genre</Badge>}
-            {isValid && <Badge variant="outline" className="text-primary border-primary/30">Brief ready</Badge>}
+            <Badge variant="outline" className="text-primary border-primary/30">Brief ready</Badge>
           </div>
           <Button onClick={handleSaveAndGenerate} disabled={!isValid || generating} className="gap-2">
             <Sparkles className="h-4 w-4" />
