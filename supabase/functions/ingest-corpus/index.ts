@@ -82,19 +82,34 @@ async function handleIngest(
     // is often served from a different URL pattern. Try the direct URL first,
     // then fall back to the IMSDB script page pattern.
     let html = "";
-    const resp = await fetch(source.source_url);
+    const fetchOpts = { headers: { "User-Agent": "Mozilla/5.0 (compatible; CorpusBot/1.0)" } };
+    const resp = await fetch(source.source_url, fetchOpts);
     if (resp.ok) {
       html = await resp.text();
-    } else if (source.format === "imsdb" && resp.status === 404) {
-      // Try alternate IMSDB URL pattern: extract slug and try /Scripts/ capitalized
+    } else if (source.format === "imsdb") {
+      // Try alternate IMSDB URL patterns
       const slug = source.source_url.split("/scripts/").pop() || "";
-      const altUrl = `https://imsdb.com/Scripts/${slug}`;
-      addLog(`Primary URL returned 404, trying alternate: ${altUrl}`);
-      const altResp = await fetch(altUrl);
-      if (!altResp.ok) throw new Error(`Script not available on IMSDB (404 on both URL patterns)`);
-      html = await altResp.text();
+      const attempts = [
+        `https://imsdb.com/Scripts/${slug}`,
+        `https://imsdb.com/scripts/${slug}`,
+      ];
+      let found = false;
+      for (const altUrl of attempts) {
+        addLog(`Trying alternate URL: ${altUrl}`);
+        const altResp = await fetch(altUrl, fetchOpts);
+        if (altResp.ok) {
+          html = await altResp.text();
+          found = true;
+          break;
+        }
+      }
+      if (!found) throw new Error(`Script not available on IMSDB (tried ${attempts.length + 1} URL patterns)`);
     } else {
       throw new Error(`Failed to fetch HTML: ${resp.status}`);
+    }
+    // Guard against IMSDB returning 200 with a "not found" or empty page
+    if (source.format === "imsdb" && html.length < 500) {
+      throw new Error("IMSDB returned an empty or error page — script may not be hosted");
     }
     rawText = extractHtmlText(html);
     addLog(`HTML extracted: ${rawText.length} chars`);
