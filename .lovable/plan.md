@@ -1,119 +1,167 @@
 
-# Permissioned Script Corpus Ingestion Pipeline
 
-## Overview
+# Script Corpus Ingestion + Learning Pipeline
 
-Build a corpus ingestion system that downloads approved professional scripts, parses their structure, generates embeddings, and produces derived craft artifacts -- making professional screenplay patterns searchable and usable inside IFFY's Coverage and Rewrite engines.
+## Summary
 
-## What Gets Built
+Upgrade the existing corpus ingestion system from a basic parse-and-chunk pipeline into a full **structured intelligence extraction** system. The 103 seeded IMSDB scripts will be analyzed with AI to produce format calibration models, and those models will feed back into the Script Engine, Coverage, and Rewrite systems.
 
-1. **Approved Sources admin panel** -- a table where you manually add script URLs with rights status
-2. **Ingestion edge function** -- downloads, extracts text, parses scenes, chunks, embeds, and generates craft artifacts
-3. **Corpus Library UI** -- browse ingested scripts with their beat structures, arcs, and budget flags
-4. **Coverage integration** -- toggle to benchmark user scripts against the corpus
+---
 
-## Database Changes
+## Phase 1: Schema Upgrades
 
-New tables (all with RLS scoped to the user):
+Extend the existing `corpus_scripts` table with new analysis columns and create three new tables.
 
-- **approved_sources** -- allowlist of URLs with `rights_status` (only `APPROVED` triggers ingestion), `format` (pdf/html), `license_reference`, `title`
-- **corpus_scripts** -- stores metadata for each ingested script: `source_id`, `checksum`, `raw_storage_path`, `parsed_storage_path`, `page_count_estimate`, `ingestion_status`, `ingestion_log`
-- **corpus_scenes** -- parsed scenes: `script_id`, `scene_number`, `slugline`, `location`, `time_of_day`, `scene_text`
-- **corpus_chunks** -- text chunks with embeddings: `script_id`, `chunk_index`, `chunk_text`, `embedding` (vector(1536))
-- **derived_artifacts** -- LLM-generated analysis: `script_id`, `artifact_type` (beats/character_arcs/pacing_map/budget_flags), `json_data`
+**Alter `corpus_scripts`** -- add columns:
+- `title`, `production_type`, `format_subtype`, `genre`, `subgenre`
+- `page_count` (integer), `runtime_est` (numeric), `scene_count`, `word_count`
+- `avg_scene_length`, `avg_dialogue_ratio`, `cast_count`, `location_count`
+- `int_ext_ratio`, `day_night_ratio`
+- `vfx_flag` (boolean), `budget_tier_est`, `quality_score_est` (numeric)
+- `market_success_flag` (boolean)
+- `midpoint_position`, `climax_position`
+- `analysis_status` (text, default 'pending')
 
-These use "corpus_" prefixed names to avoid collision with the existing `scripts` and `script_scenes` tables that power the Script Engine.
+**New table: `corpus_scene_patterns`**
+- `corpus_script_id` (FK to corpus_scripts), `scene_number`, `act_estimate`
+- `has_turn`, `conflict_type`, `scene_length_est`
 
-Enable the `vector` (pgvector) extension for embedding storage.
+**New table: `corpus_character_profiles`**
+- `corpus_script_id` (FK), `character_name`, `dialogue_ratio`
+- `arc_type`, `protagonist_flag`
 
-## Edge Function: `ingest-corpus`
+**New table: `corpus_insights`** (aggregated calibration data)
+- `insight_type`, `production_type`, `lane`, `pattern` (jsonb), `weight`
 
-A single edge function handling multiple actions:
+All tables get `user_id` columns and RLS policies matching existing corpus tables.
 
-- **`ingest`** -- For a given `source_id`:
-  1. Verify `rights_status = 'APPROVED'`
-  2. Download the file (PDF or HTML)
-  3. Extract text (PDF: use raw text extraction via Deno; HTML: strip tags, prefer `<pre>` blocks)
-  4. Normalize formatting, compute SHA256 checksum
-  5. Upload raw text to `scripts` storage bucket under `corpus/raw/{checksum}.txt`
-  6. Parse screenplay structure (detect sluglines via `^(INT\.|EXT\.|INT/EXT\.|I/E\.)` regex, split into scenes)
-  7. Store scenes in `corpus_scenes`
-  8. Chunk text (1500-2500 token chunks, respecting scene boundaries)
-  9. Generate embeddings via Lovable AI gateway (using text-embedding model or Gemini for summary embeddings)
-  10. Store chunks + vectors in `corpus_chunks`
-  11. Call Lovable AI to produce derived artifacts (15-beat structure, character arcs, pacing map, budget drivers)
-  12. Store in `derived_artifacts`
-  13. Update `corpus_scripts.ingestion_status = 'complete'`
+---
 
-- **`search`** -- Accepts a query text, generates its embedding, performs vector similarity search against `corpus_chunks`, returns top matches with their parent script metadata and relevant `derived_artifacts`.
+## Phase 2: Deep Analysis Edge Function
 
-### Safety Rules (enforced in function)
-- Refuse ingestion if `rights_status != 'APPROVED'`
-- Log all activity to `ingestion_log` column
-- Maintain `license_reference` for audit trail
+Create a new `analyze-corpus` edge function (or add an `analyze` action to the existing `ingest-corpus` function) that runs a structured AI analysis pass on an already-ingested script.
 
-## PDF + HTML Extraction Strategy
+**Per-script extraction** (using Gemini Flash via tool calling):
+1. Format detection (film/TV/short/doc)
+2. Genre and subgenre classification
+3. Act break positions, midpoint, climax
+4. Scene-by-scene pattern extraction (conflict type, turns, length estimates)
+5. Character extraction with dialogue ratios and arc types
+6. Dialogue vs action ratio, average line length
+7. Location count, INT/EXT ratio, DAY/NIGHT ratio
+8. VFX intensity markers
+9. Budget tier estimation
+10. Quality score estimation
 
-Since Deno edge functions cannot use `pdf-parse` (Node-only), the approach will be:
+Store structured results back into the extended `corpus_scripts` columns, `corpus_scene_patterns`, and `corpus_character_profiles`.
 
-- **PDF**: Download as binary, send to Lovable AI (Gemini) with a "extract all text from this screenplay" prompt, or use the existing `extract-documents` function pattern that already handles PDF extraction via Gemini document understanding
-- **HTML**: Fetch HTML, extract text from `<pre>` tags first; fallback to stripping all tags from `<body>`
+---
 
-## UI Changes
+## Phase 3: Aggregation + Calibration Models
 
-### Admin Tab: "Script Corpus" (within Settings or a new admin section)
+Add an `aggregate` action that:
+1. Groups completed analyses by `production_type` + `format_subtype`
+2. Calculates medians for: page count, scene count, runtime, dialogue ratio, cast size, location count, midpoint position
+3. Stores results in `corpus_insights` as typed JSON patterns
+4. These become the "Format Calibration Models" -- live reference data for other systems
 
-- Table of `approved_sources` with columns: Title, URL, Format, Rights Status, Added By, Actions
-- "Add Source" form with URL, title, format dropdown, license reference
-- "Ingest" button per row (only enabled when status = APPROVED)
-- Progress indicator showing ingestion status
-- Link to view parsed results
+---
 
-### Corpus Library View (alongside Great Notes Library)
+## Phase 4: Script Engine Integration
 
-- List of ingested scripts showing: Title, Page Estimate, Beat Count, Character Arc Count, Budget Complexity
-- Expandable detail view with: beat structure summary, character arc overview, pacing map visualization, budget flags
+Modify the `script-engine` edge function to:
+1. Before blueprint generation, fetch relevant `corpus_insights` for the project's production type
+2. Replace static page targets (e.g., "90-120") with corpus median ranges
+3. Scene count targeting uses `median_scene_count` with a tolerance band
+4. Architecture prompt includes corpus-derived structural norms
 
-### Coverage Integration Toggle
+Add a helper function `getCorpusCalibration(db, productionType)` that returns the median targets.
 
-- Checkbox in Coverage panel: "Use Great Script Benchmarking"
-- When enabled, coverage runs will retrieve similar corpus chunks and inject structural patterns into the coverage prompt
+---
 
-## Integration with Coverage + Rewrite Engines
+## Phase 5: Coverage Integration
 
-The `script-coverage` edge function will be updated to:
-1. Accept a `useCorpusBenchmark` flag
-2. If enabled, generate an embedding of the user's script excerpt
-3. Query `corpus_chunks` for top-5 similar passages
-4. Fetch related `derived_artifacts` (beats, arcs)
-5. Inject into the analyst/producer prompts as reference patterns
+Modify the `script-coverage` edge function to:
+1. Fetch corpus calibration for the project's format
+2. Add "Deviation from corpus norms" section to the analyst prompt
+3. Score adjustments: penalize significant deviations from median structure, dialogue ratio, and length without creative justification
+4. Add deviation metrics to the coverage output
 
-The `script-engine` improvement/rewrite actions will similarly gain access to corpus patterns when the toggle is on.
+---
+
+## Phase 6: Rewrite Playbook Generation
+
+Add a `generate-playbooks` action to the analyze-corpus function:
+1. Extract patterns from top-scoring corpus scripts (quality_score_est > threshold)
+2. Identify common structural patterns (Act 2 complications, B-story density, climax intensity)
+3. Generate playbook entries stored in `corpus_insights` with `insight_type = 'playbook'`
+4. Script Engine's "Improve Draft" mode retrieves relevant playbooks as rewrite strategy templates
+
+---
+
+## Phase 7: Retrieval Augmentation
+
+Before drafting/rewriting in the Script Engine:
+1. Query `corpus_scripts` for 3 structurally similar scripts (same production_type + genre)
+2. Extract **metrics only** (page count, scene count, act breaks, dialogue ratio) -- never full text
+3. Include these as constraint guidance in the generation prompt
+
+---
+
+## Phase 8: UI Additions
+
+**Corpus Insights Dashboard** (new component, accessible from Settings or Development view):
+- Median film length, pilot length by format
+- Dialogue averages by genre (bar chart)
+- Scene counts by format
+- Cast size and location complexity averages
+- Uses Recharts (already installed)
+
+**Deviation Gauge** (added to ScriptEnginePanel):
+- Structure deviation % vs corpus median
+- Dialogue deviation %
+- Length deviation %
+- Visual gauge/badge indicators
+
+---
+
+## Phase 9: Batch Ingestion Trigger
+
+Add a "Analyze All" button in the CorpusSourceManager that:
+1. Iterates through all ingested but unanalyzed scripts
+2. Queues them for the deep analysis pass (one at a time to avoid rate limits)
+3. Shows progress
+4. Triggers aggregation after all complete
+
+---
 
 ## Technical Details
 
-### Embedding Approach
+### Files to Create
+- `supabase/functions/analyze-corpus/index.ts` -- deep analysis + aggregation + playbook generation
+- `src/components/CorpusInsightsDashboard.tsx` -- admin insights UI
+- `src/components/DeviationGauge.tsx` -- deviation display component
+- `src/hooks/useCorpusInsights.ts` -- hook for fetching calibration data
 
-Since Lovable AI doesn't expose a dedicated embeddings endpoint, we'll use Gemini to generate a compact text summary per chunk and store it. For similarity search, we'll use cosine similarity on pgvector. Alternatively, if the gateway supports embeddings in the future, we can swap in. For now, a pragmatic approach: generate a "semantic fingerprint" JSON per chunk via Gemini and use keyword/full-text search as a fallback.
+### Files to Modify
+- `supabase/functions/ingest-corpus/index.ts` -- minor: set `analysis_status = 'pending'` on new scripts
+- `supabase/functions/script-engine/index.ts` -- inject corpus calibration into prompts
+- `supabase/functions/script-coverage/index.ts` -- add deviation scoring
+- `src/components/CorpusSourceManager.tsx` -- add "Analyze All" button
+- `src/components/CorpusLibrary.tsx` -- show analysis metrics
+- `src/components/ScriptEnginePanel.tsx` -- add deviation gauges
+- `src/components/ScriptCoverage.tsx` -- show deviation section
+- `src/hooks/useCorpus.ts` -- add hooks for analysis, aggregation, insights
+- `supabase/config.toml` -- register new edge function
 
-**Revised approach**: Use PostgreSQL full-text search (`tsvector`/`tsquery`) as the primary search mechanism, with the `embedding` column reserved for future use when an embeddings endpoint becomes available. This avoids hallucinating an API that doesn't exist.
+### Security
+- All new tables get RLS with `user_id = auth.uid()` policies
+- `corpus_insights` readable by all authenticated users (shared calibration data)
+- Full script text never exposed in UI -- only structural metrics and short snippets (<=25 words)
 
-### File Structure
+### Performance
+- Analysis uses `google/gemini-2.5-flash` with tool calling for structured output
+- Scripts analyzed one at a time with progress tracking
+- Aggregation is a lightweight SQL/JS pass over completed analyses
+- Rate limit handling with 429/402 error surfacing
 
-```text
-supabase/functions/ingest-corpus/index.ts    -- new edge function
-supabase/config.toml                         -- add function config
-src/components/CorpusLibrary.tsx              -- corpus browse UI
-src/components/CorpusSourceManager.tsx        -- admin source management
-src/hooks/useCorpus.ts                       -- data hooks
-```
-
-### Implementation Order
-
-1. Database migration (tables + pgvector + RLS + full-text search indexes)
-2. Edge function `ingest-corpus` with `ingest` and `search` actions
-3. Hook `useCorpus` for CRUD on sources and querying corpus
-4. UI: `CorpusSourceManager` (add/manage approved sources)
-5. UI: `CorpusLibrary` (browse ingested scripts + artifacts)
-6. Update `script-coverage` to optionally inject corpus benchmarks
-7. Add "Use Great Script Benchmarking" toggle to Coverage UI
