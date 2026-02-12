@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   ChevronLeft, ChevronRight, CheckCircle2, XCircle, HelpCircle, Pencil,
@@ -117,6 +117,28 @@ export function NotesReview({ notes, runId, projectId, projectType }: Props) {
   const goTo = (idx: number) => {
     if (idx >= 0 && idx < filteredNotes.length) setCurrentIndex(idx);
   };
+
+  // Swipe support
+  const touchStartX = useRef<number | null>(null);
+  const touchStartY = useRef<number | null>(null);
+
+  const onTouchStart = useCallback((e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0].clientX;
+    touchStartY.current = e.touches[0].clientY;
+  }, []);
+
+  const onTouchEnd = useCallback((e: React.TouchEvent) => {
+    if (touchStartX.current === null || touchStartY.current === null) return;
+    const dx = e.changedTouches[0].clientX - touchStartX.current;
+    const dy = e.changedTouches[0].clientY - touchStartY.current;
+    touchStartX.current = null;
+    touchStartY.current = null;
+    // Only trigger if horizontal swipe is dominant and > 50px
+    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+      if (dx < 0) goTo(currentIndex + 1); // swipe left → next
+      else goTo(currentIndex - 1); // swipe right → prev
+    }
+  }, [currentIndex, filteredNotes.length]);
 
   const handleTag = async (tag: string) => {
     if (!currentNote || !user) return;
@@ -364,10 +386,10 @@ export function NotesReview({ notes, runId, projectId, projectType }: Props) {
       </div>
 
       {/* Main Panel: Note Viewer */}
-      <div className="flex-1 min-w-0">
+      <div className="flex-1 min-w-0" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
         {!currentNote ? (
           <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
-            No notes match your filters
+            No notes match your filters. Swipe or use arrows to navigate.
           </div>
         ) : (
           <AnimatePresence mode="wait">
