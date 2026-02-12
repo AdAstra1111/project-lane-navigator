@@ -441,22 +441,45 @@ export function useCorpusHealth() {
   });
 }
 
-/** Re-ingest a truncated script by uploading a new file (PDF/FDX/TXT) */
+/** Re-ingest a truncated script by uploading a new file (PDF/FDX/TXT).
+ *  After successful re-ingest, auto-triggers analysis + aggregate rebuild if the script became healthy. */
 export function useReingestScript() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ scriptId, fileContent, fileName, fileType }: { scriptId: string; fileContent: string; fileName: string; fileType: string }) => {
+      // 1. Re-ingest the script
       const { data, error } = await supabase.functions.invoke('ingest-corpus', {
         body: { action: 'reingest', script_id: scriptId, file_content: fileContent, file_name: fileName, file_type: fileType },
       });
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
+
+      // 2. If script is now healthy, auto-trigger analysis + rebuild
+      if (!data.isTruncated) {
+        try {
+          // Trigger analysis for this script
+          await supabase.functions.invoke('analyze-corpus', {
+            body: { action: 'analyze', script_id: scriptId },
+          });
+          // Trigger aggregate rebuild
+          await supabase.functions.invoke('analyze-corpus', {
+            body: { action: 'aggregate' },
+          });
+        } catch {
+          // Non-fatal: analysis/rebuild can be done manually
+        }
+      }
+
       return data;
     },
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['corpus-health'] });
       qc.invalidateQueries({ queryKey: ['corpus-scripts'] });
-      toast.success(`Re-ingested: ${data.wordCount?.toLocaleString()} words, ~${data.pageEstimate} pages${data.isTruncated ? ' (still truncated)' : ' ✓ healthy'}`);
+      qc.invalidateQueries({ queryKey: ['corpus-calibrations'] });
+      qc.invalidateQueries({ queryKey: ['corpus-baselines'] });
+      qc.invalidateQueries({ queryKey: ['corpus-gold-baseline'] });
+      const healthMsg = data.isTruncated ? ' (still truncated)' : ' ✓ healthy — baselines rebuilding';
+      toast.success(`Re-ingested: ${data.wordCount?.toLocaleString()} words, ~${data.pageEstimate} pages${healthMsg}`);
     },
     onError: (e) => toast.error(`Re-ingest failed: ${e.message}`),
   });
