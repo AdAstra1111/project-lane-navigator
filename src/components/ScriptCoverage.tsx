@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 import {
   FileSearch, Loader2, ThumbsUp, ThumbsDown, Minus, ChevronDown, History,
   ArrowLeftRight, RotateCw, Star, CheckCircle2, XCircle, HelpCircle, Pencil,
-  BarChart3, BookOpen
+  BarChart3, BookOpen, ClipboardList
 } from 'lucide-react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Button } from '@/components/ui/button';
@@ -22,6 +22,8 @@ import { OperationProgress, EXTRACT_STAGES } from '@/components/OperationProgres
 import { useAuth } from '@/hooks/useAuth';
 import { format as fmtDate } from 'date-fns';
 import { GreatNotesLibrary } from '@/components/GreatNotesLibrary';
+import { NotesReview } from '@/components/NotesReview';
+import { StructuredNote } from '@/hooks/useNoteFeedback';
 
 const COVERAGE_3PASS_STAGES = [
   { at: 3, label: 'Pass A: Analyst diagnosis…' },
@@ -45,9 +47,12 @@ const PROBLEM_TYPES = [
   { value: 'general', label: 'General' },
 ];
 
-interface StructuredNote {
-  id: string;
-  text: string;
+// Legacy simple note shape (backward compat)
+interface SimpleNote {
+  id?: string;
+  note_id?: string;
+  text?: string;
+  note_text?: string;
 }
 
 interface NoteFeedback {
@@ -126,76 +131,58 @@ const TAG_STYLES: Record<string, { label: string; color: string }> = {
   edited: { label: '✏️ Edited', color: 'bg-primary/20 text-primary border-primary/30' },
 };
 
-function NoteActions({ note, runId, projectType, existingTag }: { note: StructuredNote; runId: string; projectType: string; existingTag?: NoteFeedback }) {
+// Helper to get note id/text from either old or new format
+function getNoteId(note: any): string { return note.note_id || note.id || ''; }
+function getNoteText(note: any): string { return note.note_text || note.text || ''; }
+
+function NoteActions({ note, runId, projectType, existingTag }: { note: any; runId: string; projectType: string; existingTag?: NoteFeedback }) {
   const { user } = useAuth();
   const [editOpen, setEditOpen] = useState(false);
   const [greatOpen, setGreatOpen] = useState(false);
   const [editText, setEditText] = useState('');
   const [problemType, setProblemType] = useState('general');
   const [tagged, setTagged] = useState<string | null>(existingTag?.tag || null);
+  const noteId = getNoteId(note);
+  const noteText = getNoteText(note);
 
   const handleTag = async (tag: string) => {
     if (!user) return;
-    if (tag === 'great') {
-      setGreatOpen(true);
-      return;
-    }
+    if (tag === 'great') { setGreatOpen(true); return; }
     try {
       await supabase.from('coverage_feedback_notes').insert({
-        coverage_run_id: runId,
-        note_id: note.id,
-        tag,
-        created_by: user.id,
+        coverage_run_id: runId, note_id: noteId, tag, created_by: user.id,
       } as any);
       setTagged(tag);
       toast.success(`Note tagged as ${tag}`);
-    } catch {
-      toast.error('Failed to tag note');
-    }
+    } catch { toast.error('Failed to tag note'); }
   };
 
   const handlePromoteGreat = async () => {
     if (!user) return;
     try {
       await supabase.from('coverage_feedback_notes').insert({
-        coverage_run_id: runId,
-        note_id: note.id,
-        tag: 'great',
-        created_by: user.id,
+        coverage_run_id: runId, note_id: noteId, tag: 'great', created_by: user.id,
       } as any);
-
       await supabase.from('great_notes_library').insert({
-        project_type: projectType,
-        problem_type: problemType,
-        note_text: note.text,
-        source_coverage_run_id: runId,
-        created_by: user.id,
+        project_type: projectType, problem_type: problemType,
+        note_text: noteText, source_coverage_run_id: runId, created_by: user.id,
       } as any);
-
       setTagged('great');
       setGreatOpen(false);
       toast.success('Note promoted to Great Notes library');
-    } catch {
-      toast.error('Failed to promote note');
-    }
+    } catch { toast.error('Failed to promote note'); }
   };
 
   const handleEdit = async () => {
     if (!user || !editText.trim()) return;
     try {
       await supabase.from('coverage_feedback_notes').insert({
-        coverage_run_id: runId,
-        note_id: note.id,
-        tag: 'edited',
-        user_edit: editText,
-        created_by: user.id,
+        coverage_run_id: runId, note_id: noteId, tag: 'edited', user_edit: editText, created_by: user.id,
       } as any);
       setTagged('edited');
       toast.success('Edited note saved');
       setEditOpen(false);
-    } catch {
-      toast.error('Failed to save edit');
-    }
+    } catch { toast.error('Failed to save edit'); }
   };
 
   return (
@@ -223,19 +210,17 @@ function NoteActions({ note, runId, projectType, existingTag }: { note: Structur
             </DialogTrigger>
             <DialogContent className="max-w-lg">
               <DialogHeader><DialogTitle>Edit Note</DialogTitle></DialogHeader>
-              <p className="text-xs text-muted-foreground mb-2">Original: {note.text}</p>
+              <p className="text-xs text-muted-foreground mb-2">Original: {noteText}</p>
               <Textarea value={editText} onChange={e => setEditText(e.target.value)} placeholder="Your corrected version…" rows={4} />
               <Button onClick={handleEdit} className="mt-2">Save Edit</Button>
             </DialogContent>
           </Dialog>
         </div>
       )}
-
-      {/* Great note promotion dialog with problem type selector */}
       <Dialog open={greatOpen} onOpenChange={setGreatOpen}>
         <DialogContent className="max-w-sm">
           <DialogHeader><DialogTitle>Promote to Great Notes</DialogTitle></DialogHeader>
-          <p className="text-xs text-muted-foreground mb-1">"{note.text.slice(0, 120)}…"</p>
+          <p className="text-xs text-muted-foreground mb-1">"{noteText.slice(0, 120)}…"</p>
           <div className="space-y-3 mt-2">
             <div>
               <label className="text-xs text-muted-foreground mb-1 block">Problem Type</label>
@@ -258,18 +243,22 @@ function NoteActions({ note, runId, projectType, existingTag }: { note: Structur
   );
 }
 
-function StructuredNotesView({ notes, runId, projectType, feedbackMap }: { notes: StructuredNote[]; runId: string; projectType: string; feedbackMap: Record<string, NoteFeedback> }) {
+function StructuredNotesView({ notes, runId, projectType, feedbackMap }: { notes: any[]; runId: string; projectType: string; feedbackMap: Record<string, NoteFeedback> }) {
   if (!notes?.length) return null;
   return (
     <div className="space-y-1.5 mt-4">
       <p className="text-xs text-muted-foreground uppercase tracking-wider">Structured Notes ({notes.length})</p>
-      {notes.map(note => (
-        <div key={note.id} className="group flex items-start gap-2 text-sm py-1 px-2 rounded hover:bg-muted/30">
-          <span className="text-[10px] text-muted-foreground font-mono shrink-0 mt-0.5">{note.id}</span>
-          <span className="text-foreground flex-1">{note.text}</span>
-          <NoteActions note={note} runId={runId} projectType={projectType} existingTag={feedbackMap[note.id]} />
-        </div>
-      ))}
+      {notes.map(note => {
+        const id = getNoteId(note);
+        const text = getNoteText(note);
+        return (
+          <div key={id} className="group flex items-start gap-2 text-sm py-1 px-2 rounded hover:bg-muted/30">
+            <span className="text-[10px] text-muted-foreground font-mono shrink-0 mt-0.5">{id}</span>
+            <span className="text-foreground flex-1">{text}</span>
+            <NoteActions note={note} runId={runId} projectType={projectType} existingTag={feedbackMap[id]} />
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -481,7 +470,7 @@ export function ScriptCoverage({ projectId, projectTitle, format, genres, hasDoc
           created_at: row.created_at,
           draft_label: row.draft_label,
           final_coverage: row.final_coverage,
-          structured_notes: (row.structured_notes || []) as StructuredNote[],
+          structured_notes: (row.structured_notes || []) as any[],
           metrics: (row.metrics || {}) as Record<string, any>,
           pass_a: row.pass_a,
           pass_b: row.pass_b,
@@ -703,7 +692,8 @@ export function ScriptCoverage({ projectId, projectTitle, format, genres, hasDoc
               <TabsList className="bg-muted/30">
                 <TabsTrigger value="coverage" className="text-xs">Final Coverage</TabsTrigger>
                 <TabsTrigger value="passes" className="text-xs">Analysis Passes</TabsTrigger>
-                <TabsTrigger value="notes" className="text-xs">Notes ({selectedRun.structured_notes?.length || 0})</TabsTrigger>
+                <TabsTrigger value="review" className="text-xs gap-1"><ClipboardList className="h-3 w-3" />Notes Review ({selectedRun.structured_notes?.length || 0})</TabsTrigger>
+                <TabsTrigger value="notes" className="text-xs">Notes List</TabsTrigger>
                 <TabsTrigger value="feedback" className="text-xs gap-1"><Star className="h-3 w-3" />Rate</TabsTrigger>
               </TabsList>
 
@@ -731,6 +721,15 @@ export function ScriptCoverage({ projectId, projectTitle, format, genres, hasDoc
                     </CollapsibleContent>
                   </Collapsible>
                 ))}
+              </TabsContent>
+
+              <TabsContent value="review" className="mt-4">
+                <NotesReview
+                  notes={selectedRun.structured_notes}
+                  runId={selectedRun.id}
+                  projectId={projectId}
+                  projectType={selectedRun.project_type}
+                />
               </TabsContent>
 
               <TabsContent value="notes" className="mt-4">
