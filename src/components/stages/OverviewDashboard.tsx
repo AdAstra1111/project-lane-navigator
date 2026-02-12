@@ -130,13 +130,13 @@ export function OverviewDashboard({
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">Confidence</span>
-                  <span className="font-medium text-foreground">{Math.round(project.confidence * 100)}%</span>
+                  <span className="font-medium text-foreground">{Math.round(project.confidence > 1 ? project.confidence : project.confidence * 100)}%</span>
                 </div>
                 <div className="h-2 rounded-full bg-muted overflow-hidden">
                   <motion.div
                     className="h-full rounded-full bg-primary"
                     initial={{ width: 0 }}
-                    animate={{ width: `${Math.round(project.confidence * 100)}%` }}
+                    animate={{ width: `${Math.min(100, Math.round(project.confidence > 1 ? project.confidence : project.confidence * 100))}%` }}
                     transition={{ duration: 0.8, ease: 'easeOut', delay: 0.3 }}
                   />
                 </div>
