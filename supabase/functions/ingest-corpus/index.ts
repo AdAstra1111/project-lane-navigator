@@ -77,7 +77,7 @@ async function handleIngest(
   addLog("Downloading source file…");
   let rawText = "";
 
-  if (source.format === "html") {
+  if (source.format === "html" || source.format === "imsdb") {
     const resp = await fetch(source.source_url);
     if (!resp.ok) throw new Error(`Failed to fetch HTML: ${resp.status}`);
     const html = await resp.text();
@@ -90,7 +90,14 @@ async function handleIngest(
     const pdfResp = await fetch(source.source_url);
     if (!pdfResp.ok) throw new Error(`Failed to fetch PDF: ${pdfResp.status}`);
     const pdfBuffer = await pdfResp.arrayBuffer();
-    const base64Pdf = btoa(String.fromCharCode(...new Uint8Array(pdfBuffer.slice(0, 4_000_000))));
+    // Use chunked conversion to avoid stack overflow with large arrays
+    const bytes = new Uint8Array(pdfBuffer.slice(0, 4_000_000));
+    let binary = "";
+    const chunkSize = 8192;
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      binary += String.fromCharCode(...bytes.subarray(i, Math.min(i + chunkSize, bytes.length)));
+    }
+    const base64Pdf = btoa(binary);
 
     const aiResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
