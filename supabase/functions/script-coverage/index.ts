@@ -174,11 +174,51 @@ Each note: {"note_id":"N-001","section":"string","category":"structure|character
     }
     console.log(`[coverage] ${structuredNotes.length} notes, total ${Date.now() - t0}ms`);
 
-    // Strip JSON code blocks (structured_notes) from the coverage text so it reads as English
-    const finalCoverage = passBResult
-      .replace(/```(?:json)?\s*[\s\S]*?```/g, '')
-      .replace(/\{[\s\S]*?"structured_notes"[\s\S]*?\}\s*$/g, '')
-      .trim();
+    // Build final coverage: if the AI returned pure JSON, extract prose from the structured data
+    let finalCoverage = passBResult;
+    
+    // Check if the response is primarily JSON (starts with ``` or {)
+    const trimmedB = passBResult.trim();
+    const isPureJSON = trimmedB.startsWith('```') || trimmedB.startsWith('{');
+    
+    if (isPureJSON && parsed) {
+      // AI returned structured JSON — synthesize a readable coverage from it
+      const parts: string[] = [];
+      if (parsed.verdict || parsed.recommendation) {
+        parts.push(`**VERDICT: ${parsed.verdict || parsed.recommendation || 'CONSIDER'}**\n`);
+      }
+      if (parsed.logline) parts.push(`**Logline:** ${parsed.logline}\n`);
+      if (parsed.summary) parts.push(`**Summary:** ${parsed.summary}\n`);
+      if (parsed.strengths_with_evidence?.length) {
+        parts.push('## Strengths');
+        for (const s of parsed.strengths_with_evidence) {
+          parts.push(`- **${s.finding}**${s.evidence ? ` — _"${String(s.evidence).slice(0, 120)}…"_` : ''}`);
+        }
+      }
+      if (parsed.problems_with_evidence?.length) {
+        parts.push('\n## Areas for Improvement');
+        for (const p of parsed.problems_with_evidence) {
+          parts.push(`- **${p.finding}**${p.evidence ? ` — _"${String(p.evidence).slice(0, 120)}…"_` : ''}`);
+        }
+      }
+      if (parsed.top_diagnostics?.length) {
+        parts.push('\n## Key Diagnostics');
+        for (const d of parsed.top_diagnostics) {
+          parts.push(`${d.rank}. ${d.diagnosis}`);
+        }
+      }
+      finalCoverage = parts.join('\n');
+    } else {
+      // AI returned prose with an embedded JSON block — strip only the JSON block
+      finalCoverage = passBResult
+        .replace(/```(?:json)?\s*\{[\s\S]*?"structured_notes"[\s\S]*?\}[\s\S]*?```/g, '')
+        .trim();
+    }
+    
+    if (!finalCoverage || finalCoverage.length < 20) {
+      finalCoverage = passBResult; // fallback: show raw if stripping removed too much
+    }
+    
     const recommendation = finalCoverage.match(/RECOMMEND|CONSIDER|PASS/)?.[0] || "CONSIDER";
 
     // Save coverage run
