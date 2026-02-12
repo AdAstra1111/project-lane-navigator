@@ -303,39 +303,54 @@ Also extract up to 30 scene patterns and up to 15 character profiles.`;
 
     // ═══ ACTION: AGGREGATE (build calibration + baseline models) ═══
     if (action === "aggregate") {
-      const { data: completed } = await db
+      const { data: allCompleted } = await db
         .from("corpus_scripts")
         .select("*")
         .eq("user_id", user.id)
         .eq("analysis_status", "complete");
 
-      if (!completed?.length) throw new Error("No completed analyses to aggregate");
+      if (!allCompleted?.length) throw new Error("No completed analyses to aggregate");
 
-      // ─── Fix IMSDB page count distortion ───
-      // For scripts where page_count seems too low relative to word_count,
-      // recalculate using word_count / 250 (standard screenplay page estimate)
-      for (const s of completed) {
+      // ─── Fix page count distortion + detect truncation ───
+      const truncationThresholds: Record<string, number> = {
+        "film": 12000, "feature": 12000, "short-film": 3000,
+        "tv-series": 7000, "tv-pilot": 7000, "documentary": 5000,
+      };
+
+      for (const s of allCompleted) {
+        // Recalculate word-based page count
         if (s.word_count && s.word_count > 0) {
           const wordBasedPages = Math.ceil(s.word_count / 250);
-          // If word-based estimate is significantly higher, use it
           if (s.page_count && wordBasedPages > s.page_count * 1.5) {
             s.page_count = wordBasedPages;
           } else if (!s.page_count || s.page_count < 5) {
             s.page_count = wordBasedPages;
           }
         }
-        // Fallback: scene_count heuristic (avg ~1.5 pages per scene for film)
+        // Fallback: scene_count heuristic
         if ((!s.page_count || s.page_count < 10) && s.scene_count && s.scene_count > 0) {
           const sceneBasedPages = Math.round(s.scene_count * 1.5);
           if (sceneBasedPages > (s.page_count || 0)) {
             s.page_count = sceneBasedPages;
           }
         }
-        // Recalculate runtime from corrected page count
+        // Recalculate runtime
         if (s.page_count && (!s.runtime_est || s.runtime_est < s.page_count * 0.7)) {
-          s.runtime_est = s.page_count; // 1:1 page-to-minute ratio
+          s.runtime_est = s.page_count;
         }
+        // Mark truncation
+        const minWords = truncationThresholds[s.production_type || "film"] || 12000;
+        const wc = s.word_count || 0;
+        s._is_truncated = wc < minWords;
       }
+
+      // Filter: only non-truncated scripts for baselines
+      const completed = allCompleted.filter((s: any) => !s._is_truncated);
+      const truncatedCount = allCompleted.length - completed.length;
+
+      // If filtering leaves too few scripts, fall back to all (with warning)
+      const useAll = completed.length < 3;
+      const effectiveCompleted = useAll ? allCompleted : completed;
 
       // Clear existing insights for this user
       await db.from("corpus_insights").delete()
@@ -346,7 +361,7 @@ Also extract up to 30 scene patterns and up to 15 character profiles.`;
 
       // ─── 1) CALIBRATION by production_type (backward compat) ───
       const ptGroups: Record<string, any[]> = {};
-      for (const s of completed) {
+      for (const s of effectiveCompleted) {
         const key = s.production_type || "film";
         if (!ptGroups[key]) ptGroups[key] = [];
         ptGroups[key].push(s);
@@ -354,6 +369,8 @@ Also extract up to 30 scene patterns and up to 15 character profiles.`;
 
       for (const [prodType, scripts] of Object.entries(ptGroups)) {
         const pattern = buildBaselinePattern(scripts);
+        pattern.truncated_excluded_count = truncatedCount;
+        pattern.used_fallback = useAll;
         insights.push({
           user_id: user.id,
           insight_type: "calibration",
@@ -366,7 +383,7 @@ Also extract up to 30 scene patterns and up to 15 character profiles.`;
 
       // ─── 2) BASELINE_PROFILE by production_type + genre ───
       const genreGroups: Record<string, any[]> = {};
-      for (const s of completed) {
+      for (const s of effectiveCompleted) {
         const pt = s.production_type || "film";
         const genre = (s.genre || "unknown").toLowerCase();
         const key = `${pt}::${genre}`;
@@ -375,14 +392,14 @@ Also extract up to 30 scene patterns and up to 15 character profiles.`;
       }
 
       for (const [key, scripts] of Object.entries(genreGroups)) {
-        if (scripts.length < 2) continue; // need at least 2 for a meaningful baseline
+        if (scripts.length < 2) continue;
         const [prodType, genre] = key.split("::");
         const pattern = buildBaselinePattern(scripts);
         insights.push({
           user_id: user.id,
           insight_type: "baseline_profile",
           production_type: prodType,
-          lane: genre, // store genre in lane field for baseline_profile
+          lane: genre,
           pattern: { ...pattern, genre },
           weight: scripts.length,
         });
@@ -454,7 +471,7 @@ Also extract up to 30 scene patterns and up to 15 character profiles.`;
       };
 
       for (const [lane, filter] of Object.entries(laneMapping)) {
-        const laneScripts = completed.filter(filter);
+        const laneScripts = effectiveCompleted.filter(filter);
         if (laneScripts.length < 2) continue;
         const pattern = buildBaselinePattern(laneScripts);
         insights.push({
@@ -468,7 +485,8 @@ Also extract up to 30 scene patterns and up to 15 character profiles.`;
       }
 
       // ─── 5) GOLD BASELINE: separate profile from gold-flagged scripts ───
-      const goldScripts = completed.filter((s: any) => s.gold_flag);
+      // For gold, also exclude truncated
+      const goldScripts = effectiveCompleted.filter((s: any) => s.gold_flag);
       if (goldScripts.length >= 1) {
         // Overall gold baseline
         const goldPattern = buildBaselinePattern(goldScripts);
@@ -515,7 +533,10 @@ Also extract up to 30 scene patterns and up to 15 character profiles.`;
       return new Response(JSON.stringify({
         success: true,
         groups: Object.keys(ptGroups).length,
-        total: completed.length,
+        total: allCompleted.length,
+        used_non_truncated: effectiveCompleted.length,
+        truncated_excluded: truncatedCount,
+        used_fallback: useAll,
         insights_generated: counts,
         gold_count: goldScripts.length,
       }), {

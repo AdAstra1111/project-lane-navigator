@@ -195,6 +195,31 @@ async function handleIngest(
   const checksum = await sha256(rawText);
   addLog(`Checksum: ${checksum}`);
 
+  // 3b. Compute ingestion quality metrics
+  const rawTextLengthChars = rawText.length;
+  const wordCount = rawText.split(/\s+/).filter(Boolean).length;
+  const lineCount = rawText.split("\n").length;
+  const ingestionSource = source.format === "imsdb" ? "imsdb" : source.format === "html" ? "html" : "pdf";
+
+  // Truncation detection thresholds
+  const truncationThresholds: Record<string, number> = {
+    "film": 12000, "feature": 12000, "short-film": 3000,
+    "tv-series": 7000, "tv-pilot": 7000, "documentary": 5000,
+  };
+  // We don't know production_type yet at ingest time, so use film default
+  const minWords = 12000;
+  const isTruncated = wordCount < minWords;
+  const truncationReason = isTruncated
+    ? `word_count ${wordCount} < ${minWords} threshold (likely incomplete extraction from ${ingestionSource})`
+    : null;
+
+  // Page count: use word_count / 250 (standard screenplay page)
+  const pageEstimate = Math.max(1, Math.ceil(wordCount / 250));
+  // Parse confidence based on word count relative to expected range
+  const parseConfidence = Math.min(1, wordCount / 20000); // 1.0 at 20k+ words
+
+  addLog(`Quality: ${wordCount} words, ${lineCount} lines, ${pageEstimate} pages est, truncated=${isTruncated}, confidence=${parseConfidence.toFixed(2)}`);
+
   // 4. Upload raw text to storage
   const storagePath = `corpus/raw/${checksum}.txt`;
   const { error: uploadErr } = await db.storage.from("scripts").upload(storagePath, rawText, {
@@ -205,7 +230,6 @@ async function handleIngest(
   else addLog("Raw text uploaded to storage");
 
   // 5. Create corpus_scripts record
-  const pageEstimate = Math.round(rawText.length / 3000); // ~3000 chars per screenplay page
   const { data: scriptRec, error: insErr } = await db
     .from("corpus_scripts")
     .insert({
@@ -214,8 +238,15 @@ async function handleIngest(
       checksum,
       raw_storage_path: storagePath,
       page_count_estimate: pageEstimate,
+      word_count: wordCount,
       ingestion_status: "processing",
       ingestion_log: log.join("\n"),
+      ingestion_source: ingestionSource,
+      raw_text_length_chars: rawTextLengthChars,
+      line_count: lineCount,
+      is_truncated: isTruncated,
+      truncation_reason: truncationReason,
+      parse_confidence: parseConfidence,
     })
     .select()
     .single();
@@ -341,8 +372,15 @@ ${excerpt}`,
     ingestion_status: "complete",
     ingestion_log: log.join("\n"),
     page_count_estimate: pageEstimate,
+    word_count: wordCount,
     analysis_status: "pending",
     title: source.title || "",
+    ingestion_source: ingestionSource,
+    raw_text_length_chars: rawTextLengthChars,
+    line_count: lineCount,
+    is_truncated: isTruncated,
+    truncation_reason: truncationReason,
+    parse_confidence: parseConfidence,
   }).eq("id", scriptId);
 
   return new Response(JSON.stringify({ success: true, script_id: scriptId, pages: pageEstimate, scenes: scenes.length, chunks: chunks.length }), {
