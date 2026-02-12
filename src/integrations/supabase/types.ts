@@ -2007,6 +2007,99 @@ export type Database = {
         }
         Relationships: []
       }
+      masterwork_canon: {
+        Row: {
+          act1_break_pct: number | null
+          act2_break_pct: number | null
+          active: boolean
+          awards_recognition: string
+          box_office_tier: string
+          budget_tier: string
+          character_objective_clarity: string | null
+          created_at: string
+          dataset_type: string
+          dialogue_compression: string | null
+          dialogue_density: string
+          emotional_layering: string | null
+          escalation_pattern: string
+          escalation_velocity: string | null
+          format: string
+          genre: string
+          id: string
+          inciting_incident_pct: number | null
+          midpoint_pct: number | null
+          monetisation_lane: string
+          scene_purpose_density: string | null
+          structural_model: string
+          thematic_depth: string
+          third_act_type: string
+          title: string
+          updated_at: string
+          weight: string
+          year: number
+        }
+        Insert: {
+          act1_break_pct?: number | null
+          act2_break_pct?: number | null
+          active?: boolean
+          awards_recognition?: string
+          box_office_tier?: string
+          budget_tier?: string
+          character_objective_clarity?: string | null
+          created_at?: string
+          dataset_type?: string
+          dialogue_compression?: string | null
+          dialogue_density?: string
+          emotional_layering?: string | null
+          escalation_pattern?: string
+          escalation_velocity?: string | null
+          format?: string
+          genre: string
+          id?: string
+          inciting_incident_pct?: number | null
+          midpoint_pct?: number | null
+          monetisation_lane?: string
+          scene_purpose_density?: string | null
+          structural_model?: string
+          thematic_depth?: string
+          third_act_type?: string
+          title: string
+          updated_at?: string
+          weight?: string
+          year: number
+        }
+        Update: {
+          act1_break_pct?: number | null
+          act2_break_pct?: number | null
+          active?: boolean
+          awards_recognition?: string
+          box_office_tier?: string
+          budget_tier?: string
+          character_objective_clarity?: string | null
+          created_at?: string
+          dataset_type?: string
+          dialogue_compression?: string | null
+          dialogue_density?: string
+          emotional_layering?: string | null
+          escalation_pattern?: string
+          escalation_velocity?: string | null
+          format?: string
+          genre?: string
+          id?: string
+          inciting_incident_pct?: number | null
+          midpoint_pct?: number | null
+          monetisation_lane?: string
+          scene_purpose_density?: string | null
+          structural_model?: string
+          thematic_depth?: string
+          third_act_type?: string
+          title?: string
+          updated_at?: string
+          weight?: string
+          year?: number
+        }
+        Relationships: []
+      }
       model_accuracy_scores: {
         Row: {
           accuracy_pct: number
