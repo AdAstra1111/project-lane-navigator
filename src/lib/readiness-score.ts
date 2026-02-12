@@ -46,6 +46,7 @@ export function calculateReadiness(
   budgetSummary?: BudgetSummary,
   scheduleMetrics?: ScheduleMetrics,
   trendAdjustment?: TrendReadinessAdjustment,
+  coverageVerdict?: string,
 ): ReadinessResult {
   const strengths: string[] = [];
   const blockers: string[] = [];
@@ -69,6 +70,18 @@ export function calculateReadiness(
   }
   if (analysis?.structural_read) {
     scriptScore = Math.min(25, scriptScore + 5);
+  }
+
+  // Coverage verdict bonus/penalty
+  const verdict = coverageVerdict || project.script_coverage_verdict;
+  if (verdict === 'RECOMMEND') {
+    scriptScore = Math.min(25, scriptScore + 5);
+    strengths.push('Script coverage: RECOMMEND');
+  } else if (verdict === 'CONSIDER') {
+    scriptScore = Math.min(25, scriptScore + 2);
+    strengths.push('Script coverage: CONSIDER');
+  } else if (verdict === 'PASS') {
+    blockers.push('Script coverage: PASS — consider revisions');
   }
 
   // ---- Packaging (30 points): Cast 10 + HODs 10 + Partners 10 ----
