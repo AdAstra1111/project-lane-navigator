@@ -15,30 +15,42 @@ const FORMAT_LABELS: Record<string, string> = {
   "vertical-drama": "Vertical Drama",
 };
 
-async function callAI(apiKey: string, systemPrompt: string, userPrompt: string, temperature = 0.25, model = "google/gemini-2.5-flash"): Promise<string> {
-  const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
-      temperature,
-    }),
-  });
+const MAX_SCRIPT_CHARS = 15000;
+const FAST_MODEL = "google/gemini-2.5-flash-lite";
 
-  if (!response.ok) {
-    if (response.status === 429) throw new Error("Rate limit exceeded. Please try again in a moment.");
-    if (response.status === 402) throw new Error("AI usage limit reached. Please add credits.");
-    const errText = await response.text();
-    console.error("AI gateway error:", response.status, errText);
-    throw new Error("AI analysis failed");
+async function callAI(apiKey: string, systemPrompt: string, userPrompt: string, temperature = 0.25): Promise<string> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 55000); // 55s per call max
+
+  try {
+    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: FAST_MODEL,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        temperature,
+        max_tokens: 4000,
+      }),
+    });
+
+    if (!response.ok) {
+      if (response.status === 429) throw new Error("Rate limit exceeded. Please try again in a moment.");
+      if (response.status === 402) throw new Error("AI usage limit reached. Please add credits.");
+      const errText = await response.text();
+      console.error("AI gateway error:", response.status, errText);
+      throw new Error("AI analysis failed");
+    }
+
+    const data = await response.json();
+    return data.choices?.[0]?.message?.content || "";
+  } finally {
+    clearTimeout(timeout);
   }
-
-  const data = await response.json();
-  return data.choices?.[0]?.message?.content || "";
 }
 
 function parseJSON(raw: string): any {
@@ -50,29 +62,6 @@ function parseJSON(raw: string): any {
   } catch {
     return null;
   }
-}
-
-// Infer top problem types from Pass A output for targeted RAG retrieval
-function inferProblemTypes(passAOutput: string): string[] {
-  const problemKeywords: Record<string, string[]> = {
-    structure: ["structure", "act ", "turning point", "midpoint", "climax", "sequence", "plot"],
-    character: ["character", "protagonist", "antagonist", "arc", "motivation", "want", "need"],
-    dialogue: ["dialogue", "exposition", "subtext", "voice", "speech"],
-    theme: ["theme", "thematic", "meaning", "message", "moral"],
-    pacing: ["pacing", "pace", "slow", "rushed", "tempo", "momentum"],
-    stakes: ["stakes", "tension", "conflict", "jeopardy", "risk"],
-    tone: ["tone", "tonal", "mood", "atmosphere", "genre consistency"],
-    market: ["market", "audience", "commercial", "positioning", "buyer", "sales"],
-  };
-
-  const lower = passAOutput.toLowerCase();
-  const scores: [string, number][] = Object.entries(problemKeywords).map(([type, keywords]) => {
-    const count = keywords.reduce((sum, kw) => sum + (lower.split(kw).length - 1), 0);
-    return [type, count];
-  });
-
-  scores.sort((a, b) => b[1] - a[1]);
-  return scores.filter(s => s[1] > 0).slice(0, 4).map(s => s[0]);
 }
 
 serve(async (req) => {
@@ -111,96 +100,49 @@ serve(async (req) => {
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
 
     const formatLabel = FORMAT_LABELS[format] || "Film";
-    // Aggressive truncation to fit within timeout
-    const truncatedScript = scriptText.slice(0, 30000);
+    const truncatedScript = scriptText.slice(0, MAX_SCRIPT_CHARS);
     const t0 = Date.now();
-    console.log(`[coverage] start, script length: ${scriptText.length}, truncated: ${truncatedScript.length}`);
+    console.log(`[coverage] start, input=${scriptText.length}, truncated=${truncatedScript.length}`);
 
-    // Fetch house style + prompt version in parallel
+    // Fetch prompt version
     const adminClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-    
-    const [houseStyleResult, promptVersionResult] = await Promise.all([
-      adminClient.from("house_style").select("preferences").limit(1).single(),
-      promptVersionId 
-        ? adminClient.from("coverage_prompt_versions").select("*").eq("id", promptVersionId).single()
-        : adminClient.from("coverage_prompt_versions").select("*").eq("status", "active").limit(1).single(),
-    ]);
-    const houseStyle = houseStyleResult.data?.preferences || {};
-    const promptVersion = promptVersionResult.data;
+    const { data: promptVersion } = promptVersionId 
+      ? await adminClient.from("coverage_prompt_versions").select("*").eq("id", promptVersionId).single()
+      : await adminClient.from("coverage_prompt_versions").select("*").eq("status", "active").limit(1).single();
 
     if (!promptVersion) throw new Error("No active prompt version found");
-    console.log(`[coverage] db lookups done in ${Date.now() - t0}ms`);
+    console.log(`[coverage] db done ${Date.now() - t0}ms`);
 
-    const projectMeta = `PROJECT TYPE: ${formatLabel}\nGENRES: ${(genres || []).join(", ") || "Not specified"}\nLANE: ${lane || "Not specified"}\nHOUSE STYLE: ${JSON.stringify(houseStyle)}`;
+    const projectMeta = `TYPE: ${formatLabel} | GENRES: ${(genres || []).join(", ") || "N/A"} | LANE: ${lane || "N/A"}`;
 
-    // Use flash-lite for ALL passes to maximize speed
-    const FAST_MODEL = "google/gemini-2.5-flash-lite";
+    // =========== PASS A: ANALYST (diagnostic read) ===========
+    const passAResult = await callAI(
+      LOVABLE_API_KEY,
+      promptVersion.analyst_prompt,
+      `${projectMeta}\n\nSCRIPT:\n${truncatedScript}`,
+      0.2
+    );
+    console.log(`[coverage] A done ${Date.now() - t0}ms`);
 
-    // =========== PASS A: ANALYST ===========
-    const passAUser = `${projectMeta}\n\nSCRIPT TEXT:\n${truncatedScript}\n\n${truncatedScript.length >= 30000 ? "[Note: Script truncated at 30k chars]" : ""}`;
-    const passAResult = await callAI(LOVABLE_API_KEY, promptVersion.analyst_prompt, passAUser, 0.2, FAST_MODEL);
-    console.log(`[coverage] Pass A done in ${Date.now() - t0}ms`);
+    // =========== PASS B: PRODUCER (final coverage + structured notes) ===========
+    const passBSystem = promptVersion.producer_prompt + `
 
-    // =========== RAG: Skip heavy queries, just do a quick exemplar fetch ===========
-    const inferredTypes = inferProblemTypes(passAResult);
-    let exemplarBlock = "";
-    if (inferredTypes.length > 0) {
-      const { data: exemplars } = await adminClient
-        .from("great_notes_library")
-        .select("note_text, problem_type")
-        .eq("project_type", formatLabel)
-        .in("problem_type", inferredTypes)
-        .limit(4);
-      if (exemplars?.length) {
-        exemplarBlock = "\n\nSTYLE EXEMPLARS:\n" +
-          exemplars.map((e: any, i: number) => `${i + 1}. [${e.problem_type}] ${e.note_text}`).join("\n");
-      }
-    }
-    console.log(`[coverage] RAG done in ${Date.now() - t0}ms`);
+ALSO include a "structured_notes" JSON array at the end of your response inside a \`\`\`json block.
+Each note: {"note_id":"N-001","section":"string","category":"structure|character|dialogue|theme|market|pacing|stakes|tone","priority":1-3,"title":"short","note_text":"full note","prescription":"what to do","tags":["act1"]}`;
 
-    // =========== PASS B: PRODUCER/STORY EDITOR ===========
-    const passBUser = `${projectMeta}\n\nANALYST DIAGNOSTICS (Pass A):\n${passAResult}${exemplarBlock}\n\nProduce FINAL COVERAGE strictly matching the Output Contract.`;
-    const passBResult = await callAI(LOVABLE_API_KEY, promptVersion.producer_prompt, passBUser, 0.3, FAST_MODEL);
-    console.log(`[coverage] Pass B done in ${Date.now() - t0}ms`);
+    const passBResult = await callAI(
+      LOVABLE_API_KEY,
+      passBSystem,
+      `${projectMeta}\n\nANALYST DIAGNOSTICS:\n${passAResult}\n\nProduce FINAL COVERAGE with verdict (RECOMMEND/CONSIDER/PASS).`,
+      0.3
+    );
+    console.log(`[coverage] B done ${Date.now() - t0}ms`);
 
-    // =========== PASS C: QC + STRUCTURED NOTES ===========
-    const passCSystem = promptVersion.qc_prompt + `
-
-ADDITIONAL REQUIREMENT: After the QC fields, include a "structured_notes" array in your JSON output.
-Extract ALL actionable notes from the coverage into this array. Each note object:
-{
-  "note_id": "N-001",
-  "section": "WHAT'S NOT WORKING",
-  "category": "structure",
-  "priority": 1,
-  "title": "Short title",
-  "note_text": "Full note text",
-  "evidence": [{"type":"scene","ref":"SCENE 12"}],
-  "prescription": "What to do",
-  "safe_fix": "Conservative fix",
-  "bold_fix": "Ambitious fix",
-  "tags": ["act1"]
-}
-Rules: sequential IDs, every note needs evidence, category one of: structure|character|dialogue|theme|market|pacing|stakes|tone.`;
-
-    const passCUser = `PASS B FINAL COVERAGE:\n${passBResult}\n\nPASS A DIAGNOSTICS (for cross-check):\n${passAResult.slice(0, 10000)}\n\nEnforce Output Contract. Return JSON with cleaned_coverage, metrics, AND structured_notes array.`;
-    const passCResult = await callAI(LOVABLE_API_KEY, passCSystem, passCUser, 0.15, FAST_MODEL);
-    console.log(`[coverage] Pass C done in ${Date.now() - t0}ms`);
-
-    // Parse QC output (now includes structured_notes)
-    const qcParsed = parseJSON(passCResult);
-    const finalCoverage = qcParsed?.cleaned_coverage || passBResult;
-    const metrics = qcParsed?.metrics || {};
-    const hallucinations = qcParsed?.hallucination_flags || [];
-    metrics.hallucinations_count = hallucinations.length;
-    metrics.inferred_problem_types = inferredTypes;
-    metrics.exemplar_count = exemplarBlock ? (exemplarBlock.match(/\d+\./g)?.length || 0) : 0;
-
-    // Extract structured notes from QC output
+    // Parse structured notes from Pass B
     let structuredNotes: any[] = [];
-    const rawNotes = qcParsed?.structured_notes;
-    if (Array.isArray(rawNotes) && rawNotes.length > 0) {
-      structuredNotes = rawNotes.map((n: any, i: number) => ({
+    const parsed = parseJSON(passBResult);
+    if (parsed?.structured_notes && Array.isArray(parsed.structured_notes)) {
+      structuredNotes = parsed.structured_notes.map((n: any, i: number) => ({
         note_id: n.note_id || `N-${String(i + 1).padStart(3, '0')}`,
         section: n.section || 'GENERAL',
         category: n.category || 'general',
@@ -214,9 +156,9 @@ Rules: sequential IDs, every note needs evidence, category one of: structure|cha
         tags: Array.isArray(n.tags) ? n.tags : [],
       }));
     } else {
-      // Fallback: parse bullet points from final coverage
-      const noteLines = finalCoverage.split("\n").filter((l: string) => l.match(/^[-•*]\s|^\d+\./));
-      structuredNotes = noteLines.map((line: string, i: number) => ({
+      // Fallback: extract bullet points
+      const noteLines = passBResult.split("\n").filter((l: string) => l.match(/^[-•*]\s|^\d+\./));
+      structuredNotes = noteLines.slice(0, 20).map((line: string, i: number) => ({
         note_id: `N-${String(i + 1).padStart(3, '0')}`,
         section: 'GENERAL',
         category: 'general',
@@ -230,61 +172,53 @@ Rules: sequential IDs, every note needs evidence, category one of: structure|cha
         tags: [],
       }));
     }
-    console.log(`[coverage] Extracted ${structuredNotes.length} structured notes, total elapsed: ${Date.now() - t0}ms`);
+    console.log(`[coverage] ${structuredNotes.length} notes, total ${Date.now() - t0}ms`);
+
+    const finalCoverage = passBResult;
+    const recommendation = finalCoverage.match(/RECOMMEND|CONSIDER|PASS/)?.[0] || "CONSIDER";
 
     // Save coverage run
-    const runData = {
-      project_id: projectId,
-      script_id: scriptId,
-      prompt_version_id: promptVersion.id,
-      model: "google/gemini-2.5-flash",
-      project_type: formatLabel,
-      lane: lane || null,
-      inputs: {
-        chunk_size: 50000,
-        temperature: [0.2, 0.3, 0.15],
-        exemplar_count: metrics.exemplar_count,
-        inferred_problem_types: inferredTypes,
-      },
-      pass_a: passAResult,
-      pass_b: passBResult,
-      pass_c: passCResult,
-      final_coverage: finalCoverage,
-      structured_notes: structuredNotes,
-      metrics,
-      draft_label: draftLabel || "Draft 1",
-      created_by: userId,
-    };
-
     const { data: inserted, error: insertErr } = await supabase
       .from("coverage_runs")
-      .insert(runData)
+      .insert({
+        project_id: projectId,
+        script_id: scriptId,
+        prompt_version_id: promptVersion.id,
+        model: FAST_MODEL,
+        project_type: formatLabel,
+        lane: lane || null,
+        inputs: { chunk_size: MAX_SCRIPT_CHARS, temperature: [0.2, 0.3] },
+        pass_a: passAResult,
+        pass_b: passBResult,
+        pass_c: "",
+        final_coverage: finalCoverage,
+        structured_notes: structuredNotes,
+        metrics: { notes_count: structuredNotes.length, elapsed_ms: Date.now() - t0 },
+        draft_label: draftLabel || "Draft 1",
+        created_by: userId,
+      })
       .select("id, created_at")
       .single();
 
-    if (insertErr) {
-      console.error("Failed to save coverage run:", insertErr);
-    }
+    if (insertErr) console.error("Save error:", insertErr);
 
     // Update project verdict
-    const recommendation = finalCoverage.match(/RECOMMEND|CONSIDER|PASS/)?.[0] || "CONSIDER";
-    await supabase
-      .from("projects")
-      .update({ script_coverage_verdict: recommendation })
-      .eq("id", projectId);
+    await supabase.from("projects").update({ script_coverage_verdict: recommendation }).eq("id", projectId);
+
+    console.log(`[coverage] complete in ${Date.now() - t0}ms`);
 
     return new Response(JSON.stringify({
       id: inserted?.id,
       created_at: inserted?.created_at,
       final_coverage: finalCoverage,
       structured_notes: structuredNotes,
-      metrics,
+      metrics: { notes_count: structuredNotes.length, elapsed_ms: Date.now() - t0 },
       pass_a: passAResult,
       pass_b: passBResult,
-      pass_c: passCResult,
+      pass_c: "",
       recommendation,
-      qc_changelog: qcParsed?.qc_changelog || [],
-      hallucination_flags: hallucinations,
+      qc_changelog: [],
+      hallucination_flags: [],
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

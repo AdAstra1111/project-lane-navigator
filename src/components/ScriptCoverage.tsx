@@ -558,8 +558,8 @@ export function ScriptCoverage({ projectId, projectTitle, format, genres, hasDoc
         return;
       }
 
-      // Truncate client-side to keep request payload manageable (30k chars max)
-      const trimmedScript = scriptText.slice(0, 30000);
+      // Truncate client-side to keep request payload manageable (15k chars max)
+      const trimmedScript = scriptText.slice(0, 15000);
 
       let scriptId: string | null = null;
       const { data: existingScripts } = await supabase
