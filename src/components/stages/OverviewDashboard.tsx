@@ -16,11 +16,12 @@ import { ProjectCommentsThread } from '@/components/ProjectCommentsThread';
 import { ProjectTimeline } from '@/components/ProjectTimeline';
 import { ProjectChat } from '@/components/ProjectChat';
 import { DecisionJournal } from '@/components/DecisionJournal';
-import { LIFECYCLE_STAGES, type LifecycleStage, getStageOrder } from '@/lib/lifecycle-stages';
+import { LIFECYCLE_STAGES, type LifecycleStage, getStageOrder, getStageMeta } from '@/lib/lifecycle-stages';
 import { Badge } from '@/components/ui/badge';
 import type { Project, MonetisationLane, PipelineStage } from '@/lib/types';
 import type { ReadinessResult } from '@/lib/readiness-score';
 import type { StageGates } from '@/lib/pipeline-gates';
+import type { MasterViabilityResult } from '@/lib/master-viability';
 
 interface Props {
   project: Project;
@@ -35,18 +36,65 @@ interface Props {
   currentUserId: string | null;
   lifecycleStage: LifecycleStage;
   onNavigateToStage: (stage: string) => void;
+  masterViability: MasterViabilityResult | null;
 }
 
 export function OverviewDashboard({
   project, projectId, readiness, tvReadiness, modeReadiness,
   isTV, isAlternateMode, scoreHistory, nextStageGates,
-  currentUserId, lifecycleStage, onNavigateToStage,
+  currentUserId, lifecycleStage, onNavigateToStage, masterViability,
 }: Props) {
   const currentOrder = getStageOrder(lifecycleStage);
 
   return (
     <div className="space-y-4">
-      {/* Readiness Score */}
+      {/* Master Viability Score */}
+      {masterViability && (
+        <div className="glass-card rounded-xl p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <Gauge className="h-4 w-4 text-primary" />
+            <h3 className="font-display font-semibold text-foreground text-lg">Project Viability</h3>
+            <Badge className={`ml-auto text-xs ${
+              masterViability.score >= 80 ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' :
+              masterViability.score >= 60 ? 'bg-primary/15 text-primary border-primary/30' :
+              masterViability.score >= 40 ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' :
+              'bg-red-500/15 text-red-400 border-red-500/30'
+            }`}>{masterViability.label}</Badge>
+          </div>
+          <div className="flex items-center gap-4">
+            <div className="text-4xl font-display font-bold text-foreground">{masterViability.score}</div>
+            <div className="flex-1 grid grid-cols-3 gap-2">
+              {LIFECYCLE_STAGES.map((stage) => {
+                const score = masterViability.stageScores[stage.value];
+                const meta = getStageMeta(stage.value);
+                return (
+                  <button
+                    key={stage.value}
+                    onClick={() => onNavigateToStage(stage.value)}
+                    className="text-left group"
+                  >
+                    <div className="flex items-center gap-1 mb-0.5">
+                      <meta.icon className="h-3 w-3 text-muted-foreground group-hover:text-primary transition-colors" />
+                      <span className="text-[10px] text-muted-foreground truncate">{stage.shortLabel}</span>
+                    </div>
+                    <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all ${
+                          score >= 75 ? 'bg-emerald-500' : score >= 50 ? 'bg-amber-500' : score >= 25 ? 'bg-amber-600' : 'bg-red-500'
+                        }`}
+                        style={{ width: `${score}%` }}
+                      />
+                    </div>
+                    <span className="text-[10px] font-mono text-muted-foreground">{score}%</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Legacy Readiness Score */}
       {isTV && tvReadiness ? (
         <TVReadinessScore readiness={tvReadiness} />
       ) : isAlternateMode && modeReadiness ? (

@@ -32,6 +32,15 @@ import { useProjectCast, useProjectPartners, useProjectScripts, useProjectFinanc
 import { generateProjectInsights } from '@/lib/project-insights';
 import { calculateReadiness } from '@/lib/readiness-score';
 import { calculateFinanceReadiness } from '@/lib/finance-readiness';
+import {
+  calculateDevelopmentReadiness,
+  calculatePackagingReadiness,
+  calculatePreProductionReadiness,
+  calculateProductionReadiness,
+  calculatePostReadiness,
+  calculateSalesReadiness,
+} from '@/lib/stage-readiness';
+import { calculateMasterViability } from '@/lib/master-viability';
 import { calculateTVReadiness } from '@/lib/tv-readiness-score';
 import { calculateModeReadiness } from '@/lib/mode-readiness';
 import { getFormatMeta } from '@/lib/mode-engine';
@@ -150,6 +159,47 @@ export default function ProjectDetail() {
 
   const { history: scoreHistory } = useScoreHistory(id);
   useAutoSaveScore(id, readiness?.score ?? null, financeReadiness?.score ?? null);
+
+  // Per-stage readiness scores
+  const devReadiness = useMemo(() => {
+    if (!project) return null;
+    return calculateDevelopmentReadiness(project, scripts, project.script_coverage_verdict);
+  }, [project, scripts]);
+
+  const pkgReadiness = useMemo(() => {
+    if (!project) return null;
+    return calculatePackagingReadiness(project, cast, partners, hods);
+  }, [project, cast, partners, hods]);
+
+  const preProReadiness = useMemo(() => {
+    if (!project) return null;
+    return calculatePreProductionReadiness(project, financeScenarios, hods, incentiveAnalysed, budgetSummary, scheduleMetrics);
+  }, [project, financeScenarios, hods, incentiveAnalysed, budgetSummary, scheduleMetrics]);
+
+  const prodReadiness = useMemo(() => {
+    return calculateProductionReadiness(budgetSummary, scheduleMetrics, costEntries as any);
+  }, [budgetSummary, scheduleMetrics, costEntries]);
+
+  const postReadiness = useMemo(() => {
+    return calculatePostReadiness(deliverables as any, budgetSummary, costEntries as any);
+  }, [deliverables, budgetSummary, costEntries]);
+
+  const salesReadiness = useMemo(() => {
+    if (!project) return null;
+    return calculateSalesReadiness(project, partners, deals as any, deliverables as any);
+  }, [project, partners, deals, deliverables]);
+
+  const masterViability = useMemo(() => {
+    if (!project) return null;
+    const stageResults: any = {};
+    if (devReadiness) stageResults['development'] = devReadiness;
+    if (pkgReadiness) stageResults['packaging'] = pkgReadiness;
+    if (preProReadiness) stageResults['pre-production'] = preProReadiness;
+    if (prodReadiness) stageResults['production'] = prodReadiness;
+    if (postReadiness) stageResults['post-production'] = postReadiness;
+    if (salesReadiness) stageResults['sales-delivery'] = salesReadiness;
+    return calculateMasterViability(stageResults, project.format, lifecycleStage);
+  }, [project, devReadiness, pkgReadiness, preProReadiness, prodReadiness, postReadiness, salesReadiness, lifecycleStage]);
 
   const currentScript = scripts.find(s => s.status === 'current');
   const scriptText = useMemo(() => {
@@ -273,6 +323,7 @@ export default function ProjectDetail() {
             currentUserId={user?.id || null}
             lifecycleStage={lifecycleStage}
             onNavigateToStage={setActiveView}
+            masterViability={masterViability}
           />
         );
       case 'development':
@@ -291,6 +342,7 @@ export default function ProjectDetail() {
             onUpload={(files, scriptInfo) => addDocuments.mutate({ files, scriptInfo })}
             isUploading={addDocuments.isPending}
             scriptText={scriptText}
+            stageReadiness={devReadiness}
           />
         );
       case 'packaging':
@@ -304,6 +356,7 @@ export default function ProjectDetail() {
             scriptCharactersLoading={scriptCharsLoading}
             scriptText={scriptText}
             isTV={!!isTV}
+            stageReadiness={pkgReadiness}
           />
         );
       case 'pre-production':
@@ -318,12 +371,13 @@ export default function ProjectDetail() {
             scheduleMetrics={scheduleMetrics}
             scriptText={scriptText}
             onIncentiveAnalysed={setIncentiveAnalysedThisSession}
+            stageReadiness={preProReadiness}
           />
         );
       case 'production':
-        return <ProductionStage projectId={id!} />;
+        return <ProductionStage projectId={id!} stageReadiness={prodReadiness} />;
       case 'post-production':
-        return <PostProductionStage projectId={id!} />;
+        return <PostProductionStage projectId={id!} stageReadiness={postReadiness} />;
       case 'sales-delivery':
         return (
           <SalesDeliveryStage
@@ -332,6 +386,7 @@ export default function ProjectDetail() {
             cast={cast}
             partners={partners}
             trendSignals={trendSignals}
+            stageReadiness={salesReadiness}
           />
         );
       case 'finance':
@@ -476,8 +531,9 @@ export default function ProjectDetail() {
                 activeView={activeView}
                 onViewChange={(view) => {
                   setActiveView(view);
-                  setSidebarOpen(false); // auto-close on mobile
+                  setSidebarOpen(false);
                 }}
+                stageScores={masterViability?.stageScores}
               />
             </div>
 

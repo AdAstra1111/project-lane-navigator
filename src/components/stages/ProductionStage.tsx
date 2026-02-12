@@ -6,14 +6,18 @@
 import { Clapperboard, AlertTriangle, TrendingUp } from 'lucide-react';
 import { CostTrackingPanel } from '@/components/CostTrackingPanel';
 import { ScheduleTab } from '@/components/ScheduleTab';
+import { StageReadinessScore } from '@/components/StageReadinessScore';
+import type { StageReadinessResult } from '@/lib/stage-readiness';
 
 interface Props {
   projectId: string;
+  stageReadiness: StageReadinessResult | null;
 }
 
-export function ProductionStage({ projectId }: Props) {
+export function ProductionStage({ projectId, stageReadiness }: Props) {
   return (
     <div className="space-y-4">
+      {stageReadiness && <StageReadinessScore readiness={stageReadiness} />}
       <div className="glass-card rounded-xl p-5">
         <div className="flex items-center gap-3 mb-3">
           <Clapperboard className="h-5 w-5 text-emerald-400" />

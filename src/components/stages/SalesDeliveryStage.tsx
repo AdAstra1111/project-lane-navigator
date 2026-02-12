@@ -8,8 +8,10 @@ import { ProjectBuyerMatches } from '@/components/ProjectBuyerMatches';
 import { ProjectFestivalMatches } from '@/components/ProjectFestivalMatches';
 import { TerritoryHeatMap } from '@/components/TerritoryHeatMap';
 import { MarketWindowAlerts } from '@/components/MarketWindowAlerts';
+import { StageReadinessScore } from '@/components/StageReadinessScore';
 import type { Project } from '@/lib/types';
 import type { ProjectCastMember, ProjectPartner } from '@/hooks/useProjectAttachments';
+import type { StageReadinessResult } from '@/lib/stage-readiness';
 
 interface Props {
   project: Project;
@@ -17,13 +19,15 @@ interface Props {
   cast: ProjectCastMember[];
   partners: ProjectPartner[];
   trendSignals: any[];
+  stageReadiness: StageReadinessResult | null;
 }
 
 export function SalesDeliveryStage({
-  project, projectId, cast, partners, trendSignals,
+  project, projectId, cast, partners, trendSignals, stageReadiness,
 }: Props) {
   return (
     <div className="space-y-4">
+      {stageReadiness && <StageReadinessScore readiness={stageReadiness} />}
       <DealTracker projectId={projectId} />
       <ProjectBuyerMatches project={project} />
       <ProjectFestivalMatches
