@@ -78,39 +78,52 @@ async function handleIngest(
   let rawText = "";
 
   if (source.format === "html" || source.format === "imsdb") {
-    // IMSDB scripts live at /scripts/TITLE.html but the actual script content
-    // is often served from a different URL pattern. Try the direct URL first,
-    // then fall back to the IMSDB script page pattern.
     let html = "";
-    const fetchOpts = { headers: { "User-Agent": "Mozilla/5.0 (compatible; CorpusBot/1.0)" } };
-    const resp = await fetch(source.source_url, fetchOpts);
-    if (resp.ok) {
-      html = await resp.text();
-    } else if (source.format === "imsdb") {
-      // Try alternate IMSDB URL patterns
+    const fetchOpts: RequestInit = {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+      },
+      redirect: "follow",
+    };
+
+    // Build list of URLs to try
+    const urlsToTry = [source.source_url];
+    if (source.format === "imsdb") {
       const slug = source.source_url.split("/scripts/").pop() || "";
-      const attempts = [
-        `https://imsdb.com/Scripts/${slug}`,
-        `https://imsdb.com/scripts/${slug}`,
-      ];
-      let found = false;
-      for (const altUrl of attempts) {
-        addLog(`Trying alternate URL: ${altUrl}`);
-        const altResp = await fetch(altUrl, fetchOpts);
-        if (altResp.ok) {
-          html = await altResp.text();
-          found = true;
-          break;
-        }
+      if (slug) {
+        urlsToTry.push(`https://imsdb.com/Scripts/${slug}`);
+        // Try URL-decoded version in case of encoded chars
+        try { urlsToTry.push(`https://imsdb.com/scripts/${decodeURIComponent(slug)}`); } catch {}
       }
-      if (!found) throw new Error(`Script not available on IMSDB (tried ${attempts.length + 1} URL patterns)`);
-    } else {
-      throw new Error(`Failed to fetch HTML: ${resp.status}`);
     }
-    // Guard against IMSDB returning 200 with a "not found" or empty page
-    if (source.format === "imsdb" && html.length < 500) {
-      throw new Error("IMSDB returned an empty or error page — script may not be hosted");
+
+    let found = false;
+    for (const url of urlsToTry) {
+      addLog(`Trying URL: ${url}`);
+      try {
+        const resp = await fetch(url, fetchOpts);
+        addLog(`Response: ${resp.status} (${resp.statusText}), content-length: ${resp.headers.get("content-length") || "unknown"}`);
+        if (resp.ok) {
+          html = await resp.text();
+          if (html.length > 500) {
+            found = true;
+            addLog(`Got HTML: ${html.length} chars from ${url}`);
+            break;
+          } else {
+            addLog(`Page too short (${html.length} chars), trying next…`);
+          }
+        }
+      } catch (fetchErr) {
+        addLog(`Fetch error for ${url}: ${fetchErr}`);
+      }
     }
+
+    if (!found) {
+      throw new Error(`Script not available (tried ${urlsToTry.length} URL patterns). Last HTML length: ${html.length}`);
+    }
+
     rawText = extractHtmlText(html);
     addLog(`HTML extracted: ${rawText.length} chars`);
   } else {
