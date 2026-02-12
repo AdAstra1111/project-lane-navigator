@@ -78,9 +78,24 @@ async function handleIngest(
   let rawText = "";
 
   if (source.format === "html" || source.format === "imsdb") {
+    // IMSDB scripts live at /scripts/TITLE.html but the actual script content
+    // is often served from a different URL pattern. Try the direct URL first,
+    // then fall back to the IMSDB script page pattern.
+    let html = "";
     const resp = await fetch(source.source_url);
-    if (!resp.ok) throw new Error(`Failed to fetch HTML: ${resp.status}`);
-    const html = await resp.text();
+    if (resp.ok) {
+      html = await resp.text();
+    } else if (source.format === "imsdb" && resp.status === 404) {
+      // Try alternate IMSDB URL pattern: extract slug and try /Scripts/ capitalized
+      const slug = source.source_url.split("/scripts/").pop() || "";
+      const altUrl = `https://imsdb.com/Scripts/${slug}`;
+      addLog(`Primary URL returned 404, trying alternate: ${altUrl}`);
+      const altResp = await fetch(altUrl);
+      if (!altResp.ok) throw new Error(`Script not available on IMSDB (404 on both URL patterns)`);
+      html = await altResp.text();
+    } else {
+      throw new Error(`Failed to fetch HTML: ${resp.status}`);
+    }
     rawText = extractHtmlText(html);
     addLog(`HTML extracted: ${rawText.length} chars`);
   } else {
