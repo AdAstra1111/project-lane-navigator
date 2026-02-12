@@ -1743,9 +1743,15 @@ export type Database = {
           created_at: string
           goal: string
           id: string
+          inflation_flag: boolean | null
+          inflation_reason: string | null
           intensity: string
           owner_id: string
           playbooks_used: Json
+          post_rewrite_breakdown: Json | null
+          post_rewrite_viability: number | null
+          pre_rewrite_breakdown: Json | null
+          pre_rewrite_viability: number | null
           project_id: string
           regression_detected: boolean
           rolled_back: boolean
@@ -1753,6 +1759,7 @@ export type Database = {
           score_deltas: Json
           script_id: string
           status: string
+          viability_delta: number | null
         }
         Insert: {
           after_scores?: Json
@@ -1763,9 +1770,15 @@ export type Database = {
           created_at?: string
           goal?: string
           id?: string
+          inflation_flag?: boolean | null
+          inflation_reason?: string | null
           intensity?: string
           owner_id: string
           playbooks_used?: Json
+          post_rewrite_breakdown?: Json | null
+          post_rewrite_viability?: number | null
+          pre_rewrite_breakdown?: Json | null
+          pre_rewrite_viability?: number | null
           project_id: string
           regression_detected?: boolean
           rolled_back?: boolean
@@ -1773,6 +1786,7 @@ export type Database = {
           score_deltas?: Json
           script_id: string
           status?: string
+          viability_delta?: number | null
         }
         Update: {
           after_scores?: Json
@@ -1783,9 +1797,15 @@ export type Database = {
           created_at?: string
           goal?: string
           id?: string
+          inflation_flag?: boolean | null
+          inflation_reason?: string | null
           intensity?: string
           owner_id?: string
           playbooks_used?: Json
+          post_rewrite_breakdown?: Json | null
+          post_rewrite_viability?: number | null
+          pre_rewrite_breakdown?: Json | null
+          pre_rewrite_viability?: number | null
           project_id?: string
           regression_detected?: boolean
           rolled_back?: boolean
@@ -1793,6 +1813,7 @@ export type Database = {
           score_deltas?: Json
           script_id?: string
           status?: string
+          viability_delta?: number | null
         }
         Relationships: [
           {

@@ -10,7 +10,8 @@ import {
   Pen, BookOpen, Layers, BarChart3, Lock,
   ChevronDown, ChevronRight, CheckCircle2, Circle, Loader2,
   MapPin, Users, Download, Eye, Copy, ArrowRight, FileText, Clock, FileCode,
-  Sparkles, RotateCcw, Zap, TrendingUp, TrendingDown, Settings2, List
+  Sparkles, RotateCcw, Zap, TrendingUp, TrendingDown, Settings2, List,
+  AlertTriangle
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -156,6 +157,96 @@ function DraftViewer({ text, storagePath, onDownload, onCopy }: {
           {text}
         </pre>
       </ScrollArea>
+    </div>
+  );
+}
+
+function ImprovementRunRow({ run }: { run: import('@/hooks/useScriptEngine').ImprovementRun }) {
+  const [expanded, setExpanded] = useState(false);
+  const breakdownKeys = ['lane_fit', 'structural_strength', 'market_heat'] as const;
+
+  return (
+    <div className="border-b border-border/30 last:border-0">
+      <div
+        className="flex items-center justify-between text-xs py-1.5 cursor-pointer hover:bg-muted/30 px-1 rounded"
+        onClick={() => setExpanded(!expanded)}
+      >
+        <div className="flex items-center gap-2 flex-wrap">
+          <Badge variant="outline" className={`text-[9px] ${
+            run.regression_detected ? 'border-red-500/50 text-red-400' :
+            run.rolled_back ? 'border-muted-foreground/50 text-muted-foreground' :
+            'border-emerald-500/50 text-emerald-400'
+          }`}>
+            {run.rolled_back ? 'ROLLED BACK' : run.regression_detected ? 'REGRESSION' : 'IMPROVED'}
+          </Badge>
+          {run.inflation_flag && (
+            <Badge variant="outline" className="text-[9px] border-amber-500/50 text-amber-400 bg-amber-500/10 gap-0.5">
+              <AlertTriangle className="h-2.5 w-2.5" />
+              Inflation Flag
+            </Badge>
+          )}
+          <span className="text-foreground capitalize">{run.goal.replace(/_/g, ' ')}</span>
+          <span className="text-muted-foreground">({run.intensity})</span>
+        </div>
+        <div className="flex items-center gap-2">
+          {run.viability_delta != null && run.viability_delta !== 0 && (
+            <span className={`font-mono text-[10px] ${run.viability_delta > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+              {run.viability_delta > 0 ? '+' : ''}{run.viability_delta}
+            </span>
+          )}
+          <span className="text-muted-foreground">{new Date(run.created_at).toLocaleDateString()}</span>
+          {expanded ? <ChevronDown className="h-3 w-3 text-muted-foreground" /> : <ChevronRight className="h-3 w-3 text-muted-foreground" />}
+        </div>
+      </div>
+      {expanded && (run.inflation_flag || run.pre_rewrite_viability != null) && (
+        <div className="px-2 pb-2 space-y-2">
+          <div className="grid grid-cols-3 gap-2 text-[10px]">
+            <div className="bg-muted/50 rounded p-2 text-center">
+              <div className="text-muted-foreground">Pre-Rewrite</div>
+              <div className="font-mono font-bold text-foreground text-sm">{run.pre_rewrite_viability ?? '–'}</div>
+            </div>
+            <div className="bg-muted/50 rounded p-2 text-center">
+              <div className="text-muted-foreground">Post-Rewrite</div>
+              <div className="font-mono font-bold text-foreground text-sm">{run.post_rewrite_viability ?? '–'}</div>
+            </div>
+            <div className="bg-muted/50 rounded p-2 text-center">
+              <div className="text-muted-foreground">Delta</div>
+              <div className={`font-mono font-bold text-sm ${
+                (run.viability_delta ?? 0) >= 20 ? 'text-amber-400' :
+                (run.viability_delta ?? 0) > 0 ? 'text-emerald-400' :
+                (run.viability_delta ?? 0) < 0 ? 'text-red-400' : 'text-foreground'
+              }`}>
+                {run.viability_delta != null ? (run.viability_delta > 0 ? '+' : '') + run.viability_delta : '–'}
+              </div>
+            </div>
+          </div>
+          {run.inflation_reason && (
+            <div className="flex items-start gap-1.5 text-[10px] text-amber-400 bg-amber-500/10 rounded p-2">
+              <AlertTriangle className="h-3 w-3 shrink-0 mt-0.5" />
+              <span>{run.inflation_reason}</span>
+            </div>
+          )}
+          {run.pre_rewrite_breakdown && run.post_rewrite_breakdown && (
+            <div className="space-y-1">
+              <div className="text-[10px] text-muted-foreground font-medium">Key Breakdown Changes</div>
+              {breakdownKeys.map(key => {
+                const pre = (run.pre_rewrite_breakdown as any)?.[key] ?? 0;
+                const post = (run.post_rewrite_breakdown as any)?.[key] ?? 0;
+                const d = post - pre;
+                if (d === 0) return null;
+                return (
+                  <div key={key} className="flex items-center justify-between text-[10px]">
+                    <span className="text-muted-foreground capitalize">{key.replace(/_/g, ' ')}</span>
+                    <span className={`font-mono ${d > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                      {pre} → {post} ({d > 0 ? '+' : ''}{d})
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -691,20 +782,7 @@ export function ScriptEnginePanel({ projectId, productionType }: Props) {
           <CollapsibleContent>
             <div className="space-y-1.5">
               {improvementRuns.map(run => (
-                <div key={run.id} className="flex items-center justify-between text-xs py-1.5 border-b border-border/30 last:border-0">
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline" className={`text-[9px] ${
-                      run.regression_detected ? 'border-red-500/50 text-red-400' :
-                      run.rolled_back ? 'border-muted-foreground/50 text-muted-foreground' :
-                      'border-emerald-500/50 text-emerald-400'
-                    }`}>
-                      {run.rolled_back ? 'ROLLED BACK' : run.regression_detected ? 'REGRESSION' : 'IMPROVED'}
-                    </Badge>
-                    <span className="text-foreground capitalize">{run.goal.replace(/_/g, ' ')}</span>
-                    <span className="text-muted-foreground">({run.intensity})</span>
-                  </div>
-                  <span className="text-muted-foreground">{new Date(run.created_at).toLocaleDateString()}</span>
-                </div>
+                <ImprovementRunRow key={run.id} run={run} />
               ))}
             </div>
           </CollapsibleContent>

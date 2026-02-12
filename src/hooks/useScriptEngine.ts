@@ -82,6 +82,13 @@ export interface ImprovementRun {
   status: string;
   playbooks_used: any[];
   created_at: string;
+  pre_rewrite_viability: number | null;
+  post_rewrite_viability: number | null;
+  viability_delta: number | null;
+  inflation_flag: boolean;
+  inflation_reason: string | null;
+  pre_rewrite_breakdown: any;
+  post_rewrite_breakdown: any;
 }
 
 export interface ImproveResult {
