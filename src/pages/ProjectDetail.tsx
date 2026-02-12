@@ -645,6 +645,16 @@ export default function ProjectDetail() {
 
           {/* ═══ COLLAPSIBLE SECTIONS ═══ */}
 
+          {id && (hasDocuments || hasScript) && (
+            <ScriptCoverage
+              projectId={id}
+              projectTitle={project.title}
+              format={project.format}
+              genres={project.genres || []}
+              hasDocuments={hasDocuments || hasScript}
+            />
+          )}
+
           {/* 1. Project Details */}
           <Section icon={FileText} title="Project Details" defaultOpen>
             <div className="glass-card rounded-xl p-5">
@@ -726,15 +736,6 @@ export default function ProjectDetail() {
                   ))}
                 </div>
               </div>
-            )}
-            {id && (hasDocuments || hasScript) && (
-              <ScriptCoverage
-                projectId={id}
-                projectTitle={project.title}
-                format={project.format}
-                genres={project.genres || []}
-                hasDocuments={hasDocuments || hasScript}
-              />
             )}
           </Section>
 
