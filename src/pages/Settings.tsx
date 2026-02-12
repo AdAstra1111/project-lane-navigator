@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { User, Mail, LogOut, Save, Loader2, Crown, BookOpen, FlaskConical, Activity } from 'lucide-react';
+import { User, Mail, LogOut, Save, Loader2, Crown, BookOpen, FlaskConical, Activity, Layers } from 'lucide-react';
 import { useSubscription } from '@/hooks/useSubscription';
 import { Header } from '@/components/Header';
 import { Button } from '@/components/ui/button';
@@ -14,10 +14,12 @@ import { toast } from '@/hooks/use-toast';
 import { CorpusSourceManager } from '@/components/CorpusSourceManager';
 import { CorpusHealthDashboard } from '@/components/CorpusHealthDashboard';
 import { CorpusIntegrityPanel } from '@/components/CorpusIntegrityPanel';
-
+import { useUIMode } from '@/hooks/useUIMode';
+import { MODES } from '@/lib/mode';
 export default function Settings() {
   const { user, signOut } = useAuth();
   const { plan } = useSubscription();
+  const { mode, setMode } = useUIMode();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [displayName, setDisplayName] = useState('');
@@ -132,6 +134,36 @@ export default function Settings() {
               {updateProfile.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Save className="h-4 w-4 mr-1" />}
               Save Profile
             </Button>
+          </div>
+        </motion.section>
+
+        {/* UI Mode */}
+        <motion.section
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.03 }}
+          className="glass-card rounded-xl p-6 mb-6"
+        >
+          <h2 className="font-display font-semibold text-foreground mb-2 flex items-center gap-2">
+            <Layers className="h-5 w-5 text-primary" /> Interface Mode
+          </h2>
+          <p className="text-sm text-muted-foreground mb-4">
+            <strong>Simple</strong> shows core metrics and actions. <strong>Advanced</strong> unlocks all panels, deeper breakdowns, and technical language.
+          </p>
+          <div className="flex gap-2">
+            {MODES.map((m) => (
+              <button
+                key={m.value}
+                onClick={() => setMode(m.value)}
+                className={`px-4 py-2 rounded-lg text-sm font-medium border transition-all ${
+                  mode === m.value
+                    ? 'bg-primary text-primary-foreground border-primary'
+                    : 'bg-muted/30 text-muted-foreground border-border/50 hover:border-primary/50 hover:text-foreground'
+                }`}
+              >
+                {m.label}
+              </button>
+            ))}
           </div>
         </motion.section>
 

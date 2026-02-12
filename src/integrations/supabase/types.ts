@@ -2698,6 +2698,7 @@ export type Database = {
           created_at: string
           display_name: string | null
           id: string
+          mode_preference: string
           updated_at: string
           user_id: string
         }
@@ -2705,6 +2706,7 @@ export type Database = {
           created_at?: string
           display_name?: string | null
           id?: string
+          mode_preference?: string
           updated_at?: string
           user_id: string
         }
@@ -2712,6 +2714,7 @@ export type Database = {
           created_at?: string
           display_name?: string | null
           id?: string
+          mode_preference?: string
           updated_at?: string
           user_id?: string
         }
@@ -4680,6 +4683,7 @@ export type Database = {
           target_audience: string
           title: string
           tone: string
+          ui_mode_override: string | null
           updated_at: string
           user_id: string
           viability_breakdown: Json | null
@@ -4709,6 +4713,7 @@ export type Database = {
           target_audience?: string
           title: string
           tone?: string
+          ui_mode_override?: string | null
           updated_at?: string
           user_id: string
           viability_breakdown?: Json | null
@@ -4738,6 +4743,7 @@ export type Database = {
           target_audience?: string
           title?: string
           tone?: string
+          ui_mode_override?: string | null
           updated_at?: string
           user_id?: string
           viability_breakdown?: Json | null
