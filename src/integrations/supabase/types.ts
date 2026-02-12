@@ -1186,6 +1186,118 @@ export type Database = {
         }
         Relationships: []
       }
+      production_cost_actuals: {
+        Row: {
+          actual: number
+          budgeted: number
+          created_at: string
+          department: string
+          id: string
+          notes: string
+          project_id: string
+          updated_at: string
+          user_id: string
+          variance: number | null
+          variance_pct: number | null
+        }
+        Insert: {
+          actual?: number
+          budgeted?: number
+          created_at?: string
+          department?: string
+          id?: string
+          notes?: string
+          project_id: string
+          updated_at?: string
+          user_id: string
+          variance?: number | null
+          variance_pct?: number | null
+        }
+        Update: {
+          actual?: number
+          budgeted?: number
+          created_at?: string
+          department?: string
+          id?: string
+          notes?: string
+          project_id?: string
+          updated_at?: string
+          user_id?: string
+          variance?: number | null
+          variance_pct?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "production_cost_actuals_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      production_daily_reports: {
+        Row: {
+          call_time: string
+          created_at: string
+          id: string
+          incident_severity: string
+          incidents: string
+          notes: string
+          pages_shot: number
+          project_id: string
+          report_date: string
+          scenes_shot: number
+          setup_count: number
+          updated_at: string
+          user_id: string
+          weather: string
+          wrap_time: string
+        }
+        Insert: {
+          call_time?: string
+          created_at?: string
+          id?: string
+          incident_severity?: string
+          incidents?: string
+          notes?: string
+          pages_shot?: number
+          project_id: string
+          report_date: string
+          scenes_shot?: number
+          setup_count?: number
+          updated_at?: string
+          user_id: string
+          weather?: string
+          wrap_time?: string
+        }
+        Update: {
+          call_time?: string
+          created_at?: string
+          id?: string
+          incident_severity?: string
+          incidents?: string
+          notes?: string
+          pages_shot?: number
+          project_id?: string
+          report_date?: string
+          scenes_shot?: number
+          setup_count?: number
+          updated_at?: string
+          user_id?: string
+          weather?: string
+          wrap_time?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "production_daily_reports_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       production_engine_weights: {
         Row: {
           created_at: string
