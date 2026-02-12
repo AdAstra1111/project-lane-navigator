@@ -335,21 +335,76 @@ IMPORTANT: Do NOT imitate or copy any specific screenplay from the corpus. Use o
     );
     console.log(`[coverage] A done ${Date.now() - t0}ms`);
 
-    // =========== PASS B: PRODUCER (final coverage + structured notes) ===========
+    // =========== PASS B: PRODUCER (final coverage + structured notes + scoring grid) ===========
     const passBSystem = promptVersion.producer_prompt + `
 
 CRITICAL FORMAT INSTRUCTIONS:
 1. Write your ENTIRE coverage report in plain English prose with markdown headings (##) and bullet points.
 2. Start with the verdict line: **VERDICT: RECOMMEND** or **VERDICT: CONSIDER** or **VERDICT: PASS**
-3. Include sections: Logline, Summary, Strengths, Areas for Improvement, Key Diagnostics, Market Assessment.
-4. DO NOT return JSON for the main coverage. Write it as a readable document a producer would expect.
-5. AFTER the prose coverage, include a "structured_notes" JSON array inside a \`\`\`json block.
-Each note: {"note_id":"N-001","section":"string","category":"structure|character|dialogue|theme|market|pacing|stakes|tone","priority":1-3,"title":"short","note_text":"full note","prescription":"what to do","tags":["act1"]}`;
+3. Tone: Professional producer. Clear. Non-academic. Solution-oriented.
+4. DO NOT return JSON for the main coverage. Write it as a readable document.
+
+PRODUCER SCORING GRID (0-10 per category, use FULL range, avoid safe-middle-6 inflation):
+
+## Scoring Grid
+Score each subcategory 0-10, then provide category averages:
+
+STRUCTURE (avg of: Act clarity, Inciting incident timing, Midpoint power shift, Escalation momentum, Third act payoff)
+CHARACTER (avg of: Protagonist agency, Clear objective, Internal conflict, Antagonistic force strength, Transformation arc)
+DIALOGUE (avg of: Subtext presence, Compression efficiency, Character voice distinction, Exposition control)
+CONCEPT (avg of: Logline clarity, Hook strength first 10 pages, Marketable premise, Originality vs familiarity balance)
+PACING (avg of: Scene propulsion, Conflict density, Redundancy detection, Momentum consistency)
+GENRE EXECUTION (avg of: Promise of premise delivered, Tone consistency, Audience expectation alignment)
+COMMERCIAL VIABILITY (avg of: Budget-to-concept alignment, Castability of lead roles, International travelability, Sequel/franchise logic, Streamer alignment)
+
+Include this exact format in your coverage:
+
+### PRODUCER BENCHMARK GRID
+| Category | Score |
+|---|---|
+| Structure | X/10 |
+| Character | X/10 |
+| Dialogue | X/10 |
+| Concept | X/10 |
+| Pacing | X/10 |
+| Genre Execution | X/10 |
+| Commercial Viability | X/10 |
+
+**STRUCTURAL STRENGTH: X/10**
+**COMMERCIAL VIABILITY: X/10**
+**OVERALL PRODUCER CONFIDENCE: X/10**
+
+RISK FLAGS (include any that apply):
+- If any major category scores <5: flag HIGH DEVELOPMENT RISK
+- If commercial viability <5 and budget ambition high: flag FINANCE RISK
+- If structure strong (7+) but concept weak (<5): flag PACKAGING DEPENDENT
+- If concept strong (7+) but execution weak (<5): flag REWRITE PRIORITY HIGH
+
+DEVELOPMENT TIER (assign exactly one):
+- Tier A — Packaging Ready (all categories 7+)
+- Tier B — Strong With Targeted Rewrite (most categories 6+, 1-2 below)
+- Tier C — Major Structural Rewrite Needed (structure or character <5)
+- Tier D — Concept-Level Rebuild Required (concept <4 or 3+ categories <5)
+
+FINANCE READINESS STATUS (assign exactly one):
+- GREEN — Attach talent and package
+- YELLOW — Rewrite before packaging
+- RED — Development hold
+
+CALIBRATION:
+- MASTERWORK_CANON (9-10 range) defines excellence benchmarks
+- COMMERCIAL_PROOF defines market viability benchmarks
+- FAILURE_CONTRAST defines risk detection patterns
+- Use full 0-10 scale. A "6" means mediocre, not "pretty good"
+- Score decisively. If the script resembles failure patterns, say so
+
+5. AFTER the prose coverage and scoring grid, include a "structured_notes" JSON array inside a \`\`\`json block.
+Each note: {"note_id":"N-001","section":"string","category":"structure|character|dialogue|concept|pacing|genre|commercial","priority":1-3,"title":"short","note_text":"full note","prescription":"what to do","rewrite_priority":"high|medium|low","tags":["act1"]}`;
 
     const passBResult = await callAI(
       LOVABLE_API_KEY,
       passBSystem,
-      `${projectMeta}\n\nANALYST DIAGNOSTICS:\n${passAResult}\n\nWrite a FINAL COVERAGE REPORT in plain English prose (not JSON) with verdict (RECOMMEND/CONSIDER/PASS). Use markdown headings and bullet points.`,
+      `${projectMeta}\n\nANALYST DIAGNOSTICS:\n${passAResult}\n\nWrite a FINAL COVERAGE REPORT with the full Producer Benchmark Grid, risk flags, development tier, and finance readiness status. Use markdown. Be decisive.`,
       0.3
     );
     console.log(`[coverage] B done ${Date.now() - t0}ms`);
@@ -424,15 +479,69 @@ Each note: {"note_id":"N-001","section":"string","category":"structure|character
     }
     console.log(`[coverage] ${structuredNotes.length} notes, total ${Date.now() - t0}ms`);
 
+    // Extract Producer Benchmark Grid scores from coverage prose
+    const extractScore = (label: string): number | null => {
+      // Match patterns like "Structure | 7/10" or "**STRUCTURAL STRENGTH: 8/10**" or "Structure: 7 / 10"
+      const patterns = [
+        new RegExp(`${label}[:\\s|]+\\s*(\\d+)\\s*/\\s*10`, 'i'),
+        new RegExp(`${label}[:\\s|]+\\s*(\\d+)\\b`, 'i'),
+      ];
+      for (const p of patterns) {
+        const m = passBResult.match(p);
+        if (m) {
+          const v = parseInt(m[1]);
+          if (v >= 0 && v <= 10) return v;
+        }
+      }
+      return null;
+    };
+
+    const scoringGrid = {
+      structure: extractScore('Structure'),
+      character: extractScore('Character'),
+      dialogue: extractScore('Dialogue'),
+      concept: extractScore('Concept'),
+      pacing: extractScore('Pacing'),
+      genre_execution: extractScore('Genre Execution'),
+      commercial_viability: extractScore('Commercial Viability'),
+      structural_strength: extractScore('Structural Strength'),
+      commercial_viability_overall: extractScore('Commercial Viability') || extractScore('COMMERCIAL VIABILITY'),
+      overall_producer_confidence: extractScore('Overall Producer Confidence') || extractScore('PRODUCER CONFIDENCE'),
+    };
+
+    // Extract risk flags
+    const riskFlags: string[] = [];
+    if (passBResult.match(/HIGH DEVELOPMENT RISK/i)) riskFlags.push('HIGH DEVELOPMENT RISK');
+    if (passBResult.match(/FINANCE RISK/i)) riskFlags.push('FINANCE RISK');
+    if (passBResult.match(/PACKAGING DEPENDENT/i)) riskFlags.push('PACKAGING DEPENDENT');
+    if (passBResult.match(/REWRITE PRIORITY HIGH/i)) riskFlags.push('REWRITE PRIORITY HIGH');
+    if (passBResult.match(/MARKET RISK/i)) riskFlags.push('MARKET RISK');
+    if (passBResult.match(/EXECUTION RISK/i)) riskFlags.push('EXECUTION RISK');
+    if (passBResult.match(/GENRE EXECUTION RISK/i)) riskFlags.push('GENRE EXECUTION RISK');
+    if (passBResult.match(/DEVELOPMENT RISK/i) && !riskFlags.includes('HIGH DEVELOPMENT RISK')) riskFlags.push('DEVELOPMENT RISK');
+    if (passBResult.match(/STRUCTURAL RISK/i)) riskFlags.push('STRUCTURAL RISK');
+    if (passBResult.match(/PACING RISK/i)) riskFlags.push('PACING RISK');
+    if (passBResult.match(/CHARACTER DEPTH RISK/i)) riskFlags.push('CHARACTER DEPTH RISK');
+
+    // Extract development tier
+    const tierMatch = passBResult.match(/Tier\s+([A-D])\b/i);
+    const developmentTier = tierMatch ? `Tier ${tierMatch[1].toUpperCase()}` : null;
+
+    // Extract finance readiness
+    let financeReadiness: string | null = null;
+    if (passBResult.match(/Finance Readiness[^:]*:\s*GREEN|GREEN\s*[—–-]\s*Attach/i)) financeReadiness = 'GREEN';
+    else if (passBResult.match(/Finance Readiness[^:]*:\s*YELLOW|YELLOW\s*[—–-]\s*Rewrite/i)) financeReadiness = 'YELLOW';
+    else if (passBResult.match(/Finance Readiness[^:]*:\s*RED|RED\s*[—–-]\s*Development/i)) financeReadiness = 'RED';
+
+    console.log(`[coverage] scores:`, JSON.stringify(scoringGrid), `tier=${developmentTier}, finance=${financeReadiness}, flags=${riskFlags.join(',')}`);
+
     // Build final coverage: if the AI returned pure JSON, extract prose from the structured data
     let finalCoverage = passBResult;
     
-    // Check if the response is primarily JSON (starts with ``` or {)
     const trimmedB = passBResult.trim();
     const isPureJSON = trimmedB.startsWith('```') || trimmedB.startsWith('{');
     
     if (isPureJSON && parsed) {
-      // AI returned structured JSON — synthesize a readable coverage from it
       const parts: string[] = [];
       if (parsed.verdict || parsed.recommendation) {
         parts.push(`**VERDICT: ${parsed.verdict || parsed.recommendation || 'CONSIDER'}**\n`);
@@ -459,17 +568,15 @@ Each note: {"note_id":"N-001","section":"string","category":"structure|character
       }
       finalCoverage = parts.join('\n');
     } else {
-      // AI returned prose with an embedded JSON block — strip only the JSON block
       finalCoverage = passBResult
         .replace(/```(?:json)?\s*\{[\s\S]*?"structured_notes"[\s\S]*?\}[\s\S]*?```/g, '')
+        .replace(/```(?:json)?\s*\[[\s\S]*?"note_id"[\s\S]*?\][\s\S]*?```/g, '')
         .trim();
     }
     
     if (!finalCoverage || finalCoverage.length < 20) {
-      // Last resort: generate minimal coverage from whatever we have
       if (parsed) {
         const fallbackParts: string[] = ['**VERDICT: CONSIDER**\n'];
-        // Pull any text fields from the parsed object
         for (const [key, val] of Object.entries(parsed)) {
           if (typeof val === 'string' && val.length > 20 && key !== 'structured_notes') {
             fallbackParts.push(`**${key.replace(/_/g, ' ')}:** ${val}\n`);
@@ -490,6 +597,15 @@ Each note: {"note_id":"N-001","section":"string","category":"structure|character
     
     const recommendation = finalCoverage.match(/RECOMMEND|CONSIDER|PASS/)?.[0] || "CONSIDER";
 
+    const metrics = {
+      notes_count: structuredNotes.length,
+      elapsed_ms: Date.now() - t0,
+      scoring_grid: scoringGrid,
+      risk_flags: riskFlags,
+      development_tier: developmentTier,
+      finance_readiness: financeReadiness,
+    };
+
     // Save coverage run
     const { data: inserted, error: insertErr } = await supabase
       .from("coverage_runs")
@@ -506,7 +622,7 @@ Each note: {"note_id":"N-001","section":"string","category":"structure|character
         pass_c: "",
         final_coverage: finalCoverage,
         structured_notes: structuredNotes,
-        metrics: { notes_count: structuredNotes.length, elapsed_ms: Date.now() - t0 },
+        metrics,
         draft_label: draftLabel || "Draft 1",
         created_by: userId,
       })
@@ -515,7 +631,6 @@ Each note: {"note_id":"N-001","section":"string","category":"structure|character
 
     if (insertErr) console.error("Save error:", insertErr);
 
-    // Update project verdict
     await supabase.from("projects").update({ script_coverage_verdict: recommendation }).eq("id", projectId);
 
     console.log(`[coverage] complete in ${Date.now() - t0}ms`);
@@ -525,11 +640,15 @@ Each note: {"note_id":"N-001","section":"string","category":"structure|character
       created_at: inserted?.created_at,
       final_coverage: finalCoverage,
       structured_notes: structuredNotes,
-      metrics: { notes_count: structuredNotes.length, elapsed_ms: Date.now() - t0 },
+      metrics,
       pass_a: passAResult,
       pass_b: passBResult,
       pass_c: "",
       recommendation,
+      scoring_grid: scoringGrid,
+      risk_flags: riskFlags,
+      development_tier: developmentTier,
+      finance_readiness: financeReadiness,
       qc_changelog: [],
       hallucination_flags: [],
     }), {
