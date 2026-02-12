@@ -43,6 +43,43 @@ async function callAIWithTools(apiKey: string, systemPrompt: string, userPrompt:
   }
 }
 
+// ── Deterministic normalization (shared with ingest-corpus) ──────────
+const NOISE_PATTERNS = [
+  /^\s*\d+\s*$/,
+  /^\s*\(?cont(?:inued)?\.?\)?\s*$/i,
+  /^\s*\(more\)\s*$/i,
+  /^\s*\(?cont[''\u2019]d\)?\s*$/i,
+  /^\s*revision\s+.*/i,
+  /^\s*\d+\/\d+\/\d+/,
+];
+
+function normalizeWordCountFromText(rawText: string): { cleanWordCount: number; removedLines: number } {
+  if (!rawText) return { cleanWordCount: 0, removedLines: 0 };
+  const lines = rawText.split('\n');
+  const lineFreq: Record<string, number> = {};
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.length > 0 && trimmed.length < 60) {
+      lineFreq[trimmed] = (lineFreq[trimmed] || 0) + 1;
+    }
+  }
+  const repeatedLines = new Set(
+    Object.entries(lineFreq).filter(([, count]) => count > 8).map(([line]) => line)
+  );
+  let removedLines = 0;
+  const cleanLines: string[] = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) { cleanLines.push(line); continue; }
+    if (repeatedLines.has(trimmed)) { removedLines++; continue; }
+    if (NOISE_PATTERNS.some(p => p.test(trimmed))) { removedLines++; continue; }
+    cleanLines.push(line);
+  }
+  const cleanText = cleanLines.join(' ');
+  const cleanWordCount = cleanText.split(/\s+/).filter(Boolean).length;
+  return { cleanWordCount, removedLines };
+}
+
 function median(arr: number[]): number {
   if (arr.length === 0) return 0;
   const sorted = [...arr].sort((a, b) => a - b);
@@ -61,7 +98,10 @@ function percentile(arr: number[], p: number): number {
 
 function buildBaselinePattern(scripts: any[]) {
   const nums = (key: string) => scripts.map(s => s[key]).filter((v: any) => v != null && v !== 0) as number[];
-  const pageNums = nums('page_count');
+  const rawPageNums = nums('raw_page_est');
+  const normalizedPageNums = nums('normalized_page_est');
+  // Use normalized_page_est as the primary page metric; fall back to page_count if missing
+  const pageNums = normalizedPageNums.length > 0 ? normalizedPageNums : nums('page_count');
   const sceneNums = nums('scene_count');
   const dialogueNums = nums('avg_dialogue_ratio');
   const runtimeNums = nums('runtime_est');
@@ -74,9 +114,17 @@ function buildBaselinePattern(scripts: any[]) {
   const intExtNums = nums('int_ext_ratio');
   const dayNightNums = nums('day_night_ratio');
 
+  // Determine normalization strategy
+  const hasStoredNormalization = normalizedPageNums.length > 0;
+  const normalizationStrategy = hasStoredNormalization ? 'stored_clean_word_count' : 'fallback_raw_page_count';
+
   return {
     sample_size: scripts.length,
-    // Core metrics with ranges
+    // Sanity metrics
+    median_normalized_pages: median(normalizedPageNums),
+    median_raw_pages: median(rawPageNums),
+    normalization_strategy: normalizationStrategy,
+    // Core metrics with ranges (uses normalized pages)
     median_page_count: median(pageNums),
     min_page_count: pageNums.length ? Math.min(...pageNums) : 0,
     max_page_count: pageNums.length ? Math.max(...pageNums) : 0,
@@ -311,66 +359,63 @@ Also extract up to 30 scene patterns and up to 15 character profiles.`;
 
       if (!allCompleted?.length) throw new Error("No completed analyses to aggregate");
 
-      // ─── Normalization: clean word counts + detect transcripts ───
-      const NOISE_PATTERNS = [
-        /^\s*\d+\s*$/,                            // bare page/scene numbers
-        /^\s*\(?cont(?:inued)?\.?\)?\s*$/i,       // CONTINUED
-        /^\s*\(more\)\s*$/i,                      // (MORE)
-        /^\s*\(?cont['']d\)?\s*$/i,               // (CONT'D)
-        /^\s*revision\s+.*/i,                     // revision headers
-        /^\s*\d+\/\d+\/\d+/,                      // date headers
-      ];
-
-      function normalizeWordCount(rawText: string | null): { cleanWordCount: number; removedLines: number } {
-        if (!rawText) return { cleanWordCount: 0, removedLines: 0 };
-        const lines = rawText.split('\n');
-        // Count line frequency for header/footer detection
-        const lineFreq: Record<string, number> = {};
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (trimmed.length > 0 && trimmed.length < 60) {
-            lineFreq[trimmed] = (lineFreq[trimmed] || 0) + 1;
+      // ─── Use STORED normalization fields (computed at ingestion time) ───
+      // Backfill any scripts missing normalization fields
+      const needsBackfill = allCompleted.filter((s: any) => s.clean_word_count == null || s.normalized_page_est == null);
+      if (needsBackfill.length > 0) {
+        console.log(`Backfilling normalization for ${needsBackfill.length} scripts...`);
+        const backfillUpdates: { id: string; clean_word_count: number; raw_page_est: number; normalized_page_est: number; normalization_removed_lines: number }[] = [];
+        
+        for (const s of needsBackfill) {
+          // Fetch raw text from chunks to do deterministic normalization
+          const { data: chunks } = await db.from("corpus_chunks")
+            .select("chunk_text").eq("script_id", s.id).order("chunk_index", { ascending: true });
+          const fullText = (chunks || []).map((c: any) => c.chunk_text).join("\n");
+          
+          const rawWc = s.word_count || 0;
+          let cleanWc = rawWc;
+          let removedLines = 0;
+          
+          if (fullText.length > 0) {
+            const result = normalizeWordCountFromText(fullText);
+            cleanWc = result.cleanWordCount;
+            removedLines = result.removedLines;
+          }
+          
+          const rawPageEst = rawWc > 0 ? Math.ceil(rawWc / 250) : s.page_count || 0;
+          const normalizedPageEst = cleanWc > 0 ? Math.ceil(cleanWc / 250) : s.page_count || 0;
+          
+          s.clean_word_count = cleanWc;
+          s.raw_page_est = rawPageEst;
+          s.normalized_page_est = normalizedPageEst;
+          s.normalization_removed_lines = removedLines;
+          
+          backfillUpdates.push({ id: s.id, clean_word_count: cleanWc, raw_page_est: rawPageEst, normalized_page_est: normalizedPageEst, normalization_removed_lines: removedLines });
+        }
+        
+        // Write backfill updates in chunks of 50
+        let backfillSuccessCount = 0;
+        for (let i = 0; i < backfillUpdates.length; i += 50) {
+          const batch = backfillUpdates.slice(i, i + 50);
+          for (const upd of batch) {
+            const { error } = await db.from("corpus_scripts").update({
+              clean_word_count: upd.clean_word_count,
+              raw_page_est: upd.raw_page_est,
+              normalized_page_est: upd.normalized_page_est,
+              normalization_removed_lines: upd.normalization_removed_lines,
+            }).eq("id", upd.id);
+            if (!error) backfillSuccessCount++;
           }
         }
-        const repeatedLines = new Set(Object.entries(lineFreq).filter(([, count]) => count > 8).map(([line]) => line));
-
-        let removedLines = 0;
-        const cleanLines: string[] = [];
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed) { cleanLines.push(line); continue; }
-          if (repeatedLines.has(trimmed)) { removedLines++; continue; }
-          if (NOISE_PATTERNS.some(p => p.test(trimmed))) { removedLines++; continue; }
-          cleanLines.push(line);
-        }
-        const cleanText = cleanLines.join(' ');
-        const cleanWordCount = cleanText.split(/\s+/).filter(Boolean).length;
-        return { cleanWordCount, removedLines };
+        console.log(`Backfill complete: ${backfillSuccessCount}/${backfillUpdates.length} updated`);
       }
 
-      function detectTranscript(script: any): { isTranscript: boolean; confidence: number } {
-        const sc = script.scene_count || 0;
-        const wc = script.word_count || 0;
-        const dialogueRatio = script.avg_dialogue_ratio || 0;
-        let score = 0;
-        // Very high dialogue ratio (>0.8) suggests transcript
-        if (dialogueRatio > 0.8) score += 0.3;
-        // Very few sluglines relative to word count
-        if (sc < 5 && wc > 15000) score += 0.3;
-        // No scene headings but long text
-        if (sc === 0 && wc > 10000) score += 0.4;
-        // Contains timestamp patterns (checked via ingestion_log or format)
-        if ((script.ingestion_source || '').toLowerCase().includes('transcript')) score += 0.3;
-        return { isTranscript: score >= 0.5, confidence: Math.min(score, 1) };
-      }
-
-      // ─── Fix page count distortion + detect truncation + normalize ───
+      // ─── Truncation + transcript detection using stored fields ───
       const truncationThresholds: Record<string, number> = {
         "film": 12000, "feature": 12000, "short-film": 3000,
         "tv-series": 7000, "tv-pilot": 7000, "documentary": 5000,
       };
 
-      // LENGTH CLAMP constants for features
       const LENGTH_CLAMP: Record<string, { minMax: number; medianMax: number; p75Max: number }> = {
         'film': { minMax: 110, medianMax: 115, p75Max: 130 },
         'feature': { minMax: 110, medianMax: 115, p75Max: 130 },
@@ -384,56 +429,25 @@ Also extract up to 30 scene patterns and up to 15 character profiles.`;
       let manualExcluded = 0;
 
       for (const s of allCompleted) {
-        // Normalize word count (use chunks text if available, else estimate from raw word_count)
-        // For aggregate we use the stored word_count and apply noise ratio heuristic
-        const rawWc = s.word_count || 0;
-        // Estimate ~8% noise for IMSDB sources, ~3% for PDF/FDX
-        const noiseRatio = (s.ingestion_source || '').toLowerCase().includes('imsdb') ? 0.92 : 0.97;
-        const cleanWc = Math.round(rawWc * noiseRatio);
-        s._clean_word_count = cleanWc;
-        s._raw_page_est = rawWc > 0 ? Math.ceil(rawWc / 250) : s.page_count || 0;
-        s._normalized_page_est = cleanWc > 0 ? Math.ceil(cleanWc / 250) : s.page_count || 0;
-
-        // Use normalized page est for aggregation
-        s.page_count = s._normalized_page_est || s.page_count || 0;
-
-        // Recalculate runtime
-        if (s.page_count && (!s.runtime_est || s.runtime_est < s.page_count * 0.7)) {
-          s.runtime_est = s.page_count;
+        // Use stored is_truncated, or recompute from word_count
+        if (s.is_truncated == null) {
+          const minWords = truncationThresholds[s.production_type || "film"] || 12000;
+          s.is_truncated = (s.word_count || 0) < minWords;
         }
-
-        // Mark truncation
-        const minWords = truncationThresholds[s.production_type || "film"] || 12000;
-        s._is_truncated = rawWc < minWords;
-
-        // Detect transcripts
-        const td = detectTranscript(s);
-        s._is_transcript = td.isTranscript;
-        s._transcript_confidence = td.confidence;
-        if (td.isTranscript) transcriptExcluded++;
-
-        // Manual exclusion
+        // Use stored is_transcript
+        if (s.is_transcript) transcriptExcluded++;
         if (s.exclude_from_baselines) manualExcluded++;
-
-        // Persist normalization fields
-        db.from("corpus_scripts").update({
-          clean_word_count: s._clean_word_count,
-          raw_page_est: s._raw_page_est,
-          normalized_page_est: s._normalized_page_est,
-          is_transcript: s._is_transcript,
-          transcript_confidence: s._transcript_confidence,
-        }).eq("id", s.id).then(() => {});
       }
 
       // Filter: only eligible scripts for baselines
       const completed = allCompleted.filter((s: any) =>
-        !s._is_truncated && !s._is_transcript && !s.exclude_from_baselines
+        !s.is_truncated && !s.is_transcript && !s.exclude_from_baselines
       );
-      const truncatedCount = allCompleted.filter((s: any) => s._is_truncated).length;
+      const truncatedCount = allCompleted.filter((s: any) => s.is_truncated).length;
 
       // If filtering leaves too few scripts, fall back to non-truncated only
       const useAll = completed.length < 3;
-      const effectiveCompleted = useAll ? allCompleted.filter((s: any) => !s._is_truncated) : completed;
+      const effectiveCompleted = useAll ? allCompleted.filter((s: any) => !s.is_truncated) : completed;
       // If still too few, use all
       const finalCompleted = effectiveCompleted.length < 3 ? allCompleted : effectiveCompleted;
 

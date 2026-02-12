@@ -203,24 +203,30 @@ async function handleIngest(
   const lineCount = rawText.split("\n").length;
   const ingestionSource = source.format === "imsdb" ? "imsdb" : source.format === "html" ? "html" : "pdf";
 
+  // 3c. Deterministic normalization: compute clean word count
+  const normResult = computeCleanWordCount(rawText);
+  const cleanWordCount = normResult.cleanWordCount;
+  const normalizationRemovedLines = normResult.removedLines;
+  const rawPageEst = Math.max(1, Math.ceil(wordCount / 250));
+  const normalizedPageEst = Math.max(1, Math.ceil(cleanWordCount / 250));
+
+  // 3d. Transcript detection
+  // At ingest time we don't have scene_count yet, so use raw text heuristics
+  const transcriptResult = detectTranscriptFromText(rawText);
+
   // Truncation detection thresholds
-  const truncationThresholds: Record<string, number> = {
-    "film": 12000, "feature": 12000, "short-film": 3000,
-    "tv-series": 7000, "tv-pilot": 7000, "documentary": 5000,
-  };
-  // We don't know production_type yet at ingest time, so use film default
   const minWords = 12000;
   const isTruncated = wordCount < minWords;
   const truncationReason = isTruncated
     ? `word_count ${wordCount} < ${minWords} threshold (likely incomplete extraction from ${ingestionSource})`
     : null;
 
-  // Page count: use word_count / 250 (standard screenplay page)
-  const pageEstimate = Math.max(1, Math.ceil(wordCount / 250));
+  // Page count: use normalized word_count / 250
+  const pageEstimate = normalizedPageEst;
   // Parse confidence based on word count relative to expected range
   const parseConfidence = Math.min(1, wordCount / 20000); // 1.0 at 20k+ words
 
-  addLog(`Quality: ${wordCount} words, ${lineCount} lines, ${pageEstimate} pages est, truncated=${isTruncated}, confidence=${parseConfidence.toFixed(2)}`);
+  addLog(`Quality: ${wordCount} raw words, ${cleanWordCount} clean words, ${normalizationRemovedLines} lines removed, ${pageEstimate} pages est, truncated=${isTruncated}, confidence=${parseConfidence.toFixed(2)}, transcript=${transcriptResult.isTranscript}`);
 
   // 4. Upload raw text to storage
   const storagePath = `corpus/raw/${checksum}.txt`;
@@ -241,6 +247,12 @@ async function handleIngest(
       raw_storage_path: storagePath,
       page_count_estimate: pageEstimate,
       word_count: wordCount,
+      clean_word_count: cleanWordCount,
+      raw_page_est: rawPageEst,
+      normalized_page_est: normalizedPageEst,
+      normalization_removed_lines: normalizationRemovedLines,
+      is_transcript: transcriptResult.isTranscript,
+      transcript_confidence: transcriptResult.confidence,
       ingestion_status: "processing",
       ingestion_log: log.join("\n"),
       ingestion_source: ingestionSource,
@@ -375,6 +387,12 @@ ${excerpt}`,
     ingestion_log: log.join("\n"),
     page_count_estimate: pageEstimate,
     word_count: wordCount,
+    clean_word_count: cleanWordCount,
+    raw_page_est: rawPageEst,
+    normalized_page_est: normalizedPageEst,
+    normalization_removed_lines: normalizationRemovedLines,
+    is_transcript: transcriptResult.isTranscript,
+    transcript_confidence: transcriptResult.confidence,
     analysis_status: "pending",
     title: source.title || "",
     ingestion_source: ingestionSource,
@@ -470,8 +488,18 @@ async function handleReingest(
   const wordCount = rawText.split(/\s+/).filter(Boolean).length;
   const lineCount = rawText.split("\n").length;
   const rawTextLengthChars = rawText.length;
-  const pageEstimate = Math.max(1, Math.ceil(wordCount / 250));
+
+  // Deterministic normalization
+  const normResult = computeCleanWordCount(rawText);
+  const cleanWordCount = normResult.cleanWordCount;
+  const normalizationRemovedLines = normResult.removedLines;
+  const rawPageEst = Math.max(1, Math.ceil(wordCount / 250));
+  const normalizedPageEst = Math.max(1, Math.ceil(cleanWordCount / 250));
+  const pageEstimate = normalizedPageEst;
   const parseConfidence = Math.min(1, wordCount / 20000);
+
+  // Transcript detection
+  const transcriptResult = detectTranscriptFromText(rawText);
 
   const minWords = 12000;
   const isTruncated = wordCount < minWords;
@@ -479,7 +507,7 @@ async function handleReingest(
     ? `word_count ${wordCount} < ${minWords} threshold after re-ingestion`
     : null;
 
-  addLog(`Quality: ${wordCount} words, ${lineCount} lines, ${pageEstimate} pages, truncated=${isTruncated}`);
+  addLog(`Quality: ${wordCount} raw words, ${cleanWordCount} clean words, ${normalizationRemovedLines} lines removed, ${pageEstimate} pages, truncated=${isTruncated}, transcript=${transcriptResult.isTranscript}`);
 
   // Upload new text
   const checksum = await sha256(rawText);
@@ -519,8 +547,14 @@ async function handleReingest(
     raw_storage_path: storagePath,
     page_count_estimate: pageEstimate,
     word_count: wordCount,
+    clean_word_count: cleanWordCount,
+    raw_page_est: rawPageEst,
+    normalized_page_est: normalizedPageEst,
+    normalization_removed_lines: normalizationRemovedLines,
+    is_transcript: transcriptResult.isTranscript,
+    transcript_confidence: transcriptResult.confidence,
     ingestion_status: "complete",
-    analysis_status: "pending", // trigger re-analysis
+    analysis_status: "pending",
     ingestion_log: `${existing.ingestion_log || ''}\n\n--- RE-INGESTION ---\n${log.join("\n")}\nPrevious path: ${previousPath}`,
     ingestion_source: ingestionSource,
     raw_text_length_chars: rawTextLengthChars,
@@ -604,6 +638,78 @@ function normalizeText(text: string): string {
     .replace(/[ \t]+$/gm, "")
     .replace(/\0/g, "")
     .trim();
+}
+
+// ── Deterministic normalization: remove screenplay noise ─────────────
+
+const NOISE_PATTERNS = [
+  /^\s*\d+\s*$/,                            // bare page/scene numbers
+  /^\s*\(?cont(?:inued)?\.?\)?\s*$/i,       // CONTINUED
+  /^\s*\(more\)\s*$/i,                      // (MORE)
+  /^\s*\(?cont[''\u2019]d\)?\s*$/i,         // (CONT'D)
+  /^\s*revision\s+.*/i,                     // revision headers
+  /^\s*\d+\/\d+\/\d+/,                      // date headers
+];
+
+function computeCleanWordCount(rawText: string): { cleanWordCount: number; removedLines: number } {
+  if (!rawText) return { cleanWordCount: 0, removedLines: 0 };
+  const lines = rawText.split('\n');
+  // Count line frequency for header/footer detection
+  const lineFreq: Record<string, number> = {};
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.length > 0 && trimmed.length < 60) {
+      lineFreq[trimmed] = (lineFreq[trimmed] || 0) + 1;
+    }
+  }
+  const repeatedLines = new Set(
+    Object.entries(lineFreq).filter(([, count]) => count > 8).map(([line]) => line)
+  );
+
+  let removedLines = 0;
+  const cleanLines: string[] = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) { cleanLines.push(line); continue; }
+    if (repeatedLines.has(trimmed)) { removedLines++; continue; }
+    if (NOISE_PATTERNS.some(p => p.test(trimmed))) { removedLines++; continue; }
+    cleanLines.push(line);
+  }
+  const cleanText = cleanLines.join(' ');
+  const cleanWordCount = cleanText.split(/\s+/).filter(Boolean).length;
+  return { cleanWordCount, removedLines };
+}
+
+// ── Transcript detection from raw text ───────────────────────────────
+
+function detectTranscriptFromText(rawText: string): { isTranscript: boolean; confidence: number } {
+  const lines = rawText.split('\n').filter(l => l.trim());
+  const totalLines = lines.length;
+  if (totalLines < 20) return { isTranscript: false, confidence: 0 };
+
+  let score = 0;
+
+  // Count sluglines (INT./EXT.)
+  const slugRegex = /^(INT\.|EXT\.|INT\/EXT\.|I\/E\.)\s*/i;
+  const slugCount = lines.filter(l => slugRegex.test(l.trim())).length;
+  const slugRatio = slugCount / totalLines;
+
+  // Very few sluglines = likely transcript
+  if (slugRatio < 0.005 && totalLines > 200) score += 0.35;
+
+  // Check for timestamp patterns (e.g. "00:12:34" or "[12:34]")
+  const timestampLines = lines.filter(l => /\d{1,2}:\d{2}(:\d{2})?/.test(l)).length;
+  if (timestampLines / totalLines > 0.05) score += 0.3;
+
+  // Check for very long dialogue blocks (avg line length > 100 chars)
+  const avgLineLen = lines.reduce((sum, l) => sum + l.length, 0) / totalLines;
+  if (avgLineLen > 100) score += 0.2;
+
+  // Speaker name format: "NAME:" pattern common in transcripts
+  const colonSpeaker = lines.filter(l => /^[A-Z][A-Z\s]{1,30}:/.test(l.trim())).length;
+  if (colonSpeaker / totalLines > 0.1) score += 0.2;
+
+  return { isTranscript: score >= 0.5, confidence: Math.min(score, 1) };
 }
 
 async function sha256(text: string): Promise<string> {
