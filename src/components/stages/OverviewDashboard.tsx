@@ -16,6 +16,9 @@ import { ProjectCommentsThread } from '@/components/ProjectCommentsThread';
 import { ProjectTimeline } from '@/components/ProjectTimeline';
 import { ProjectChat } from '@/components/ProjectChat';
 import { DecisionJournal } from '@/components/DecisionJournal';
+import { BudgetAssumptionsPanel } from '@/components/BudgetAssumptionsPanel';
+import { PackagingPipelinePanel } from '@/components/PackagingPipelinePanel';
+import { StageGatesPanel } from '@/components/StageGatesPanel';
 import { LIFECYCLE_STAGES, type LifecycleStage, getStageOrder, getStageMeta } from '@/lib/lifecycle-stages';
 import { Badge } from '@/components/ui/badge';
 import type { Project, MonetisationLane, PipelineStage } from '@/lib/types';
@@ -177,6 +180,15 @@ export function OverviewDashboard({
           nextStageGates={nextStageGates}
         />
       )}
+
+      {/* Stage Gates */}
+      <StageGatesPanel projectId={projectId} />
+
+      {/* Budget Assumptions */}
+      <BudgetAssumptionsPanel projectId={projectId} />
+
+      {/* Packaging Pipeline */}
+      <PackagingPipelinePanel projectId={projectId} />
 
       {/* AI Chat */}
       <ProjectChat projectId={projectId} />
