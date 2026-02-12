@@ -1008,7 +1008,7 @@ export function ProjectAttachmentTabs({ projectId, projectContext, projectTitle,
       transition={{ delay: 0.2, duration: 0.3 }}
     >
       <Tabs defaultValue="cast" className="space-y-4">
-        <TabsList className="bg-muted/50 w-full grid grid-cols-5">
+        <TabsList className="bg-muted/50 w-full grid grid-cols-4">
           <TabsTrigger value="cast" className="gap-1.5 text-xs">
             <Users className="h-3.5 w-3.5" /> Cast
           </TabsTrigger>
@@ -1021,27 +1021,10 @@ export function ProjectAttachmentTabs({ projectId, projectContext, projectTitle,
           <TabsTrigger value="scripts" className="gap-1.5 text-xs">
             <FileText className="h-3.5 w-3.5" /> Scripts
           </TabsTrigger>
-          <TabsTrigger value="schedule" className="gap-1.5 text-xs">
-            <CalendarDays className="h-3.5 w-3.5" /> Schedule
-          </TabsTrigger>
         </TabsList>
-
-        <TabsContent value="cast">
-          <CastTab projectId={projectId} projectContext={projectContext} />
-          {smartPackagingProps && <SmartPackaging {...smartPackagingProps} mode="cast" />}
-        </TabsContent>
-        <TabsContent value="hods">
-          <HODsTab projectId={projectId} projectContext={projectContext} />
-          {smartPackagingProps && <SmartPackaging {...smartPackagingProps} mode="crew" />}
-        </TabsContent>
-        <TabsContent value="partners">
-          <PartnersTab projectId={projectId} />
-        </TabsContent>
+...
         <TabsContent value="scripts">
           <ScriptsTab projectId={projectId} />
-        </TabsContent>
-        <TabsContent value="schedule">
-          <ScheduleTab projectId={projectId} />
         </TabsContent>
       </Tabs>
     </motion.div>

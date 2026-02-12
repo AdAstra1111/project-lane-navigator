@@ -64,6 +64,7 @@ import { ProjectChat } from '@/components/ProjectChat';
 import { RecoupmentWaterfallPanel } from '@/components/RecoupmentWaterfallPanel';
 import { CastImpactPanel } from '@/components/CastImpactPanel';
 import { ScheduleIntelligencePanel } from '@/components/ScheduleIntelligencePanel';
+import { ScheduleTab } from '@/components/ScheduleTab';
 import { CashflowModelPanel } from '@/components/CashflowModelPanel';
 import { IRRSalesProjectionPanel } from '@/components/IRRSalesProjectionPanel';
 import { ScriptToBudgetPanel } from '@/components/ScriptToBudgetPanel';
@@ -880,9 +881,10 @@ export default function ProjectDetail() {
             />}
           </Section>
 
-          {/* 5. Production & Delivery (merged: Schedule, Delivery, Contracts) */}
+          {/* 5. Production & Delivery (Schedule tab + Schedule Intelligence + Delivery + Contracts) */}
           {id && (
             <Section icon={Calendar} title="Production & Delivery">
+              <ScheduleTab projectId={id} />
               <ScheduleIntelligencePanel
                 projectId={id}
                 format={project?.format}

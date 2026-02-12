@@ -184,13 +184,13 @@ export function calculateReadiness(
   if (project.comparable_titles) marketScore += 2;
   if (analysis) marketScore += 5;
 
-  // ---- Schedule bonus (folded into packaging, up to 5 bonus) ----
+  // ---- Schedule bonus (standalone, folded into market/timing, up to 5 bonus) ----
   if (scheduleMetrics?.hasSchedule) {
     if (scheduleMetrics.scheduleConfidence === 'high') {
-      packagingScore += 5;
+      marketScore += 5;
       strengths.push(`Schedule locked (${scheduleMetrics.shootDayCount} days, ${scheduleMetrics.scheduledScenes}/${scheduleMetrics.totalScenes} scenes)`);
     } else if (scheduleMetrics.scheduleConfidence === 'medium') {
-      packagingScore += 3;
+      marketScore += 3;
       strengths.push('Schedule in progress');
     }
     if (scheduleMetrics.overtimeRiskLevel === 'high') {
