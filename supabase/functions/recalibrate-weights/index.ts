@@ -161,6 +161,59 @@ serve(async (req) => {
       }
     }
 
+    // Populate model_accuracy_scores table
+    for (const engine of engines) {
+      const corr = engineCorrelation[engine.id];
+      if (corr.total < 1) continue;
+
+      // Determine production types this engine participates in
+      const engineProdTypes = new Set<string>();
+      for (const outcome of outcomes) {
+        const proj = outcome.projects;
+        const fmt = proj?.format || 'film';
+        const projScores = (allScores as any[]).filter(
+          (s: any) => s.project_id === outcome.project_id && s.engine_id === engine.id
+        );
+        if (projScores.length > 0) engineProdTypes.add(fmt);
+      }
+
+      for (const pt of engineProdTypes) {
+        // Calculate per-type accuracy
+        let ptHits = 0, ptTotal = 0, ptPredSum = 0, ptActualSum = 0;
+        for (const outcome of outcomes) {
+          const proj = outcome.projects;
+          const fmt = proj?.format || 'film';
+          if (fmt !== pt) continue;
+          const projScore = (allScores as any[]).find(
+            (s: any) => s.project_id === outcome.project_id && s.engine_id === engine.id
+          );
+          if (!projScore) continue;
+          ptTotal++;
+          ptPredSum += projScore.score;
+          const wasSuccess = ["fully-financed", "partially-financed"].includes(outcome.actual_financing_outcome);
+          ptActualSum += wasSuccess ? 10 : 0;
+          const predicted = projScore.score >= 6;
+          if ((predicted && wasSuccess) || (!predicted && !wasSuccess)) ptHits++;
+        }
+
+        if (ptTotal > 0) {
+          const accPct = parseFloat(((ptHits / ptTotal) * 100).toFixed(2));
+          await supabase
+            .from("model_accuracy_scores")
+            .upsert({
+              production_type: pt,
+              engine_id: engine.id,
+              total_predictions: ptTotal,
+              correct_predictions: ptHits,
+              accuracy_pct: accPct,
+              avg_predicted_score: parseFloat((ptPredSum / ptTotal).toFixed(2)),
+              avg_actual_outcome: parseFloat((ptActualSum / ptTotal).toFixed(2)),
+              last_calculated_at: new Date().toISOString(),
+            }, { onConflict: "production_type,engine_id" });
+        }
+      }
+    }
+
     return new Response(
       JSON.stringify({
         success: true,

@@ -1061,6 +1061,56 @@ export type Database = {
         }
         Relationships: []
       }
+      model_accuracy_scores: {
+        Row: {
+          accuracy_pct: number
+          avg_actual_outcome: number
+          avg_predicted_score: number
+          correct_predictions: number
+          created_at: string
+          engine_id: string | null
+          id: string
+          last_calculated_at: string
+          production_type: string
+          total_predictions: number
+          updated_at: string
+        }
+        Insert: {
+          accuracy_pct?: number
+          avg_actual_outcome?: number
+          avg_predicted_score?: number
+          correct_predictions?: number
+          created_at?: string
+          engine_id?: string | null
+          id?: string
+          last_calculated_at?: string
+          production_type?: string
+          total_predictions?: number
+          updated_at?: string
+        }
+        Update: {
+          accuracy_pct?: number
+          avg_actual_outcome?: number
+          avg_predicted_score?: number
+          correct_predictions?: number
+          created_at?: string
+          engine_id?: string | null
+          id?: string
+          last_calculated_at?: string
+          production_type?: string
+          total_predictions?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "model_accuracy_scores_engine_id_fkey"
+            columns: ["engine_id"]
+            isOneToOne: false
+            referencedRelation: "trend_engines"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       model_version_log: {
         Row: {
           change_type: string
