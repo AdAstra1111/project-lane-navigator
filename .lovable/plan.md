@@ -202,7 +202,7 @@ Weights adjust dynamically by production type.
 
 ---
 
-## Phase 9: Stage-Aware Trends Engine
+## Phase 9: Stage-Aware Trends Engine ✅ DONE
 **Goal:** Make trend intelligence contextual to the active stage.
 
 ### Tasks

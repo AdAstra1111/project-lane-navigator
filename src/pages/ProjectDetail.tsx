@@ -417,7 +417,7 @@ export default function ProjectDetail() {
           />
         );
       case 'trends':
-        return <TrendsLayer project={project} projectId={id!} />;
+        return <TrendsLayer project={project} projectId={id!} lifecycleStage={lifecycleStage} />;
       default:
         return null;
     }
