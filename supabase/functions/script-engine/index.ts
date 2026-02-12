@@ -113,13 +113,36 @@ VALIDATION REQUIREMENTS — the blueprint MUST pass:
 Return as JSON with keys: three_act_breakdown (object with act_1, act_2, act_3), inciting_incident, midpoint_pivot, lowest_point, climax, resolution, character_arcs (array of {name, arc}), thematic_spine, validation (object with protagonist_agency, escalation, engine_sustainability, budget_feasibility, lane_alignment — each a string verdict).`;
 }
 
-// ─── Scene Architecture Prompt ───
-async function getCorpusCalibration(db: ReturnType<typeof createClient>, productionType: string, genre?: string) {
+// ─── Corpus calibration with sample-size aware fallback ───
+const MARKET_MIN_PAGES_MAP: Record<string, number> = {
+  'feature': 80, 'film': 80, 'tv-pilot': 45, 'tv-series': 45,
+  'tv_60': 45, 'tv_30': 22, 'half-hour': 22, 'short-film': 8,
+  'short': 8, 'documentary': 45, 'vertical': 5,
+};
+const MARKET_DEFAULT_TARGETS_MAP: Record<string, { pages: number; scenes: number }> = {
+  'feature': { pages: 95, scenes: 55 }, 'film': { pages: 95, scenes: 55 },
+  'tv-pilot': { pages: 55, scenes: 30 }, 'tv-series': { pages: 55, scenes: 30 },
+  'tv_30': { pages: 32, scenes: 20 }, 'short-film': { pages: 15, scenes: 10 },
+  'documentary': { pages: 60, scenes: 25 }, 'vertical': { pages: 8, scenes: 6 },
+};
+
+interface ResolvedCalibrationResult {
+  pattern: any;
+  source: string;
+  confidence: string;
+  sampleSize: number;
+  minimumPages: number;
+}
+
+async function getCorpusCalibrationResolved(db: ReturnType<typeof createClient>, productionType: string, genre?: string): Promise<ResolvedCalibrationResult> {
+  const pt = (productionType || 'film').toLowerCase();
+  const g = (genre || '').toLowerCase();
+  const marketMin = MARKET_MIN_PAGES_MAP[pt] || 80;
+  const defaults = MARKET_DEFAULT_TARGETS_MAP[pt] || MARKET_DEFAULT_TARGETS_MAP['film'];
+
   try {
-    const pt = productionType.toLowerCase();
-    // Try genre-specific baseline first
-    if (genre) {
-      const g = genre.toLowerCase();
+    // 1. Try genre baseline (n >= 8)
+    if (g) {
       const { data: baselines } = await db
         .from("corpus_insights")
         .select("pattern, production_type, lane")
@@ -130,23 +153,61 @@ async function getCorpusCalibration(db: ReturnType<typeof createClient>, product
           return (cpt === pt || pt.includes(cpt) || cpt.includes(pt)) &&
             (d.lane || "").toLowerCase() === g;
         });
-        if (match?.pattern) return match.pattern;
+        if (match?.pattern && (match.pattern.sample_size || 0) >= 8) {
+          const minPages = Math.max(match.pattern.p25_page_count || 0, marketMin);
+          return { pattern: match.pattern, source: 'genre_baseline', confidence: 'high', sampleSize: match.pattern.sample_size, minimumPages: minPages };
+        }
       }
     }
-    // Fall back to production type calibration
+
+    // 2. Try production type calibration
     const { data } = await db
       .from("corpus_insights")
       .select("pattern, production_type")
       .eq("insight_type", "calibration");
-    if (!data?.length) return null;
-    const match = data.find((d: any) => {
-      const cpt = (d.production_type || "").toLowerCase();
-      return cpt === pt || pt.includes(cpt) || cpt.includes(pt);
-    }) || data[0];
-    return match?.pattern || null;
-  } catch {
-    return null;
-  }
+    if (data?.length) {
+      const match = data.find((d: any) => {
+        const cpt = (d.production_type || "").toLowerCase();
+        return cpt === pt || pt.includes(cpt) || cpt.includes(pt);
+      });
+      if (match?.pattern) {
+        const ss = match.pattern.sample_size || 0;
+        if (ss >= 3) {
+          const minPages = Math.max(match.pattern.p25_page_count || 0, marketMin);
+          return { pattern: match.pattern, source: 'type_calibration', confidence: ss >= 8 ? 'high' : 'medium', sampleSize: ss, minimumPages: minPages };
+        }
+      }
+    }
+
+    // 3. Try gold baseline
+    const { data: goldData } = await db
+      .from("corpus_insights")
+      .select("pattern, production_type")
+      .eq("insight_type", "gold_baseline");
+    if (goldData?.length) {
+      const match = goldData.find((d: any) => {
+        const cpt = (d.production_type || "").toLowerCase();
+        return cpt === pt || pt.includes(cpt) || cpt.includes(pt);
+      }) || goldData.find((d: any) => d.production_type === 'all');
+      if (match?.pattern && (match.pattern.sample_size || 0) >= 3) {
+        const ss = match.pattern.sample_size || 0;
+        const minPages = Math.max(match.pattern.p25_page_count || 0, marketMin);
+        return { pattern: match.pattern, source: 'gold_baseline', confidence: ss >= 8 ? 'high' : 'medium', sampleSize: ss, minimumPages: minPages };
+      }
+    }
+  } catch { /* fall through to market default */ }
+
+  // 4. Market default
+  return {
+    pattern: { median_page_count: defaults.pages, median_scene_count: defaults.scenes, p25_page_count: marketMin, p75_page_count: defaults.pages + 15, sample_size: 0 },
+    source: 'market_default', confidence: 'low', sampleSize: 0, minimumPages: marketMin,
+  };
+}
+
+// Backward-compat wrapper
+async function getCorpusCalibration(db: ReturnType<typeof createClient>, productionType: string, genre?: string) {
+  const resolved = await getCorpusCalibrationResolved(db, productionType, genre);
+  return resolved.pattern;
 }
 
 async function getLaneNorm(db: ReturnType<typeof createClient>, lane: string) {
@@ -696,13 +757,18 @@ serve(async (req) => {
       const marketMin = MARKET_MIN_PAGES[pt] || MARKET_MIN_PAGES['feature'];
 
       let corpusMinPages = marketMin; // Always at least market default
+      let baselineSource = 'market_default';
+      let baselineConfidence = 'low';
+      let baselineSampleSize = 0;
       try {
-        const draftCalibration = await getCorpusCalibration(supabase, project.format, (project.genres || [])[0]);
-        if (draftCalibration?.p25_page_count) {
-          // Use the HIGHER of corpus p25 and market default
-          corpusMinPages = Math.max(Math.round(draftCalibration.p25_page_count), marketMin);
-        }
+        const draftResolved = await getCorpusCalibrationResolved(supabase, project.format, (project.genres || [])[0]);
+        baselineSource = draftResolved.source;
+        baselineConfidence = draftResolved.confidence;
+        baselineSampleSize = draftResolved.sampleSize;
+        corpusMinPages = draftResolved.minimumPages;
       } catch { /* non-critical */ }
+
+      console.log(`[draft] baseline_source=${baselineSource} confidence=${baselineConfidence} n=${baselineSampleSize} minPages=${corpusMinPages}`);
 
       const belowMinimum = metrics.pageCountEst < corpusMinPages;
       const isComplete = allScenesComplete && !belowMinimum;

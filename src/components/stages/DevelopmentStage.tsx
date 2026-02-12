@@ -99,6 +99,7 @@ export function DevelopmentStage({
           format={project.format}
           genres={project.genres || []}
           hasDocuments={hasDocuments || hasScript}
+          productionType={project.format}
         />
       )}
 

@@ -17,6 +17,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { useResolvedCalibration } from '@/hooks/useCorpusInsights';
 import { useExtractDocuments } from '@/hooks/useExtractDocuments';
 import { OperationProgress, EXTRACT_STAGES } from '@/components/OperationProgress';
 import { useAuth } from '@/hooks/useAuth';
@@ -85,6 +86,7 @@ interface Props {
   genres: string[];
   hasDocuments: boolean;
   lane?: string;
+  productionType?: string;
 }
 
 const REC_STYLES: Record<string, { icon: React.ElementType; color: string; bg: string }> = {
@@ -500,7 +502,7 @@ function CompareDialog({ runs }: { runs: CoverageRunData[] }) {
   );
 }
 
-export function ScriptCoverage({ projectId, projectTitle, format, genres, hasDocuments, lane }: Props) {
+export function ScriptCoverage({ projectId, projectTitle, format, genres, hasDocuments, lane, productionType }: Props) {
   const [runs, setRuns] = useState<CoverageRunData[]>([]);
   const [selectedId, setSelectedId] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -512,6 +514,9 @@ export function ScriptCoverage({ projectId, projectTitle, format, genres, hasDoc
   const extract = useExtractDocuments(projectId);
   const queryClient = useQueryClient();
   const { user } = useAuth();
+
+  // Resolve baseline for coverage display
+  const resolved = useResolvedCalibration(productionType || format, genres?.[0]);
 
   const selectedRun = runs.find(r => r.id === selectedId);
 
@@ -793,6 +798,23 @@ export function ScriptCoverage({ projectId, projectTitle, format, genres, hasDoc
                     <Trash2 className="h-3 w-3" /> Delete
                   </Button>
                 </ConfirmDialog>
+              </div>
+            )}
+
+            {/* Baseline metadata */}
+            {resolved && (
+              <div className="flex items-center gap-2 flex-wrap text-[10px] px-1">
+                <span className="text-muted-foreground">Baseline:</span>
+                <Badge variant="outline" className={`text-[9px] ${
+                  resolved.confidence === 'high' ? 'border-emerald-500/50 text-emerald-400' :
+                  resolved.confidence === 'medium' ? 'border-amber-500/50 text-amber-400' :
+                  'border-muted-foreground/50 text-muted-foreground'
+                }`}>
+                  {resolved.source.replace(/_/g, ' ').toUpperCase()}
+                </Badge>
+                <span className="text-muted-foreground">
+                  {resolved.confidence} · n={resolved.pattern.sample_size || 0} · min {resolved.minimumPages}pg
+                </span>
               </div>
             )}
 
