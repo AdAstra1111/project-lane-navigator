@@ -26,13 +26,12 @@ import { NotesReview } from '@/components/NotesReview';
 import { StructuredNote } from '@/hooks/useNoteFeedback';
 
 const COVERAGE_3PASS_STAGES = [
-  { at: 3, label: 'Pass A: Analyst diagnosis…' },
-  { at: 20, label: 'Pass A: Extracting evidence…' },
-  { at: 35, label: 'Pass B: Producer notes…' },
-  { at: 55, label: 'Pass B: Building action plan…' },
-  { at: 70, label: 'Pass C: Quality control…' },
-  { at: 85, label: 'Pass C: Enforcing contract…' },
-  { at: 95, label: 'Saving results…' },
+  { at: 5, label: 'Pass A: Analyst diagnosis…' },
+  { at: 25, label: 'Pass A: Extracting evidence…' },
+  { at: 40, label: 'Pass B: Producer notes…' },
+  { at: 60, label: 'Pass B: Building action plan…' },
+  { at: 75, label: 'Pass C: QC + structuring notes…' },
+  { at: 90, label: 'Saving results…' },
 ];
 
 const PROBLEM_TYPES = [

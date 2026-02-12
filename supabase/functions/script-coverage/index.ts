@@ -15,12 +15,12 @@ const FORMAT_LABELS: Record<string, string> = {
   "vertical-drama": "Vertical Drama",
 };
 
-async function callAI(apiKey: string, systemPrompt: string, userPrompt: string, temperature = 0.25): Promise<string> {
+async function callAI(apiKey: string, systemPrompt: string, userPrompt: string, temperature = 0.25, model = "google/gemini-2.5-flash"): Promise<string> {
   const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: "google/gemini-2.5-flash",
+      model,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
@@ -110,7 +110,7 @@ serve(async (req) => {
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
 
     const formatLabel = FORMAT_LABELS[format] || "Film";
-    const truncatedScript = scriptText.slice(0, 80000);
+    const truncatedScript = scriptText.slice(0, 50000);
 
     // Fetch house style
     const adminClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
@@ -133,7 +133,7 @@ serve(async (req) => {
     const projectMeta = `PROJECT TYPE: ${formatLabel}\nGENRES: ${(genres || []).join(", ") || "Not specified"}\nLANE: ${lane || "Not specified"}\nHOUSE STYLE: ${JSON.stringify(houseStyle)}`;
 
     // =========== PASS A: ANALYST ===========
-    const passAUser = `${projectMeta}\n\nSCRIPT TEXT:\n${truncatedScript}\n\n${truncatedScript.length >= 80000 ? "[Note: Script truncated at 80k chars]" : ""}`;
+    const passAUser = `${projectMeta}\n\nSCRIPT TEXT:\n${truncatedScript}\n\n${truncatedScript.length >= 50000 ? "[Note: Script truncated at 50k chars]" : ""}`;
     const passAResult = await callAI(LOVABLE_API_KEY, promptVersion.analyst_prompt, passAUser, 0.2);
 
     // =========== RAG: Retrieve great notes based on Pass A problem types ===========
@@ -203,7 +203,7 @@ Extract ALL actionable notes from the coverage into this array. Each note object
 Rules: sequential IDs (N-001, N-002...), every note needs evidence, category must be one of 8 values.`;
 
     const passCUser = `PASS B FINAL COVERAGE:\n${passBResult}\n\nPASS A DIAGNOSTICS (for cross-check):\n${passAResult.slice(0, 15000)}\n\nEnforce Output Contract. Remove vagueness. Flag hallucinations. Return JSON with cleaned_coverage, qc_changelog, hallucination_flags, metrics, AND structured_notes array.`;
-    const passCResult = await callAI(LOVABLE_API_KEY, passCSystem, passCUser, 0.15);
+    const passCResult = await callAI(LOVABLE_API_KEY, passCSystem, passCUser, 0.15, "google/gemini-2.5-flash-lite");
 
     // Parse QC output (now includes structured_notes)
     const qcParsed = parseJSON(passCResult);
@@ -259,7 +259,7 @@ Rules: sequential IDs (N-001, N-002...), every note needs evidence, category mus
       project_type: formatLabel,
       lane: lane || null,
       inputs: {
-        chunk_size: 80000,
+        chunk_size: 50000,
         temperature: [0.2, 0.3, 0.15],
         exemplar_count: metrics.exemplar_count,
         inferred_problem_types: inferredTypes,
