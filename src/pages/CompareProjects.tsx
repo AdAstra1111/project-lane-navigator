@@ -98,6 +98,23 @@ function ProjectColumn({ projectId }: { projectId: string }) {
         </div>
       )}
 
+      {/* Script Coverage Verdict */}
+      {project.script_coverage_verdict && (
+        <div className="glass-card rounded-lg p-4 space-y-2">
+          <h3 className="text-sm font-medium text-foreground">Script Coverage</h3>
+          <div className="flex items-center gap-2">
+            <Badge className={cn(
+              'text-xs',
+              project.script_coverage_verdict === 'RECOMMEND' && 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
+              project.script_coverage_verdict === 'CONSIDER' && 'bg-amber-500/15 text-amber-400 border-amber-500/30',
+              project.script_coverage_verdict === 'PASS' && 'bg-red-500/15 text-red-400 border-red-500/30',
+            )}>
+              {project.script_coverage_verdict}
+            </Badge>
+          </div>
+        </div>
+      )}
+
       {/* Key Details */}
       <div className="glass-card rounded-lg p-4 space-y-3">
         <h3 className="text-sm font-medium text-foreground">Project Details</h3>
