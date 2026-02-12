@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { User, Mail, LogOut, Save, Loader2, Crown, BookOpen } from 'lucide-react';
+import { User, Mail, LogOut, Save, Loader2, Crown, BookOpen, FlaskConical } from 'lucide-react';
 import { useSubscription } from '@/hooks/useSubscription';
 import { Header } from '@/components/Header';
 import { Button } from '@/components/ui/button';
@@ -221,6 +221,24 @@ export default function Settings() {
           <p className="text-sm text-muted-foreground leading-relaxed">
             IFFY is a project intelligence system that guides film and TV projects from inception through production to monetisation and beyond — preserving context, ownership, and financial clarity at every stage.
           </p>
+        </motion.section>
+
+        {/* Calibration Lab — internal link */}
+        <motion.section
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.22 }}
+          className="glass-card rounded-xl p-6 mb-6"
+        >
+          <h2 className="font-display font-semibold text-foreground mb-2 flex items-center gap-2">
+            <FlaskConical className="h-5 w-5 text-primary" /> Calibration Lab
+          </h2>
+          <p className="text-sm text-muted-foreground mb-3">
+            Compare IFFY viability predictions against real-world outcomes. Paradox House members only.
+          </p>
+          <Button size="sm" variant="outline" onClick={() => navigate('/calibration-lab')}>
+            Open Calibration Lab
+          </Button>
         </motion.section>
 
         {/* Account */}
