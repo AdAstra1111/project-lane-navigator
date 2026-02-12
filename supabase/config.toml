@@ -68,3 +68,6 @@ verify_jwt = false
 
 [functions.script-engine]
 verify_jwt = false
+
+[functions.ingest-corpus]
+verify_jwt = false
