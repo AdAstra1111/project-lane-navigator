@@ -549,15 +549,16 @@ export default function ProjectDetail() {
           <div className="flex gap-6">
             {/* Sidebar - hidden on mobile unless toggled */}
             <div className={cn(
-              'transition-all duration-200',
-              sidebarOpen ? 'block' : 'hidden lg:block'
+              'transition-all duration-200 lg:block',
+              sidebarOpen ? 'block' : 'hidden'
             )}>
               <LifecycleSidebar
                 currentLifecycleStage={lifecycleStage}
                 activeView={activeView}
                 onViewChange={(view) => {
                   setActiveView(view);
-                  setSidebarOpen(false);
+                  // Only auto-close on mobile
+                  if (window.innerWidth < 1024) setSidebarOpen(false);
                 }}
                 stageScores={masterViability?.stageScores}
               />
