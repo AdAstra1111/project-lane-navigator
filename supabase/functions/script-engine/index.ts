@@ -28,6 +28,8 @@ CORPUS CALIBRATION (from ${calibration.sample_size || 'N/A'} analyzed scripts):
 - Median cast size: ${calibration.median_cast_size || 'N/A'}
 
 Structure this blueprint to support ~${mp || 'standard'} pages and ~${ms || 'standard'} scenes based on corpus median. Deviate only with creative justification.
+
+IMPORTANT: Do NOT imitate or copy any specific screenplay from the corpus. Use only numeric/structural targets derived from aggregate statistics.
 `;
   }
 
@@ -215,7 +217,8 @@ ${calibration ? `\nCORPUS CALIBRATION (from ${calibration.sample_size || 'N/A'} 
 - Median scene count: ${calibration.median_scene_count || 'N/A'}
 - Median dialogue ratio: ${calibration.median_dialogue_ratio ? Math.round(calibration.median_dialogue_ratio * 100) + '%' : 'N/A'}
 - Median midpoint position: ${calibration.median_midpoint_position || 'N/A'}
-Use these as structural targets. Deviate only with creative justification.` : ''}
+Use these as structural targets. Deviate only with creative justification.
+IMPORTANT: Do NOT imitate or copy any specific screenplay from the corpus. Use only numeric/structural targets.` : ''}
 
 Generate scene-by-scene architecture for the FULL script (~${pageTarget} pages).${sceneTarget} For each scene provide:
 - scene_number (integer)
@@ -290,8 +293,9 @@ GOLD BENCHMARK (from ${goldBaseline.sample_size || 'N/A'} top-quality scripts):
 - Gold scene count: ${goldBaseline.median_scene_count || 'N/A'}
 - Gold dialogue ratio: ${goldBaseline.median_dialogue_ratio ? Math.round(goldBaseline.median_dialogue_ratio * 100) + '%' : 'N/A'}
 - Gold quality score: ${goldBaseline.median_quality_score || 'N/A'}
-Compare against gold standards and note gaps to best-in-class.`;
-  }
+Compare against gold standards and note gaps to best-in-class.
+IMPORTANT: Do NOT imitate or copy any specific screenplay from the corpus. Use only numeric/structural targets.`;
+   }
 
   let laneBlock = "";
   if (laneNorm) {
@@ -391,6 +395,8 @@ CURRENT SCORES:
 PLAYBOOK OPERATIONS TO APPLY:
 ${playbookOps || "No specific playbooks — use best judgment for the goal."}
 ${avoidPatterns}${stylePrefs}
+
+IMPORTANT: Do NOT imitate or copy any specific screenplay from the corpus. Use only numeric/structural targets derived from aggregate statistics.
 
 CURRENT SCRIPT (excerpt):
 ${scriptText.substring(0, 12000)}
