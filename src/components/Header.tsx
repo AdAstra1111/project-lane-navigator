@@ -6,6 +6,7 @@ import iffyLogo from '@/assets/iffy-logo-v3.png';
 import { NotificationBell } from '@/components/NotificationBell';
 import { GlobalSearch } from '@/components/GlobalSearch';
 import { ThemeToggle } from '@/components/ThemeToggle';
+import { ModeToggle } from '@/components/ModeToggle';
 import { GuidedTutorial } from '@/components/GuidedTutorial';
 import { Button } from '@/components/ui/button';
 import {
@@ -97,6 +98,7 @@ export function Header() {
             </DropdownMenuContent>
           </DropdownMenu>
           <GlobalSearch />
+          <ModeToggle />
           <ThemeToggle />
           <NotificationBell />
           <Button

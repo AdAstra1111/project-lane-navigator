@@ -10,6 +10,7 @@ import { CommandPalette } from "@/components/CommandPalette";
 import { AuthProvider } from "@/hooks/useAuth";
 import { ThemeProvider } from "@/hooks/useTheme";
 import { CorpusIntegrityBanner } from "@/components/CorpusIntegrityBanner";
+import { UIModeProvider } from "@/hooks/useUIMode";
 
 // Eagerly load landing + auth (first paint)
 import Index from "./pages/Index";
@@ -115,6 +116,7 @@ const AnimatedRoutes = () => {
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
+    <UIModeProvider>
     <ThemeProvider>
     <TooltipProvider>
       <Toaster />
@@ -126,6 +128,7 @@ const App = () => (
       </BrowserRouter>
     </TooltipProvider>
     </ThemeProvider>
+    </UIModeProvider>
     </AuthProvider>
   </QueryClientProvider>
 );

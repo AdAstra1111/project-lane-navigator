@@ -4,6 +4,8 @@
 
 import { motion } from 'framer-motion';
 import { Gauge, ArrowRight, Activity, UsersRound } from 'lucide-react';
+import { useUIMode } from '@/hooks/useUIMode';
+import { getEffectiveMode } from '@/lib/visibility';
 import { ViabilityBreakdownPanel } from '@/components/ViabilityBreakdownPanel';
 import { ProjectReadinessScore } from '@/components/ProjectReadinessScore';
 import { TVReadinessScore } from '@/components/tv/TVReadinessScore';
@@ -49,6 +51,9 @@ export function OverviewDashboard({
   currentUserId, lifecycleStage, onNavigateToStage, masterViability,
 }: Props) {
   const currentOrder = getStageOrder(lifecycleStage);
+  const { mode: userMode } = useUIMode();
+  const effectiveMode = getEffectiveMode(userMode, (project as any).ui_mode_override);
+  const isAdvanced = effectiveMode === 'advanced';
 
   return (
     <div className="space-y-4">
@@ -185,20 +190,20 @@ export function OverviewDashboard({
         />
       )}
 
-      {/* Stage Gates */}
-      <StageGatesPanel projectId={projectId} />
+      {/* Stage Gates (Advanced) */}
+      {isAdvanced && <StageGatesPanel projectId={projectId} />}
 
-      {/* Budget Assumptions */}
-      <BudgetAssumptionsPanel projectId={projectId} />
+      {/* Budget Assumptions (Advanced) */}
+      {isAdvanced && <BudgetAssumptionsPanel projectId={projectId} />}
 
-      {/* Packaging Pipeline */}
-      <PackagingPipelinePanel projectId={projectId} />
+      {/* Packaging Pipeline (Advanced) */}
+      {isAdvanced && <PackagingPipelinePanel projectId={projectId} />}
 
       {/* AI Chat */}
       <ProjectChat projectId={projectId} />
 
-      {/* Decision Journal */}
-      <DecisionJournal projectId={projectId} />
+      {/* Decision Journal (Advanced) */}
+      {isAdvanced && <DecisionJournal projectId={projectId} />}
 
       {/* Team & Activity */}
       <div className="space-y-4">
