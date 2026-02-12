@@ -110,79 +110,59 @@ serve(async (req) => {
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
 
     const formatLabel = FORMAT_LABELS[format] || "Film";
-    const truncatedScript = scriptText.slice(0, 50000);
+    // Aggressive truncation to fit within timeout
+    const truncatedScript = scriptText.slice(0, 30000);
+    const t0 = Date.now();
+    console.log(`[coverage] start, script length: ${scriptText.length}, truncated: ${truncatedScript.length}`);
 
-    // Fetch house style
+    // Fetch house style + prompt version in parallel
     const adminClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-    const { data: houseStyleRow } = await adminClient.from("house_style").select("preferences").limit(1).single();
-    const houseStyle = houseStyleRow?.preferences || {};
-
-    // Fetch prompt version
-    let promptVersion: any = null;
-    if (promptVersionId) {
-      const { data } = await adminClient.from("coverage_prompt_versions").select("*").eq("id", promptVersionId).single();
-      promptVersion = data;
-    }
-    if (!promptVersion) {
-      const { data } = await adminClient.from("coverage_prompt_versions").select("*").eq("status", "active").limit(1).single();
-      promptVersion = data;
-    }
+    
+    const [houseStyleResult, promptVersionResult] = await Promise.all([
+      adminClient.from("house_style").select("preferences").limit(1).single(),
+      promptVersionId 
+        ? adminClient.from("coverage_prompt_versions").select("*").eq("id", promptVersionId).single()
+        : adminClient.from("coverage_prompt_versions").select("*").eq("status", "active").limit(1).single(),
+    ]);
+    const houseStyle = houseStyleResult.data?.preferences || {};
+    const promptVersion = promptVersionResult.data;
 
     if (!promptVersion) throw new Error("No active prompt version found");
+    console.log(`[coverage] db lookups done in ${Date.now() - t0}ms`);
 
     const projectMeta = `PROJECT TYPE: ${formatLabel}\nGENRES: ${(genres || []).join(", ") || "Not specified"}\nLANE: ${lane || "Not specified"}\nHOUSE STYLE: ${JSON.stringify(houseStyle)}`;
 
+    // Use flash-lite for ALL passes to maximize speed
+    const FAST_MODEL = "google/gemini-2.5-flash-lite";
+
     // =========== PASS A: ANALYST ===========
-    const passAUser = `${projectMeta}\n\nSCRIPT TEXT:\n${truncatedScript}\n\n${truncatedScript.length >= 50000 ? "[Note: Script truncated at 50k chars]" : ""}`;
-    const passAResult = await callAI(LOVABLE_API_KEY, promptVersion.analyst_prompt, passAUser, 0.2);
+    const passAUser = `${projectMeta}\n\nSCRIPT TEXT:\n${truncatedScript}\n\n${truncatedScript.length >= 30000 ? "[Note: Script truncated at 30k chars]" : ""}`;
+    const passAResult = await callAI(LOVABLE_API_KEY, promptVersion.analyst_prompt, passAUser, 0.2, FAST_MODEL);
+    console.log(`[coverage] Pass A done in ${Date.now() - t0}ms`);
 
-    // =========== RAG: Retrieve great notes based on Pass A problem types ===========
+    // =========== RAG: Skip heavy queries, just do a quick exemplar fetch ===========
     const inferredTypes = inferProblemTypes(passAResult);
-    console.log("Inferred problem types for RAG:", inferredTypes);
-
     let exemplarBlock = "";
     if (inferredTypes.length > 0) {
-      // Fetch exemplars matching project_type AND inferred problem types
-      const { data: targetedExemplars } = await adminClient
-        .from("great_notes_library")
-        .select("note_text, problem_type, evidence_style")
-        .eq("project_type", formatLabel)
-        .in("problem_type", inferredTypes)
-        .limit(6);
-
-      // Also fetch a few general exemplars for breadth
-      const { data: generalExemplars } = await adminClient
-        .from("great_notes_library")
-        .select("note_text, problem_type, evidence_style")
-        .eq("project_type", formatLabel)
-        .not("problem_type", "in", `(${inferredTypes.join(",")})`)
-        .limit(4);
-
-      const allExemplars = [...(targetedExemplars || []), ...(generalExemplars || [])];
-
-      if (allExemplars.length > 0) {
-        exemplarBlock = "\n\nSTYLE EXEMPLARS (imitate specificity and structure, NOT content):\n" +
-          allExemplars.map((e: any, i: number) => `${i + 1}. [${e.problem_type}] ${e.note_text}`).join("\n");
-      }
-    } else {
-      // Fallback: fetch any exemplars for the project type
       const { data: exemplars } = await adminClient
         .from("great_notes_library")
-        .select("note_text, problem_type, evidence_style")
+        .select("note_text, problem_type")
         .eq("project_type", formatLabel)
-        .limit(8);
-
+        .in("problem_type", inferredTypes)
+        .limit(4);
       if (exemplars?.length) {
-        exemplarBlock = "\n\nSTYLE EXEMPLARS (imitate specificity and structure, NOT content):\n" +
+        exemplarBlock = "\n\nSTYLE EXEMPLARS:\n" +
           exemplars.map((e: any, i: number) => `${i + 1}. [${e.problem_type}] ${e.note_text}`).join("\n");
       }
     }
+    console.log(`[coverage] RAG done in ${Date.now() - t0}ms`);
 
     // =========== PASS B: PRODUCER/STORY EDITOR ===========
     const passBUser = `${projectMeta}\n\nANALYST DIAGNOSTICS (Pass A):\n${passAResult}${exemplarBlock}\n\nProduce FINAL COVERAGE strictly matching the Output Contract.`;
-    const passBResult = await callAI(LOVABLE_API_KEY, promptVersion.producer_prompt, passBUser, 0.3);
+    const passBResult = await callAI(LOVABLE_API_KEY, promptVersion.producer_prompt, passBUser, 0.3, FAST_MODEL);
+    console.log(`[coverage] Pass B done in ${Date.now() - t0}ms`);
 
-    // =========== PASS C: QC + STRUCTURED NOTES (merged to avoid timeout) ===========
+    // =========== PASS C: QC + STRUCTURED NOTES ===========
     const passCSystem = promptVersion.qc_prompt + `
 
 ADDITIONAL REQUIREMENT: After the QC fields, include a "structured_notes" array in your JSON output.
@@ -190,20 +170,21 @@ Extract ALL actionable notes from the coverage into this array. Each note object
 {
   "note_id": "N-001",
   "section": "WHAT'S NOT WORKING",
-  "category": "structure",  // structure|character|dialogue|theme|market|pacing|stakes|tone
-  "priority": 1,            // 1=core, 2=important, 3=optional
+  "category": "structure",
+  "priority": 1,
   "title": "Short title",
   "note_text": "Full note text",
-  "evidence": [{"type":"scene","ref":"SCENE 12 — ..."}],
-  "prescription": "What to do about it",
+  "evidence": [{"type":"scene","ref":"SCENE 12"}],
+  "prescription": "What to do",
   "safe_fix": "Conservative fix",
   "bold_fix": "Ambitious fix",
-  "tags": ["act1","stakes"]
+  "tags": ["act1"]
 }
-Rules: sequential IDs (N-001, N-002...), every note needs evidence, category must be one of 8 values.`;
+Rules: sequential IDs, every note needs evidence, category one of: structure|character|dialogue|theme|market|pacing|stakes|tone.`;
 
-    const passCUser = `PASS B FINAL COVERAGE:\n${passBResult}\n\nPASS A DIAGNOSTICS (for cross-check):\n${passAResult.slice(0, 15000)}\n\nEnforce Output Contract. Remove vagueness. Flag hallucinations. Return JSON with cleaned_coverage, qc_changelog, hallucination_flags, metrics, AND structured_notes array.`;
-    const passCResult = await callAI(LOVABLE_API_KEY, passCSystem, passCUser, 0.15, "google/gemini-2.5-flash-lite");
+    const passCUser = `PASS B FINAL COVERAGE:\n${passBResult}\n\nPASS A DIAGNOSTICS (for cross-check):\n${passAResult.slice(0, 10000)}\n\nEnforce Output Contract. Return JSON with cleaned_coverage, metrics, AND structured_notes array.`;
+    const passCResult = await callAI(LOVABLE_API_KEY, passCSystem, passCUser, 0.15, FAST_MODEL);
+    console.log(`[coverage] Pass C done in ${Date.now() - t0}ms`);
 
     // Parse QC output (now includes structured_notes)
     const qcParsed = parseJSON(passCResult);
@@ -248,7 +229,7 @@ Rules: sequential IDs (N-001, N-002...), every note needs evidence, category mus
         tags: [],
       }));
     }
-    console.log(`Extracted ${structuredNotes.length} structured notes`);
+    console.log(`[coverage] Extracted ${structuredNotes.length} structured notes, total elapsed: ${Date.now() - t0}ms`);
 
     // Save coverage run
     const runData = {
