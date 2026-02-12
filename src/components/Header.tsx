@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useNavigate } from 'react-router-dom';
-import { LogOut, Plus, Radio, Landmark, HelpCircle, ChevronDown, Calendar, Users, LayoutGrid, Globe, BarChart3, Settings, Menu, X, Building2, GraduationCap, FlaskConical } from 'lucide-react';
+import { LogOut, Plus, Radio, Landmark, HelpCircle, ChevronDown, Calendar, Users, LayoutGrid, Globe, BarChart3, Settings, Menu, X, Building2, GraduationCap, FlaskConical, Lightbulb } from 'lucide-react';
 import iffyLogo from '@/assets/iffy-logo-v3.png';
 import { NotificationBell } from '@/components/NotificationBell';
 import { GlobalSearch } from '@/components/GlobalSearch';
@@ -30,6 +30,7 @@ export function Header() {
 
   const navItems = [
     { label: 'Companies', icon: Building2, path: '/companies' },
+    { label: 'Pitch Ideas', icon: Lightbulb, path: '/pitch-ideas' },
     { label: 'Trends', icon: Radio, path: '/trends' },
     { label: 'Incentives', icon: Landmark, path: '/incentives' },
     { label: 'Calendar', icon: LayoutGrid, path: '/calendar' },
