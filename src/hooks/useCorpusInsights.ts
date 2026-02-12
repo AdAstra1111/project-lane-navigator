@@ -185,6 +185,122 @@ export function useGoldBaseline(productionType: string | undefined) {
   });
 }
 
+/** Market defaults for minimum page counts when corpus data is insufficient */
+export const MARKET_DEFAULT_MINS: Record<string, number> = {
+  'feature': 80, 'film': 80, 'feature-film': 80,
+  'tv-pilot': 45, 'tv-series': 45, 'tv_60': 45,
+  'tv_30': 22, 'half-hour': 22,
+  'short-film': 8, 'short': 8,
+  'documentary': 45, 'doc-feature': 45,
+  'vertical': 5, 'vertical-drama': 5,
+};
+
+export const MARKET_DEFAULT_TARGETS: Record<string, { pages: number; scenes: number }> = {
+  'feature': { pages: 95, scenes: 55 }, 'film': { pages: 95, scenes: 55 },
+  'tv-pilot': { pages: 55, scenes: 30 }, 'tv-series': { pages: 55, scenes: 30 },
+  'tv_30': { pages: 32, scenes: 20 }, 'half-hour': { pages: 32, scenes: 20 },
+  'short-film': { pages: 15, scenes: 10 }, 'short': { pages: 15, scenes: 10 },
+  'documentary': { pages: 60, scenes: 25 }, 'doc-feature': { pages: 60, scenes: 25 },
+  'vertical': { pages: 8, scenes: 6 },
+};
+
+export type CalibrationConfidence = 'high' | 'medium' | 'low';
+export type CalibrationSource = 'genre_baseline' | 'type_calibration' | 'gold_baseline' | 'market_default';
+
+export interface ResolvedCalibration {
+  pattern: CorpusCalibration;
+  confidence: CalibrationConfidence;
+  source: CalibrationSource;
+  minimumPages: number;
+}
+
+/**
+ * Smart calibration resolver with sample-size aware fallback.
+ * Returns calibration with confidence label and enforced market-default floor.
+ */
+export function useResolvedCalibration(productionType: string | undefined, genre: string | undefined) {
+  const { data: calibrations } = useCorpusCalibrations();
+  const { data: baselines } = useBaselineProfiles();
+  const { data: goldData } = useGoldBaseline(productionType);
+
+  if (!productionType) return null;
+  const pt = productionType.toLowerCase();
+  const g = (genre || '').toLowerCase();
+
+  // 1. Try genre baseline (if sample_size >= 8)
+  if (g && baselines?.length) {
+    const match = baselines.find(b =>
+      (b.production_type?.toLowerCase() === pt || pt.includes(b.production_type?.toLowerCase())) &&
+      b.genre?.toLowerCase() === g
+    );
+    if (match && (match.sample_size || 0) >= 8) {
+      const minPages = Math.max(match.p25_page_count || 0, MARKET_DEFAULT_MINS[pt] || 80);
+      return { pattern: match, confidence: 'high' as CalibrationConfidence, source: 'genre_baseline' as CalibrationSource, minimumPages: minPages };
+    }
+  }
+
+  // 2. Try production_type calibration (if sample_size >= 8)
+  if (calibrations?.length) {
+    const match = calibrations.find(c => {
+      const cpt = c.production_type.toLowerCase();
+      return cpt === pt || pt.includes(cpt) || cpt.includes(pt);
+    });
+    if (match && (match.sample_size || 0) >= 8) {
+      const minPages = Math.max(match.p25_page_count || 0, MARKET_DEFAULT_MINS[pt] || 80);
+      return { pattern: match, confidence: 'high' as CalibrationConfidence, source: 'type_calibration' as CalibrationSource, minimumPages: minPages };
+    }
+    // sample 3-7: medium confidence
+    if (match && (match.sample_size || 0) >= 3) {
+      const minPages = Math.max(match.p25_page_count || 0, MARKET_DEFAULT_MINS[pt] || 80);
+      return { pattern: match, confidence: 'medium' as CalibrationConfidence, source: 'type_calibration' as CalibrationSource, minimumPages: minPages };
+    }
+  }
+
+  // 3. Try gold baseline as fallback
+  if (goldData && (goldData.sample_size || 0) >= 3) {
+    const minPages = Math.max(goldData.p25_page_count || 0, MARKET_DEFAULT_MINS[pt] || 80);
+    const conf: CalibrationConfidence = (goldData.sample_size || 0) >= 8 ? 'high' : 'medium';
+    return { pattern: goldData, confidence: conf, source: 'gold_baseline' as CalibrationSource, minimumPages: minPages };
+  }
+
+  // 4. Market default fallback
+  const defaults = MARKET_DEFAULT_TARGETS[pt] || MARKET_DEFAULT_TARGETS['feature'];
+  const minPages = MARKET_DEFAULT_MINS[pt] || 80;
+  const fallback: CorpusCalibration = {
+    production_type: pt,
+    sample_size: 0,
+    median_page_count: defaults.pages,
+    min_page_count: minPages,
+    max_page_count: defaults.pages + 30,
+    p25_page_count: minPages,
+    p75_page_count: defaults.pages + 15,
+    median_scene_count: defaults.scenes,
+    min_scene_count: Math.round(defaults.scenes * 0.6),
+    max_scene_count: Math.round(defaults.scenes * 1.5),
+    p25_scene_count: Math.round(defaults.scenes * 0.8),
+    p75_scene_count: Math.round(defaults.scenes * 1.2),
+    median_runtime: defaults.pages,
+    median_dialogue_ratio: 0.45,
+    p25_dialogue_ratio: 0.35,
+    p75_dialogue_ratio: 0.55,
+    median_cast_size: 12,
+    p25_cast_size: 8,
+    p75_cast_size: 18,
+    median_location_count: 20,
+    p25_location_count: 12,
+    p75_location_count: 30,
+    median_midpoint_position: 0.5,
+    median_climax_position: 0.85,
+    median_avg_scene_length: 1.8,
+    median_quality_score: 70,
+    median_int_ext_ratio: 0.6,
+    median_day_night_ratio: 0.7,
+    vfx_rate: 0.3,
+    budget_distribution: {},
+  };
+  return { pattern: fallback, confidence: 'low' as CalibrationConfidence, source: 'market_default' as CalibrationSource, minimumPages: minPages };
+}
+
 export function useCalibrationForType(productionType: string | undefined) {
   const { data: calibrations } = useCorpusCalibrations();
   if (!productionType || !calibrations) return null;
@@ -199,7 +315,6 @@ export function useBaselineForProject(productionType: string | undefined, genre:
   const { data: baselines } = useBaselineProfiles();
   const calibration = useCalibrationForType(productionType);
   if (!productionType) return null;
-  // Try genre-specific baseline first
   if (genre && baselines?.length) {
     const g = genre.toLowerCase();
     const pt = productionType.toLowerCase();
@@ -209,7 +324,6 @@ export function useBaselineForProject(productionType: string | undefined, genre:
     );
     if (match) return match;
   }
-  // Fall back to production type calibration
   return calibration;
 }
 
@@ -324,5 +438,26 @@ export function useCorpusHealth() {
       return data || [];
     },
     enabled: !!user,
+  });
+}
+
+/** Re-ingest a truncated script by uploading a new file (PDF/FDX/TXT) */
+export function useReingestScript() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ scriptId, fileContent, fileName, fileType }: { scriptId: string; fileContent: string; fileName: string; fileType: string }) => {
+      const { data, error } = await supabase.functions.invoke('ingest-corpus', {
+        body: { action: 'reingest', script_id: scriptId, file_content: fileContent, file_name: fileName, file_type: fileType },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      return data;
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['corpus-health'] });
+      qc.invalidateQueries({ queryKey: ['corpus-scripts'] });
+      toast.success(`Re-ingested: ${data.wordCount?.toLocaleString()} words, ~${data.pageEstimate} pages${data.isTruncated ? ' (still truncated)' : ' ✓ healthy'}`);
+    },
+    onError: (e) => toast.error(`Re-ingest failed: ${e.message}`),
   });
 }

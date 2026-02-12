@@ -683,20 +683,32 @@ serve(async (req) => {
       const metrics = computeDraftMetrics(draftTextStr, project.format);
       console.log(`[draft] Metrics: ${metrics.pageCountEst} pages, ~${metrics.runtimeMinEst} min`);
 
-      // Enforce corpus minimum page count — draft cannot complete below p25
-      let corpusMinPages = 0;
+      // Enforce corpus minimum page count — with market default floor
+      const MARKET_MIN_PAGES: Record<string, number> = {
+        'feature': 80, 'film': 80, 'feature-film': 80,
+        'tv-pilot': 45, 'tv-series': 45, 'tv_60': 45,
+        'tv_30': 22, 'half-hour': 22,
+        'short-film': 8, 'short': 8,
+        'documentary': 45, 'doc-feature': 45,
+        'vertical': 5, 'vertical-drama': 5,
+      };
+      const pt = (project.format || 'feature').toLowerCase();
+      const marketMin = MARKET_MIN_PAGES[pt] || MARKET_MIN_PAGES['feature'];
+
+      let corpusMinPages = marketMin; // Always at least market default
       try {
         const draftCalibration = await getCorpusCalibration(supabase, project.format, (project.genres || [])[0]);
         if (draftCalibration?.p25_page_count) {
-          corpusMinPages = Math.round(draftCalibration.p25_page_count);
+          // Use the HIGHER of corpus p25 and market default
+          corpusMinPages = Math.max(Math.round(draftCalibration.p25_page_count), marketMin);
         }
       } catch { /* non-critical */ }
 
-      const belowMinimum = corpusMinPages > 0 && metrics.pageCountEst < corpusMinPages;
+      const belowMinimum = metrics.pageCountEst < corpusMinPages;
       const isComplete = allScenesComplete && !belowMinimum;
 
       if (belowMinimum && allScenesComplete) {
-        console.log(`[draft] Draft incomplete: ${metrics.pageCountEst} pages below corpus minimum ${corpusMinPages}. Continuing.`);
+        console.log(`[draft] Draft incomplete: ${metrics.pageCountEst} pages below minimum ${corpusMinPages} (market floor: ${marketMin}). Continuing.`);
       }
 
       const newDraftNum = isComplete ? currentDraft + 1 : currentDraft;

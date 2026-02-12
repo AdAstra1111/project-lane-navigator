@@ -31,6 +31,8 @@ serve(async (req) => {
 
     if (action === "ingest") {
       return await handleIngest(adminClient, user.id, params, lovableKey, corsHeaders);
+    } else if (action === "reingest") {
+      return await handleReingest(adminClient, user.id, params, lovableKey, corsHeaders);
     } else if (action === "search") {
       return await handleSearch(adminClient, user.id, params, corsHeaders);
     } else {
@@ -386,6 +388,152 @@ ${excerpt}`,
   return new Response(JSON.stringify({ success: true, script_id: scriptId, pages: pageEstimate, scenes: scenes.length, chunks: chunks.length }), {
     headers: { ...cors, "Content-Type": "application/json" },
   });
+}
+
+// ── Re-ingest (replace truncated script with uploaded file) ──────────
+
+async function handleReingest(
+  db: ReturnType<typeof createClient>,
+  userId: string,
+  params: { script_id: string; file_content: string; file_name: string; file_type?: string },
+  lovableKey: string | undefined,
+  cors: Record<string, string>,
+) {
+  const { script_id, file_content, file_name, file_type } = params;
+  if (!script_id || !file_content) throw new Error("script_id and file_content required");
+
+  // Verify script exists and belongs to user
+  const { data: existing, error: fetchErr } = await db
+    .from("corpus_scripts")
+    .select("*, approved_sources(title)")
+    .eq("id", script_id)
+    .eq("user_id", userId)
+    .single();
+  if (fetchErr || !existing) throw new Error("Script not found or not owned by user");
+
+  const log: string[] = [];
+  const addLog = (msg: string) => { log.push(`[${new Date().toISOString()}] ${msg}`); };
+  addLog(`Re-ingesting "${existing.title || existing.approved_sources?.title}" from uploaded ${file_type || 'text'}`);
+
+  // The file_content is the extracted text (client-side or base64 for PDF)
+  let rawText = file_content;
+  const ingestionSource = (file_type || 'txt').toLowerCase().includes('fdx') ? 'fdx'
+    : (file_type || 'txt').toLowerCase().includes('pdf') ? 'pdf' : 'txt';
+
+  // For PDF: use AI extraction
+  if (ingestionSource === 'pdf' && lovableKey) {
+    addLog("Extracting text from PDF via AI…");
+    const aiResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${lovableKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "google/gemini-2.5-flash",
+        messages: [{
+          role: "user",
+          content: [
+            { type: "text", text: "Extract ALL text from this screenplay PDF. Preserve sluglines (INT./EXT.), character names, dialogue, and action lines. Return ONLY the extracted text, nothing else." },
+            { type: "image_url", image_url: { url: `data:application/pdf;base64,${file_content}` } },
+          ],
+        }],
+      }),
+    });
+    if (!aiResp.ok) throw new Error(`AI PDF extraction failed: ${aiResp.status}`);
+    const aiData = await aiResp.json();
+    rawText = aiData.choices?.[0]?.message?.content || "";
+    addLog(`PDF extracted: ${rawText.length} chars`);
+  }
+
+  // For FDX: parse XML
+  if (ingestionSource === 'fdx') {
+    addLog("Parsing Final Draft XML…");
+    // Extract text content from FDX XML elements
+    rawText = rawText
+      .replace(/<Paragraph[^>]*Type="Scene Heading"[^>]*>/gi, '\n\n')
+      .replace(/<Paragraph[^>]*Type="Action"[^>]*>/gi, '\n')
+      .replace(/<Paragraph[^>]*Type="Character"[^>]*>/gi, '\n')
+      .replace(/<Paragraph[^>]*Type="Dialogue"[^>]*>/gi, '\n')
+      .replace(/<Text[^>]*>/gi, '')
+      .replace(/<\/Text>/gi, '')
+      .replace(/<\/Paragraph>/gi, '\n')
+      .replace(/<[^>]+>/g, '')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#\d+;/g, '');
+    addLog(`FDX parsed: ${rawText.length} chars`);
+  }
+
+  rawText = normalizeText(rawText);
+  if (rawText.length < 200) throw new Error("Extracted text too short after processing");
+
+  const wordCount = rawText.split(/\s+/).filter(Boolean).length;
+  const lineCount = rawText.split("\n").length;
+  const rawTextLengthChars = rawText.length;
+  const pageEstimate = Math.max(1, Math.ceil(wordCount / 250));
+  const parseConfidence = Math.min(1, wordCount / 20000);
+
+  const minWords = 12000;
+  const isTruncated = wordCount < minWords;
+  const truncationReason = isTruncated
+    ? `word_count ${wordCount} < ${minWords} threshold after re-ingestion`
+    : null;
+
+  addLog(`Quality: ${wordCount} words, ${lineCount} lines, ${pageEstimate} pages, truncated=${isTruncated}`);
+
+  // Upload new text
+  const checksum = await sha256(rawText);
+  const storagePath = `corpus/raw/${checksum}.txt`;
+  await db.storage.from("scripts").upload(storagePath, rawText, { contentType: "text/plain", upsert: true });
+  addLog("Uploaded to storage");
+
+  // Re-parse scenes
+  const scenes = parseScenes(rawText);
+  addLog(`Parsed ${scenes.length} scenes`);
+
+  // Delete old chunks and scenes, insert new
+  await db.from("corpus_chunks").delete().eq("script_id", script_id);
+  await db.from("corpus_scenes").delete().eq("script_id", script_id);
+
+  if (scenes.length > 0) {
+    const sceneRows = scenes.map((s, i) => ({
+      user_id: userId, script_id, scene_number: i + 1,
+      slugline: s.slugline, location: s.location, time_of_day: s.timeOfDay,
+      scene_text: s.text.slice(0, 50_000),
+    }));
+    await db.from("corpus_scenes").insert(sceneRows);
+  }
+
+  const chunks = chunkText(rawText, scenes);
+  if (chunks.length > 0) {
+    const chunkRows = chunks.map((c, i) => ({ user_id: userId, script_id, chunk_index: i, chunk_text: c }));
+    for (let i = 0; i < chunkRows.length; i += 50) {
+      await db.from("corpus_chunks").insert(chunkRows.slice(i, i + 50));
+    }
+  }
+
+  // Update the SAME row (preserve ID)
+  const previousPath = existing.raw_storage_path;
+  await db.from("corpus_scripts").update({
+    checksum,
+    raw_storage_path: storagePath,
+    page_count_estimate: pageEstimate,
+    word_count: wordCount,
+    ingestion_status: "complete",
+    analysis_status: "pending", // trigger re-analysis
+    ingestion_log: `${existing.ingestion_log || ''}\n\n--- RE-INGESTION ---\n${log.join("\n")}\nPrevious path: ${previousPath}`,
+    ingestion_source: ingestionSource,
+    raw_text_length_chars: rawTextLengthChars,
+    line_count: lineCount,
+    is_truncated: isTruncated,
+    truncation_reason: truncationReason,
+    parse_confidence: parseConfidence,
+  }).eq("id", script_id);
+
+  return new Response(JSON.stringify({
+    success: true, script_id, wordCount, pageEstimate, scenes: scenes.length,
+    chunks: chunks.length, isTruncated, ingestionSource,
+  }), { headers: { ...cors, "Content-Type": "application/json" } });
 }
 
 // ── Search ────────────────────────────────────────────────────────────
