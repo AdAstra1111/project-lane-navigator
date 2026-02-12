@@ -186,7 +186,61 @@ MASTERWORK COMPARISON RULES:
       }
     } catch (e) { console.error("[coverage] masterwork fetch error:", e); }
 
-    console.log(`[coverage] db done ${Date.now() - t0}ms, corpus=${corpusCalibration ? 'yes' : 'no'}, gold=${goldBaseline ? 'yes' : 'no'}, masterwork=${masterworkBlock ? 'yes' : 'no'}`);
+    // Fetch Commercial Proof benchmarks for viability comparison
+    let commercialBlock = "";
+    try {
+      const scriptGenre = ((genres || [])[0] || "").toLowerCase();
+      const scriptFormat = (format || "film").includes("tv") ? "tv-pilot" : "film";
+      const { data: genreHits } = await adminClient.from("commercial_proof").select("*").eq("active", true).eq("genre", scriptGenre).limit(6);
+      let commercials = genreHits || [];
+      if (commercials.length < 3) {
+        const { data: formatHits } = await adminClient.from("commercial_proof").select("*").eq("active", true).eq("format", scriptFormat).limit(8);
+        commercials = formatHits || [];
+      }
+      if (commercials.length > 0) {
+        const countHigh = (arr: any[], field: string, val: string) => arr.filter((m: any) => m[field] === val).length;
+        const pctHigh = (field: string) => Math.round(countHigh(commercials, field, 'high') / commercials.length * 100);
+        const commonROI = [...new Set(commercials.map((m: any) => m.roi_tier).filter(Boolean))];
+        const commonFranchise = [...new Set(commercials.map((m: any) => m.franchise_potential).filter(Boolean))];
+        const commonAudience = [...new Set(commercials.map((m: any) => m.audience_target).filter(Boolean))];
+
+        commercialBlock = `
+
+COMMERCIAL PROOF BENCHMARKS (from ${commercials.length} proven ${scriptGenre || scriptFormat} commercial hits):
+- Hook clarity rated 'high' in ${pctHigh('hook_clarity')}% of proven hits
+- Concept simplicity rated 'high' in ${pctHigh('concept_simplicity')}% of proven hits
+- Trailer moment density rated 'high' in ${pctHigh('trailer_moment_density')}% of proven hits
+- International travelability rated 'high' in ${pctHigh('international_travelability')}% of proven hits
+- Streamer appeal rated 'high' in ${pctHigh('streamer_appeal')}% of proven hits
+- Common ROI tiers: ${commonROI.join(", ")}
+- Common franchise potential: ${commonFranchise.join(", ")}
+- Common audience targets: ${commonAudience.join(", ")}
+
+COMMERCIAL VIABILITY COMPARISON RULES:
+1. Assess logline clarity — can the concept be grasped in one sentence?
+2. Check hook within first 10 pages — is there a clear, compelling inciting moment?
+3. Evaluate stakes clarity — are the consequences of failure concrete and escalating?
+4. Identify marketable set pieces — are there 2-3 moments that would sell in a trailer?
+5. Assess role attractiveness — would a bankable actor want this lead role?
+6. Evaluate sequel/franchise potential — does the world support expansion?
+7. Check budget-to-concept alignment — does the ambition match feasible production scale?
+8. Assess genre promise fulfillment — does the script deliver what the genre audience expects?
+
+COMMERCIAL RISK FLAGS:
+- Strong artistic merit but weak commercial hooks → flag: MARKET RISK
+- Strong concept but weak structural execution → flag: EXECUTION RISK
+- High budget ambition with low international travelability → flag: FINANCE RISK
+
+DUAL SCORING REQUIREMENT:
+You MUST provide two separate scores in your coverage:
+- STRUCTURAL STRENGTH (0-10): Based on craft, structure, character depth, pacing (calibrated against MASTERWORK_CANON)
+- COMMERCIAL VIABILITY (0-10): Based on hook clarity, marketability, castability, audience appeal (calibrated against COMMERCIAL_PROOF)
+Both scores must appear in the verdict section. Final coverage grade must reflect BOTH axes.
+Do NOT soften commercial viability notes. If the script has weak hooks or low travelability, say so directly.`;
+      }
+    } catch (e) { console.error("[coverage] commercial proof fetch error:", e); }
+
+    console.log(`[coverage] db done ${Date.now() - t0}ms, corpus=${corpusCalibration ? 'yes' : 'no'}, gold=${goldBaseline ? 'yes' : 'no'}, masterwork=${masterworkBlock ? 'yes' : 'no'}, commercial=${commercialBlock ? 'yes' : 'no'}`);
 
     let corpusDeviationBlock = "";
     if (corpusCalibration) {
@@ -222,7 +276,7 @@ IMPORTANT: Do NOT imitate or copy any specific screenplay from the corpus. Use o
     // =========== PASS A: ANALYST (diagnostic read) ===========
     const passAResult = await callAI(
       LOVABLE_API_KEY,
-      promptVersion.analyst_prompt + corpusDeviationBlock + masterworkBlock,
+      promptVersion.analyst_prompt + corpusDeviationBlock + masterworkBlock + commercialBlock,
       `${projectMeta}\n\nSCRIPT:\n${truncatedScript}`,
       0.2
     );
