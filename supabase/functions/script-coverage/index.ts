@@ -52,6 +52,29 @@ function parseJSON(raw: string): any {
   }
 }
 
+// Infer top problem types from Pass A output for targeted RAG retrieval
+function inferProblemTypes(passAOutput: string): string[] {
+  const problemKeywords: Record<string, string[]> = {
+    structure: ["structure", "act ", "turning point", "midpoint", "climax", "sequence", "plot"],
+    character: ["character", "protagonist", "antagonist", "arc", "motivation", "want", "need"],
+    dialogue: ["dialogue", "exposition", "subtext", "voice", "speech"],
+    theme: ["theme", "thematic", "meaning", "message", "moral"],
+    pacing: ["pacing", "pace", "slow", "rushed", "tempo", "momentum"],
+    stakes: ["stakes", "tension", "conflict", "jeopardy", "risk"],
+    tone: ["tone", "tonal", "mood", "atmosphere", "genre consistency"],
+    market: ["market", "audience", "commercial", "positioning", "buyer", "sales"],
+  };
+
+  const lower = passAOutput.toLowerCase();
+  const scores: [string, number][] = Object.entries(problemKeywords).map(([type, keywords]) => {
+    const count = keywords.reduce((sum, kw) => sum + (lower.split(kw).length - 1), 0);
+    return [type, count];
+  });
+
+  scores.sort((a, b) => b[1] - a[1]);
+  return scores.filter(s => s[1] > 0).slice(0, 4).map(s => s[0]);
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -107,23 +130,53 @@ serve(async (req) => {
 
     if (!promptVersion) throw new Error("No active prompt version found");
 
-    // Fetch great notes exemplars for RAG
-    const { data: exemplars } = await adminClient
-      .from("great_notes_library")
-      .select("note_text, problem_type, evidence_style")
-      .eq("project_type", formatLabel)
-      .limit(8);
-
-    const exemplarBlock = exemplars?.length
-      ? "\n\nSTYLE EXEMPLARS (imitate specificity and structure, NOT content):\n" +
-        exemplars.map((e: any, i: number) => `${i + 1}. [${e.problem_type}] ${e.note_text}`).join("\n")
-      : "";
-
     const projectMeta = `PROJECT TYPE: ${formatLabel}\nGENRES: ${(genres || []).join(", ") || "Not specified"}\nLANE: ${lane || "Not specified"}\nHOUSE STYLE: ${JSON.stringify(houseStyle)}`;
 
     // =========== PASS A: ANALYST ===========
     const passAUser = `${projectMeta}\n\nSCRIPT TEXT:\n${truncatedScript}\n\n${truncatedScript.length >= 80000 ? "[Note: Script truncated at 80k chars]" : ""}`;
     const passAResult = await callAI(LOVABLE_API_KEY, promptVersion.analyst_prompt, passAUser, 0.2);
+
+    // =========== RAG: Retrieve great notes based on Pass A problem types ===========
+    const inferredTypes = inferProblemTypes(passAResult);
+    console.log("Inferred problem types for RAG:", inferredTypes);
+
+    let exemplarBlock = "";
+    if (inferredTypes.length > 0) {
+      // Fetch exemplars matching project_type AND inferred problem types
+      const { data: targetedExemplars } = await adminClient
+        .from("great_notes_library")
+        .select("note_text, problem_type, evidence_style")
+        .eq("project_type", formatLabel)
+        .in("problem_type", inferredTypes)
+        .limit(6);
+
+      // Also fetch a few general exemplars for breadth
+      const { data: generalExemplars } = await adminClient
+        .from("great_notes_library")
+        .select("note_text, problem_type, evidence_style")
+        .eq("project_type", formatLabel)
+        .not("problem_type", "in", `(${inferredTypes.join(",")})`)
+        .limit(4);
+
+      const allExemplars = [...(targetedExemplars || []), ...(generalExemplars || [])];
+
+      if (allExemplars.length > 0) {
+        exemplarBlock = "\n\nSTYLE EXEMPLARS (imitate specificity and structure, NOT content):\n" +
+          allExemplars.map((e: any, i: number) => `${i + 1}. [${e.problem_type}] ${e.note_text}`).join("\n");
+      }
+    } else {
+      // Fallback: fetch any exemplars for the project type
+      const { data: exemplars } = await adminClient
+        .from("great_notes_library")
+        .select("note_text, problem_type, evidence_style")
+        .eq("project_type", formatLabel)
+        .limit(8);
+
+      if (exemplars?.length) {
+        exemplarBlock = "\n\nSTYLE EXEMPLARS (imitate specificity and structure, NOT content):\n" +
+          exemplars.map((e: any, i: number) => `${i + 1}. [${e.problem_type}] ${e.note_text}`).join("\n");
+      }
+    }
 
     // =========== PASS B: PRODUCER/STORY EDITOR ===========
     const passBUser = `${projectMeta}\n\nANALYST DIAGNOSTICS (Pass A):\n${passAResult}${exemplarBlock}\n\nProduce FINAL COVERAGE strictly matching the Output Contract.`;
@@ -139,8 +192,10 @@ serve(async (req) => {
     const metrics = qcParsed?.metrics || {};
     const hallucinations = qcParsed?.hallucination_flags || [];
     metrics.hallucinations_count = hallucinations.length;
+    metrics.inferred_problem_types = inferredTypes;
+    metrics.exemplar_count = exemplarBlock ? (exemplarBlock.match(/\d+\./g)?.length || 0) : 0;
 
-    // Parse structured notes from final coverage (extract numbered bullets with IDs)
+    // Parse structured notes from final coverage
     const noteLines = finalCoverage.split("\n").filter((l: string) => l.match(/^[-•*]\s|^\d+\./));
     const structuredNotes = noteLines.map((line: string, i: number) => {
       const section = "S" + Math.floor(i / 5 + 1);
@@ -155,7 +210,12 @@ serve(async (req) => {
       model: "google/gemini-2.5-flash",
       project_type: formatLabel,
       lane: lane || null,
-      inputs: { chunk_size: 80000, temperature: [0.2, 0.3, 0.15], exemplar_count: exemplars?.length || 0 },
+      inputs: {
+        chunk_size: 80000,
+        temperature: [0.2, 0.3, 0.15],
+        exemplar_count: metrics.exemplar_count,
+        inferred_problem_types: inferredTypes,
+      },
       pass_a: passAResult,
       pass_b: passBResult,
       pass_c: passCResult,
@@ -174,10 +234,9 @@ serve(async (req) => {
 
     if (insertErr) {
       console.error("Failed to save coverage run:", insertErr);
-      // Still return coverage even if save fails
     }
 
-    // Also update project verdict for readiness scoring
+    // Update project verdict
     const recommendation = finalCoverage.match(/RECOMMEND|CONSIDER|PASS/)?.[0] || "CONSIDER";
     await supabase
       .from("projects")
