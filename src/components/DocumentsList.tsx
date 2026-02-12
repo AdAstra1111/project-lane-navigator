@@ -1,9 +1,14 @@
+import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { FileText, File, CheckCircle2, AlertCircle, AlertTriangle, RotateCw } from 'lucide-react';
+import { FileText, File, CheckCircle2, AlertCircle, AlertTriangle, RotateCw, Trash2 } from 'lucide-react';
 import { ProjectDocument } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { useExtractDocuments } from '@/hooks/useExtractDocuments';
 import { OperationProgress, EXTRACT_STAGES } from '@/components/OperationProgress';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { supabase } from '@/integrations/supabase/client';
+import { useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 
 function getStatusIcon(status: string) {
   switch (status) {
@@ -39,10 +44,33 @@ interface DocumentsListProps {
 }
 
 export function DocumentsList({ documents, projectId }: DocumentsListProps) {
+  const queryClient = useQueryClient();
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
   if (documents.length === 0) return null;
 
   const hasUnextracted = documents.some(d => d.extraction_status !== 'success' || !d.extracted_text);
   const extract = useExtractDocuments(projectId);
+
+  const handleDelete = async (doc: ProjectDocument) => {
+    setDeletingId(doc.id);
+    try {
+      // Delete from storage
+      if (doc.file_path) {
+        await supabase.storage.from('project-documents').remove([doc.file_path]);
+      }
+      // Delete DB record
+      const { error } = await supabase.from('project_documents').delete().eq('id', doc.id);
+      if (error) throw error;
+      queryClient.invalidateQueries({ queryKey: ['project-documents', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+      toast.success(`Deleted ${doc.file_name}`);
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to delete document');
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   return (
     <div>
@@ -53,7 +81,7 @@ export function DocumentsList({ documents, projectId }: DocumentsListProps) {
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1 + index * 0.05, duration: 0.2 }}
-            className="glass-card rounded-lg px-4 py-3 flex items-center gap-3"
+            className="glass-card rounded-lg px-4 py-3 flex items-center gap-3 group"
           >
             <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
             <div className="flex-1 min-w-0">
@@ -67,6 +95,18 @@ export function DocumentsList({ documents, projectId }: DocumentsListProps) {
                 </span>
               </div>
             </div>
+            <ConfirmDialog
+              title={`Delete ${doc.file_name}?`}
+              description="This will permanently remove the document and its extracted text. This cannot be undone."
+              onConfirm={() => handleDelete(doc)}
+            >
+              <button
+                className="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 opacity-0 group-hover:opacity-100 transition-all"
+                disabled={deletingId === doc.id}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </ConfirmDialog>
           </motion.div>
         ))}
       </div>
