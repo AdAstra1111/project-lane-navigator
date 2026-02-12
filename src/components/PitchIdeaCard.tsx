@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Copy, ChevronDown, ChevronUp, ThumbsUp, Minus, ThumbsDown, ArrowUp, ArrowDown, Trash2, Link2, Share2 } from 'lucide-react';
+import { Copy, ChevronDown, ChevronUp, ThumbsUp, Minus, ThumbsDown, ArrowUp, ArrowDown, Trash2, Link2, Share2, Bookmark, BookmarkCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -93,6 +93,23 @@ export function PitchIdeaCard({ idea, onDelete, onUpdate, onLinkProject, rank }:
             </div>
           </div>
           <div className="flex items-center gap-1.5 shrink-0">
+            {/* Save / Shortlist button */}
+            <Button
+              variant={idea.status === 'shortlisted' ? 'default' : 'outline'}
+              size="sm"
+              className="h-7 text-xs gap-1"
+              onClick={() => {
+                if (onUpdate) {
+                  const newStatus = idea.status === 'shortlisted' ? 'draft' : 'shortlisted';
+                  onUpdate({ id: idea.id, status: newStatus });
+                  toast.success(newStatus === 'shortlisted' ? 'Idea saved to shortlist' : 'Removed from shortlist');
+                }
+              }}
+              title={idea.status === 'shortlisted' ? 'Remove from shortlist' : 'Save to shortlist'}
+            >
+              {idea.status === 'shortlisted' ? <BookmarkCheck className="h-3.5 w-3.5" /> : <Bookmark className="h-3.5 w-3.5" />}
+              {idea.status === 'shortlisted' ? 'Saved' : 'Save'}
+            </Button>
             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { copyBlock('Full pitch', buildFullPitchText()); }} title="Share full pitch">
               <Share2 className="h-3.5 w-3.5" />
             </Button>
