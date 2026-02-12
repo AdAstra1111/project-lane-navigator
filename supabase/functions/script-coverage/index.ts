@@ -182,11 +182,30 @@ serve(async (req) => {
     const passBUser = `${projectMeta}\n\nANALYST DIAGNOSTICS (Pass A):\n${passAResult}${exemplarBlock}\n\nProduce FINAL COVERAGE strictly matching the Output Contract.`;
     const passBResult = await callAI(LOVABLE_API_KEY, promptVersion.producer_prompt, passBUser, 0.3);
 
-    // =========== PASS C: QC ===========
-    const passCUser = `PASS B FINAL COVERAGE:\n${passBResult}\n\nPASS A DIAGNOSTICS (for cross-check):\n${passAResult.slice(0, 15000)}\n\nEnforce Output Contract. Remove vagueness. Flag hallucinations. Return JSON with cleaned_coverage, qc_changelog, hallucination_flags, metrics.`;
-    const passCResult = await callAI(LOVABLE_API_KEY, promptVersion.qc_prompt, passCUser, 0.15);
+    // =========== PASS C: QC + STRUCTURED NOTES (merged to avoid timeout) ===========
+    const passCSystem = promptVersion.qc_prompt + `
 
-    // Parse QC output
+ADDITIONAL REQUIREMENT: After the QC fields, include a "structured_notes" array in your JSON output.
+Extract ALL actionable notes from the coverage into this array. Each note object:
+{
+  "note_id": "N-001",
+  "section": "WHAT'S NOT WORKING",
+  "category": "structure",  // structure|character|dialogue|theme|market|pacing|stakes|tone
+  "priority": 1,            // 1=core, 2=important, 3=optional
+  "title": "Short title",
+  "note_text": "Full note text",
+  "evidence": [{"type":"scene","ref":"SCENE 12 — ..."}],
+  "prescription": "What to do about it",
+  "safe_fix": "Conservative fix",
+  "bold_fix": "Ambitious fix",
+  "tags": ["act1","stakes"]
+}
+Rules: sequential IDs (N-001, N-002...), every note needs evidence, category must be one of 8 values.`;
+
+    const passCUser = `PASS B FINAL COVERAGE:\n${passBResult}\n\nPASS A DIAGNOSTICS (for cross-check):\n${passAResult.slice(0, 15000)}\n\nEnforce Output Contract. Remove vagueness. Flag hallucinations. Return JSON with cleaned_coverage, qc_changelog, hallucination_flags, metrics, AND structured_notes array.`;
+    const passCResult = await callAI(LOVABLE_API_KEY, passCSystem, passCUser, 0.15);
+
+    // Parse QC output (now includes structured_notes)
     const qcParsed = parseJSON(passCResult);
     const finalCoverage = qcParsed?.cleaned_coverage || passBResult;
     const metrics = qcParsed?.metrics || {};
@@ -195,41 +214,11 @@ serve(async (req) => {
     metrics.inferred_problem_types = inferredTypes;
     metrics.exemplar_count = exemplarBlock ? (exemplarBlock.match(/\d+\./g)?.length || 0) : 0;
 
-    // =========== PASS D: STRUCTURED NOTES EXTRACTION ===========
-    const passDSystem = `You are a JSON extractor. Given coverage notes, extract every actionable note into a structured array.
-Return ONLY valid JSON — no markdown fences.
-
-Output schema (array):
-[{
-  "note_id": "N-001",          // sequential stable ID
-  "section": "WHAT'S NOT WORKING", // section heading the note falls under
-  "category": "structure",     // one of: structure|character|dialogue|theme|market|pacing|stakes|tone
-  "priority": 1,               // 1=core, 2=important, 3=optional
-  "title": "Short title",
-  "note_text": "Full note text",
-  "evidence": [{"type":"scene","ref":"SCENE 12 — ..."},{"type":"quote","ref":"..."}],
-  "prescription": "What to do about it",
-  "safe_fix": "Conservative fix suggestion",
-  "bold_fix": "Ambitious fix suggestion",
-  "tags": ["act1","stakes"]
-}]
-
-Rules:
-- Extract ALL notes, not just top ones
-- Every note MUST have evidence (scene ref or quote)
-- Category must be one of the 8 allowed values
-- Priority 1 = structural/fatal issues, 2 = significant, 3 = polish
-- note_id must be sequential: N-001, N-002, etc.`;
-
-    const passDUser = `FINAL COVERAGE:\n${finalCoverage}\n\nPASS A DIAGNOSTICS:\n${passAResult.slice(0, 10000)}\n\nExtract ALL notes into the structured JSON array.`;
-    const passDResult = await callAI(LOVABLE_API_KEY, passDSystem, passDUser, 0.1);
-    
+    // Extract structured notes from QC output
     let structuredNotes: any[] = [];
-    try {
-      const parsed = parseJSON(passDResult);
-      structuredNotes = Array.isArray(parsed) ? parsed : (parsed?.notes || []);
-      // Ensure stable IDs
-      structuredNotes = structuredNotes.map((n: any, i: number) => ({
+    const rawNotes = qcParsed?.structured_notes;
+    if (Array.isArray(rawNotes) && rawNotes.length > 0) {
+      structuredNotes = rawNotes.map((n: any, i: number) => ({
         note_id: n.note_id || `N-${String(i + 1).padStart(3, '0')}`,
         section: n.section || 'GENERAL',
         category: n.category || 'general',
@@ -242,8 +231,8 @@ Rules:
         bold_fix: n.bold_fix || '',
         tags: Array.isArray(n.tags) ? n.tags : [],
       }));
-    } catch {
-      // Fallback: parse bullet points
+    } else {
+      // Fallback: parse bullet points from final coverage
       const noteLines = finalCoverage.split("\n").filter((l: string) => l.match(/^[-•*]\s|^\d+\./));
       structuredNotes = noteLines.map((line: string, i: number) => ({
         note_id: `N-${String(i + 1).padStart(3, '0')}`,
