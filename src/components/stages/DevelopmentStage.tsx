@@ -8,6 +8,7 @@ import { FileText, TrendingUp, AlertTriangle, Quote, CheckCircle2, ShieldAlert, 
 import { StageReadinessScore } from '@/components/StageReadinessScore';
 import { DevelopmentIntelligencePanel } from '@/components/DevelopmentIntelligencePanel';
 import { DraftDeltaPanel } from '@/components/DraftDeltaPanel';
+import { ScriptEnginePanel } from '@/components/ScriptEnginePanel';
 import { ScriptCoverage } from '@/components/ScriptCoverage';
 import { ProjectInsightPanel } from '@/components/ProjectInsightPanel';
 import { AnalysisPassesDisplay } from '@/components/AnalysisPassesDisplay';
@@ -65,6 +66,9 @@ export function DevelopmentStage({
 
       {/* Draft Delta */}
       <DraftDeltaPanel projectId={projectId} />
+
+      {/* Script Engine */}
+      <ScriptEnginePanel projectId={projectId} />
 
       {/* Script Status */}
       <div className={`flex items-center gap-3 glass-card rounded-lg px-4 py-2.5 text-sm ${
