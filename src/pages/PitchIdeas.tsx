@@ -6,7 +6,6 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { PitchIdeaCard } from '@/components/PitchIdeaCard';
 import { DevelopmentBriefBuilder } from '@/components/DevelopmentBriefBuilder';
 import { usePitchIdeas, type PitchIdea } from '@/hooks/usePitchIdeas';
@@ -163,39 +162,49 @@ export default function PitchIdeas() {
           )}
         </div>
 
-        {/* Mode tabs */}
-        <Tabs value={mode} onValueChange={(v) => setMode(v as any)}>
-          <TabsList>
-            <TabsTrigger value="greenlight" className="gap-1.5">
-              <Radar className="h-4 w-4" />
-              Greenlight Radar
-            </TabsTrigger>
-            <TabsTrigger value="coverage-transform" className="gap-1.5">
-              <RefreshCw className="h-4 w-4" />
-              Coverage Transformer
-            </TabsTrigger>
-          </TabsList>
+        {/* Mode selector */}
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="text-sm text-muted-foreground">Mode:</span>
+          <Button
+            variant={mode === 'greenlight' ? 'default' : 'outline'}
+            size="sm"
+            className="gap-1.5"
+            onClick={() => setMode('greenlight')}
+          >
+            <Radar className="h-4 w-4" />
+            Greenlight Radar
+          </Button>
+          <Button
+            variant={mode === 'coverage-transform' ? 'default' : 'outline'}
+            size="sm"
+            className="gap-1.5"
+            onClick={() => setMode('coverage-transform')}
+          >
+            <RefreshCw className="h-4 w-4" />
+            Coverage Transformer
+          </Button>
+        </div>
 
-          <TabsContent value="coverage-transform" className="mt-4">
-            <Card className="border-border/50">
-              <CardContent className="pt-5 space-y-4">
-                <p className="text-sm text-muted-foreground">Transform an existing project's coverage into pivot pitches — new angles on existing IP.</p>
-                <Select value={selectedProject} onValueChange={setSelectedProject}>
-                  <SelectTrigger className="w-full max-w-sm">
-                    <SelectValue placeholder="Select a project with coverage" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {projects.filter(p => p.analysis_passes).map(p => (
-                      <SelectItem key={p.id} value={p.id}>{p.title}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
+        {/* Coverage project selector (only in coverage mode) */}
+        {mode === 'coverage-transform' && (
+          <Card className="border-border/50">
+            <CardContent className="pt-5 space-y-4">
+              <p className="text-sm text-muted-foreground">Transform an existing project's coverage into pivot pitches — new angles on existing IP.</p>
+              <Select value={selectedProject} onValueChange={setSelectedProject}>
+                <SelectTrigger className="w-full max-w-sm">
+                  <SelectValue placeholder="Select a project with coverage" />
+                </SelectTrigger>
+                <SelectContent>
+                  {projects.filter(p => p.analysis_passes).map(p => (
+                    <SelectItem key={p.id} value={p.id}>{p.title}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </CardContent>
+          </Card>
+        )}
 
-        {/* Shared brief builder across both modes */}
+        {/* Brief builder */}
         <DevelopmentBriefBuilder
           onGenerate={generate}
           generating={generating || (mode === 'coverage-transform' && !selectedProject)}

@@ -192,7 +192,7 @@ export function DevelopmentBriefBuilder({ onGenerate, generating }: Props) {
                   <Badge variant="outline" className="text-xs shrink-0">{b.production_type}</Badge>
                   <span className="truncate">{b.name || `${b.genre} brief`}</span>
                 </div>
-                <Button variant="ghost" size="icon" className="h-6 w-6 opacity-0 group-hover:opacity-100 shrink-0" onClick={(e) => { e.stopPropagation(); remove(b.id); }}>
+                <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={(e) => { e.stopPropagation(); remove(b.id); toast.success('Brief deleted'); }}>
                   <Trash2 className="h-3 w-3 text-destructive" />
                 </Button>
               </div>
