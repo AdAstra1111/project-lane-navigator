@@ -4669,6 +4669,7 @@ export type Database = {
           document_urls: string[]
           format: string
           genres: string[]
+          hero_image_url: string | null
           id: string
           incentive_insights: Json | null
           lifecycle_stage: string
@@ -4699,6 +4700,7 @@ export type Database = {
           document_urls?: string[]
           format?: string
           genres?: string[]
+          hero_image_url?: string | null
           id?: string
           incentive_insights?: Json | null
           lifecycle_stage?: string
@@ -4729,6 +4731,7 @@ export type Database = {
           document_urls?: string[]
           format?: string
           genres?: string[]
+          hero_image_url?: string | null
           id?: string
           incentive_insights?: Json | null
           lifecycle_stage?: string
