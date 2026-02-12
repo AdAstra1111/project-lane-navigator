@@ -12,7 +12,7 @@ import { toast } from 'sonner';
 interface ShareSignalDialogProps {
   signalId: string;
   signalName: string;
-  signalType: 'story' | 'cast';
+  signalType: 'story' | 'cast' | 'coverage';
 }
 
 interface Recipient {
@@ -110,7 +110,8 @@ export function ShareSignalDialog({ signalId, signalName, signalType }: ShareSig
   };
 
   const handleCopyLink = () => {
-    const url = `${window.location.origin}/trends?highlight=${signalType}-${signalId}`;
+    const base = signalType === 'coverage' ? `${window.location.origin}${window.location.pathname}` : `${window.location.origin}/trends`;
+    const url = `${base}?highlight=${signalType}-${signalId}`;
     navigator.clipboard.writeText(url);
     setCopied(true);
     toast.success('Link copied');
