@@ -340,55 +340,87 @@ export function calculatePostReadiness(
   deliverables?: { status: string }[],
   budgetSummary?: BudgetSummary,
   costEntries?: { amount: number }[],
+  milestones?: { status: string; due_date: string | null }[],
+  editVersions?: { screening_score: number | null }[],
+  vfxShots?: { status: string; due_date: string | null }[],
 ): StageReadinessResult {
   const strengths: string[] = [];
   const blockers: string[] = [];
 
-  // Delivery Readiness (40)
+  // Milestone Completion (25)
+  let milestoneScore = 0;
+  const allMilestones = milestones || [];
+  const completedMs = allMilestones.filter(m => m.status === 'complete');
+  const overdueMs = allMilestones.filter(m => m.status !== 'complete' && m.due_date && new Date(m.due_date) < new Date());
+  if (allMilestones.length > 0) {
+    const pct = completedMs.length / allMilestones.length;
+    milestoneScore = Math.round(pct * 25);
+    if (pct >= 0.9) strengths.push('Post milestones nearly complete');
+    else if (pct >= 0.5) strengths.push(`${completedMs.length}/${allMilestones.length} milestones done`);
+    if (overdueMs.length > 0) blockers.push(`${overdueMs.length} overdue milestone(s)`);
+  } else {
+    milestoneScore = 3;
+    blockers.push('No post milestones tracked');
+  }
+
+  // Delivery Readiness (25)
   let deliveryScore = 0;
   const allDeliverables = deliverables || [];
   const completed = allDeliverables.filter(d => d.status === 'delivered' || d.status === 'approved');
   if (allDeliverables.length > 0) {
     const pct = completed.length / allDeliverables.length;
-    deliveryScore = Math.round(pct * 40);
+    deliveryScore = Math.round(pct * 25);
     if (pct >= 0.9) strengths.push('Deliverables nearly complete');
     else if (pct >= 0.5) strengths.push(`${completed.length}/${allDeliverables.length} deliverables done`);
     else blockers.push(`Only ${completed.length}/${allDeliverables.length} deliverables complete`);
   } else {
-    deliveryScore = 5;
+    deliveryScore = 3;
     blockers.push('No deliverables tracked');
   }
 
-  // Post Budget Adherence (30)
-  let postBudgetScore = 15; // Baseline
+  // VFX & Creative Lock (25)
+  let creativeLock = 0;
+  const allVfx = vfxShots || [];
+  const doneVfx = allVfx.filter(s => s.status === 'final' || s.status === 'approved');
+  const allVersions = editVersions || [];
+  if (allVfx.length > 0) {
+    const vfxPct = doneVfx.length / allVfx.length;
+    creativeLock += Math.round(vfxPct * 15);
+    if (vfxPct >= 0.9) strengths.push('VFX shots nearly finalized');
+    const overdueVfx = allVfx.filter(s => !['final', 'approved'].includes(s.status) && s.due_date && new Date(s.due_date) < new Date());
+    if (overdueVfx.length > 0) blockers.push(`${overdueVfx.length} overdue VFX shot(s)`);
+  } else {
+    creativeLock += 5; // No VFX needed is fine
+  }
+  if (allVersions.length > 0) {
+    creativeLock += Math.min(10, allVersions.length * 3);
+    strengths.push(`${allVersions.length} edit version(s) logged`);
+  }
+
+  // Post Budget Adherence (25)
+  let postBudgetScore = 10;
   if (budgetSummary?.hasLocked) {
-    postBudgetScore += 10;
+    postBudgetScore += 8;
     strengths.push('Budget tracked through post');
   }
   const totalSpent = costEntries?.reduce((s, c) => s + Number(c.amount || 0), 0) || 0;
   if (budgetSummary?.lockedTotal && totalSpent > 0) {
     const ratio = totalSpent / budgetSummary.lockedTotal;
-    if (ratio <= 1.0) postBudgetScore += 5;
+    if (ratio <= 1.0) postBudgetScore += 7;
     else blockers.push('Post budget overrun detected');
   }
 
-  // Creative Lock (30) — placeholder scoring until edit tracker is built
-  let creativeLock = 10;
-  if (allDeliverables.length > 0 && completed.length === allDeliverables.length) {
-    creativeLock = 30;
-    strengths.push('All deliverables complete — creative locked');
-  } else if (completed.length > 0) {
-    creativeLock = 15;
-  }
+  milestoneScore = Math.min(25, milestoneScore);
+  deliveryScore = Math.min(25, deliveryScore);
+  creativeLock = Math.min(25, creativeLock);
+  postBudgetScore = Math.min(25, postBudgetScore);
 
-  deliveryScore = Math.min(40, deliveryScore);
-  postBudgetScore = Math.min(30, postBudgetScore);
-  creativeLock = Math.min(30, creativeLock);
-
-  const score = deliveryScore + postBudgetScore + creativeLock;
+  const score = milestoneScore + deliveryScore + creativeLock + postBudgetScore;
 
   let bestNextStep = 'Continue post-production.';
-  if (allDeliverables.length === 0) bestNextStep = 'Set up your delivery checklist.';
+  if (allMilestones.length === 0) bestNextStep = 'Set up post-production milestones.';
+  else if (allDeliverables.length === 0) bestNextStep = 'Set up your delivery checklist.';
+  else if (overdueMs.length > 0) bestNextStep = 'Address overdue milestones.';
   else if (completed.length < allDeliverables.length) bestNextStep = 'Complete outstanding deliverables.';
 
   return {
@@ -398,9 +430,10 @@ export function calculatePostReadiness(
     blockers: blockers.slice(0, 4),
     bestNextStep,
     breakdown: [
-      { label: 'Delivery Readiness', score: deliveryScore, max: 40 },
-      { label: 'Post Budget', score: postBudgetScore, max: 30 },
-      { label: 'Creative Lock', score: creativeLock, max: 30 },
+      { label: 'Milestones', score: milestoneScore, max: 25 },
+      { label: 'Deliverables', score: deliveryScore, max: 25 },
+      { label: 'VFX & Creative', score: creativeLock, max: 25 },
+      { label: 'Post Budget', score: postBudgetScore, max: 25 },
     ],
   };
 }

@@ -60,6 +60,7 @@ import { useProjectDeliverables } from '@/hooks/useDeliverables';
 import { useProjectCostEntries } from '@/hooks/useCostEntries';
 import { useRecoupmentScenarios, useRecoupmentTiers } from '@/hooks/useRecoupment';
 import { type LifecycleStage } from '@/lib/lifecycle-stages';
+import { usePostMilestones, useEditVersions, useVfxShots } from '@/hooks/usePostProduction';
 
 // Stage components
 import { LifecycleSidebar } from '@/components/LifecycleSidebar';
@@ -180,9 +181,13 @@ export default function ProjectDetail() {
     return calculateProductionReadiness(budgetSummary, scheduleMetrics, costEntries as any);
   }, [budgetSummary, scheduleMetrics, costEntries]);
 
+  const { milestones: postMilestones } = usePostMilestones(id);
+  const { versions: editVersions } = useEditVersions(id);
+  const { shots: vfxShots } = useVfxShots(id);
+
   const postReadiness = useMemo(() => {
-    return calculatePostReadiness(deliverables as any, budgetSummary, costEntries as any);
-  }, [deliverables, budgetSummary, costEntries]);
+    return calculatePostReadiness(deliverables as any, budgetSummary, costEntries as any, postMilestones as any, editVersions as any, vfxShots as any);
+  }, [deliverables, budgetSummary, costEntries, postMilestones, editVersions, vfxShots]);
 
   const salesReadiness = useMemo(() => {
     if (!project) return null;
