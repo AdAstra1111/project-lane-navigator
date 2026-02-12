@@ -26,7 +26,15 @@ async function extractPDFWithGemini(data: ArrayBuffer): Promise<ExtractionResult
     return { text: "", totalPages: null, pagesAnalyzed: null, status: "failed", error: "No API key for AI extraction" };
   }
 
-  const base64 = btoa(String.fromCharCode(...new Uint8Array(data)));
+  // Chunked base64 encoding to avoid stack overflow on large files
+  const bytes = new Uint8Array(data);
+  let binary = "";
+  const chunkSize = 8192;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, i + chunkSize);
+    binary += String.fromCharCode(...chunk);
+  }
+  const base64 = btoa(binary);
 
   const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
     method: "POST",
