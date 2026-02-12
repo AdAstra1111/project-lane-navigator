@@ -25,10 +25,16 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Search for person(s)
+    // Support both v3 API key and v4 read access token
+    const isReadAccessToken = apiKey.startsWith('eyJ');
+    const authHeaders = isReadAccessToken
+      ? { Authorization: `Bearer ${apiKey}`, accept: 'application/json' }
+      : { accept: 'application/json' };
+    const apiKeyParam = isReadAccessToken ? '' : `&api_key=${apiKey}`;
+
     const searchRes = await fetch(
-      `https://api.themoviedb.org/3/search/person?query=${encodeURIComponent(name)}&include_adult=false&language=en-US&page=1`,
-      { headers: { Authorization: `Bearer ${apiKey}`, accept: 'application/json' } }
+      `https://api.themoviedb.org/3/search/person?query=${encodeURIComponent(name)}&include_adult=false&language=en-US&page=1${apiKeyParam}`,
+      { headers: authHeaders }
     );
     const searchData = await searchRes.json();
     
@@ -63,16 +69,13 @@ Deno.serve(async (req) => {
     const tmdbId = person.id;
 
     // Fetch detailed person info + credits
+    const detailUrl = (path: string) => `https://api.themoviedb.org/3${path}${isReadAccessToken ? '' : `?api_key=${apiKey}&`}${isReadAccessToken ? '?language=en-US' : 'language=en-US'}`;
+    const fetchOpts = { headers: authHeaders };
+
     const [detailRes, creditsRes, externalRes] = await Promise.all([
-      fetch(`https://api.themoviedb.org/3/person/${tmdbId}?language=en-US`, {
-        headers: { Authorization: `Bearer ${apiKey}`, accept: 'application/json' },
-      }),
-      fetch(`https://api.themoviedb.org/3/person/${tmdbId}/combined_credits?language=en-US`, {
-        headers: { Authorization: `Bearer ${apiKey}`, accept: 'application/json' },
-      }),
-      fetch(`https://api.themoviedb.org/3/person/${tmdbId}/external_ids`, {
-        headers: { Authorization: `Bearer ${apiKey}`, accept: 'application/json' },
-      }),
+      fetch(detailUrl(`/person/${tmdbId}`), fetchOpts),
+      fetch(`https://api.themoviedb.org/3/person/${tmdbId}/combined_credits?language=en-US${apiKeyParam}`, fetchOpts),
+      fetch(`https://api.themoviedb.org/3/person/${tmdbId}/external_ids${isReadAccessToken ? '' : `?api_key=${apiKey}`}`, fetchOpts),
     ]);
 
     const [detail, credits, external] = await Promise.all([
