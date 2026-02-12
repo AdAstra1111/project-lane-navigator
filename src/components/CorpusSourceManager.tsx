@@ -32,6 +32,15 @@ export function CorpusSourceManager() {
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ title: '', source_url: '', format: 'pdf', license_reference: '', rights_status: 'PENDING' });
 
+  const handleFormatChange = (v: string) => {
+    setForm(f => {
+      if (v === 'imsdb' && !f.source_url) {
+        return { ...f, format: v, source_url: 'https://imsdb.com/scripts/', license_reference: f.license_reference || 'IMSDB public archive' };
+      }
+      return { ...f, format: v };
+    });
+  };
+
   const handleAdd = () => {
     if (!form.title.trim() || !form.source_url.trim()) return;
     addSource.mutate(form, { onSuccess: () => { setShowAdd(false); setForm({ title: '', source_url: '', format: 'pdf', license_reference: '', rights_status: 'PENDING' }); } });
@@ -53,11 +62,12 @@ export function CorpusSourceManager() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <Label>Format</Label>
-                  <Select value={form.format} onValueChange={v => setForm(f => ({ ...f, format: v }))}>
+                  <Select value={form.format} onValueChange={handleFormatChange}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="pdf">PDF</SelectItem>
                       <SelectItem value="html">HTML</SelectItem>
+                      <SelectItem value="imsdb">IMSDB</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
