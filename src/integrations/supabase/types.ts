@@ -871,22 +871,28 @@ export type Database = {
           gold_flag: boolean
           id: string
           ingestion_log: string
+          ingestion_source: string | null
           ingestion_status: string
           int_ext_ratio: number | null
+          is_truncated: boolean | null
+          line_count: number | null
           location_count: number | null
           market_success_flag: boolean | null
           midpoint_position: number | null
           page_count: number | null
           page_count_estimate: number | null
+          parse_confidence: number | null
           parsed_storage_path: string
           production_type: string | null
           quality_score_est: number | null
           raw_storage_path: string
+          raw_text_length_chars: number | null
           runtime_est: number | null
           scene_count: number | null
           source_id: string
           subgenre: string | null
           title: string | null
+          truncation_reason: string | null
           updated_at: string
           user_id: string
           vfx_flag: boolean | null
@@ -907,22 +913,28 @@ export type Database = {
           gold_flag?: boolean
           id?: string
           ingestion_log?: string
+          ingestion_source?: string | null
           ingestion_status?: string
           int_ext_ratio?: number | null
+          is_truncated?: boolean | null
+          line_count?: number | null
           location_count?: number | null
           market_success_flag?: boolean | null
           midpoint_position?: number | null
           page_count?: number | null
           page_count_estimate?: number | null
+          parse_confidence?: number | null
           parsed_storage_path?: string
           production_type?: string | null
           quality_score_est?: number | null
           raw_storage_path?: string
+          raw_text_length_chars?: number | null
           runtime_est?: number | null
           scene_count?: number | null
           source_id: string
           subgenre?: string | null
           title?: string | null
+          truncation_reason?: string | null
           updated_at?: string
           user_id: string
           vfx_flag?: boolean | null
@@ -943,22 +955,28 @@ export type Database = {
           gold_flag?: boolean
           id?: string
           ingestion_log?: string
+          ingestion_source?: string | null
           ingestion_status?: string
           int_ext_ratio?: number | null
+          is_truncated?: boolean | null
+          line_count?: number | null
           location_count?: number | null
           market_success_flag?: boolean | null
           midpoint_position?: number | null
           page_count?: number | null
           page_count_estimate?: number | null
+          parse_confidence?: number | null
           parsed_storage_path?: string
           production_type?: string | null
           quality_score_est?: number | null
           raw_storage_path?: string
+          raw_text_length_chars?: number | null
           runtime_est?: number | null
           scene_count?: number | null
           source_id?: string
           subgenre?: string | null
           title?: string | null
+          truncation_reason?: string | null
           updated_at?: string
           user_id?: string
           vfx_flag?: boolean | null

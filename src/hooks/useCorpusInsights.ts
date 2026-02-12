@@ -309,3 +309,20 @@ export function computeDeviationFromRange(
   if (value > high) return { deviation: Math.round(((value - high) / high) * 100), status: 'above' };
   return { deviation: 0, status: 'within' };
 }
+
+/** Fetch all corpus scripts with quality/truncation metadata for the health dashboard */
+export function useCorpusHealth() {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ['corpus-health', user?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('corpus_scripts' as any)
+        .select('id, title, production_type, word_count, page_count, page_count_estimate, scene_count, ingestion_source, is_truncated, truncation_reason, parse_confidence, ingestion_status, analysis_status, approved_sources(title)')
+        .order('is_truncated', { ascending: false });
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!user,
+  });
+}
