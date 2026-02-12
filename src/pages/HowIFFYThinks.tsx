@@ -3,7 +3,7 @@ import { useRef } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Brain, Target, Layers, TrendingUp, DollarSign, ArrowRight,
-  Gauge, GitBranch, BarChart3, Zap, Shield, Clapperboard,
+  Gauge, GitBranch, BarChart3, Zap, Shield, Clapperboard, Play,
   FileText, Users, Search, Lightbulb, Lock, BookOpen,
   Globe, Award, Calendar, Radio, Scissors, PenTool,
   Database, Eye,
@@ -327,14 +327,21 @@ export default function HowIFFYThinks() {
         </motion.section>
 
         {/* CTA */}
-        <motion.div {...fadeUp(0.2)} className="text-center pt-4 space-y-3">
-          <Link to="/faq">
+        <motion.div {...fadeUp(0.2)} className="text-center pt-4 space-y-6">
+          <Link to="/demo/interactive">
             <Button size="lg" className="gap-2 px-8">
-              Explore Help Centre <ArrowRight className="h-5 w-5" />
+              <Play className="h-5 w-5" /> Launch Interactive Demo
             </Button>
           </Link>
+          <div className="flex items-center justify-center gap-4">
+            <Link to="/faq">
+              <Button variant="outline" size="lg" className="gap-2 px-8">
+                Explore Help Centre <ArrowRight className="h-5 w-5" />
+              </Button>
+            </Link>
+          </div>
           <p className="text-xs text-muted-foreground">
-            Questions? Check the full knowledge base.
+            See IFFY in action with real demo projects, or check the knowledge base.
           </p>
         </motion.div>
       </main>
