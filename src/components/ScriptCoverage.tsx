@@ -551,6 +551,16 @@ export function ScriptCoverage({ projectId, projectTitle, format, genres, hasDoc
         return;
       }
 
+      // Detect binary/garbage text (PDF not properly extracted)
+      const printableRatio = (scriptText.slice(0, 2000).match(/[a-zA-Z0-9\s.,!?;:'"()\-]/g) || []).length / Math.min(scriptText.length, 2000);
+      if (printableRatio < 0.3) {
+        toast.error('The extracted text appears to be corrupted (raw PDF data). Please re-upload the script as a plain text or Word file, or re-extract the document.');
+        return;
+      }
+
+      // Truncate client-side to keep request payload manageable (30k chars max)
+      const trimmedScript = scriptText.slice(0, 30000);
+
       let scriptId: string | null = null;
       const { data: existingScripts } = await supabase
         .from('scripts')
@@ -567,7 +577,7 @@ export function ScriptCoverage({ projectId, projectTitle, format, genres, hasDoc
           .insert({
             project_id: projectId,
             version: 1,
-            text_content: scriptText.slice(0, 50000),
+            text_content: trimmedScript,
             created_by: user!.id,
           } as any)
           .select('id')
@@ -580,7 +590,7 @@ export function ScriptCoverage({ projectId, projectTitle, format, genres, hasDoc
       const label = draftLabel || `Draft ${runs.length + 1}`;
 
       const { data, error } = await supabase.functions.invoke('script-coverage', {
-        body: { projectId, scriptId, draftLabel: label, scriptText, format, genres, lane },
+        body: { projectId, scriptId, draftLabel: label, scriptText: trimmedScript, format, genres, lane },
       });
 
       if (error) throw error;
