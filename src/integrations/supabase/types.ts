@@ -2704,6 +2704,53 @@ export type Database = {
           },
         ]
       }
+      project_baselines: {
+        Row: {
+          budget_confidence: number | null
+          id: string
+          internal_commercial_tier: string | null
+          internal_confidence: number | null
+          notes: string | null
+          packaging_confidence: number | null
+          project_id: string
+          recorded_at: string
+          user_id: string
+          would_pursue: boolean | null
+        }
+        Insert: {
+          budget_confidence?: number | null
+          id?: string
+          internal_commercial_tier?: string | null
+          internal_confidence?: number | null
+          notes?: string | null
+          packaging_confidence?: number | null
+          project_id: string
+          recorded_at?: string
+          user_id?: string
+          would_pursue?: boolean | null
+        }
+        Update: {
+          budget_confidence?: number | null
+          id?: string
+          internal_commercial_tier?: string | null
+          internal_confidence?: number | null
+          notes?: string | null
+          packaging_confidence?: number | null
+          project_id?: string
+          recorded_at?: string
+          user_id?: string
+          would_pursue?: boolean | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_baselines_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: true
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       project_budget_lines: {
         Row: {
           amount: number
@@ -3874,6 +3921,65 @@ export type Database = {
             foreignKeyName: "project_invite_links_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_outcomes: {
+        Row: {
+          budget_secured_amount: number | null
+          distribution_offer: boolean
+          festival_selection: boolean
+          financed: boolean
+          id: string
+          notes: string | null
+          optioned: boolean
+          project_id: string
+          recorded_at: string
+          recoup_achieved: boolean
+          soft_money_secured: boolean
+          streamer_interest: boolean
+          talent_attached: boolean
+          user_id: string
+        }
+        Insert: {
+          budget_secured_amount?: number | null
+          distribution_offer?: boolean
+          festival_selection?: boolean
+          financed?: boolean
+          id?: string
+          notes?: string | null
+          optioned?: boolean
+          project_id: string
+          recorded_at?: string
+          recoup_achieved?: boolean
+          soft_money_secured?: boolean
+          streamer_interest?: boolean
+          talent_attached?: boolean
+          user_id?: string
+        }
+        Update: {
+          budget_secured_amount?: number | null
+          distribution_offer?: boolean
+          festival_selection?: boolean
+          financed?: boolean
+          id?: string
+          notes?: string | null
+          optioned?: boolean
+          project_id?: string
+          recorded_at?: string
+          recoup_achieved?: boolean
+          soft_money_secured?: boolean
+          streamer_interest?: boolean
+          talent_attached?: boolean
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_outcomes_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: true
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
