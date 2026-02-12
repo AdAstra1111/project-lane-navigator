@@ -9,6 +9,7 @@ import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { CommandPalette } from "@/components/CommandPalette";
 import { AuthProvider } from "@/hooks/useAuth";
 import { ThemeProvider } from "@/hooks/useTheme";
+import { CorpusIntegrityBanner } from "@/components/CorpusIntegrityBanner";
 
 // Eagerly load landing + auth (first paint)
 import Index from "./pages/Index";
@@ -119,6 +120,7 @@ const App = () => (
       <Toaster />
       <Sonner />
       <BrowserRouter>
+        <CorpusIntegrityBanner />
         <CommandPalette />
         <AnimatedRoutes />
       </BrowserRouter>

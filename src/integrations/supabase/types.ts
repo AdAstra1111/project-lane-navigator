@@ -5360,6 +5360,39 @@ export type Database = {
         }
         Relationships: []
       }
+      system_health_checks: {
+        Row: {
+          check_name: string
+          checks: Json
+          created_at: string
+          evidence: Json
+          failures: string[]
+          id: string
+          pass: boolean
+          user_id: string | null
+        }
+        Insert: {
+          check_name: string
+          checks?: Json
+          created_at?: string
+          evidence?: Json
+          failures?: string[]
+          id?: string
+          pass: boolean
+          user_id?: string | null
+        }
+        Update: {
+          check_name?: string
+          checks?: Json
+          created_at?: string
+          evidence?: Json
+          failures?: string[]
+          id?: string
+          pass?: boolean
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       territory_cost_index: {
         Row: {
           accommodation_day: number
