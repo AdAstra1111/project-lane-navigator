@@ -439,12 +439,18 @@ export default function ProjectDetail() {
           {/* Header */}
           <div className="flex items-start justify-between gap-4 mb-6">
             <div className="flex items-center gap-3">
-              <Link
-                to="/dashboard"
+              <button
+                onClick={() => {
+                  if (activeView !== 'overview') {
+                    setActiveView('overview');
+                  } else {
+                    navigate('/dashboard');
+                  }
+                }}
                 className="inline-flex items-center justify-center h-8 w-8 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
               >
                 <ArrowLeft className="h-4 w-4" />
-              </Link>
+              </button>
               <div>
                 <div className="flex items-center gap-2 mb-0.5">
                   {formatMeta && (
