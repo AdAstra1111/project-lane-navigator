@@ -770,9 +770,6 @@ export function ScriptCoverage({ projectId, projectTitle, format, genres, hasDoc
                   </Select>
                 </div>
                 {runs.length >= 2 && <CompareDialog runs={runs} />}
-                <Button variant="outline" size="sm" className="text-xs gap-1.5" onClick={() => setShowLibrary(true)}>
-                  <BookOpen className="h-3 w-3" /> Great Notes Library
-                </Button>
                 <ShareSignalDialog
                   signalId={selectedRun.id}
                   signalName={`${projectTitle} — ${selectedRun.draft_label} Coverage`}
@@ -825,13 +822,16 @@ export function ScriptCoverage({ projectId, projectTitle, format, genres, hasDoc
                 ))}
               </TabsContent>
 
-              <TabsContent value="review" className="mt-4">
+              <TabsContent value="review" className="mt-4 space-y-4">
                 <NotesReview
                   notes={selectedRun.structured_notes}
                   runId={selectedRun.id}
                   projectId={projectId}
                   projectType={selectedRun.project_type}
                 />
+                <Button variant="outline" size="sm" className="text-xs gap-1.5" onClick={() => setShowLibrary(true)}>
+                  <BookOpen className="h-3 w-3" /> Great Notes Library
+                </Button>
               </TabsContent>
 
               <TabsContent value="notes" className="mt-4">
