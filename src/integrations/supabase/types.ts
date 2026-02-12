@@ -863,9 +863,11 @@ export type Database = {
           budget_tier_est: string | null
           cast_count: number | null
           checksum: string
+          clean_word_count: number | null
           climax_position: number | null
           created_at: string
           day_night_ratio: number | null
+          exclude_from_baselines: boolean | null
           format_subtype: string | null
           genre: string | null
           gold_flag: boolean
@@ -874,17 +876,21 @@ export type Database = {
           ingestion_source: string | null
           ingestion_status: string
           int_ext_ratio: number | null
+          is_transcript: boolean | null
           is_truncated: boolean | null
           line_count: number | null
           location_count: number | null
           market_success_flag: boolean | null
           midpoint_position: number | null
+          normalization_removed_lines: number | null
+          normalized_page_est: number | null
           page_count: number | null
           page_count_estimate: number | null
           parse_confidence: number | null
           parsed_storage_path: string
           production_type: string | null
           quality_score_est: number | null
+          raw_page_est: number | null
           raw_storage_path: string
           raw_text_length_chars: number | null
           runtime_est: number | null
@@ -892,6 +898,7 @@ export type Database = {
           source_id: string
           subgenre: string | null
           title: string | null
+          transcript_confidence: number | null
           truncation_reason: string | null
           updated_at: string
           user_id: string
@@ -905,9 +912,11 @@ export type Database = {
           budget_tier_est?: string | null
           cast_count?: number | null
           checksum?: string
+          clean_word_count?: number | null
           climax_position?: number | null
           created_at?: string
           day_night_ratio?: number | null
+          exclude_from_baselines?: boolean | null
           format_subtype?: string | null
           genre?: string | null
           gold_flag?: boolean
@@ -916,17 +925,21 @@ export type Database = {
           ingestion_source?: string | null
           ingestion_status?: string
           int_ext_ratio?: number | null
+          is_transcript?: boolean | null
           is_truncated?: boolean | null
           line_count?: number | null
           location_count?: number | null
           market_success_flag?: boolean | null
           midpoint_position?: number | null
+          normalization_removed_lines?: number | null
+          normalized_page_est?: number | null
           page_count?: number | null
           page_count_estimate?: number | null
           parse_confidence?: number | null
           parsed_storage_path?: string
           production_type?: string | null
           quality_score_est?: number | null
+          raw_page_est?: number | null
           raw_storage_path?: string
           raw_text_length_chars?: number | null
           runtime_est?: number | null
@@ -934,6 +947,7 @@ export type Database = {
           source_id: string
           subgenre?: string | null
           title?: string | null
+          transcript_confidence?: number | null
           truncation_reason?: string | null
           updated_at?: string
           user_id: string
@@ -947,9 +961,11 @@ export type Database = {
           budget_tier_est?: string | null
           cast_count?: number | null
           checksum?: string
+          clean_word_count?: number | null
           climax_position?: number | null
           created_at?: string
           day_night_ratio?: number | null
+          exclude_from_baselines?: boolean | null
           format_subtype?: string | null
           genre?: string | null
           gold_flag?: boolean
@@ -958,17 +974,21 @@ export type Database = {
           ingestion_source?: string | null
           ingestion_status?: string
           int_ext_ratio?: number | null
+          is_transcript?: boolean | null
           is_truncated?: boolean | null
           line_count?: number | null
           location_count?: number | null
           market_success_flag?: boolean | null
           midpoint_position?: number | null
+          normalization_removed_lines?: number | null
+          normalized_page_est?: number | null
           page_count?: number | null
           page_count_estimate?: number | null
           parse_confidence?: number | null
           parsed_storage_path?: string
           production_type?: string | null
           quality_score_est?: number | null
+          raw_page_est?: number | null
           raw_storage_path?: string
           raw_text_length_chars?: number | null
           runtime_est?: number | null
@@ -976,6 +996,7 @@ export type Database = {
           source_id?: string
           subgenre?: string | null
           title?: string | null
+          transcript_confidence?: number | null
           truncation_reason?: string | null
           updated_at?: string
           user_id?: string
