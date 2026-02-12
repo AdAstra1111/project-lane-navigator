@@ -61,7 +61,7 @@ async function extractPDFWithGemini(data: ArrayBuffer): Promise<ExtractionResult
         },
       ],
       temperature: 0,
-      max_tokens: 16000,
+      max_tokens: 65000,
     }),
   });
 
