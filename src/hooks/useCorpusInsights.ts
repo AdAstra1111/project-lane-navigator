@@ -161,6 +161,30 @@ export function useCorpusPlaybooks() {
   });
 }
 
+export function useGoldBaseline(productionType: string | undefined) {
+  const { user } = useAuth();
+  return useQuery({
+    queryKey: ['corpus-gold-baseline', user?.id, productionType],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('corpus_insights' as any)
+        .select('*')
+        .eq('insight_type', 'gold_baseline');
+      if (error) throw error;
+      if (!data?.length) return null;
+      const pt = (productionType || '').toLowerCase();
+      const match = (data as any[]).find((row: any) => {
+        const cpt = (row.production_type || '').toLowerCase();
+        return cpt === pt || pt.includes(cpt) || cpt.includes(pt);
+      });
+      if (match?.pattern) return match.pattern as CorpusCalibration;
+      const allMatch = (data as any[]).find((r: any) => r.production_type === 'all');
+      return allMatch?.pattern as CorpusCalibration | null ?? null;
+    },
+    enabled: !!user,
+  });
+}
+
 export function useCalibrationForType(productionType: string | undefined) {
   const { data: calibrations } = useCorpusCalibrations();
   if (!productionType || !calibrations) return null;

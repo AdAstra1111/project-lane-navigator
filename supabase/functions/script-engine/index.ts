@@ -8,8 +8,29 @@ const corsHeaders = {
 };
 
 // ─── Production-type Blueprint Prompts ───
-function getBlueprintPrompt(productionType: string, project: any, conceptDocs: any[]) {
+function getBlueprintPrompt(productionType: string, project: any, conceptDocs: any[], calibration?: any) {
   const conceptContext = conceptDocs.map(d => `[${d.doc_type}]\n${d.content?.substring(0, 3000)}`).join("\n\n");
+
+  let corpusBlock = "";
+  if (calibration) {
+    const mp = calibration.median_page_count;
+    const ms = calibration.median_scene_count;
+    const pageLow = mp ? Math.round(mp * 0.85) : null;
+    const pageHigh = mp ? Math.round(mp * 1.15) : null;
+    const sceneLow = ms ? Math.round(ms * 0.85) : null;
+    const sceneHigh = ms ? Math.round(ms * 1.15) : null;
+    corpusBlock = `
+CORPUS CALIBRATION (from ${calibration.sample_size || 'N/A'} analyzed scripts):
+- Target page range: ${pageLow}–${pageHigh} pages (corpus median: ${mp})
+- Target scene count: ${sceneLow}–${sceneHigh} scenes (corpus median: ${ms})
+- Median midpoint position: ${calibration.median_midpoint_position || 'N/A'}
+- Median dialogue ratio: ${calibration.median_dialogue_ratio ? Math.round(calibration.median_dialogue_ratio * 100) + '%' : 'N/A'}
+- Median cast size: ${calibration.median_cast_size || 'N/A'}
+
+Structure this blueprint to support ~${mp || 'standard'} pages and ~${ms || 'standard'} scenes based on corpus median. Deviate only with creative justification.
+`;
+  }
+
   const base = `You are IFFY, an elite script development AI for the entertainment industry.
 
 PROJECT CONTEXT:
@@ -22,7 +43,7 @@ Lane: ${project.assigned_lane || "unassigned"}
 Tone: ${project.tone}
 Comparable Titles: ${project.comparable_titles || "none"}
 Logline: ${project.reasoning || ""}
-
+${corpusBlock}
 CONCEPT LOCK DOCUMENTS:
 ${conceptContext || "No concept lock documents available."}
 
@@ -153,6 +174,24 @@ async function getCorpusPlaybooks(db: ReturnType<typeof createClient>, userId: s
   }
 }
 
+async function getGoldBaseline(db: ReturnType<typeof createClient>, productionType: string) {
+  try {
+    const { data } = await db
+      .from("corpus_insights")
+      .select("pattern, production_type")
+      .eq("insight_type", "gold_baseline");
+    if (!data?.length) return null;
+    const pt = productionType.toLowerCase();
+    const match = data.find((d: any) => {
+      const cpt = (d.production_type || "").toLowerCase();
+      return cpt === pt || pt.includes(cpt) || cpt.includes(pt);
+    });
+    return match?.pattern || data.find((d: any) => d.production_type === "all")?.pattern || null;
+  } catch {
+    return null;
+  }
+}
+
 function getArchitecturePrompt(productionType: string, blueprint: any, project: any, calibration?: any) {
   const pt = productionType.toLowerCase();
   let pageTarget = pt.includes("short") ? "15-25" : pt.includes("vertical") ? "3-5 per episode" : pt.includes("tv") ? "45-60 per episode" : "90-120";
@@ -224,7 +263,7 @@ Return the screenplay pages as plain text in standard format.`;
 }
 
 // ─── Quality Scoring Prompt ───
-function getScoringPrompt(scriptText: string, project: any, calibration?: any, laneNorm?: any) {
+function getScoringPrompt(scriptText: string, project: any, calibration?: any, laneNorm?: any, goldBaseline?: any) {
   let corpusBlock = "";
   if (calibration) {
     corpusBlock = `
@@ -241,6 +280,17 @@ PENALIZE scores when the script significantly deviates from these baselines with
 - If locations >> ${calibration.p75_location_count || 'N/A'}, penalize budget score and flag feasibility risk
 - If cast >> ${calibration.p75_cast_size || 'N/A'}, penalize budget score
 - If dialogue ratio outside ${calibration.p25_dialogue_ratio ? Math.round(calibration.p25_dialogue_ratio * 100) : 'N/A'}–${calibration.p75_dialogue_ratio ? Math.round(calibration.p75_dialogue_ratio * 100) : 'N/A'}%, note in dialogue score`;
+  }
+
+  if (goldBaseline) {
+    corpusBlock += `
+
+GOLD BENCHMARK (from ${goldBaseline.sample_size || 'N/A'} top-quality scripts):
+- Gold page count: ${goldBaseline.median_page_count || 'N/A'}
+- Gold scene count: ${goldBaseline.median_scene_count || 'N/A'}
+- Gold dialogue ratio: ${goldBaseline.median_dialogue_ratio ? Math.round(goldBaseline.median_dialogue_ratio * 100) + '%' : 'N/A'}
+- Gold quality score: ${goldBaseline.median_quality_score || 'N/A'}
+Compare against gold standards and note gaps to best-in-class.`;
   }
 
   let laneBlock = "";
@@ -468,7 +518,8 @@ serve(async (req) => {
         project.format === "commercial" || project.format === "branded-content" ? "Commercial / Advert" :
         project.format === "short-film" ? "Short Film" : "Narrative Feature";
 
-      const prompt = getBlueprintPrompt(productionType, project, conceptDocs || []);
+      const blueprintCalibration = await getCorpusCalibration(supabase, project.format, (project.genres || [])[0]);
+      const prompt = getBlueprintPrompt(productionType, project, conceptDocs || [], blueprintCalibration);
       const blueprint = await callAI(prompt);
 
       // Create or update script record
@@ -618,15 +669,32 @@ serve(async (req) => {
       }
       console.log(`[draft] Storage upload OK: ${path}`);
 
-      // Check if this is the final batch
+      // Check if this is the final batch (by scene count)
       const maxScene = Math.max(...scenes.map((s: any) => s.scene_number));
-      const isComplete = batchEnd >= maxScene;
-      const newDraftNum = isComplete ? currentDraft + 1 : currentDraft;
-      const newStatus = isComplete ? `DRAFT_${newDraftNum}` : "DRAFTING";
+      const allScenesComplete = batchEnd >= maxScene;
 
       // Compute page count + runtime metrics
       const metrics = computeDraftMetrics(draftTextStr, project.format);
       console.log(`[draft] Metrics: ${metrics.pageCountEst} pages, ~${metrics.runtimeMinEst} min`);
+
+      // Enforce corpus minimum page count — draft cannot complete below p25
+      let corpusMinPages = 0;
+      try {
+        const draftCalibration = await getCorpusCalibration(supabase, project.format, (project.genres || [])[0]);
+        if (draftCalibration?.p25_page_count) {
+          corpusMinPages = Math.round(draftCalibration.p25_page_count);
+        }
+      } catch { /* non-critical */ }
+
+      const belowMinimum = corpusMinPages > 0 && metrics.pageCountEst < corpusMinPages;
+      const isComplete = allScenesComplete && !belowMinimum;
+
+      if (belowMinimum && allScenesComplete) {
+        console.log(`[draft] Draft incomplete: ${metrics.pageCountEst} pages below corpus minimum ${corpusMinPages}. Continuing.`);
+      }
+
+      const newDraftNum = isComplete ? currentDraft + 1 : currentDraft;
+      const newStatus = isComplete ? `DRAFT_${newDraftNum}` : "DRAFTING";
 
       // Always update scripts with latest batch info + metrics
       await supabase.from("scripts").update({
@@ -776,6 +844,8 @@ serve(async (req) => {
         }
       }
 
+      // If all scenes drafted but below minimum, provide continuation hint
+      const needsContinuation = allScenesComplete && belowMinimum;
       return new Response(JSON.stringify({
         batchStart, batchEnd, isComplete, storagePath: path,
         scriptVersionId: svRow?.id || null,
@@ -785,6 +855,10 @@ serve(async (req) => {
         nextBatch: isComplete ? null : { batchStart: batchEnd + 1, batchEnd: Math.min(batchEnd + batchSize, maxScene) },
         batchTextPreview: draftTextStr,
         metrics,
+        belowCorpusMinimum: belowMinimum,
+        corpusMinPages,
+        needsContinuation,
+        continuationMessage: needsContinuation ? `Draft at ${metrics.pageCountEst} pages — below corpus minimum of ${corpusMinPages}. Additional drafting recommended.` : null,
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -846,10 +920,11 @@ serve(async (req) => {
 
       if (!scriptText) throw new Error("No script text found to score");
 
-      // Fetch corpus calibration + lane norms for scoring
+      // Fetch corpus calibration + lane norms + gold baseline for scoring
       const scoreCalibration = await getCorpusCalibration(supabase, project.format, (project.genres || [])[0]);
       const scoreLaneNorm = await getLaneNorm(supabase, project.assigned_lane || "");
-      const prompt = getScoringPrompt(scriptText, project, scoreCalibration, scoreLaneNorm);
+      const scoreGoldBaseline = await getGoldBaseline(supabase, project.format);
+      const prompt = getScoringPrompt(scriptText, project, scoreCalibration, scoreLaneNorm, scoreGoldBaseline);
       const scores = await callAI(prompt);
 
       // Update script record
@@ -1021,20 +1096,93 @@ serve(async (req) => {
         lane_alignment_score: scriptRow?.lane_alignment_score,
       };
 
-      // 3) Select matching playbooks — try corpus playbooks first, then legacy rewrite_playbooks
+      // 3) Select matching playbooks — auto-trigger from deviation metrics + goal matching
       const pt = (project.format || 'film').toLowerCase();
       const corpusPlaybooks = await getCorpusPlaybooks(supabase, user.id);
-      
+      const improveCalibrationData = await getCorpusCalibration(supabase, project.format, (project.genres || [])[0]);
+
+      // Compute deviation metrics for trigger evaluation
+      const deviationMetrics: Record<string, number | boolean> = {};
+      if (improveCalibrationData && scriptRow) {
+        const latestPageEst = (scriptRow as any).latest_page_count_est;
+        if (latestPageEst && improveCalibrationData.median_page_count) {
+          deviationMetrics.length_deviation = Math.round(((latestPageEst - improveCalibrationData.median_page_count) / improveCalibrationData.median_page_count) * 100);
+        }
+        if (improveCalibrationData.median_dialogue_ratio && beforeScores.dialogue_score != null) {
+          deviationMetrics.dialogue_score = beforeScores.dialogue_score;
+        }
+        if (improveCalibrationData.median_midpoint_position) {
+          deviationMetrics.has_midpoint_data = true;
+        }
+        if (improveCalibrationData.median_scene_count) {
+          deviationMetrics.scene_median = improveCalibrationData.median_scene_count;
+        }
+        if (improveCalibrationData.p25_page_count) {
+          deviationMetrics.p25_pages = improveCalibrationData.p25_page_count;
+        }
+        if (improveCalibrationData.p75_page_count) {
+          deviationMetrics.p75_pages = improveCalibrationData.p75_page_count;
+        }
+        // Score-based deviations
+        if (beforeScores.structural_score != null) deviationMetrics.structural_score = beforeScores.structural_score;
+        if (beforeScores.economy_score != null) deviationMetrics.economy_score = beforeScores.economy_score;
+        if (beforeScores.budget_score != null) deviationMetrics.budget_score = beforeScores.budget_score;
+        if (beforeScores.lane_alignment_score != null) deviationMetrics.lane_alignment_score = beforeScores.lane_alignment_score;
+      }
+
+      // Evaluate trigger_conditions for each playbook
+      function evaluateTrigger(conditions: string[], metrics: Record<string, number | boolean>): boolean {
+        if (!conditions?.length) return false; // no triggers = don't auto-select
+        return conditions.some(cond => {
+          const c = cond.toLowerCase();
+          // Pattern: "length_deviation < -15" or "dialogue_ratio > p75"
+          if (c.includes('length_deviation') && metrics.length_deviation != null) {
+            if (c.includes('< -') || c.includes('lt')) {
+              const threshold = parseInt(c.replace(/[^-\d]/g, '')) || -15;
+              return (metrics.length_deviation as number) < threshold;
+            }
+            if (c.includes('>') || c.includes('gt')) {
+              const threshold = parseInt(c.replace(/[^\d]/g, '')) || 15;
+              return (metrics.length_deviation as number) > threshold;
+            }
+          }
+          if (c.includes('structural') && c.includes('low') && metrics.structural_score != null) {
+            return (metrics.structural_score as number) < 65;
+          }
+          if (c.includes('dialogue') && (c.includes('low') || c.includes('weak')) && metrics.dialogue_score != null) {
+            return (metrics.dialogue_score as number) < 65;
+          }
+          if (c.includes('economy') && c.includes('low') && metrics.economy_score != null) {
+            return (metrics.economy_score as number) < 65;
+          }
+          if (c.includes('budget') && (c.includes('high') || c.includes('over')) && metrics.budget_score != null) {
+            return (metrics.budget_score as number) < 60;
+          }
+          if (c.includes('scene_count') && c.includes('p25')) return true; // conservative trigger
+          if (c.includes('hook') || c.includes('pacing')) return (metrics.structural_score as number || 100) < 70;
+          return false;
+        });
+      }
+
       let selectedPlaybooks: any[] = [];
+      let triggeredPlaybooks: any[] = [];
       if (corpusPlaybooks.length > 0) {
-        // Use corpus-derived playbooks with trigger conditions
-        selectedPlaybooks = corpusPlaybooks
+        // First: auto-triggered playbooks (deviation-reactive)
+        triggeredPlaybooks = corpusPlaybooks
+          .filter((p: any) => {
+            const types = (p.applicable_production_types || []).map((t: string) => t.toLowerCase());
+            return types.length === 0 || types.includes(pt) || types.includes('film');
+          })
+          .filter((p: any) => evaluateTrigger(p.trigger_conditions || [], deviationMetrics))
+          .slice(0, 2);
+
+        // Second: goal-matched playbooks
+        const goalMatched = corpusPlaybooks
           .filter((p: any) => {
             const types = (p.applicable_production_types || []).map((t: string) => t.toLowerCase());
             return types.length === 0 || types.includes(pt) || types.includes('film');
           })
           .filter((p: any) => {
-            // Match by goal → target_scores mapping
             const targets = p.target_scores || [];
             const goalScoreMap: Record<string, string[]> = {
               make_commercial: ['lane_alignment', 'structural'],
@@ -1048,7 +1196,11 @@ serve(async (req) => {
             const goalTargets = goalScoreMap[goal] || [];
             return targets.length === 0 || goalTargets.some((g: string) => targets.includes(g));
           })
-          .slice(0, 4);
+          .filter((p: any) => !triggeredPlaybooks.some((t: any) => t.name === p.name))
+          .slice(0, 2);
+
+        // Combine: triggered first (priority), then goal-matched
+        selectedPlaybooks = [...triggeredPlaybooks, ...goalMatched].slice(0, 4);
       }
       
       // Fallback to legacy rewrite_playbooks if no corpus playbooks matched
@@ -1140,10 +1292,11 @@ serve(async (req) => {
         runtime_min_high: metrics.runtimeMinHigh, runtime_per_episode_est: metrics.runtimePerEpisodeEst,
       }).select("id").single();
 
-      // 8) Re-score with corpus calibration
+      // 8) Re-score with corpus calibration + gold baseline
       const improveCalibration = await getCorpusCalibration(supabase, project.format, (project.genres || [])[0]);
       const improveLaneNorm = await getLaneNorm(supabase, project.assigned_lane || "");
-      const scorePrompt = getScoringPrompt(improvedText, project, improveCalibration, improveLaneNorm);
+      const improveGoldBaseline = await getGoldBaseline(supabase, project.format);
+      const scorePrompt = getScoringPrompt(improvedText, project, improveCalibration, improveLaneNorm, improveGoldBaseline);
       const afterScores = await callAI(scorePrompt);
 
       await supabase.from("scripts").update({
@@ -1218,6 +1371,8 @@ serve(async (req) => {
         draftNumber: newDraft, storagePath: path, runId,
         beforeScores, afterScores, deltas, regression,
         changesSummary, sceneOps, metrics,
+        triggeredPlaybooks: triggeredPlaybooks.map((p: any) => ({ name: p.name, trigger_conditions: p.trigger_conditions })),
+        deviationMetrics,
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });

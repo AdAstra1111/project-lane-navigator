@@ -311,10 +311,36 @@ Also extract up to 30 scene patterns and up to 15 character profiles.`;
 
       if (!completed?.length) throw new Error("No completed analyses to aggregate");
 
-      // Clear existing insights for this user (calibration + baseline_profile + style_profile + lane_norm)
+      // ─── Fix IMSDB page count distortion ───
+      // For scripts where page_count seems too low relative to word_count,
+      // recalculate using word_count / 250 (standard screenplay page estimate)
+      for (const s of completed) {
+        if (s.word_count && s.word_count > 0) {
+          const wordBasedPages = Math.ceil(s.word_count / 250);
+          // If word-based estimate is significantly higher, use it
+          if (s.page_count && wordBasedPages > s.page_count * 1.5) {
+            s.page_count = wordBasedPages;
+          } else if (!s.page_count || s.page_count < 5) {
+            s.page_count = wordBasedPages;
+          }
+        }
+        // Fallback: scene_count heuristic (avg ~1.5 pages per scene for film)
+        if ((!s.page_count || s.page_count < 10) && s.scene_count && s.scene_count > 0) {
+          const sceneBasedPages = Math.round(s.scene_count * 1.5);
+          if (sceneBasedPages > (s.page_count || 0)) {
+            s.page_count = sceneBasedPages;
+          }
+        }
+        // Recalculate runtime from corrected page count
+        if (s.page_count && (!s.runtime_est || s.runtime_est < s.page_count * 0.7)) {
+          s.runtime_est = s.page_count; // 1:1 page-to-minute ratio
+        }
+      }
+
+      // Clear existing insights for this user
       await db.from("corpus_insights").delete()
         .eq("user_id", user.id)
-        .in("insight_type", ["calibration", "baseline_profile", "style_profile", "lane_norm"]);
+        .in("insight_type", ["calibration", "baseline_profile", "style_profile", "lane_norm", "gold_baseline"]);
 
       const insights: any[] = [];
 
@@ -441,6 +467,41 @@ Also extract up to 30 scene patterns and up to 15 character profiles.`;
         });
       }
 
+      // ─── 5) GOLD BASELINE: separate profile from gold-flagged scripts ───
+      const goldScripts = completed.filter((s: any) => s.gold_flag);
+      if (goldScripts.length >= 1) {
+        // Overall gold baseline
+        const goldPattern = buildBaselinePattern(goldScripts);
+        insights.push({
+          user_id: user.id,
+          insight_type: "gold_baseline",
+          production_type: "all",
+          lane: null,
+          pattern: { ...goldPattern, is_gold: true },
+          weight: goldScripts.length,
+        });
+
+        // Gold baselines by production_type + genre
+        const goldByType: Record<string, any[]> = {};
+        for (const s of goldScripts) {
+          const key = `${s.production_type || 'film'}::${(s.genre || 'unknown').toLowerCase()}`;
+          if (!goldByType[key]) goldByType[key] = [];
+          goldByType[key].push(s);
+        }
+        for (const [key, scripts] of Object.entries(goldByType)) {
+          const [gProdType, gGenre] = key.split("::");
+          const gPattern = buildBaselinePattern(scripts);
+          insights.push({
+            user_id: user.id,
+            insight_type: "gold_baseline",
+            production_type: gProdType,
+            lane: gGenre,
+            pattern: { ...gPattern, genre: gGenre, is_gold: true },
+            weight: scripts.length,
+          });
+        }
+      }
+
       if (insights.length > 0) {
         await db.from("corpus_insights").insert(insights);
       }
@@ -456,7 +517,7 @@ Also extract up to 30 scene patterns and up to 15 character profiles.`;
         groups: Object.keys(ptGroups).length,
         total: completed.length,
         insights_generated: counts,
-        gold_count: completed.filter((s: any) => s.gold_flag).length,
+        gold_count: goldScripts.length,
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });

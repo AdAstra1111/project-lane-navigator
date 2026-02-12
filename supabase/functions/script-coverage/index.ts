@@ -114,21 +114,30 @@ serve(async (req) => {
 
     // Fetch corpus calibration for deviation scoring
     let corpusCalibration: any = null;
+    let goldBaseline: any = null;
     try {
       const { data: calData } = await adminClient
         .from("corpus_insights")
-        .select("pattern, production_type")
-        .eq("insight_type", "calibration");
+        .select("pattern, production_type, insight_type")
+        .in("insight_type", ["calibration", "gold_baseline"]);
       if (calData?.length) {
         const pt = (format || "").toLowerCase();
-        corpusCalibration = calData.find((d: any) => {
+        // Get calibration
+        const calRows = calData.filter((d: any) => d.insight_type === "calibration");
+        corpusCalibration = calRows.find((d: any) => {
           const cpt = (d.production_type || "").toLowerCase();
           return cpt === pt || pt.includes(cpt) || cpt.includes(pt);
-        })?.pattern || calData[0]?.pattern;
+        })?.pattern || calRows[0]?.pattern;
+        // Get gold baseline
+        const goldRows = calData.filter((d: any) => d.insight_type === "gold_baseline");
+        goldBaseline = goldRows.find((d: any) => {
+          const cpt = (d.production_type || "").toLowerCase();
+          return cpt === pt || pt.includes(cpt) || cpt.includes(pt);
+        })?.pattern || goldRows.find((d: any) => d.production_type === "all")?.pattern;
       }
     } catch { /* non-critical */ }
 
-    console.log(`[coverage] db done ${Date.now() - t0}ms, corpus=${corpusCalibration ? 'yes' : 'no'}`);
+    console.log(`[coverage] db done ${Date.now() - t0}ms, corpus=${corpusCalibration ? 'yes' : 'no'}, gold=${goldBaseline ? 'yes' : 'no'}`);
 
     let corpusDeviationBlock = "";
     if (corpusCalibration) {
@@ -142,6 +151,19 @@ CORPUS CALIBRATION DATA (from ${corpusCalibration.sample_size || 'N/A'} analyzed
 - Median midpoint position: ${corpusCalibration.median_midpoint_position || 'N/A'}
 
 Include a "Deviation from Corpus Norms" section in your analysis. Compare the script against these medians and note significant deviations. Penalize structural score if the script deviates significantly from median structure/length without creative justification.`;
+    }
+
+    if (goldBaseline) {
+      corpusDeviationBlock += `
+
+GOLD BENCHMARK DATA (from ${goldBaseline.sample_size || 'N/A'} top-quality scripts):
+- Gold median page count: ${goldBaseline.median_page_count || 'N/A'}
+- Gold median scene count: ${goldBaseline.median_scene_count || 'N/A'}
+- Gold median dialogue ratio: ${goldBaseline.median_dialogue_ratio ? Math.round(goldBaseline.median_dialogue_ratio * 100) + '%' : 'N/A'}
+- Gold quality score: ${goldBaseline.median_quality_score || 'N/A'}
+- Gold midpoint position: ${goldBaseline.median_midpoint_position || 'N/A'}
+
+Include a "Gold Benchmark Deviation" section noting how this script compares to the best-in-class corpus scripts. Highlight gaps between current draft and gold standard.`;
     }
 
     const projectMeta = `TYPE: ${formatLabel} | GENRES: ${(genres || []).join(", ") || "N/A"} | LANE: ${lane || "N/A"}`;
