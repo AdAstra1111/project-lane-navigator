@@ -6,6 +6,8 @@
 import { useMemo } from 'react';
 import { FileText, TrendingUp, AlertTriangle, Quote, CheckCircle2, ShieldAlert, MessageSquareQuote } from 'lucide-react';
 import { StageReadinessScore } from '@/components/StageReadinessScore';
+import { DevelopmentIntelligencePanel } from '@/components/DevelopmentIntelligencePanel';
+import { DraftDeltaPanel } from '@/components/DraftDeltaPanel';
 import { ScriptCoverage } from '@/components/ScriptCoverage';
 import { ProjectInsightPanel } from '@/components/ProjectInsightPanel';
 import { AnalysisPassesDisplay } from '@/components/AnalysisPassesDisplay';
@@ -52,6 +54,18 @@ export function DevelopmentStage({
     <div className="space-y-4">
       {/* Stage Readiness */}
       {stageReadiness && <StageReadinessScore readiness={stageReadiness} />}
+
+      {/* Development Intelligence */}
+      <DevelopmentIntelligencePanel
+        project={project}
+        scripts={scripts}
+        analysis={analysis}
+        coverageVerdict={project.script_coverage_verdict}
+      />
+
+      {/* Draft Delta */}
+      <DraftDeltaPanel projectId={projectId} />
+
       {/* Script Status */}
       <div className={`flex items-center gap-3 glass-card rounded-lg px-4 py-2.5 text-sm ${
         currentScript ? 'border-l-4 border-emerald-500/50' : hasScript ? 'border-l-4 border-amber-500/50' : 'border-l-4 border-muted'
