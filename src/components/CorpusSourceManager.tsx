@@ -39,9 +39,34 @@ export function CorpusSourceManager() {
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ title: '', source_url: '', format: 'pdf', license_reference: '', rights_status: 'PENDING' });
   const [analyzeAllProgress, setAnalyzeAllProgress] = useState<{ current: number; total: number } | null>(null);
+  const [ingestAllProgress, setIngestAllProgress] = useState<{ current: number; total: number } | null>(null);
+
+  const ingestedSourceIds = new Set(corpusScripts.map((s: any) => s.source_id));
+  const uningestedCount = sources.filter(s => s.rights_status === 'APPROVED' && !ingestedSourceIds.has(s.id)).length;
+
+  const handleIngestAll = async () => {
+    const pending = sources.filter(s => s.rights_status === 'APPROVED' && !ingestedSourceIds.has(s.id));
+    if (pending.length === 0) {
+      toast.info('All approved sources are already ingested');
+      return;
+    }
+    setIngestAllProgress({ current: 0, total: pending.length });
+    let succeeded = 0;
+    for (let i = 0; i < pending.length; i++) {
+      setIngestAllProgress({ current: i + 1, total: pending.length });
+      try {
+        await ingestSource.mutateAsync(pending[i].id);
+        succeeded++;
+      } catch (e: any) {
+        toast.error(`Failed "${pending[i].title}": ${e.message}`);
+        if (e.message?.includes('Rate limit') || e.message?.includes('credits')) break;
+      }
+    }
+    setIngestAllProgress(null);
+    toast.success(`Ingested ${succeeded} of ${pending.length} scripts`);
+  };
 
   const handleAnalyzeAll = async () => {
-    // Find ingested but unanalyzed scripts
     const pendingScripts = corpusScripts.filter(
       (s: any) => s.ingestion_status === 'complete' && (!s.analysis_status || s.analysis_status === 'pending')
     );
@@ -59,7 +84,6 @@ export function CorpusSourceManager() {
         if (e.message?.includes('Rate limit') || e.message?.includes('credits')) break;
       }
     }
-    // Trigger aggregation after all complete
     try {
       await aggregateCorpus.mutateAsync();
     } catch { /* non-critical */ }
@@ -86,6 +110,12 @@ export function CorpusSourceManager() {
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold text-foreground">Approved Script Sources</h3>
         <div className="flex items-center gap-2">
+          {uningestedCount > 0 && (
+            <Button size="sm" variant="outline" onClick={handleIngestAll} disabled={!!ingestAllProgress || ingestSource.isPending}>
+              {ingestAllProgress ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Layers className="w-4 h-4 mr-1" />}
+              {ingestAllProgress ? `Ingesting ${ingestAllProgress.current}/${ingestAllProgress.total}` : `Ingest All (${uningestedCount})`}
+            </Button>
+          )}
           <Button size="sm" variant="outline" onClick={handleAnalyzeAll} disabled={!!analyzeAllProgress || analyzeScript.isPending}>
             {analyzeAllProgress ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Brain className="w-4 h-4 mr-1" />}
             {analyzeAllProgress ? `Analyzing ${analyzeAllProgress.current}/${analyzeAllProgress.total}` : 'Analyze All'}
@@ -134,6 +164,14 @@ export function CorpusSourceManager() {
         </div>
       </div>
 
+      {ingestAllProgress && (
+        <div className="space-y-1">
+          <Progress value={(ingestAllProgress.current / ingestAllProgress.total) * 100} className="h-2" />
+          <p className="text-xs text-muted-foreground text-center">
+            Ingesting script {ingestAllProgress.current} of {ingestAllProgress.total}…
+          </p>
+        </div>
+      )}
       {analyzeAllProgress && (
         <div className="space-y-1">
           <Progress value={(analyzeAllProgress.current / analyzeAllProgress.total) * 100} className="h-2" />
