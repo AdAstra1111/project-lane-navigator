@@ -58,8 +58,14 @@ export function CorpusSourceManager() {
         await ingestSource.mutateAsync(pending[i].id);
         succeeded++;
       } catch (e: any) {
-        toast.error(`Failed "${pending[i].title}": ${e.message}`);
-        if (e.message?.includes('Rate limit') || e.message?.includes('credits')) break;
+        const msg = e.message || '';
+        // 404s are expected for some IMSDB scripts — just log, don't alarm
+        if (msg.includes('404') || msg.includes('not available')) {
+          toast.info(`Skipped "${pending[i].title}" — not available on source`);
+        } else {
+          toast.error(`Failed "${pending[i].title}": ${msg}`);
+        }
+        if (msg.includes('Rate limit') || msg.includes('credits')) break;
       }
     }
     setIngestAllProgress(null);
