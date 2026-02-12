@@ -1075,12 +1075,21 @@ serve(async (req) => {
       const userPrefs = (userPrefRow?.prefs || {}) as any;
       const projectPrefs = (projPrefRow?.prefs || {}) as any;
 
+      // ── Inflation Guard: snapshot pre-rewrite viability ──
+      const { data: preProject } = await supabase.from("projects")
+        .select("viability_score, viability_breakdown")
+        .eq("id", projectId).single();
+      const preViability = preProject?.viability_score ?? null;
+      const preBreakdown = preProject?.viability_breakdown ?? null;
+
       // 5) Create improvement run record
       const { data: runRow } = await supabase.from("improvement_runs").insert({
         owner_id: user.id, project_id: projectId, script_id: scriptId,
         before_version_id: beforeVersionId, goal, intensity,
         playbooks_used: selectedPlaybooks.map((p: any) => ({ id: p.id, name: p.name })),
         before_scores: beforeScores, status: 'running',
+        pre_rewrite_viability: preViability,
+        pre_rewrite_breakdown: preBreakdown,
       }).select("id").single();
       const runId = runRow?.id;
 
@@ -1167,6 +1176,20 @@ serve(async (req) => {
         }
       }
 
+      // ── Inflation Guard: snapshot post-rewrite viability ──
+      const { data: postProject } = await supabase.from("projects")
+        .select("viability_score, viability_breakdown")
+        .eq("id", projectId).single();
+      const postViability = postProject?.viability_score ?? preViability;
+      const postBreakdown = postProject?.viability_breakdown ?? null;
+      const viabilityDelta = (postViability ?? 0) - (preViability ?? 0);
+      const inflationFlag = viabilityDelta >= 20;
+      const inflationReason = viabilityDelta >= 30
+        ? "Extreme viability jump after rewrite (>=30) — review required"
+        : viabilityDelta >= 20
+        ? "Large viability jump after rewrite (>=20)"
+        : null;
+
       // 10) Update improvement run
       await supabase.from("improvement_runs").update({
         after_version_id: svRow?.id,
@@ -1177,6 +1200,11 @@ serve(async (req) => {
         changes_summary: changesSummary,
         scene_ops: sceneOps,
         status: regression ? 'regression' : 'completed',
+        post_rewrite_viability: postViability,
+        post_rewrite_breakdown: postBreakdown,
+        viability_delta: viabilityDelta,
+        inflation_flag: inflationFlag,
+        inflation_reason: inflationReason,
       }).eq("id", runId);
 
       // 11) Record outcome signal
