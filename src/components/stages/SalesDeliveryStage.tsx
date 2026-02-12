@@ -1,6 +1,6 @@
 /**
  * Sales & Delivery Stage: Monetisation and recoupment optimisation.
- * Contains: Deals, buyer matches, festivals, territory heat map, market alerts.
+ * Contains: Sales intelligence, deals, buyer matches, festivals, territory heat map, market alerts.
  */
 
 import { DealTracker } from '@/components/DealTracker';
@@ -8,9 +8,11 @@ import { ProjectBuyerMatches } from '@/components/ProjectBuyerMatches';
 import { ProjectFestivalMatches } from '@/components/ProjectFestivalMatches';
 import { TerritoryHeatMap } from '@/components/TerritoryHeatMap';
 import { MarketWindowAlerts } from '@/components/MarketWindowAlerts';
+import { SalesIntelligencePanel } from '@/components/SalesIntelligencePanel';
 import { StageReadinessScore } from '@/components/StageReadinessScore';
 import type { Project } from '@/lib/types';
 import type { ProjectCastMember, ProjectPartner } from '@/hooks/useProjectAttachments';
+import type { ProjectDeal } from '@/hooks/useDeals';
 import type { StageReadinessResult } from '@/lib/stage-readiness';
 
 interface Props {
@@ -18,16 +20,21 @@ interface Props {
   projectId: string;
   cast: ProjectCastMember[];
   partners: ProjectPartner[];
+  deals: ProjectDeal[];
+  deliverables: { territory: string; status: string; item_name: string }[];
   trendSignals: any[];
   stageReadiness: StageReadinessResult | null;
 }
 
 export function SalesDeliveryStage({
-  project, projectId, cast, partners, trendSignals, stageReadiness,
+  project, projectId, cast, partners, deals, deliverables, trendSignals, stageReadiness,
 }: Props) {
   return (
     <div className="space-y-4">
       {stageReadiness && <StageReadinessScore readiness={stageReadiness} />}
+
+      <SalesIntelligencePanel project={project} deals={deals} deliverables={deliverables} />
+
       <DealTracker projectId={projectId} />
       <ProjectBuyerMatches project={project} />
       <ProjectFestivalMatches

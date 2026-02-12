@@ -399,6 +399,8 @@ export default function ProjectDetail() {
             projectId={id!}
             cast={cast}
             partners={partners}
+            deals={deals}
+            deliverables={deliverables as any}
             trendSignals={trendSignals}
             stageReadiness={salesReadiness}
           />
