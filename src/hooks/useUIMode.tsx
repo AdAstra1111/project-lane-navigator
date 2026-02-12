@@ -46,14 +46,23 @@ export function UIModeProvider({ children }: { children: ReactNode }) {
 
   const mode: UIMode = (profile as any)?.mode_preference === 'advanced' ? 'advanced' : 'simple';
 
-  const setMode = useCallback((m: UIMode) => {
+  const setMode = useCallback(async (m: UIMode) => {
+    const previous = mode;
     // Optimistic update
     queryClient.setQueryData(['profile-mode', user?.id], (old: any) => ({
       ...old,
       mode_preference: m,
     }));
-    mutation.mutate(m);
-  }, [user?.id, mutation, queryClient]);
+    try {
+      await mutation.mutateAsync(m);
+    } catch (e) {
+      // Revert on failure
+      queryClient.setQueryData(['profile-mode', user?.id], (old: any) => ({
+        ...old,
+        mode_preference: previous,
+      }));
+    }
+  }, [user?.id, mode, mutation, queryClient]);
 
   const value = useMemo(() => ({ mode, setMode, loading: isLoading }), [mode, setMode, isLoading]);
 
