@@ -6,153 +6,203 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+const FORMAT_LABELS: Record<string, string> = {
+  film: "Feature Film", "tv-series": "TV Series", documentary: "Documentary Feature",
+  "documentary-series": "Documentary Series", commercial: "Commercial / Advert",
+  "branded-content": "Branded Content", "short-film": "Short Film",
+  "music-video": "Music Video", "proof-of-concept": "Proof of Concept",
+  "digital-series": "Digital / Social Series", hybrid: "Hybrid Project",
+  "vertical-drama": "Vertical Drama",
+};
+
+async function callAI(apiKey: string, systemPrompt: string, userPrompt: string, temperature = 0.25): Promise<string> {
+  const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "google/gemini-2.5-flash",
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+      temperature,
+    }),
+  });
+
+  if (!response.ok) {
+    if (response.status === 429) throw new Error("Rate limit exceeded. Please try again in a moment.");
+    if (response.status === 402) throw new Error("AI usage limit reached. Please add credits.");
+    const errText = await response.text();
+    console.error("AI gateway error:", response.status, errText);
+    throw new Error("AI analysis failed");
+  }
+
+  const data = await response.json();
+  return data.choices?.[0]?.message?.content || "";
+}
+
+function parseJSON(raw: string): any {
+  try {
+    const match = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (match) return JSON.parse(match[1].trim());
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    return jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    // Auth check
     const authHeader = req.headers.get("Authorization");
     if (!authHeader?.startsWith("Bearer ")) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
     const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
       global: { headers: { Authorization: authHeader } },
     });
-    const { data: claimsData, error: claimsError } = await supabase.auth.getClaims(authHeader.replace("Bearer ", ""));
-    if (claimsError || !claimsData?.claims) {
+
+    const { data: userData } = await supabase.auth.getUser();
+    if (!userData?.user) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+    const userId = userData.user.id;
 
-    const { scriptText, projectTitle, format, genres } = await req.json();
+    const { projectId, scriptId, promptVersionId, draftLabel, scriptText, format, genres, lane } = await req.json();
 
     if (!scriptText || scriptText.length < 100) {
       return new Response(JSON.stringify({ error: "Script text too short for coverage analysis" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
 
-    // Production type conditioning
-    const FORMAT_LABELS: Record<string, string> = {
-      film: 'Feature Film', 'tv-series': 'TV Series', documentary: 'Documentary Feature',
-      'documentary-series': 'Documentary Series', commercial: 'Commercial / Advert',
-      'branded-content': 'Branded Content', 'short-film': 'Short Film',
-      'music-video': 'Music Video', 'proof-of-concept': 'Proof of Concept',
-      'digital-series': 'Digital / Social Series', hybrid: 'Hybrid Project',
-    };
-    const formatLabel = FORMAT_LABELS[format] || 'Film';
-    const isNarrativeFormat = ['film', 'tv-series', 'short-film'].includes(format);
-    const isDocFormat = ['documentary', 'documentary-series'].includes(format);
-    const isCommercialFormat = ['commercial', 'branded-content', 'music-video'].includes(format);
+    const formatLabel = FORMAT_LABELS[format] || "Film";
+    const truncatedScript = scriptText.slice(0, 80000);
 
-    const systemPrompt = `You are a professional script reader and coverage analyst working for a film/TV production company. You provide sharp, industry-standard coverage notes that help producers assess a project's viability.
+    // Fetch house style
+    const adminClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+    const { data: houseStyleRow } = await adminClient.from("house_style").select("preferences").limit(1).single();
+    const houseStyle = houseStyleRow?.preferences || {};
 
-PRODUCTION TYPE: ${formatLabel}
-${isCommercialFormat ? 'Adapt your coverage for commercial/branded content — assess treatment strength, brand alignment, and visual concept rather than traditional narrative structure.' : ''}
-${isDocFormat ? 'Adapt your coverage for documentary — assess subject access, editorial stance, archive potential, and impact potential rather than fictional narrative structure.' : ''}
+    // Fetch prompt version
+    let promptVersion: any = null;
+    if (promptVersionId) {
+      const { data } = await adminClient.from("coverage_prompt_versions").select("*").eq("id", promptVersionId).single();
+      promptVersion = data;
+    }
+    if (!promptVersion) {
+      const { data } = await adminClient.from("coverage_prompt_versions").select("*").eq("status", "active").limit(1).single();
+      promptVersion = data;
+    }
 
-Your coverage must include:
-1. LOGLINE: A single compelling sentence (25 words max)
-2. SYNOPSIS: 3-4 sentence summary covering setup, conflict, and resolution direction
-3. THEMES: 3-5 key themes with one sentence each
-4. STRUCTURAL ANALYSIS: Assessment of ${isCommercialFormat ? 'treatment structure, visual flow, and brand narrative' : isDocFormat ? 'subject access, editorial approach, and story arc' : 'act structure, pacing, and narrative momentum'} (3-4 sentences)
-5. CHARACTER ANALYSIS: Brief assessment of ${isDocFormat ? 'subject complexity and narrative voice' : 'protagonist complexity, antagonist strength, and supporting cast'} (3-4 sentences)
-6. COMPARABLE TITLES: 3-5 recent comparable ${formatLabel.toLowerCase()}s with brief reasoning
-7. STRENGTHS: 3-5 bullet points of what works well
-8. WEAKNESSES: 3-5 bullet points of areas that need work
-9. MARKET POSITIONING: 2-3 sentences on where this sits in the current market
-10. OVERALL RECOMMENDATION: One of CONSIDER / PASS / RECOMMEND with a 2-sentence justification
+    if (!promptVersion) throw new Error("No active prompt version found");
 
-Be honest, specific, and cite moments from the script where possible. Avoid generic praise. Write as an experienced reader would for a sales company or financier.`;
+    // Fetch great notes exemplars for RAG
+    const { data: exemplars } = await adminClient
+      .from("great_notes_library")
+      .select("note_text, problem_type, evidence_style")
+      .eq("project_type", formatLabel)
+      .limit(8);
 
-    const userPrompt = `Provide professional script coverage for the following:
+    const exemplarBlock = exemplars?.length
+      ? "\n\nSTYLE EXEMPLARS (imitate specificity and structure, NOT content):\n" +
+        exemplars.map((e: any, i: number) => `${i + 1}. [${e.problem_type}] ${e.note_text}`).join("\n")
+      : "";
 
-PROJECT: ${projectTitle || 'Untitled'}
-FORMAT: ${formatLabel}
-GENRES: ${(genres || []).join(', ') || 'Not specified'}
+    const projectMeta = `PROJECT TYPE: ${formatLabel}\nGENRES: ${(genres || []).join(", ") || "Not specified"}\nLANE: ${lane || "Not specified"}\nHOUSE STYLE: ${JSON.stringify(houseStyle)}`;
 
-SCRIPT TEXT:
-${scriptText.slice(0, 80000)}
+    // =========== PASS A: ANALYST ===========
+    const passAUser = `${projectMeta}\n\nSCRIPT TEXT:\n${truncatedScript}\n\n${truncatedScript.length >= 80000 ? "[Note: Script truncated at 80k chars]" : ""}`;
+    const passAResult = await callAI(LOVABLE_API_KEY, promptVersion.analyst_prompt, passAUser, 0.2);
 
-${scriptText.length > 80000 ? '\n[Note: Script was truncated at 80,000 characters for analysis]' : ''}
+    // =========== PASS B: PRODUCER/STORY EDITOR ===========
+    const passBUser = `${projectMeta}\n\nANALYST DIAGNOSTICS (Pass A):\n${passAResult}${exemplarBlock}\n\nProduce FINAL COVERAGE strictly matching the Output Contract.`;
+    const passBResult = await callAI(LOVABLE_API_KEY, promptVersion.producer_prompt, passBUser, 0.3);
 
-Respond with a JSON object using these exact keys:
-{
-  "logline": "string",
-  "synopsis": "string",
-  "themes": [{"name": "string", "description": "string"}],
-  "structural_analysis": "string",
-  "character_analysis": "string",
-  "comparable_titles": [{"title": "string", "reason": "string"}],
-  "strengths": ["string"],
-  "weaknesses": ["string"],
-  "market_positioning": "string",
-  "recommendation": "CONSIDER" | "PASS" | "RECOMMEND",
-  "recommendation_reason": "string"
-}`;
+    // =========== PASS C: QC ===========
+    const passCUser = `PASS B FINAL COVERAGE:\n${passBResult}\n\nPASS A DIAGNOSTICS (for cross-check):\n${passAResult.slice(0, 15000)}\n\nEnforce Output Contract. Remove vagueness. Flag hallucinations. Return JSON with cleaned_coverage, qc_changelog, hallucination_flags, metrics.`;
+    const passCResult = await callAI(LOVABLE_API_KEY, promptVersion.qc_prompt, passCUser, 0.15);
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
-        temperature: 0.3,
-      }),
+    // Parse QC output
+    const qcParsed = parseJSON(passCResult);
+    const finalCoverage = qcParsed?.cleaned_coverage || passBResult;
+    const metrics = qcParsed?.metrics || {};
+    const hallucinations = qcParsed?.hallucination_flags || [];
+    metrics.hallucinations_count = hallucinations.length;
+
+    // Parse structured notes from final coverage (extract numbered bullets with IDs)
+    const noteLines = finalCoverage.split("\n").filter((l: string) => l.match(/^[-•*]\s|^\d+\./));
+    const structuredNotes = noteLines.map((line: string, i: number) => {
+      const section = "S" + Math.floor(i / 5 + 1);
+      return { id: `${section}-N${(i % 5) + 1}`, text: line.replace(/^[-•*\d.]+\s*/, "").trim() };
     });
 
-    if (!response.ok) {
-      if (response.status === 429) {
-        return new Response(JSON.stringify({ error: "Rate limit exceeded. Please try again in a moment." }), {
-          status: 429,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      if (response.status === 402) {
-        return new Response(JSON.stringify({ error: "AI usage limit reached. Please add credits." }), {
-          status: 402,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      const errText = await response.text();
-      console.error("AI gateway error:", response.status, errText);
-      throw new Error("AI analysis failed");
+    // Save coverage run
+    const runData = {
+      project_id: projectId,
+      script_id: scriptId,
+      prompt_version_id: promptVersion.id,
+      model: "google/gemini-2.5-flash",
+      project_type: formatLabel,
+      lane: lane || null,
+      inputs: { chunk_size: 80000, temperature: [0.2, 0.3, 0.15], exemplar_count: exemplars?.length || 0 },
+      pass_a: passAResult,
+      pass_b: passBResult,
+      pass_c: passCResult,
+      final_coverage: finalCoverage,
+      structured_notes: structuredNotes,
+      metrics,
+      draft_label: draftLabel || "Draft 1",
+      created_by: userId,
+    };
+
+    const { data: inserted, error: insertErr } = await supabase
+      .from("coverage_runs")
+      .insert(runData)
+      .select("id, created_at")
+      .single();
+
+    if (insertErr) {
+      console.error("Failed to save coverage run:", insertErr);
+      // Still return coverage even if save fails
     }
 
-    const aiData = await response.json();
-    const content = aiData.choices?.[0]?.message?.content || "";
+    // Also update project verdict for readiness scoring
+    const recommendation = finalCoverage.match(/RECOMMEND|CONSIDER|PASS/)?.[0] || "CONSIDER";
+    await supabase
+      .from("projects")
+      .update({ script_coverage_verdict: recommendation })
+      .eq("id", projectId);
 
-    // Parse JSON from response
-    let coverage;
-    try {
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
-      coverage = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(content);
-    } catch {
-      console.error("Failed to parse coverage JSON:", content.slice(0, 500));
-      throw new Error("Failed to parse AI coverage response");
-    }
-
-    return new Response(JSON.stringify(coverage), {
+    return new Response(JSON.stringify({
+      id: inserted?.id,
+      created_at: inserted?.created_at,
+      final_coverage: finalCoverage,
+      structured_notes: structuredNotes,
+      metrics,
+      pass_a: passAResult,
+      pass_b: passBResult,
+      pass_c: passCResult,
+      recommendation,
+      qc_changelog: qcParsed?.qc_changelog || [],
+      hallucination_flags: hallucinations,
+    }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e) {
     console.error("script-coverage error:", e);
     return new Response(JSON.stringify({ error: e instanceof Error ? e.message : "Unknown error" }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 });
