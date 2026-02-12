@@ -678,9 +678,10 @@ export default function ProjectDetail() {
             )}
           </Section>
 
-          {/* Trend Intelligence */}
-          {id && (
-            <Section icon={Activity} title="Trend Intelligence">
+          {/* 2. Analysis & Intelligence (merged) */}
+          <Section icon={TrendingUp} title="Analysis & Intelligence">
+            {project && <ProjectRelevantSignals project={project} />}
+            {id && (
               <TrendIntelligencePanel
                 projectId={id}
                 format={project.format}
@@ -688,12 +689,8 @@ export default function ProjectDetail() {
                 primaryTerritory={(project as any).primary_territory || ''}
                 assignedLane={project.assigned_lane}
               />
-            </Section>
-          )}
-
-          {/* 2. Analysis & Signals */}
-          <Section icon={TrendingUp} title="Analysis & Signals">
-            {project && <ProjectRelevantSignals project={project} />}
+            )}
+            {insights && <ProjectInsightPanel insights={insights} />}
             {hasNewAnalysis && analysis && <AnalysisPassesDisplay passes={analysis} />}
             {hasNewAnalysis && analysis?.do_next && analysis?.avoid && (
               <DoAvoidSection doNext={analysis.do_next} avoid={analysis.avoid} />
@@ -731,13 +728,6 @@ export default function ProjectDetail() {
               </div>
             )}
           </Section>
-
-          {/* 2. Intelligence */}
-          {insights && (
-            <Section icon={Target} title="Intelligence">
-              <ProjectInsightPanel insights={insights} />
-            </Section>
-          )}
 
           {/* ═══ TV SERIES ENGINE (only for TV projects) ═══ */}
           {isTV && id && (
@@ -812,8 +802,8 @@ export default function ProjectDetail() {
             )}
           </Section>
 
-          {/* 4. Finance & Incentives */}
-          <Section icon={DollarSign} title="Finance & Incentives" badge={
+          {/* 4. Finance (merged: Finance, Budget, Cost, Ownership, Recoupment) */}
+          <Section icon={DollarSign} title="Finance" badge={
             readiness ? (
               <span className="text-xs text-muted-foreground bg-muted rounded-full px-2 py-0.5">
                 {readiness.breakdown.finance}/25
@@ -844,98 +834,62 @@ export default function ProjectDetail() {
                 shootDayCount={scheduleMetrics.shootDayCount}
               />
             )}
+            {id && <BudgetPanel projectId={id} assignedLane={project?.assigned_lane} projectTitle={project?.title} />}
+            {id && <ScriptToBudgetPanel
+              projectId={id}
+              scriptText={scriptText}
+              format={project?.format}
+              genres={project?.genres || []}
+              budgetRange={project?.budget_range}
+              lane={project?.assigned_lane}
+              totalBudget={budgets.find(b => b.status === 'locked')?.total_amount ? Number(budgets.find(b => b.status === 'locked')?.total_amount) : undefined}
+              onImport={async (lines, estimatedTotal) => {
+                addBudget.mutate(
+                  {
+                    version_label: `AI Estimate v${budgets.length + 1}`,
+                    total_amount: estimatedTotal,
+                    lane_template: '',
+                    source: 'ai-estimate',
+                  },
+                  {
+                    onSuccess: async (newBudget: any) => {
+                      const { data: { user } } = await supabase.auth.getUser();
+                      if (!user) return;
+                      const rows = lines.map((l, i) => ({
+                        budget_id: newBudget.id,
+                        project_id: id,
+                        user_id: user.id,
+                        category: l.category,
+                        line_name: l.line_name,
+                        amount: l.amount,
+                        sort_order: i,
+                      }));
+                      await supabase.from('project_budget_lines').insert(rows as any);
+                      toast.success(`Created budget with ${lines.length} AI-estimated lines`);
+                    },
+                  }
+                );
+              }}
+            />}
+            {id && <CostTrackingPanel projectId={id} />}
+            {id && <OwnershipWaterfallPanel projectId={id} />}
+            {id && <RecoupmentWaterfallPanel projectId={id} />}
+            {id && <IRRSalesProjectionPanel
+              totalBudget={budgets.find(b => b.status === 'locked')?.total_amount ? Number(budgets.find(b => b.status === 'locked')?.total_amount) : undefined}
+            />}
           </Section>
 
-          {/* 5. Budget */}
+          {/* 5. Production & Delivery (merged: Schedule, Delivery, Contracts) */}
           {id && (
-            <Section icon={FileSpreadsheet} title="Budget">
-              <BudgetPanel projectId={id} assignedLane={project?.assigned_lane} projectTitle={project?.title} />
-              <ScriptToBudgetPanel
-                projectId={id}
-                scriptText={scriptText}
-                format={project?.format}
-                genres={project?.genres || []}
-                budgetRange={project?.budget_range}
-                lane={project?.assigned_lane}
-                totalBudget={budgets.find(b => b.status === 'locked')?.total_amount ? Number(budgets.find(b => b.status === 'locked')?.total_amount) : undefined}
-                onImport={async (lines, estimatedTotal) => {
-                  addBudget.mutate(
-                    {
-                      version_label: `AI Estimate v${budgets.length + 1}`,
-                      total_amount: estimatedTotal,
-                      lane_template: '',
-                      source: 'ai-estimate',
-                    },
-                    {
-                      onSuccess: async (newBudget: any) => {
-                        const { data: { user } } = await supabase.auth.getUser();
-                        if (!user) return;
-                        const rows = lines.map((l, i) => ({
-                          budget_id: newBudget.id,
-                          project_id: id,
-                          user_id: user.id,
-                          category: l.category,
-                          line_name: l.line_name,
-                          amount: l.amount,
-                          sort_order: i,
-                        }));
-                        await supabase.from('project_budget_lines').insert(rows as any);
-                        toast.success(`Created budget with ${lines.length} AI-estimated lines`);
-                      },
-                    }
-                  );
-                }}
-              />
-            </Section>
-          )}
-
-          {/* 5b. Cost Tracking */}
-          {id && (
-            <Section icon={Receipt} title="Cost Tracking">
-              <CostTrackingPanel projectId={id} />
-            </Section>
-          )}
-
-          {/* 6. Delivery Intelligence */}
-          {id && (
-            <Section icon={PackageCheck} title="Delivery Intelligence">
-              <DeliveryIntelligencePanel projectId={id} />
-            </Section>
-          )}
-
-          {/* 7. Contracts */}
-          {id && (
-            <Section icon={FileSignature} title="Contracts">
-              <ContractManagerPanel projectId={id} />
-            </Section>
-          )}
-
-          {/* 8. Ownership & Waterfall */}
-          {id && (
-            <Section icon={PieChart} title="Ownership & Waterfall">
-              <OwnershipWaterfallPanel projectId={id} />
-            </Section>
-          )}
-
-          {/* 8b. Recoupment Waterfall */}
-          {id && (
-            <Section icon={TrendingUp} title="Recoupment Waterfall">
-              <RecoupmentWaterfallPanel projectId={id} />
-              <IRRSalesProjectionPanel
-                totalBudget={budgets.find(b => b.status === 'locked')?.total_amount ? Number(budgets.find(b => b.status === 'locked')?.total_amount) : undefined}
-              />
-            </Section>
-          )}
-
-          {/* Schedule Intelligence */}
-          {id && (
-            <Section icon={Calendar} title="Schedule Intelligence">
+            <Section icon={Calendar} title="Production & Delivery">
               <ScheduleIntelligencePanel
                 projectId={id}
                 format={project?.format}
                 genres={project?.genres || []}
                 budgetRange={project?.budget_range}
               />
+              <DeliveryIntelligencePanel projectId={id} />
+              <ContractManagerPanel projectId={id} />
             </Section>
           )}
 

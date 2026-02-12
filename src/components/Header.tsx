@@ -34,7 +34,6 @@ export function Header() {
     { label: 'Incentives', icon: Landmark, path: '/incentives' },
     { label: 'Calendar', icon: LayoutGrid, path: '/calendar' },
     { label: 'Buyers', icon: Users, path: '/buyer-crm' },
-    { label: 'Intel', icon: Globe, path: '/market-intelligence' },
   ];
 
   return (
@@ -73,6 +72,9 @@ export function Header() {
             <DropdownMenuContent align="end" className="w-44">
               <DropdownMenuItem onClick={() => navigate('/reports')}>
                 <BarChart3 className="h-4 w-4 mr-2" /> Reports & Exports
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => navigate('/market-intelligence')}>
+                <Globe className="h-4 w-4 mr-2" /> Market Intelligence
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => navigate('/festivals')}>
                 <Calendar className="h-4 w-4 mr-2" /> Festivals
@@ -139,6 +141,7 @@ export function Header() {
           <div className="border-t border-border/30 my-2" />
           {[
             { label: 'Reports & Exports', path: '/reports', icon: BarChart3 },
+            { label: 'Market Intelligence', path: '/market-intelligence', icon: Globe },
             { label: 'Festivals', path: '/festivals', icon: Calendar },
             { label: 'Settings', path: '/settings', icon: Settings },
           ].map(item => (
