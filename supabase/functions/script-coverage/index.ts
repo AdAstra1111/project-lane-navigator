@@ -174,7 +174,11 @@ Each note: {"note_id":"N-001","section":"string","category":"structure|character
     }
     console.log(`[coverage] ${structuredNotes.length} notes, total ${Date.now() - t0}ms`);
 
-    const finalCoverage = passBResult;
+    // Strip JSON code blocks (structured_notes) from the coverage text so it reads as English
+    const finalCoverage = passBResult
+      .replace(/```(?:json)?\s*[\s\S]*?```/g, '')
+      .replace(/\{[\s\S]*?"structured_notes"[\s\S]*?\}\s*$/g, '')
+      .trim();
     const recommendation = finalCoverage.match(/RECOMMEND|CONSIDER|PASS/)?.[0] || "CONSIDER";
 
     // Save coverage run
