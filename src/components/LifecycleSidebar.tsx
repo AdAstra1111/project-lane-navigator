@@ -5,7 +5,7 @@ import {
   getStageOrder, 
   isStageAccessible 
 } from '@/lib/lifecycle-stages';
-import { Lock, Check, DollarSign, TrendingUp } from 'lucide-react';
+import { Lock, Check, DollarSign, TrendingUp, Wallet, Calculator, PieChart } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
@@ -110,17 +110,46 @@ export function LifecycleSidebar({
 
       {/* Persistent layers */}
       <button
-        onClick={() => onViewChange('finance')}
+        onClick={() => onViewChange('financing')}
         className={cn(
           'w-full flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
-          activeView === 'finance'
+          activeView === 'financing'
             ? 'bg-primary/10 text-primary'
             : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
         )}
       >
-        <DollarSign className="h-4 w-4 shrink-0" />
-        <span>Finance & Recoupment</span>
+        <Wallet className="h-4 w-4 shrink-0" />
+        <span>Financing</span>
       </button>
+
+      <button
+        onClick={() => onViewChange('budgeting')}
+        className={cn(
+          'w-full flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+          activeView === 'budgeting'
+            ? 'bg-primary/10 text-primary'
+            : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
+        )}
+      >
+        <Calculator className="h-4 w-4 shrink-0" />
+        <span>Budgeting</span>
+      </button>
+
+      <button
+        onClick={() => onViewChange('recoupment')}
+        className={cn(
+          'w-full flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+          activeView === 'recoupment'
+            ? 'bg-primary/10 text-primary'
+            : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
+        )}
+      >
+        <PieChart className="h-4 w-4 shrink-0" />
+        <span>Recoupment</span>
+      </button>
+
+      {/* Divider */}
+      <div className="h-px bg-border my-2" />
 
       <button
         onClick={() => onViewChange('trends')}
