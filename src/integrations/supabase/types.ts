@@ -1699,6 +1699,99 @@ export type Database = {
         }
         Relationships: []
       }
+      failure_contrast: {
+        Row: {
+          active: boolean
+          box_office_est: string | null
+          budget_est: string | null
+          conflict_density: string
+          costless_climax: boolean
+          created_at: string
+          dataset_type: string
+          development_outcome: string
+          dialogue_subtext_level: string
+          flat_escalation: boolean
+          format: string
+          genre: string
+          id: string
+          inciting_incident_page: number | null
+          late_inciting_incident: boolean
+          midpoint_strength: string
+          no_midpoint_shift: boolean
+          notes: string | null
+          on_the_nose_dialogue: boolean
+          passive_protagonist: boolean
+          primary_weakness: string
+          produced: boolean
+          protagonist_agency: string
+          third_act_strength: string
+          title: string
+          updated_at: string
+          weight: string
+          year: number | null
+        }
+        Insert: {
+          active?: boolean
+          box_office_est?: string | null
+          budget_est?: string | null
+          conflict_density?: string
+          costless_climax?: boolean
+          created_at?: string
+          dataset_type?: string
+          development_outcome?: string
+          dialogue_subtext_level?: string
+          flat_escalation?: boolean
+          format?: string
+          genre: string
+          id?: string
+          inciting_incident_page?: number | null
+          late_inciting_incident?: boolean
+          midpoint_strength?: string
+          no_midpoint_shift?: boolean
+          notes?: string | null
+          on_the_nose_dialogue?: boolean
+          passive_protagonist?: boolean
+          primary_weakness?: string
+          produced?: boolean
+          protagonist_agency?: string
+          third_act_strength?: string
+          title: string
+          updated_at?: string
+          weight?: string
+          year?: number | null
+        }
+        Update: {
+          active?: boolean
+          box_office_est?: string | null
+          budget_est?: string | null
+          conflict_density?: string
+          costless_climax?: boolean
+          created_at?: string
+          dataset_type?: string
+          development_outcome?: string
+          dialogue_subtext_level?: string
+          flat_escalation?: boolean
+          format?: string
+          genre?: string
+          id?: string
+          inciting_incident_page?: number | null
+          late_inciting_incident?: boolean
+          midpoint_strength?: string
+          no_midpoint_shift?: boolean
+          notes?: string | null
+          on_the_nose_dialogue?: boolean
+          passive_protagonist?: boolean
+          primary_weakness?: string
+          produced?: boolean
+          protagonist_agency?: string
+          third_act_strength?: string
+          title?: string
+          updated_at?: string
+          weight?: string
+          year?: number | null
+        }
+        Relationships: []
+      }
       format_profiles: {
         Row: {
           created_at: string

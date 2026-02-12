@@ -240,7 +240,60 @@ Do NOT soften commercial viability notes. If the script has weak hooks or low tr
       }
     } catch (e) { console.error("[coverage] commercial proof fetch error:", e); }
 
-    console.log(`[coverage] db done ${Date.now() - t0}ms, corpus=${corpusCalibration ? 'yes' : 'no'}, gold=${goldBaseline ? 'yes' : 'no'}, masterwork=${masterworkBlock ? 'yes' : 'no'}, commercial=${commercialBlock ? 'yes' : 'no'}`);
+    // Fetch Failure Contrast patterns for risk detection
+    let failureBlock = "";
+    try {
+      const scriptGenre = ((genres || [])[0] || "").toLowerCase();
+      const { data: failures } = await adminClient.from("failure_contrast").select("*").eq("active", true).limit(20);
+      if (failures?.length) {
+        // Compute failure pattern prevalence
+        const total = failures.length;
+        const pctFlag = (field: string) => Math.round(failures.filter((f: any) => f[field] === true).length / total * 100);
+        const commonWeaknesses = [...new Set(failures.map((f: any) => f.primary_weakness).filter(Boolean))];
+        const genreFailures = failures.filter((f: any) => f.genre === scriptGenre);
+        const avgInciting = failures.filter((f: any) => f.inciting_incident_page).reduce((s: number, f: any) => s + f.inciting_incident_page, 0) / (failures.filter((f: any) => f.inciting_incident_page).length || 1);
+
+        failureBlock = `
+
+FAILURE CONTRAST PATTERNS (from ${total} scripts that failed commercially or structurally):
+- Average inciting incident in failed scripts: page ${Math.round(avgInciting)} (too late)
+- ${pctFlag('late_inciting_incident')}% had late inciting incidents
+- ${pctFlag('passive_protagonist')}% had passive protagonists (reactive > 60% of scenes)
+- ${pctFlag('on_the_nose_dialogue')}% had on-the-nose dialogue (theme stated directly)
+- ${pctFlag('no_midpoint_shift')}% lacked a meaningful midpoint power shift
+- ${pctFlag('flat_escalation')}% had flat escalation (stakes not rising by Act 2B)
+- ${pctFlag('costless_climax')}% had costless climaxes (resolved without protagonist sacrifice)
+- Common primary weaknesses: ${commonWeaknesses.join(", ")}
+${genreFailures.length > 0 ? `- Genre-specific failures (${scriptGenre}): ${genreFailures.map((f: any) => f.title).join(", ")}` : ''}
+
+FAILURE PATTERN DETECTION RULES:
+1. Check inciting incident placement — if after page 20 (film) or page 10 (pilot), flag concern.
+2. Assess protagonist agency — is the lead driving events or reacting? If reactive > 60%, flag.
+3. Check dialogue subtext — is theme explained directly through dialogue? If yes, flag.
+4. Evaluate midpoint — is there a genuine power shift? If not, flag.
+5. Check escalation — are stakes rising through Act 2B? If flat, flag.
+6. Assess climax cost — does the protagonist sacrifice something meaningful? If not, flag.
+
+If 3+ failure patterns are detected → flag as: DEVELOPMENT RISK
+If budget ambition exceeds commercial viability patterns → flag as: FINANCE RISK
+If tone is inconsistent within genre lane → flag as: GENRE EXECUTION RISK
+
+REWRITE PRIORITY:
+For each issue found, assign a rewrite priority:
+- HIGH: Structural problems (late hook, no midpoint, flat escalation)
+- MEDIUM: Character/dialogue issues (passive protagonist, on-the-nose dialogue)
+- LOW: Polish-level issues (subtext refinement, scene trimming)
+
+Include a "Development Roadmap" section with 3-5 prioritized rewrite steps.
+
+CALIBRATION STANCE:
+- If the script resembles FAILURE_CONTRAST patterns more than MASTERWORK_CANON or COMMERCIAL_PROOF, state this clearly.
+- Do NOT soften critique. Be professional but decisive.
+- Provide specific page-level notes where possible.`;
+      }
+    } catch (e) { console.error("[coverage] failure contrast fetch error:", e); }
+
+    console.log(`[coverage] db done ${Date.now() - t0}ms, corpus=${corpusCalibration ? 'yes' : 'no'}, gold=${goldBaseline ? 'yes' : 'no'}, masterwork=${masterworkBlock ? 'yes' : 'no'}, commercial=${commercialBlock ? 'yes' : 'no'}, failure=${failureBlock ? 'yes' : 'no'}`);
 
     let corpusDeviationBlock = "";
     if (corpusCalibration) {
@@ -276,7 +329,7 @@ IMPORTANT: Do NOT imitate or copy any specific screenplay from the corpus. Use o
     // =========== PASS A: ANALYST (diagnostic read) ===========
     const passAResult = await callAI(
       LOVABLE_API_KEY,
-      promptVersion.analyst_prompt + corpusDeviationBlock + masterworkBlock + commercialBlock,
+      promptVersion.analyst_prompt + corpusDeviationBlock + masterworkBlock + commercialBlock + failureBlock,
       `${projectMeta}\n\nSCRIPT:\n${truncatedScript}`,
       0.2
     );
