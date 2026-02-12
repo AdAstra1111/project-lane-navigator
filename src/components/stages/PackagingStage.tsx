@@ -5,6 +5,7 @@
 
 import { ProjectAttachmentTabs } from '@/components/ProjectAttachmentTabs';
 import { CastImpactPanel } from '@/components/CastImpactPanel';
+import { PackagingDeltaPanel } from '@/components/PackagingDeltaPanel';
 import { StageReadinessScore } from '@/components/StageReadinessScore';
 import { StoryEnginePanel } from '@/components/tv/StoryEnginePanel';
 import { SeasonArcPanel } from '@/components/tv/SeasonArcPanel';
@@ -48,6 +49,7 @@ export function PackagingStage({
         scriptCharactersLoading={scriptCharactersLoading}
       />
       <CastImpactPanel cast={cast} hods={hods} />
+      <PackagingDeltaPanel cast={cast} hods={hods} format={project.format} />
 
       {/* TV-specific packaging */}
       {isTV && (
