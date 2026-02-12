@@ -13,6 +13,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from '@/hooks/use-toast';
 import { CorpusSourceManager } from '@/components/CorpusSourceManager';
 import { CorpusHealthDashboard } from '@/components/CorpusHealthDashboard';
+import { CorpusIntegrityPanel } from '@/components/CorpusIntegrityPanel';
 
 export default function Settings() {
   const { user, signOut } = useAuth();
@@ -219,6 +220,9 @@ export default function Settings() {
         >
           <CorpusHealthDashboard />
         </motion.section>
+
+        {/* Corpus Integrity */}
+        <CorpusIntegrityPanel />
 
         {/* About */}
         <motion.section
