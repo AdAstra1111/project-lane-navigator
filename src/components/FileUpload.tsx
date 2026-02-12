@@ -4,7 +4,7 @@ import { Upload, X, FileText, File, AlertCircle, ScrollText } from 'lucide-react
 import { cn } from '@/lib/utils';
 
 const SCRIPT_EXTENSIONS = ['.pdf', '.fdx', '.fountain', '.docx', '.doc', '.txt'];
-const SCRIPT_NAME_PATTERNS = /script|screenplay|draft|teleplay/i;
+const SCRIPT_NAME_PATTERNS = /script|screenplay|draft|teleplay|_rev|\.rev|_d\d|\.d\d|v\d+[._]/i;
 
 const ACCEPTED_TYPES = [
   'application/pdf',
