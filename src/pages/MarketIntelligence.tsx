@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   Globe, TrendingUp, TrendingDown, Minus, Users, Calendar,
-  MapPin, ExternalLink, Filter, BarChart3, Zap, DollarSign,
+  MapPin, ExternalLink, Filter, BarChart3, Zap, DollarSign, Brain,
 } from 'lucide-react';
 import { Header } from '@/components/Header';
 import { Badge } from '@/components/ui/badge';
@@ -15,6 +15,7 @@ import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
 import { useQuery } from '@tanstack/react-query';
 import { TerritoryCostBrowser } from '@/components/TerritoryCostBrowser';
+import { CorpusInsightsDashboard } from '@/components/CorpusInsightsDashboard';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ShareSignalDialog } from '@/components/ShareSignalDialog';
 import { usePersonImage } from '@/hooks/usePersonImage';
@@ -112,6 +113,7 @@ export default function MarketIntelligence() {
           <TabsList>
             <TabsTrigger value="signals" className="gap-1.5"><Zap className="h-3.5 w-3.5" /> Signals</TabsTrigger>
             <TabsTrigger value="territory-costs" className="gap-1.5"><DollarSign className="h-3.5 w-3.5" /> Territory Costs</TabsTrigger>
+            <TabsTrigger value="corpus" className="gap-1.5"><Brain className="h-3.5 w-3.5" /> Corpus Intelligence</TabsTrigger>
           </TabsList>
 
           <TabsContent value="signals">
@@ -282,6 +284,11 @@ export default function MarketIntelligence() {
                 </p>
               </div>
               <TerritoryCostBrowser />
+            </div>
+          </TabsContent>
+          <TabsContent value="corpus">
+            <div className="glass-card rounded-xl p-6">
+              <CorpusInsightsDashboard />
             </div>
           </TabsContent>
         </Tabs>
