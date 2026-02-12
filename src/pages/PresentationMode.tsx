@@ -317,7 +317,12 @@ export default function PresentationMode() {
             <ScaledSlide>
               {/* ─── TITLE SLIDE ─── */}
               {slideId === 'title' && (
-                <div className="w-full h-full flex flex-col items-center justify-center text-center bg-[hsl(225,20%,6%)] px-[200px]">
+                <div className="w-full h-full flex flex-col items-center justify-center text-center bg-[hsl(225,20%,6%)] px-[200px] relative overflow-hidden">
+                  {/* Hero background image */}
+                  {(project as any).hero_image_url && (
+                    <img src={(project as any).hero_image_url} alt="" className="absolute inset-0 w-full h-full object-cover opacity-20" />
+                  )}
+                  <div className="absolute inset-0 bg-gradient-to-t from-[hsl(225,20%,6%)] via-[hsl(225,20%,6%)]/80 to-[hsl(225,20%,6%)]/40" />
                   {/* Subtle gradient orb */}
                   <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[900px] h-[900px] rounded-full bg-primary/5 blur-[200px] pointer-events-none" />
 
