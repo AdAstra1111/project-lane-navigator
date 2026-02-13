@@ -2469,6 +2469,86 @@ export type Database = {
           },
         ]
       }
+      outcome_deltas: {
+        Row: {
+          budget_achieved: boolean | null
+          computed_at: string | null
+          development_time_months: number | null
+          distribution_offer: boolean | null
+          festival_selection: boolean | null
+          finance_prediction_correct: boolean | null
+          financed: boolean | null
+          greenlight_prediction_correct: boolean | null
+          id: string
+          initial_commercial_score: number | null
+          initial_finance_confidence: string | null
+          initial_greenlight_verdict: string | null
+          initial_structural_score: number | null
+          notes: Json | null
+          predicted_to_actual_gap_score: number | null
+          presales_secured: boolean | null
+          project_id: string
+          recoup_achieved: boolean | null
+          streamer_interest: boolean | null
+          talent_attached: boolean | null
+          user_id: string
+        }
+        Insert: {
+          budget_achieved?: boolean | null
+          computed_at?: string | null
+          development_time_months?: number | null
+          distribution_offer?: boolean | null
+          festival_selection?: boolean | null
+          finance_prediction_correct?: boolean | null
+          financed?: boolean | null
+          greenlight_prediction_correct?: boolean | null
+          id?: string
+          initial_commercial_score?: number | null
+          initial_finance_confidence?: string | null
+          initial_greenlight_verdict?: string | null
+          initial_structural_score?: number | null
+          notes?: Json | null
+          predicted_to_actual_gap_score?: number | null
+          presales_secured?: boolean | null
+          project_id: string
+          recoup_achieved?: boolean | null
+          streamer_interest?: boolean | null
+          talent_attached?: boolean | null
+          user_id: string
+        }
+        Update: {
+          budget_achieved?: boolean | null
+          computed_at?: string | null
+          development_time_months?: number | null
+          distribution_offer?: boolean | null
+          festival_selection?: boolean | null
+          finance_prediction_correct?: boolean | null
+          financed?: boolean | null
+          greenlight_prediction_correct?: boolean | null
+          id?: string
+          initial_commercial_score?: number | null
+          initial_finance_confidence?: string | null
+          initial_greenlight_verdict?: string | null
+          initial_structural_score?: number | null
+          notes?: Json | null
+          predicted_to_actual_gap_score?: number | null
+          presales_secured?: boolean | null
+          project_id?: string
+          recoup_achieved?: boolean | null
+          streamer_interest?: boolean | null
+          talent_attached?: boolean | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "outcome_deltas_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: true
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       outcome_signals: {
         Row: {
           created_at: string
@@ -6207,13 +6287,25 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      outcome_accuracy_summary: {
+        Row: {
+          avg_gap_score: number | null
+          finance_accuracy: number | null
+          greenlight_accuracy: number | null
+          total: number | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       accept_invite_link: { Args: { _token: string }; Returns: Json }
       check_document_access: {
         Args: { _file_path: string; _user_id: string }
         Returns: boolean
+      }
+      compute_outcome_deltas: {
+        Args: { p_project_id: string }
+        Returns: undefined
       }
       get_deal_finance_summary: { Args: { _project_id: string }; Returns: Json }
       get_project_role: {
