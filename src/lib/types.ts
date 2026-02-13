@@ -144,6 +144,8 @@ export interface ProjectDocument {
   doc_type: DocumentType;
   ingestion_source?: string;
   char_count?: number;
+  /** Plaintext from latest project_document_versions row (for dev-engine docs) */
+  version_plaintext?: string | null;
 }
 
 // ---- AI Response ----

@@ -278,7 +278,33 @@ export function useProjectDocuments(projectId: string | undefined) {
         .eq('project_id', projectId)
         .order('created_at', { ascending: true });
       if (error) throw error;
-      return data as unknown as ProjectDocument[];
+      const docs = data as unknown as ProjectDocument[];
+
+      // For dev-engine docs (empty file_path), fetch latest version plaintext
+      const devEngineDocs = docs.filter(d => !d.file_path);
+      if (devEngineDocs.length > 0) {
+        const { data: versions } = await (supabase as any)
+          .from('project_document_versions')
+          .select('document_id, plaintext, version_number')
+          .in('document_id', devEngineDocs.map(d => d.id))
+          .order('version_number', { ascending: false });
+        if (versions) {
+          // Group by document_id, take latest (first due to desc order)
+          const latestByDoc: Record<string, string> = {};
+          for (const v of versions) {
+            if (!latestByDoc[v.document_id] && v.plaintext) {
+              latestByDoc[v.document_id] = v.plaintext;
+            }
+          }
+          for (const doc of docs) {
+            if (latestByDoc[doc.id]) {
+              doc.version_plaintext = latestByDoc[doc.id];
+            }
+          }
+        }
+      }
+
+      return docs;
     },
     enabled: !!projectId,
   });

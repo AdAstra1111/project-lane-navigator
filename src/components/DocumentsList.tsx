@@ -46,8 +46,18 @@ function getIngestionSourceColor(source?: string) {
   }
 }
 
+function getEffectiveText(doc: ProjectDocument): string | null {
+  return doc.extracted_text || doc.version_plaintext || null;
+}
+
 function getStatusLabel(doc: ProjectDocument) {
-  const charInfo = doc.char_count ? ` · ${doc.char_count.toLocaleString()} chars` : '';
+  const effectiveText = getEffectiveText(doc);
+  const charCount = doc.char_count || (effectiveText ? effectiveText.length : 0);
+  const charInfo = charCount ? ` · ${charCount.toLocaleString()} chars` : '';
+  // Dev-engine docs with version content are healthy
+  if (!doc.file_path && effectiveText) {
+    return `Dev Engine document${charInfo}`;
+  }
   switch (doc.extraction_status) {
     case 'success':
       return (doc.total_pages ? `${doc.total_pages} pages extracted` : 'Text extracted') + charInfo;
@@ -81,13 +91,19 @@ export function DocumentsList({ documents, projectId }: DocumentsListProps) {
   const [editingTypeId, setEditingTypeId] = useState<string | null>(null);
   const [reanalyzingId, setReanalyzingId] = useState<string | null>(null);
   const [previewDocId, setPreviewDocId] = useState<string | null>(null);
+  const extract = useExtractDocuments(projectId);
 
   if (documents.length === 0) return null;
 
-  const hasUnextracted = documents.some(d => d.extraction_status !== 'success' || !d.extracted_text);
-  const extract = useExtractDocuments(projectId);
+  const hasUnextracted = documents.some(d => {
+    // Dev-engine docs with version content don't need extraction
+    if (!d.file_path && getEffectiveText(d)) return false;
+    return d.extraction_status !== 'success' || !getEffectiveText(d);
+  });
 
   const isDocHealthy = (doc: ProjectDocument) => {
+    const effectiveText = getEffectiveText(doc);
+    if (!doc.file_path && effectiveText && effectiveText.length >= 500) return true;
     return doc.extraction_status === 'success' && (doc.char_count || 0) >= 1500;
   };
 
@@ -251,11 +267,11 @@ export function DocumentsList({ documents, projectId }: DocumentsListProps) {
                     )}
                   </div>
                   <div className="flex items-center gap-1.5 mt-0.5">
-                    {getStatusIcon(doc.extraction_status)}
+                    {(!doc.file_path && getEffectiveText(doc)) ? <CheckCircle2 className="h-4 w-4 text-emerald-400" /> : getStatusIcon(doc.extraction_status)}
                     <span className="text-xs text-muted-foreground">
                       {getStatusLabel(doc)}
                     </span>
-                    {!healthy && doc.extraction_status !== 'pending' && (
+                    {!healthy && doc.extraction_status !== 'pending' && !(!doc.file_path && getEffectiveText(doc)) && (
                       <span className="text-[10px] text-destructive font-medium ml-1">
                         — Analysis blocked
                       </span>
@@ -263,7 +279,7 @@ export function DocumentsList({ documents, projectId }: DocumentsListProps) {
                   </div>
                 </div>
                 <div className="flex items-center gap-1">
-                  {doc.extracted_text && (
+                  {getEffectiveText(doc) && (
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <button
@@ -273,7 +289,7 @@ export function DocumentsList({ documents, projectId }: DocumentsListProps) {
                           <Eye className="h-3.5 w-3.5" />
                         </button>
                       </TooltipTrigger>
-                      <TooltipContent side="top" className="text-xs">Preview extracted text</TooltipContent>
+                      <TooltipContent side="top" className="text-xs">Preview text</TooltipContent>
                     </Tooltip>
                   )}
                   <Tooltip>
@@ -303,15 +319,15 @@ export function DocumentsList({ documents, projectId }: DocumentsListProps) {
                 </div>
               </div>
 
-              {/* Extracted Text Preview */}
-              {previewDocId === doc.id && doc.extracted_text && (
+              {/* Text Preview */}
+              {previewDocId === doc.id && getEffectiveText(doc) && (
                 <div className="border-t border-border/30 px-4 py-3 bg-muted/20">
                   <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-1.5">
-                    Extracted Text Preview (first 2,000 chars)
+                    Text Preview (first 2,000 chars)
                   </p>
                   <pre className="text-xs text-foreground/80 whitespace-pre-wrap break-words max-h-48 overflow-y-auto font-mono leading-relaxed">
-                    {doc.extracted_text.slice(0, 2000)}
-                    {doc.extracted_text.length > 2000 && '\n\n[...truncated]'}
+                    {getEffectiveText(doc)!.slice(0, 2000)}
+                    {getEffectiveText(doc)!.length > 2000 && '\n\n[...truncated]'}
                   </pre>
                 </div>
               )}
