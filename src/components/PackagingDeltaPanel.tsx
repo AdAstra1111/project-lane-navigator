@@ -8,6 +8,7 @@
 import { useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { TrendingUp, TrendingDown, Minus, Shield, Target, AlertTriangle, CheckCircle2, Info } from 'lucide-react';
+import { PersonNameLink } from '@/components/talent/PersonNameLink';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import type { ProjectCastMember, ProjectHOD } from '@/hooks/useProjectAttachments';
@@ -184,8 +185,12 @@ function GradingRow({ grading }: { grading: AttachmentGrading }) {
         </Tooltip>
       </TooltipProvider>
       <div className="flex-1 min-w-0">
-        <span className="text-sm font-medium text-foreground truncate block">{grading.name || 'Unnamed'}</span>
-        <span className="text-[10px] text-muted-foreground">{grading.role} · {grading.type === 'cast' ? 'Cast' : 'HOD'}</span>
+        <PersonNameLink
+          personName={grading.name || 'Unnamed'}
+          reason={`${grading.role} · ${grading.type === 'cast' ? 'Cast' : 'HOD'}`}
+          size="sm"
+        />
+        <span className="text-[10px] text-muted-foreground ml-8 block">{grading.role} · {grading.type === 'cast' ? 'Cast' : 'HOD'}</span>
       </div>
       <div className="flex gap-1">
         <MiniBar label="Commit" value={grading.factors.commitment} />
