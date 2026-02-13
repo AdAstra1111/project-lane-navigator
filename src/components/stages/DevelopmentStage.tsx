@@ -1,6 +1,7 @@
 /**
  * Development Stage: Creative and commercial validation.
  * Contains: Script coverage, analysis, project details, insights, comp analysis.
+ * For documentary projects: switches to Documentary Intelligence Mode automatically.
  */
 
 import { useMemo } from 'react';
@@ -19,6 +20,9 @@ import { ProjectNoteInput } from '@/components/project/ProjectNoteInput';
 import { AddDocumentsUpload } from '@/components/AddDocumentsUpload';
 import { TreatmentComparePanel } from '@/components/script/TreatmentComparePanel';
 import { DocumentsList } from '@/components/DocumentsList';
+import { DocumentaryIntelligencePanel } from '@/components/documentary/DocumentaryIntelligencePanel';
+import { DocumentaryCoveragePanel } from '@/components/documentary/DocumentaryCoveragePanel';
+import { isDocumentaryFormat } from '@/lib/types';
 import type { Project, FullAnalysis, Recommendation } from '@/lib/types';
 import type { ProjectDocument } from '@/lib/types';
 import type { StageReadinessResult } from '@/lib/stage-readiness';
@@ -51,11 +55,23 @@ export function DevelopmentStage({
   onUpload, isUploading, scriptText, stageReadiness,
 }: Props) {
   const legacyRecs = (project.recommendations || []) as Recommendation[];
+  const isDoc = isDocumentaryFormat(project.format);
 
   return (
     <div className="space-y-4">
       {/* Stage Readiness */}
       {stageReadiness && <StageReadinessScore readiness={stageReadiness} />}
+
+      {/* Documentary Intelligence Mode */}
+      {isDoc && (
+        <DocumentaryIntelligencePanel
+          projectId={projectId}
+          projectTitle={project.title}
+          format={project.format}
+          genres={project.genres || []}
+          lane={project.assigned_lane}
+        />
+      )}
 
       {/* Development Intelligence */}
       <DevelopmentIntelligencePanel
@@ -92,36 +108,31 @@ export function DevelopmentStage({
         )}
       </div>
 
-      {/* Script Coverage */}
-      {(hasDocuments || hasScript) && (
-        <ScriptCoverage
-          projectId={projectId}
-          projectTitle={project.title}
-          format={project.format}
-          genres={project.genres || []}
-          hasDocuments={hasDocuments || hasScript}
-          productionType={project.format}
-          packagingMode={(project as any).packaging_mode || 'streamer_prestige'}
-          packagingStage={(project as any).packaging_stage || 'early_dev'}
-        />
+      {/* Coverage: Documentary vs Script */}
+      {isDoc ? (
+        (hasDocuments || hasScript) && (
+          <DocumentaryCoveragePanel
+            projectId={projectId}
+            projectTitle={project.title}
+            format={project.format}
+            genres={project.genres || []}
+            lane={project.assigned_lane}
+          />
+        )
+      ) : (
+        (hasDocuments || hasScript) && (
+          <ScriptCoverage
+            projectId={projectId}
+            projectTitle={project.title}
+            format={project.format}
+            genres={project.genres || []}
+            hasDocuments={hasDocuments || hasScript}
+            productionType={project.format}
+            packagingMode={(project as any).packaging_mode || 'streamer_prestige'}
+            packagingStage={(project as any).packaging_stage || 'early_dev'}
+          />
+        )
       )}
-
-      {/* Treatment vs Script Comparison */}
-      <TreatmentComparePanel
-        documents={documents}
-        scriptText={scriptText}
-        currentScriptLabel={currentScript?.version_label}
-        projectContext={{
-          title: project.title,
-          genres: project.genres,
-          format: project.format,
-          tone: project.tone,
-          budget_range: project.budget_range,
-          assigned_lane: project.assigned_lane,
-          target_audience: project.target_audience,
-          comparable_titles: project.comparable_titles,
-        }}
-      />
 
       {/* IFFY Verdict */}
       {hasNewAnalysis && analysis?.verdict && (
