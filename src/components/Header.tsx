@@ -91,7 +91,7 @@ export function Header() {
                 <GraduationCap className="h-4 w-4 mr-2" /> Tutorial
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => navigate('/demo')}>
-                <Film className="h-4 w-4 mr-2" /> Cinematic Demo
+                <Film className="h-4 w-4 mr-2" /> Platform Overview
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => navigate('/demo/interactive')}>
                 <Film className="h-4 w-4 mr-2" /> Interactive Demo
@@ -163,7 +163,7 @@ export function Header() {
             { label: 'Reports & Exports', path: '/reports', icon: BarChart3 },
             { label: 'Market Intelligence', path: '/market-intelligence', icon: Globe },
             { label: 'Festivals', path: '/festivals', icon: Calendar },
-            { label: 'Cinematic Demo', path: '/demo', icon: Film },
+            { label: 'Platform Overview', path: '/demo', icon: Film },
             { label: 'Interactive Demo', path: '/demo/interactive', icon: Film },
             { label: 'Executive Mode', path: '/demo/executive', icon: Film },
             { label: 'Settings', path: '/settings', icon: Settings },
