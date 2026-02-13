@@ -804,6 +804,9 @@ export type Database = {
           chunk_text: string
           created_at: string
           embedding: string | null
+          embedding_model: string | null
+          embedding_status: string | null
+          embedding_updated_at: string | null
           id: string
           script_id: string
           search_vector: unknown
@@ -814,6 +817,9 @@ export type Database = {
           chunk_text?: string
           created_at?: string
           embedding?: string | null
+          embedding_model?: string | null
+          embedding_status?: string | null
+          embedding_updated_at?: string | null
           id?: string
           script_id: string
           search_vector?: unknown
@@ -824,6 +830,9 @@ export type Database = {
           chunk_text?: string
           created_at?: string
           embedding?: string | null
+          embedding_model?: string | null
+          embedding_status?: string | null
+          embedding_updated_at?: string | null
           id?: string
           script_id?: string
           search_vector?: unknown
@@ -6229,6 +6238,19 @@ export type Database = {
           chunk_text: string
           id: string
           rank: number
+          script_id: string
+        }[]
+      }
+      search_corpus_semantic: {
+        Args: {
+          filter_script_id?: string
+          match_count?: number
+          query_embedding: string
+        }
+        Returns: {
+          chunk_id: string
+          chunk_text: string
+          distance: number
           script_id: string
         }[]
       }
