@@ -114,7 +114,26 @@ Target format guidelines:
 - TREATMENT: Prose narrative treatment (3-10 pages), vivid and readable
 - ONE_PAGER: One-page pitch document: logline, synopsis, key talent notes, comparable titles, market positioning
 - OUTLINE: Beat-by-beat outline with numbered scenes
-- DRAFT_SCRIPT: Full screenplay draft in standard format
+- DRAFT_SCRIPT: Full screenplay draft in standard screenplay format (sluglines, action, dialogue). Write it as a real screenplay — do NOT include JSON, code, markdown, or any structural markup.
+
+CRITICAL RULES:
+- Output ONLY the creative content for the target format.
+- Do NOT wrap output in JSON, code fences, or markdown.
+- Do NOT include field names like "converted_text:" or curly braces.
+- Write the material as a human creative professional would — pure prose, screenplay, or document text.
+- At the very end, on a new line after the main content, write exactly:
+  ---CHANGE_SUMMARY---
+  followed by a brief summary of what was adapted.`;
+
+const CONVERT_SYSTEM_JSON = `You are IFFY. Convert the source material into the specified target format.
+Preserve the creative DNA (protect items). Adapt structure and detail level to the target format.
+
+Target format guidelines:
+- BLUEPRINT: High-level structural blueprint with act breaks, key beats, character arcs, tone anchors
+- ARCHITECTURE: Detailed scene-by-scene architecture with sluglines, beats, page estimates
+- TREATMENT: Prose narrative treatment (3-10 pages), vivid and readable
+- ONE_PAGER: One-page pitch document: logline, synopsis, key talent notes, comparable titles, market positioning
+- OUTLINE: Beat-by-beat outline with numbered scenes
 
 Return ONLY valid JSON:
 {
@@ -331,10 +350,23 @@ PROTECT (non-negotiable creative DNA):\n${JSON.stringify(protectItems || [])}
 
 MATERIAL:\n${version.plaintext.slice(0, 20000)}`;
 
-      const model = targetOutput === "DRAFT_SCRIPT" ? PRO_MODEL : BALANCED_MODEL;
-      const maxTok = targetOutput === "DRAFT_SCRIPT" ? 16000 : 10000;
-      const raw = await callAI(LOVABLE_API_KEY, model, CONVERT_SYSTEM, userPrompt, 0.35, maxTok);
-      const parsed = await parseAIJson(LOVABLE_API_KEY, raw);
+      const isDraftScript = targetOutput === "DRAFT_SCRIPT";
+      const model = isDraftScript ? PRO_MODEL : BALANCED_MODEL;
+      const maxTok = isDraftScript ? 16000 : 10000;
+      const systemPrompt = isDraftScript ? CONVERT_SYSTEM : CONVERT_SYSTEM_JSON;
+      const raw = await callAI(LOVABLE_API_KEY, model, systemPrompt, userPrompt, 0.35, maxTok);
+
+      let parsed: any;
+      if (isDraftScript) {
+        // Plain-text output — split on the change summary marker
+        const markerIdx = raw.indexOf("---CHANGE_SUMMARY---");
+        const convertedText = (markerIdx >= 0 ? raw.slice(0, markerIdx) : raw)
+          .replace(/^```[\s\S]*?\n/, "").replace(/\n?```\s*$/, "").trim();
+        const changeSummary = markerIdx >= 0 ? raw.slice(markerIdx + 20).trim() : "Converted to screenplay format";
+        parsed = { converted_text: convertedText, format: "DRAFT_SCRIPT", change_summary: changeSummary };
+      } else {
+        parsed = await parseAIJson(LOVABLE_API_KEY, raw);
+      }
 
       // Create new document + version
       const docTypeMap: Record<string, string> = {
