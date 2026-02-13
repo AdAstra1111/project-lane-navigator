@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useState, useMemo, useEffect } from 'react';
+import { useParams, Link, useSearchParams } from 'react-router-dom';
 import { Header } from '@/components/Header';
 import { PageTransition } from '@/components/PageTransition';
 import { useDevEngineV2 } from '@/hooks/useDevEngineV2';
@@ -79,6 +79,7 @@ const DOC_TYPE_LABELS: Record<string, string> = {
 // ── Main Page ──
 export default function ProjectDevelopmentEngine() {
   const { id: projectId } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
 
   const {
     documents, docsLoading, versions, versionsLoading,
@@ -103,6 +104,24 @@ export default function ProjectDevelopmentEngine() {
 
   // Notes selection
   const [selectedNotes, setSelectedNotes] = useState<Set<number>>(new Set());
+
+  // Import landing: auto-select doc/version from query params
+  const [importHandled, setImportHandled] = useState(false);
+  useEffect(() => {
+    if (importHandled || docsLoading) return;
+    const docParam = searchParams.get('doc');
+    const versionParam = searchParams.get('version');
+    if (docParam && documents.some(d => d.id === docParam)) {
+      selectDocument(docParam);
+      if (versionParam) {
+        setSelectedVersionId(versionParam);
+      }
+      setImportHandled(true);
+    }
+  }, [documents, docsLoading, searchParams, importHandled, selectDocument, setSelectedVersionId]);
+
+
+
 
   const allPrioritizedMoves = useMemo(() => {
     if (!latestNotes?.prioritized_moves) return [];
