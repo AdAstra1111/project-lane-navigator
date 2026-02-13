@@ -98,3 +98,6 @@ verify_jwt = false
 
 [functions.parse-integration-import]
 verify_jwt = false
+
+[functions.treatment-compare]
+verify_jwt = false

@@ -111,6 +111,16 @@ export function DevelopmentStage({
         documents={documents}
         scriptText={scriptText}
         currentScriptLabel={currentScript?.version_label}
+        projectContext={{
+          title: project.title,
+          genres: project.genres,
+          format: project.format,
+          tone: project.tone,
+          budget_range: project.budget_range,
+          assigned_lane: project.assigned_lane,
+          target_audience: project.target_audience,
+          comparable_titles: project.comparable_titles,
+        }}
       />
 
       {/* IFFY Verdict */}
