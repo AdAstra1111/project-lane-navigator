@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { LANE_LABELS, type MonetisationLane } from '@/lib/types';
+import { OperationProgress, PROMOTE_STAGES } from '@/components/OperationProgress';
 import type { PitchIdea } from '@/hooks/usePitchIdeas';
 
 interface Props {
@@ -97,6 +98,8 @@ export function PromoteToProjectDialog({ idea, open, onOpenChange, onPromote, pr
             <p>• Lock Version: <span className="text-foreground">v{(idea as any).concept_lock_version || 1}</span></p>
           </div>
         </div>
+
+        <OperationProgress isActive={promoting} stages={PROMOTE_STAGES} className="py-1" />
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={promoting}>
