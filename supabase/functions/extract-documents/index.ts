@@ -262,10 +262,12 @@ serve(async (req) => {
     const { data: { user }, error: userError } = await supabase.auth.getUser();
     if (userError || !user) throw new Error("Not authenticated");
 
-    const { projectId, documentPaths } = await req.json();
-    if (!projectId || !documentPaths?.length) {
+    const { projectId, documentPaths: rawPaths } = await req.json();
+    if (!projectId || !rawPaths?.length) {
       throw new Error("Missing projectId or documentPaths");
     }
+    // Filter out empty paths (dev-engine docs have no file_path)
+    const documentPaths = (rawPaths as string[]).filter(p => p && p.trim() !== '');
 
     const { data: hasAccess } = await supabase.rpc('has_project_access', {
       _user_id: user.id,
