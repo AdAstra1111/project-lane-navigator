@@ -3,6 +3,7 @@ import { useParams, Link, useSearchParams } from 'react-router-dom';
 import { Header } from '@/components/Header';
 import { PageTransition } from '@/components/PageTransition';
 import { useDevEngineV2 } from '@/hooks/useDevEngineV2';
+import { useScriptPipeline } from '@/hooks/useScriptPipeline';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
@@ -14,11 +15,12 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Progress } from '@/components/ui/progress';
 import {
   ArrowRight, Play, Check, Shield, TrendingUp, TrendingDown, Minus,
   Zap, FileText, Loader2, Target, Sparkles, ArrowUpRight,
   Plus, ClipboardPaste, Upload, ChevronDown, BarChart3,
-  AlertTriangle, GitBranch, Clock, RefreshCw
+  AlertTriangle, GitBranch, Clock, RefreshCw, Film, Pause, Square, RotateCcw
 } from 'lucide-react';
 import { OperationProgress, DEV_ANALYZE_STAGES, DEV_NOTES_STAGES, DEV_REWRITE_STAGES, DEV_CONVERT_STAGES } from '@/components/OperationProgress';
 
@@ -91,12 +93,15 @@ export default function ProjectDevelopmentEngine() {
     analyze, generateNotes, rewrite, convert, createPaste,
   } = useDevEngineV2(projectId);
 
+  // Script pipeline
+  const pipeline = useScriptPipeline(projectId);
+
   // Controls
   const [strategicPriority, setStrategicPriority] = useState('BALANCED');
   const [developmentStage, setDevelopmentStage] = useState('IDEA');
   const [analysisMode, setAnalysisMode] = useState('DUAL');
   const [activeTab, setActiveTab] = useState('content');
-
+  const [targetPages, setTargetPages] = useState(100);
   // Paste dialog
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteTitle, setPasteTitle] = useState('');
@@ -336,6 +341,111 @@ export default function ProjectDevelopmentEngine() {
                       </Button>
                     ))}
                     <OperationProgress isActive={convert.isPending} stages={DEV_CONVERT_STAGES} className="mt-2" />
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Generate Feature Script Pipeline */}
+              {selectedDocId && selectedVersionId && (
+                <Card className="border-primary/20">
+                  <CardHeader className="py-2 px-3">
+                    <CardTitle className="text-xs flex items-center gap-1.5">
+                      <Film className="h-3 w-3" /> Feature Script Pipeline
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="px-3 pb-3 space-y-2">
+                    {pipeline.status === 'idle' && (
+                      <>
+                        <div className="flex items-center gap-2">
+                          <label className="text-[10px] text-muted-foreground whitespace-nowrap">Target pages:</label>
+                          <Input
+                            type="number" min={80} max={130} value={targetPages}
+                            onChange={e => setTargetPages(Number(e.target.value))}
+                            className="h-7 text-xs w-20"
+                          />
+                        </div>
+                        <Button
+                          size="sm" className="w-full h-8 text-xs gap-1.5"
+                          disabled={isLoading}
+                          onClick={() => {
+                            if (selectedDocId && selectedVersionId) {
+                              pipeline.startPipeline(
+                                selectedDocId,
+                                selectedVersionId,
+                                targetPages,
+                                latestAnalysis?.protect || [],
+                              );
+                            }
+                          }}
+                        >
+                          <Film className="h-3 w-3" />
+                          Generate Feature Script
+                        </Button>
+                        <p className="text-[9px] text-muted-foreground text-center">
+                          Plans scenes → writes in batches → assembles full screenplay
+                        </p>
+                      </>
+                    )}
+
+                    {pipeline.status !== 'idle' && (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <Badge variant="outline" className="text-[9px]">
+                            {pipeline.status === 'planning' && 'Planning scenes…'}
+                            {pipeline.status === 'writing' && `Writing batch ${pipeline.currentBatch + 1}/${pipeline.totalBatches}`}
+                            {pipeline.status === 'assembling' && 'Assembling screenplay…'}
+                            {pipeline.status === 'paused' && 'Paused'}
+                            {pipeline.status === 'complete' && 'Complete ✓'}
+                            {pipeline.status === 'error' && 'Error'}
+                          </Badge>
+                          <div className="flex gap-1">
+                            {(pipeline.status === 'writing') && (
+                              <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={pipeline.pause}>
+                                <Pause className="h-3 w-3" />
+                              </Button>
+                            )}
+                            {pipeline.status === 'paused' && (
+                              <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={pipeline.resume}>
+                                <Play className="h-3 w-3" />
+                              </Button>
+                            )}
+                            {['writing', 'paused'].includes(pipeline.status) && (
+                              <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={pipeline.abort}>
+                                <Square className="h-3 w-3" />
+                              </Button>
+                            )}
+                            {['complete', 'error'].includes(pipeline.status) && (
+                              <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={pipeline.reset}>
+                                <RotateCcw className="h-3 w-3" />
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Progress bar */}
+                        {pipeline.totalBatches > 0 && (
+                          <div className="space-y-1">
+                            <Progress
+                              value={
+                                pipeline.status === 'planning' ? 5 :
+                                pipeline.status === 'assembling' ? 95 :
+                                pipeline.status === 'complete' ? 100 :
+                                Math.round((pipeline.currentBatch / pipeline.totalBatches) * 90) + 5
+                              }
+                              className="h-1.5"
+                            />
+                            <div className="flex justify-between text-[9px] text-muted-foreground">
+                              <span>{pipeline.pageEstimate} pages</span>
+                              <span>{pipeline.wordCount.toLocaleString()} words</span>
+                            </div>
+                          </div>
+                        )}
+
+                        {pipeline.error && (
+                          <p className="text-[10px] text-destructive">{pipeline.error}</p>
+                        )}
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               )}
