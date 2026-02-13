@@ -170,34 +170,25 @@ export function PackagingDeltaPanel({ cast, hods, format }: Props) {
 
 function GradingRow({ grading }: { grading: AttachmentGrading }) {
   const config = GRADE_CONFIG[grading.grade];
+  const roleLabel = `${grading.role} · ${grading.type === 'cast' ? 'Cast' : 'HOD'}`;
   return (
     <div className="flex items-center gap-2 bg-muted/20 rounded-lg px-3 py-2">
-      <TooltipProvider>
-        <Tooltip>
-          <TooltipTrigger>
-            <Badge className={`text-xs px-1.5 py-0 border font-bold shrink-0 ${config.color}`}>
-              {config.label}
-            </Badge>
-          </TooltipTrigger>
-          <TooltipContent side="left" className="text-xs max-w-[200px]">
-            {config.desc}
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
+      <Badge className={`text-xs px-1.5 py-0 border font-bold shrink-0 ${config.color}`} title={config.desc}>
+        {config.label}
+      </Badge>
       <div className="flex-1 min-w-0">
         <PersonNameLink
           personName={grading.name || 'Unnamed'}
-          reason={`${grading.role} · ${grading.type === 'cast' ? 'Cast' : 'HOD'}`}
+          reason={roleLabel}
           size="sm"
         />
-        <span className="text-[10px] text-muted-foreground ml-8 block">{grading.role} · {grading.type === 'cast' ? 'Cast' : 'HOD'}</span>
       </div>
-      <div className="flex gap-1">
+      <div className="flex items-center gap-1.5">
         <MiniBar label="Commit" value={grading.factors.commitment} />
         <MiniBar label="Value" value={grading.factors.marketValue} />
         <MiniBar label="Territory" value={grading.factors.territoryRelevance} />
+        <span className="text-xs font-semibold text-foreground w-6 text-right">{grading.composite}</span>
       </div>
-      <span className="text-xs font-semibold text-foreground w-6 text-right">{grading.composite}</span>
     </div>
   );
 }
