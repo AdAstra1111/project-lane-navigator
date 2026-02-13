@@ -146,18 +146,33 @@ export function useProjects() {
       // 5. Save document records
       if (analysis?.documents) {
         for (const doc of analysis.documents) {
+          const cleanedText = doc.extracted_text ? doc.extracted_text.replace(/\u0000/g, '') : null;
           const { error: docError } = await supabase.from('project_documents').insert({
             project_id: projectId,
             user_id: user.id,
             file_name: doc.file_name,
             file_path: doc.file_path,
-            extracted_text: doc.extracted_text ? doc.extracted_text.replace(/\u0000/g, '') : null,
+            extracted_text: cleanedText,
             extraction_status: doc.extraction_status,
             total_pages: doc.total_pages,
             pages_analyzed: doc.pages_analyzed,
             error_message: doc.error_message,
           });
-          if (docError) console.error('Failed to save document record:', docError);
+          if (docError) {
+            console.error('Failed to save document record, retrying without text:', docError);
+            // Retry without extracted_text so the doc at least appears in the list
+            await supabase.from('project_documents').insert({
+              project_id: projectId,
+              user_id: user.id,
+              file_name: doc.file_name,
+              file_path: doc.file_path,
+              extracted_text: null,
+              extraction_status: 'pending',
+              total_pages: doc.total_pages,
+              pages_analyzed: null,
+              error_message: 'Text contained invalid characters — use re-analyse to retry.',
+            });
+          }
         }
       }
 
