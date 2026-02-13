@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 import {
   FileSearch, Loader2, ThumbsUp, ThumbsDown, Minus, ChevronDown, History,
   ArrowLeftRight, RotateCw, Star, CheckCircle2, XCircle, HelpCircle, Pencil,
-  BarChart3, BookOpen, ClipboardList, Trash2, Zap
+  BarChart3, BookOpen, ClipboardList, Trash2, Zap, Package
 } from 'lucide-react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Button } from '@/components/ui/button';
@@ -29,6 +29,7 @@ import { NotesReview } from '@/components/NotesReview';
 import { StructuredNote } from '@/hooks/useNoteFeedback';
 import { ShareSignalDialog } from '@/components/ShareSignalDialog';
 import { GreenlightSimulator } from '@/components/GreenlightSimulator';
+import { PackagingIntelligencePanel } from '@/components/PackagingIntelligencePanel';
 
 const COVERAGE_3PASS_STAGES = [
   { at: 5, label: 'Pass A: Analyst diagnosis…' },
@@ -823,6 +824,7 @@ export function ScriptCoverage({ projectId, projectTitle, format, genres, hasDoc
               <TabsList className="bg-muted/30">
                 <TabsTrigger value="coverage" className="text-xs">Final Coverage</TabsTrigger>
                 <TabsTrigger value="greenlight" className="text-xs gap-1"><Zap className="h-3 w-3" />Greenlight Sim</TabsTrigger>
+                <TabsTrigger value="packaging" className="text-xs gap-1"><Package className="h-3 w-3" />Packaging Intel</TabsTrigger>
                 <TabsTrigger value="passes" className="text-xs">Analysis Passes</TabsTrigger>
                 <TabsTrigger value="review" className="text-xs gap-1"><ClipboardList className="h-3 w-3" />Notes Review ({selectedRun.structured_notes?.length || 0})</TabsTrigger>
                 <TabsTrigger value="notes" className="text-xs">Notes List</TabsTrigger>
@@ -844,6 +846,20 @@ export function ScriptCoverage({ projectId, projectTitle, format, genres, hasDoc
                   developmentTier={selectedRun.metrics?.development_tier}
                   financeReadiness={selectedRun.metrics?.finance_readiness}
                   coverageSummary={selectedRun.final_coverage?.slice(0, 3000)}
+                />
+              </TabsContent>
+
+              <TabsContent value="packaging" className="mt-4">
+                <PackagingIntelligencePanel
+                  projectTitle={projectTitle}
+                  format={format}
+                  genres={genres}
+                  lane={lane || ''}
+                  scoringGrid={selectedRun.metrics?.scoring_grid}
+                  riskFlags={selectedRun.metrics?.risk_flags}
+                  developmentTier={selectedRun.metrics?.development_tier}
+                  greenlightVerdict={selectedRun.metrics?.greenlight_verdict}
+                  coverageSummary={selectedRun.final_coverage?.slice(0, 2000)}
                 />
               </TabsContent>
 

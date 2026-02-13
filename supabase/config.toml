@@ -80,3 +80,6 @@ verify_jwt = false
 
 [functions.greenlight-simulate]
 verify_jwt = false
+
+[functions.packaging-intelligence]
+verify_jwt = false
