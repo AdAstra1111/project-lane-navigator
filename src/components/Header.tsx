@@ -96,6 +96,9 @@ export function Header() {
               <DropdownMenuItem onClick={() => navigate('/demo/interactive')}>
                 <Film className="h-4 w-4 mr-2" /> Interactive Demo
               </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => navigate('/demo/executive')}>
+                <Film className="h-4 w-4 mr-2" /> Executive Mode
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={() => navigate('/faq')}>Help Centre</DropdownMenuItem>
               <DropdownMenuItem onClick={() => navigate('/how-iffy-thinks')}>How IFFY Thinks</DropdownMenuItem>
               <DropdownMenuItem onClick={() => navigate('/about')}>About IFFY</DropdownMenuItem>
