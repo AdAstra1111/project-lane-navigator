@@ -10,25 +10,25 @@ import {
 } from "lucide-react";
 import type { Project } from "@/lib/types";
 import {
-  evaluateParadoxHouseMode,
-  PARADOX_PROFILE,
+  evaluateCompanyMode,
   calculateExecConfidence,
-  type ParadoxHouseFlags,
+  type CompanyIntelligenceProfile,
+  type CompanyModeFlags,
   type DevelopmentSignals,
-  type ExecConfidenceFactors,
 } from "@/lib/paradox-house-mode";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
 interface Props {
   project: Project;
+  profile: CompanyIntelligenceProfile | null;
   devSignals?: DevelopmentSignals;
   baselineId?: string;
   savedExecConfidence?: number | null;
 }
 
-export function ParadoxHouseModePanel({ project, devSignals, baselineId, savedExecConfidence }: Props) {
-  const flags = evaluateParadoxHouseMode(project, devSignals);
+export function ParadoxHouseModePanel({ project, profile, devSignals, baselineId, savedExecConfidence }: Props) {
+  const flags = evaluateCompanyMode(project, profile, devSignals);
 
   const [execScores, setExecScores] = useState({
     package: 5,
@@ -60,20 +60,25 @@ export function ParadoxHouseModePanel({ project, devSignals, baselineId, savedEx
     else toast.success("Exec confidence saved");
   };
 
+  const profileName = profile?.mode_name || "Company Mode";
+  const companyName = profile?.company_name || "Company";
+
   return (
     <Card className="bg-card border-border">
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <CardTitle className="text-base flex items-center gap-2">
             <Shield className="h-4 w-4 text-primary" />
-            Paradox House Mode
+            {profileName}
           </CardTitle>
           <Badge variant="outline" className="text-xs bg-primary/10 text-primary border-primary/30">
-            INTERNAL
+            {flags.profileActive ? "ACTIVE" : "NEUTRAL"}
           </Badge>
         </div>
         <p className="text-xs text-muted-foreground mt-1">
-          Strategic calibration against Paradox House capabilities and positioning.
+          {flags.profileActive
+            ? `Strategic calibration against ${companyName} capabilities and positioning.`
+            : "Running pure neutral intelligence mode — no company bias applied."}
         </p>
       </CardHeader>
       <CardContent className="space-y-5">
@@ -85,7 +90,9 @@ export function ParadoxHouseModePanel({ project, devSignals, baselineId, savedEx
               active={flags.budgetRealismCheck}
               icon={<DollarSign className="h-3.5 w-3.5" />}
               label="Budget Realism Check"
-              desc={flags.budgetRealismCheck ? "Budget exceeds likely financeable band (£2M–£15M)" : "Within sweet spot"}
+              desc={flags.budgetRealismCheck
+                ? `Budget exceeds ${companyName} financeable band`
+                : "Within sweet spot"}
               variant="warning"
             />
             <FlagBadge
@@ -122,19 +129,21 @@ export function ParadoxHouseModePanel({ project, devSignals, baselineId, savedEx
               </Badge>
             ) : (
               <Badge variant="outline" className="text-muted-foreground gap-1">
-                <Target className="h-3 w-3" /> Neutral — no Amazon alignment detected
+                <Target className="h-3 w-3" /> Neutral — no streamer alignment detected
               </Badge>
             )}
           </div>
-          <p className="text-xs text-muted-foreground">
-            Aligned genres: YA, Elevated Commercial, Contained Thriller, Youth Comedy
-          </p>
+          {profile && profile.streamer_bias_list.length > 0 && (
+            <p className="text-xs text-muted-foreground">
+              Aligned streamers: {profile.streamer_bias_list.join(", ")}
+            </p>
+          )}
         </div>
 
         {/* Strategic Bias Adjustments */}
         {flags.biasAdjustments.length > 0 && (
           <div className="space-y-2">
-            <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Strategic Bias (max ±1)</h4>
+            <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Strategic Bias (max 10% influence)</h4>
             <div className="space-y-1">
               {flags.biasAdjustments.map((adj, i) => (
                 <div key={i} className="flex items-center justify-between text-xs">
@@ -154,7 +163,7 @@ export function ParadoxHouseModePanel({ project, devSignals, baselineId, savedEx
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-              Paradox Exec Confidence
+              Exec Confidence
             </h4>
             <span className="text-2xl font-bold text-foreground">{exec.overall}/10</span>
           </div>
@@ -196,29 +205,47 @@ export function ParadoxHouseModePanel({ project, devSignals, baselineId, savedEx
           )}
         </div>
 
-        <Separator />
-
-        {/* Company Profile Summary */}
-        <details className="group">
-          <summary className="text-xs font-semibold text-muted-foreground uppercase tracking-wider cursor-pointer flex items-center gap-1">
-            <Building2 className="h-3.5 w-3.5" />
-            Company Profile
-          </summary>
-          <div className="mt-2 space-y-2 text-xs text-muted-foreground">
-            <div>
-              <span className="font-medium text-foreground">Strengths: </span>
-              {PARADOX_PROFILE.coreStrengths.join(" · ")}
-            </div>
-            <div>
-              <span className="font-medium text-foreground">Limitations: </span>
-              {PARADOX_PROFILE.currentLimitations.join(" · ")}
-            </div>
-            <div>
-              <span className="font-medium text-foreground">Budget Sweet Spot: </span>
-              £2M – £15M
-            </div>
-          </div>
-        </details>
+        {/* Company Profile Details */}
+        {profile && (
+          <>
+            <Separator />
+            <details className="group">
+              <summary className="text-xs font-semibold text-muted-foreground uppercase tracking-wider cursor-pointer flex items-center gap-1">
+                <Building2 className="h-3.5 w-3.5" />
+                {companyName} Profile
+              </summary>
+              <div className="mt-2 space-y-2 text-xs text-muted-foreground">
+                <div>
+                  <span className="font-medium text-foreground">Budget Range: </span>
+                  £{(profile.budget_sweet_spot_min / 1_000_000).toFixed(1)}M – £{(profile.budget_sweet_spot_max / 1_000_000).toFixed(1)}M
+                </div>
+                <div>
+                  <span className="font-medium text-foreground">Packaging: </span>
+                  {profile.packaging_strength} · <span className="font-medium text-foreground">Finance: </span>
+                  {profile.finance_tolerance} · <span className="font-medium text-foreground">Attachment: </span>
+                  {profile.attachment_tier_range}
+                </div>
+                <div>
+                  <span className="font-medium text-foreground">Series Track: </span>
+                  {profile.series_track_record} · <span className="font-medium text-foreground">Bias Mod: </span>
+                  {profile.bias_weighting_modifier}x
+                </div>
+                {profile.genre_bias_list.length > 0 && (
+                  <div>
+                    <span className="font-medium text-foreground">Genre Bias: </span>
+                    {profile.genre_bias_list.join(", ")}
+                  </div>
+                )}
+                {profile.strategic_priorities && (
+                  <div>
+                    <span className="font-medium text-foreground">Priorities: </span>
+                    {profile.strategic_priorities}
+                  </div>
+                )}
+              </div>
+            </details>
+          </>
+        )}
       </CardContent>
     </Card>
   );

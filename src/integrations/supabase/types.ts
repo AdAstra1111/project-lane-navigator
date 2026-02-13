@@ -376,6 +376,74 @@ export type Database = {
         }
         Relationships: []
       }
+      company_intelligence_profiles: {
+        Row: {
+          attachment_tier_range: string
+          bias_weighting_modifier: number
+          budget_sweet_spot_max: number | null
+          budget_sweet_spot_min: number | null
+          company_id: string | null
+          company_name: string
+          created_at: string
+          created_by: string
+          finance_tolerance: string
+          genre_bias_list: string[] | null
+          id: string
+          mode_name: string
+          packaging_strength: string
+          series_track_record: string
+          strategic_priorities: string | null
+          streamer_bias_list: string[] | null
+          updated_at: string
+        }
+        Insert: {
+          attachment_tier_range?: string
+          bias_weighting_modifier?: number
+          budget_sweet_spot_max?: number | null
+          budget_sweet_spot_min?: number | null
+          company_id?: string | null
+          company_name: string
+          created_at?: string
+          created_by: string
+          finance_tolerance?: string
+          genre_bias_list?: string[] | null
+          id?: string
+          mode_name?: string
+          packaging_strength?: string
+          series_track_record?: string
+          strategic_priorities?: string | null
+          streamer_bias_list?: string[] | null
+          updated_at?: string
+        }
+        Update: {
+          attachment_tier_range?: string
+          bias_weighting_modifier?: number
+          budget_sweet_spot_max?: number | null
+          budget_sweet_spot_min?: number | null
+          company_id?: string | null
+          company_name?: string
+          created_at?: string
+          created_by?: string
+          finance_tolerance?: string
+          genre_bias_list?: string[] | null
+          id?: string
+          mode_name?: string
+          packaging_strength?: string
+          series_track_record?: string
+          strategic_priorities?: string | null
+          streamer_bias_list?: string[] | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "company_intelligence_profiles_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "production_companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       company_members: {
         Row: {
           company_id: string
@@ -4944,6 +5012,7 @@ export type Database = {
       }
       projects: {
         Row: {
+          active_company_profile_id: string | null
           analysis_passes: Json | null
           assigned_lane: string | null
           budget_range: string
@@ -4975,6 +5044,7 @@ export type Database = {
           viability_breakdown: Json | null
         }
         Insert: {
+          active_company_profile_id?: string | null
           analysis_passes?: Json | null
           assigned_lane?: string | null
           budget_range?: string
@@ -5006,6 +5076,7 @@ export type Database = {
           viability_breakdown?: Json | null
         }
         Update: {
+          active_company_profile_id?: string | null
           analysis_passes?: Json | null
           assigned_lane?: string | null
           budget_range?: string
@@ -5037,6 +5108,13 @@ export type Database = {
           viability_breakdown?: Json | null
         }
         Relationships: [
+          {
+            foreignKeyName: "projects_active_company_profile_id_fkey"
+            columns: ["active_company_profile_id"]
+            isOneToOne: false
+            referencedRelation: "company_intelligence_profiles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "projects_source_pitch_idea_id_fkey"
             columns: ["source_pitch_idea_id"]
