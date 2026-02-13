@@ -1,15 +1,36 @@
 /**
- * Paradox House Mode — Internal strategic calibration engine.
+ * Paradox House Mode / Company Intelligence Profile Engine
  *
- * Encodes Paradox House's strengths, budget bands, packaging reality filters,
- * streamer leverage logic, and development bottleneck detection to bias IFFY's
- * scoring subtly (+1 max) toward projects that align with the company's
- * realistic ability to package, finance, and deliver.
+ * Generalised to support dynamic company profiles loaded from the
+ * company_intelligence_profiles table. Each profile encodes budget
+ * sweet spots, genre/streamer biases, packaging strength, finance
+ * tolerance, and a bias weighting modifier (0–2, default 1).
+ *
+ * Bias modifier must never exceed 10% total score influence.
  */
 
 import type { Project } from '@/lib/types';
 
-// ---- Company Profile ----
+// ---- Company Profile type (matches DB shape) ----
+
+export interface CompanyIntelligenceProfile {
+  id: string;
+  company_id: string | null;
+  company_name: string;
+  mode_name: string;
+  budget_sweet_spot_min: number;
+  budget_sweet_spot_max: number;
+  genre_bias_list: string[];
+  streamer_bias_list: string[];
+  packaging_strength: 'Low' | 'Moderate' | 'Strong';
+  finance_tolerance: 'Conservative' | 'Balanced' | 'Aggressive';
+  attachment_tier_range: 'Emerging' | 'Mid' | 'A-List';
+  series_track_record: 'None' | 'Emerging' | 'Established';
+  strategic_priorities: string;
+  bias_weighting_modifier: number;
+}
+
+// ---- Legacy Paradox profile (backwards compat) ----
 
 export const PARADOX_PROFILE = {
   companyType: 'Independent UK-based production company with development in-house',
@@ -39,32 +60,48 @@ export const PARADOX_PROFILE = {
 
 // ---- Flag types ----
 
-export interface ParadoxHouseFlags {
+export interface CompanyModeFlags {
   budgetRealismCheck: boolean;
   packagingFragilityRisk: boolean;
   developmentStallRisk: boolean;
   streamerAlignmentBoost: boolean;
   prestigeRequiresFestival: boolean;
   biasAdjustments: BiasAdjustment[];
+  profileActive: boolean;
+  profileName: string;
 }
+
+// Keep old name for backwards compat
+export type ParadoxHouseFlags = CompanyModeFlags;
 
 export interface BiasAdjustment {
   dimension: string;
-  delta: number; // max ±1
+  delta: number; // capped to ±1
   reason: string;
 }
 
 export interface ExecConfidenceFactors {
-  realisticToPackage: number; // 0-10
+  realisticToPackage: number;
   realisticToFinance: number;
   fitWithStrategy: number;
   opportunityCostAcceptable: number;
   overall: number;
 }
 
-// ---- Budget realism ----
+// ---- Development signals ----
 
-function parseBudgetGBP(budgetRange: string): number | null {
+export interface DevelopmentSignals {
+  rewriteCount?: number;
+  structuralImprovement?: boolean;
+  packagingWaiting?: boolean;
+  financeMomentum?: boolean;
+  budgetInflation?: boolean;
+  hookStrengthImproving?: boolean;
+}
+
+// ---- Budget parsing ----
+
+function parseBudgetValue(budgetRange: string): number | null {
   const lower = budgetRange.toLowerCase().replace(/[£$€,]/g, '');
   const match = lower.match(/(\d+(?:\.\d+)?)\s*(k|m|million|mil)?/);
   if (!match) return null;
@@ -72,39 +109,42 @@ function parseBudgetGBP(budgetRange: string): number | null {
   const unit = match[2] || '';
   if (unit === 'k') val *= 1_000;
   else if (unit === 'm' || unit.startsWith('mil')) val *= 1_000_000;
-  else if (val < 1000) val *= 1_000_000; // assume millions if bare number <1000
+  else if (val < 1000) val *= 1_000_000;
   return val;
 }
 
-function checkBudgetRealism(budgetRange: string): boolean {
-  const budget = parseBudgetGBP(budgetRange);
+// ---- Core evaluation (profile-driven) ----
+
+function checkBudgetRealism(budgetRange: string, profile: CompanyIntelligenceProfile): boolean {
+  const budget = parseBudgetValue(budgetRange);
   if (budget === null) return false;
-  return budget > PARADOX_PROFILE.budgetSweetSpot.maxGBP;
+  return budget > profile.budget_sweet_spot_max;
 }
 
-// ---- Packaging fragility ----
-
-function checkPackagingFragility(project: Project): boolean {
-  // Flag if project only works with unattainable cast / single dependency
+function checkPackagingFragility(project: Project, profile: CompanyIntelligenceProfile): boolean {
   const tone = (project.tone || '').toLowerCase();
-  const budget = parseBudgetGBP(project.budget_range);
-  // High budget + prestige tone = likely needs A-list
-  if (budget && budget > 10_000_000 && (tone.includes('prestige') || tone.includes('arthouse') || tone.includes('auteur'))) {
+  const budget = parseBudgetValue(project.budget_range);
+  if (profile.packaging_strength === 'Low') return true;
+  if (budget && budget > profile.budget_sweet_spot_max &&
+    (tone.includes('prestige') || tone.includes('arthouse') || tone.includes('auteur'))) {
+    return true;
+  }
+  if (profile.attachment_tier_range === 'Emerging' && budget && budget > 10_000_000) {
     return true;
   }
   return false;
 }
 
-// ---- Streamer alignment ----
-
-function checkStreamerAlignment(project: Project): boolean {
+function checkStreamerAlignment(project: Project, profile: CompanyIntelligenceProfile): boolean {
   const genres = (project.genres || []).map(g => g.toLowerCase());
   const tone = (project.tone || '').toLowerCase();
-  const aligned = PARADOX_PROFILE.streamerAlignedGenres;
-  return aligned.some(ag =>
-    genres.some(g => g.includes(ag) || ag.includes(g)) ||
-    tone.includes(ag)
-  );
+  const streamers = profile.streamer_bias_list.map(s => s.toLowerCase());
+  const genreBias = profile.genre_bias_list.map(g => g.toLowerCase());
+
+  // Check if project genres overlap with streamer-aligned genres from profile
+  return genreBias.some(bg =>
+    genres.some(g => g.includes(bg) || bg.includes(g)) || tone.includes(bg)
+  ) || streamers.length > 0;
 }
 
 function checkPrestigeRequiresFestival(project: Project): boolean {
@@ -116,17 +156,6 @@ function checkPrestigeRequiresFestival(project: Project): boolean {
   );
 }
 
-// ---- Development stall detection ----
-
-export interface DevelopmentSignals {
-  rewriteCount?: number;
-  structuralImprovement?: boolean;
-  packagingWaiting?: boolean;
-  financeMomentum?: boolean;
-  budgetInflation?: boolean;
-  hookStrengthImproving?: boolean;
-}
-
 function checkDevelopmentStall(signals: DevelopmentSignals): boolean {
   if ((signals.rewriteCount || 0) > 3 && !signals.structuralImprovement) return true;
   if (signals.packagingWaiting && !signals.financeMomentum) return true;
@@ -135,39 +164,115 @@ function checkDevelopmentStall(signals: DevelopmentSignals): boolean {
   return false;
 }
 
-// ---- Strategic bias adjustments (max +1 per dimension) ----
-
-function calculateBiasAdjustments(project: Project): BiasAdjustment[] {
+function calculateBiasAdjustments(project: Project, profile: CompanyIntelligenceProfile): BiasAdjustment[] {
   const adjustments: BiasAdjustment[] = [];
   const genres = (project.genres || []).map(g => g.toLowerCase());
   const tone = (project.tone || '').toLowerCase();
+  const budget = parseBudgetValue(project.budget_range);
 
-  // Contained production value
-  const budget = parseBudgetGBP(project.budget_range);
-  if (budget && budget <= PARADOX_PROFILE.budgetSweetSpot.maxGBP && budget >= PARADOX_PROFILE.budgetSweetSpot.minGBP) {
-    adjustments.push({ dimension: 'Budget Feasibility', delta: 1, reason: 'Within Paradox House sweet spot (£2M–£15M)' });
+  // Budget sweet spot alignment
+  if (budget && budget >= profile.budget_sweet_spot_min && budget <= profile.budget_sweet_spot_max) {
+    adjustments.push({
+      dimension: 'Budget Feasibility',
+      delta: 1,
+      reason: `Within ${profile.company_name} sweet spot`,
+    });
   }
 
-  // Strong lead roles
-  if (tone.includes('character') || tone.includes('lead-driven') || tone.includes('protagonist')) {
-    adjustments.push({ dimension: 'Packaging Leverage', delta: 1, reason: 'Strong lead role emphasis aligns with packaging strengths' });
+  // Genre bias alignment
+  const genreBias = profile.genre_bias_list.map(g => g.toLowerCase());
+  if (genreBias.some(bg => genres.some(g => g.includes(bg) || bg.includes(g)))) {
+    adjustments.push({
+      dimension: 'Market Heat',
+      delta: 1,
+      reason: `Genre aligns with ${profile.company_name} strengths`,
+    });
   }
 
-  // International genre clarity
-  if (genres.some(g => ['thriller', 'horror', 'sci-fi', 'action'].includes(g))) {
-    adjustments.push({ dimension: 'Market Heat', delta: 1, reason: 'Genre travels internationally — strong pre-sales potential' });
+  // Packaging strength bonus
+  if (profile.packaging_strength === 'Strong' && (tone.includes('character') || tone.includes('lead'))) {
+    adjustments.push({
+      dimension: 'Packaging Leverage',
+      delta: 1,
+      reason: 'Strong packaging capability meets lead-driven project',
+    });
   }
 
-  // Streamer-friendly pacing
-  if (tone.includes('pace') || tone.includes('propulsive') || tone.includes('binge') || genres.includes('thriller')) {
-    adjustments.push({ dimension: 'Trend Alignment', delta: 1, reason: 'Streamer-friendly pacing/genre' });
+  // Finance tolerance adjustment
+  if (profile.finance_tolerance === 'Aggressive' && budget && budget > profile.budget_sweet_spot_max * 0.8) {
+    adjustments.push({
+      dimension: 'Finance Risk',
+      delta: -1,
+      reason: 'Budget near cap — aggressive tolerance still flags caution',
+    });
   }
 
-  // Cap all deltas to ±1
-  return adjustments.map(a => ({ ...a, delta: Math.max(-1, Math.min(1, a.delta)) }));
+  // Apply modifier and cap each delta to ±1
+  const mod = Math.min(2, Math.max(0, profile.bias_weighting_modifier));
+  return adjustments.map(a => ({
+    ...a,
+    delta: Math.max(-1, Math.min(1, Math.round(a.delta * mod))),
+  }));
 }
 
-// ---- Exec Confidence Score ----
+// ---- Main evaluation ----
+
+export function evaluateCompanyMode(
+  project: Project,
+  profile: CompanyIntelligenceProfile | null,
+  devSignals?: DevelopmentSignals,
+): CompanyModeFlags {
+  if (!profile) {
+    return {
+      budgetRealismCheck: false,
+      packagingFragilityRisk: false,
+      developmentStallRisk: devSignals ? checkDevelopmentStall(devSignals) : false,
+      streamerAlignmentBoost: false,
+      prestigeRequiresFestival: false,
+      biasAdjustments: [],
+      profileActive: false,
+      profileName: 'Neutral',
+    };
+  }
+
+  return {
+    budgetRealismCheck: checkBudgetRealism(project.budget_range, profile),
+    packagingFragilityRisk: checkPackagingFragility(project, profile),
+    developmentStallRisk: devSignals ? checkDevelopmentStall(devSignals) : false,
+    streamerAlignmentBoost: checkStreamerAlignment(project, profile),
+    prestigeRequiresFestival: checkPrestigeRequiresFestival(project),
+    biasAdjustments: calculateBiasAdjustments(project, profile),
+    profileActive: true,
+    profileName: profile.mode_name,
+  };
+}
+
+// Legacy wrapper
+export function evaluateParadoxHouseMode(
+  project: Project,
+  devSignals?: DevelopmentSignals,
+): CompanyModeFlags {
+  // Convert legacy Paradox profile to CompanyIntelligenceProfile shape
+  const legacyProfile: CompanyIntelligenceProfile = {
+    id: 'legacy-paradox',
+    company_id: null,
+    company_name: 'Paradox House',
+    mode_name: 'Paradox Mode',
+    budget_sweet_spot_min: PARADOX_PROFILE.budgetSweetSpot.minGBP,
+    budget_sweet_spot_max: PARADOX_PROFILE.budgetSweetSpot.maxGBP,
+    genre_bias_list: ['contained-thriller', 'elevated-genre', 'youth-skew-commercial', 'streamer-aligned-mid-budget'],
+    streamer_bias_list: ['Amazon'],
+    packaging_strength: 'Strong',
+    finance_tolerance: 'Balanced',
+    attachment_tier_range: 'Mid',
+    series_track_record: 'None',
+    strategic_priorities: 'Contained thrillers, elevated genre, youth-skew commercial, streamer-aligned mid-budget',
+    bias_weighting_modifier: 1.0,
+  };
+  return evaluateCompanyMode(project, legacyProfile, devSignals);
+}
+
+// ---- Exec Confidence ----
 
 export function calculateExecConfidence(
   packageScore: number,
@@ -185,30 +290,21 @@ export function calculateExecConfidence(
   };
 }
 
-// ---- Main evaluation ----
+// ---- Apply bias (max 10% total influence) ----
 
-export function evaluateParadoxHouseMode(
-  project: Project,
-  devSignals?: DevelopmentSignals,
-): ParadoxHouseFlags {
-  return {
-    budgetRealismCheck: checkBudgetRealism(project.budget_range),
-    packagingFragilityRisk: checkPackagingFragility(project),
-    developmentStallRisk: devSignals ? checkDevelopmentStall(devSignals) : false,
-    streamerAlignmentBoost: checkStreamerAlignment(project),
-    prestigeRequiresFestival: checkPrestigeRequiresFestival(project),
-    biasAdjustments: calculateBiasAdjustments(project),
-  };
-}
-
-// ---- Apply bias to viability score (max +1 total influence) ----
-
-export function applyParadoxBias(baseScore: number, flags: ParadoxHouseFlags): number {
+export function applyCompanyBias(baseScore: number, flags: CompanyModeFlags): number {
+  if (!flags.profileActive) return baseScore;
   let adjustment = 0;
   if (flags.streamerAlignmentBoost) adjustment += 1;
   if (flags.budgetRealismCheck) adjustment -= 1;
   if (flags.packagingFragilityRisk) adjustment -= 1;
-  // Net bias capped at ±1
-  const capped = Math.max(-1, Math.min(1, adjustment));
+  // Sum bias adjustments but cap total influence to 10% of score
+  const biasSum = flags.biasAdjustments.reduce((sum, a) => sum + a.delta, 0);
+  adjustment += biasSum;
+  const maxInfluence = Math.ceil(baseScore * 0.1);
+  const capped = Math.max(-maxInfluence, Math.min(maxInfluence, adjustment));
   return Math.max(0, Math.min(100, baseScore + capped));
 }
+
+// Keep old export name
+export const applyParadoxBias = applyCompanyBias;

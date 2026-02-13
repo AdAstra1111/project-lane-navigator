@@ -8,6 +8,8 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { ParadoxHouseModePanel } from '@/components/ParadoxHouseModePanel';
+import { CompanyProfileSelector } from '@/components/CompanyProfileSelector';
+import { useActiveCompanyProfile } from '@/hooks/useCompanyProfiles';
 import { useUIMode } from '@/hooks/useUIMode';
 import { getEffectiveMode } from '@/lib/visibility';
 import { ViabilityBreakdownPanel } from '@/components/ViabilityBreakdownPanel';
@@ -91,6 +93,9 @@ export function OverviewDashboard({
     },
     enabled: !!isParadoxMember,
   });
+
+  const activeProfileId = (project as any).active_company_profile_id || null;
+  const { data: activeProfile } = useActiveCompanyProfile(activeProfileId);
 
   return (
     <div className="space-y-4">
@@ -236,10 +241,20 @@ export function OverviewDashboard({
       {/* Packaging Pipeline (Advanced) */}
       {isAdvanced && <PackagingPipelinePanel projectId={projectId} />}
 
-      {/* Paradox House Mode (Internal) */}
+      {/* Company Profile Selector */}
+      {isParadoxMember && (
+        <CompanyProfileSelector
+          projectId={projectId}
+          activeProfileId={activeProfileId}
+          activeProfile={activeProfile || null}
+        />
+      )}
+
+      {/* Company Intelligence Mode Panel */}
       {isParadoxMember && (
         <ParadoxHouseModePanel
           project={project}
+          profile={activeProfile || null}
           baselineId={baseline?.id}
           savedExecConfidence={(baseline as any)?.paradox_exec_confidence ?? null}
         />
