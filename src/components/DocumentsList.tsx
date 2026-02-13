@@ -110,10 +110,9 @@ export function DocumentsList({ documents, projectId }: DocumentsListProps) {
       if (analysisError) throw new Error(analysisError.message || 'Analysis failed');
       if (analysisData?.error) throw new Error(analysisData.error);
 
-      // Update project with new analysis
-      const toolCall = analysisData?.choices?.[0]?.message?.tool_calls?.[0];
-      if (toolCall?.function?.arguments) {
-        const analysis = JSON.parse(toolCall.function.arguments);
+      // The edge function returns the parsed analysis directly (not raw AI response)
+      const analysis = analysisData;
+      if (analysis?.lane) {
         await supabase
           .from('projects')
           .update({
