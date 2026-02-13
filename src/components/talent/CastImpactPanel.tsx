@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { TrendingUp, Globe, AlertTriangle, Star, Crown, Sparkles, User, ChevronRight } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { PersonNameLink } from '@/components/talent/PersonNameLink';
 import type { ProjectCastMember, ProjectHOD } from '@/hooks/useProjectAttachments';
 import {
   calculateCastImpact,
@@ -101,17 +102,20 @@ export function CastImpactPanel({ cast, hods }: Props) {
             const Icon = TIER_ICONS[m.tier];
             return (
               <div key={m.id} className="flex items-center gap-2 bg-muted/20 rounded-lg px-3 py-2">
-                <Icon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5">
-                    <span className="text-sm font-medium text-foreground truncate">{m.name || 'Unnamed'}</span>
+                    <PersonNameLink
+                      personName={m.name || 'Unnamed'}
+                      reason={m.role || 'Cast'}
+                      size="sm"
+                    />
                     {m.isAnchor && (
                       <Badge className="text-[9px] px-1 py-0 bg-amber-500/15 text-amber-400 border-amber-500/30">
                         Anchor
                       </Badge>
                     )}
                   </div>
-                  <div className="flex items-center gap-1.5 mt-0.5">
+                  <div className="flex items-center gap-1.5 mt-0.5 ml-8">
                     <span className="text-[10px] text-muted-foreground">{m.role || 'Role TBD'}</span>
                     <span className="text-[10px] text-muted-foreground">·</span>
                     <span className="text-[10px] text-muted-foreground capitalize">{m.status}</span>
