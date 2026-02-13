@@ -326,15 +326,86 @@ IMPORTANT: Do NOT imitate or copy any specific screenplay from the corpus. Use o
 
     const projectMeta = `TYPE: ${formatLabel} | GENRES: ${(genres || []).join(", ") || "N/A"} | LANE: ${lane || "N/A"}`;
 
-    // Detect TV/episodic format
-    const isTV = ['tv-series', 'digital-series', 'vertical-drama'].includes(format) ||
+    // Detect format type
+    const isVertical = format === 'vertical-drama' || formatLabel.toLowerCase().includes('vertical');
+    const isTV = !isVertical && (['tv-series', 'digital-series'].includes(format) ||
                  formatLabel.toLowerCase().includes('series') ||
-                 formatLabel.toLowerCase().includes('limited');
+                 formatLabel.toLowerCase().includes('limited'));
 
-    // Build TV Structure Engine block for episodic projects
-    let tvStructureBlock = "";
-    if (isTV) {
-      tvStructureBlock = `
+    // Build format-specific engine block
+    let formatEngineBlock = "";
+    if (isVertical) {
+      formatEngineBlock = `
+
+VERTICAL DRAMA ENGINE — ACTIVATED (this is a mobile-first short episodic project, NOT a feature film or traditional TV series)
+
+CRITICAL: Do NOT evaluate using feature film or traditional TV logic. Use vertical/mobile-first episodic criteria.
+Vertical dramas are 1-3 minute episodes, 30-100 episode arcs, high-hook, rapid-escalation narratives.
+
+SECTION 1 — EPISODE MICRO-STRUCTURE (Score 0-10):
+
+HOOK SPEED:
+- Is there a dramatic hook within first 5-15 seconds?
+- Does conflict appear immediately?
+- If episode starts with slow exposition → flag: HOOK FAILURE
+
+EMOTIONAL SPIKE:
+- Is there a clear emotional beat (shock, betrayal, desire, fear) per episode?
+- High emotional polarity is essential
+
+CLIFFHANGER DENSITY:
+- Does every episode end on a reversal, reveal, or threat?
+- If no clear cliffhanger → flag: RETENTION RISK
+
+CONFLICT CLARITY:
+- Is the central relationship conflict obvious and intense?
+- Romance / betrayal / revenge / power imbalance must be immediately clear
+
+SECTION 2 — ARC ENGINE (Score 0-10):
+
+CORE RELATIONSHIP TENSION:
+- Love vs betrayal, power imbalance, secret identity, revenge drive
+- Must be simple, intense, and renewable
+
+ESCALATION CURVE:
+- Does tension escalate every 3-5 episodes?
+- Are reversals frequent?
+- If escalation plateaus before episode 20 → flag: ARC COLLAPSE RISK
+
+TWIST FREQUENCY:
+- Is there a reveal at least every 2-3 episodes?
+
+REWARD CYCLE:
+- Does audience get small payoffs while larger tension builds?
+
+SECTION 3 — ADDICTION METRICS (Score 0-10):
+
+SCROLL-STOP FACTOR:
+- Would viewer stop mid-feed to watch?
+
+REWATCH MOMENT:
+- Are there sharable, replayable moments?
+
+SIMPLE PREMISE CLARITY:
+- Can concept be understood in 1 sentence instantly?
+- If premise requires complex world-building → flag: FORMAT MISALIGNMENT
+
+ROMANCE / BETRAYAL INTENSITY:
+- High emotional polarity is the #1 driver
+
+VERTICAL-SPECIFIC RISK FLAGS (you MUST check all of these):
+- If episode starts with slow exposition → HOOK FAILURE
+- If no clear cliffhanger per episode → RETENTION RISK
+- If premise requires complex world-building → FORMAT MISALIGNMENT
+- If escalation plateaus before episode 20 → ARC COLLAPSE RISK
+
+CALIBRATION RULES FOR VERTICAL:
+- Do NOT evaluate thematic depth as primary metric
+- Do NOT require subtlety
+- Prioritise: Speed, Emotional polarity, Betrayal, Romance intensity, Revenge clarity
+- Vertical drama is: High frequency, High emotion, High cliffhanger`;
+    } else if (isTV) {
+      formatEngineBlock = `
 
 TV STRUCTURE ENGINE — ACTIVATED (this is an episodic project, NOT a feature film)
 
@@ -407,15 +478,68 @@ CALIBRATION RULES FOR TV:
     // =========== PASS A: ANALYST (diagnostic read) ===========
     const passAResult = await callAI(
       LOVABLE_API_KEY,
-      promptVersion.analyst_prompt + corpusDeviationBlock + masterworkBlock + commercialBlock + failureBlock + tvStructureBlock,
+      promptVersion.analyst_prompt + corpusDeviationBlock + masterworkBlock + commercialBlock + failureBlock + formatEngineBlock,
       `${projectMeta}\n\nSCRIPT:\n${truncatedScript}`,
       0.2
     );
     console.log(`[coverage] A done ${Date.now() - t0}ms`);
 
     // =========== PASS B: PRODUCER (final coverage + structured notes + scoring grid) ===========
-    // TV projects get a different scoring grid
-    const tvScoringInstructions = isTV ? `
+    // Format-specific scoring instructions
+    let formatScoringInstructions = '';
+    let formatNoteCategories = 'structure|character|dialogue|concept|pacing|genre|commercial';
+    let formatTone = 'Professional producer. Clear. Non-academic. Solution-oriented.';
+    let passBUserSuffix = '';
+
+    if (isVertical) {
+      formatNoteCategories = 'hook|arc|addiction|escalation|cliffhanger|premise';
+      formatTone = 'Commercial strategist. Retention-obsessed. Data-aware.';
+      passBUserSuffix = ' This is a VERTICAL DRAMA project — use vertical-specific scoring categories (Hook Speed, Cliffhanger Density, Escalation Curve, Addiction Potential, Market Simplicity), NOT film or TV categories.';
+      formatScoringInstructions = `
+
+VERTICAL DRAMA SCORING GRID (use this INSTEAD of the film/TV grid):
+
+Score each 0-10, use FULL range, avoid safe-middle-6 inflation:
+
+### VERTICAL PRODUCER BENCHMARK GRID
+| Category | Score |
+|---|---|
+| Hook Speed | X/10 |
+| Cliffhanger Density | X/10 |
+| Escalation Curve | X/10 |
+| Addiction Potential | X/10 |
+| Market Simplicity | X/10 |
+
+**HOOK SPEED: X/10**
+**CLIFFHANGER DENSITY: X/10**
+**ESCALATION CURVE: X/10**
+**ADDICTION POTENTIAL: X/10**
+**MARKET SIMPLICITY: X/10**
+**OVERALL VERTICAL CONFIDENCE: X/10**
+
+VERTICAL DEVELOPMENT TIERS (assign exactly one):
+- Tier A — High Retention Potential (all categories 7+)
+- Tier B — Strong Concept, Needs Hook Intensification (most 6+, hook/cliffhanger needs work)
+- Tier C — Escalation Weakness (escalation <5 or addiction <5)
+- Tier D — Not Format Appropriate (premise requires complex world-building or subtlety over speed)
+
+VERTICAL RISK FLAGS (include any that apply):
+- HOOK FAILURE: episode starts with slow exposition
+- RETENTION RISK: no clear cliffhanger per episode
+- FORMAT MISALIGNMENT: premise requires complex world-building incompatible with 1-3 min episodes
+- ARC COLLAPSE RISK: escalation plateaus before episode 20
+- If commercial viability weak: flag FINANCE RISK
+
+FINANCE READINESS STATUS:
+- GREEN — Commission and produce
+- YELLOW — Hook/escalation adjustment needed
+- RED — Format rethink required
+`;
+    } else if (isTV) {
+      formatNoteCategories = 'pilot|engine|character|world|binge|streamer';
+      formatTone = 'Professional development executive. Clear. Market-aware. Solution-oriented.';
+      passBUserSuffix = ' This is a TV/SERIES project — use TV-specific scoring categories (Pilot Hook, Series Engine, Character Longevity, Binge Factor, Streamer Alignment), NOT film categories.';
+      formatScoringInstructions = `
 
 TV SERIES SCORING GRID (use this INSTEAD of the film grid for TV/series projects):
 
@@ -456,16 +580,10 @@ FINANCE READINESS STATUS (same system):
 - GREEN — Attach showrunner/talent and package
 - YELLOW — Engine adjustment before packaging
 - RED — Development hold
-` : '';
+`;
+    }
 
-    const passBSystem = promptVersion.producer_prompt + (isTV ? tvScoringInstructions : '') + `
-
-CRITICAL FORMAT INSTRUCTIONS:
-1. Write your ENTIRE coverage report in plain English prose with markdown headings (##) and bullet points.
-2. Start with the verdict line: **VERDICT: RECOMMEND** or **VERDICT: CONSIDER** or **VERDICT: PASS**
-3. Tone: Professional ${isTV ? 'development executive' : 'producer'}. Clear. ${isTV ? 'Market-aware' : 'Non-academic'}. Solution-oriented.
-4. DO NOT return JSON for the main coverage. Write it as a readable document.
-` + (isTV ? '' : `
+    const filmScoringBlock = (!isTV && !isVertical) ? `
 PRODUCER SCORING GRID (0-10 per category, use FULL range, avoid safe-middle-6 inflation):
 
 ## Scoring Grid
@@ -512,7 +630,16 @@ FINANCE READINESS STATUS (assign exactly one):
 - GREEN — Attach talent and package
 - YELLOW — Rewrite before packaging
 - RED — Development hold
-`) + `
+` : '';
+
+    const passBSystem = promptVersion.producer_prompt + formatScoringInstructions + `
+
+CRITICAL FORMAT INSTRUCTIONS:
+1. Write your ENTIRE coverage report in plain English prose with markdown headings (##) and bullet points.
+2. Start with the verdict line: **VERDICT: RECOMMEND** or **VERDICT: CONSIDER** or **VERDICT: PASS**
+3. Tone: ${formatTone}
+4. DO NOT return JSON for the main coverage. Write it as a readable document.
+` + filmScoringBlock + `
 CALIBRATION:
 - MASTERWORK_CANON (9-10 range) defines excellence benchmarks
 - COMMERCIAL_PROOF defines market viability benchmarks
@@ -521,12 +648,12 @@ CALIBRATION:
 - Score decisively. If the script resembles failure patterns, say so
 
 5. AFTER the prose coverage and scoring grid, include a "structured_notes" JSON array inside a \`\`\`json block.
-Each note: {"note_id":"N-001","section":"string","category":"${isTV ? 'pilot|engine|character|world|binge|streamer' : 'structure|character|dialogue|concept|pacing|genre|commercial'}","priority":1-3,"title":"short","note_text":"full note","prescription":"what to do","rewrite_priority":"high|medium|low","tags":["act1"]}`;
+Each note: {"note_id":"N-001","section":"string","category":"${formatNoteCategories}","priority":1-3,"title":"short","note_text":"full note","prescription":"what to do","rewrite_priority":"high|medium|low","tags":["act1"]}`;
 
     const passBResult = await callAI(
       LOVABLE_API_KEY,
       passBSystem,
-      `${projectMeta}\n\nANALYST DIAGNOSTICS:\n${passAResult}\n\nWrite a FINAL COVERAGE REPORT with the full ${isTV ? 'TV Producer Benchmark Grid' : 'Producer Benchmark Grid'}, risk flags, development tier, and finance readiness status. Use markdown. Be decisive.${isTV ? ' This is a TV/SERIES project — use TV-specific scoring categories (Pilot Hook, Series Engine, Character Longevity, Binge Factor, Streamer Alignment), NOT film categories.' : ''}`,
+      `${projectMeta}\n\nANALYST DIAGNOSTICS:\n${passAResult}\n\nWrite a FINAL COVERAGE REPORT with the full ${isVertical ? 'Vertical Producer Benchmark Grid' : isTV ? 'TV Producer Benchmark Grid' : 'Producer Benchmark Grid'}, risk flags, development tier, and finance readiness status. Use markdown. Be decisive.${passBUserSuffix}`,
       0.3
     );
     console.log(`[coverage] B done ${Date.now() - t0}ms`);
@@ -618,8 +745,15 @@ Each note: {"note_id":"N-001","section":"string","category":"${isTV ? 'pilot|eng
       return null;
     };
 
-    // Build scoring grid — TV projects use different categories
-    const scoringGrid: Record<string, number | null> = isTV ? {
+    // Build scoring grid — format-specific categories
+    const scoringGrid: Record<string, number | null> = isVertical ? {
+      hook_speed: extractScore('Hook Speed'),
+      cliffhanger_density: extractScore('Cliffhanger Density'),
+      escalation_curve: extractScore('Escalation Curve'),
+      addiction_potential: extractScore('Addiction Potential'),
+      market_simplicity: extractScore('Market Simplicity'),
+      overall_vertical_confidence: extractScore('Overall Vertical Confidence') || extractScore('VERTICAL CONFIDENCE'),
+    } : isTV ? {
       pilot_hook: extractScore('Pilot Hook') || extractScore('Pilot Strength'),
       series_engine: extractScore('Series Engine'),
       character_longevity: extractScore('Character Longevity'),
@@ -660,6 +794,13 @@ Each note: {"note_id":"N-001","section":"string","category":"${isTV ? 'pilot|eng
       if (passBResult.match(/TONAL RISK/i)) riskFlags.push('TONAL RISK');
       if (passBResult.match(/BINGE RISK/i)) riskFlags.push('BINGE RISK');
     }
+    // Vertical-specific risk flags
+    if (isVertical) {
+      if (passBResult.match(/HOOK FAILURE/i)) riskFlags.push('HOOK FAILURE');
+      if (passBResult.match(/RETENTION RISK/i)) riskFlags.push('RETENTION RISK');
+      if (passBResult.match(/FORMAT MISALIGNMENT/i)) riskFlags.push('FORMAT MISALIGNMENT');
+      if (passBResult.match(/ARC COLLAPSE RISK/i)) riskFlags.push('ARC COLLAPSE RISK');
+    }
 
     // Extract development tier
     const tierMatch = passBResult.match(/Tier\s+([A-D])\b/i);
@@ -667,9 +808,9 @@ Each note: {"note_id":"N-001","section":"string","category":"${isTV ? 'pilot|eng
 
     // Extract finance readiness
     let financeReadiness: string | null = null;
-    if (passBResult.match(/Finance Readiness[^:]*:\s*GREEN|GREEN\s*[—–-]\s*Attach/i)) financeReadiness = 'GREEN';
-    else if (passBResult.match(/Finance Readiness[^:]*:\s*YELLOW|YELLOW\s*[—–-]\s*(Rewrite|Engine)/i)) financeReadiness = 'YELLOW';
-    else if (passBResult.match(/Finance Readiness[^:]*:\s*RED|RED\s*[—–-]\s*Development/i)) financeReadiness = 'RED';
+    if (passBResult.match(/Finance Readiness[^:]*:\s*GREEN|GREEN\s*[—–-]\s*(Attach|Commission)/i)) financeReadiness = 'GREEN';
+    else if (passBResult.match(/Finance Readiness[^:]*:\s*YELLOW|YELLOW\s*[—–-]\s*(Rewrite|Engine|Hook)/i)) financeReadiness = 'YELLOW';
+    else if (passBResult.match(/Finance Readiness[^:]*:\s*RED|RED\s*[—–-]\s*(Development|Format)/i)) financeReadiness = 'RED';
 
     console.log(`[coverage] scores:`, JSON.stringify(scoringGrid), `tier=${developmentTier}, finance=${financeReadiness}, flags=${riskFlags.join(',')}`);
 
