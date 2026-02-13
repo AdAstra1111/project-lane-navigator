@@ -88,7 +88,7 @@ serve(async (req) => {
     }
     const userId = claimsData.claims.sub;
 
-    const { projectId, scriptId, promptVersionId, draftLabel, scriptText, format, genres, lane } = await req.json();
+    const { projectId, scriptId, promptVersionId, draftLabel, scriptText, format, genres, lane, documentaryMode } = await req.json();
 
     if (!scriptText || scriptText.length < 100) {
       return new Response(JSON.stringify({ error: "Script text too short for coverage analysis" }), {
@@ -99,10 +99,11 @@ serve(async (req) => {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
 
+    const isDocumentary = documentaryMode || ['documentary', 'documentary-series', 'hybrid-documentary'].includes(format);
     const formatLabel = FORMAT_LABELS[format] || "Film";
     const truncatedScript = scriptText.slice(0, MAX_SCRIPT_CHARS);
     const t0 = Date.now();
-    console.log(`[coverage] start, input=${scriptText.length}, truncated=${truncatedScript.length}`);
+    console.log(`[coverage] start, input=${scriptText.length}, truncated=${truncatedScript.length}, documentary=${isDocumentary}`);
 
     // Fetch prompt version
     const adminClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
@@ -328,13 +329,128 @@ IMPORTANT: Do NOT imitate or copy any specific screenplay from the corpus. Use o
 
     // Detect format type
     const isVertical = format === 'vertical-drama' || formatLabel.toLowerCase().includes('vertical');
-    const isTV = !isVertical && (['tv-series', 'digital-series'].includes(format) ||
+    const isTV = !isVertical && !isDocumentary && (['tv-series', 'digital-series'].includes(format) ||
                  formatLabel.toLowerCase().includes('series') ||
                  formatLabel.toLowerCase().includes('limited'));
 
     // Build format-specific engine block
     let formatEngineBlock = "";
-    if (isVertical) {
+    if (isDocumentary) {
+      formatEngineBlock = `
+
+DOCUMENTARY COVERAGE ENGINE — ACTIVATED (this is a DOCUMENTARY project, NOT a scripted fiction)
+
+CRITICAL: Do NOT evaluate using scripted fiction logic. Do NOT invent characters, scenes, or dialogue.
+This is a REALITY-LOCKED analysis. All outputs must be evidence-anchored.
+
+DOCUMENTARY REALITY LOCK RULES:
+- Do NOT create fictional characters
+- Do NOT invent events, scenes, dialogue, or outcomes
+- Do NOT add "composite characters"
+- Only reference names, entities, claims, and events that are explicitly present in the submitted material
+- If something is not confirmed, label it as UNKNOWN or HYPOTHESIS
+- Every major claim must include an EVIDENCE NOTE: [Document Quote], [Confirmed], [Source Needed], [Not Yet Verified]
+
+SECTION 1 — CULTURAL RELEVANCE PASS (Score 0-10):
+
+TIMELINESS:
+- Is the subject matter timely and culturally urgent?
+- Does it connect to broader social/political discourse?
+- Is there a clear "why now?" for this documentary?
+
+ORIGINALITY OF ACCESS:
+- Does the filmmaker have unique or rare access to the subject?
+- Is there a distinctive POV or perspective?
+- Would another filmmaker struggle to make this same film?
+
+REPRESENTATION:
+- Does the project amplify underrepresented voices?
+- Is it told with authenticity and without exploitation?
+
+SECTION 2 — ACCESS & RISK PASS (Score 0-10):
+
+ACCESS FRAGILITY:
+- How reliable is the access to key subjects/locations?
+- Are there dependencies on a single person or event?
+- What happens if access is revoked mid-production?
+
+LEGAL EXPOSURE:
+- Are there defamation risks, privacy concerns, or IP issues?
+- Does the subject matter involve ongoing legal proceedings?
+- Are consent forms and releases accounted for?
+
+CHARACTER RELIABILITY:
+- Are the key subjects reliable and willing participants?
+- Is there risk of subjects withdrawing or changing positions?
+
+POLITICAL SENSITIVITY:
+- Could the documentary cause political backlash?
+- Are there safety concerns for crew or subjects?
+
+INSURANCE RISK:
+- Are there E&O insurance concerns?
+- Is there risk of claims that could prevent distribution?
+
+SECTION 3 — MARKET FIT PASS (Score 0-10):
+
+FESTIVAL POTENTIAL:
+- Would this film fit Sundance, IDFA, Hot Docs, Berlin, Tribeca?
+- Does it have emotional resonance for festival audiences?
+
+BROADCASTER APPEAL:
+- Is this suitable for BBC Storyville, Arte, PBS, Netflix, HBO?
+- Does it fit commissioning editor appetite?
+
+GRANT ELIGIBILITY:
+- Does the topic/geography qualify for major doc funds?
+- Sundance Doc Fund, BFI Doc Society, IDFA Bertha, Catapult, etc.
+
+IMPACT POTENTIAL:
+- Can this documentary drive real-world change?
+- Is there an NGO/university/policy partner opportunity?
+
+THEATRICAL VIABILITY:
+- Could this doc work in theatrical release?
+- Is there a compelling visual/cinematic quality?
+
+DOCUMENTARY-SPECIFIC RISK FLAGS (you MUST check all):
+- If access depends on single subject → ACCESS FRAGILITY RISK
+- If legal exposure unaddressed → LEGAL RISK
+- If political sensitivity high → POLITICAL RISK
+- If no clear festival/broadcaster fit → MARKET FIT RISK
+- If archive costs potentially prohibitive → ARCHIVE COST RISK
+- If impact strategy absent → IMPACT GAP
+
+DOCUMENTARY SCORING GRID:
+Score each 0-10, use FULL range:
+
+### DOCUMENTARY PRODUCER BENCHMARK GRID
+| Category | Score |
+|---|---|
+| Cultural Relevance | X/10 |
+| Access Security | X/10 |
+| Legal Readiness | X/10 |
+| Festival Probability | X/10 |
+| Grant Probability | X/10 |
+| Impact Potential | X/10 |
+| Broadcaster Fit | X/10 |
+
+**GREENLIGHT SCORE: X/100**
+**GRANT PROBABILITY: X/100**
+**FESTIVAL PROBABILITY: X/100**
+**IMPACT SCORE: X/100**
+
+DOCUMENTARY DEVELOPMENT TIERS (assign exactly one):
+- Tier A — Commission Ready (all categories 7+, access secured)
+- Tier B — Strong With Access Work (most 6+, access needs securing)
+- Tier C — Development Required (access or legal gaps)
+- Tier D — Concept Rethink Needed (market fit <4 or access <4)
+
+FINANCE READINESS STATUS:
+- GREEN — Submit to funds and broadcasters
+- YELLOW — Secure access and legal clearance first
+- RED — Development hold until access confirmed`;
+    } else if (isVertical) {
       formatEngineBlock = `
 
 VERTICAL DRAMA ENGINE — ACTIVATED (this is a mobile-first short episodic project, NOT a feature film or traditional TV series)
@@ -491,7 +607,57 @@ CALIBRATION RULES FOR TV:
     let formatTone = 'Professional producer. Clear. Non-academic. Solution-oriented.';
     let passBUserSuffix = '';
 
-    if (isVertical) {
+    if (isDocumentary) {
+      formatNoteCategories = 'cultural_relevance|access|legal|festival|grant|impact|broadcaster';
+      formatTone = 'Documentary specialist. Evidence-anchored. Reality-locked. Market-aware.';
+      passBUserSuffix = ' This is a DOCUMENTARY project — use documentary-specific scoring (Cultural Relevance, Access Security, Legal Readiness, Festival Probability, Grant Probability, Impact Potential, Broadcaster Fit). Do NOT use fiction/film categories. Every claim must include an evidence note.';
+      formatScoringInstructions = `
+
+DOCUMENTARY SCORING GRID (use this INSTEAD of the film grid):
+
+Score each 0-10, use FULL range:
+
+### DOCUMENTARY PRODUCER BENCHMARK GRID
+| Category | Score |
+|---|---|
+| Cultural Relevance | X/10 |
+| Access Security | X/10 |
+| Legal Readiness | X/10 |
+| Festival Probability | X/10 |
+| Grant Probability | X/10 |
+| Impact Potential | X/10 |
+| Broadcaster Fit | X/10 |
+
+**CULTURAL RELEVANCE: X/10**
+**ACCESS SECURITY: X/10**
+**LEGAL READINESS: X/10**
+**FESTIVAL PROBABILITY: X/10**
+**GRANT PROBABILITY: X/10**
+**IMPACT POTENTIAL: X/10**
+**BROADCASTER FIT: X/10**
+**OVERALL GREENLIGHT CONFIDENCE: X/10**
+
+DOCUMENTARY DEVELOPMENT TIERS (assign exactly one):
+- Tier A — Commission Ready (all categories 7+)
+- Tier B — Strong With Access Work (most 6+)
+- Tier C — Development Required (access or legal gaps)
+- Tier D — Concept Rethink Needed (market fit <4 or access <4)
+
+DOCUMENTARY RISK FLAGS (include any that apply):
+- ACCESS FRAGILITY RISK: access depends on single subject or event
+- LEGAL RISK: unresolved defamation/privacy/consent issues
+- POLITICAL RISK: high sensitivity, potential backlash
+- MARKET FIT RISK: no clear festival/broadcaster pathway
+- ARCHIVE COST RISK: archive costs potentially prohibitive
+- IMPACT GAP: no impact strategy identified
+- INSURANCE RISK: E&O concerns could block distribution
+
+FINANCE READINESS STATUS:
+- GREEN — Submit to funds and broadcasters
+- YELLOW — Secure access and legal clearance first
+- RED — Development hold
+`;
+    } else if (isVertical) {
       formatNoteCategories = 'hook|arc|addiction|escalation|cliffhanger|premise';
       formatTone = 'Commercial strategist. Retention-obsessed. Data-aware.';
       passBUserSuffix = ' This is a VERTICAL DRAMA project — use vertical-specific scoring categories (Hook Speed, Cliffhanger Density, Escalation Curve, Addiction Potential, Market Simplicity), NOT film or TV categories.';
@@ -653,7 +819,7 @@ Each note: {"note_id":"N-001","section":"string","category":"${formatNoteCategor
     const passBResult = await callAI(
       LOVABLE_API_KEY,
       passBSystem,
-      `${projectMeta}\n\nANALYST DIAGNOSTICS:\n${passAResult}\n\nWrite a FINAL COVERAGE REPORT with the full ${isVertical ? 'Vertical Producer Benchmark Grid' : isTV ? 'TV Producer Benchmark Grid' : 'Producer Benchmark Grid'}, risk flags, development tier, and finance readiness status. Use markdown. Be decisive.${passBUserSuffix}`,
+      `${projectMeta}\n\nANALYST DIAGNOSTICS:\n${passAResult}\n\nWrite a FINAL COVERAGE REPORT with the full ${isDocumentary ? 'Documentary Producer Benchmark Grid' : isVertical ? 'Vertical Producer Benchmark Grid' : isTV ? 'TV Producer Benchmark Grid' : 'Producer Benchmark Grid'}, risk flags, development tier, and finance readiness status. Use markdown. Be decisive.${passBUserSuffix}`,
       0.3
     );
     console.log(`[coverage] B done ${Date.now() - t0}ms`);
@@ -746,7 +912,17 @@ Each note: {"note_id":"N-001","section":"string","category":"${formatNoteCategor
     };
 
     // Build scoring grid — format-specific categories
-    const scoringGrid: Record<string, number | null> = isVertical ? {
+    const scoringGrid: Record<string, number | null> = isDocumentary ? {
+      cultural_relevance: extractScore('Cultural Relevance'),
+      access_security: extractScore('Access Security'),
+      legal_readiness: extractScore('Legal Readiness'),
+      festival_probability: extractScore('Festival Probability'),
+      grant_probability: extractScore('Grant Probability'),
+      impact_potential: extractScore('Impact Potential') || extractScore('Impact'),
+      broadcaster_fit: extractScore('Broadcaster Fit'),
+      greenlight_score: extractScore('Greenlight') || extractScore('Overall Greenlight Confidence'),
+      overall_producer_confidence: extractScore('Overall Greenlight Confidence') || extractScore('GREENLIGHT CONFIDENCE'),
+    } : isVertical ? {
       hook_speed: extractScore('Hook Speed'),
       cliffhanger_density: extractScore('Cliffhanger Density'),
       escalation_curve: extractScore('Escalation Curve'),
@@ -793,6 +969,16 @@ Each note: {"note_id":"N-001","section":"string","category":"${formatNoteCategor
       if (passBResult.match(/LONGEVITY RISK/i)) riskFlags.push('LONGEVITY RISK');
       if (passBResult.match(/TONAL RISK/i)) riskFlags.push('TONAL RISK');
       if (passBResult.match(/BINGE RISK/i)) riskFlags.push('BINGE RISK');
+    }
+    // Documentary-specific risk flags
+    if (isDocumentary) {
+      if (passBResult.match(/ACCESS FRAGILITY RISK/i)) riskFlags.push('ACCESS FRAGILITY RISK');
+      if (passBResult.match(/LEGAL RISK/i)) riskFlags.push('LEGAL RISK');
+      if (passBResult.match(/POLITICAL RISK/i)) riskFlags.push('POLITICAL RISK');
+      if (passBResult.match(/MARKET FIT RISK/i)) riskFlags.push('MARKET FIT RISK');
+      if (passBResult.match(/ARCHIVE COST RISK/i)) riskFlags.push('ARCHIVE COST RISK');
+      if (passBResult.match(/IMPACT GAP/i)) riskFlags.push('IMPACT GAP');
+      if (passBResult.match(/INSURANCE RISK/i)) riskFlags.push('INSURANCE RISK');
     }
     // Vertical-specific risk flags
     if (isVertical) {
