@@ -220,14 +220,20 @@ export default function ProjectDetail() {
   const scriptText = useMemo(() => {
     if (!project) return null;
     if (documents.length) {
+      // Helper: get effective text from either extracted_text or version_plaintext
+      const getText = (d: typeof documents[0]) => d.extracted_text || d.version_plaintext || null;
+
       if (currentScript) {
-        const scriptDoc = documents.find(d => d.extracted_text && d.file_path === currentScript.file_path);
-        if (scriptDoc?.extracted_text) return scriptDoc.extracted_text;
+        const scriptDoc = documents.find(d => getText(d) && d.file_path === currentScript.file_path);
+        if (scriptDoc) return getText(scriptDoc);
       }
-      const scriptDoc = documents.find(d => d.extracted_text && d.file_name.match(/\.(pdf|txt|fdx|fountain|docx|doc|md)$/i));
-      if (scriptDoc?.extracted_text) return scriptDoc.extracted_text;
-      const anyDoc = documents.find(d => d.extracted_text);
-      if (anyDoc?.extracted_text) return anyDoc.extracted_text;
+      const scriptDoc = documents.find(d => getText(d) && d.file_name.match(/\.(pdf|txt|fdx|fountain|docx|doc|md)$/i));
+      if (scriptDoc) return getText(scriptDoc);
+      // Check for dev-engine script docs
+      const devScript = documents.find(d => getText(d) && (d.doc_type === 'script' || d.doc_type === 'treatment'));
+      if (devScript) return getText(devScript);
+      const anyDoc = documents.find(d => getText(d));
+      if (anyDoc) return getText(anyDoc);
     }
     if (project?.document_urls?.length) return '__SCRIPT_EXISTS_NO_TEXT__';
     if (currentScript) return '__SCRIPT_EXISTS_NO_TEXT__';
