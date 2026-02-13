@@ -43,6 +43,27 @@ function formatPackagingRules(format: string): string {
 - Feature expansion potential is a key assessment
 - Do NOT apply feature film commercial packaging logic
 - Focus on: director vision, talent discovery, festival positioning`;
+  if (f === 'music-video')
+    return `This is a MUSIC VIDEO. Packaging psychology: Commissioner + Visual Strategist + Social Amplification Expert.
+- Director visual treatment is the primary packaging lever
+- Artist brand alignment and social amplification potential drive value
+- Production company reel and visual identity matter
+- Do NOT use film financing, pre-sales, or festival strategy logic
+- Focus on: director vision/reel, artist brand fit, social reach potential`;
+  if (f === 'digital-series')
+    return `This is a DIGITAL-FIRST SERIES. Packaging psychology: Algorithm + Influencer Strategist.
+- Influencer and creator attachment is the primary packaging lever
+- Platform algorithm compatibility matters more than traditional prestige
+- Speed to market and audience growth flywheel are critical
+- Do NOT use theatrical, broadcast, or traditional sales packaging logic
+- Focus on: creator audience, platform fit, monetisation mix, shareability`;
+  if (f === 'hybrid')
+    return `This is a HYBRID FORMAT project. Packaging psychology: Innovation Commissioner + Cross-Platform Strategist.
+- Cross-platform innovation is the primary packaging lever
+- Innovation fund eligibility and emerging platform partnerships matter
+- Assess multi-format storytelling coherence
+- Do NOT apply single-format packaging logic
+- Focus on: cross-platform vision, innovation credentials, emerging platform fit`;
   // Default: feature film
   return `This is a FEATURE FILM. Packaging psychology: Financier + Sales Agent + Studio Executive.
 - Evaluate director and cast as primary packaging levers

@@ -44,6 +44,27 @@ function formatFinanceRules(format: string): string {
 - Do NOT model pre-sales, equity waterfall, or gap finance
 - Evaluate grant potential and feature development fund eligibility
 - Finance stack should reflect: Self-Fund %, Grants %, In-Kind %, Crowdfunding %`;
+  if (f === 'music-video')
+    return `This is a MUSIC VIDEO. Finance psychology: Commissioner + Label Budget Evaluator.
+- Primary finance model: Label/Artist budget + Production fee + Usage rights
+- Evaluate production margin (typically 15-25% of label budget)
+- Usage rights and distribution platform impact budget
+- Do NOT model pre-sales, equity, or recoupment waterfall
+- Finance stack should reflect: Label Budget %, Production Fee %, Usage Rights Premium %`;
+  if (f === 'digital-series')
+    return `This is a DIGITAL-FIRST SERIES. Finance psychology: Platform Deal + Ad Revenue + Brand Integration.
+- Primary finance model: Platform deal / Ad revenue share / Brand integration
+- Evaluate CPM economics and audience growth value
+- Volume scalability and speed-to-market affect finance structure
+- Do NOT model theatrical, traditional pre-sales, or gap finance
+- Finance stack should reflect: Platform Deal %, Ad Revenue %, Brand Integration %, Self-Fund %`;
+  if (f === 'hybrid')
+    return `This is a HYBRID FORMAT project. Finance psychology: Innovation Fund + Cross-Platform Commissioner.
+- Primary finance model: Innovation funds / Cross-platform commissions / Emerging platform deals
+- Evaluate eligibility for innovation and new media funding (BFI, Creative Europe, etc.)
+- Multi-platform revenue streams and emerging distribution models
+- Do NOT model single-format theatrical or traditional broadcast economics
+- Finance stack should reflect: Innovation Fund %, Platform Deals %, Commission %, Self-Fund %`;
   // Default: feature film
   return `This is a FEATURE FILM. Finance psychology: Equity Financier + Sales Agent.
 - Primary finance model: Pre-sales + Equity + Tax Credits + Gap
