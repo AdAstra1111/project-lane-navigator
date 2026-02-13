@@ -80,18 +80,19 @@ function VerdictIcon({ verdict }: { verdict: string }) {
 function CollapsibleSection({ title, defaultOpen = false, children, headerExtra }: { title: string; defaultOpen?: boolean; children: React.ReactNode; headerExtra?: React.ReactNode }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <div className="border border-border/40 rounded-lg overflow-hidden">
+    <div className="border border-border/40 rounded-lg">
       <button
+        type="button"
         onClick={() => setOpen(!open)}
-        className="w-full bg-muted/30 px-3 py-2 border-b border-border/40 flex items-center justify-between hover:bg-muted/50 transition-colors"
+        className={`w-full bg-muted/30 px-3 py-2 flex items-center justify-between hover:bg-muted/50 transition-colors cursor-pointer ${open ? 'border-b border-border/40 rounded-t-lg' : 'rounded-lg'}`}
       >
         <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-          <ChevronRight className={`h-3 w-3 transition-transform ${open ? 'rotate-90' : ''}`} />
+          <ChevronRight className={`h-3 w-3 transition-transform duration-200 ${open ? 'rotate-90' : ''}`} />
           {title}
         </span>
         {headerExtra}
       </button>
-      {open && children}
+      {open && <div>{children}</div>}
     </div>
   );
 }
@@ -390,27 +391,27 @@ export function TreatmentComparePanel({ documents, scriptText, currentScriptLabe
       {/* Side-by-side text comparison */}
       {expanded && (
         <div className="grid grid-cols-2 gap-3 mt-4">
-          <div className="border border-border/40 rounded-lg overflow-hidden">
-            <div className="bg-purple-500/10 px-3 py-1.5 border-b border-border/40">
+          <div className="border border-border/40 rounded-lg">
+            <div className="bg-purple-500/10 px-3 py-1.5 border-b border-border/40 rounded-t-lg">
               <span className="text-xs font-medium text-purple-400">Treatment</span>
             </div>
-            <ScrollArea className="h-[400px]">
+            <div className="max-h-[400px] overflow-y-auto">
               <pre className="p-3 text-xs text-muted-foreground whitespace-pre-wrap font-sans leading-relaxed">
                 {treatmentText.slice(0, 15000)}
                 {treatmentText.length > 15000 && '\n\n[...truncated for display]'}
               </pre>
-            </ScrollArea>
+            </div>
           </div>
-          <div className="border border-border/40 rounded-lg overflow-hidden">
-            <div className="bg-blue-500/10 px-3 py-1.5 border-b border-border/40">
+          <div className="border border-border/40 rounded-lg">
+            <div className="bg-blue-500/10 px-3 py-1.5 border-b border-border/40 rounded-t-lg">
               <span className="text-xs font-medium text-blue-400">Script</span>
             </div>
-            <ScrollArea className="h-[400px]">
+            <div className="max-h-[400px] overflow-y-auto">
               <pre className="p-3 text-xs text-muted-foreground whitespace-pre-wrap font-sans leading-relaxed">
                 {scriptText.slice(0, 15000)}
                 {scriptText.length > 15000 && '\n\n[...truncated for display]'}
               </pre>
-            </ScrollArea>
+            </div>
           </div>
         </div>
       )}
