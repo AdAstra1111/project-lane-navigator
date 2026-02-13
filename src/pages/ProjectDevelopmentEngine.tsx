@@ -335,6 +335,7 @@ export default function ProjectDevelopmentEngine() {
                         {t.replace(/_/g, ' ')}
                       </Button>
                     ))}
+                    <OperationProgress isActive={convert.isPending} stages={DEV_CONVERT_STAGES} className="mt-2" />
                   </CardContent>
                 </Card>
               )}
