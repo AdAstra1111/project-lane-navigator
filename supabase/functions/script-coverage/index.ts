@@ -16,7 +16,8 @@ const FORMAT_LABELS: Record<string, string> = {
 };
 
 const MAX_SCRIPT_CHARS = 15000;
-const FAST_MODEL = "google/gemini-2.5-flash-lite";
+// Tier 1: Pro model for deep script/documentary analysis
+const COVERAGE_MODEL = "google/gemini-2.5-pro";
 
 async function callAI(apiKey: string, systemPrompt: string, userPrompt: string, temperature = 0.25): Promise<string> {
   const controller = new AbortController();
@@ -28,7 +29,7 @@ async function callAI(apiKey: string, systemPrompt: string, userPrompt: string, 
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       signal: controller.signal,
       body: JSON.stringify({
-        model: FAST_MODEL,
+        model: COVERAGE_MODEL,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },

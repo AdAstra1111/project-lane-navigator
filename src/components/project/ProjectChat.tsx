@@ -6,13 +6,14 @@ import { Input } from '@/components/ui/input';
 import { useProjectChat } from '@/hooks/useProjectChat';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
+import ReactMarkdown from 'react-markdown';
 
 interface ProjectChatProps {
   projectId: string;
 }
 
 export function ProjectChat({ projectId }: ProjectChatProps) {
-  const { messages, isLoading, sendMessage, clearChat, isStreaming } = useProjectChat(projectId);
+  const { messages, isLoading, sendMessage, clearChat, isStreaming, streamingContent } = useProjectChat(projectId);
   const [input, setInput] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -20,7 +21,7 @@ export function ProjectChat({ projectId }: ProjectChatProps) {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages, isStreaming]);
+  }, [messages, isStreaming, streamingContent]);
 
   const handleSend = () => {
     if (!input.trim() || sendMessage.isPending) return;
@@ -57,7 +58,7 @@ export function ProjectChat({ projectId }: ProjectChatProps) {
             <div className="text-center py-8">
               <Loader2 className="h-5 w-5 animate-spin mx-auto text-muted-foreground" />
             </div>
-          ) : messages.length === 0 ? (
+          ) : messages.length === 0 && !isStreaming ? (
             <div className="text-center py-8">
               <Bot className="h-10 w-10 text-muted-foreground/30 mx-auto mb-3" />
               <p className="text-sm text-muted-foreground mb-1">Ask anything about this project</p>
@@ -88,7 +89,13 @@ export function ProjectChat({ projectId }: ProjectChatProps) {
                       ? "bg-primary text-primary-foreground"
                       : "bg-muted"
                   )}>
-                    <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                    {msg.role === 'assistant' ? (
+                      <div className="text-sm leading-relaxed prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-ul:my-1 prose-li:my-0.5">
+                        <ReactMarkdown>{msg.content}</ReactMarkdown>
+                      </div>
+                    ) : (
+                      <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                    )}
                     <p className={cn(
                       "text-[10px] mt-1",
                       msg.role === 'user' ? "text-primary-foreground/60" : "text-muted-foreground/60"
@@ -106,17 +113,24 @@ export function ProjectChat({ projectId }: ProjectChatProps) {
             </AnimatePresence>
           )}
 
+          {/* Streaming message */}
           {isStreaming && (
             <div className="flex gap-2.5">
-              <div className="h-7 w-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+              <div className="h-7 w-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">
                 <Bot className="h-3.5 w-3.5 text-primary" />
               </div>
-              <div className="bg-muted rounded-xl px-3.5 py-2.5">
-                <div className="flex gap-1">
-                  <span className="h-2 w-2 bg-muted-foreground/40 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                  <span className="h-2 w-2 bg-muted-foreground/40 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                  <span className="h-2 w-2 bg-muted-foreground/40 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-                </div>
+              <div className="bg-muted rounded-xl px-3.5 py-2.5 max-w-[80%]">
+                {streamingContent ? (
+                  <div className="text-sm leading-relaxed prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-ul:my-1 prose-li:my-0.5">
+                    <ReactMarkdown>{streamingContent}</ReactMarkdown>
+                  </div>
+                ) : (
+                  <div className="flex gap-1">
+                    <span className="h-2 w-2 bg-muted-foreground/40 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                    <span className="h-2 w-2 bg-muted-foreground/40 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                    <span className="h-2 w-2 bg-muted-foreground/40 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                  </div>
+                )}
               </div>
             </div>
           )}

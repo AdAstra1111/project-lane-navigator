@@ -117,7 +117,7 @@ Return ONLY valid JSON with this structure:
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
+        model: "google/gemini-3-flash-preview",
         messages: [
           { role: "system", content: "You are a film industry market analyst with deep knowledge of box office performance, streaming data, and international sales. Return only valid JSON. When grounded research data is provided, prioritize those real numbers over estimates." },
           { role: "user", content: prompt },

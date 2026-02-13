@@ -616,7 +616,7 @@ serve(async (req) => {
     async function callAI(prompt: string, useJson = true) {
       const messages: any[] = [{ role: "user", content: prompt }];
       const aiBody: any = {
-        model: "google/gemini-2.5-flash",
+        model: "google/gemini-2.5-pro",
         messages,
       };
       if (useJson) {
