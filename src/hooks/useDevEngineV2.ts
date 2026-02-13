@@ -234,6 +234,26 @@ export function useDevEngineV2(projectId: string | undefined) {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  const deleteDocument = useMutation({
+    mutationFn: async (docId: string) => {
+      // Delete related versions, runs, convergence history first
+      await (supabase as any).from('development_runs').delete().eq('document_id', docId);
+      await (supabase as any).from('dev_engine_convergence_history').delete().eq('document_id', docId);
+      await (supabase as any).from('project_document_versions').delete().eq('document_id', docId);
+      const { error } = await (supabase as any).from('project_documents').delete().eq('id', docId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success('Document deleted');
+      if (selectedDocId) {
+        setSelectedDocId(null);
+        setSelectedVersionId(null);
+      }
+      invalidateAll();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   // Derived
   const selectedDoc = documents.find(d => d.id === selectedDocId) || null;
   const selectedVersion = versions.find(v => v.id === selectedVersionId) || (versions.length > 0 ? versions[versions.length - 1] : null);
@@ -260,6 +280,6 @@ export function useDevEngineV2(projectId: string | undefined) {
     selectDocument, setSelectedVersionId,
     runs, allDocRuns, convergenceHistory,
     latestAnalysis, latestNotes, isConverged, isLoading,
-    analyze, generateNotes, rewrite, convert, createPaste,
+    analyze, generateNotes, rewrite, convert, createPaste, deleteDocument,
   };
 }

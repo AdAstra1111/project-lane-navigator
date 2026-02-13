@@ -20,8 +20,9 @@ import {
   ArrowRight, Play, Check, Shield, TrendingUp, TrendingDown, Minus,
   Zap, FileText, Loader2, Target, Sparkles, ArrowUpRight,
   Plus, ClipboardPaste, Upload, ChevronDown, BarChart3,
-  AlertTriangle, GitBranch, Clock, RefreshCw, Film, Pause, Square, RotateCcw
+  AlertTriangle, GitBranch, Clock, RefreshCw, Film, Pause, Square, RotateCcw, Trash2
 } from 'lucide-react';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { OperationProgress, DEV_ANALYZE_STAGES, DEV_NOTES_STAGES, DEV_REWRITE_STAGES, DEV_CONVERT_STAGES } from '@/components/OperationProgress';
 
 // ── Convergence Gauge ──
@@ -90,7 +91,7 @@ export default function ProjectDevelopmentEngine() {
     selectDocument, setSelectedVersionId,
     runs, allDocRuns, convergenceHistory,
     latestAnalysis, latestNotes, isConverged, isLoading,
-    analyze, generateNotes, rewrite, convert, createPaste,
+    analyze, generateNotes, rewrite, convert, createPaste, deleteDocument,
   } = useDevEngineV2(projectId);
 
   // Script pipeline
@@ -268,16 +269,16 @@ export default function ProjectDevelopmentEngine() {
                   <ScrollArea className="h-[calc(100vh-320px)]">
                     <div className="space-y-1">
                       {documents.map(doc => (
-                        <button
+                        <div
                           key={doc.id}
-                          onClick={() => selectDocument(doc.id)}
-                          className={`w-full text-left p-2.5 rounded-md transition-colors text-sm ${
+                          className={`group relative w-full text-left p-2.5 rounded-md transition-colors text-sm cursor-pointer ${
                             selectedDocId === doc.id
                               ? 'bg-primary/10 border border-primary/30'
                               : 'hover:bg-muted/50 border border-transparent'
                           }`}
+                          onClick={() => selectDocument(doc.id)}
                         >
-                          <p className="font-medium text-foreground truncate text-xs">{doc.title || doc.file_name}</p>
+                          <p className="font-medium text-foreground truncate text-xs pr-6">{doc.title || doc.file_name}</p>
                           <div className="flex items-center gap-1.5 mt-1">
                             <Badge variant="outline" className="text-[9px] px-1 py-0">
                               {DOC_TYPE_LABELS[doc.doc_type] || doc.doc_type}
@@ -286,7 +287,20 @@ export default function ProjectDevelopmentEngine() {
                               {doc.source === 'generated' ? '✨' : doc.source === 'paste' ? '📋' : '📄'}
                             </span>
                           </div>
-                        </button>
+                          <div className="absolute top-2 right-1.5 opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
+                            <ConfirmDialog
+                              title="Delete Document"
+                              description={`Delete "${doc.title || doc.file_name}" and all its versions? This cannot be undone.`}
+                              confirmLabel="Delete"
+                              variant="destructive"
+                              onConfirm={() => deleteDocument.mutate(doc.id)}
+                            >
+                              <button className="p-1 rounded hover:bg-destructive/20 text-muted-foreground hover:text-destructive transition-colors">
+                                <Trash2 className="h-3 w-3" />
+                              </button>
+                            </ConfirmDialog>
+                          </div>
+                        </div>
                       ))}
                       {documents.length === 0 && !docsLoading && (
                         <p className="text-xs text-muted-foreground p-3 text-center">No documents yet. Paste or upload to start.</p>
