@@ -93,6 +93,22 @@ const WEIGHT_PROFILES: Record<string, WeightProfile> = {
     'post-production': 0.10,
     'sales-delivery': 0.20,
   },
+  'documentary-series': {
+    'development': 0.20,
+    'packaging': 0.15,
+    'pre-production': 0.15,
+    'production': 0.20,
+    'post-production': 0.10,
+    'sales-delivery': 0.20,
+  },
+  'hybrid-documentary': {
+    'development': 0.25,
+    'packaging': 0.15,
+    'pre-production': 0.15,
+    'production': 0.20,
+    'post-production': 0.10,
+    'sales-delivery': 0.15,
+  },
 };
 
 function getLabel(score: number): string {

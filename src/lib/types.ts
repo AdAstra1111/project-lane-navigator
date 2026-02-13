@@ -1,4 +1,38 @@
-export type ProjectFormat = 'film' | 'tv-series' | 'short-film' | 'documentary' | 'documentary-series' | 'digital-series' | 'commercial' | 'branded-content' | 'music-video' | 'proof-of-concept' | 'hybrid' | 'vertical-drama';
+export type ProjectFormat = 'film' | 'tv-series' | 'short-film' | 'documentary' | 'documentary-series' | 'hybrid-documentary' | 'digital-series' | 'commercial' | 'branded-content' | 'music-video' | 'proof-of-concept' | 'hybrid' | 'vertical-drama';
+
+export type DocumentarySubtype = 'documentary' | 'documentary-series' | 'hybrid-documentary';
+
+export function isDocumentaryFormat(format: string): boolean {
+  return ['documentary', 'documentary-series', 'hybrid-documentary'].includes(format);
+}
+
+// ---- Documentary Monetisation Lanes ----
+
+export type DocMonetisationLane =
+  | 'grant-festival'
+  | 'broadcaster-commission'
+  | 'streamer-acquisition'
+  | 'impact-first'
+  | 'theatrical-doc'
+  | 'hybrid-distribution';
+
+export const DOC_LANE_LABELS: Record<DocMonetisationLane, string> = {
+  'grant-festival': 'Grant + Festival Circuit',
+  'broadcaster-commission': 'Broadcaster Commission',
+  'streamer-acquisition': 'Streamer Acquisition',
+  'impact-first': 'Impact-First Distribution',
+  'theatrical-doc': 'Theatrical Documentary',
+  'hybrid-distribution': 'Hybrid Distribution',
+};
+
+export const DOC_LANE_COLORS: Record<DocMonetisationLane, string> = {
+  'grant-festival': 'bg-sky-500/15 text-sky-400 border-sky-500/30',
+  'broadcaster-commission': 'bg-blue-500/15 text-blue-400 border-blue-500/30',
+  'streamer-acquisition': 'bg-purple-500/15 text-purple-400 border-purple-500/30',
+  'impact-first': 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
+  'theatrical-doc': 'bg-amber-500/15 text-amber-400 border-amber-500/30',
+  'hybrid-distribution': 'bg-indigo-500/15 text-indigo-400 border-indigo-500/30',
+};
 
 export type TVSubformat = 'limited' | 'returning' | 'anthology';
 
