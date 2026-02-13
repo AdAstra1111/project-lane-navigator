@@ -875,6 +875,83 @@ export type Database = {
           },
         ]
       }
+      convergence_scores: {
+        Row: {
+          allowed_gap: number
+          analysis_mode: string
+          convergence_status: string
+          created_at: string
+          creative_integrity_score: number
+          development_stage: string
+          executive_guidance: string | null
+          executive_snapshot: string | null
+          format_advisory: Json | null
+          full_result: Json | null
+          gap: number
+          greenlight_probability: number
+          id: string
+          leverage_moves: Json | null
+          primary_commercial_risk: string | null
+          primary_creative_risk: string | null
+          project_id: string
+          strategic_priority: string
+          trajectory: string | null
+          user_id: string
+        }
+        Insert: {
+          allowed_gap?: number
+          analysis_mode?: string
+          convergence_status?: string
+          created_at?: string
+          creative_integrity_score?: number
+          development_stage?: string
+          executive_guidance?: string | null
+          executive_snapshot?: string | null
+          format_advisory?: Json | null
+          full_result?: Json | null
+          gap?: number
+          greenlight_probability?: number
+          id?: string
+          leverage_moves?: Json | null
+          primary_commercial_risk?: string | null
+          primary_creative_risk?: string | null
+          project_id: string
+          strategic_priority?: string
+          trajectory?: string | null
+          user_id: string
+        }
+        Update: {
+          allowed_gap?: number
+          analysis_mode?: string
+          convergence_status?: string
+          created_at?: string
+          creative_integrity_score?: number
+          development_stage?: string
+          executive_guidance?: string | null
+          executive_snapshot?: string | null
+          format_advisory?: Json | null
+          full_result?: Json | null
+          gap?: number
+          greenlight_probability?: number
+          id?: string
+          leverage_moves?: Json | null
+          primary_commercial_risk?: string | null
+          primary_creative_risk?: string | null
+          project_id?: string
+          strategic_priority?: string
+          trajectory?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "convergence_scores_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       copro_frameworks: {
         Row: {
           confidence: string

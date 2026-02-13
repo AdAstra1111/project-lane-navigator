@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 import {
   FileSearch, Loader2, ThumbsUp, ThumbsDown, Minus, ChevronDown, History,
   ArrowLeftRight, RotateCw, Star, CheckCircle2, XCircle, HelpCircle, Pencil,
-  BarChart3, BookOpen, ClipboardList, Trash2, Zap, Package, DollarSign, Target
+  BarChart3, BookOpen, ClipboardList, Trash2, Zap, Package, DollarSign, Target, Compass
 } from 'lucide-react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Button } from '@/components/ui/button';
@@ -29,6 +29,7 @@ import { NotesReview } from '@/components/script/NotesReview';
 import { StructuredNote } from '@/hooks/useNoteFeedback';
 import { ShareSignalDialog } from '@/components/market/ShareSignalDialog';
 import { GreenlightSimulator } from '@/components/GreenlightSimulator';
+import { ConvergencePanel } from '@/components/ConvergencePanel';
 import { PackagingIntelligencePanel } from '@/components/intelligence/PackagingIntelligencePanel';
 import { FinancePredictionPanel } from '@/components/finance/FinancePredictionPanel';
 import { PackagingPowerPanel } from '@/components/intelligence/PackagingPowerPanel';
@@ -830,6 +831,7 @@ export function ScriptCoverage({ projectId, projectTitle, format, genres, hasDoc
               <TabsList className="bg-muted/30">
                 <TabsTrigger value="coverage" className="text-xs">Final Coverage</TabsTrigger>
                 <TabsTrigger value="greenlight" className="text-xs gap-1"><Zap className="h-3 w-3" />Greenlight Sim</TabsTrigger>
+                <TabsTrigger value="convergence" className="text-xs gap-1"><Compass className="h-3 w-3" />Convergence</TabsTrigger>
                 <TabsTrigger value="packaging" className="text-xs gap-1"><Package className="h-3 w-3" />Packaging Intel</TabsTrigger>
                 <TabsTrigger value="packaging-power" className="text-xs gap-1"><Target className="h-3 w-3" />Packaging Power</TabsTrigger>
                 <TabsTrigger value="finance" className="text-xs gap-1"><DollarSign className="h-3 w-3" />Finance Predict</TabsTrigger>
@@ -853,6 +855,19 @@ export function ScriptCoverage({ projectId, projectTitle, format, genres, hasDoc
                   riskFlags={selectedRun.metrics?.risk_flags}
                   developmentTier={selectedRun.metrics?.development_tier}
                   financeReadiness={selectedRun.metrics?.finance_readiness}
+                  coverageSummary={selectedRun.final_coverage?.slice(0, 3000)}
+                />
+              </TabsContent>
+
+              <TabsContent value="convergence" className="mt-4">
+                <ConvergencePanel
+                  projectId={projectId}
+                  projectTitle={projectTitle}
+                  format={format}
+                  genres={genres}
+                  lane={lane || ''}
+                  scoringGrid={selectedRun.metrics?.scoring_grid}
+                  riskFlags={selectedRun.metrics?.risk_flags}
                   coverageSummary={selectedRun.final_coverage?.slice(0, 3000)}
                 />
               </TabsContent>
