@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Plus, Clapperboard, ArrowLeftRight, Kanban, Archive, FileDown, X, Building2 } from 'lucide-react';
@@ -21,16 +21,31 @@ import { PageTransition } from '@/components/PageTransition';
 import { useProjects } from '@/hooks/useProjects';
 import { useCompanies } from '@/hooks/useCompanies';
 import { useDashboardScores } from '@/hooks/useDashboardScores';
+import { useAllCompanyLinks } from '@/hooks/useAllCompanyLinks';
 import { exportProjectsCsv } from '@/lib/csv-export';
 import { toast } from 'sonner';
 
 export default function Dashboard() {
   const { projects, isLoading, togglePin, deleteProject } = useProjects();
   const { companies } = useCompanies();
+  const { linkMap } = useAllCompanyLinks();
   const primaryCompany = companies.length > 0 ? companies[0] : null;
   const [roleView, setRoleView] = useState<string>('none');
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string>('all');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const { data: projectScores = {} } = useDashboardScores(projects);
+
+  // Filter projects by selected company
+  const filteredProjects = useMemo(() => {
+    if (selectedCompanyId === 'all') return projects;
+    const companyProjectIds = linkMap[selectedCompanyId] || new Set<string>();
+    return projects.filter(p => companyProjectIds.has(p.id));
+  }, [projects, selectedCompanyId, linkMap]);
+
+  const { data: projectScores = {} } = useDashboardScores(filteredProjects);
+
+  const displayCompany = selectedCompanyId !== 'all'
+    ? companies.find(c => c.id === selectedCompanyId) || primaryCompany
+    : primaryCompany;
 
   const toggleSelect = (id: string) => {
     setSelectedIds(prev => {
@@ -43,7 +58,7 @@ export default function Dashboard() {
   const clearSelection = () => setSelectedIds(new Set());
 
   const handleBulkExport = () => {
-    const selected = projects.filter(p => selectedIds.has(p.id));
+    const selected = filteredProjects.filter(p => selectedIds.has(p.id));
     if (selected.length === 0) return;
     exportProjectsCsv(selected);
     toast.success(`Exported ${selected.length} project${selected.length !== 1 ? 's' : ''}`);
@@ -74,31 +89,47 @@ export default function Dashboard() {
         >
           <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-8">
             <div>
-              {primaryCompany && (
+              {displayCompany && (
                 <div className="mb-3">
-                  {primaryCompany.logo_url ? (
+                  {displayCompany.logo_url ? (
                     <img
-                      src={primaryCompany.logo_url}
-                      alt={primaryCompany.name}
+                      src={displayCompany.logo_url}
+                      alt={displayCompany.name}
                       className="h-12 max-w-[320px] object-contain rounded-lg invert-0 dark:invert"
                     />
                   ) : (
                     <div
                       className="h-8 w-8 rounded-md flex items-center justify-center"
-                      style={{ backgroundColor: primaryCompany.color_accent ? primaryCompany.color_accent + '20' : 'hsl(var(--primary) / 0.1)' }}
+                      style={{ backgroundColor: displayCompany.color_accent ? displayCompany.color_accent + '20' : 'hsl(var(--primary) / 0.1)' }}
                     >
-                      <Building2 className="h-4 w-4" style={{ color: primaryCompany.color_accent || 'hsl(var(--primary))' }} />
+                      <Building2 className="h-4 w-4" style={{ color: displayCompany.color_accent || 'hsl(var(--primary))' }} />
                     </div>
                   )}
                 </div>
               )}
               
               <p className="text-muted-foreground mt-1">
-                {projects.length} project{projects.length !== 1 ? 's' : ''} classified
+                {filteredProjects.length} project{filteredProjects.length !== 1 ? 's' : ''} classified
+                {selectedCompanyId !== 'all' && ` · ${displayCompany?.name || 'Company'}`}
               </p>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
-              {projects.length >= 1 && (
+              {/* Company filter tabs */}
+              {companies.length > 1 && (
+                <Select value={selectedCompanyId} onValueChange={(v) => { setSelectedCompanyId(v); clearSelection(); }}>
+                  <SelectTrigger className="w-40 h-9 text-sm">
+                    <Building2 className="h-3.5 w-3.5 mr-1.5 shrink-0" />
+                    <SelectValue placeholder="All Companies" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Companies</SelectItem>
+                    {companies.map(c => (
+                      <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+              {filteredProjects.length >= 1 && (
                 <Link to="/pipeline">
                   <Button variant="outline" size="sm">
                     <Kanban className="h-4 w-4 mr-1.5" />
@@ -106,7 +137,7 @@ export default function Dashboard() {
                   </Button>
                 </Link>
               )}
-              {projects.length >= 2 && (
+              {filteredProjects.length >= 2 && (
                 <Link to="/compare">
                   <Button variant="outline" size="sm">
                     <ArrowLeftRight className="h-4 w-4 mr-1.5" />
@@ -178,33 +209,35 @@ export default function Dashboard() {
                 </div>
               ))}
             </div>
-          ) : projects.length === 0 ? (
+          ) : filteredProjects.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-24 text-center">
               <div className="h-16 w-16 rounded-xl bg-muted flex items-center justify-center mb-6">
                 <Clapperboard className="h-8 w-8 text-muted-foreground" />
               </div>
               <h2 className="text-xl font-display font-semibold text-foreground mb-2">
-                Start by adding a project
+                {selectedCompanyId !== 'all' ? 'No projects linked to this company' : 'Start by adding a project'}
               </h2>
               <p className="text-muted-foreground mb-6 max-w-sm">
-                From inception to legacy — one decision at a time. Start with a concept, pitch, or cast attachment.
+                {selectedCompanyId !== 'all'
+                  ? 'Link projects to this company from the project detail page, or create a new one.'
+                  : 'From inception to legacy — one decision at a time. Start with a concept, pitch, or cast attachment.'}
               </p>
               <Link to="/projects/new">
                 <Button className="bg-primary text-primary-foreground hover:bg-primary/90">
                   <Plus className="h-4 w-4 mr-1.5" />
-                  Create First Project
+                  Create{selectedCompanyId !== 'all' ? '' : ' First'} Project
                 </Button>
               </Link>
             </div>
           ) : (
             <>
-              <DailyBriefing projects={projects} projectScores={projectScores} />
-              <OnboardingChecklist projectCount={projects.length} />
+              <DailyBriefing projects={filteredProjects} projectScores={projectScores} />
+              <OnboardingChecklist projectCount={filteredProjects.length} />
               {roleView !== 'none' && (
-                <RoleDashboard projects={projects} role={roleView as any} />
+                <RoleDashboard projects={filteredProjects} role={roleView as any} />
               )}
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {projects.map((project, i) => (
+                {filteredProjects.map((project, i) => (
                   <ProjectCard
                     key={project.id}
                     project={project}
@@ -217,10 +250,10 @@ export default function Dashboard() {
                   />
                 ))}
               </div>
-              <SlateMomentum projects={projects} projectScores={projectScores} />
-              <CrossProjectIntelligence projects={projects} projectScores={projectScores} />
-              <DashboardAnalytics projects={projects} />
-              <DashboardCountdowns projectTitleMap={Object.fromEntries(projects.map(p => [p.id, p.title]))} />
+              <SlateMomentum projects={filteredProjects} projectScores={projectScores} />
+              <CrossProjectIntelligence projects={filteredProjects} projectScores={projectScores} />
+              <DashboardAnalytics projects={filteredProjects} />
+              <DashboardCountdowns projectTitleMap={Object.fromEntries(filteredProjects.map(p => [p.id, p.title]))} />
               <DashboardActivityFeed />
             </>
           )}
