@@ -1,11 +1,11 @@
 /**
  * Treatment vs Script Comparison Panel
- * Side-by-side view comparing treatment documents against the current script.
+ * Side-by-side view comparing treatment (proposed adaptation direction) against the current script.
  * Includes AI-powered deep comparison analysis.
  */
 
 import { useState } from 'react';
-import { GitCompareArrows, FileText, ScrollText, ChevronDown, ChevronUp, Sparkles, Loader2, TrendingUp, TrendingDown, ArrowRight, BarChart3 } from 'lucide-react';
+import { GitCompareArrows, FileText, ScrollText, ChevronDown, ChevronUp, Sparkles, Loader2, TrendingUp, TrendingDown, ArrowRight, BarChart3, CheckCircle, XCircle, AlertTriangle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -33,17 +33,18 @@ interface TreatmentComparePanelProps {
 
 interface CompareResult {
   overall_verdict: string;
-  treatment_rating: { score: number; headline: string; strengths: string[]; weaknesses: string[] };
-  script_rating: { score: number; headline: string; strengths: string[]; weaknesses: string[] };
-  narrative_comparison: { structural_alignment: string; character_evolution: string; tone_consistency: string; pacing_analysis: string };
-  commercial_analysis: { market_positioning: string; audience_clarity: string; packaging_leverage: string; budget_implications: string };
-  key_divergences: { area: string; treatment_approach: string; script_approach: string; verdict: string }[];
-  recommendations: string[];
-  fidelity_score: number;
+  adaptation_value: { score: number; headline: string; gains: string[]; risks: string[] };
+  current_script_assessment: { score: number; headline: string; strengths: string[]; vulnerabilities: string[] };
+  story_impact: { structural_changes: string; character_impact: string; emotional_trajectory: string; thematic_clarity: string };
+  package_impact: { lead_role_magnetism: string; director_appeal: string; sales_leverage: string; audience_targeting: string };
+  commercial_delta: { score: number; market_positioning_shift: string; budget_implications: string; festival_vs_commercial: string };
+  key_proposed_changes: { area: string; current_script: string; treatment_proposes: string; impact_verdict: string }[];
+  rewrite_recommendations: string[];
+  adoption_score: number;
 }
 
-function ScoreRing({ score, label, size = 'md' }: { score: number; label: string; size?: 'sm' | 'md' }) {
-  const color = score >= 75 ? 'text-emerald-400' : score >= 50 ? 'text-amber-400' : 'text-red-400';
+function ScoreRing({ score, label, size = 'md', subtitle }: { score: number; label: string; size?: 'sm' | 'md'; subtitle?: string }) {
+  const color = score >= 75 ? 'text-emerald-400' : score >= 50 ? 'text-amber-400' : score >= 25 ? 'text-orange-400' : 'text-red-400';
   const dim = size === 'sm' ? 'h-16 w-16' : 'h-20 w-20';
   const textSize = size === 'sm' ? 'text-lg' : 'text-2xl';
   return (
@@ -52,39 +53,28 @@ function ScoreRing({ score, label, size = 'md' }: { score: number; label: string
         <span className={`${textSize} font-bold ${color}`}>{score}</span>
       </div>
       <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">{label}</span>
+      {subtitle && <span className="text-[9px] text-muted-foreground/60">{subtitle}</span>}
     </div>
   );
 }
 
-function RatingCard({ title, data, icon, color }: { title: string; data: CompareResult['treatment_rating']; icon: React.ReactNode; color: string }) {
+function DeltaBadge({ score }: { score: number }) {
+  const positive = score > 0;
+  const neutral = score === 0;
+  const color = positive ? 'text-emerald-400 border-emerald-400/30 bg-emerald-400/10' : neutral ? 'text-muted-foreground border-border/40 bg-muted/20' : 'text-red-400 border-red-400/30 bg-red-400/10';
   return (
-    <div className="border border-border/40 rounded-lg overflow-hidden">
-      <div className={`${color} px-3 py-2 border-b border-border/40 flex items-center justify-between`}>
-        <div className="flex items-center gap-1.5">
-          {icon}
-          <span className="text-xs font-semibold">{title}</span>
-        </div>
-        <Badge variant="outline" className="text-xs">{data.score}/100</Badge>
-      </div>
-      <div className="p-3 space-y-2">
-        <p className="text-xs font-medium text-foreground">{data.headline}</p>
-        <div className="space-y-1">
-          {data.strengths.map((s, i) => (
-            <div key={`s-${i}`} className="flex items-start gap-1.5 text-xs text-emerald-400">
-              <TrendingUp className="h-3 w-3 mt-0.5 shrink-0" />
-              <span className="text-muted-foreground">{s}</span>
-            </div>
-          ))}
-          {data.weaknesses.map((w, i) => (
-            <div key={`w-${i}`} className="flex items-start gap-1.5 text-xs text-red-400">
-              <TrendingDown className="h-3 w-3 mt-0.5 shrink-0" />
-              <span className="text-muted-foreground">{w}</span>
-            </div>
-          ))}
-        </div>
-      </div>
+    <div className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full border text-xs font-bold ${color}`}>
+      {positive ? <TrendingUp className="h-3 w-3" /> : neutral ? null : <TrendingDown className="h-3 w-3" />}
+      {positive ? '+' : ''}{score} Commercial Delta
     </div>
   );
+}
+
+function VerdictIcon({ verdict }: { verdict: string }) {
+  const v = verdict.toUpperCase();
+  if (v.startsWith('ADOPT')) return <CheckCircle className="h-3.5 w-3.5 text-emerald-400 shrink-0" />;
+  if (v.startsWith('REJECT')) return <XCircle className="h-3.5 w-3.5 text-red-400 shrink-0" />;
+  return <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0" />;
 }
 
 export function TreatmentComparePanel({ documents, scriptText, currentScriptLabel, projectContext }: TreatmentComparePanelProps) {
@@ -196,55 +186,100 @@ export function TreatmentComparePanel({ documents, scriptText, currentScriptLabe
         </Badge>
       </div>
 
-      {/* ── AI Deep Comparison Results ── */}
+      {/* ── Loading state ── */}
       {comparing && (
         <div className="border border-border/40 rounded-lg p-6 mb-4 flex flex-col items-center gap-3">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          <p className="text-sm text-muted-foreground">Running deep narrative & commercial analysis…</p>
-          <p className="text-xs text-muted-foreground/60">This may take 15–30 seconds</p>
+          <p className="text-sm text-muted-foreground">Evaluating treatment as adaptation direction…</p>
+          <p className="text-xs text-muted-foreground/60">Analysing story impact, package effect & commercial delta</p>
         </div>
       )}
 
+      {/* ── AI Deep Comparison Results ── */}
       {result && (
         <div className="space-y-4 mb-4">
           {/* Score rings */}
           <div className="flex items-center justify-center gap-6 py-3">
-            <ScoreRing score={result.treatment_rating.score} label="Treatment" />
-            <ScoreRing score={result.fidelity_score} label="Fidelity" size="sm" />
-            <ScoreRing score={result.script_rating.score} label="Script" />
+            <ScoreRing score={result.current_script_assessment.score} label="Current Script" subtitle="Story Strength" />
+            <ScoreRing score={result.adaptation_value.score} label="Adaptation Value" size="sm" subtitle="Treatment Worth" />
+            <ScoreRing score={result.adoption_score} label="Adopt?" subtitle="Recommendation" />
           </div>
 
-          {/* Verdict */}
+          {/* Commercial Delta */}
+          <div className="flex justify-center">
+            <DeltaBadge score={result.commercial_delta.score} />
+          </div>
+
+          {/* Executive Verdict */}
           <div className="bg-muted/20 border border-border/40 rounded-lg p-4">
-            <p className="text-xs font-semibold text-foreground mb-1 flex items-center gap-1.5">
+            <p className="text-xs font-semibold text-foreground mb-1.5 flex items-center gap-1.5">
               <BarChart3 className="h-3.5 w-3.5 text-primary" /> Executive Verdict
             </p>
             <p className="text-xs text-muted-foreground leading-relaxed">{result.overall_verdict}</p>
           </div>
 
-          {/* Rating cards side by side */}
+          {/* Adaptation Value + Current Script side by side */}
           <div className="grid grid-cols-2 gap-3">
-            <RatingCard
-              title="Treatment"
-              data={result.treatment_rating}
-              icon={<ScrollText className="h-3.5 w-3.5 text-purple-400" />}
-              color="bg-purple-500/10"
-            />
-            <RatingCard
-              title="Script"
-              data={result.script_rating}
-              icon={<FileText className="h-3.5 w-3.5 text-blue-400" />}
-              color="bg-blue-500/10"
-            />
+            {/* Adaptation Value */}
+            <div className="border border-border/40 rounded-lg overflow-hidden">
+              <div className="bg-purple-500/10 px-3 py-2 border-b border-border/40 flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <ScrollText className="h-3.5 w-3.5 text-purple-400" />
+                  <span className="text-xs font-semibold">Treatment Direction</span>
+                </div>
+                <Badge variant="outline" className="text-xs">{result.adaptation_value.score}/100</Badge>
+              </div>
+              <div className="p-3 space-y-2">
+                <p className="text-xs font-medium text-foreground">{result.adaptation_value.headline}</p>
+                {result.adaptation_value.gains.map((g, i) => (
+                  <div key={`g-${i}`} className="flex items-start gap-1.5 text-xs">
+                    <TrendingUp className="h-3 w-3 mt-0.5 shrink-0 text-emerald-400" />
+                    <span className="text-muted-foreground">{g}</span>
+                  </div>
+                ))}
+                {result.adaptation_value.risks.map((r, i) => (
+                  <div key={`r-${i}`} className="flex items-start gap-1.5 text-xs">
+                    <TrendingDown className="h-3 w-3 mt-0.5 shrink-0 text-red-400" />
+                    <span className="text-muted-foreground">{r}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Current Script */}
+            <div className="border border-border/40 rounded-lg overflow-hidden">
+              <div className="bg-blue-500/10 px-3 py-2 border-b border-border/40 flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <FileText className="h-3.5 w-3.5 text-blue-400" />
+                  <span className="text-xs font-semibold">Current Script</span>
+                </div>
+                <Badge variant="outline" className="text-xs">{result.current_script_assessment.score}/100</Badge>
+              </div>
+              <div className="p-3 space-y-2">
+                <p className="text-xs font-medium text-foreground">{result.current_script_assessment.headline}</p>
+                {result.current_script_assessment.strengths.map((s, i) => (
+                  <div key={`s-${i}`} className="flex items-start gap-1.5 text-xs">
+                    <TrendingUp className="h-3 w-3 mt-0.5 shrink-0 text-emerald-400" />
+                    <span className="text-muted-foreground">{s}</span>
+                  </div>
+                ))}
+                {result.current_script_assessment.vulnerabilities.map((v, i) => (
+                  <div key={`v-${i}`} className="flex items-start gap-1.5 text-xs">
+                    <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0 text-amber-400" />
+                    <span className="text-muted-foreground">{v}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
 
-          {/* Narrative Comparison */}
+          {/* Story Impact */}
           <div className="border border-border/40 rounded-lg overflow-hidden">
             <div className="bg-muted/30 px-3 py-2 border-b border-border/40">
-              <span className="text-xs font-semibold text-foreground">Narrative Comparison</span>
+              <span className="text-xs font-semibold text-foreground">Story Impact — If Treatment Direction Is Adopted</span>
             </div>
             <div className="p-3 grid grid-cols-2 gap-3">
-              {Object.entries(result.narrative_comparison).map(([key, val]) => (
+              {Object.entries(result.story_impact).map(([key, val]) => (
                 <div key={key} className="space-y-0.5">
                   <p className="text-[10px] uppercase tracking-wider text-muted-foreground/70 font-medium">
                     {key.replace(/_/g, ' ')}
@@ -255,13 +290,13 @@ export function TreatmentComparePanel({ documents, scriptText, currentScriptLabe
             </div>
           </div>
 
-          {/* Commercial Analysis */}
+          {/* Package Impact */}
           <div className="border border-border/40 rounded-lg overflow-hidden">
             <div className="bg-muted/30 px-3 py-2 border-b border-border/40">
-              <span className="text-xs font-semibold text-foreground">Commercial Analysis</span>
+              <span className="text-xs font-semibold text-foreground">Package & Commercial Impact</span>
             </div>
             <div className="p-3 grid grid-cols-2 gap-3">
-              {Object.entries(result.commercial_analysis).map(([key, val]) => (
+              {Object.entries(result.package_impact).map(([key, val]) => (
                 <div key={key} className="space-y-0.5">
                   <p className="text-[10px] uppercase tracking-wider text-muted-foreground/70 font-medium">
                     {key.replace(/_/g, ' ')}
@@ -272,42 +307,62 @@ export function TreatmentComparePanel({ documents, scriptText, currentScriptLabe
             </div>
           </div>
 
-          {/* Key Divergences */}
-          {result.key_divergences?.length > 0 && (
+          {/* Commercial Delta detail */}
+          <div className="border border-border/40 rounded-lg overflow-hidden">
+            <div className="bg-muted/30 px-3 py-2 border-b border-border/40">
+              <span className="text-xs font-semibold text-foreground">Commercial Delta Detail</span>
+            </div>
+            <div className="p-3 grid grid-cols-3 gap-3">
+              {(['market_positioning_shift', 'budget_implications', 'festival_vs_commercial'] as const).map(key => (
+                <div key={key} className="space-y-0.5">
+                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground/70 font-medium">
+                    {key.replace(/_/g, ' ')}
+                  </p>
+                  <p className="text-xs text-muted-foreground leading-relaxed">{result.commercial_delta[key]}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Key Proposed Changes */}
+          {result.key_proposed_changes?.length > 0 && (
             <div className="border border-border/40 rounded-lg overflow-hidden">
               <div className="bg-muted/30 px-3 py-2 border-b border-border/40">
-                <span className="text-xs font-semibold text-foreground">Key Divergences</span>
+                <span className="text-xs font-semibold text-foreground">Key Proposed Changes — Adopt / Reject / Modify</span>
               </div>
               <div className="divide-y divide-border/30">
-                {result.key_divergences.map((d, i) => (
-                  <div key={i} className="p-3 space-y-1.5">
-                    <Badge variant="outline" className="text-[10px]">{d.area}</Badge>
+                {result.key_proposed_changes.map((c, i) => (
+                  <div key={i} className="p-3 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <VerdictIcon verdict={c.impact_verdict} />
+                      <Badge variant="outline" className="text-[10px]">{c.area}</Badge>
+                    </div>
                     <div className="grid grid-cols-[1fr_auto_1fr] gap-2 items-start">
                       <div>
-                        <p className="text-[10px] text-purple-400 font-medium mb-0.5">Treatment</p>
-                        <p className="text-xs text-muted-foreground">{d.treatment_approach}</p>
+                        <p className="text-[10px] text-blue-400 font-medium mb-0.5">Current Script</p>
+                        <p className="text-xs text-muted-foreground">{c.current_script}</p>
                       </div>
                       <ArrowRight className="h-3 w-3 text-muted-foreground/40 mt-3" />
                       <div>
-                        <p className="text-[10px] text-blue-400 font-medium mb-0.5">Script</p>
-                        <p className="text-xs text-muted-foreground">{d.script_approach}</p>
+                        <p className="text-[10px] text-purple-400 font-medium mb-0.5">Treatment Proposes</p>
+                        <p className="text-xs text-muted-foreground">{c.treatment_proposes}</p>
                       </div>
                     </div>
-                    <p className="text-xs text-foreground/80 italic">→ {d.verdict}</p>
+                    <p className="text-xs text-foreground/80 font-medium">→ {c.impact_verdict}</p>
                   </div>
                 ))}
               </div>
             </div>
           )}
 
-          {/* Recommendations */}
-          {result.recommendations?.length > 0 && (
+          {/* Rewrite Recommendations */}
+          {result.rewrite_recommendations?.length > 0 && (
             <div className="border border-border/40 rounded-lg overflow-hidden">
               <div className="bg-primary/10 px-3 py-2 border-b border-border/40">
-                <span className="text-xs font-semibold text-foreground">Recommendations</span>
+                <span className="text-xs font-semibold text-foreground">Rewrite Recommendations</span>
               </div>
               <ul className="p-3 space-y-1.5">
-                {result.recommendations.map((r, i) => (
+                {result.rewrite_recommendations.map((r, i) => (
                   <li key={i} className="text-xs text-muted-foreground flex items-start gap-1.5">
                     <span className="text-primary font-bold mt-px">›</span>
                     {r}
@@ -317,13 +372,13 @@ export function TreatmentComparePanel({ documents, scriptText, currentScriptLabe
             </div>
           )}
 
-          {/* Fidelity bar */}
+          {/* Adoption Score bar */}
           <div className="space-y-1">
             <div className="flex items-center justify-between">
-              <span className="text-[10px] uppercase tracking-wider text-muted-foreground/70 font-medium">Script Fidelity to Treatment</span>
-              <span className="text-xs font-bold text-foreground">{result.fidelity_score}%</span>
+              <span className="text-[10px] uppercase tracking-wider text-muted-foreground/70 font-medium">Adoption Recommendation</span>
+              <span className="text-xs font-bold text-foreground">{result.adoption_score}/100</span>
             </div>
-            <Progress value={result.fidelity_score} className="h-2" />
+            <Progress value={result.adoption_score} className="h-2" />
           </div>
         </div>
       )}

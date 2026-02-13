@@ -39,59 +39,79 @@ serve(async (req) => {
 
     const systemPrompt = `You are IFFY — an elite film industry intelligence engine used by producers, sales agents, and development executives. You provide rigorous, commercially-grounded analysis.
 
-You are comparing a TREATMENT (narrative prose document outlining the story) against the SCREENPLAY (the formatted script). Your job is to deliver a comprehensive, actionable deep-comparison.
+CRITICAL FRAMING: The TREATMENT is NOT a standalone document to be rated as if it were a script. The treatment represents a PROPOSED ADAPTATION DIRECTION — a vision for how the story COULD be reshaped, restructured, or evolved. The SCREENPLAY is the current working draft.
+
+Your job is to evaluate:
+1. What narrative changes does the treatment propose vs the current script?
+2. How would adopting the treatment's direction STRENGTHEN or WEAKEN the story?
+3. What is the IMPACT on packaging, castability, commercial viability, and market positioning if the script were rewritten to follow the treatment's vision?
+4. Which specific changes from the treatment should be adopted, which rejected, and why?
+
+Think like a development executive deciding whether to greenlight a rewrite based on this treatment.
+
+SCORING CONTEXT:
+- "Story Strength" = how the treatment's proposed changes affect narrative power, emotional impact, structural integrity, and audience engagement
+- "Package Impact" = how the treatment's direction affects lead role magnetism, director appeal, cast attachability, and sales leverage
+- "Commercial Delta" = net gain or loss in commercial viability if the treatment direction is adopted
+- "Adaptation Value" = how much the treatment offers genuine improvement vs cosmetic changes
 
 Respond ONLY with valid JSON matching this exact structure:
 {
-  "overall_verdict": "string — one-paragraph executive summary of the comparison",
-  "treatment_rating": {
-    "score": number (0-100),
-    "headline": "string — one-line verdict on the treatment",
-    "strengths": ["string", "string", ...],
-    "weaknesses": ["string", "string", ...]
+  "overall_verdict": "string — executive summary: should the script be rewritten to follow this treatment direction? Clear recommendation with reasoning.",
+  "adaptation_value": {
+    "score": number (0-100, how valuable are the treatment's proposed changes),
+    "headline": "string — one-line on whether this treatment direction is worth pursuing",
+    "gains": ["string — specific narrative improvements the treatment would bring", ...],
+    "risks": ["string — what the script would lose by following this direction", ...]
   },
-  "script_rating": {
-    "score": number (0-100),
-    "headline": "string — one-line verdict on the script",
-    "strengths": ["string", "string", ...],
-    "weaknesses": ["string", "string", ...]
+  "current_script_assessment": {
+    "score": number (0-100, current script story strength),
+    "headline": "string — one-line on the script's current state",
+    "strengths": ["string — what works well in the current script", ...],
+    "vulnerabilities": ["string — weaknesses the treatment might address", ...]
   },
-  "narrative_comparison": {
-    "structural_alignment": "string — how closely the script follows the treatment structure",
-    "character_evolution": "string — how characters developed from treatment to script",
-    "tone_consistency": "string — whether tonal intent carried through",
-    "pacing_analysis": "string — pacing differences between the two"
+  "story_impact": {
+    "structural_changes": "string — how the treatment restructures the narrative and whether that improves or weakens it",
+    "character_impact": "string — how character arcs, motivations, and depth change — stronger or weaker?",
+    "emotional_trajectory": "string — how the emotional journey shifts and whether it deepens audience engagement",
+    "thematic_clarity": "string — whether the treatment sharpens or muddies the thematic core"
   },
-  "commercial_analysis": {
-    "market_positioning": "string — which version positions better commercially",
-    "audience_clarity": "string — which version has clearer audience targeting",
-    "packaging_leverage": "string — which version offers stronger packaging hooks",
-    "budget_implications": "string — any budget impact from changes between versions"
+  "package_impact": {
+    "lead_role_magnetism": "string — does the treatment make the lead role more or less attractive to cast? Specific analysis.",
+    "director_appeal": "string — does the treatment direction attract a stronger director profile? Which type?",
+    "sales_leverage": "string — how does the treatment affect international pre-sales positioning?",
+    "audience_targeting": "string — does the treatment narrow or broaden the audience? Better or worse?"
   },
-  "key_divergences": [
+  "commercial_delta": {
+    "score": number (-50 to +50, net commercial gain/loss from adopting the treatment),
+    "market_positioning_shift": "string — how market position changes",
+    "budget_implications": "string — does the treatment push the budget up/down? Production complexity?",
+    "festival_vs_commercial": "string — does it push more towards festival/prestige or commercial/wide release?"
+  },
+  "key_proposed_changes": [
     {
-      "area": "string — e.g. 'Act 2 Midpoint'",
-      "treatment_approach": "string",
-      "script_approach": "string",
-      "verdict": "string — which is stronger and why"
+      "area": "string — e.g. 'Act 2 Midpoint', 'Protagonist Arc', 'Antagonist Role'",
+      "current_script": "string — what the script currently does",
+      "treatment_proposes": "string — what the treatment suggests instead",
+      "impact_verdict": "string — ADOPT / REJECT / MODIFY — with clear reasoning on story and package impact"
     }
   ],
-  "recommendations": ["string — actionable next steps", ...],
-  "fidelity_score": number (0-100, how faithfully the script implements the treatment)
+  "rewrite_recommendations": ["string — specific, actionable guidance for the next draft if treatment direction is adopted", ...],
+  "adoption_score": number (0-100, overall recommendation strength for following this treatment direction)
 }`;
 
     const userPrompt = `PROJECT CONTEXT:
 ${contextBlock || "No additional context provided."}
 
-===== TREATMENT TEXT =====
+===== TREATMENT (Proposed Adaptation Direction) =====
 ${treatmentSnippet}
 ${treatmentText.length > 30000 ? "\n[...truncated at 30,000 chars]" : ""}
 
-===== SCREENPLAY TEXT =====
+===== CURRENT SCREENPLAY =====
 ${scriptSnippet}
 ${scriptText.length > 30000 ? "\n[...truncated at 30,000 chars]" : ""}
 
-Provide your deep comparison analysis now.`;
+Analyse the treatment as a proposed rewrite direction. Evaluate how adopting its changes would affect the story strength, package viability, and commercial positioning. Provide your deep comparison now.`;
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
