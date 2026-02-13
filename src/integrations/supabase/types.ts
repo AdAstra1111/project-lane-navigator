@@ -1876,6 +1876,62 @@ export type Database = {
           },
         ]
       }
+      documentary_coverage_runs: {
+        Row: {
+          access_risk: string | null
+          created_at: string
+          cultural_relevance: string | null
+          festival_probability: number
+          grant_probability: number
+          greenlight_score: number
+          id: string
+          impact_score: number
+          market_fit: string | null
+          project_id: string
+          recommendations: string[] | null
+          risk_flags: string[] | null
+          user_id: string
+        }
+        Insert: {
+          access_risk?: string | null
+          created_at?: string
+          cultural_relevance?: string | null
+          festival_probability?: number
+          grant_probability?: number
+          greenlight_score?: number
+          id?: string
+          impact_score?: number
+          market_fit?: string | null
+          project_id: string
+          recommendations?: string[] | null
+          risk_flags?: string[] | null
+          user_id: string
+        }
+        Update: {
+          access_risk?: string | null
+          created_at?: string
+          cultural_relevance?: string | null
+          festival_probability?: number
+          grant_probability?: number
+          greenlight_score?: number
+          id?: string
+          impact_score?: number
+          market_fit?: string | null
+          project_id?: string
+          recommendations?: string[] | null
+          risk_flags?: string[] | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "documentary_coverage_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       documentary_profiles: {
         Row: {
           access_level: string | null

@@ -2,16 +2,19 @@
  * Documentary Coverage Engine — replaces script coverage for doc projects.
  * 3-pass: Cultural Relevance → Access & Risk → Market Fit
  * Outputs: Greenlight score, Grant probability, Festival probability, Impact score
+ * Persists each run and shows history via dated dropdown.
  */
 
-import { useState } from 'react';
-import { Loader2, FileSearch, BarChart3, Trophy, Landmark, Globe } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Loader2, FileSearch, BarChart3, Trophy, Landmark, Globe, History } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
 import { OperationProgress } from '@/components/OperationProgress';
+import { format } from 'date-fns';
 
 const DOC_COVERAGE_STAGES = [
   { at: 5, label: 'Pass 1: Cultural Relevance…' },
@@ -21,6 +24,7 @@ const DOC_COVERAGE_STAGES = [
 ];
 
 interface DocCoverageResult {
+  id?: string;
   greenlight_score: number;
   grant_probability: number;
   festival_probability: number;
@@ -30,6 +34,7 @@ interface DocCoverageResult {
   market_fit: string;
   risk_flags: string[];
   recommendations: string[];
+  created_at?: string;
 }
 
 interface Props {
@@ -58,11 +63,30 @@ function ScoreCard({ label, score, icon: Icon, color }: { label: string; score: 
   );
 }
 
-export function DocumentaryCoveragePanel({ projectId, projectTitle, format, genres, lane }: Props) {
+export function DocumentaryCoveragePanel({ projectId, projectTitle, format: fmt, genres, lane }: Props) {
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<DocCoverageResult | null>(null);
+  const [runs, setRuns] = useState<DocCoverageResult[]>([]);
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
+
+  const result = runs.find(r => r.id === selectedRunId) || null;
+
+  // Load existing runs on mount
+  useEffect(() => {
+    if (!user) return;
+    supabase
+      .from('documentary_coverage_runs')
+      .select('*')
+      .eq('project_id', projectId)
+      .order('created_at', { ascending: false })
+      .then(({ data }) => {
+        if (data && data.length > 0) {
+          setRuns(data as DocCoverageResult[]);
+          setSelectedRunId(data[0].id);
+        }
+      });
+  }, [projectId, user]);
 
   const runCoverage = async () => {
     if (!user) return;
@@ -70,7 +94,6 @@ export function DocumentaryCoveragePanel({ projectId, projectTitle, format, genr
     setProgress(5);
 
     try {
-      // Fetch project documents for analysis
       const { data: docs } = await supabase
         .from('project_documents')
         .select('extracted_text, file_name, char_count')
@@ -96,7 +119,7 @@ export function DocumentaryCoveragePanel({ projectId, projectTitle, format, genr
           projectId,
           scriptId: projectId,
           scriptText: combinedText,
-          format,
+          format: fmt,
           genres,
           lane,
           draftLabel: 'Documentary Coverage',
@@ -108,24 +131,40 @@ export function DocumentaryCoveragePanel({ projectId, projectTitle, format, genr
 
       setProgress(90);
 
-      // Parse documentary-specific scores from the coverage result
       const metrics = data?.metrics || {};
       const scoringGrid = metrics.scoring_grid || {};
 
-      setResult({
-        greenlight_score: scoringGrid.greenlight_score || scoringGrid.overall_producer_confidence ? (scoringGrid.overall_producer_confidence || 0) * 10 : 55,
-        grant_probability: scoringGrid.grant_probability || scoringGrid.cultural_relevance ? (scoringGrid.cultural_relevance || 5) * 10 : 50,
-        festival_probability: scoringGrid.festival_probability || scoringGrid.festival_potential ? (scoringGrid.festival_potential || 5) * 10 : 50,
-        impact_score: scoringGrid.impact_score || scoringGrid.impact ? (scoringGrid.impact || 5) * 10 : 40,
+      const newResult: DocCoverageResult = {
+        greenlight_score: scoringGrid.greenlight_score || (scoringGrid.overall_producer_confidence ? scoringGrid.overall_producer_confidence * 10 : 55),
+        grant_probability: scoringGrid.grant_probability || (scoringGrid.cultural_relevance ? scoringGrid.cultural_relevance * 10 : 50),
+        festival_probability: scoringGrid.festival_probability || (scoringGrid.festival_potential ? scoringGrid.festival_potential * 10 : 50),
+        impact_score: scoringGrid.impact_score || (scoringGrid.impact ? scoringGrid.impact * 10 : 40),
         cultural_relevance: data?.pass_a || '',
         access_risk: data?.pass_b || '',
         market_fit: data?.final_coverage || '',
         risk_flags: metrics.risk_flags || [],
         recommendations: [],
-      });
+      };
+
+      // Persist to database
+      const { data: inserted, error: insertErr } = await supabase
+        .from('documentary_coverage_runs')
+        .insert({
+          project_id: projectId,
+          user_id: user.id,
+          ...newResult,
+        })
+        .select()
+        .single();
+
+      if (insertErr) throw insertErr;
+
+      const savedRun = { ...newResult, id: inserted.id, created_at: inserted.created_at };
+      setRuns(prev => [savedRun, ...prev]);
+      setSelectedRunId(inserted.id);
 
       setProgress(100);
-      toast.success('Documentary coverage complete');
+      toast.success('Documentary coverage complete & saved');
     } catch (err: any) {
       toast.error(err.message || 'Coverage analysis failed');
     } finally {
@@ -135,20 +174,40 @@ export function DocumentaryCoveragePanel({ projectId, projectTitle, format, genr
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
         <div>
           <h5 className="text-sm font-medium text-foreground">Documentary Coverage Engine</h5>
           <p className="text-xs text-muted-foreground">Cultural Relevance → Access & Risk → Market Fit</p>
         </div>
-        <Button
-          size="sm"
-          onClick={runCoverage}
-          disabled={loading}
-          className="gap-1.5 text-xs"
-        >
-          {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : <FileSearch className="h-3 w-3" />}
-          {loading ? 'Analysing…' : 'Run Documentary Coverage'}
-        </Button>
+        <div className="flex items-center gap-2">
+          {runs.length > 0 && (
+            <Select value={selectedRunId || ''} onValueChange={setSelectedRunId}>
+              <SelectTrigger className="w-[200px] h-8 text-xs">
+                <History className="h-3 w-3 mr-1.5 text-muted-foreground" />
+                <SelectValue placeholder="Select run…" />
+              </SelectTrigger>
+              <SelectContent>
+                {runs.map((run, i) => (
+                  <SelectItem key={run.id} value={run.id!} className="text-xs">
+                    {run.created_at
+                      ? format(new Date(run.created_at), 'dd MMM yyyy, HH:mm')
+                      : `Run ${runs.length - i}`}
+                    {i === 0 && <Badge className="ml-2 text-[9px] bg-primary/15 text-primary border-primary/30">Latest</Badge>}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          <Button
+            size="sm"
+            onClick={runCoverage}
+            disabled={loading}
+            className="gap-1.5 text-xs"
+          >
+            {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : <FileSearch className="h-3 w-3" />}
+            {loading ? 'Analysing…' : 'Run Coverage'}
+          </Button>
+        </div>
       </div>
 
       {loading && <OperationProgress isActive={loading} stages={DOC_COVERAGE_STAGES} />}
