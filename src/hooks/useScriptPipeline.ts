@@ -34,7 +34,27 @@ async function callEngine(action: string, extra: Record<string, any> = {}) {
     },
     body: JSON.stringify({ action, ...extra }),
   });
-  const result = await resp.json();
+  const text = await resp.text();
+  if (!text || text.trim().length === 0) {
+    throw new Error('Empty response from engine — the request may have timed out. Try again.');
+  }
+  let result: any;
+  try {
+    result = JSON.parse(text);
+  } catch {
+    // Attempt to repair truncated JSON
+    const lastBrace = text.lastIndexOf('}');
+    if (lastBrace > 0) {
+      try {
+        result = JSON.parse(text.substring(0, lastBrace + 1));
+        console.warn('Recovered truncated JSON response');
+      } catch {
+        throw new Error('Invalid response from engine — please retry.');
+      }
+    } else {
+      throw new Error('Invalid response from engine — please retry.');
+    }
+  }
   if (!resp.ok) throw new Error(result.error || 'Engine error');
   return result;
 }
@@ -123,13 +143,15 @@ export function useScriptPipeline(projectId: string | undefined) {
         setState(s => ({ ...s, currentBatch: i }));
 
         const batch = batches[i];
+        // Only send last 2500 chars for continuity (edge function uses last 2000)
+        const continuityText = assembled.length > 2500 ? assembled.slice(-2500) : assembled;
         const batchResult = await callEngine('write-batch', {
           projectId,
           scriptDocId: scriptDoc.id,
           scriptVersionId: scriptVersion.id,
           batchIndex: i,
           scenes: batch.scenes,
-          previousText: assembled,
+          previousText: continuityText,
           toneLock: plan.rules?.tone_lock,
           nonNegotiables: plan.rules?.non_negotiables,
           totalBatches,
