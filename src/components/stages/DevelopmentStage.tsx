@@ -100,6 +100,7 @@ export function DevelopmentStage({
           genres={project.genres || []}
           hasDocuments={hasDocuments || hasScript}
           productionType={project.format}
+          packagingMode={(project as any).packaging_mode || 'streamer_prestige'}
         />
       )}
 

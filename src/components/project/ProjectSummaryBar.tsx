@@ -8,9 +8,11 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { LaneBadge } from '@/components/LaneBadge';
 import { ModeToggle } from '@/components/ModeToggle';
+import { PackagingModeSelector } from '@/components/PackagingModeSelector';
 import type { Project, MonetisationLane } from '@/lib/types';
 import type { ReadinessResult } from '@/lib/readiness-score';
 import { getFormatMeta } from '@/lib/mode-engine';
+import type { PackagingMode } from '@/lib/role-gravity-engine';
 
 interface Props {
   project: Project;
@@ -68,6 +70,13 @@ export function ProjectSummaryBar({ project, readiness, onBestAction }: Props) {
             Improve Readiness
           </Button>
         )}
+
+        {/* Packaging Target */}
+        <PackagingModeSelector
+          projectId={project.id}
+          currentMode={((project as any).packaging_mode as PackagingMode) || 'streamer_prestige'}
+          compact
+        />
 
         {/* Mode toggle */}
         <ModeToggle />

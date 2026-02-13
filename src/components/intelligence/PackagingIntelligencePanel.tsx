@@ -72,12 +72,13 @@ interface Props {
   greenlightSummary?: string;
   coverageSummary?: string;
   characters?: any[];
+  packagingMode?: string;
 }
 
 export function PackagingIntelligencePanel({
   projectTitle, format, genres, lane, budget,
   scoringGrid, riskFlags, developmentTier,
-  greenlightVerdict, greenlightSummary, coverageSummary, characters,
+  greenlightVerdict, greenlightSummary, coverageSummary, characters, packagingMode,
 }: Props) {
   const [result, setResult] = useState<PackagingResult | null>(null);
   const [loading, setLoading] = useState(false);
@@ -92,6 +93,7 @@ export function PackagingIntelligencePanel({
           greenlightVerdict, greenlightSummary,
           coverageSummary: coverageSummary?.slice(0, 2000),
           characters: characters?.slice(0, 15),
+          packagingMode: packagingMode || 'streamer_prestige',
         },
       });
       if (error) throw error;
