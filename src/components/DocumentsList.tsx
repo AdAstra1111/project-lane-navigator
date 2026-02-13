@@ -113,7 +113,7 @@ export function DocumentsList({ documents, projectId }: DocumentsListProps) {
         .select('file_path')
         .eq('project_id', projectId);
 
-      const allPaths = (allDocs || []).map(d => d.file_path);
+      const allPaths = (allDocs || []).map(d => d.file_path).filter(p => p && p.trim() !== '');
 
       const { data: analysisData, error: analysisError } = await supabase.functions.invoke('analyze-project', {
         body: {

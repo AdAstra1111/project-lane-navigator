@@ -525,6 +525,47 @@ serve(async (req) => {
       }
     }
 
+    // ---- DEV-ENGINE DOCS: Pull content from project_document_versions for docs without file_path ----
+    if (projectInput.id) {
+      const { data: devDocs } = await adminClient
+        .from("project_documents")
+        .select("id, file_name, doc_type")
+        .eq("project_id", projectInput.id)
+        .or("file_path.is.null,file_path.eq.");
+
+      if (devDocs && devDocs.length > 0) {
+        // Filter out docs we already processed via documentPaths
+        const processedNames = new Set(docResults.map(d => d.file_name));
+        const unprocessed = devDocs.filter(d => !processedNames.has(d.file_name));
+
+        for (const doc of unprocessed) {
+          // Get latest version's plaintext
+          const { data: latestVersion } = await adminClient
+            .from("project_document_versions")
+            .select("plaintext, version_number")
+            .eq("document_id", doc.id)
+            .order("version_number", { ascending: false })
+            .limit(1)
+            .single();
+
+          const text = latestVersion?.plaintext?.replace(/\u0000/g, "")?.trim() || "";
+          if (text.length > 20) {
+            console.log(`[analyze] Dev-engine doc "${doc.file_name}" (v${latestVersion?.version_number}): ${text.length} chars`);
+            docResults.push({
+              file_name: doc.file_name || "document",
+              file_path: "",
+              extracted_text: text,
+              extraction_status: "success",
+              total_pages: Math.ceil(text.split(/\s+/).length / WORDS_PER_PAGE),
+              pages_analyzed: null,
+              error_message: null,
+            });
+            combinedText += `\n\n--- ${doc.file_name} (${doc.doc_type || "document"}) ---\n${text}`;
+          }
+        }
+      }
+    }
+
     // Cap total text at MAX_CHARS first (catches noisy extractions), then MAX_WORDS
     if (combinedText.length > MAX_CHARS) {
       combinedText = combinedText.slice(0, MAX_CHARS);
