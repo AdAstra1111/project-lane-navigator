@@ -45,7 +45,7 @@ interface ScriptDetection {
 
 interface AddDocumentsUploadProps {
   existingCount: number;
-  onUpload: (files: File[], scriptInfo?: { isLatestDraft: boolean; scriptFiles: string[] }) => void;
+  onUpload: (files: File[], scriptInfo?: { isLatestDraft: boolean; scriptFiles: string[] }, docType?: string) => void;
   isUploading: boolean;
 }
 
@@ -120,6 +120,14 @@ export function AddDocumentsUpload({ existingCount, onUpload, isUploading }: Add
   const handleNotAScript = () => {
     if (!scriptDialog) return;
     onUpload(scriptDialog.files);
+    setScriptDialog(null);
+    setFiles([]);
+    setIsExpanded(false);
+  };
+
+  const handleTreatmentUpload = () => {
+    if (!scriptDialog) return;
+    onUpload(scriptDialog.files, undefined, 'treatment');
     setScriptDialog(null);
     setFiles([]);
     setIsExpanded(false);
@@ -261,31 +269,31 @@ export function AddDocumentsUpload({ existingCount, onUpload, isUploading }: Add
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2">
               <FileText className="h-5 w-5 text-primary" />
-              Script Detected
+              What type of document is this?
             </AlertDialogTitle>
             <AlertDialogDescription className="space-y-2">
               <span className="block">
                 {scriptDialog?.scriptFiles.length === 1
-                  ? `"${scriptDialog.scriptFiles[0].name}" looks like a script.`
-                  : `${scriptDialog?.scriptFiles.length} files look like scripts.`}
-              </span>
-              <span className="block font-medium text-foreground">
-                Is this the latest draft?
+                  ? `"${scriptDialog.scriptFiles[0].name}" looks like a script or treatment.`
+                  : `${scriptDialog?.scriptFiles.length} files look like scripts or treatments.`}
               </span>
               <span className="block text-xs">
-                If yes, it will be marked as the current script and previous versions will be archived. The project's intelligence will be updated automatically.
+                Labelling correctly helps IFFY route analysis and enables comparison tools.
               </span>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="flex-col sm:flex-row gap-2">
             <Button variant="outline" size="sm" onClick={handleNotAScript}>
-              Not a Script
+              Just a Document
+            </Button>
+            <Button variant="secondary" size="sm" onClick={() => handleTreatmentUpload()}>
+              It's a Treatment
             </Button>
             <Button variant="secondary" size="sm" onClick={() => handleScriptResponse(false)}>
-              No, It's an Older Draft
+              Older Script Draft
             </Button>
             <Button size="sm" onClick={() => handleScriptResponse(true)}>
-              Yes, Latest Draft
+              Latest Script Draft
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>

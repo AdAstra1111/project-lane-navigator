@@ -25,7 +25,7 @@ export function useAddDocuments(projectId: string | undefined) {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ files, scriptInfo }: { files: File[]; scriptInfo?: ScriptInfo }) => {
+    mutationFn: async ({ files, scriptInfo, docType }: { files: File[]; scriptInfo?: ScriptInfo; docType?: string }) => {
       if (!projectId) throw new Error('No project ID');
 
       const { data: { user } } = await supabase.auth.getUser();
@@ -42,6 +42,17 @@ export function useAddDocuments(projectId: string | undefined) {
 
       if (error) throw new Error(error.message || 'Document extraction failed');
       if (data?.error) throw new Error(data.error);
+
+      // 2b. If a doc_type was specified, update the documents
+      if (docType) {
+        for (const r of uploadResults) {
+          await supabase
+            .from('project_documents')
+            .update({ doc_type: docType } as any)
+            .eq('project_id', projectId)
+            .eq('file_path', r.path);
+        }
+      }
 
       // 3. If script detected, create project_scripts record
       if (scriptInfo) {

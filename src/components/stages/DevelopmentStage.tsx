@@ -17,6 +17,7 @@ import { CompAnalysis } from '@/components/market/CompAnalysis';
 import { GeographySelector } from '@/components/GeographySelector';
 import { ProjectNoteInput } from '@/components/project/ProjectNoteInput';
 import { AddDocumentsUpload } from '@/components/AddDocumentsUpload';
+import { TreatmentComparePanel } from '@/components/script/TreatmentComparePanel';
 import { DocumentsList } from '@/components/DocumentsList';
 import type { Project, FullAnalysis, Recommendation } from '@/lib/types';
 import type { ProjectDocument } from '@/lib/types';
@@ -34,7 +35,7 @@ interface Props {
   hasDocuments: boolean;
   hasScript: boolean;
   documents: ProjectDocument[];
-  onUpload: (files: File[], scriptInfo?: any) => void;
+  onUpload: (files: File[], scriptInfo?: any, docType?: string) => void;
   isUploading: boolean;
   scriptText: string | null;
   stageReadiness: StageReadinessResult | null;
@@ -104,6 +105,13 @@ export function DevelopmentStage({
           packagingStage={(project as any).packaging_stage || 'early_dev'}
         />
       )}
+
+      {/* Treatment vs Script Comparison */}
+      <TreatmentComparePanel
+        documents={documents}
+        scriptText={scriptText}
+        currentScriptLabel={currentScript?.version_label}
+      />
 
       {/* IFFY Verdict */}
       {hasNewAnalysis && analysis?.verdict && (
