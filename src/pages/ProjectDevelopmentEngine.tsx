@@ -590,13 +590,6 @@ export default function ProjectDevelopmentEngine() {
                                 );
                               })}
                             </div>
-                            {latestAnalysis.verdict && (
-                              <div className="text-center pt-2">
-                                <Badge variant={latestAnalysis.verdict === 'Invest' ? 'default' : 'secondary'} className="text-sm px-4 py-1">
-                                  {latestAnalysis.verdict}
-                                </Badge>
-                              </div>
-                            )}
                           </>
                         ) : (
                           <div className="text-center py-12 text-muted-foreground">
