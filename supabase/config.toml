@@ -86,3 +86,6 @@ verify_jwt = false
 
 [functions.finance-predict]
 verify_jwt = false
+
+[functions.embed-corpus]
+verify_jwt = false

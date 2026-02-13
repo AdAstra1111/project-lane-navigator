@@ -170,3 +170,57 @@ export function useCorpusSearch() {
     onError: (e) => toast.error(`Search failed: ${e.message}`),
   });
 }
+
+// ── Embedding Pipeline ────────────────────────────────────────────────
+
+export function useEmbedScript() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (scriptId: string) => {
+      const { data, error } = await supabase.functions.invoke('embed-corpus', {
+        body: { action: 'embed_script', script_id: scriptId },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      return data as { embedded: number; errors: number; total: number };
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['corpus-scripts'] });
+      toast.success(`Embedded ${data.embedded}/${data.total} chunks`);
+    },
+    onError: (e) => toast.error(`Embedding failed: ${e.message}`),
+  });
+}
+
+export function useEmbedAllPending() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.functions.invoke('embed-corpus', {
+        body: { action: 'embed_pending' },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      return data as { embedded: number; errors: number; scripts_processed: number };
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['corpus-scripts'] });
+      toast.success(`Embedded ${data.embedded} chunks across ${data.scripts_processed} scripts`);
+    },
+    onError: (e) => toast.error(`Batch embedding failed: ${e.message}`),
+  });
+}
+
+export function useSemanticSearch() {
+  return useMutation({
+    mutationFn: async (params: { query: string; limit?: number; script_id?: string }) => {
+      const { data, error } = await supabase.functions.invoke('embed-corpus', {
+        body: { action: 'semantic_search', ...params },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      return data as { chunks: any[]; scripts: any[] };
+    },
+    onError: (e) => toast.error(`Semantic search failed: ${e.message}`),
+  });
+}
