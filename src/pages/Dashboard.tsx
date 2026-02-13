@@ -72,7 +72,7 @@ export default function Dashboard() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3 }}
         >
-          <div className="flex items-end justify-between mb-8">
+          <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-8">
             <div>
               {primaryCompany && (
                 <div className="mb-3">
@@ -97,10 +97,10 @@ export default function Dashboard() {
                 {projects.length} project{projects.length !== 1 ? 's' : ''} classified
               </p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               {projects.length >= 1 && (
                 <Link to="/pipeline">
-                  <Button variant="outline">
+                  <Button variant="outline" size="sm">
                     <Kanban className="h-4 w-4 mr-1.5" />
                     Pipeline
                   </Button>
@@ -108,14 +108,14 @@ export default function Dashboard() {
               )}
               {projects.length >= 2 && (
                 <Link to="/compare">
-                  <Button variant="outline">
+                  <Button variant="outline" size="sm">
                     <ArrowLeftRight className="h-4 w-4 mr-1.5" />
                     Compare
                   </Button>
                 </Link>
               )}
               <Select value={roleView} onValueChange={setRoleView}>
-                <SelectTrigger className="w-36">
+                <SelectTrigger className="w-32 h-9 text-sm">
                   <SelectValue placeholder="Role View" />
                 </SelectTrigger>
                 <SelectContent>
@@ -127,7 +127,7 @@ export default function Dashboard() {
                 </SelectContent>
               </Select>
               <Link to="/projects/new">
-                <Button className="bg-primary text-primary-foreground hover:bg-primary/90">
+                <Button size="sm" className="bg-primary text-primary-foreground hover:bg-primary/90">
                   <Plus className="h-4 w-4 mr-1.5" />
                   New Project
                 </Button>
