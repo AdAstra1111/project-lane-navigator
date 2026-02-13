@@ -64,6 +64,7 @@ function basicPDFExtract(bytes: Uint8Array): string {
       s.replace(/\\n/g, "\n").replace(/\\\(/g, "(").replace(/\\\)/g, ")").replace(/\\\\/g, "\\")
     )
     .join(" ")
+    .replace(/\u0000/g, "")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -105,7 +106,7 @@ async function extractFromPDF(data: ArrayBuffer): Promise<ExtractionResult> {
     }
 
     return {
-      text: fullText.trim(),
+      text: fullText.replace(/\u0000/g, "").trim(),
       totalPages,
       pagesAnalyzed: pagesToRead,
       status: pagesToRead < totalPages ? "partial" : "success",
@@ -484,7 +485,7 @@ serve(async (req) => {
         });
 
         if (result.text) {
-          combinedText += `\n\n--- ${fileName} ---\n${result.text}`;
+          combinedText += `\n\n--- ${fileName} ---\n${result.text.replace(/\u0000/g, "")}`;
         }
       }
     }
