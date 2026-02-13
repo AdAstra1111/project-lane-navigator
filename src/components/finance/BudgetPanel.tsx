@@ -16,8 +16,8 @@ import {
   BUDGET_CATEGORIES,
   type ProjectBudget,
 } from '@/hooks/useBudgets';
-import { BudgetCompareView } from '@/components/BudgetCompareView';
-import { MovieMagicImport } from '@/components/MovieMagicImport';
+import { BudgetCompareView } from '@/components/finance/BudgetCompareView';
+import { MovieMagicImport } from '@/components/finance/MovieMagicImport';
 import { exportBudgetXLSX } from '@/lib/xls-export';
 import { exportBudgetCSV } from '@/lib/csv-export';
 

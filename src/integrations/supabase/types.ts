@@ -2471,7 +2471,11 @@ export type Database = {
       }
       outcome_deltas: {
         Row: {
+          actual_budget_range: string | null
+          actual_lane: string | null
           budget_achieved: boolean | null
+          budget_range_prediction_correct: boolean | null
+          commercial_score_delta: number | null
           computed_at: string | null
           development_time_months: number | null
           distribution_offer: boolean | null
@@ -2484,7 +2488,10 @@ export type Database = {
           initial_finance_confidence: string | null
           initial_greenlight_verdict: string | null
           initial_structural_score: number | null
+          lane_prediction_correct: boolean | null
           notes: Json | null
+          predicted_budget_range: string | null
+          predicted_lane: string | null
           predicted_to_actual_gap_score: number | null
           presales_secured: boolean | null
           project_id: string
@@ -2494,7 +2501,11 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          actual_budget_range?: string | null
+          actual_lane?: string | null
           budget_achieved?: boolean | null
+          budget_range_prediction_correct?: boolean | null
+          commercial_score_delta?: number | null
           computed_at?: string | null
           development_time_months?: number | null
           distribution_offer?: boolean | null
@@ -2507,7 +2518,10 @@ export type Database = {
           initial_finance_confidence?: string | null
           initial_greenlight_verdict?: string | null
           initial_structural_score?: number | null
+          lane_prediction_correct?: boolean | null
           notes?: Json | null
+          predicted_budget_range?: string | null
+          predicted_lane?: string | null
           predicted_to_actual_gap_score?: number | null
           presales_secured?: boolean | null
           project_id: string
@@ -2517,7 +2531,11 @@ export type Database = {
           user_id: string
         }
         Update: {
+          actual_budget_range?: string | null
+          actual_lane?: string | null
           budget_achieved?: boolean | null
+          budget_range_prediction_correct?: boolean | null
+          commercial_score_delta?: number | null
           computed_at?: string | null
           development_time_months?: number | null
           distribution_offer?: boolean | null
@@ -2530,7 +2548,10 @@ export type Database = {
           initial_finance_confidence?: string | null
           initial_greenlight_verdict?: string | null
           initial_structural_score?: number | null
+          lane_prediction_correct?: boolean | null
           notes?: Json | null
+          predicted_budget_range?: string | null
+          predicted_lane?: string | null
           predicted_to_actual_gap_score?: number | null
           presales_secured?: boolean | null
           project_id?: string
@@ -6289,9 +6310,12 @@ export type Database = {
     Views: {
       outcome_accuracy_summary: {
         Row: {
+          avg_commercial_delta: number | null
           avg_gap_score: number | null
+          budget_accuracy: number | null
           finance_accuracy: number | null
           greenlight_accuracy: number | null
+          lane_accuracy: number | null
           total: number | null
         }
         Relationships: []

@@ -9,7 +9,7 @@ import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { CommandPalette } from "@/components/CommandPalette";
 import { AuthProvider } from "@/hooks/useAuth";
 import { ThemeProvider } from "@/hooks/useTheme";
-import { CorpusIntegrityBanner } from "@/components/CorpusIntegrityBanner";
+import { CorpusIntegrityBanner } from "@/components/corpus/CorpusIntegrityBanner";
 import { UIModeProvider } from "@/hooks/useUIMode";
 
 // Eagerly load landing + auth (first paint)

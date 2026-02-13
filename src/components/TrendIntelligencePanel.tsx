@@ -13,7 +13,7 @@ import { PredictionOutcomePanel } from '@/components/PredictionOutcomePanel';
 import { WesternEntryAdvantagePanel } from '@/components/WesternEntryAdvantagePanel';
 import { WesternEntryMonitorPanel } from '@/components/WesternEntryMonitorPanel';
 import { OperationProgress, AI_SCORE_STAGES, TREND_REFRESH_STAGES } from '@/components/OperationProgress';
-import { SourceConfidenceOverlay } from '@/components/SourceConfidenceOverlay';
+import { SourceConfidenceOverlay } from '@/components/corpus/SourceConfidenceOverlay';
 
 const CYCLE_CONFIG: Record<CyclePosition, { color: string; icon: typeof TrendingUp; label: string }> = {
   Boom: { color: 'text-emerald-400', icon: TrendingUp, label: 'Boom' },

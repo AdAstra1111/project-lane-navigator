@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { FinanceReadinessBreakdown } from '@/components/FinanceReadinessBreakdown';
+import { FinanceReadinessBreakdown } from '@/components/finance/FinanceReadinessBreakdown';
 import type {
   FinanceReadinessResult,
   BudgetModule,

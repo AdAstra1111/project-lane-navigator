@@ -5,11 +5,11 @@
 
 import { useMemo } from 'react';
 import { ScheduleTab } from '@/components/ScheduleTab';
-import { CostTrackingPanel } from '@/components/CostTrackingPanel';
+import { CostTrackingPanel } from '@/components/finance/CostTrackingPanel';
 import { StageReadinessScore } from '@/components/StageReadinessScore';
 import { DailyReportLogger } from '@/components/DailyReportLogger';
-import { CostActualsTracker } from '@/components/CostActualsTracker';
-import { ProductionStabilityPanel } from '@/components/ProductionStabilityPanel';
+import { CostActualsTracker } from '@/components/finance/CostActualsTracker';
+import { ProductionStabilityPanel } from '@/components/intelligence/ProductionStabilityPanel';
 import { useDailyReports, useCostActuals } from '@/hooks/useProductionMonitoring';
 import type { StageReadinessResult } from '@/lib/stage-readiness';
 

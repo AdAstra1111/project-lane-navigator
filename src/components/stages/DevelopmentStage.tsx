@@ -6,7 +6,7 @@
 import { useMemo } from 'react';
 import { FileText, TrendingUp, AlertTriangle, Quote, CheckCircle2, ShieldAlert, MessageSquareQuote } from 'lucide-react';
 import { StageReadinessScore } from '@/components/StageReadinessScore';
-import { DevelopmentIntelligencePanel } from '@/components/DevelopmentIntelligencePanel';
+import { DevelopmentIntelligencePanel } from '@/components/intelligence/DevelopmentIntelligencePanel';
 import { DraftDeltaPanel } from '@/components/DraftDeltaPanel';
 import { ScriptEnginePanel } from '@/components/ScriptEnginePanel';
 import { ScriptCoverage } from '@/components/ScriptCoverage';

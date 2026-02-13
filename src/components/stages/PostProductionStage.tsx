@@ -4,8 +4,8 @@
  */
 
 import { Film } from 'lucide-react';
-import { DeliveryIntelligencePanel } from '@/components/DeliveryIntelligencePanel';
-import { PostProductionIntelligencePanel } from '@/components/PostProductionIntelligencePanel';
+import { DeliveryIntelligencePanel } from '@/components/intelligence/DeliveryIntelligencePanel';
+import { PostProductionIntelligencePanel } from '@/components/intelligence/PostProductionIntelligencePanel';
 import { StageReadinessScore } from '@/components/StageReadinessScore';
 import type { StageReadinessResult } from '@/lib/stage-readiness';
 

@@ -23,14 +23,14 @@ import { OperationProgress, EXTRACT_STAGES } from '@/components/OperationProgres
 import { useAuth } from '@/hooks/useAuth';
 import { format as fmtDate } from 'date-fns';
 import { GreatNotesLibrary } from '@/components/GreatNotesLibrary';
-import { CorpusLibrary } from '@/components/CorpusLibrary';
+import { CorpusLibrary } from '@/components/corpus/CorpusLibrary';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { NotesReview } from '@/components/NotesReview';
 import { StructuredNote } from '@/hooks/useNoteFeedback';
 import { ShareSignalDialog } from '@/components/ShareSignalDialog';
 import { GreenlightSimulator } from '@/components/GreenlightSimulator';
-import { PackagingIntelligencePanel } from '@/components/PackagingIntelligencePanel';
-import { FinancePredictionPanel } from '@/components/FinancePredictionPanel';
+import { PackagingIntelligencePanel } from '@/components/intelligence/PackagingIntelligencePanel';
+import { FinancePredictionPanel } from '@/components/finance/FinancePredictionPanel';
 
 const COVERAGE_3PASS_STAGES = [
   { at: 5, label: 'Pass A: Analyst diagnosis…' },

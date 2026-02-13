@@ -25,7 +25,7 @@ import { ProjectCommentsThread } from '@/components/ProjectCommentsThread';
 import { ProjectTimeline } from '@/components/ProjectTimeline';
 import { ProjectChat } from '@/components/ProjectChat';
 import { DecisionJournal } from '@/components/DecisionJournal';
-import { BudgetAssumptionsPanel } from '@/components/BudgetAssumptionsPanel';
+import { BudgetAssumptionsPanel } from '@/components/finance/BudgetAssumptionsPanel';
 import { PackagingPipelinePanel } from '@/components/PackagingPipelinePanel';
 import { StageGatesPanel } from '@/components/StageGatesPanel';
 import { LIFECYCLE_STAGES, type LifecycleStage, getStageOrder, getStageMeta } from '@/lib/lifecycle-stages';
