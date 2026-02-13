@@ -30,6 +30,9 @@ import { FinancingLayer } from '@/components/stages/FinancingLayer';
 import { BudgetingLayer } from '@/components/stages/BudgetingLayer';
 import { RecoupmentLayer } from '@/components/stages/RecoupmentLayer';
 import { TrendsLayer } from '@/components/stages/TrendsLayer';
+import { IntegrationHub } from '@/components/integrations/IntegrationHub';
+
+import { Cable } from 'lucide-react';
 
 const TABS = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
@@ -38,6 +41,7 @@ const TABS = [
   { id: 'package', label: 'Package', icon: Users },
   { id: 'finance', label: 'Finance', icon: DollarSign },
   { id: 'production', label: 'Production', icon: Clapperboard },
+  { id: 'integrations', label: 'Integrations', icon: Cable },
 ] as const;
 
 type TabId = (typeof TABS)[number]['id'];
@@ -301,6 +305,9 @@ export function AdvancedProjectView(props: Props) {
             </Accordion>
           </div>
         );
+
+      case 'integrations':
+        return <IntegrationHub projectId={props.projectId} />;
 
       default:
         return null;
