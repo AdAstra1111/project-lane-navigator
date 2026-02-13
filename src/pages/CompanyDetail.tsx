@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { Header } from '@/components/Header';
 import { PageTransition } from '@/components/PageTransition';
-import { ProjectCard } from '@/components/ProjectCard';
+import { ProjectCard } from '@/components/project/ProjectCard';
 import { useCompany, useCompanyProjects, useProjectCompanies, useCompanies } from '@/hooks/useCompanies';
 import { useCompanyMembers } from '@/hooks/useCompanyMembers';
 import { useProjects } from '@/hooks/useProjects';

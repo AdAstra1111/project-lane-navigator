@@ -4,9 +4,9 @@ import { Radio, ChevronDown } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '@/components/ui/accordion';
 import { useActiveSignals, TrendSignal } from '@/hooks/useTrends';
-import { TrendScoreBadges } from '@/components/TrendScoreBadges';
+import { TrendScoreBadges } from '@/components/market/TrendScoreBadges';
 import type { Project } from '@/lib/types';
-import { SignalCard } from '@/components/SignalCard';
+import { SignalCard } from '@/components/market/SignalCard';
 
 interface Props {
   project: Project;

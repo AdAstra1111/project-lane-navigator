@@ -19,7 +19,7 @@ import { toast } from 'sonner';
 import { format as fmtDate } from 'date-fns';
 import { Header } from '@/components/Header';
 import { PageTransition } from '@/components/PageTransition';
-import { GreatNotesLibrary } from '@/components/GreatNotesLibrary';
+import { GreatNotesLibrary } from '@/components/script/GreatNotesLibrary';
 
 // ─── Prompt Versions Tab ───
 function PromptVersionsTab() {

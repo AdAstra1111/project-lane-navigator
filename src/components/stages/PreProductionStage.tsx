@@ -11,7 +11,7 @@ import { StageReadinessScore } from '@/components/StageReadinessScore';
 import { BudgetPanel } from '@/components/finance/BudgetPanel';
 import { ScheduleTab } from '@/components/ScheduleTab';
 import { ScheduleIntelligencePanel } from '@/components/intelligence/ScheduleIntelligencePanel';
-import { ScriptToBudgetPanel } from '@/components/ScriptToBudgetPanel';
+import { ScriptToBudgetPanel } from '@/components/script/ScriptToBudgetPanel';
 import { ContractManagerPanel } from '@/components/ContractManagerPanel';
 import { DeadlinePanel } from '@/components/DeadlinePanel';
 import { PreProductionIntelligencePanel } from '@/components/intelligence/PreProductionIntelligencePanel';

@@ -4,7 +4,7 @@ import { ArrowRight, Star } from 'lucide-react';
 import { differenceInDays } from 'date-fns';
 import { Project, MonetisationLane } from '@/lib/types';
 import { getFormatMeta } from '@/lib/mode-engine';
-import { LaneBadge } from './LaneBadge';
+import { LaneBadge } from '@/components/LaneBadge';
 
 interface ProjectCardProps {
   project: Project;

@@ -3,10 +3,10 @@
  */
 
 import { FinanceReadinessPanel } from '@/components/finance/FinanceReadinessPanel';
-import { FinanceTab } from '@/components/ProjectAttachmentTabs';
+import { FinanceTab } from '@/components/project/ProjectAttachmentTabs';
 import { FinanceWaterfall } from '@/components/finance/FinanceWaterfall';
 import { DealTracker } from '@/components/finance/DealTracker';
-import { ProjectIncentivePanel } from '@/components/ProjectIncentivePanel';
+import { ProjectIncentivePanel } from '@/components/project/ProjectIncentivePanel';
 import type { Project } from '@/lib/types';
 import type { FinanceReadinessResult } from '@/lib/finance-readiness';
 

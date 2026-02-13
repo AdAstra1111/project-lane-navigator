@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { CastInfoDialog } from '@/components/CastInfoDialog';
+import { CastInfoDialog } from '@/components/talent/CastInfoDialog';
 import { usePersonImage } from '@/hooks/usePersonImage';
 import type { TalentTriageItem, TriageStatus } from '@/hooks/useTalentTriage';
 

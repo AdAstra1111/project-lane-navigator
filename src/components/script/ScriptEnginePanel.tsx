@@ -23,7 +23,7 @@ import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import { useScriptEngine, type ScriptScene } from '@/hooks/useScriptEngine';
 import { useResolvedCalibration, useCalibrationForType, type ResolvedCalibration } from '@/hooks/useCorpusInsights';
-import { DeviationGauge } from '@/components/DeviationGauge';
+import { DeviationGauge } from '@/components/script/DeviationGauge';
 import { toast } from 'sonner';
 
 interface Props {

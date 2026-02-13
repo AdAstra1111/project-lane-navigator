@@ -25,9 +25,9 @@ import {
 } from '@/hooks/useProjectAttachments';
 import { useScriptCharacters } from '@/hooks/useScriptCharacters';
 import { usePersonResearch } from '@/hooks/usePersonResearch';
-import { PersonAssessmentCard } from '@/components/PersonAssessmentCard';
+import { PersonAssessmentCard } from '@/components/talent/PersonAssessmentCard';
 import { ScheduleTab } from '@/components/ScheduleTab';
-import { PersonNameLink } from '@/components/PersonNameLink';
+import { PersonNameLink } from '@/components/talent/PersonNameLink';
 import { useProjectDeals, type DealCategory } from '@/hooks/useDeals';
 
 // ---- Status badge styles ----

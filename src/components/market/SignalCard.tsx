@@ -1,8 +1,8 @@
 import { motion } from 'framer-motion';
 import { TrendSignal } from '@/hooks/useTrends';
 import { Badge } from '@/components/ui/badge';
-import { TrendScoreBadges } from '@/components/TrendScoreBadges';
-import { ShareSignalDialog } from '@/components/ShareSignalDialog';
+import { TrendScoreBadges } from '@/components/market/TrendScoreBadges';
+import { ShareSignalDialog } from '@/components/market/ShareSignalDialog';
 import { formatDistanceToNow } from 'date-fns';
 
 const CATEGORY_STYLES: Record<string, string> = {

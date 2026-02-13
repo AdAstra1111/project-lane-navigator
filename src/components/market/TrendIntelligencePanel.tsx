@@ -9,9 +9,9 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { cn } from '@/lib/utils';
 import { useTrendEngines, useEngineWeights, useProjectEngineScores, useAIEngineScoring, useRecalibrateWeights } from '@/hooks/useTrendEngines';
 import { calculateTrendViability, calculateWesternEntryAdvantage, type TrendViabilityResult, type CyclePosition, type DynamicModifierContext } from '@/lib/trend-viability';
-import { PredictionOutcomePanel } from '@/components/PredictionOutcomePanel';
-import { WesternEntryAdvantagePanel } from '@/components/WesternEntryAdvantagePanel';
-import { WesternEntryMonitorPanel } from '@/components/WesternEntryMonitorPanel';
+import { PredictionOutcomePanel } from '@/components/market/PredictionOutcomePanel';
+import { WesternEntryAdvantagePanel } from '@/components/market/WesternEntryAdvantagePanel';
+import { WesternEntryMonitorPanel } from '@/components/market/WesternEntryMonitorPanel';
 import { OperationProgress, AI_SCORE_STAGES, TREND_REFRESH_STAGES } from '@/components/OperationProgress';
 import { SourceConfidenceOverlay } from '@/components/corpus/SourceConfidenceOverlay';
 
