@@ -79,20 +79,30 @@ function VerdictIcon({ verdict }: { verdict: string }) {
 
 function CollapsibleSection({ title, defaultOpen = false, children, headerExtra }: { title: string; defaultOpen?: boolean; children: React.ReactNode; headerExtra?: React.ReactNode }) {
   const [open, setOpen] = useState(defaultOpen);
+
+  const handleToggle = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setOpen(prev => !prev);
+  };
+
   return (
     <div className="border border-border/40 rounded-lg">
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        className={`w-full bg-muted/30 px-3 py-2 flex items-center justify-between hover:bg-muted/50 transition-colors cursor-pointer ${open ? 'border-b border-border/40 rounded-t-lg' : 'rounded-lg'}`}
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={handleToggle}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen(prev => !prev); } }}
+        className={`w-full bg-muted/30 px-3 py-2 flex items-center justify-between hover:bg-muted/50 transition-colors cursor-pointer select-none ${open ? 'border-b border-border/40 rounded-t-lg' : 'rounded-lg'}`}
+        style={{ userSelect: 'none' }}
       >
-        <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+        <span className="text-xs font-semibold text-foreground flex items-center gap-1.5 pointer-events-none">
           <ChevronRight className={`h-3 w-3 transition-transform duration-200 ${open ? 'rotate-90' : ''}`} />
           {title}
         </span>
-        {headerExtra}
-      </button>
-      {open && <div>{children}</div>}
+        {headerExtra && <span className="pointer-events-none">{headerExtra}</span>}
+      </div>
+      {open ? <div className="p-0">{children}</div> : null}
     </div>
   );
 }
