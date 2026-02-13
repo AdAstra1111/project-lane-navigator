@@ -12,6 +12,7 @@ import type { PitchIdea } from '@/hooks/usePitchIdeas';
 import { useProjects } from '@/hooks/useProjects';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { OperationProgress, PROMOTE_STAGES } from '@/components/OperationProgress';
 
 const BUDGET_BANDS = ['Micro (<$500K)', 'Low ($500K–$2M)', 'Mid ($2M–$10M)', 'Mid-High ($10M–$25M)', 'High ($25M–$50M)', 'Studio ($50M+)'];
 const PRODUCTION_TYPES = ['feature_film', 'tv_series', 'limited_series', 'documentary', 'short_film', 'animation'];
@@ -158,6 +159,8 @@ export function SendToProjectDialog({ idea, open, onOpenChange }: Props) {
             </div>
           </div>
         </div>
+
+        <OperationProgress isActive={sending} stages={PROMOTE_STAGES} className="py-1" />
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={sending}>Cancel</Button>

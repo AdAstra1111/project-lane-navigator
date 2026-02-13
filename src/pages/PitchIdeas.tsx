@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { Lightbulb, Radar, RefreshCw, Loader2, Download, X, FileSearch, ChevronDown, ChevronUp } from 'lucide-react';
+import { OperationProgress, GENERATE_PITCH_STAGES } from '@/components/OperationProgress';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Header } from '@/components/Header';
 import { Button } from '@/components/ui/button';
@@ -210,6 +211,8 @@ export default function PitchIdeas() {
           onGenerate={generate}
           generating={generating || (mode === 'coverage-transform' && !selectedProject)}
         />
+
+        <OperationProgress isActive={generating} stages={GENERATE_PITCH_STAGES} />
 
         {/* Status filter */}
         <div className="flex gap-2 flex-wrap">

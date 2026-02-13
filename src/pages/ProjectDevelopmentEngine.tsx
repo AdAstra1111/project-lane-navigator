@@ -20,6 +20,7 @@ import {
   Plus, ClipboardPaste, Upload, ChevronDown, BarChart3,
   AlertTriangle, GitBranch, Clock, RefreshCw
 } from 'lucide-react';
+import { OperationProgress, DEV_ANALYZE_STAGES, DEV_NOTES_STAGES, DEV_REWRITE_STAGES, DEV_CONVERT_STAGES } from '@/components/OperationProgress';
 
 // ── Convergence Gauge ──
 function ConvergenceGauge({ ci, gp, gap, status, allowedGap }: { ci: number; gp: number; gap: number; status: string; allowedGap?: number }) {
@@ -378,6 +379,10 @@ export default function ProjectDevelopmentEngine() {
                       </Button>
                     </div>
                   </div>
+                  <OperationProgress isActive={analyze.isPending} stages={DEV_ANALYZE_STAGES} className="mb-2" />
+                  <OperationProgress isActive={generateNotes.isPending} stages={DEV_NOTES_STAGES} className="mb-2" />
+                  <OperationProgress isActive={rewrite.isPending} stages={DEV_REWRITE_STAGES} className="mb-2" />
+                  <OperationProgress isActive={convert.isPending} stages={DEV_CONVERT_STAGES} className="mb-2" />
 
                   {/* Content tab */}
                   <TabsContent value="content" className="mt-0">

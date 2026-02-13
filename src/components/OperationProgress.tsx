@@ -133,3 +133,54 @@ export const SEASON_ARC_STAGES: Stage[] = [
   { at: 75, label: 'Scoring cohesion…' },
   { at: 92, label: 'Finalising…' },
 ];
+
+export const GENERATE_PITCH_STAGES: Stage[] = [
+  { at: 5, label: 'Reading brief…' },
+  { at: 15, label: 'Researching market…' },
+  { at: 35, label: 'Generating concepts…' },
+  { at: 55, label: 'Scoring viability…' },
+  { at: 75, label: 'Ranking ideas…' },
+  { at: 90, label: 'Saving results…' },
+];
+
+export const DEV_ANALYZE_STAGES: Stage[] = [
+  { at: 5, label: 'Reading document…' },
+  { at: 20, label: 'Analysing creative integrity…' },
+  { at: 45, label: 'Evaluating commercial potential…' },
+  { at: 65, label: 'Scoring convergence…' },
+  { at: 85, label: 'Building insights…' },
+  { at: 95, label: 'Almost done…' },
+];
+
+export const DEV_NOTES_STAGES: Stage[] = [
+  { at: 5, label: 'Reading analysis…' },
+  { at: 25, label: 'Identifying moves…' },
+  { at: 50, label: 'Prioritising notes…' },
+  { at: 75, label: 'Categorising actions…' },
+  { at: 92, label: 'Finalising…' },
+];
+
+export const DEV_REWRITE_STAGES: Stage[] = [
+  { at: 5, label: 'Loading approved notes…' },
+  { at: 20, label: 'Protecting core elements…' },
+  { at: 40, label: 'Rewriting content…' },
+  { at: 65, label: 'Validating changes…' },
+  { at: 85, label: 'Creating new version…' },
+  { at: 95, label: 'Almost done…' },
+];
+
+export const DEV_CONVERT_STAGES: Stage[] = [
+  { at: 5, label: 'Reading source document…' },
+  { at: 20, label: 'Mapping structure…' },
+  { at: 45, label: 'Converting format…' },
+  { at: 70, label: 'Preserving creative DNA…' },
+  { at: 90, label: 'Saving new document…' },
+];
+
+export const PROMOTE_STAGES: Stage[] = [
+  { at: 5, label: 'Preparing project…' },
+  { at: 25, label: 'Creating project record…' },
+  { at: 50, label: 'Attaching documents…' },
+  { at: 75, label: 'Setting up development…' },
+  { at: 92, label: 'Finalising…' },
+];
