@@ -142,6 +142,66 @@ Return ONLY valid JSON:
   "change_summary": "what was adapted/expanded/compressed"
 }`;
 
+// ── PIPELINE PROMPTS ──
+
+const SCRIPT_PLAN_SYSTEM = `You are IFFY, a professional screenplay architect.
+Given a concept/treatment/blueprint, create a detailed scene-by-scene plan for a feature-length screenplay.
+
+RULES:
+- Target 95-115 pages (approximately 250 words per page).
+- Divide into 3 acts with clear act breaks.
+- Each scene gets a unique ID (e.g. A1S01, A2S05), a slugline, page estimate, and purpose.
+- Total page estimates across all scenes must sum to the target page count.
+- Include tone_lock and non_negotiables from the source material.
+
+Return ONLY valid JSON:
+{
+  "target_pages": <number between 95 and 115>,
+  "format": "screenplay",
+  "total_scenes": <number>,
+  "acts": [
+    {
+      "act": 1,
+      "start_page": 1,
+      "end_page": <number>,
+      "scenes": [
+        {"scene_id": "A1S01", "slug": "INT. LOCATION - TIME", "page_estimate": <number>, "purpose": "brief description of what happens"}
+      ]
+    }
+  ],
+  "rules": {
+    "tone_lock": "description of tone",
+    "non_negotiables": ["list of creative elements that must be preserved"]
+  }
+}`;
+
+const WRITE_BATCH_SYSTEM = `You are a professional screenwriter. Write ONLY screenplay pages in standard format.
+
+RULES:
+- Write in proper screenplay format: sluglines (INT./EXT.), action lines, character names (CAPS), dialogue.
+- Do NOT include any JSON, markdown, code fences, commentary, or metadata.
+- Do NOT number pages or add headers/footers.
+- Write EXACTLY the scenes you are given — no more, no less.
+- Each page is approximately 250 words. Hit the target page count precisely.
+- Maintain consistent tone, character voices, and story momentum from previous batches.
+- Output ONLY the screenplay text. Nothing else.`;
+
+const ASSEMBLE_VALIDATE_SYSTEM = `You are a screenplay editor. Review the assembled screenplay for formatting consistency.
+
+Check for:
+- FADE IN: at the start
+- Proper slugline format throughout
+- Consistent character name capitalization
+- FADE OUT. or FADE TO BLACK. at the end
+- No duplicate scenes or missing transitions
+- Clean act break transitions
+
+If issues exist, fix them minimally. Output the corrected full screenplay text ONLY.
+Do NOT include JSON, code fences, or commentary.
+At the very end, on a new line, write:
+---VALIDATION_NOTES---
+followed by a brief list of what was fixed (or "No issues found").`;
+
 // ═══════════════════════════════════════════════════════════════
 // MAIN
 // ═══════════════════════════════════════════════════════════════
@@ -176,17 +236,14 @@ serve(async (req) => {
       const { projectId, documentId, versionId, productionType, strategicPriority, developmentStage, analysisMode, previousVersionId } = body;
       if (!projectId || !documentId || !versionId) throw new Error("projectId, documentId, versionId required");
 
-      // Get version text
       const { data: version } = await supabase.from("project_document_versions")
         .select("plaintext").eq("id", versionId).single();
       if (!version) throw new Error("Version not found");
 
-      // Get project context
       const { data: project } = await supabase.from("projects")
-        .select("title, logline, genre, production_type, budget_range, assigned_lane")
+        .select("title, budget_range, assigned_lane")
         .eq("id", projectId).single();
 
-      // Get previous scores for trajectory
       let prevContext = "";
       if (previousVersionId) {
         const { data: prevRun } = await supabase.from("development_runs")
@@ -198,12 +255,12 @@ serve(async (req) => {
         }
       }
 
-      const userPrompt = `PRODUCTION TYPE: ${productionType || project?.production_type || "narrative_feature"}
+      const userPrompt = `PRODUCTION TYPE: ${productionType || "narrative_feature"}
 STRATEGIC PRIORITY: ${strategicPriority || "BALANCED"}
 DEVELOPMENT STAGE: ${developmentStage || "IDEA"}
 ANALYSIS MODE: ${analysisMode || "DUAL"}
-PROJECT: ${project?.title || "Unknown"} — ${project?.logline || ""}
-GENRE: ${project?.genre || "Unknown"} | LANE: ${project?.assigned_lane || "Unknown"} | BUDGET: ${project?.budget_range || "Unknown"}
+PROJECT: ${project?.title || "Unknown"}
+LANE: ${project?.assigned_lane || "Unknown"} | BUDGET: ${project?.budget_range || "Unknown"}
 ${prevContext}
 
 MATERIAL (${version.plaintext.length} chars):
@@ -212,14 +269,13 @@ ${version.plaintext.slice(0, 25000)}`;
       const raw = await callAI(LOVABLE_API_KEY, PRO_MODEL, ANALYZE_SYSTEM, userPrompt, 0.2, 6000);
       const parsed = await parseAIJson(LOVABLE_API_KEY, raw);
 
-      // Save run
       const { data: run, error: runErr } = await supabase.from("development_runs").insert({
         project_id: projectId,
         document_id: documentId,
         version_id: versionId,
         user_id: user.id,
         run_type: "ANALYZE",
-        production_type: productionType || project?.production_type || "narrative_feature",
+        production_type: productionType || "narrative_feature",
         strategic_priority: strategicPriority || "BALANCED",
         development_stage: developmentStage || "IDEA",
         analysis_mode: analysisMode || "DUAL",
@@ -227,7 +283,6 @@ ${version.plaintext.slice(0, 25000)}`;
       }).select().single();
       if (runErr) throw runErr;
 
-      // Save convergence history
       await supabase.from("dev_engine_convergence_history").insert({
         project_id: projectId,
         document_id: documentId,
@@ -251,12 +306,10 @@ ${version.plaintext.slice(0, 25000)}`;
       const { projectId, documentId, versionId, analysisJson } = body;
       if (!projectId || !documentId || !versionId) throw new Error("projectId, documentId, versionId required");
 
-      // Get version text
       const { data: version } = await supabase.from("project_document_versions")
         .select("plaintext").eq("id", versionId).single();
       if (!version) throw new Error("Version not found");
 
-      // Get latest analysis if not provided
       let analysis = analysisJson;
       if (!analysis) {
         const { data: latestRun } = await supabase.from("development_runs")
@@ -305,7 +358,6 @@ MATERIAL TO REWRITE:\n${version.plaintext.slice(0, 20000)}`;
       const raw = await callAI(LOVABLE_API_KEY, BALANCED_MODEL, REWRITE_SYSTEM, userPrompt, 0.4, 12000);
       const parsed = await parseAIJson(LOVABLE_API_KEY, raw);
 
-      // Create new version
       const { data: newVersion, error: vErr } = await supabase.from("project_document_versions").insert({
         document_id: documentId,
         version_number: version.version_number + 1,
@@ -317,7 +369,6 @@ MATERIAL TO REWRITE:\n${version.plaintext.slice(0, 20000)}`;
       }).select().single();
       if (vErr) throw vErr;
 
-      // Log run
       const { data: run } = await supabase.from("development_runs").insert({
         project_id: projectId,
         document_id: documentId,
@@ -358,7 +409,6 @@ MATERIAL:\n${version.plaintext.slice(0, 20000)}`;
 
       let parsed: any;
       if (isDraftScript) {
-        // Plain-text output — split on the change summary marker
         const markerIdx = raw.indexOf("---CHANGE_SUMMARY---");
         const convertedText = (markerIdx >= 0 ? raw.slice(0, markerIdx) : raw)
           .replace(/^```[\s\S]*?\n/, "").replace(/\n?```\s*$/, "").trim();
@@ -368,7 +418,6 @@ MATERIAL:\n${version.plaintext.slice(0, 20000)}`;
         parsed = await parseAIJson(LOVABLE_API_KEY, raw);
       }
 
-      // Create new document + version
       const docTypeMap: Record<string, string> = {
         BLUEPRINT: "blueprint", ARCHITECTURE: "architecture", TREATMENT: "treatment",
         ONE_PAGER: "one_pager", OUTLINE: "outline", DRAFT_SCRIPT: "script",
@@ -396,7 +445,6 @@ MATERIAL:\n${version.plaintext.slice(0, 20000)}`;
         change_summary: parsed.change_summary || "",
       }).select().single();
 
-      // Log run
       await supabase.from("development_runs").insert({
         project_id: projectId,
         document_id: newDoc.id,
@@ -440,6 +488,216 @@ MATERIAL:\n${version.plaintext.slice(0, 20000)}`;
       }).select().single();
 
       return new Response(JSON.stringify({ document: doc, version: ver }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // SCREENPLAY PIPELINE
+    // ═══════════════════════════════════════════════════════════
+
+    // ── SCRIPT PLAN ──
+    if (action === "script-plan") {
+      const { projectId, documentId, versionId, targetPages, protectItems } = body;
+      if (!projectId || !documentId || !versionId) throw new Error("projectId, documentId, versionId required");
+
+      const { data: version } = await supabase.from("project_document_versions")
+        .select("plaintext").eq("id", versionId).single();
+      if (!version) throw new Error("Version not found");
+
+      const { data: srcDoc } = await supabase.from("project_documents")
+        .select("doc_type, title").eq("id", documentId).single();
+
+      const userPrompt = `SOURCE FORMAT: ${srcDoc?.doc_type || "unknown"}
+SOURCE TITLE: ${srcDoc?.title || "Unknown"}
+TARGET PAGES: ${targetPages || 100}
+PROTECT (non-negotiable creative DNA): ${JSON.stringify(protectItems || [])}
+
+MATERIAL (${version.plaintext.length} chars):
+${version.plaintext.slice(0, 25000)}`;
+
+      const raw = await callAI(LOVABLE_API_KEY, PRO_MODEL, SCRIPT_PLAN_SYSTEM, userPrompt, 0.25, 8000);
+      const parsed = await parseAIJson(LOVABLE_API_KEY, raw);
+
+      // Save plan as a run
+      const { data: run, error: runErr } = await supabase.from("development_runs").insert({
+        project_id: projectId,
+        document_id: documentId,
+        version_id: versionId,
+        user_id: user.id,
+        run_type: "SCRIPT_PLAN",
+        output_json: parsed,
+      }).select().single();
+      if (runErr) throw runErr;
+
+      // Create the master script document
+      const { data: scriptDoc, error: sdErr } = await supabase.from("project_documents").insert({
+        project_id: projectId,
+        user_id: user.id,
+        file_name: `${srcDoc?.title || "Script"} — Feature Screenplay`,
+        file_path: "",
+        extraction_status: "in_progress",
+        doc_type: "script",
+        title: `${srcDoc?.title || "Script"} — Feature Screenplay`,
+        source: "generated",
+        plaintext: "",
+      }).select().single();
+      if (sdErr) throw sdErr;
+
+      // Create initial empty version
+      const { data: scriptVersion } = await supabase.from("project_document_versions").insert({
+        document_id: scriptDoc.id,
+        version_number: 1,
+        label: "Feature screenplay (generating…)",
+        plaintext: "",
+        created_by: user.id,
+        change_summary: "Pipeline generation in progress",
+      }).select().single();
+
+      // Compute batches (group scenes into batches of ~5 pages each)
+      const allScenes: any[] = [];
+      for (const act of (parsed.acts || [])) {
+        for (const scene of (act.scenes || [])) {
+          allScenes.push({ ...scene, act: act.act });
+        }
+      }
+      const batches: any[][] = [];
+      let currentBatch: any[] = [];
+      let currentPages = 0;
+      for (const scene of allScenes) {
+        currentBatch.push(scene);
+        currentPages += scene.page_estimate || 2;
+        if (currentPages >= 5) {
+          batches.push(currentBatch);
+          currentBatch = [];
+          currentPages = 0;
+        }
+      }
+      if (currentBatch.length > 0) batches.push(currentBatch);
+
+      return new Response(JSON.stringify({
+        run, plan: parsed, scriptDoc, scriptVersion,
+        batches: batches.map((b, i) => ({
+          index: i,
+          scenes: b,
+          totalPages: b.reduce((s: number, sc: any) => s + (sc.page_estimate || 2), 0),
+        })),
+        totalBatches: batches.length,
+      }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ── WRITE SCENES BATCH ──
+    if (action === "write-batch") {
+      const { projectId, scriptDocId, scriptVersionId, batchIndex, scenes, previousText, toneLock, nonNegotiables, totalBatches } = body;
+      if (!projectId || !scriptDocId || !scriptVersionId || !scenes) throw new Error("Missing required fields");
+
+      const batchPages = scenes.reduce((s: number, sc: any) => s + (sc.page_estimate || 2), 0);
+
+      const scenesDesc = scenes.map((s: any) =>
+        `${s.scene_id}: ${s.slug}\n  Purpose: ${s.purpose}\n  Target: ~${s.page_estimate || 2} pages`
+      ).join("\n\n");
+
+      // Include last ~2000 chars of previous text for continuity
+      const continuityContext = previousText
+        ? `\n\nPREVIOUS SCREENPLAY ENDING (for continuity — do NOT repeat this, continue from here):\n...\n${previousText.slice(-2000)}`
+        : "\n\nThis is the FIRST batch. Start with FADE IN:";
+
+      const userPrompt = `BATCH ${batchIndex + 1} OF ${totalBatches}
+TARGET: ~${batchPages} pages (${batchPages * 250} words)
+TONE: ${toneLock || "as established"}
+NON-NEGOTIABLES: ${JSON.stringify(nonNegotiables || [])}
+
+SCENES TO WRITE:
+${scenesDesc}
+${continuityContext}
+
+Write these scenes NOW in proper screenplay format. Output ONLY screenplay text.`;
+
+      const raw = await callAI(LOVABLE_API_KEY, PRO_MODEL, WRITE_BATCH_SYSTEM, userPrompt, 0.4, 8000);
+
+      // Clean any accidental code fences
+      const cleanText = raw
+        .replace(/^```[\s\S]*?\n/, "")
+        .replace(/\n?```\s*$/, "")
+        .trim();
+
+      // Save run
+      await supabase.from("development_runs").insert({
+        project_id: projectId,
+        document_id: scriptDocId,
+        version_id: scriptVersionId,
+        user_id: user.id,
+        run_type: "WRITE_SCENES_BATCH",
+        output_json: {
+          batch_index: batchIndex,
+          total_batches: totalBatches,
+          scenes_written: scenes.map((s: any) => s.scene_id),
+          word_count: cleanText.split(/\s+/).length,
+          char_count: cleanText.length,
+        },
+      });
+
+      return new Response(JSON.stringify({
+        batchIndex,
+        text: cleanText,
+        wordCount: cleanText.split(/\s+/).length,
+        pageEstimate: Math.round(cleanText.split(/\s+/).length / 250),
+      }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ── ASSEMBLE SCRIPT ──
+    if (action === "assemble-script") {
+      const { projectId, scriptDocId, scriptVersionId, assembledText, planJson } = body;
+      if (!projectId || !scriptDocId || !scriptVersionId || !assembledText) throw new Error("Missing required fields");
+
+      const wordCount = assembledText.split(/\s+/).length;
+      const pageEstimate = Math.round(wordCount / 250);
+
+      // Save assembled text to the version
+      const { error: vErr } = await supabase.from("project_document_versions")
+        .update({
+          plaintext: assembledText,
+          label: `Feature screenplay (${pageEstimate} pages)`,
+          change_summary: `Assembled from ${planJson?.total_scenes || "?"} scenes across ${planJson?.acts?.length || 3} acts. ${wordCount} words, ~${pageEstimate} pages.`,
+        })
+        .eq("id", scriptVersionId);
+      if (vErr) throw vErr;
+
+      // Update the document
+      await supabase.from("project_documents")
+        .update({
+          plaintext: assembledText,
+          extraction_status: "complete",
+        })
+        .eq("id", scriptDocId);
+
+      // Save assembly run
+      const { data: run } = await supabase.from("development_runs").insert({
+        project_id: projectId,
+        document_id: scriptDocId,
+        version_id: scriptVersionId,
+        user_id: user.id,
+        run_type: "ASSEMBLE_SCRIPT",
+        output_json: {
+          word_count: wordCount,
+          page_estimate: pageEstimate,
+          target_pages: planJson?.target_pages,
+          total_scenes: planJson?.total_scenes,
+          acts: planJson?.acts?.length || 3,
+        },
+      }).select().single();
+
+      return new Response(JSON.stringify({
+        run,
+        wordCount,
+        pageEstimate,
+        scriptDocId,
+        scriptVersionId,
+      }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
