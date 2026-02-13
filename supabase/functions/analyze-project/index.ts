@@ -451,9 +451,44 @@ serve(async (req) => {
     let combinedText = "";
 
     if (documentPaths && documentPaths.length > 0) {
+      // CRITICAL FIX: Prefer pre-extracted text from project_documents table.
+      // This avoids re-extracting image-based PDFs that already went through OCR.
+      const { data: preExtracted } = await adminClient
+        .from("project_documents")
+        .select("file_name, file_path, extracted_text, extraction_status, total_pages, pages_analyzed, error_message, char_count")
+        .eq("project_id", projectInput.id || "")
+        .in("file_path", documentPaths);
+
+      const preExtractedMap = new Map<string, any>();
+      for (const row of (preExtracted || [])) {
+        if (row.extracted_text && (row.char_count || 0) >= 500) {
+          preExtractedMap.set(row.file_path, row);
+        }
+      }
+
       for (const path of documentPaths) {
         const fileName = path.split("/").pop() || "document";
 
+        // Use pre-extracted text if available and substantial
+        const cached = preExtractedMap.get(path);
+        if (cached) {
+          console.log(`[analyze] Using pre-extracted text for ${fileName}: ${cached.char_count} chars (source: DB cache)`);
+          const cleanText = (cached.extracted_text || "").replace(/\u0000/g, "");
+          docResults.push({
+            file_name: cached.file_name || fileName,
+            file_path: path,
+            extracted_text: cleanText,
+            extraction_status: cached.extraction_status || "success",
+            total_pages: cached.total_pages,
+            pages_analyzed: cached.pages_analyzed,
+            error_message: cached.error_message,
+          });
+          combinedText += `\n\n--- ${cached.file_name || fileName} ---\n${cleanText}`;
+          continue;
+        }
+
+        // Fallback: download and extract fresh
+        console.log(`[analyze] No cached extraction for ${fileName}, extracting from storage...`);
         const { data: fileData, error: downloadError } = await adminClient.storage
           .from("project-documents")
           .download(path);
