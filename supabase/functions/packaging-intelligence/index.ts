@@ -6,6 +6,50 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+function formatPackagingRules(format: string): string {
+  const f = (format || '').toLowerCase();
+  if (f === 'tv-series' || f.includes('series') && !f.includes('doc'))
+    return `This is a TV SERIES. Packaging psychology: Commissioning Executive + Streamer Strategy Head.
+- Evaluate SHOWRUNNER attachment as primary packaging lever (not director)
+- Assess writers room credibility and track record
+- Platform mandate alignment is critical — which streamer/broadcaster wants this?
+- Consider per-episode budget scalability
+- International co-production value and format rights potential
+- Do NOT use feature film packaging logic (no sales agent MG structure)
+- Focus on: showrunner profile, cast with series commitment, platform fit`;
+  if (f === 'documentary' || f === 'documentary-series' || f === 'hybrid-documentary')
+    return `This is a DOCUMENTARY project. Packaging psychology: Festival Programmer + Broadcaster + Grant Evaluator.
+- Director is the primary attachment (not showrunner or cast)
+- Subject access and exclusivity are the key packaging assets
+- Grant eligibility and impact partnership potential drive finance
+- Do NOT suggest cast packaging — documentaries don't package actors
+- Focus on: director profile, subject access strength, broadcaster fit`;
+  if (f === 'vertical-drama')
+    return `This is a VERTICAL DRAMA. Packaging psychology: Platform Algorithm Strategist + Volume Producer.
+- Cast social media reach is a primary packaging lever
+- Platform algorithm compatibility matters more than traditional prestige
+- Speed to market and volume scalability are critical
+- Do NOT use theatrical or festival packaging logic
+- Focus on: cast social reach, platform fit, production speed`;
+  if (f === 'commercial' || f === 'branded-content')
+    return `This is a COMMERCIAL/BRANDED project. Packaging psychology: Brand Strategist + Client ROI Evaluator.
+- Director treatment strength is the primary packaging lever
+- Client relationship and brand alignment are paramount
+- Do NOT reference film financing, festival strategy, or pre-sales
+- Focus on: director reel, production company credentials, brand fit`;
+  if (f === 'short-film' || f === 'proof-of-concept')
+    return `This is a ${f === 'short-film' ? 'SHORT FILM' : 'PROOF OF CONCEPT'}. Packaging psychology: Festival Programmer + Talent Scout.
+- Talent showcase value matters more than commercial viability
+- Feature expansion potential is a key assessment
+- Do NOT apply feature film commercial packaging logic
+- Focus on: director vision, talent discovery, festival positioning`;
+  // Default: feature film
+  return `This is a FEATURE FILM. Packaging psychology: Financier + Sales Agent + Studio Executive.
+- Evaluate director and cast as primary packaging levers
+- Pre-sales viability and territory value drive finance
+- Focus on: cast magnetism, director bankability, sales agent positioning`;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -55,6 +99,9 @@ Your job: analyse the project data and generate a comprehensive packaging & atta
 
 Be practical, market-aware, and strategic. Avoid generic suggestions. Align all recommendations with the project's budget tier, genre lane, and format.
 Never default to generic notes. Never analyse purely for craft. Always think in terms of greenlight reality and capital efficiency.
+
+FORMAT-SPECIFIC PACKAGING RULES:
+${formatPackagingRules(format)}
 
 CALIBRATION RULES:
 ${scoringGrid ? `- Coverage scores provided: ${JSON.stringify(scoringGrid)}` : '- No coverage scores available'}
