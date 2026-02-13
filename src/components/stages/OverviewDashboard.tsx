@@ -4,6 +4,10 @@
 
 import { motion } from 'framer-motion';
 import { Gauge, ArrowRight, Activity, UsersRound } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/hooks/useAuth';
+import { ParadoxHouseModePanel } from '@/components/ParadoxHouseModePanel';
 import { useUIMode } from '@/hooks/useUIMode';
 import { getEffectiveMode } from '@/lib/visibility';
 import { ViabilityBreakdownPanel } from '@/components/ViabilityBreakdownPanel';
@@ -54,6 +58,39 @@ export function OverviewDashboard({
   const { mode: userMode } = useUIMode();
   const effectiveMode = getEffectiveMode(userMode, (project as any).ui_mode_override);
   const isAdvanced = effectiveMode === 'advanced';
+  const { user } = useAuth();
+
+  // Check Paradox House membership
+  const { data: isParadoxMember } = useQuery({
+    queryKey: ["paradox-house-member", user?.id],
+    queryFn: async () => {
+      if (!user) return false;
+      const { data: owned } = await supabase
+        .from("production_companies").select("id")
+        .eq("user_id", user.id).ilike("name", "%paradox house%");
+      if (owned && owned.length > 0) return true;
+      const { data: memberships } = await supabase
+        .from("company_members").select("company_id").eq("user_id", user.id);
+      if (!memberships?.length) return false;
+      const companyIds = memberships.map((m: any) => m.company_id);
+      const { data: companies } = await supabase
+        .from("production_companies").select("id")
+        .in("id", companyIds).ilike("name", "%paradox house%");
+      return (companies && companies.length > 0) || false;
+    },
+    enabled: !!user,
+  });
+
+  const { data: baseline } = useQuery({
+    queryKey: ["project-baseline", projectId],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("project_baselines").select("*")
+        .eq("project_id", projectId).maybeSingle();
+      return data;
+    },
+    enabled: !!isParadoxMember,
+  });
 
   return (
     <div className="space-y-4">
@@ -198,6 +235,15 @@ export function OverviewDashboard({
 
       {/* Packaging Pipeline (Advanced) */}
       {isAdvanced && <PackagingPipelinePanel projectId={projectId} />}
+
+      {/* Paradox House Mode (Internal) */}
+      {isParadoxMember && (
+        <ParadoxHouseModePanel
+          project={project}
+          baselineId={baseline?.id}
+          savedExecConfidence={(baseline as any)?.paradox_exec_confidence ?? null}
+        />
+      )}
 
       {/* AI Chat */}
       <ProjectChat projectId={projectId} />

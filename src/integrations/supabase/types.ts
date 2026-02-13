@@ -3033,6 +3033,8 @@ export type Database = {
           internal_confidence: number | null
           notes: string | null
           packaging_confidence: number | null
+          paradox_exec_confidence: number | null
+          paradox_mode_flags: Json | null
           project_id: string
           recorded_at: string
           user_id: string
@@ -3045,6 +3047,8 @@ export type Database = {
           internal_confidence?: number | null
           notes?: string | null
           packaging_confidence?: number | null
+          paradox_exec_confidence?: number | null
+          paradox_mode_flags?: Json | null
           project_id: string
           recorded_at?: string
           user_id?: string
@@ -3057,6 +3061,8 @@ export type Database = {
           internal_confidence?: number | null
           notes?: string | null
           packaging_confidence?: number | null
+          paradox_exec_confidence?: number | null
+          paradox_mode_flags?: Json | null
           project_id?: string
           recorded_at?: string
           user_id?: string
