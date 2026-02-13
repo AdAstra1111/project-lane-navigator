@@ -53,6 +53,11 @@ export const MODE_GENRES: Record<ProjectFormat, string[]> = {
   'proof-of-concept': ['Drama', 'Sci-Fi', 'Horror', 'Fantasy', 'Action', 'Thriller', 'Animation', 'Comedy', 'Experimental'],
   hybrid: ['Transmedia', 'Interactive', 'Immersive', 'Mixed Reality', 'Documentary-Fiction', 'Cross-Platform', 'Experiential', 'Installation'],
   'vertical-drama': ['Romance', 'Drama', 'Thriller', 'Comedy', 'Fantasy', 'Horror', 'Action', 'Mystery', 'Revenge', 'Workplace'],
+  'limited-series': ['Drama', 'Thriller', 'Mystery', 'Crime', 'Romance', 'Sci-Fi', 'Horror', 'Comedy', 'War', 'Fantasy'],
+  'anim-feature': ['Adventure', 'Comedy', 'Fantasy', 'Sci-Fi', 'Action', 'Drama', 'Musical', 'Horror', 'Family'],
+  'anim-series': ['Adventure', 'Comedy', 'Fantasy', 'Sci-Fi', 'Action', 'Drama', 'Educational', 'Preschool', 'Family'],
+  reality: ['Competition', 'Dating', 'Lifestyle', 'Makeover', 'Travel', 'Food', 'Business', 'Social Experiment', 'Talent', 'Docusoap'],
+  'podcast-ip': ['True Crime', 'Comedy', 'Interview', 'Storytelling', 'Investigation', 'Science', 'Culture', 'Business', 'Horror Fiction', 'History'],
 };
 
 export const MODE_AUDIENCES: Record<ProjectFormat, LabelValue[]> = {
@@ -135,6 +140,41 @@ export const MODE_AUDIENCES: Record<ProjectFormat, LabelValue[]> = {
     { value: 'mobile-first', label: 'Mobile-First Viewers' },
     { value: 'binge-watchers', label: 'Binge / Scroll Watchers' },
     { value: 'global-mobile', label: 'Global Mobile Audience' },
+  ],
+  'limited-series': [
+    { value: 'prestige-audience', label: 'Prestige / Awards Audience' },
+    { value: 'streamer-audience', label: 'Streamer Audience' },
+    { value: 'mass-market', label: 'Mass Market' },
+    { value: 'adult-drama', label: 'Adult Drama Audience' },
+    { value: 'international', label: 'International / Multi-Territory' },
+  ],
+  'anim-feature': [
+    { value: 'family', label: 'Family / All Ages' },
+    { value: 'young-adult', label: 'Young Adult' },
+    { value: 'adult-animation', label: 'Adult Animation' },
+    { value: 'mass-market', label: 'Mass Market / Wide Release' },
+    { value: 'international', label: 'International / Multi-Territory' },
+  ],
+  'anim-series': [
+    { value: 'preschool', label: 'Preschool (2–5)' },
+    { value: 'kids', label: 'Kids (6–11)' },
+    { value: 'tween', label: 'Tween (9–14)' },
+    { value: 'family', label: 'Family / All Ages' },
+    { value: 'adult-animation', label: 'Adult Animation' },
+  ],
+  reality: [
+    { value: 'mass-market', label: 'Mass Market / Primetime' },
+    { value: 'young-adult', label: 'Young Adult (18–34)' },
+    { value: 'daytime', label: 'Daytime Audience' },
+    { value: 'digital-first', label: 'Digital-First Audience' },
+    { value: 'international', label: 'International Format Buyers' },
+  ],
+  'podcast-ip': [
+    { value: 'podcast-listeners', label: 'Podcast Listeners' },
+    { value: 'true-crime-fans', label: 'True Crime Fans' },
+    { value: 'adaptation-buyers', label: 'Adaptation Buyers (Studios/Streamers)' },
+    { value: 'brand-partners', label: 'Brand / Sponsor Partners' },
+    { value: 'global-digital', label: 'Global Digital Audience' },
   ],
 };
 
@@ -228,6 +268,41 @@ export const MODE_TONES: Record<ProjectFormat, LabelValue[]> = {
     { value: 'comedic', label: 'Comedic / Light' },
     { value: 'dark', label: 'Dark / Gritty' },
   ],
+  'limited-series': [
+    { value: 'prestige', label: 'Prestige / Awards' },
+    { value: 'elevated', label: 'Elevated / Cinematic' },
+    { value: 'dark-gritty', label: 'Dark / Gritty' },
+    { value: 'commercial', label: 'Commercial / Accessible' },
+    { value: 'provocative', label: 'Provocative / Topical' },
+  ],
+  'anim-feature': [
+    { value: 'family-friendly', label: 'Family-Friendly' },
+    { value: 'action-adventure', label: 'Action / Adventure' },
+    { value: 'comedic', label: 'Comedic' },
+    { value: 'dark-mature', label: 'Dark / Mature' },
+    { value: 'whimsical', label: 'Whimsical / Magical' },
+  ],
+  'anim-series': [
+    { value: 'educational', label: 'Educational / Gentle' },
+    { value: 'action', label: 'Action / Adventure' },
+    { value: 'comedic', label: 'Comedic / Slapstick' },
+    { value: 'dark-mature', label: 'Dark / Mature (Adult)' },
+    { value: 'fantasy', label: 'Fantasy / Magical' },
+  ],
+  reality: [
+    { value: 'feel-good', label: 'Feel-Good / Uplifting' },
+    { value: 'competitive', label: 'Competitive / High-Stakes' },
+    { value: 'dramatic', label: 'Dramatic / Confrontational' },
+    { value: 'aspirational', label: 'Aspirational / Lifestyle' },
+    { value: 'comedic', label: 'Comedic / Entertainment' },
+  ],
+  'podcast-ip': [
+    { value: 'investigative', label: 'Investigative / Serious' },
+    { value: 'conversational', label: 'Conversational / Casual' },
+    { value: 'narrative', label: 'Narrative / Storytelling' },
+    { value: 'comedic', label: 'Comedic / Entertainment' },
+    { value: 'educational', label: 'Educational / Informative' },
+  ],
 };
 
 export const MODE_BUDGETS: Record<ProjectFormat, LabelValue[]> = {
@@ -317,6 +392,41 @@ export const MODE_BUDGETS: Record<ProjectFormat, LabelValue[]> = {
     { value: '150k-500k-ep', label: '$150K – $500K / ep' },
     { value: '500k-plus-ep', label: '$500K+ / ep' },
   ],
+  'limited-series': [
+    { value: 'under-1m-ep', label: 'Under $1M / ep' },
+    { value: '1m-3m-ep', label: '$1M – $3M / ep' },
+    { value: '3m-7m-ep', label: '$3M – $7M / ep' },
+    { value: '7m-15m-ep', label: '$7M – $15M / ep' },
+    { value: '15m-plus-ep', label: '$15M+ / ep' },
+  ],
+  'anim-feature': [
+    { value: 'under-5m', label: 'Under $5M' },
+    { value: '5m-20m', label: '$5M – $20M' },
+    { value: '20m-50m', label: '$20M – $50M' },
+    { value: '50m-100m', label: '$50M – $100M' },
+    { value: '100m-plus', label: '$100M+' },
+  ],
+  'anim-series': [
+    { value: 'under-250k-ep', label: 'Under $250K / ep' },
+    { value: '250k-750k-ep', label: '$250K – $750K / ep' },
+    { value: '750k-2m-ep', label: '$750K – $2M / ep' },
+    { value: '2m-5m-ep', label: '$2M – $5M / ep' },
+    { value: '5m-plus-ep', label: '$5M+ / ep' },
+  ],
+  reality: [
+    { value: 'under-100k-ep', label: 'Under $100K / ep' },
+    { value: '100k-500k-ep', label: '$100K – $500K / ep' },
+    { value: '500k-1m-ep', label: '$500K – $1M / ep' },
+    { value: '1m-3m-ep', label: '$1M – $3M / ep' },
+    { value: '3m-plus-ep', label: '$3M+ / ep' },
+  ],
+  'podcast-ip': [
+    { value: 'under-10k-ep', label: 'Under $10K / ep' },
+    { value: '10k-50k-ep', label: '$10K – $50K / ep' },
+    { value: '50k-200k-ep', label: '$50K – $200K / ep' },
+    { value: '200k-1m-ep', label: '$200K – $1M / ep' },
+    { value: '1m-plus-ep', label: '$1M+ / ep' },
+  ],
 };
 
 export const MODE_COMPARABLE_CONFIG: Record<ProjectFormat, { label: string; placeholder: string; hint: string }> = {
@@ -333,6 +443,11 @@ export const MODE_COMPARABLE_CONFIG: Record<ProjectFormat, { label: string; plac
   'proof-of-concept': { label: 'Target Project', placeholder: 'e.g. Proving the world of our sci-fi feature, similar to District 9\'s early proof', hint: 'Describe the larger project this proof of concept is designed to unlock.' },
   hybrid: { label: 'Reference Projects', placeholder: 'e.g. Sleep No More\'s immersion meets Bandersnatch\'s interactivity', hint: 'Reference cross-platform, immersive, or transmedia projects that inspire your approach.' },
   'vertical-drama': { label: 'Reference Shows', placeholder: 'e.g. The pacing of ReelShort originals meets the drama of K-drama cliffhangers', hint: 'Reference vertical drama series, short-form shows, or mobile-first content that inspires your approach.' },
+  'limited-series': { label: 'Comparable Series', placeholder: 'e.g. Chernobyl meets The Night Of, with the cast heat of The Undoing', hint: 'Reference limited/event series with similar ambition and platform target.' },
+  'anim-feature': { label: 'Comparable Films', placeholder: 'e.g. Spider-Verse visual innovation meets Wolfwalkers storytelling', hint: 'Reference animated features with similar visual style, audience, or IP potential.' },
+  'anim-series': { label: 'Comparable Series', placeholder: 'e.g. Bluey audience meets Arcane production value', hint: 'Reference animated series with similar demographic, platform, or licensing potential.' },
+  reality: { label: 'Comparable Formats', placeholder: 'e.g. The format repeatability of MasterChef meets the hook of Love Island', hint: 'Reference reality formats with similar structure, audience, or international adaptability.' },
+  'podcast-ip': { label: 'Comparable Podcasts', placeholder: 'e.g. Serial audience meets Radiolab production, with Dirty John adaptation potential', hint: 'Reference podcasts with similar audience, format, or cross-media adaptation history.' },
 };
 
 export const MODE_CREATIVE_LABEL: Record<ProjectFormat, { title: string; subtitle: string; genreLabel: string }> = {
@@ -349,6 +464,11 @@ export const MODE_CREATIVE_LABEL: Record<ProjectFormat, { title: string; subtitl
   'proof-of-concept': { title: 'Concept Profile', subtitle: 'What are you proving and for what target project?', genreLabel: 'Genre / Style' },
   hybrid: { title: 'Project Identity', subtitle: 'Define the cross-platform creative vision.', genreLabel: 'Format Type' },
   'vertical-drama': { title: 'Creative Profile', subtitle: 'Define the genre, tone, and hook of your vertical drama.', genreLabel: 'Genre' },
+  'limited-series': { title: 'Creative Profile', subtitle: 'Define the event series concept and cast vision.', genreLabel: 'Genre' },
+  'anim-feature': { title: 'Creative Profile', subtitle: 'Define the animated world and visual style.', genreLabel: 'Genre' },
+  'anim-series': { title: 'Creative Profile', subtitle: 'Define the series engine and target demo.', genreLabel: 'Genre' },
+  reality: { title: 'Format Profile', subtitle: 'Define the format concept and casting approach.', genreLabel: 'Format Type' },
+  'podcast-ip': { title: 'Content Profile', subtitle: 'Define the podcast format and IP potential.', genreLabel: 'Content Category' },
 };
 
 export const MODE_COMMERCIAL_LABEL: Record<ProjectFormat, { title: string; subtitle: string }> = {
@@ -365,6 +485,11 @@ export const MODE_COMMERCIAL_LABEL: Record<ProjectFormat, { title: string; subti
   'proof-of-concept': { title: 'Budget & Goal', subtitle: 'What\'s the budget and what does success look like?' },
   hybrid: { title: 'Budget & Partners', subtitle: 'Define funding sources and technology partners.' },
   'vertical-drama': { title: 'Budget & Platform', subtitle: 'Define the per-episode budget and target platform.' },
+  'limited-series': { title: 'Commercial Profile', subtitle: 'Help us understand the market positioning.' },
+  'anim-feature': { title: 'Budget & Distribution', subtitle: 'Define the production budget and distribution strategy.' },
+  'anim-series': { title: 'Budget & Platform', subtitle: 'Define the per-episode budget and platform target.' },
+  reality: { title: 'Budget & Commission', subtitle: 'Define the per-episode budget and commissioner target.' },
+  'podcast-ip': { title: 'Budget & Growth', subtitle: 'Define the production budget and growth strategy.' },
 };
 
 export const FORMAT_OPTIONS = [
@@ -378,6 +503,11 @@ export const FORMAT_OPTIONS = [
   { value: 'commercial', label: 'Commercial / Advert' },
   { value: 'branded-content', label: 'Branded Content' },
   { value: 'vertical-drama', label: 'Vertical Drama' },
+  { value: 'limited-series', label: 'Limited Series' },
+  { value: 'anim-feature', label: 'Animated Feature' },
+  { value: 'anim-series', label: 'Animated Series' },
+  { value: 'reality', label: 'Reality / Unscripted' },
+  { value: 'podcast-ip', label: 'Podcast IP' },
 ] as const;
 
 export const TV_SUBFORMAT_OPTIONS = [
