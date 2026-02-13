@@ -18,6 +18,7 @@ const FORMAT_LABELS: Record<string, string> = {
 const MAX_SCRIPT_CHARS = 15000;
 // Tier 1: Pro model for deep script/documentary analysis
 const COVERAGE_MODEL = "google/gemini-2.5-pro";
+const FAST_MODEL = "google/gemini-2.5-flash";
 
 async function callAI(apiKey: string, systemPrompt: string, userPrompt: string, temperature = 0.25): Promise<string> {
   const controller = new AbortController();
