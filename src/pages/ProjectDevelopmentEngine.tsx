@@ -265,22 +265,22 @@ export default function ProjectDevelopmentEngine() {
                     </Dialog>
                   </div>
                 </CardHeader>
-                <CardContent className="px-2 pb-2">
-                  <ScrollArea className="h-[calc(100vh-320px)]">
+                 <CardContent className="px-2 pb-2">
+                  <div className="h-[calc(100vh-320px)] overflow-y-auto">
                     <div className="space-y-1">
                       {documents.map(doc => (
                         <div
                           key={doc.id}
-                          className={`flex items-start justify-between w-full text-left p-2.5 rounded-md transition-colors text-sm cursor-pointer ${
+                          className={`w-full text-left p-2.5 rounded-md transition-colors text-sm cursor-pointer ${
                             selectedDocId === doc.id
                               ? 'bg-primary/10 border border-primary/30'
                               : 'hover:bg-muted/50 border border-transparent'
                           }`}
                           onClick={() => selectDocument(doc.id)}
                         >
-                          <div className="flex-1 min-w-0">
-                            <p className="font-medium text-foreground truncate text-xs">{doc.title || doc.file_name}</p>
-                            <div className="flex items-center gap-1.5 mt-1">
+                          <p className="font-medium text-foreground truncate text-xs">{doc.title || doc.file_name}</p>
+                          <div className="flex items-center justify-between mt-1">
+                            <div className="flex items-center gap-1.5">
                               <Badge variant="outline" className="text-[9px] px-1 py-0">
                                 {DOC_TYPE_LABELS[doc.doc_type] || doc.doc_type}
                               </Badge>
@@ -288,19 +288,19 @@ export default function ProjectDevelopmentEngine() {
                                 {doc.source === 'generated' ? '✨' : doc.source === 'paste' ? '📋' : '📄'}
                               </span>
                             </div>
-                          </div>
-                          <div className="flex-shrink-0 ml-1" onClick={e => e.stopPropagation()}>
-                            <ConfirmDialog
-                              title="Delete Document"
-                              description={`Delete "${doc.title || doc.file_name}" and all its versions? This cannot be undone.`}
-                              confirmLabel="Delete"
-                              variant="destructive"
-                              onConfirm={() => deleteDocument.mutate(doc.id)}
-                            >
-                              <button className="p-1 rounded hover:bg-destructive/30 text-muted-foreground hover:text-destructive transition-colors">
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </button>
-                            </ConfirmDialog>
+                            <div onClick={e => e.stopPropagation()}>
+                              <ConfirmDialog
+                                title="Delete Document"
+                                description={`Delete "${doc.title || doc.file_name}" and all its versions? This cannot be undone.`}
+                                confirmLabel="Delete"
+                                variant="destructive"
+                                onConfirm={() => deleteDocument.mutate(doc.id)}
+                              >
+                                <button className="p-1 rounded bg-destructive/20 text-destructive hover:bg-destructive/40 transition-colors">
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              </ConfirmDialog>
+                            </div>
                           </div>
                         </div>
                       ))}
@@ -308,7 +308,7 @@ export default function ProjectDevelopmentEngine() {
                         <p className="text-xs text-muted-foreground p-3 text-center">No documents yet. Paste or upload to start.</p>
                       )}
                     </div>
-                  </ScrollArea>
+                  </div>
                 </CardContent>
               </Card>
 
