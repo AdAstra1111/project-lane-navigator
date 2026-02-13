@@ -47,7 +47,8 @@ export function useBuyerContacts() {
         .from('buyer_contacts')
         .select('*')
         .eq('user_id', user.id)
-        .order('updated_at', { ascending: false });
+        .order('updated_at', { ascending: false })
+        .limit(500);
       if (error) throw error;
       return data as unknown as BuyerContact[];
     },

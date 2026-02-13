@@ -47,12 +47,17 @@ export function useProjects() {
   const { data: projects = [], isLoading, error } = useQuery({
     queryKey: ['projects'],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error, count } = await supabase
         .from('projects')
-        .select('*')
+        .select('*', { count: 'exact' })
         .order('pinned', { ascending: false })
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .limit(500);
       if (error) throw error;
+      // Warn if approaching limits
+      if (count && count > 450) {
+        console.warn(`Project count (${count}) approaching query limit. Consider archiving older projects.`);
+      }
       return data as unknown as Project[];
     },
   });
