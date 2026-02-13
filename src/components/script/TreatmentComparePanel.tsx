@@ -5,7 +5,7 @@
  */
 
 import { useState } from 'react';
-import { GitCompareArrows, FileText, ScrollText, ChevronDown, ChevronUp, Sparkles, Loader2, TrendingUp, TrendingDown, ArrowRight, BarChart3, CheckCircle, XCircle, AlertTriangle } from 'lucide-react';
+import { GitCompareArrows, FileText, ScrollText, ChevronDown, ChevronUp, Sparkles, Loader2, TrendingUp, TrendingDown, ArrowRight, BarChart3, CheckCircle, XCircle, AlertTriangle, ChevronRight } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -75,6 +75,25 @@ function VerdictIcon({ verdict }: { verdict: string }) {
   if (v.startsWith('ADOPT')) return <CheckCircle className="h-3.5 w-3.5 text-emerald-400 shrink-0" />;
   if (v.startsWith('REJECT')) return <XCircle className="h-3.5 w-3.5 text-red-400 shrink-0" />;
   return <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0" />;
+}
+
+function CollapsibleSection({ title, defaultOpen = false, children, headerExtra }: { title: string; defaultOpen?: boolean; children: React.ReactNode; headerExtra?: React.ReactNode }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="border border-border/40 rounded-lg overflow-hidden">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full bg-muted/30 px-3 py-2 border-b border-border/40 flex items-center justify-between hover:bg-muted/50 transition-colors"
+      >
+        <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+          <ChevronRight className={`h-3 w-3 transition-transform ${open ? 'rotate-90' : ''}`} />
+          {title}
+        </span>
+        {headerExtra}
+      </button>
+      {open && children}
+    </div>
+  );
 }
 
 export function TreatmentComparePanel({ documents, scriptText, currentScriptLabel, projectContext }: TreatmentComparePanelProps) {
@@ -219,17 +238,17 @@ export function TreatmentComparePanel({ documents, scriptText, currentScriptLabe
           </div>
 
           {/* Adaptation Value + Current Script side by side */}
-          <div className="grid grid-cols-2 gap-3">
-            {/* Adaptation Value */}
-            <div className="border border-border/40 rounded-lg overflow-hidden">
-              <div className="bg-purple-500/10 px-3 py-2 border-b border-border/40 flex items-center justify-between">
-                <div className="flex items-center gap-1.5">
-                  <ScrollText className="h-3.5 w-3.5 text-purple-400" />
-                  <span className="text-xs font-semibold">Treatment Direction</span>
+          <CollapsibleSection title="Treatment Direction vs Current Script" defaultOpen>
+            <div className="grid grid-cols-2 gap-3 p-3">
+              {/* Adaptation Value */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <ScrollText className="h-3.5 w-3.5 text-purple-400" />
+                    <span className="text-xs font-semibold">Treatment Direction</span>
+                  </div>
+                  <Badge variant="outline" className="text-xs">{result.adaptation_value.score}/100</Badge>
                 </div>
-                <Badge variant="outline" className="text-xs">{result.adaptation_value.score}/100</Badge>
-              </div>
-              <div className="p-3 space-y-2">
                 <p className="text-xs font-medium text-foreground">{result.adaptation_value.headline}</p>
                 {result.adaptation_value.gains.map((g, i) => (
                   <div key={`g-${i}`} className="flex items-start gap-1.5 text-xs">
@@ -244,18 +263,15 @@ export function TreatmentComparePanel({ documents, scriptText, currentScriptLabe
                   </div>
                 ))}
               </div>
-            </div>
-
-            {/* Current Script */}
-            <div className="border border-border/40 rounded-lg overflow-hidden">
-              <div className="bg-blue-500/10 px-3 py-2 border-b border-border/40 flex items-center justify-between">
-                <div className="flex items-center gap-1.5">
-                  <FileText className="h-3.5 w-3.5 text-blue-400" />
-                  <span className="text-xs font-semibold">Current Script</span>
+              {/* Current Script */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <FileText className="h-3.5 w-3.5 text-blue-400" />
+                    <span className="text-xs font-semibold">Current Script</span>
+                  </div>
+                  <Badge variant="outline" className="text-xs">{result.current_script_assessment.score}/100</Badge>
                 </div>
-                <Badge variant="outline" className="text-xs">{result.current_script_assessment.score}/100</Badge>
-              </div>
-              <div className="p-3 space-y-2">
                 <p className="text-xs font-medium text-foreground">{result.current_script_assessment.headline}</p>
                 {result.current_script_assessment.strengths.map((s, i) => (
                   <div key={`s-${i}`} className="flex items-start gap-1.5 text-xs">
@@ -271,13 +287,10 @@ export function TreatmentComparePanel({ documents, scriptText, currentScriptLabe
                 ))}
               </div>
             </div>
-          </div>
+          </CollapsibleSection>
 
           {/* Story Impact */}
-          <div className="border border-border/40 rounded-lg overflow-hidden">
-            <div className="bg-muted/30 px-3 py-2 border-b border-border/40">
-              <span className="text-xs font-semibold text-foreground">Story Impact — If Treatment Direction Is Adopted</span>
-            </div>
+          <CollapsibleSection title="Story Impact — If Treatment Direction Is Adopted">
             <div className="p-3 grid grid-cols-2 gap-3">
               {Object.entries(result.story_impact).map(([key, val]) => (
                 <div key={key} className="space-y-0.5">
@@ -288,13 +301,10 @@ export function TreatmentComparePanel({ documents, scriptText, currentScriptLabe
                 </div>
               ))}
             </div>
-          </div>
+          </CollapsibleSection>
 
           {/* Package Impact */}
-          <div className="border border-border/40 rounded-lg overflow-hidden">
-            <div className="bg-muted/30 px-3 py-2 border-b border-border/40">
-              <span className="text-xs font-semibold text-foreground">Package & Commercial Impact</span>
-            </div>
+          <CollapsibleSection title="Package & Commercial Impact">
             <div className="p-3 grid grid-cols-2 gap-3">
               {Object.entries(result.package_impact).map(([key, val]) => (
                 <div key={key} className="space-y-0.5">
@@ -305,13 +315,10 @@ export function TreatmentComparePanel({ documents, scriptText, currentScriptLabe
                 </div>
               ))}
             </div>
-          </div>
+          </CollapsibleSection>
 
           {/* Commercial Delta detail */}
-          <div className="border border-border/40 rounded-lg overflow-hidden">
-            <div className="bg-muted/30 px-3 py-2 border-b border-border/40">
-              <span className="text-xs font-semibold text-foreground">Commercial Delta Detail</span>
-            </div>
+          <CollapsibleSection title="Commercial Delta Detail">
             <div className="p-3 grid grid-cols-3 gap-3">
               {(['market_positioning_shift', 'budget_implications', 'festival_vs_commercial'] as const).map(key => (
                 <div key={key} className="space-y-0.5">
@@ -322,14 +329,14 @@ export function TreatmentComparePanel({ documents, scriptText, currentScriptLabe
                 </div>
               ))}
             </div>
-          </div>
+          </CollapsibleSection>
 
           {/* Key Proposed Changes */}
           {result.key_proposed_changes?.length > 0 && (
-            <div className="border border-border/40 rounded-lg overflow-hidden">
-              <div className="bg-muted/30 px-3 py-2 border-b border-border/40">
-                <span className="text-xs font-semibold text-foreground">Key Proposed Changes — Adopt / Reject / Modify</span>
-              </div>
+            <CollapsibleSection
+              title="Key Proposed Changes — Adopt / Reject / Modify"
+              headerExtra={<Badge variant="outline" className="text-[10px]">{result.key_proposed_changes.length} changes</Badge>}
+            >
               <div className="divide-y divide-border/30">
                 {result.key_proposed_changes.map((c, i) => (
                   <div key={i} className="p-3 space-y-2">
@@ -352,15 +359,12 @@ export function TreatmentComparePanel({ documents, scriptText, currentScriptLabe
                   </div>
                 ))}
               </div>
-            </div>
+            </CollapsibleSection>
           )}
 
           {/* Rewrite Recommendations */}
           {result.rewrite_recommendations?.length > 0 && (
-            <div className="border border-border/40 rounded-lg overflow-hidden">
-              <div className="bg-primary/10 px-3 py-2 border-b border-border/40">
-                <span className="text-xs font-semibold text-foreground">Rewrite Recommendations</span>
-              </div>
+            <CollapsibleSection title="Rewrite Recommendations">
               <ul className="p-3 space-y-1.5">
                 {result.rewrite_recommendations.map((r, i) => (
                   <li key={i} className="text-xs text-muted-foreground flex items-start gap-1.5">
@@ -369,7 +373,7 @@ export function TreatmentComparePanel({ documents, scriptText, currentScriptLabe
                   </li>
                 ))}
               </ul>
-            </div>
+            </CollapsibleSection>
           )}
 
           {/* Adoption Score bar */}
