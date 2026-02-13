@@ -151,7 +151,7 @@ export function DocumentaryCoveragePanel({ projectId, projectTitle, format, genr
         </Button>
       </div>
 
-      {loading && <OperationProgress stages={DOC_COVERAGE_STAGES} running={loading} />}
+      {loading && <OperationProgress isActive={loading} stages={DOC_COVERAGE_STAGES} />}
 
       {result && (
         <>
