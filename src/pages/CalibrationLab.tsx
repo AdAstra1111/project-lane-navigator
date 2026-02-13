@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -8,7 +8,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Progress } from "@/components/ui/progress";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ShieldAlert, CheckCircle2, XCircle, HelpCircle, AlertTriangle } from "lucide-react";
+import { OutcomeAccuracyPanel } from "@/components/OutcomeAccuracyPanel";
 
 type Classification = "True Positive" | "True Negative" | "False Positive" | "False Negative" | "Inconclusive";
 
@@ -198,96 +200,109 @@ export default function CalibrationLab() {
           </p>
         </div>
 
-        {/* Summary Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-          {[
-            { label: "True Positives", count: counts.tp, color: "text-emerald-400" },
-            { label: "True Negatives", count: counts.tn, color: "text-muted-foreground" },
-            { label: "False Positives", count: counts.fp, color: "text-amber-400" },
-            { label: "False Negatives", count: counts.fn, color: "text-red-400" },
-            { label: "Inconclusive", count: counts.inc, color: "text-muted-foreground" },
-          ].map((s) => (
-            <Card key={s.label} className="bg-card border-border">
-              <CardContent className="p-4 text-center">
-                <div className={`text-3xl font-bold ${s.color}`}>{s.count}</div>
-                <div className="text-xs text-muted-foreground mt-1">{s.label}</div>
+        <Tabs defaultValue="classification" className="space-y-4">
+          <TabsList>
+            <TabsTrigger value="classification">Classification Matrix</TabsTrigger>
+            <TabsTrigger value="accuracy">Outcome Accuracy</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="classification" className="space-y-6">
+            {/* Summary Cards */}
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+              {[
+                { label: "True Positives", count: counts.tp, color: "text-emerald-400" },
+                { label: "True Negatives", count: counts.tn, color: "text-muted-foreground" },
+                { label: "False Positives", count: counts.fp, color: "text-amber-400" },
+                { label: "False Negatives", count: counts.fn, color: "text-red-400" },
+                { label: "Inconclusive", count: counts.inc, color: "text-muted-foreground" },
+              ].map((s) => (
+                <Card key={s.label} className="bg-card border-border">
+                  <CardContent className="p-4 text-center">
+                    <div className={`text-3xl font-bold ${s.color}`}>{s.count}</div>
+                    <div className="text-xs text-muted-foreground mt-1">{s.label}</div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+
+            {/* Correlation indicator */}
+            {correlationPct !== null && (
+              <Card className="bg-card border-border">
+                <CardContent className="p-4 flex items-center gap-4">
+                  <div className="flex-1">
+                    <p className="text-sm text-muted-foreground mb-1">
+                      High viability projects with positive movement
+                    </p>
+                    <Progress value={correlationPct} className="h-2" />
+                  </div>
+                  <span className="text-xl font-bold text-foreground">{correlationPct}%</span>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Data Table */}
+            <Card className="bg-card border-border overflow-hidden">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">Project Calibration Data</CardTitle>
+              </CardHeader>
+              <CardContent className="p-0">
+                {rows.length === 0 ? (
+                  <p className="text-muted-foreground text-sm p-6 text-center">
+                    No projects with baselines recorded yet. Add baselines from the project detail page.
+                  </p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Project</TableHead>
+                          <TableHead className="text-center">Tier</TableHead>
+                          <TableHead className="text-center">Conf.</TableHead>
+                          <TableHead className="text-center">Viability</TableHead>
+                          <TableHead className="text-center">Struct.</TableHead>
+                          <TableHead className="text-center">Budget</TableHead>
+                          <TableHead className="text-center">Pkg.</TableHead>
+                          <TableHead className="text-center">Fin.</TableHead>
+                          <TableHead className="text-center">Stream.</TableHead>
+                          <TableHead className="text-center">Opt.</TableHead>
+                          <TableHead className="text-center">Fest.</TableHead>
+                          <TableHead className="text-center">Classification</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {rows.map((r) => (
+                          <TableRow key={r.projectId}>
+                            <TableCell className="font-medium max-w-[180px] truncate">{r.title}</TableCell>
+                            <TableCell className="text-center">{r.internalTier}</TableCell>
+                            <TableCell className="text-center">{r.internalConfidence}/10</TableCell>
+                            <TableCell className="text-center font-mono">{r.currentViability}</TableCell>
+                            <TableCell className="text-center font-mono">{r.structuralStrength}</TableCell>
+                            <TableCell className="text-center font-mono">{r.budgetFeasibility}</TableCell>
+                            <TableCell className="text-center font-mono">{r.packagingLeverage}</TableCell>
+                            <TableCell className="text-center">{r.financed ? "✓" : "–"}</TableCell>
+                            <TableCell className="text-center">{r.streamerInterest ? "✓" : "–"}</TableCell>
+                            <TableCell className="text-center">{r.optioned ? "✓" : "–"}</TableCell>
+                            <TableCell className="text-center">{r.festivalSelection ? "✓" : "–"}</TableCell>
+                            <TableCell className="text-center">
+                              <Badge variant="outline" className={`gap-1 ${classColors[r.classification]}`}>
+                                {classIcons[r.classification]}
+                                {r.classification}
+                              </Badge>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
               </CardContent>
             </Card>
-          ))}
-        </div>
+          </TabsContent>
 
-        {/* Correlation indicator */}
-        {correlationPct !== null && (
-          <Card className="bg-card border-border">
-            <CardContent className="p-4 flex items-center gap-4">
-              <div className="flex-1">
-                <p className="text-sm text-muted-foreground mb-1">
-                  High viability projects with positive movement
-                </p>
-                <Progress value={correlationPct} className="h-2" />
-              </div>
-              <span className="text-xl font-bold text-foreground">{correlationPct}%</span>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Data Table */}
-        <Card className="bg-card border-border overflow-hidden">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Project Calibration Data</CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            {rows.length === 0 ? (
-              <p className="text-muted-foreground text-sm p-6 text-center">
-                No projects with baselines recorded yet. Add baselines from the project detail page.
-              </p>
-            ) : (
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Project</TableHead>
-                      <TableHead className="text-center">Tier</TableHead>
-                      <TableHead className="text-center">Conf.</TableHead>
-                      <TableHead className="text-center">Viability</TableHead>
-                      <TableHead className="text-center">Struct.</TableHead>
-                      <TableHead className="text-center">Budget</TableHead>
-                      <TableHead className="text-center">Pkg.</TableHead>
-                      <TableHead className="text-center">Fin.</TableHead>
-                      <TableHead className="text-center">Stream.</TableHead>
-                      <TableHead className="text-center">Opt.</TableHead>
-                      <TableHead className="text-center">Fest.</TableHead>
-                      <TableHead className="text-center">Classification</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {rows.map((r) => (
-                      <TableRow key={r.projectId}>
-                        <TableCell className="font-medium max-w-[180px] truncate">{r.title}</TableCell>
-                        <TableCell className="text-center">{r.internalTier}</TableCell>
-                        <TableCell className="text-center">{r.internalConfidence}/10</TableCell>
-                        <TableCell className="text-center font-mono">{r.currentViability}</TableCell>
-                        <TableCell className="text-center font-mono">{r.structuralStrength}</TableCell>
-                        <TableCell className="text-center font-mono">{r.budgetFeasibility}</TableCell>
-                        <TableCell className="text-center font-mono">{r.packagingLeverage}</TableCell>
-                        <TableCell className="text-center">{r.financed ? "✓" : "–"}</TableCell>
-                        <TableCell className="text-center">{r.streamerInterest ? "✓" : "–"}</TableCell>
-                        <TableCell className="text-center">{r.optioned ? "✓" : "–"}</TableCell>
-                        <TableCell className="text-center">{r.festivalSelection ? "✓" : "–"}</TableCell>
-                        <TableCell className="text-center">
-                          <Badge variant="outline" className={`gap-1 ${classColors[r.classification]}`}>
-                            {classIcons[r.classification]}
-                            {r.classification}
-                          </Badge>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+          <TabsContent value="accuracy">
+            <OutcomeAccuracyPanel />
+          </TabsContent>
+        </Tabs>
       </main>
     </PageTransition>
   );
