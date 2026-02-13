@@ -5,6 +5,7 @@
  */
 
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Pen, BookOpen, Layers, BarChart3, Lock,
@@ -366,14 +367,21 @@ export function ScriptEnginePanel({ projectId, productionType, genre }: Props & 
         <Pen className="h-4 w-4 text-primary" />
         <h4 className="font-display font-semibold text-foreground">Script Engine</h4>
         <InfoTooltip text="Multi-phase AI script development with self-improving rewrites" />
-        {activeScript && (
-          <Badge className={`ml-auto text-[10px] ${
-            isLocked ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' :
-            'bg-primary/15 text-primary border-primary/30'
-          }`}>
-            {isLocked ? 'LOCKED' : status.replace('_', ' ')}
-          </Badge>
-        )}
+        <div className="ml-auto flex items-center gap-2">
+          <Link to="/development-engine">
+            <Button variant="outline" size="sm" className="text-[10px] gap-1 h-6 px-2">
+              <Zap className="h-3 w-3" />Dev Engine
+            </Button>
+          </Link>
+          {activeScript && (
+            <Badge className={`text-[10px] ${
+              isLocked ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' :
+              'bg-primary/15 text-primary border-primary/30'
+            }`}>
+              {isLocked ? 'LOCKED' : status.replace('_', ' ')}
+            </Badge>
+          )}
+        </div>
       </div>
 
       {/* Baseline Source + Confidence */}
