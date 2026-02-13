@@ -2186,6 +2186,153 @@ export type Database = {
         }
         Relationships: []
       }
+      integration_connections: {
+        Row: {
+          connection_type: string
+          created_at: string
+          id: string
+          last_sync_at: string | null
+          last_sync_status: string | null
+          metadata: Json | null
+          project_id: string
+          provider_id: string
+          user_id: string
+        }
+        Insert: {
+          connection_type?: string
+          created_at?: string
+          id?: string
+          last_sync_at?: string | null
+          last_sync_status?: string | null
+          metadata?: Json | null
+          project_id: string
+          provider_id: string
+          user_id: string
+        }
+        Update: {
+          connection_type?: string
+          created_at?: string
+          id?: string
+          last_sync_at?: string | null
+          last_sync_status?: string | null
+          metadata?: Json | null
+          project_id?: string
+          provider_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "integration_connections_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "integration_connections_provider_id_fkey"
+            columns: ["provider_id"]
+            isOneToOne: false
+            referencedRelation: "integration_providers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      integration_imports: {
+        Row: {
+          created_at: string
+          error_message: string | null
+          extracted_summary: Json | null
+          file_name: string
+          file_path: string | null
+          file_size_bytes: number | null
+          id: string
+          import_type: string
+          parse_status: string
+          project_id: string
+          provider_id: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          error_message?: string | null
+          extracted_summary?: Json | null
+          file_name?: string
+          file_path?: string | null
+          file_size_bytes?: number | null
+          id?: string
+          import_type: string
+          parse_status?: string
+          project_id: string
+          provider_id?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          error_message?: string | null
+          extracted_summary?: Json | null
+          file_name?: string
+          file_path?: string | null
+          file_size_bytes?: number | null
+          id?: string
+          import_type?: string
+          parse_status?: string
+          project_id?: string
+          provider_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "integration_imports_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "integration_imports_provider_id_fkey"
+            columns: ["provider_id"]
+            isOneToOne: false
+            referencedRelation: "integration_providers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      integration_providers: {
+        Row: {
+          category: string
+          created_at: string
+          id: string
+          is_active: boolean
+          key: string
+          name: string
+          region: string[]
+          supported_export_types: string[]
+          supported_import_types: string[]
+        }
+        Insert: {
+          category: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          key: string
+          name: string
+          region?: string[]
+          supported_export_types?: string[]
+          supported_import_types?: string[]
+        }
+        Update: {
+          category?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          key?: string
+          name?: string
+          region?: string[]
+          supported_export_types?: string[]
+          supported_import_types?: string[]
+        }
+        Relationships: []
+      }
       market_buyers: {
         Row: {
           appetite_notes: string
@@ -4290,6 +4437,69 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "project_finance_scenarios_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_finance_snapshots: {
+        Row: {
+          baseline_budget: Json | null
+          created_at: string
+          currency: string | null
+          delivery_summary: Json | null
+          id: string
+          import_id: string | null
+          latest_cost_report: Json | null
+          payroll_summary: Json | null
+          project_id: string
+          schedule_summary: Json | null
+          snapshot_date: string
+          snapshot_type: string
+          user_id: string
+        }
+        Insert: {
+          baseline_budget?: Json | null
+          created_at?: string
+          currency?: string | null
+          delivery_summary?: Json | null
+          id?: string
+          import_id?: string | null
+          latest_cost_report?: Json | null
+          payroll_summary?: Json | null
+          project_id: string
+          schedule_summary?: Json | null
+          snapshot_date?: string
+          snapshot_type: string
+          user_id: string
+        }
+        Update: {
+          baseline_budget?: Json | null
+          created_at?: string
+          currency?: string | null
+          delivery_summary?: Json | null
+          id?: string
+          import_id?: string | null
+          latest_cost_report?: Json | null
+          payroll_summary?: Json | null
+          project_id?: string
+          schedule_summary?: Json | null
+          snapshot_date?: string
+          snapshot_type?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_finance_snapshots_import_id_fkey"
+            columns: ["import_id"]
+            isOneToOne: false
+            referencedRelation: "integration_imports"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_finance_snapshots_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"

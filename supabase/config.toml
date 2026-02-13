@@ -95,3 +95,6 @@ verify_jwt = false
 
 [functions.nightly-outcome-rollup]
 verify_jwt = false
+
+[functions.parse-integration-import]
+verify_jwt = false
