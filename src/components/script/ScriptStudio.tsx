@@ -730,21 +730,21 @@ export function ScriptStudio({
                   if (idx >= 0) setSelectedVersionIdx(idx);
                 }}
               >
-                <SelectTrigger className="h-8 w-[220px] text-xs bg-background border-border">
+                <SelectTrigger className="h-8 max-w-[240px] text-xs bg-background border-border">
                   <SelectValue placeholder="Select document…" />
                 </SelectTrigger>
-                <SelectContent className="bg-popover border-border z-50 max-h-[300px]">
+                <SelectContent className="bg-popover border-border z-50 max-h-[400px] min-w-[350px] w-auto">
                   {documents.map((doc: any) => {
                     const isActive = doc.id === (currentScript?.id || documents[0]?.id);
                     return (
                       <SelectItem
                         key={doc.id}
                         value={doc.id}
-                        className={`text-xs ${isActive ? 'font-semibold text-primary' : ''}`}
+                        className={`text-xs py-2 ${isActive ? 'font-semibold text-primary' : ''}`}
                       >
                         <span className="flex items-center gap-1.5">
                           <FileText className="h-3 w-3 shrink-0" />
-                          <span className="truncate max-w-[170px]">{doc.file_name || doc.version_label || 'Untitled'}</span>
+                          <span className="whitespace-normal break-words">{doc.file_name || doc.version_label || 'Untitled'}</span>
                         </span>
                       </SelectItem>
                     );
