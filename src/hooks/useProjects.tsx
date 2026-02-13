@@ -151,7 +151,7 @@ export function useProjects() {
             user_id: user.id,
             file_name: doc.file_name,
             file_path: doc.file_path,
-            extracted_text: doc.extracted_text || null,
+            extracted_text: doc.extracted_text ? doc.extracted_text.replace(/\u0000/g, '') : null,
             extraction_status: doc.extraction_status,
             total_pages: doc.total_pages,
             pages_analyzed: doc.pages_analyzed,
