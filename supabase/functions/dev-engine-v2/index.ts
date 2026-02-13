@@ -22,23 +22,33 @@ function extractJSON(raw: string): string {
 }
 
 async function callAI(apiKey: string, model: string, system: string, user: string, temperature = 0.3, maxTokens = 8000): Promise<string> {
-  const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model,
-      messages: [{ role: "system", content: system }, { role: "user", content: user }],
-      temperature,
-      max_tokens: maxTokens,
-    }),
-  });
-  if (!response.ok) {
+  const MAX_RETRIES = 3;
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: "system", content: system }, { role: "user", content: user }],
+        temperature,
+        max_tokens: maxTokens,
+      }),
+    });
+    if (response.ok) {
+      const data = await response.json();
+      return data.choices?.[0]?.message?.content || "";
+    }
     const t = await response.text();
-    console.error("AI error:", response.status, t);
+    console.error(`AI error (attempt ${attempt + 1}/${MAX_RETRIES}):`, response.status, t);
+    if (response.status >= 500 && attempt < MAX_RETRIES - 1) {
+      const delay = Math.pow(2, attempt) * 2000;
+      console.log(`Retrying in ${delay}ms...`);
+      await new Promise(r => setTimeout(r, delay));
+      continue;
+    }
     throw new Error(`AI call failed: ${response.status}`);
   }
-  const data = await response.json();
-  return data.choices?.[0]?.message?.content || "";
+  throw new Error("AI call failed after retries");
 }
 
 async function parseAIJson(apiKey: string, raw: string): Promise<any> {
