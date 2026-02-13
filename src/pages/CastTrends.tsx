@@ -3,8 +3,8 @@ import { motion } from 'framer-motion';
 import { Activity, Archive, Users } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { Header } from '@/components/Header';
-import { CastTrendCard } from '@/components/CastTrendCard';
-import { TrendsFilters } from '@/components/TrendsFilters';
+import { CastTrendCard } from '@/components/talent/CastTrendCard';
+import { TrendsFilters } from '@/components/market/TrendsFilters';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {

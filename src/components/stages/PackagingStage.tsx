@@ -3,8 +3,8 @@
  * Contains: Cast, crew, partners, cast impact, smart packaging.
  */
 
-import { ProjectAttachmentTabs } from '@/components/ProjectAttachmentTabs';
-import { CastImpactPanel } from '@/components/CastImpactPanel';
+import { ProjectAttachmentTabs } from '@/components/project/ProjectAttachmentTabs';
+import { CastImpactPanel } from '@/components/talent/CastImpactPanel';
 import { PackagingDeltaPanel } from '@/components/PackagingDeltaPanel';
 import { StageReadinessScore } from '@/components/StageReadinessScore';
 import { StoryEnginePanel } from '@/components/tv/StoryEnginePanel';

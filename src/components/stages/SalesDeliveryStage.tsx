@@ -4,10 +4,10 @@
  */
 
 import { DealTracker } from '@/components/finance/DealTracker';
-import { ProjectBuyerMatches } from '@/components/ProjectBuyerMatches';
-import { ProjectFestivalMatches } from '@/components/ProjectFestivalMatches';
-import { TerritoryHeatMap } from '@/components/TerritoryHeatMap';
-import { MarketWindowAlerts } from '@/components/MarketWindowAlerts';
+import { ProjectBuyerMatches } from '@/components/project/ProjectBuyerMatches';
+import { ProjectFestivalMatches } from '@/components/project/ProjectFestivalMatches';
+import { TerritoryHeatMap } from '@/components/market/TerritoryHeatMap';
+import { MarketWindowAlerts } from '@/components/market/MarketWindowAlerts';
 import { SalesIntelligencePanel } from '@/components/intelligence/SalesIntelligencePanel';
 import { StageReadinessScore } from '@/components/StageReadinessScore';
 import type { Project } from '@/lib/types';

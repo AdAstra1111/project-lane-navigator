@@ -14,10 +14,10 @@ import { useBuyerMatches } from '@/hooks/useBuyerMatches';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
 import { useQuery } from '@tanstack/react-query';
-import { TerritoryCostBrowser } from '@/components/TerritoryCostBrowser';
+import { TerritoryCostBrowser } from '@/components/market/TerritoryCostBrowser';
 import { CorpusInsightsDashboard } from '@/components/corpus/CorpusInsightsDashboard';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { ShareSignalDialog } from '@/components/ShareSignalDialog';
+import { ShareSignalDialog } from '@/components/market/ShareSignalDialog';
 import { usePersonImage } from '@/hooks/usePersonImage';
 
 /* ── Festivals (same canonical list) ── */

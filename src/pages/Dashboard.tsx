@@ -5,7 +5,7 @@ import { Plus, Clapperboard, ArrowLeftRight, Kanban, Archive, FileDown, X, Build
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Header } from '@/components/Header';
-import { ProjectCard } from '@/components/ProjectCard';
+import { ProjectCard } from '@/components/project/ProjectCard';
 import { IntroExperience } from '@/components/IntroExperience';
 import { GuidedTutorial } from '@/components/GuidedTutorial';
 import { OnboardingChecklist } from '@/components/OnboardingChecklist';

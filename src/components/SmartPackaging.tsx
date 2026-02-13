@@ -6,10 +6,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { Textarea } from '@/components/ui/textarea';
-import { CastInfoDialog } from '@/components/CastInfoDialog';
-import { CharacterSelector } from '@/components/CharacterSelector';
-import { TalentTriageBoard } from '@/components/TalentTriageBoard';
-import { TalentSearch } from '@/components/TalentSearch';
+import { CastInfoDialog } from '@/components/talent/CastInfoDialog';
+import { CharacterSelector } from '@/components/script/CharacterSelector';
+import { TalentTriageBoard } from '@/components/talent/TalentTriageBoard';
+import { TalentSearch } from '@/components/talent/TalentSearch';
 import { useTalentTriage } from '@/hooks/useTalentTriage';
 import { useProjectCast, useProjectHODs } from '@/hooks/useProjectAttachments';
 import { usePersonImage } from '@/hooks/usePersonImage';

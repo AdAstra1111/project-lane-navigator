@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { supabase } from '@/integrations/supabase/client';
-import { CastInfoDialog } from '@/components/CastInfoDialog';
+import { CastInfoDialog } from '@/components/talent/CastInfoDialog';
 import { toast } from 'sonner';
 import type { PackagingMode } from '@/components/SmartPackaging';
 

@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { User } from 'lucide-react';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
-import { CastInfoDialog } from '@/components/CastInfoDialog';
+import { CastInfoDialog } from '@/components/talent/CastInfoDialog';
 import { usePersonLookup } from '@/hooks/usePersonImage';
-import type { ProjectContext } from '@/components/ProjectAttachmentTabs';
+import type { ProjectContext } from '@/components/project/ProjectAttachmentTabs';
 
 interface ContactFields {
   agent_name: string;
