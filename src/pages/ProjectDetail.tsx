@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Trash2, Loader2, Copy, Download, FileText, FileSpreadsheet, Presentation, ArrowLeftRight } from 'lucide-react';
+import { ArrowLeft, Trash2, Loader2, Copy, Download, FileText, FileSpreadsheet, Presentation, ArrowLeftRight, Sparkles } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
@@ -397,6 +397,11 @@ export default function ProjectDetail() {
               <Link to={`/projects/${id}/present`} className="hidden sm:inline-flex">
                 <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary shrink-0 h-8 w-8" title="Presentation Mode">
                   <Presentation className="h-4 w-4" />
+                </Button>
+              </Link>
+              <Link to={`/projects/${id}/pitch-deck`} className="hidden sm:inline-flex">
+                <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary shrink-0 h-8 w-8" title="AI Pitch Deck">
+                  <Sparkles className="h-4 w-4" />
                 </Button>
               </Link>
               <Link to="/compare" className="hidden sm:inline-flex">
