@@ -107,3 +107,6 @@ verify_jwt = false
 
 [functions.development-engine]
 verify_jwt = false
+
+[functions.dev-engine-v2]
+verify_jwt = false

@@ -1849,6 +1849,73 @@ export type Database = {
         }
         Relationships: []
       }
+      dev_engine_convergence_history: {
+        Row: {
+          allowed_gap: number | null
+          convergence_status: string | null
+          created_at: string
+          creative_score: number
+          document_id: string
+          gap: number
+          greenlight_score: number
+          id: string
+          project_id: string
+          trajectory: string | null
+          user_id: string
+          version_id: string
+        }
+        Insert: {
+          allowed_gap?: number | null
+          convergence_status?: string | null
+          created_at?: string
+          creative_score?: number
+          document_id: string
+          gap?: number
+          greenlight_score?: number
+          id?: string
+          project_id: string
+          trajectory?: string | null
+          user_id: string
+          version_id: string
+        }
+        Update: {
+          allowed_gap?: number | null
+          convergence_status?: string | null
+          created_at?: string
+          creative_score?: number
+          document_id?: string
+          gap?: number
+          greenlight_score?: number
+          id?: string
+          project_id?: string
+          trajectory?: string | null
+          user_id?: string
+          version_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dev_engine_convergence_history_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "project_documents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dev_engine_convergence_history_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dev_engine_convergence_history_version_id_fkey"
+            columns: ["version_id"]
+            isOneToOne: false
+            referencedRelation: "project_document_versions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       dev_engine_iterations: {
         Row: {
           approved_notes: Json | null
@@ -2110,6 +2177,73 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      development_runs: {
+        Row: {
+          analysis_mode: string | null
+          created_at: string
+          development_stage: string | null
+          document_id: string
+          id: string
+          output_json: Json | null
+          production_type: string | null
+          project_id: string
+          run_type: string
+          strategic_priority: string | null
+          user_id: string
+          version_id: string
+        }
+        Insert: {
+          analysis_mode?: string | null
+          created_at?: string
+          development_stage?: string | null
+          document_id: string
+          id?: string
+          output_json?: Json | null
+          production_type?: string | null
+          project_id: string
+          run_type?: string
+          strategic_priority?: string | null
+          user_id: string
+          version_id: string
+        }
+        Update: {
+          analysis_mode?: string | null
+          created_at?: string
+          development_stage?: string | null
+          document_id?: string
+          id?: string
+          output_json?: Json | null
+          production_type?: string | null
+          project_id?: string
+          run_type?: string
+          strategic_priority?: string | null
+          user_id?: string
+          version_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "development_runs_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "project_documents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "development_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "development_runs_version_id_fkey"
+            columns: ["version_id"]
+            isOneToOne: false
+            referencedRelation: "project_document_versions"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       document_ingestions: {
         Row: {
@@ -5136,6 +5270,57 @@ export type Database = {
           },
         ]
       }
+      project_document_versions: {
+        Row: {
+          change_summary: string | null
+          created_at: string
+          created_by: string
+          document_id: string
+          id: string
+          label: string | null
+          parent_version_id: string | null
+          plaintext: string
+          version_number: number
+        }
+        Insert: {
+          change_summary?: string | null
+          created_at?: string
+          created_by: string
+          document_id: string
+          id?: string
+          label?: string | null
+          parent_version_id?: string | null
+          plaintext?: string
+          version_number?: number
+        }
+        Update: {
+          change_summary?: string | null
+          created_at?: string
+          created_by?: string
+          document_id?: string
+          id?: string
+          label?: string | null
+          parent_version_id?: string | null
+          plaintext?: string
+          version_number?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_document_versions_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "project_documents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_document_versions_parent_version_id_fkey"
+            columns: ["parent_version_id"]
+            isOneToOne: false
+            referencedRelation: "project_document_versions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       project_documents: {
         Row: {
           char_count: number | null
@@ -5149,7 +5334,11 @@ export type Database = {
           id: string
           ingestion_source: string | null
           pages_analyzed: number | null
+          plaintext: string | null
           project_id: string
+          source: string | null
+          storage_path: string | null
+          title: string | null
           total_pages: number | null
           user_id: string
         }
@@ -5165,7 +5354,11 @@ export type Database = {
           id?: string
           ingestion_source?: string | null
           pages_analyzed?: number | null
+          plaintext?: string | null
           project_id: string
+          source?: string | null
+          storage_path?: string | null
+          title?: string | null
           total_pages?: number | null
           user_id: string
         }
@@ -5181,7 +5374,11 @@ export type Database = {
           id?: string
           ingestion_source?: string | null
           pages_analyzed?: number | null
+          plaintext?: string | null
           project_id?: string
+          source?: string | null
+          storage_path?: string | null
+          title?: string | null
           total_pages?: number | null
           user_id?: string
         }
