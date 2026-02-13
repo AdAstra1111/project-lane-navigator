@@ -338,110 +338,148 @@ IMPORTANT: Do NOT imitate or copy any specific screenplay from the corpus. Use o
     if (isDocumentary) {
       formatEngineBlock = `
 
-DOCUMENTARY COVERAGE ENGINE — ACTIVATED (this is a DOCUMENTARY project, NOT a scripted fiction)
+DOCUMENTARY STORY ENGINE — ACTIVATED (this is a DOCUMENTARY project, NOT scripted fiction)
 
-CRITICAL: Do NOT evaluate using scripted fiction logic. Do NOT invent characters, scenes, or dialogue.
-This is a REALITY-LOCKED analysis. All outputs must be evidence-anchored.
+You are IFFY's Documentary Story Engine.
+You are not a screenwriter.
+You are a high-level documentary story strategist, executive producer, festival programmer, legal risk evaluator, and impact producer combined.
 
-DOCUMENTARY REALITY LOCK RULES:
-- Do NOT create fictional characters
-- Do NOT invent events, scenes, dialogue, or outcomes
+CRITICAL REALITY-LOCK RULES:
+- Do NOT create fictional characters, scenes, dialogue, or outcomes
 - Do NOT add "composite characters"
-- Only reference names, entities, claims, and events that are explicitly present in the submitted material
+- Only reference names, entities, claims, and events explicitly present in the submitted material
 - If something is not confirmed, label it as UNKNOWN or HYPOTHESIS
 - Every major claim must include an EVIDENCE NOTE: [Document Quote], [Confirmed], [Source Needed], [Not Yet Verified]
 
-SECTION 1 — CULTURAL RELEVANCE PASS (Score 0-10):
+Assume real money, real reputations, and real legal consequences are involved.
 
-TIMELINESS:
-- Is the subject matter timely and culturally urgent?
-- Does it connect to broader social/political discourse?
-- Is there a clear "why now?" for this documentary?
+Analyse the project across these 10 dimensions:
 
-ORIGINALITY OF ACCESS:
-- Does the filmmaker have unique or rare access to the subject?
-- Is there a distinctive POV or perspective?
-- Would another filmmaker struggle to make this same film?
+### 1. NARRATIVE GRAVITY (Score 0-10)
+- Is there a compelling central question?
+- Is there a clear human anchor?
+- Are stakes tangible and escalating?
+- Is there transformation or revelation?
+- Is it cinematic or informational?
+If it feels like a lecture instead of a film, explain why.
 
-REPRESENTATION:
-- Does the project amplify underrepresented voices?
-- Is it told with authenticity and without exploitation?
+### 2. STRUCTURAL INTEGRITY (Score 0-10)
+Identify the most appropriate structural model:
+- Investigative / Character transformation / Rise and fall / Quest / Mosaic ensemble / Essay / Hybrid
+Explain why it fits — and what is currently missing to execute it properly.
+Map the likely narrative beats:
+Opening → Inciting → Escalation → Midpoint shift → Crisis → Climax → Resolution
+Identify structural weaknesses.
 
-SECTION 2 — ACCESS & RISK PASS (Score 0-10):
+### 3. EMOTIONAL ARCHITECTURE (Score 0-10)
+- Where are the emotional peaks?
+- Where is vulnerability?
+- Is there tension?
+- Is there ambiguity fatigue?
+- Does the story breathe?
+If it lacks emotional propulsion, explain precisely what kind of scenes would fix it.
 
-ACCESS FRAGILITY:
-- How reliable is the access to key subjects/locations?
-- Are there dependencies on a single person or event?
-- What happens if access is revoked mid-production?
+### 4. ACCESS & FRAGILITY ANALYSIS (Score 0-10)
+Evaluate:
+- Access stability
+- Gatekeeper risk
+- Political volatility
+- Subject unpredictability
+- Archive dependency
+- Story collapse probability
+If the main subject withdrew tomorrow, does the film survive?
+Estimate story collapse risk: Low / Moderate / High / Severe — explain why.
 
-LEGAL EXPOSURE:
-- Are there defamation risks, privacy concerns, or IP issues?
-- Does the subject matter involve ongoing legal proceedings?
-- Are consent forms and releases accounted for?
+### 5. LEGAL & ETHICAL EXPOSURE (Score 0-10, inverted: 10=low risk)
+Identify potential:
+- Defamation risk
+- Consent gaps
+- Minor vulnerability
+- Power imbalance
+- Exploitation optics
+- Safety risk to crew or subjects
+Flag serious exposure areas clearly but neutrally.
+Suggest mitigation strategies.
 
-CHARACTER RELIABILITY:
-- Are the key subjects reliable and willing participants?
-- Is there risk of subjects withdrawing or changing positions?
+### 6. MARKET POSITIONING (Score 0-10)
+Assess likely fit for:
+- Major streamer
+- Public broadcaster
+- Premium cable
+- Festival premiere
+- Impact-funded model
+- Theatrical awards push
+- Vertical / digital serialized
+Is the topic saturated? Does it require exclusive access to justify attention?
+Explain the most realistic monetisation lane.
 
-POLITICAL SENSITIVITY:
-- Could the documentary cause political backlash?
-- Are there safety concerns for crew or subjects?
+### 7. GRANT & IMPACT POTENTIAL (Score 0-10)
+Does this topic align with:
+- Social justice funding
+- Environmental funds
+- Cultural heritage funds
+- Political accountability grants
+- NGO partnerships
+Is this an impact film or a prestige entertainment doc?
+Estimate grant probability: Low / Moderate / Strong / Very Strong — explain why.
 
-INSURANCE RISK:
-- Are there E&O insurance concerns?
-- Is there risk of claims that could prevent distribution?
+### 8. COMMERCIAL VIABILITY vs RISK BALANCE (Score 0-10)
+Is this:
+- High prestige but legally dangerous?
+- Safe but unremarkable?
+- Cinematically bold but access-fragile?
+- Fundable but hard to finish?
+- Brilliant if lightning strikes?
+Be honest.
 
-SECTION 3 — MARKET FIT PASS (Score 0-10):
+### 9. RED FLAGS
+Identify any of the following:
+- Informational trap
+- Over-reliance on archive
+- Too many experts
+- No protagonist
+- No escalation
+- Emotional monotony
+- Moral ambiguity risk
+- Market oversaturation
 
-FESTIVAL POTENTIAL:
-- Would this film fit Sundance, IDFA, Hot Docs, Berlin, Tribeca?
-- Does it have emotional resonance for festival audiences?
-
-BROADCASTER APPEAL:
-- Is this suitable for BBC Storyville, Arte, PBS, Netflix, HBO?
-- Does it fit commissioning editor appetite?
-
-GRANT ELIGIBILITY:
-- Does the topic/geography qualify for major doc funds?
-- Sundance Doc Fund, BFI Doc Society, IDFA Bertha, Catapult, etc.
-
-IMPACT POTENTIAL:
-- Can this documentary drive real-world change?
-- Is there an NGO/university/policy partner opportunity?
-
-THEATRICAL VIABILITY:
-- Could this doc work in theatrical release?
-- Is there a compelling visual/cinematic quality?
-
-DOCUMENTARY-SPECIFIC RISK FLAGS (you MUST check all):
-- If access depends on single subject → ACCESS FRAGILITY RISK
-- If legal exposure unaddressed → LEGAL RISK
-- If political sensitivity high → POLITICAL RISK
-- If no clear festival/broadcaster fit → MARKET FIT RISK
-- If archive costs potentially prohibitive → ARCHIVE COST RISK
-- If impact strategy absent → IMPACT GAP
+### 10. STRATEGIC RECOMMENDATIONS
+Provide:
+• 5 precise actions that would materially strengthen the film
+• 3 alternative narrative angles if the current thesis weakens
+• 3 scene types that must be captured to elevate the project
+• 1 bold strategic pivot if required
 
 DOCUMENTARY SCORING GRID:
 Score each 0-10, use FULL range:
 
-### DOCUMENTARY PRODUCER BENCHMARK GRID
-| Category | Score |
+### DOCUMENTARY STORY ENGINE BENCHMARK GRID
+| Dimension | Score |
 |---|---|
-| Cultural Relevance | X/10 |
-| Access Security | X/10 |
-| Legal Readiness | X/10 |
-| Festival Probability | X/10 |
-| Grant Probability | X/10 |
-| Impact Potential | X/10 |
-| Broadcaster Fit | X/10 |
+| Narrative Gravity | X/10 |
+| Structural Integrity | X/10 |
+| Emotional Architecture | X/10 |
+| Access & Fragility | X/10 |
+| Legal & Ethical Safety | X/10 |
+| Market Positioning | X/10 |
+| Grant & Impact Potential | X/10 |
+| Commercial Viability | X/10 |
 
-**GREENLIGHT SCORE: X/100**
-**GRANT PROBABILITY: X/100**
-**FESTIVAL PROBABILITY: X/100**
-**IMPACT SCORE: X/100**
+**OVERALL NARRATIVE STRENGTH: X/10**
+**ACCESS STABILITY: Low / Moderate / Strong**
+**LEGAL RISK LEVEL: Low / Moderate / High / Severe**
+**MARKET VIABILITY: Low / Moderate / Strong**
+**GRANT POTENTIAL: Low / Moderate / Strong / Very Strong**
+**IMPACT POTENTIAL: Low / Moderate / High / Transformational**
+**STORY COLLAPSE PROBABILITY: X%**
+
+GREENLIGHT SCORE: X/100
+GRANT PROBABILITY: X/100
+FESTIVAL PROBABILITY: X/100
+IMPACT SCORE: X/100
 
 DOCUMENTARY DEVELOPMENT TIERS (assign exactly one):
-- Tier A — Commission Ready (all categories 7+, access secured)
+- Tier A — Commission Ready (all dimensions 7+, access secured)
 - Tier B — Strong With Access Work (most 6+, access needs securing)
 - Tier C — Development Required (access or legal gaps)
 - Tier D — Concept Rethink Needed (market fit <4 or access <4)
@@ -449,7 +487,21 @@ DOCUMENTARY DEVELOPMENT TIERS (assign exactly one):
 FINANCE READINESS STATUS:
 - GREEN — Submit to funds and broadcasters
 - YELLOW — Secure access and legal clearance first
-- RED — Development hold until access confirmed`;
+- RED — Development hold until access confirmed
+
+DOCUMENTARY-SPECIFIC RISK FLAGS (check ALL):
+- ACCESS FRAGILITY RISK
+- LEGAL RISK
+- POLITICAL RISK
+- MARKET FIT RISK
+- ARCHIVE COST RISK
+- IMPACT GAP
+- INSURANCE RISK
+- INFORMATIONAL TRAP
+- NO PROTAGONIST
+- EMOTIONAL MONOTONY
+
+Conclude with a short EXECUTIVE SUMMARY written as if speaking to a serious financier evaluating whether to back the film.`;
     } else if (isVertical) {
       formatEngineBlock = `
 
@@ -608,49 +660,44 @@ CALIBRATION RULES FOR TV:
     let passBUserSuffix = '';
 
     if (isDocumentary) {
-      formatNoteCategories = 'cultural_relevance|access|legal|festival|grant|impact|broadcaster';
-      formatTone = 'Documentary specialist. Evidence-anchored. Reality-locked. Market-aware.';
-      passBUserSuffix = ' This is a DOCUMENTARY project — use documentary-specific scoring (Cultural Relevance, Access Security, Legal Readiness, Festival Probability, Grant Probability, Impact Potential, Broadcaster Fit). Do NOT use fiction/film categories. Every claim must include an evidence note.';
+      formatNoteCategories = 'narrative_gravity|structural_integrity|emotional_architecture|access_fragility|legal_ethical|market_positioning|grant_impact|commercial_viability|red_flags|strategy';
+      formatTone = 'Documentary story strategist. Evidence-anchored. Reality-locked. Financier-facing.';
+      passBUserSuffix = ' This is a DOCUMENTARY project — use the 10-dimension Documentary Story Engine scoring (Narrative Gravity, Structural Integrity, Emotional Architecture, Access & Fragility, Legal & Ethical Safety, Market Positioning, Grant & Impact Potential, Commercial Viability). Do NOT use fiction/film categories. Every claim must include an evidence note. Conclude with an executive summary for a financier.';
       formatScoringInstructions = `
 
-DOCUMENTARY SCORING GRID (use this INSTEAD of the film grid):
+DOCUMENTARY STORY ENGINE SCORING (use this INSTEAD of the film grid):
 
 Score each 0-10, use FULL range:
 
-### DOCUMENTARY PRODUCER BENCHMARK GRID
-| Category | Score |
+### DOCUMENTARY STORY ENGINE BENCHMARK GRID
+| Dimension | Score |
 |---|---|
-| Cultural Relevance | X/10 |
-| Access Security | X/10 |
-| Legal Readiness | X/10 |
-| Festival Probability | X/10 |
-| Grant Probability | X/10 |
-| Impact Potential | X/10 |
-| Broadcaster Fit | X/10 |
+| Narrative Gravity | X/10 |
+| Structural Integrity | X/10 |
+| Emotional Architecture | X/10 |
+| Access & Fragility | X/10 |
+| Legal & Ethical Safety | X/10 |
+| Market Positioning | X/10 |
+| Grant & Impact Potential | X/10 |
+| Commercial Viability | X/10 |
 
-**CULTURAL RELEVANCE: X/10**
-**ACCESS SECURITY: X/10**
-**LEGAL READINESS: X/10**
-**FESTIVAL PROBABILITY: X/10**
-**GRANT PROBABILITY: X/10**
-**IMPACT POTENTIAL: X/10**
-**BROADCASTER FIT: X/10**
-**OVERALL GREENLIGHT CONFIDENCE: X/10**
+**OVERALL NARRATIVE STRENGTH: X/10**
+**GREENLIGHT SCORE: X/100**
+**GRANT PROBABILITY: X/100**
+**FESTIVAL PROBABILITY: X/100**
+**IMPACT SCORE: X/100**
+**STORY COLLAPSE PROBABILITY: X%**
 
 DOCUMENTARY DEVELOPMENT TIERS (assign exactly one):
-- Tier A — Commission Ready (all categories 7+)
+- Tier A — Commission Ready (all dimensions 7+)
 - Tier B — Strong With Access Work (most 6+)
 - Tier C — Development Required (access or legal gaps)
 - Tier D — Concept Rethink Needed (market fit <4 or access <4)
 
 DOCUMENTARY RISK FLAGS (include any that apply):
-- ACCESS FRAGILITY RISK: access depends on single subject or event
-- LEGAL RISK: unresolved defamation/privacy/consent issues
-- POLITICAL RISK: high sensitivity, potential backlash
-- MARKET FIT RISK: no clear festival/broadcaster pathway
-- ARCHIVE COST RISK: archive costs potentially prohibitive
-- IMPACT GAP: no impact strategy identified
-- INSURANCE RISK: E&O concerns could block distribution
+- ACCESS FRAGILITY RISK / LEGAL RISK / POLITICAL RISK / MARKET FIT RISK
+- ARCHIVE COST RISK / IMPACT GAP / INSURANCE RISK
+- INFORMATIONAL TRAP / NO PROTAGONIST / EMOTIONAL MONOTONY
 
 FINANCE READINESS STATUS:
 - GREEN — Submit to funds and broadcasters
@@ -913,15 +960,19 @@ Each note: {"note_id":"N-001","section":"string","category":"${formatNoteCategor
 
     // Build scoring grid — format-specific categories
     const scoringGrid: Record<string, number | null> = isDocumentary ? {
-      cultural_relevance: extractScore('Cultural Relevance'),
-      access_security: extractScore('Access Security'),
-      legal_readiness: extractScore('Legal Readiness'),
-      festival_probability: extractScore('Festival Probability'),
-      grant_probability: extractScore('Grant Probability'),
-      impact_potential: extractScore('Impact Potential') || extractScore('Impact'),
-      broadcaster_fit: extractScore('Broadcaster Fit'),
-      greenlight_score: extractScore('Greenlight') || extractScore('Overall Greenlight Confidence'),
-      overall_producer_confidence: extractScore('Overall Greenlight Confidence') || extractScore('GREENLIGHT CONFIDENCE'),
+      narrative_gravity: extractScore('Narrative Gravity'),
+      structural_integrity: extractScore('Structural Integrity'),
+      emotional_architecture: extractScore('Emotional Architecture'),
+      access_fragility: extractScore('Access & Fragility') || extractScore('Access'),
+      legal_ethical_safety: extractScore('Legal & Ethical Safety') || extractScore('Legal'),
+      market_positioning: extractScore('Market Positioning') || extractScore('Market'),
+      grant_impact_potential: extractScore('Grant & Impact Potential') || extractScore('Grant'),
+      commercial_viability: extractScore('Commercial Viability'),
+      overall_narrative_strength: extractScore('Overall Narrative Strength') || extractScore('Narrative Strength'),
+      greenlight_score: extractScore('Greenlight Score') || extractScore('GREENLIGHT SCORE'),
+      grant_probability: extractScore('Grant Probability') || extractScore('GRANT PROBABILITY'),
+      festival_probability: extractScore('Festival Probability') || extractScore('FESTIVAL PROBABILITY'),
+      impact_score: extractScore('Impact Score') || extractScore('IMPACT SCORE'),
     } : isVertical ? {
       hook_speed: extractScore('Hook Speed'),
       cliffhanger_density: extractScore('Cliffhanger Density'),
@@ -979,6 +1030,9 @@ Each note: {"note_id":"N-001","section":"string","category":"${formatNoteCategor
       if (passBResult.match(/ARCHIVE COST RISK/i)) riskFlags.push('ARCHIVE COST RISK');
       if (passBResult.match(/IMPACT GAP/i)) riskFlags.push('IMPACT GAP');
       if (passBResult.match(/INSURANCE RISK/i)) riskFlags.push('INSURANCE RISK');
+      if (passBResult.match(/INFORMATIONAL TRAP/i)) riskFlags.push('INFORMATIONAL TRAP');
+      if (passBResult.match(/NO PROTAGONIST/i)) riskFlags.push('NO PROTAGONIST');
+      if (passBResult.match(/EMOTIONAL MONOTONY/i)) riskFlags.push('EMOTIONAL MONOTONY');
     }
     // Vertical-specific risk flags
     if (isVertical) {

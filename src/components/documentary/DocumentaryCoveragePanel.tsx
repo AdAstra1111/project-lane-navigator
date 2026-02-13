@@ -135,10 +135,10 @@ export function DocumentaryCoveragePanel({ projectId, projectTitle, format: fmt,
       const scoringGrid = metrics.scoring_grid || {};
 
       const newResult: DocCoverageResult = {
-        greenlight_score: scoringGrid.greenlight_score || (scoringGrid.overall_producer_confidence ? scoringGrid.overall_producer_confidence * 10 : 55),
-        grant_probability: scoringGrid.grant_probability || (scoringGrid.cultural_relevance ? scoringGrid.cultural_relevance * 10 : 50),
-        festival_probability: scoringGrid.festival_probability || (scoringGrid.festival_potential ? scoringGrid.festival_potential * 10 : 50),
-        impact_score: scoringGrid.impact_score || (scoringGrid.impact ? scoringGrid.impact * 10 : 40),
+        greenlight_score: scoringGrid.greenlight_score ? scoringGrid.greenlight_score : (scoringGrid.overall_narrative_strength ? scoringGrid.overall_narrative_strength * 10 : 55),
+        grant_probability: scoringGrid.grant_probability ? scoringGrid.grant_probability : (scoringGrid.grant_impact_potential ? scoringGrid.grant_impact_potential * 10 : 50),
+        festival_probability: scoringGrid.festival_probability ? scoringGrid.festival_probability : (scoringGrid.market_positioning ? scoringGrid.market_positioning * 10 : 50),
+        impact_score: scoringGrid.impact_score ? scoringGrid.impact_score : (scoringGrid.grant_impact_potential ? scoringGrid.grant_impact_potential * 10 : 40),
         cultural_relevance: data?.pass_a || '',
         access_risk: data?.pass_b || '',
         market_fit: data?.final_coverage || '',
