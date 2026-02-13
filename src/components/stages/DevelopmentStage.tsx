@@ -79,7 +79,7 @@ export function DevelopmentStage({
       />
 
       {/* Script Studio — 2-column read-only layout (replaces old scattered ScriptEngine/Coverage/DraftDelta) */}
-      {!isDoc && (hasDocuments || hasScript) && (
+      {(hasDocuments || hasScript) && (
         <ScriptStudio
           projectId={projectId}
           projectTitle={project.title}
