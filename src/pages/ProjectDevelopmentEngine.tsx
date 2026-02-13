@@ -287,7 +287,7 @@ export default function ProjectDevelopmentEngine() {
                               {doc.source === 'generated' ? '✨' : doc.source === 'paste' ? '📋' : '📄'}
                             </span>
                           </div>
-                          <div className="absolute top-2 right-1.5 opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
+                          <div className="absolute top-2 right-1.5" onClick={e => e.stopPropagation()}>
                             <ConfirmDialog
                               title="Delete Document"
                               description={`Delete "${doc.title || doc.file_name}" and all its versions? This cannot be undone.`}
@@ -295,8 +295,8 @@ export default function ProjectDevelopmentEngine() {
                               variant="destructive"
                               onConfirm={() => deleteDocument.mutate(doc.id)}
                             >
-                              <button className="p-1 rounded hover:bg-destructive/20 text-muted-foreground hover:text-destructive transition-colors">
-                                <Trash2 className="h-3 w-3" />
+                              <button className="p-1.5 rounded hover:bg-destructive/20 text-muted-foreground hover:text-destructive transition-colors">
+                                <Trash2 className="h-3.5 w-3.5" />
                               </button>
                             </ConfirmDialog>
                           </div>
