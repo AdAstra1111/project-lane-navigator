@@ -53,6 +53,115 @@ export type Database = {
         }
         Relationships: []
       }
+      archive_assets: {
+        Row: {
+          asset_type: string | null
+          clearance_notes: string | null
+          cost_estimate: number | null
+          created_at: string
+          description: string | null
+          duration_seconds: number | null
+          id: string
+          priority: string | null
+          project_id: string
+          rights_status: string | null
+          source: string | null
+          user_id: string
+        }
+        Insert: {
+          asset_type?: string | null
+          clearance_notes?: string | null
+          cost_estimate?: number | null
+          created_at?: string
+          description?: string | null
+          duration_seconds?: number | null
+          id?: string
+          priority?: string | null
+          project_id: string
+          rights_status?: string | null
+          source?: string | null
+          user_id: string
+        }
+        Update: {
+          asset_type?: string | null
+          clearance_notes?: string | null
+          cost_estimate?: number | null
+          created_at?: string
+          description?: string | null
+          duration_seconds?: number | null
+          id?: string
+          priority?: string | null
+          project_id?: string
+          rights_status?: string | null
+          source?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "archive_assets_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      broadcaster_fit_scores: {
+        Row: {
+          broadcaster_name: string
+          budget_match: number | null
+          created_at: string
+          fit_score: number | null
+          genre_match: number | null
+          id: string
+          last_assessed_at: string | null
+          notes: string | null
+          project_id: string
+          slot_fit: string | null
+          territory: string | null
+          tone_match: number | null
+          user_id: string
+        }
+        Insert: {
+          broadcaster_name?: string
+          budget_match?: number | null
+          created_at?: string
+          fit_score?: number | null
+          genre_match?: number | null
+          id?: string
+          last_assessed_at?: string | null
+          notes?: string | null
+          project_id: string
+          slot_fit?: string | null
+          territory?: string | null
+          tone_match?: number | null
+          user_id: string
+        }
+        Update: {
+          broadcaster_name?: string
+          budget_match?: number | null
+          created_at?: string
+          fit_score?: number | null
+          genre_match?: number | null
+          id?: string
+          last_assessed_at?: string | null
+          notes?: string | null
+          project_id?: string
+          slot_fit?: string | null
+          territory?: string | null
+          tone_match?: number | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "broadcaster_fit_scores_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       budget_assumptions: {
         Row: {
           budget_band: string | null
@@ -702,6 +811,66 @@ export type Database = {
             columns: ["expansion_id"]
             isOneToOne: false
             referencedRelation: "concept_expansions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      consent_forms: {
+        Row: {
+          created_at: string
+          expiry_date: string | null
+          file_path: string | null
+          form_type: string | null
+          id: string
+          interview_subject_id: string | null
+          notes: string | null
+          project_id: string
+          signed_date: string | null
+          status: string | null
+          subject_name: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          expiry_date?: string | null
+          file_path?: string | null
+          form_type?: string | null
+          id?: string
+          interview_subject_id?: string | null
+          notes?: string | null
+          project_id: string
+          signed_date?: string | null
+          status?: string | null
+          subject_name?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          expiry_date?: string | null
+          file_path?: string | null
+          form_type?: string | null
+          id?: string
+          interview_subject_id?: string | null
+          notes?: string | null
+          project_id?: string
+          signed_date?: string | null
+          status?: string | null
+          subject_name?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "consent_forms_interview_subject_id_fkey"
+            columns: ["interview_subject_id"]
+            isOneToOne: false
+            referencedRelation: "interview_subjects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "consent_forms_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
             referencedColumns: ["id"]
           },
         ]
@@ -1707,6 +1876,86 @@ export type Database = {
           },
         ]
       }
+      documentary_profiles: {
+        Row: {
+          access_level: string | null
+          access_notes: string | null
+          archive_cost_estimate: number | null
+          archive_status: string | null
+          broadcaster_targets: string[] | null
+          central_question: string | null
+          character_reliability: string | null
+          created_at: string
+          festival_targets: string[] | null
+          grant_status: string | null
+          id: string
+          impact_strategy: string | null
+          insurance_risk: string | null
+          legal_exposure: string | null
+          political_sensitivity: string | null
+          project_id: string
+          story_type: string | null
+          subject_count: number | null
+          thematic_focus: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          access_level?: string | null
+          access_notes?: string | null
+          archive_cost_estimate?: number | null
+          archive_status?: string | null
+          broadcaster_targets?: string[] | null
+          central_question?: string | null
+          character_reliability?: string | null
+          created_at?: string
+          festival_targets?: string[] | null
+          grant_status?: string | null
+          id?: string
+          impact_strategy?: string | null
+          insurance_risk?: string | null
+          legal_exposure?: string | null
+          political_sensitivity?: string | null
+          project_id: string
+          story_type?: string | null
+          subject_count?: number | null
+          thematic_focus?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          access_level?: string | null
+          access_notes?: string | null
+          archive_cost_estimate?: number | null
+          archive_status?: string | null
+          broadcaster_targets?: string[] | null
+          central_question?: string | null
+          character_reliability?: string | null
+          created_at?: string
+          festival_targets?: string[] | null
+          grant_status?: string | null
+          id?: string
+          impact_strategy?: string | null
+          insurance_risk?: string | null
+          legal_exposure?: string | null
+          political_sensitivity?: string | null
+          project_id?: string
+          story_type?: string | null
+          subject_count?: number | null
+          thematic_focus?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "documentary_profiles_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: true
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       edit_versions: {
         Row: {
           created_at: string
@@ -1984,6 +2233,68 @@ export type Database = {
           },
         ]
       }
+      grant_matches: {
+        Row: {
+          application_notes: string | null
+          created_at: string
+          currency: string | null
+          deadline: string | null
+          eligibility_match: number | null
+          fund_body: string | null
+          fund_name: string
+          geography_match: number | null
+          id: string
+          max_amount: number | null
+          project_id: string
+          status: string | null
+          topic_relevance: number | null
+          url: string | null
+          user_id: string
+        }
+        Insert: {
+          application_notes?: string | null
+          created_at?: string
+          currency?: string | null
+          deadline?: string | null
+          eligibility_match?: number | null
+          fund_body?: string | null
+          fund_name?: string
+          geography_match?: number | null
+          id?: string
+          max_amount?: number | null
+          project_id: string
+          status?: string | null
+          topic_relevance?: number | null
+          url?: string | null
+          user_id: string
+        }
+        Update: {
+          application_notes?: string | null
+          created_at?: string
+          currency?: string | null
+          deadline?: string | null
+          eligibility_match?: number | null
+          fund_body?: string | null
+          fund_name?: string
+          geography_match?: number | null
+          id?: string
+          max_amount?: number | null
+          project_id?: string
+          status?: string | null
+          topic_relevance?: number | null
+          url?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "grant_matches_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       great_notes_library: {
         Row: {
           budget_band: string | null
@@ -2060,6 +2371,59 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      impact_partners: {
+        Row: {
+          contact_email: string | null
+          contact_name: string | null
+          contribution: string | null
+          created_at: string
+          engagement_status: string | null
+          id: string
+          notes: string | null
+          partner_name: string
+          partner_type: string | null
+          project_id: string
+          territory: string | null
+          user_id: string
+        }
+        Insert: {
+          contact_email?: string | null
+          contact_name?: string | null
+          contribution?: string | null
+          created_at?: string
+          engagement_status?: string | null
+          id?: string
+          notes?: string | null
+          partner_name?: string
+          partner_type?: string | null
+          project_id: string
+          territory?: string | null
+          user_id: string
+        }
+        Update: {
+          contact_email?: string | null
+          contact_name?: string | null
+          contribution?: string | null
+          created_at?: string
+          engagement_status?: string | null
+          id?: string
+          notes?: string | null
+          partner_name?: string
+          partner_type?: string | null
+          project_id?: string
+          territory?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "impact_partners_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       improvement_runs: {
         Row: {
@@ -2379,6 +2743,115 @@ export type Database = {
           supported_import_types?: string[]
         }
         Relationships: []
+      }
+      interview_subjects: {
+        Row: {
+          access_status: string | null
+          consent_status: string | null
+          contact_info: string | null
+          created_at: string
+          id: string
+          interview_notes: string | null
+          location: string | null
+          name: string
+          project_id: string
+          reliability_rating: string | null
+          role_in_story: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          access_status?: string | null
+          consent_status?: string | null
+          contact_info?: string | null
+          created_at?: string
+          id?: string
+          interview_notes?: string | null
+          location?: string | null
+          name?: string
+          project_id: string
+          reliability_rating?: string | null
+          role_in_story?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          access_status?: string | null
+          consent_status?: string | null
+          contact_info?: string | null
+          created_at?: string
+          id?: string
+          interview_notes?: string | null
+          location?: string | null
+          name?: string
+          project_id?: string
+          reliability_rating?: string | null
+          role_in_story?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "interview_subjects_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      legal_flags: {
+        Row: {
+          affected_subjects: string | null
+          created_at: string
+          description: string | null
+          flag_type: string | null
+          id: string
+          mitigation_plan: string | null
+          project_id: string
+          reviewed_at: string | null
+          reviewed_by: string | null
+          severity: string | null
+          status: string | null
+          user_id: string
+        }
+        Insert: {
+          affected_subjects?: string | null
+          created_at?: string
+          description?: string | null
+          flag_type?: string | null
+          id?: string
+          mitigation_plan?: string | null
+          project_id: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          severity?: string | null
+          status?: string | null
+          user_id: string
+        }
+        Update: {
+          affected_subjects?: string | null
+          created_at?: string
+          description?: string | null
+          flag_type?: string | null
+          id?: string
+          mitigation_plan?: string | null
+          project_id?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          severity?: string | null
+          status?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "legal_flags_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       market_buyers: {
         Row: {
@@ -6103,6 +6576,56 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "stage_gates_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      story_spine_versions: {
+        Row: {
+          act1_facts: string | null
+          act2_hypotheses: string | null
+          act3_outcome_paths: Json | null
+          central_tension: string | null
+          created_at: string
+          discovery_notes: string | null
+          id: string
+          project_id: string
+          status: string | null
+          user_id: string
+          version: number | null
+        }
+        Insert: {
+          act1_facts?: string | null
+          act2_hypotheses?: string | null
+          act3_outcome_paths?: Json | null
+          central_tension?: string | null
+          created_at?: string
+          discovery_notes?: string | null
+          id?: string
+          project_id: string
+          status?: string | null
+          user_id: string
+          version?: number | null
+        }
+        Update: {
+          act1_facts?: string | null
+          act2_hypotheses?: string | null
+          act3_outcome_paths?: Json | null
+          central_tension?: string | null
+          created_at?: string
+          discovery_notes?: string | null
+          id?: string
+          project_id?: string
+          status?: string | null
+          user_id?: string
+          version?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "story_spine_versions_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"
