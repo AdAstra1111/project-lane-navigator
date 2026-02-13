@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { FileText, File, CheckCircle2, AlertCircle, AlertTriangle, RotateCw, Trash2, Tag } from 'lucide-react';
+import { FileText, File, CheckCircle2, AlertCircle, AlertTriangle, RotateCw, Trash2, Tag, Sparkles } from 'lucide-react';
 import { ProjectDocument, DocumentType, DOC_TYPE_LABELS } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useExtractDocuments } from '@/hooks/useExtractDocuments';
 import { OperationProgress, EXTRACT_STAGES } from '@/components/OperationProgress';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
@@ -12,6 +13,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
+// ... keep existing code (getStatusIcon, getStatusLabel, DOC_TYPE_COLORS)
 function getStatusIcon(status: string) {
   switch (status) {
     case 'success':
@@ -59,11 +61,79 @@ export function DocumentsList({ documents, projectId }: DocumentsListProps) {
   const queryClient = useQueryClient();
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [editingTypeId, setEditingTypeId] = useState<string | null>(null);
+  const [reanalyzingId, setReanalyzingId] = useState<string | null>(null);
 
   if (documents.length === 0) return null;
 
   const hasUnextracted = documents.some(d => d.extraction_status !== 'success' || !d.extracted_text);
   const extract = useExtractDocuments(projectId);
+
+  const handleReanalyze = async (doc: ProjectDocument) => {
+    if (!projectId) return;
+    setReanalyzingId(doc.id);
+    try {
+      // First re-extract text for this specific doc
+      const { data: extractData, error: extractError } = await supabase.functions.invoke('extract-documents', {
+        body: { projectId, documentPaths: [doc.file_path] },
+      });
+      if (extractError) throw new Error(extractError.message || 'Extraction failed');
+
+      // Then re-run full analysis with all project docs
+      const { data: project } = await supabase
+        .from('projects')
+        .select('title, format, genres, budget_range, target_audience, tone, comparable_titles')
+        .eq('id', projectId)
+        .single();
+
+      const { data: allDocs } = await supabase
+        .from('project_documents')
+        .select('file_path')
+        .eq('project_id', projectId);
+
+      const allPaths = (allDocs || []).map(d => d.file_path);
+
+      const { data: analysisData, error: analysisError } = await supabase.functions.invoke('analyze-project', {
+        body: {
+          projectInput: {
+            title: project?.title || '',
+            format: project?.format || 'film',
+            genres: project?.genres || [],
+            budget_range: project?.budget_range || '',
+            target_audience: project?.target_audience || '',
+            tone: project?.tone || '',
+            comparable_titles: project?.comparable_titles || '',
+          },
+          documentPaths: allPaths,
+        },
+      });
+
+      if (analysisError) throw new Error(analysisError.message || 'Analysis failed');
+      if (analysisData?.error) throw new Error(analysisData.error);
+
+      // Update project with new analysis
+      const toolCall = analysisData?.choices?.[0]?.message?.tool_calls?.[0];
+      if (toolCall?.function?.arguments) {
+        const analysis = JSON.parse(toolCall.function.arguments);
+        await supabase
+          .from('projects')
+          .update({
+            analysis_passes: analysis as any,
+            assigned_lane: analysis.lane || null,
+            confidence: analysis.confidence ?? null,
+            reasoning: analysis.rationale || null,
+          })
+          .eq('id', projectId);
+      }
+
+      queryClient.invalidateQueries({ queryKey: ['project-documents', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+      toast.success(`Re-analysed ${doc.file_name}`);
+    } catch (e: any) {
+      toast.error(e.message || 'Re-analysis failed');
+    } finally {
+      setReanalyzingId(null);
+    }
+  };
 
   const handleChangeType = async (docId: string, newType: DocumentType) => {
     try {
@@ -147,18 +217,32 @@ export function DocumentsList({ documents, projectId }: DocumentsListProps) {
                 </span>
               </div>
             </div>
-            <ConfirmDialog
-              title={`Delete ${doc.file_name}?`}
-              description="This will permanently remove the document and its extracted text. This cannot be undone."
-              onConfirm={() => handleDelete(doc)}
-            >
-              <button
-                className="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 opacity-0 group-hover:opacity-100 transition-all"
-                disabled={deletingId === doc.id}
+            <div className="flex items-center gap-1">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    className="p-1.5 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/10 opacity-0 group-hover:opacity-100 transition-all"
+                    onClick={() => handleReanalyze(doc)}
+                    disabled={reanalyzingId === doc.id}
+                  >
+                    <Sparkles className={`h-3.5 w-3.5 ${reanalyzingId === doc.id ? 'animate-pulse' : ''}`} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="text-xs">Re-analyse this document</TooltipContent>
+              </Tooltip>
+              <ConfirmDialog
+                title={`Delete ${doc.file_name}?`}
+                description="This will permanently remove the document and its extracted text. This cannot be undone."
+                onConfirm={() => handleDelete(doc)}
               >
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
-            </ConfirmDialog>
+                <button
+                  className="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 opacity-0 group-hover:opacity-100 transition-all"
+                  disabled={deletingId === doc.id}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </ConfirmDialog>
+            </div>
           </motion.div>
         ))}
       </div>
