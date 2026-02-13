@@ -777,19 +777,21 @@ export function ScriptStudio({
               {statusLabel}
             </Badge>
 
-            {/* Primary CTA */}
-            <Button
-              size="sm"
-              onClick={handleRunCoverage}
-              disabled={isCoverageLoading || !hasDocuments}
-              className="text-xs gap-1.5"
-            >
-              {isCoverageLoading ? (
-                <><Loader2 className="h-3.5 w-3.5 animate-spin" />Running…</>
-              ) : (
-                <><FileSearch className="h-3.5 w-3.5" />Run Coverage</>
-              )}
-            </Button>
+            {/* Run Coverage — only show in header when coverage already exists (empty state has its own CTA) */}
+            {runs.length > 0 && (
+              <Button
+                size="sm"
+                onClick={handleRunCoverage}
+                disabled={isCoverageLoading || !hasDocuments}
+                className="text-xs gap-1.5"
+              >
+                {isCoverageLoading ? (
+                  <><Loader2 className="h-3.5 w-3.5 animate-spin" />Running…</>
+                ) : (
+                  <><FileSearch className="h-3.5 w-3.5" />Run Coverage</>
+                )}
+              </Button>
+            )}
 
             {/* Development Engine */}
             <Button variant="outline" size="sm" className="text-xs gap-1.5" asChild>
