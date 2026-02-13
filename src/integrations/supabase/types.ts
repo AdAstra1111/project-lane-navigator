@@ -5182,6 +5182,7 @@ export type Database = {
           incentive_insights: Json | null
           lifecycle_stage: string
           packaging_mode: string
+          packaging_stage: string
           pinned: boolean
           pipeline_stage: string
           primary_territory: string
@@ -5215,6 +5216,7 @@ export type Database = {
           incentive_insights?: Json | null
           lifecycle_stage?: string
           packaging_mode?: string
+          packaging_stage?: string
           pinned?: boolean
           pipeline_stage?: string
           primary_territory?: string
@@ -5248,6 +5250,7 @@ export type Database = {
           incentive_insights?: Json | null
           lifecycle_stage?: string
           packaging_mode?: string
+          packaging_stage?: string
           pinned?: boolean
           pipeline_stage?: string
           primary_territory?: string

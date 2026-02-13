@@ -32,7 +32,7 @@ import { GreenlightSimulator } from '@/components/GreenlightSimulator';
 import { PackagingIntelligencePanel } from '@/components/intelligence/PackagingIntelligencePanel';
 import { FinancePredictionPanel } from '@/components/finance/FinancePredictionPanel';
 import { PackagingPowerPanel } from '@/components/intelligence/PackagingPowerPanel';
-import type { PackagingMode } from '@/lib/role-gravity-engine';
+import type { PackagingMode, PackagingStage } from '@/lib/role-gravity-engine';
 
 const COVERAGE_3PASS_STAGES = [
   { at: 5, label: 'Pass A: Analyst diagnosis…' },
@@ -93,6 +93,7 @@ interface Props {
   lane?: string;
   productionType?: string;
   packagingMode?: PackagingMode;
+  packagingStage?: PackagingStage;
   characters?: any[];
 }
 
@@ -509,7 +510,7 @@ function CompareDialog({ runs }: { runs: CoverageRunData[] }) {
   );
 }
 
-export function ScriptCoverage({ projectId, projectTitle, format, genres, hasDocuments, lane, productionType, packagingMode, characters }: Props) {
+export function ScriptCoverage({ projectId, projectTitle, format, genres, hasDocuments, lane, productionType, packagingMode, packagingStage, characters }: Props) {
   const [runs, setRuns] = useState<CoverageRunData[]>([]);
   const [selectedId, setSelectedId] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -874,6 +875,7 @@ export function ScriptCoverage({ projectId, projectTitle, format, genres, hasDoc
                 <PackagingPowerPanel
                   projectId={projectId}
                   packagingMode={packagingMode || 'streamer_prestige'}
+                  packagingStage={packagingStage || 'early_dev'}
                   roles={
                     (selectedRun.metrics?.role_analysis || characters || [])
                       .slice(0, 10)
