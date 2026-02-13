@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, Navigate, useSearchParams, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Play } from 'lucide-react';
+import { ArrowLeft, Play, Shield } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
@@ -200,12 +200,20 @@ export default function Auth() {
             </p>
           )}
 
-          <Link to="/demo" className="mt-6 inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-primary transition-colors group lg:hidden">
-            <span className="h-8 w-8 rounded-full bg-primary/10 group-hover:bg-primary/20 flex items-center justify-center transition-colors">
-              <Play className="h-3.5 w-3.5 fill-primary text-primary" />
-            </span>
-            Watch the trailer
-          </Link>
+          <div className="mt-6 flex flex-col gap-2 lg:hidden">
+            <Link to="/demo" className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-primary transition-colors group">
+              <span className="h-8 w-8 rounded-full bg-primary/10 group-hover:bg-primary/20 flex items-center justify-center transition-colors">
+                <Play className="h-3.5 w-3.5 fill-primary text-primary" />
+              </span>
+              Watch the trailer
+            </Link>
+            <Link to="/demo/executive" className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-primary transition-colors group">
+              <span className="h-8 w-8 rounded-full bg-primary/10 group-hover:bg-primary/20 flex items-center justify-center transition-colors">
+                <Shield className="h-3.5 w-3.5 text-primary" />
+              </span>
+              Explore Executive Mode
+            </Link>
+          </div>
         </motion.div>
       </div>
 
@@ -225,12 +233,20 @@ export default function Auth() {
           <p className="text-muted-foreground text-lg leading-relaxed mb-6">
             IFFY guides film and TV projects from development through production to monetisation — preserving context, ownership, and financial clarity at every stage.
           </p>
-          <Link to="/demo" className="inline-flex items-center gap-2 text-sm font-medium text-primary hover:text-primary/80 transition-colors group">
-            <span className="h-9 w-9 rounded-full bg-primary/10 group-hover:bg-primary/20 flex items-center justify-center transition-colors">
-              <Play className="h-4 w-4 fill-primary text-primary" />
-            </span>
-            Watch the trailer
-          </Link>
+          <div className="flex flex-col items-center gap-3">
+            <Link to="/demo" className="inline-flex items-center gap-2 text-sm font-medium text-primary hover:text-primary/80 transition-colors group">
+              <span className="h-9 w-9 rounded-full bg-primary/10 group-hover:bg-primary/20 flex items-center justify-center transition-colors">
+                <Play className="h-4 w-4 fill-primary text-primary" />
+              </span>
+              Watch the trailer
+            </Link>
+            <Link to="/demo/executive" className="inline-flex items-center gap-2 text-sm font-medium text-primary/70 hover:text-primary transition-colors group">
+              <span className="h-9 w-9 rounded-full bg-primary/10 group-hover:bg-primary/20 flex items-center justify-center transition-colors">
+                <Shield className="h-4 w-4 text-primary" />
+              </span>
+              Explore Executive Mode
+            </Link>
+          </div>
         </div>
       </div>
     </div>
