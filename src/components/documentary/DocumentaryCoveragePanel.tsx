@@ -1,15 +1,15 @@
 /**
  * Documentary Coverage Engine — replaces script coverage for doc projects.
- * 3-pass: Cultural Relevance → Access & Risk → Market Fit
- * Outputs: Greenlight score, Grant probability, Festival probability, Impact score
+ * 10-dimension analysis with collapsible sections for clarity.
  * Persists each run and shows history via dated dropdown.
  */
 
 import { useState, useEffect } from 'react';
-import { Loader2, FileSearch, BarChart3, Trophy, Landmark, Globe, History } from 'lucide-react';
+import { Loader2, FileSearch, BarChart3, Trophy, Landmark, Globe, History, ChevronDown, AlertTriangle, Lightbulb } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
@@ -63,6 +63,61 @@ function ScoreCard({ label, score, icon: Icon, color }: { label: string; score: 
   );
 }
 
+/** Parse the prose into titled sections for collapsible display */
+function parseSections(text: string): { title: string; content: string }[] {
+  if (!text) return [];
+  const lines = text.split('\n');
+  const sections: { title: string; content: string }[] = [];
+  let currentTitle = 'Executive Summary';
+  let currentLines: string[] = [];
+
+  for (const line of lines) {
+    const headingMatch = line.match(/^#{1,3}\s+(.+)/);
+    const boldHeadingMatch = !headingMatch && line.match(/^\*\*(\d+\.\s*.+?)\*\*/);
+    if (headingMatch || boldHeadingMatch) {
+      if (currentLines.length > 0) {
+        sections.push({ title: currentTitle, content: currentLines.join('\n') });
+      }
+      currentTitle = (headingMatch ? headingMatch[1] : boldHeadingMatch![1]).replace(/\*\*/g, '');
+      currentLines = [];
+    } else {
+      currentLines.push(line);
+    }
+  }
+  if (currentLines.length > 0) {
+    sections.push({ title: currentTitle, content: currentLines.join('\n') });
+  }
+  return sections;
+}
+
+function ProseBlock({ text }: { text: string }) {
+  return (
+    <div className="space-y-1">
+      {text.split('\n').map((line, i) => {
+        if (!line.trim()) return null;
+        if (line.match(/^\*\*[A-Z]/)) return <p key={i} className="text-foreground font-semibold text-xs mt-1.5">{line.replace(/\*\*/g, '')}</p>;
+        if (line.match(/^[-•]\s/)) return <p key={i} className="text-xs text-muted-foreground pl-3">• {line.replace(/^[-•]\s*/, '')}</p>;
+        return <p key={i} className="text-xs text-muted-foreground leading-relaxed">{line}</p>;
+      })}
+    </div>
+  );
+}
+
+function CollapsibleSection({ title, content, defaultOpen = false }: { title: string; content: string; defaultOpen?: boolean }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <CollapsibleTrigger className="flex items-center justify-between w-full py-2 px-3 rounded-md hover:bg-muted/50 transition-colors text-left group">
+        <span className="text-xs font-medium text-foreground">{title}</span>
+        <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${open ? 'rotate-180' : ''}`} />
+      </CollapsibleTrigger>
+      <CollapsibleContent className="px-3 pb-3">
+        <ProseBlock text={content} />
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
 export function DocumentaryCoveragePanel({ projectId, projectTitle, format: fmt, genres, lane }: Props) {
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
@@ -72,7 +127,6 @@ export function DocumentaryCoveragePanel({ projectId, projectTitle, format: fmt,
 
   const result = runs.find(r => r.id === selectedRunId) || null;
 
-  // Load existing runs on mount
   useEffect(() => {
     if (!user) return;
     supabase
@@ -146,7 +200,6 @@ export function DocumentaryCoveragePanel({ projectId, projectTitle, format: fmt,
         recommendations: [],
       };
 
-      // Persist to database
       const { data: inserted, error: insertErr } = await supabase
         .from('documentary_coverage_runs')
         .insert({
@@ -172,12 +225,18 @@ export function DocumentaryCoveragePanel({ projectId, projectTitle, format: fmt,
     }
   };
 
+  const sections = result ? parseSections(result.market_fit) : [];
+  // First section is shown open by default as the executive summary
+  const executiveSummary = sections.length > 0 ? sections[0] : null;
+  const detailSections = sections.slice(1);
+
   return (
     <div className="space-y-4">
+      {/* Header */}
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div>
           <h5 className="text-sm font-medium text-foreground">Documentary Coverage Engine</h5>
-          <p className="text-xs text-muted-foreground">Cultural Relevance → Access & Risk → Market Fit</p>
+          <p className="text-xs text-muted-foreground">10-dimension reality-locked analysis</p>
         </div>
         <div className="flex items-center gap-2">
           {runs.length > 0 && (
@@ -214,7 +273,7 @@ export function DocumentaryCoveragePanel({ projectId, projectTitle, format: fmt,
 
       {result && (
         <>
-          {/* Score Cards */}
+          {/* Score Cards — always visible */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <ScoreCard label="Greenlight" score={result.greenlight_score} icon={BarChart3} color="text-emerald-400" />
             <ScoreCard label="Grant Probability" score={result.grant_probability} icon={Landmark} color="text-sky-400" />
@@ -222,33 +281,35 @@ export function DocumentaryCoveragePanel({ projectId, projectTitle, format: fmt,
             <ScoreCard label="Impact Score" score={result.impact_score} icon={Globe} color="text-purple-400" />
           </div>
 
-          {/* Risk Flags */}
+          {/* Risk Flags — compact pills */}
           {result.risk_flags.length > 0 && (
-            <div className="space-y-1">
-              <p className="text-xs text-muted-foreground uppercase tracking-wider">Risk Flags</p>
-              <div className="flex flex-wrap gap-1.5">
-                {result.risk_flags.map((flag, i) => (
-                  <Badge key={i} variant="outline" className="text-[10px] border-red-500/40 text-red-400 bg-red-500/10">
-                    {flag}
-                  </Badge>
-                ))}
-              </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <AlertTriangle className="h-3.5 w-3.5 text-red-400 shrink-0" />
+              {result.risk_flags.map((flag, i) => (
+                <Badge key={i} variant="outline" className="text-[10px] border-red-500/40 text-red-400 bg-red-500/10">
+                  {flag}
+                </Badge>
+              ))}
             </div>
           )}
 
-          {/* Coverage Prose */}
-          {result.market_fit && (
-            <div className="border border-border rounded-lg p-4 mt-4">
-              <h5 className="text-xs uppercase tracking-wider text-muted-foreground mb-2">Full Coverage Report</h5>
-              <div className="prose prose-sm prose-invert max-w-none">
-                {result.market_fit.split('\n').map((line, i) => {
-                  if (line.match(/^#{1,3}\s/)) return <h4 key={i} className="text-primary font-display font-semibold mt-3 mb-1 text-sm">{line.replace(/^#+\s*/, '')}</h4>;
-                  if (line.match(/^\*\*[A-Z]/)) return <p key={i} className="text-foreground font-semibold text-sm mt-2">{line.replace(/\*\*/g, '')}</p>;
-                  if (line.match(/^[-•]\s/)) return <p key={i} className="text-sm text-muted-foreground pl-4">• {line.replace(/^[-•]\s*/, '')}</p>;
-                  if (!line.trim()) return <div key={i} className="h-1" />;
-                  return <p key={i} className="text-sm text-muted-foreground">{line}</p>;
-                })}
-              </div>
+          {/* Executive Summary — shown by default */}
+          {executiveSummary && (
+            <div className="border border-border rounded-lg p-4">
+              <h5 className="text-xs uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
+                <Lightbulb className="h-3 w-3" />
+                {executiveSummary.title}
+              </h5>
+              <ProseBlock text={executiveSummary.content} />
+            </div>
+          )}
+
+          {/* Detail Sections — collapsed by default */}
+          {detailSections.length > 0 && (
+            <div className="border border-border rounded-lg divide-y divide-border">
+              {detailSections.map((section, i) => (
+                <CollapsibleSection key={i} title={section.title} content={section.content} />
+              ))}
             </div>
           )}
         </>
