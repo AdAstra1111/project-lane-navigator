@@ -332,7 +332,7 @@ export default function ProjectDevelopmentEngine() {
                     <CardTitle className="text-xs">Convert To</CardTitle>
                   </CardHeader>
                   <CardContent className="px-2 pb-2 space-y-1">
-                    {['BLUEPRINT', 'ARCHITECTURE', 'TREATMENT', 'ONE_PAGER', 'OUTLINE', 'DRAFT_SCRIPT'].map(t => (
+                    {['BLUEPRINT', 'ARCHITECTURE', 'TREATMENT', 'ONE_PAGER', 'OUTLINE'].map(t => (
                       <Button key={t} variant="ghost" size="sm" className="w-full justify-start text-xs h-7"
                         disabled={isLoading}
                         onClick={() => convert.mutate({ targetOutput: t, protectItems: latestAnalysis?.protect })}>
