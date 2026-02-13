@@ -1,4 +1,4 @@
-export type ProjectFormat = 'film' | 'tv-series' | 'short-film' | 'documentary' | 'documentary-series' | 'hybrid-documentary' | 'digital-series' | 'commercial' | 'branded-content' | 'music-video' | 'proof-of-concept' | 'hybrid' | 'vertical-drama';
+export type ProjectFormat = 'film' | 'tv-series' | 'limited-series' | 'short-film' | 'documentary' | 'documentary-series' | 'hybrid-documentary' | 'digital-series' | 'commercial' | 'branded-content' | 'music-video' | 'proof-of-concept' | 'hybrid' | 'vertical-drama' | 'anim-feature' | 'anim-series' | 'reality' | 'podcast-ip';
 
 export type DocumentarySubtype = 'documentary' | 'documentary-series' | 'hybrid-documentary';
 

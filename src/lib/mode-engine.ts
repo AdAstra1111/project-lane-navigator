@@ -125,6 +125,50 @@ export const MODE_WORKFLOWS: Record<ProjectFormat, { value: string; label: strin
     { value: 'platform-launch', label: 'Platform Launch' },
     { value: 'growth', label: 'Growth / Renewal' },
   ],
+  'limited-series': [
+    { value: 'development', label: 'Development' },
+    { value: 'packaging', label: 'Packaging' },
+    { value: 'financing', label: 'Financing' },
+    { value: 'pre-production', label: 'Pre-Production' },
+    { value: 'production', label: 'Production' },
+    { value: 'post', label: 'Post' },
+    { value: 'release', label: 'Release / Awards' },
+  ],
+  'anim-feature': [
+    { value: 'development', label: 'Development' },
+    { value: 'packaging', label: 'Packaging' },
+    { value: 'financing', label: 'Financing' },
+    { value: 'pre-production', label: 'Pre-Production' },
+    { value: 'production', label: 'Production' },
+    { value: 'post', label: 'Post / VFX' },
+    { value: 'distribution', label: 'Distribution' },
+  ],
+  'anim-series': [
+    { value: 'development', label: 'Development' },
+    { value: 'packaging', label: 'Packaging' },
+    { value: 'platform-pitch', label: 'Platform Pitch' },
+    { value: 'pre-production', label: 'Pre-Production' },
+    { value: 'production', label: 'Production' },
+    { value: 'post', label: 'Post' },
+    { value: 'licensing', label: 'Licensing / Merch' },
+  ],
+  reality: [
+    { value: 'format-development', label: 'Format Development' },
+    { value: 'packaging', label: 'Packaging / Casting' },
+    { value: 'commission', label: 'Commission' },
+    { value: 'pre-production', label: 'Pre-Production' },
+    { value: 'production', label: 'Production' },
+    { value: 'post', label: 'Post' },
+    { value: 'format-sales', label: 'Format Sales' },
+  ],
+  'podcast-ip': [
+    { value: 'concept', label: 'Concept' },
+    { value: 'pilot-episodes', label: 'Pilot Episodes' },
+    { value: 'launch', label: 'Launch' },
+    { value: 'growth', label: 'Audience Growth' },
+    { value: 'monetisation', label: 'Monetisation' },
+    { value: 'adaptation', label: 'Adaptation Development' },
+  ],
 };
 
 // ─── Scoring Dimensions per Format ───
@@ -231,6 +275,41 @@ export const MODE_SCORING: Record<ProjectFormat, ScoringDimension[]> = {
     { key: 'subscriber-funnel', label: 'Subscriber Funnel Strength', weight: 15, description: 'Free-to-paid conversion and retention funnel' },
     { key: 'hook-strength', label: 'Hook & Retention Design', weight: 12, description: 'Cliffhanger density and scroll-stopping power' },
   ],
+  'limited-series': [
+    { key: 'narrative-power', label: 'Contained Narrative Power', weight: 25, description: 'Self-contained story strength' },
+    { key: 'cast-heat', label: 'Cast Attractiveness', weight: 25, description: 'Probability-based cast attachment' },
+    { key: 'platform-fit', label: 'Prestige Platform Fit', weight: 20, description: 'Platform mandate alignment' },
+    { key: 'awards', label: 'Awards Potential', weight: 15, description: 'Awards circuit viability' },
+    { key: 'market', label: 'Global Travelability', weight: 15, description: 'International appeal' },
+  ],
+  'anim-feature': [
+    { key: 'world', label: 'Visual World Uniqueness', weight: 25, description: 'Original visual identity' },
+    { key: 'franchise', label: 'Franchise Potential', weight: 25, description: 'IP expansion and merchandise' },
+    { key: 'ip', label: 'IP Strength', weight: 20, description: 'Underlying IP value' },
+    { key: 'cast', label: 'Voice Cast Strategy', weight: 15, description: 'Voice talent attachment' },
+    { key: 'timeline', label: 'Production Timeline', weight: 15, description: 'Production pipeline feasibility' },
+  ],
+  'anim-series': [
+    { key: 'engine', label: 'Episodic Engine', weight: 25, description: 'Repeatable story engine' },
+    { key: 'licensing', label: 'Licensing Potential', weight: 25, description: 'Toyetic and merchandise value' },
+    { key: 'platform', label: 'Platform Demo Fit', weight: 20, description: 'Target demographic alignment' },
+    { key: 'ip', label: 'IP Strength', weight: 15, description: 'Underlying IP value' },
+    { key: 'pipeline', label: 'Pipeline Efficiency', weight: 15, description: 'Production scalability' },
+  ],
+  reality: [
+    { key: 'format', label: 'Format Originality', weight: 25, description: 'Format novelty and hook' },
+    { key: 'repeatability', label: 'Repeatability', weight: 25, description: 'Season-on-season scalability' },
+    { key: 'casting', label: 'Casting Scalability', weight: 20, description: 'Participant pipeline' },
+    { key: 'commission', label: 'Commission Likelihood', weight: 15, description: 'Buyer appetite' },
+    { key: 'cost-ratio', label: 'Cost-to-Return', weight: 15, description: 'Budget efficiency' },
+  ],
+  'podcast-ip': [
+    { key: 'growth', label: 'Audience Growth', weight: 25, description: 'Listener acquisition velocity' },
+    { key: 'adaptation', label: 'Adaptation Potential', weight: 25, description: 'Cross-media IP value' },
+    { key: 'format', label: 'Format Expandability', weight: 20, description: 'Content scalability' },
+    { key: 'brand', label: 'Brand Integration', weight: 15, description: 'Sponsorship potential' },
+    { key: 'monetisation', label: 'Monetisation Mix', weight: 15, description: 'Revenue diversification' },
+  ],
 };
 
 // ─── Finance Model Labels per Format ───
@@ -249,6 +328,11 @@ export const MODE_FINANCE_LABELS: Record<ProjectFormat, string[]> = {
   'proof-of-concept': ['Self-Funded', 'Grants', 'In-Kind', 'Investor Seed', 'Crowdfunding'],
   hybrid: ['Brand Partners', 'Arts Council', 'Innovation Funds', 'Platform Deals', 'Experiential Budget', 'Tech Partners'],
   'vertical-drama': ['Platform Deal', 'Brand Integration', 'Ad Revenue', 'Sponsorship', 'Creator Fund', 'Pre-Sales'],
+  'limited-series': ['Platform Deal', 'Broadcaster', 'Co-Pro', 'Incentives', 'Equity', 'Other'],
+  'anim-feature': ['Studio Deal', 'Pre-Sales', 'Co-Pro', 'Incentives', 'Equity', 'Other'],
+  'anim-series': ['Platform Deal', 'Broadcaster', 'Licensing Pre-Sales', 'Co-Pro', 'Incentives', 'Other'],
+  reality: ['Commission Fee', 'Broadcaster', 'Platform Deal', 'Sponsorship', 'Format Sales', 'Other'],
+  'podcast-ip': ['Ad Revenue', 'Sponsorship', 'Premium Subscriptions', 'Adaptation Option', 'Brand Integration', 'Other'],
 };
 
 // ─── KPI Definitions per Format ───
@@ -343,6 +427,36 @@ export const MODE_KPIS: Record<ProjectFormat, KPIDefinition[]> = {
     { key: 'subscriber-conversion', label: 'Subscriber Conversion', description: 'Free-to-paid conversion rate', unit: 'percentage' },
     { key: 'total-views', label: 'Total Views', description: 'Cross-platform episode views', unit: 'count' },
   ],
+  'limited-series': [
+    { key: 'readiness', label: 'Readiness Score', description: 'Overall project readiness', unit: 'score' },
+    { key: 'cast-heat', label: 'Cast Heat', description: 'Cast attachment strength', unit: 'score' },
+    { key: 'awards-probability', label: 'Awards Probability', description: 'Awards potential', unit: 'percentage' },
+    { key: 'platform-interest', label: 'Platform Interest', description: 'Platform buyer engagement', unit: 'count' },
+  ],
+  'anim-feature': [
+    { key: 'readiness', label: 'Readiness Score', description: 'Overall project readiness', unit: 'score' },
+    { key: 'franchise-value', label: 'Franchise Value', description: 'IP franchise potential', unit: 'score' },
+    { key: 'production-progress', label: 'Production Progress', description: 'Animation pipeline completion', unit: 'percentage' },
+    { key: 'presale-interest', label: 'Pre-Sale Interest', description: 'Territory buyer interest', unit: 'count' },
+  ],
+  'anim-series': [
+    { key: 'readiness', label: 'Readiness Score', description: 'Overall project readiness', unit: 'score' },
+    { key: 'licensing-deals', label: 'Licensing Deals', description: 'Active licensing agreements', unit: 'count' },
+    { key: 'renewal-probability', label: 'Renewal Probability', description: 'Multi-season likelihood', unit: 'percentage' },
+    { key: 'platform-fit', label: 'Platform Fit', description: 'Platform alignment score', unit: 'score' },
+  ],
+  reality: [
+    { key: 'commission-probability', label: 'Commission Probability', description: 'Likelihood of commission', unit: 'percentage' },
+    { key: 'format-sales', label: 'Format Sales', description: 'International format deals', unit: 'count' },
+    { key: 'cost-per-episode', label: 'Cost per Episode', description: 'Average episode cost', unit: 'currency' },
+    { key: 'sponsor-revenue', label: 'Sponsor Revenue', description: 'Sponsorship income', unit: 'currency' },
+  ],
+  'podcast-ip': [
+    { key: 'listener-count', label: 'Listener Count', description: 'Average episode listeners', unit: 'count' },
+    { key: 'growth-rate', label: 'Growth Rate', description: 'Month-over-month growth', unit: 'percentage' },
+    { key: 'ad-revenue', label: 'Ad Revenue', description: 'Monthly ad revenue', unit: 'currency' },
+    { key: 'adaptation-interest', label: 'Adaptation Interest', description: 'Studio/streamer inquiries', unit: 'count' },
+  ],
 };
 
 // ─── Format Metadata ───
@@ -370,6 +484,11 @@ export const FORMAT_META: FormatMeta[] = [
   { value: 'digital-series', label: 'Digital / Social', shortLabel: 'Digital', description: 'Platform-native, high velocity content', icon: Monitor, color: 'text-rose-400' },
   { value: 'hybrid', label: 'Hybrid', shortLabel: 'Hybrid', description: 'Cross-platform, transmedia, immersive', icon: Shuffle, color: 'text-violet-400' },
   { value: 'vertical-drama', label: 'Vertical Drama', shortLabel: 'Vertical', description: 'Mobile-first, short-form episodic drama', icon: Smartphone, color: 'text-fuchsia-400' },
+  { value: 'limited-series', label: 'Limited Series', shortLabel: 'Limited', description: 'Prestige event series', icon: Tv, color: 'text-blue-400' },
+  { value: 'anim-feature', label: 'Animated Feature', shortLabel: 'Anim Film', description: 'Animated feature film', icon: Film, color: 'text-yellow-400' },
+  { value: 'anim-series', label: 'Animated Series', shortLabel: 'Anim Series', description: 'Animated TV series', icon: Tv, color: 'text-lime-400' },
+  { value: 'reality', label: 'Reality / Unscripted', shortLabel: 'Reality', description: 'Unscripted format entertainment', icon: Video, color: 'text-red-400' },
+  { value: 'podcast-ip', label: 'Podcast IP', shortLabel: 'Podcast', description: 'Audio-first IP with adaptation potential', icon: Music, color: 'text-slate-400' },
 ];
 
 export function getFormatMeta(format: string): FormatMeta {
@@ -392,4 +511,9 @@ export const MODE_STRATEGIC_ROLES: Record<ProjectFormat, string[]> = {
   'proof-of-concept': ['IP incubation', 'Investor engagement', 'Festival labs', 'Feature development'],
   hybrid: ['Innovation leadership', 'Cross-platform storytelling', 'Technology partnerships', 'Cultural impact'],
   'vertical-drama': ['Mobile audience growth', 'Platform relationships', 'Brand partnerships', 'Cast social leverage', 'IP franchise potential'],
+  'limited-series': ['Prestige positioning', 'Awards strategy', 'Cast heat leverage', 'Platform relationships', 'Event marketing'],
+  'anim-feature': ['IP franchise building', 'Merchandise licensing', 'International pre-sales', 'Sequel development', 'Theme park potential'],
+  'anim-series': ['Licensing revenue', 'Platform relationships', 'Toy/merch partnerships', 'Multi-season renewal', 'International format sales'],
+  reality: ['Format creation', 'International format sales', 'Sponsorship revenue', 'Talent pipeline', 'Platform relationships'],
+  'podcast-ip': ['IP incubation', 'Cross-media adaptation', 'Audience building', 'Brand partnerships', 'Revenue diversification'],
 };
