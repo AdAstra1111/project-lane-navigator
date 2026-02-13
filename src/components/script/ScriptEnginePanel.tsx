@@ -11,7 +11,7 @@ import {
   ChevronDown, ChevronRight, CheckCircle2, Circle, Loader2,
   MapPin, Users, Download, Eye, Copy, ArrowRight, FileText, Clock, FileCode,
   Sparkles, RotateCcw, Zap, TrendingUp, TrendingDown, Settings2, List,
-  AlertTriangle
+  AlertTriangle, ShieldCheck, FileSearch
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -292,6 +292,7 @@ export function ScriptEnginePanel({ projectId, productionType, genre }: Props & 
 
   const status = activeScript?.status || '';
   const isLocked = status === 'LOCKED';
+  const isDocumentary = (productionType || '').toLowerCase().includes('documentary') || (productionType || '').toLowerCase().includes('doc');
   const hasDraft = status.startsWith('DRAFT_') || status === 'DRAFTING';
   const hasArchitecture = scenes.length > 0;
   const hasBlueprint = !!blueprint;
@@ -436,6 +437,31 @@ export function ScriptEnginePanel({ projectId, productionType, genre }: Props & 
         <ChevronRight className="h-3 w-3 text-muted-foreground/50" />
         <PhaseStep label="Locked" status={getPhaseStatus('LOCKED')} />
       </div>
+
+      {/* Documentary Reality Lock Banner */}
+      {isDocumentary && (
+        <div className="mb-4 rounded-lg border border-primary/30 bg-primary/5 p-3">
+          <div className="flex items-center gap-2 mb-2">
+            <ShieldCheck className="h-4 w-4 text-primary shrink-0" />
+            <span className="text-xs font-semibold text-foreground">Documentary Reality Lock — ACTIVE</span>
+          </div>
+          <p className="text-[11px] text-muted-foreground leading-relaxed mb-2">
+            IFFY will not invent characters, events, or outcomes. All blueprint outputs are evidence-tagged. 
+            Narrative arcs use FACT / HYPOTHESIS / OUTCOME PATH structure.
+          </p>
+          <div className="flex items-center gap-3 flex-wrap">
+            <Badge variant="outline" className="text-[9px] border-emerald-500/50 text-emerald-400 bg-emerald-500/10">
+              FACT — Confirmed in material
+            </Badge>
+            <Badge variant="outline" className="text-[9px] border-amber-500/50 text-amber-400 bg-amber-500/10">
+              HYPOTHESIS — Not yet verified
+            </Badge>
+            <Badge variant="outline" className="text-[9px] border-muted-foreground/50 text-muted-foreground">
+              UNKNOWN — Source needed
+            </Badge>
+          </div>
+        </div>
+      )}
 
       {/* ═══ SELF-IMPROVING: Improve Draft Section ═══ */}
       {hasDraft && !isLocked && (
@@ -587,8 +613,8 @@ export function ScriptEnginePanel({ projectId, productionType, genre }: Props & 
             onClick={() => generateBlueprint.mutate()}
             disabled={isAnyLoading}
           >
-            {generateBlueprint.isPending ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <BookOpen className="h-3 w-3 mr-1" />}
-            {hasBlueprint ? 'Regenerate Blueprint' : 'Generate Blueprint'}
+            {generateBlueprint.isPending ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : isDocumentary ? <FileSearch className="h-3 w-3 mr-1" /> : <BookOpen className="h-3 w-3 mr-1" />}
+            {hasBlueprint ? 'Regenerate Blueprint' : isDocumentary ? 'Build Documentary Blueprint' : 'Generate Blueprint'}
           </Button>
 
           <Button

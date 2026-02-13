@@ -80,16 +80,79 @@ Return as JSON with keys: hook_cadence (array), emotional_spikes (array), cliffh
   }
 
   if (pt.includes("documentary")) {
-    return base + `Generate a DOCUMENTARY BLUEPRINT with:
-1. POV Clarity (whose story, what angle)
-2. Narrative Spine (central question + journey)
-3. Access Dependencies (what access is needed)
-4. Act-Style Escalation (3-4 act structure adapted for doc)
-5. Key Sequences (5-8 essential scenes/interviews)
-6. Archive/Visual Strategy
-7. Thematic Spine
+    return base + `Generate a DOCUMENTARY BLUEPRINT using the REALITY-LOCKED system below.
 
-Return as JSON with keys: pov_clarity, narrative_spine, access_dependencies (array), act_escalation (array), key_sequences (array), visual_strategy, thematic_spine.`;
+═══ DOCUMENTARY REALITY LOCK (MANDATORY) ═══
+- Do NOT create fictional characters.
+- Do NOT invent events, scenes, dialogue, or outcomes.
+- Do NOT add "composite characters".
+- Only use names, entities, claims, and events that are explicitly present in the deck/material OR explicitly provided by the user as real.
+- If something is not confirmed, label it as UNKNOWN or HYPOTHESIS.
+- Every claim must include an EVIDENCE NOTE tag: [Deck Quote], [User Confirmed], [Source Needed], or [Not Yet Verified].
+- If you cannot provide evidence notes, you must say what info is missing instead of inventing.
+
+═══ OUTPUT STRUCTURE (all sections required) ═══
+
+1. PROJECT FACT BASE
+   - confirmed_subjects: array of {name, role, evidence_note}
+   - confirmed_settings: array of {location, evidence_note}
+   - confirmed_timeframe: {period, evidence_note}
+   - confirmed_access: array of {type (interview/archive/embedded/other), detail, evidence_note}
+   - confirmed_stakes: {description, evidence_note}
+
+2. CENTRAL QUESTION + THEMATIC ENGINE
+   - central_question: string (phrased factually)
+   - themes: array of strings (observational, not moralising)
+   - film_promise: string (what audience will understand/feel)
+
+3. KNOWN STORY ARC (FACT-BASED)
+   - act_1: {description, evidence_notes (array), label: "CONFIRMED"}
+   - act_2: {description, evidence_notes (array), label: "CONFIRMED" or "HYPOTHESIS"}
+   - act_3_outcome_paths: array of {path_label, conditions, what_to_observe, label: "HYPOTHESIS"}
+   NOTE: Act 3 MUST list multiple outcome paths, NEVER a single invented ending.
+
+4. SEQUENCES WE CAN PLAN NOW
+   Array of {
+     sequence_title,
+     what_we_film (real action/location/event),
+     who_is_present (ONLY confirmed or "TBD"),
+     story_purpose,
+     what_to_capture (visuals + audio),
+     risks_unknowns,
+     evidence_note
+   }
+
+5. INTERVIEW STRATEGY
+   - confirmed_subjects: array of {name, evidence_note}
+   - target_subjects: array of {name_or_role, rationale, how_to_reach, status: "TBD"}
+   - question_bank: array of strings (designed to surface truth, not force plot)
+   - cross_check_questions: array of strings
+
+6. ARCHIVE + VERIFICATION PLAN
+   - archive_confirmed: array of {type, description, evidence_note}
+   - archive_needed: array of {type, description, status: "TBD"}
+   - verification_checklist: array of strings
+   - red_flags: array of strings (defamation/legal risk areas)
+
+7. DISCOVERY PIPELINE
+   - unknowns_to_answer: array of strings
+   - direction_changers: array of strings (what would pivot the film)
+   - recalibration_process: {
+       new_footage_logging: string,
+       fact_confirmation: string,
+       hypothesis_update: string,
+       outcome_path_update: string,
+       shoot_priority_update: string
+     }
+
+8. PRODUCTION BLUEPRINT
+   - shoot_blocks: array of {block_name, rationale, access_dependencies (array)}
+   - key_milestones: array of {milestone, description}
+   - deliverables_plan: {festival_options, streamer_options, broadcaster_options}
+
+Return as JSON with top-level keys: project_fact_base, central_question_engine, known_story_arc, planned_sequences (array), interview_strategy, archive_verification_plan, discovery_pipeline, production_blueprint.
+
+CRITICAL: If the concept documents are sparse, populate what you can from the material and mark everything else as [Source Needed]. NEVER fill gaps with fiction.`;
   }
 
   // Film / default
