@@ -15,7 +15,7 @@ import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
 import { useQuery } from '@tanstack/react-query';
 import { TerritoryCostBrowser } from '@/components/TerritoryCostBrowser';
-import { CorpusInsightsDashboard } from '@/components/CorpusInsightsDashboard';
+import { CorpusInsightsDashboard } from '@/components/corpus/CorpusInsightsDashboard';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ShareSignalDialog } from '@/components/ShareSignalDialog';
 import { usePersonImage } from '@/hooks/usePersonImage';

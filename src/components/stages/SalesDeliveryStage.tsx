@@ -3,12 +3,12 @@
  * Contains: Sales intelligence, deals, buyer matches, festivals, territory heat map, market alerts.
  */
 
-import { DealTracker } from '@/components/DealTracker';
+import { DealTracker } from '@/components/finance/DealTracker';
 import { ProjectBuyerMatches } from '@/components/ProjectBuyerMatches';
 import { ProjectFestivalMatches } from '@/components/ProjectFestivalMatches';
 import { TerritoryHeatMap } from '@/components/TerritoryHeatMap';
 import { MarketWindowAlerts } from '@/components/MarketWindowAlerts';
-import { SalesIntelligencePanel } from '@/components/SalesIntelligencePanel';
+import { SalesIntelligencePanel } from '@/components/intelligence/SalesIntelligencePanel';
 import { StageReadinessScore } from '@/components/StageReadinessScore';
 import type { Project } from '@/lib/types';
 import type { ProjectCastMember, ProjectPartner } from '@/hooks/useProjectAttachments';

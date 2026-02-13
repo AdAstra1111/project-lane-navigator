@@ -2,9 +2,9 @@
  * Budgeting Layer: Cost planning — budget versions, cost tracking, cashflow model, script-to-budget.
  */
 
-import { BudgetPanel } from '@/components/BudgetPanel';
-import { CostTrackingPanel } from '@/components/CostTrackingPanel';
-import { CashflowModelPanel } from '@/components/CashflowModelPanel';
+import { BudgetPanel } from '@/components/finance/BudgetPanel';
+import { CostTrackingPanel } from '@/components/finance/CostTrackingPanel';
+import { CashflowModelPanel } from '@/components/finance/CashflowModelPanel';
 import { MultiSeasonFinancePanel } from '@/components/tv/MultiSeasonFinancePanel';
 import type { Project } from '@/lib/types';
 

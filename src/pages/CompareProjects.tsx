@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { LaneBadge } from '@/components/LaneBadge';
 import { ProjectReadinessScore } from '@/components/ProjectReadinessScore';
-import { FinanceReadinessBreakdown } from '@/components/FinanceReadinessBreakdown';
+import { FinanceReadinessBreakdown } from '@/components/finance/FinanceReadinessBreakdown';
 import { useProjects, useProject } from '@/hooks/useProjects';
 import { useProjectCast, useProjectPartners, useProjectScripts, useProjectFinance, useProjectHODs } from '@/hooks/useProjectAttachments';
 import { calculateReadiness } from '@/lib/readiness-score';

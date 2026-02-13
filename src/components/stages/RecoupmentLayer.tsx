@@ -2,9 +2,9 @@
  * Recoupment Layer: Returns modelling — ownership waterfall, recoupment waterfall, IRR projections.
  */
 
-import { OwnershipWaterfallPanel } from '@/components/OwnershipWaterfallPanel';
-import { RecoupmentWaterfallPanel } from '@/components/RecoupmentWaterfallPanel';
-import { IRRSalesProjectionPanel } from '@/components/IRRSalesProjectionPanel';
+import { OwnershipWaterfallPanel } from '@/components/finance/OwnershipWaterfallPanel';
+import { RecoupmentWaterfallPanel } from '@/components/finance/RecoupmentWaterfallPanel';
+import { IRRSalesProjectionPanel } from '@/components/finance/IRRSalesProjectionPanel';
 
 interface Props {
   projectId: string;

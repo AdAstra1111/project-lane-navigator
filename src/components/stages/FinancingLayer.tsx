@@ -2,10 +2,10 @@
  * Financing Layer: Raising capital — deals, incentives, finance scenarios, waterfall, readiness.
  */
 
-import { FinanceReadinessPanel } from '@/components/FinanceReadinessPanel';
+import { FinanceReadinessPanel } from '@/components/finance/FinanceReadinessPanel';
 import { FinanceTab } from '@/components/ProjectAttachmentTabs';
-import { FinanceWaterfall } from '@/components/FinanceWaterfall';
-import { DealTracker } from '@/components/DealTracker';
+import { FinanceWaterfall } from '@/components/finance/FinanceWaterfall';
+import { DealTracker } from '@/components/finance/DealTracker';
 import { ProjectIncentivePanel } from '@/components/ProjectIncentivePanel';
 import type { Project } from '@/lib/types';
 import type { FinanceReadinessResult } from '@/lib/finance-readiness';

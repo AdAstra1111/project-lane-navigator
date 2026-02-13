@@ -11,9 +11,9 @@ import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from '@/hooks/use-toast';
-import { CorpusSourceManager } from '@/components/CorpusSourceManager';
-import { CorpusHealthDashboard } from '@/components/CorpusHealthDashboard';
-import { CorpusIntegrityPanel } from '@/components/CorpusIntegrityPanel';
+import { CorpusSourceManager } from '@/components/corpus/CorpusSourceManager';
+import { CorpusHealthDashboard } from '@/components/corpus/CorpusHealthDashboard';
+import { CorpusIntegrityPanel } from '@/components/corpus/CorpusIntegrityPanel';
 import { useUIMode } from '@/hooks/useUIMode';
 import { MODES } from '@/lib/mode';
 export default function Settings() {
