@@ -4249,13 +4249,20 @@ export type Database = {
       }
       project_outcomes: {
         Row: {
+          budget_achieved: boolean | null
           budget_secured_amount: number | null
+          development_time_months: number | null
           distribution_offer: boolean
           festival_selection: boolean
           financed: boolean
           id: string
+          initial_commercial_score: number | null
+          initial_finance_confidence: string | null
+          initial_greenlight_verdict: string | null
+          initial_structural_score: number | null
           notes: string | null
           optioned: boolean
+          presales_secured: boolean | null
           project_id: string
           recorded_at: string
           recoup_achieved: boolean
@@ -4265,13 +4272,20 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          budget_achieved?: boolean | null
           budget_secured_amount?: number | null
+          development_time_months?: number | null
           distribution_offer?: boolean
           festival_selection?: boolean
           financed?: boolean
           id?: string
+          initial_commercial_score?: number | null
+          initial_finance_confidence?: string | null
+          initial_greenlight_verdict?: string | null
+          initial_structural_score?: number | null
           notes?: string | null
           optioned?: boolean
+          presales_secured?: boolean | null
           project_id: string
           recorded_at?: string
           recoup_achieved?: boolean
@@ -4281,13 +4295,20 @@ export type Database = {
           user_id?: string
         }
         Update: {
+          budget_achieved?: boolean | null
           budget_secured_amount?: number | null
+          development_time_months?: number | null
           distribution_offer?: boolean
           festival_selection?: boolean
           financed?: boolean
           id?: string
+          initial_commercial_score?: number | null
+          initial_finance_confidence?: string | null
+          initial_greenlight_verdict?: string | null
+          initial_structural_score?: number | null
           notes?: string | null
           optioned?: boolean
+          presales_secured?: boolean | null
           project_id?: string
           recorded_at?: string
           recoup_achieved?: boolean
