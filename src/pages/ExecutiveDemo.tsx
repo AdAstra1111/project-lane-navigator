@@ -757,7 +757,7 @@ function PostStage() {
     <div className="max-w-5xl mx-auto px-4 sm:px-8 py-8 space-y-6">
       <NarrativeHeader
         icon={Film}
-        stage="Stage 5 — Release Strategy"
+        stage="Stage 5 — Post & Positioning"
         headline="Turn Attention Into Dominance."
         narration="Release is strategy, not celebration. Timing, positioning, competitive landscape — this is where narrative becomes revenue."
       />
@@ -1056,7 +1056,7 @@ function FinalStage({ onStart }: { onStart: () => void }) {
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          transition={{ delay: 2.2, duration: 1.2 }}
+          transition={{ delay: 1.5, duration: 1.0 }}
           className="space-y-6"
         >
           <div className="space-y-3">
@@ -1066,7 +1066,7 @@ function FinalStage({ onStart }: { onStart: () => void }) {
             <motion.p
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              transition={{ delay: 3.0, duration: 0.8 }}
+              transition={{ delay: 2.2, duration: 0.8 }}
               className="text-xl sm:text-2xl text-white/80 leading-relaxed max-w-xl mx-auto font-display font-semibold"
             >
               You engineer it.
@@ -1076,7 +1076,7 @@ function FinalStage({ onStart }: { onStart: () => void }) {
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            transition={{ delay: 4.0, duration: 1 }}
+            transition={{ delay: 3.0, duration: 0.8 }}
             className="space-y-2 pt-4"
           >
             <p className="text-sm text-white/35 leading-relaxed max-w-md mx-auto">
@@ -1091,14 +1091,14 @@ function FinalStage({ onStart }: { onStart: () => void }) {
           <motion.div
             initial={{ opacity: 0, scaleX: 0 }}
             animate={{ opacity: 1, scaleX: 1 }}
-            transition={{ delay: 5.0, duration: 0.8 }}
+            transition={{ delay: 3.8, duration: 0.6 }}
             className="h-px w-32 mx-auto bg-gradient-to-r from-transparent via-primary/40 to-transparent"
           />
 
           <motion.p
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            transition={{ delay: 5.5, duration: 0.6 }}
+            transition={{ delay: 4.2, duration: 0.6 }}
             className="text-xs font-display uppercase tracking-[0.3em] text-primary/50"
           >
             Intelligent Film Flow & Yield
@@ -1109,7 +1109,7 @@ function FinalStage({ onStart }: { onStart: () => void }) {
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 6.0, duration: 0.6 }}
+          transition={{ delay: 4.8, duration: 0.6 }}
         >
           <Button
             size="lg"
