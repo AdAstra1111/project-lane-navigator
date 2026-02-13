@@ -118,6 +118,7 @@ export function DocumentsList({ documents, projectId }: DocumentsListProps) {
       const { data: analysisData, error: analysisError } = await supabase.functions.invoke('analyze-project', {
         body: {
           projectInput: {
+            id: projectId,
             title: project?.title || '',
             format: project?.format || 'film',
             genres: project?.genres || [],

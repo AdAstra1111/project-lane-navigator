@@ -102,6 +102,7 @@ export function useAddDocuments(projectId: string | undefined) {
               await supabase.functions.invoke('analyze-project', {
                 body: {
                   projectInput: {
+                    id: projectId,
                     title: project.title,
                     format: project.format,
                     genres: project.genres,
