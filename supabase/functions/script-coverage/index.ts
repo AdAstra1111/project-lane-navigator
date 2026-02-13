@@ -326,24 +326,146 @@ IMPORTANT: Do NOT imitate or copy any specific screenplay from the corpus. Use o
 
     const projectMeta = `TYPE: ${formatLabel} | GENRES: ${(genres || []).join(", ") || "N/A"} | LANE: ${lane || "N/A"}`;
 
+    // Detect TV/episodic format
+    const isTV = ['tv-series', 'digital-series', 'vertical-drama'].includes(format) ||
+                 formatLabel.toLowerCase().includes('series') ||
+                 formatLabel.toLowerCase().includes('limited');
+
+    // Build TV Structure Engine block for episodic projects
+    let tvStructureBlock = "";
+    if (isTV) {
+      tvStructureBlock = `
+
+TV STRUCTURE ENGINE — ACTIVATED (this is an episodic project, NOT a feature film)
+
+CRITICAL: Do NOT evaluate this script using feature film logic. Use series-specific development criteria.
+
+SECTION 1 — PILOT EVALUATION (Episode 1):
+Score each 0-10:
+
+PILOT HOOK:
+- Is there a compelling cold open?
+- Is the premise clear within 10-15 pages?
+- Does episode 1 end with a strong propulsion question?
+
+SERIES ENGINE:
+- Is there a sustainable narrative engine beyond episode 1?
+- Does the premise generate 6-8 episodes minimum?
+- Is conflict renewable (not exhaustible)?
+
+CHARACTER LONGEVITY:
+- Does protagonist have multi-season potential?
+- Are secondary characters expandable?
+- Is there evolving internal conflict that sustains across seasons?
+
+WORLD DEPTH:
+- Is the setting expandable?
+- Does the world generate story organically?
+
+CLIFFHANGER STRENGTH:
+- Does the episode ending compel next-episode viewing?
+- Is the hook organic, not manufactured?
+
+SECTION 2 — SEASON ARC ANALYSIS:
+If season outline or multi-episode content is provided:
+- Season Question Clarity (is there a central season question?)
+- Mid-season escalation event
+- Episode escalation pattern
+- Finale payoff strength
+- Setup for future seasons
+
+SECTION 3 — STREAMER ALIGNMENT:
+Score 0-10:
+
+BINGE PROPULSION:
+- Does episode ending create "next episode" urgency?
+
+ALGORITHM FRIENDLINESS:
+- Strong genre signal?
+- Clear audience targeting?
+- Emotional intensity spikes?
+
+RETENTION FACTOR:
+- Reversal frequency
+- Character reveal pacing
+- Plot escalation rhythm
+
+TV-SPECIFIC RISK FLAGS (you MUST check all of these):
+- If pilot resolves central conflict fully → flag: SERIES ENGINE RISK
+- If no clear season question → flag: STRUCTURAL RISK
+- If protagonist arc completes in season 1 without future tension → flag: LONGEVITY RISK
+- If tone shifts inconsistently between episodes → flag: TONAL RISK
+
+CALIBRATION RULES FOR TV:
+- Do NOT evaluate like a feature film
+- Do NOT require full narrative closure
+- Prioritise renewable conflict over clean resolution
+- Prioritise hook density over thematic closure
+- A great pilot OPENS questions, it doesn't close them`;
+    }
+
     // =========== PASS A: ANALYST (diagnostic read) ===========
     const passAResult = await callAI(
       LOVABLE_API_KEY,
-      promptVersion.analyst_prompt + corpusDeviationBlock + masterworkBlock + commercialBlock + failureBlock,
+      promptVersion.analyst_prompt + corpusDeviationBlock + masterworkBlock + commercialBlock + failureBlock + tvStructureBlock,
       `${projectMeta}\n\nSCRIPT:\n${truncatedScript}`,
       0.2
     );
     console.log(`[coverage] A done ${Date.now() - t0}ms`);
 
     // =========== PASS B: PRODUCER (final coverage + structured notes + scoring grid) ===========
-    const passBSystem = promptVersion.producer_prompt + `
+    // TV projects get a different scoring grid
+    const tvScoringInstructions = isTV ? `
+
+TV SERIES SCORING GRID (use this INSTEAD of the film grid for TV/series projects):
+
+Score each 0-10, use FULL range, avoid safe-middle-6 inflation:
+
+### TV PRODUCER BENCHMARK GRID
+| Category | Score |
+|---|---|
+| Pilot Hook | X/10 |
+| Series Engine | X/10 |
+| Character Longevity | X/10 |
+| World Depth | X/10 |
+| Binge Factor | X/10 |
+| Streamer Alignment | X/10 |
+
+**PILOT STRENGTH: X/10**
+**SERIES ENGINE: X/10**
+**CHARACTER LONGEVITY: X/10**
+**BINGE FACTOR: X/10**
+**STREAMER ALIGNMENT: X/10**
+**OVERALL SERIES CONFIDENCE: X/10**
+
+TV DEVELOPMENT TIERS (assign exactly one):
+- Tier A — Streamer-Ready Pilot (all categories 7+)
+- Tier B — Strong With Engine Adjustment (most 6+, engine needs work)
+- Tier C — Engine Needs Reinvention (series engine <5 or longevity <5)
+- Tier D — Concept Rework Required (pilot hook <4 or 3+ categories <5)
+
+TV RISK FLAGS (include any that apply):
+- SERIES ENGINE RISK: pilot resolves central conflict, no renewable engine
+- STRUCTURAL RISK: no clear season question
+- LONGEVITY RISK: protagonist arc exhausted in season 1
+- TONAL RISK: inconsistent tone across episodes
+- BINGE RISK: weak episode endings, no propulsion
+- If commercial viability weak: flag FINANCE RISK
+
+FINANCE READINESS STATUS (same system):
+- GREEN — Attach showrunner/talent and package
+- YELLOW — Engine adjustment before packaging
+- RED — Development hold
+` : '';
+
+    const passBSystem = promptVersion.producer_prompt + (isTV ? tvScoringInstructions : '') + `
 
 CRITICAL FORMAT INSTRUCTIONS:
 1. Write your ENTIRE coverage report in plain English prose with markdown headings (##) and bullet points.
 2. Start with the verdict line: **VERDICT: RECOMMEND** or **VERDICT: CONSIDER** or **VERDICT: PASS**
-3. Tone: Professional producer. Clear. Non-academic. Solution-oriented.
+3. Tone: Professional ${isTV ? 'development executive' : 'producer'}. Clear. ${isTV ? 'Market-aware' : 'Non-academic'}. Solution-oriented.
 4. DO NOT return JSON for the main coverage. Write it as a readable document.
-
+` + (isTV ? '' : `
 PRODUCER SCORING GRID (0-10 per category, use FULL range, avoid safe-middle-6 inflation):
 
 ## Scoring Grid
@@ -390,7 +512,7 @@ FINANCE READINESS STATUS (assign exactly one):
 - GREEN — Attach talent and package
 - YELLOW — Rewrite before packaging
 - RED — Development hold
-
+`) + `
 CALIBRATION:
 - MASTERWORK_CANON (9-10 range) defines excellence benchmarks
 - COMMERCIAL_PROOF defines market viability benchmarks
@@ -399,12 +521,12 @@ CALIBRATION:
 - Score decisively. If the script resembles failure patterns, say so
 
 5. AFTER the prose coverage and scoring grid, include a "structured_notes" JSON array inside a \`\`\`json block.
-Each note: {"note_id":"N-001","section":"string","category":"structure|character|dialogue|concept|pacing|genre|commercial","priority":1-3,"title":"short","note_text":"full note","prescription":"what to do","rewrite_priority":"high|medium|low","tags":["act1"]}`;
+Each note: {"note_id":"N-001","section":"string","category":"${isTV ? 'pilot|engine|character|world|binge|streamer' : 'structure|character|dialogue|concept|pacing|genre|commercial'}","priority":1-3,"title":"short","note_text":"full note","prescription":"what to do","rewrite_priority":"high|medium|low","tags":["act1"]}`;
 
     const passBResult = await callAI(
       LOVABLE_API_KEY,
       passBSystem,
-      `${projectMeta}\n\nANALYST DIAGNOSTICS:\n${passAResult}\n\nWrite a FINAL COVERAGE REPORT with the full Producer Benchmark Grid, risk flags, development tier, and finance readiness status. Use markdown. Be decisive.`,
+      `${projectMeta}\n\nANALYST DIAGNOSTICS:\n${passAResult}\n\nWrite a FINAL COVERAGE REPORT with the full ${isTV ? 'TV Producer Benchmark Grid' : 'Producer Benchmark Grid'}, risk flags, development tier, and finance readiness status. Use markdown. Be decisive.${isTV ? ' This is a TV/SERIES project — use TV-specific scoring categories (Pilot Hook, Series Engine, Character Longevity, Binge Factor, Streamer Alignment), NOT film categories.' : ''}`,
       0.3
     );
     console.log(`[coverage] B done ${Date.now() - t0}ms`);
@@ -496,7 +618,16 @@ Each note: {"note_id":"N-001","section":"string","category":"structure|character
       return null;
     };
 
-    const scoringGrid = {
+    // Build scoring grid — TV projects use different categories
+    const scoringGrid: Record<string, number | null> = isTV ? {
+      pilot_hook: extractScore('Pilot Hook') || extractScore('Pilot Strength'),
+      series_engine: extractScore('Series Engine'),
+      character_longevity: extractScore('Character Longevity'),
+      world_depth: extractScore('World Depth'),
+      binge_factor: extractScore('Binge Factor') || extractScore('Binge Propulsion'),
+      streamer_alignment: extractScore('Streamer Alignment'),
+      overall_series_confidence: extractScore('Overall Series Confidence') || extractScore('SERIES CONFIDENCE'),
+    } : {
       structure: extractScore('Structure'),
       character: extractScore('Character'),
       dialogue: extractScore('Dialogue'),
@@ -522,6 +653,13 @@ Each note: {"note_id":"N-001","section":"string","category":"structure|character
     if (passBResult.match(/STRUCTURAL RISK/i)) riskFlags.push('STRUCTURAL RISK');
     if (passBResult.match(/PACING RISK/i)) riskFlags.push('PACING RISK');
     if (passBResult.match(/CHARACTER DEPTH RISK/i)) riskFlags.push('CHARACTER DEPTH RISK');
+    // TV-specific risk flags
+    if (isTV) {
+      if (passBResult.match(/SERIES ENGINE RISK/i)) riskFlags.push('SERIES ENGINE RISK');
+      if (passBResult.match(/LONGEVITY RISK/i)) riskFlags.push('LONGEVITY RISK');
+      if (passBResult.match(/TONAL RISK/i)) riskFlags.push('TONAL RISK');
+      if (passBResult.match(/BINGE RISK/i)) riskFlags.push('BINGE RISK');
+    }
 
     // Extract development tier
     const tierMatch = passBResult.match(/Tier\s+([A-D])\b/i);
@@ -530,7 +668,7 @@ Each note: {"note_id":"N-001","section":"string","category":"structure|character
     // Extract finance readiness
     let financeReadiness: string | null = null;
     if (passBResult.match(/Finance Readiness[^:]*:\s*GREEN|GREEN\s*[—–-]\s*Attach/i)) financeReadiness = 'GREEN';
-    else if (passBResult.match(/Finance Readiness[^:]*:\s*YELLOW|YELLOW\s*[—–-]\s*Rewrite/i)) financeReadiness = 'YELLOW';
+    else if (passBResult.match(/Finance Readiness[^:]*:\s*YELLOW|YELLOW\s*[—–-]\s*(Rewrite|Engine)/i)) financeReadiness = 'YELLOW';
     else if (passBResult.match(/Finance Readiness[^:]*:\s*RED|RED\s*[—–-]\s*Development/i)) financeReadiness = 'RED';
 
     console.log(`[coverage] scores:`, JSON.stringify(scoringGrid), `tier=${developmentTier}, finance=${financeReadiness}, flags=${riskFlags.join(',')}`);
