@@ -57,6 +57,7 @@ export function useScriptPipeline(projectId: string | undefined) {
 
   const pausedRef = useRef(false);
   const abortRef = useRef(false);
+  const runningRef = useRef(false);
 
   const invalidate = useCallback(() => {
     qc.invalidateQueries({ queryKey: ['dev-v2-docs', projectId] });
@@ -68,7 +69,8 @@ export function useScriptPipeline(projectId: string | undefined) {
     targetPages: number = 100,
     protectItems: string[] = [],
   ) => {
-    if (!projectId) return;
+    if (!projectId || runningRef.current) return;
+    runningRef.current = true;
     pausedRef.current = false;
     abortRef.current = false;
 
@@ -168,6 +170,8 @@ export function useScriptPipeline(projectId: string | undefined) {
       console.error('Pipeline error:', err);
       setState(s => ({ ...s, status: 'error', error: err.message }));
       toast.error(`Pipeline error: ${err.message}`);
+    } finally {
+      runningRef.current = false;
     }
   }, [projectId, invalidate]);
 
@@ -182,6 +186,7 @@ export function useScriptPipeline(projectId: string | undefined) {
   const abort = useCallback(() => {
     abortRef.current = true;
     pausedRef.current = false;
+    runningRef.current = false;
   }, []);
 
   const reset = useCallback(() => {
