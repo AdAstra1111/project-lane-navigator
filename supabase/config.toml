@@ -83,3 +83,6 @@ verify_jwt = false
 
 [functions.packaging-intelligence]
 verify_jwt = false
+
+[functions.finance-predict]
+verify_jwt = false

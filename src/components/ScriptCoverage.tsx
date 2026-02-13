@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 import {
   FileSearch, Loader2, ThumbsUp, ThumbsDown, Minus, ChevronDown, History,
   ArrowLeftRight, RotateCw, Star, CheckCircle2, XCircle, HelpCircle, Pencil,
-  BarChart3, BookOpen, ClipboardList, Trash2, Zap, Package
+  BarChart3, BookOpen, ClipboardList, Trash2, Zap, Package, DollarSign
 } from 'lucide-react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Button } from '@/components/ui/button';
@@ -30,6 +30,7 @@ import { StructuredNote } from '@/hooks/useNoteFeedback';
 import { ShareSignalDialog } from '@/components/ShareSignalDialog';
 import { GreenlightSimulator } from '@/components/GreenlightSimulator';
 import { PackagingIntelligencePanel } from '@/components/PackagingIntelligencePanel';
+import { FinancePredictionPanel } from '@/components/FinancePredictionPanel';
 
 const COVERAGE_3PASS_STAGES = [
   { at: 5, label: 'Pass A: Analyst diagnosis…' },
@@ -825,6 +826,7 @@ export function ScriptCoverage({ projectId, projectTitle, format, genres, hasDoc
                 <TabsTrigger value="coverage" className="text-xs">Final Coverage</TabsTrigger>
                 <TabsTrigger value="greenlight" className="text-xs gap-1"><Zap className="h-3 w-3" />Greenlight Sim</TabsTrigger>
                 <TabsTrigger value="packaging" className="text-xs gap-1"><Package className="h-3 w-3" />Packaging Intel</TabsTrigger>
+                <TabsTrigger value="finance" className="text-xs gap-1"><DollarSign className="h-3 w-3" />Finance Predict</TabsTrigger>
                 <TabsTrigger value="passes" className="text-xs">Analysis Passes</TabsTrigger>
                 <TabsTrigger value="review" className="text-xs gap-1"><ClipboardList className="h-3 w-3" />Notes Review ({selectedRun.structured_notes?.length || 0})</TabsTrigger>
                 <TabsTrigger value="notes" className="text-xs">Notes List</TabsTrigger>
@@ -851,6 +853,20 @@ export function ScriptCoverage({ projectId, projectTitle, format, genres, hasDoc
 
               <TabsContent value="packaging" className="mt-4">
                 <PackagingIntelligencePanel
+                  projectTitle={projectTitle}
+                  format={format}
+                  genres={genres}
+                  lane={lane || ''}
+                  scoringGrid={selectedRun.metrics?.scoring_grid}
+                  riskFlags={selectedRun.metrics?.risk_flags}
+                  developmentTier={selectedRun.metrics?.development_tier}
+                  greenlightVerdict={selectedRun.metrics?.greenlight_verdict}
+                  coverageSummary={selectedRun.final_coverage?.slice(0, 2000)}
+                />
+              </TabsContent>
+
+              <TabsContent value="finance" className="mt-4">
+                <FinancePredictionPanel
                   projectTitle={projectTitle}
                   format={format}
                   genres={genres}
