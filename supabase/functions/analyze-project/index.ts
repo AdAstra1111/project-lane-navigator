@@ -503,6 +503,22 @@ serve(async (req) => {
       partialRead = { pages_analyzed: Math.min(MAX_PAGES, totalEstimated), total_pages: totalEstimated };
     }
 
+    // ---- SAFETY GUARD: Block AI if extracted text is too thin ----
+    const totalCharCount = combinedText.trim().length;
+    const hasDocumentPaths = documentPaths && documentPaths.length > 0;
+    if (hasDocumentPaths && totalCharCount < 1500) {
+      console.warn(`[analyze] BLOCKED: Only ${totalCharCount} chars extracted from ${documentPaths.length} files. Too thin for reliable analysis.`);
+      return new Response(JSON.stringify({
+        error: "extraction_too_thin",
+        message: "The uploaded document(s) yielded too little text for reliable analysis. This usually means the PDF is image-based. Please re-extract using the ✨ button or upload a text-based export.",
+        char_count: totalCharCount,
+        documents: docResults,
+      }), {
+        status: 422,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const hasDocumentText = combinedText.trim().length > 50;
 
     // ---- PRODUCTION TYPE CONDITIONING ----
@@ -548,10 +564,19 @@ Step 3 — Creative Signal: Originality of premise, tonal consistency, emotional
 Step 4 — Market Reality Check: Likely audience based on execution, comparable titles (execution-based, not aspirational), budget implications, commercial risks.
 Step 5 — Decision Output (LOCKED TO PRIMARY LANE): All conclusions must support or stress-test the Primary Lane. Provide confidence, rationale, 3 DO NEXT, 3 AVOID, and which lane this is NOT suitable for.
 
-EVIDENCE ANCHORING (CRITICAL):
-- For EVERY major conclusion or observation, include 1–2 short quoted snippets or concrete references from the document (under 15 words each).
+EVIDENCE ANCHORING (CRITICAL — HALLUCINATION GUARD):
+- You MUST extract only information EXPLICITLY PRESENT in the provided text.
+- For EVERY major conclusion or observation, include 1–2 short quoted snippets copied VERBATIM from the document (under 15 words each).
 - This applies to ALL fields: structural_read, creative_signal, market_reality, and the rationale.
 - Example: "The protagonist's goal remains unclear for much of Act One ('I just want things to be different') which weakens momentum."
+- If a piece of information is NOT explicitly stated in the document, say so. Do NOT infer, fabricate, or fill gaps creatively.
+- If the document doesn't contain enough information for a field, state: "The document does not contain enough information to determine this."
+
+NO HALLUCINATION RULE (ABSOLUTE):
+- Do NOT fabricate plot details, character names, themes, or story elements not present in the text.
+- Do NOT infer subject matter from the title alone.
+- If the text is sparse or ambiguous, your analysis MUST reflect that uncertainty.
+- Confidence score MUST be lowered proportionally when working with limited text.
 
 CONSISTENCY CHECK (REQUIRED):
 Before finalising output, ensure the verdict, lane, risks, and recommendations do not contradict each other. If contradictions exist, resolve them in favour of the Primary Monetisation Lane.

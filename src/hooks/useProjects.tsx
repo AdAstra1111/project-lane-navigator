@@ -274,7 +274,7 @@ export function useProjectDocuments(projectId: string | undefined) {
       if (!projectId) throw new Error('No project ID');
       const { data, error } = await supabase
         .from('project_documents')
-        .select('id, project_id, user_id, file_name, file_path, extraction_status, extracted_text, total_pages, pages_analyzed, error_message, created_at, doc_type')
+        .select('id, project_id, user_id, file_name, file_path, extraction_status, extracted_text, total_pages, pages_analyzed, error_message, created_at, doc_type, ingestion_source, char_count')
         .eq('project_id', projectId)
         .order('created_at', { ascending: true });
       if (error) throw error;

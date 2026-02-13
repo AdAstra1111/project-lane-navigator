@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { FileText, File, CheckCircle2, AlertCircle, AlertTriangle, RotateCw, Trash2, Tag, Sparkles } from 'lucide-react';
+import { FileText, File, CheckCircle2, AlertCircle, AlertTriangle, RotateCw, Trash2, Sparkles, ChevronRight, Eye, ScanSearch } from 'lucide-react';
 import { ProjectDocument, DocumentType, DOC_TYPE_LABELS } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -13,7 +13,6 @@ import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
-// ... keep existing code (getStatusIcon, getStatusLabel, DOC_TYPE_COLORS)
 function getStatusIcon(status: string) {
   switch (status) {
     case 'success':
@@ -27,14 +26,33 @@ function getStatusIcon(status: string) {
   }
 }
 
+function getIngestionSourceLabel(source?: string) {
+  switch (source) {
+    case 'ocr': return 'OCR';
+    case 'pdf_text': return 'PDF Text';
+    case 'docx': return 'DOCX';
+    case 'plain': return 'Plain Text';
+    default: return 'Unknown';
+  }
+}
+
+function getIngestionSourceColor(source?: string) {
+  switch (source) {
+    case 'ocr': return 'bg-amber-500/15 text-amber-400 border-amber-500/30';
+    case 'pdf_text': return 'bg-blue-500/15 text-blue-400 border-blue-500/30';
+    case 'docx': return 'bg-purple-500/15 text-purple-400 border-purple-500/30';
+    case 'plain': return 'bg-muted text-muted-foreground border-border/50';
+    default: return 'bg-muted text-muted-foreground border-border/50';
+  }
+}
+
 function getStatusLabel(doc: ProjectDocument) {
+  const charInfo = doc.char_count ? ` · ${doc.char_count.toLocaleString()} chars` : '';
   switch (doc.extraction_status) {
     case 'success':
-      return doc.total_pages
-        ? `${doc.total_pages} pages extracted`
-        : 'Text extracted';
+      return (doc.total_pages ? `${doc.total_pages} pages extracted` : 'Text extracted') + charInfo;
     case 'partial':
-      return `${doc.pages_analyzed} of ${doc.total_pages} pages analysed`;
+      return `${doc.pages_analyzed} of ${doc.total_pages} pages analysed${charInfo}`;
     case 'failed':
       return doc.error_message || 'Extraction failed';
     default:
@@ -62,11 +80,16 @@ export function DocumentsList({ documents, projectId }: DocumentsListProps) {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [editingTypeId, setEditingTypeId] = useState<string | null>(null);
   const [reanalyzingId, setReanalyzingId] = useState<string | null>(null);
+  const [previewDocId, setPreviewDocId] = useState<string | null>(null);
 
   if (documents.length === 0) return null;
 
   const hasUnextracted = documents.some(d => d.extraction_status !== 'success' || !d.extracted_text);
   const extract = useExtractDocuments(projectId);
+
+  const isDocHealthy = (doc: ProjectDocument) => {
+    return doc.extraction_status === 'success' && (doc.char_count || 0) >= 1500;
+  };
 
   const handleReanalyze = async (doc: ProjectDocument) => {
     if (!projectId) return;
@@ -108,9 +131,14 @@ export function DocumentsList({ documents, projectId }: DocumentsListProps) {
       });
 
       if (analysisError) throw new Error(analysisError.message || 'Analysis failed');
+      if (analysisData?.error === 'extraction_too_thin') {
+        toast.error(analysisData.message || 'Document text too thin for analysis');
+        queryClient.invalidateQueries({ queryKey: ['project-documents', projectId] });
+        return;
+      }
       if (analysisData?.error) throw new Error(analysisData.error);
 
-      // The edge function returns the parsed analysis directly (not raw AI response)
+      // The edge function returns the parsed analysis directly
       const analysis = analysisData;
       if (analysis?.lane) {
         await supabase
@@ -171,79 +199,124 @@ export function DocumentsList({ documents, projectId }: DocumentsListProps) {
   return (
     <div>
       <div className="space-y-2">
-        {documents.map((doc, index) => (
-          <motion.div
-            key={doc.id}
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1 + index * 0.05, duration: 0.2 }}
-            className="glass-card rounded-lg px-4 py-3 flex items-center gap-3 group"
-          >
-            <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <p className="text-sm font-medium text-foreground truncate">
-                  {doc.file_name}
-                </p>
-                {editingTypeId === doc.id ? (
-                  <Select
-                    defaultValue={doc.doc_type || 'document'}
-                    onValueChange={(v) => handleChangeType(doc.id, v as DocumentType)}
+        {documents.map((doc, index) => {
+          const healthy = isDocHealthy(doc);
+          return (
+            <motion.div
+              key={doc.id}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.1 + index * 0.05, duration: 0.2 }}
+              className="glass-card rounded-lg overflow-hidden group"
+            >
+              <div className="px-4 py-3 flex items-center gap-3">
+                <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-sm font-medium text-foreground truncate">
+                      {doc.file_name}
+                    </p>
+                    {editingTypeId === doc.id ? (
+                      <Select
+                        defaultValue={doc.doc_type || 'document'}
+                        onValueChange={(v) => handleChangeType(doc.id, v as DocumentType)}
+                      >
+                        <SelectTrigger className="h-6 w-28 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {Object.entries(DOC_TYPE_LABELS).map(([key, label]) => (
+                            <SelectItem key={key} value={key} className="text-xs">{label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Badge
+                        variant="outline"
+                        className={`text-[10px] cursor-pointer hover:opacity-80 ${DOC_TYPE_COLORS[(doc.doc_type as DocumentType) || 'document']}`}
+                        onClick={() => setEditingTypeId(doc.id)}
+                      >
+                        {DOC_TYPE_LABELS[(doc.doc_type as DocumentType) || 'document']}
+                      </Badge>
+                    )}
+                    {doc.ingestion_source && (
+                      <Badge
+                        variant="outline"
+                        className={`text-[10px] ${getIngestionSourceColor(doc.ingestion_source)}`}
+                      >
+                        <ScanSearch className="h-2.5 w-2.5 mr-0.5" />
+                        {getIngestionSourceLabel(doc.ingestion_source)}
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    {getStatusIcon(doc.extraction_status)}
+                    <span className="text-xs text-muted-foreground">
+                      {getStatusLabel(doc)}
+                    </span>
+                    {!healthy && doc.extraction_status !== 'pending' && (
+                      <span className="text-[10px] text-destructive font-medium ml-1">
+                        — Analysis blocked
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-1">
+                  {doc.extracted_text && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 opacity-0 group-hover:opacity-100 transition-all"
+                          onClick={() => setPreviewDocId(previewDocId === doc.id ? null : doc.id)}
+                        >
+                          <Eye className="h-3.5 w-3.5" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="text-xs">Preview extracted text</TooltipContent>
+                    </Tooltip>
+                  )}
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        className="p-1.5 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/10 opacity-0 group-hover:opacity-100 transition-all"
+                        onClick={() => handleReanalyze(doc)}
+                        disabled={reanalyzingId === doc.id}
+                      >
+                        <Sparkles className={`h-3.5 w-3.5 ${reanalyzingId === doc.id ? 'animate-pulse' : ''}`} />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="text-xs">Re-extract &amp; re-analyse</TooltipContent>
+                  </Tooltip>
+                  <ConfirmDialog
+                    title={`Delete ${doc.file_name}?`}
+                    description="This will permanently remove the document and its extracted text. This cannot be undone."
+                    onConfirm={() => handleDelete(doc)}
                   >
-                    <SelectTrigger className="h-6 w-28 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {Object.entries(DOC_TYPE_LABELS).map(([key, label]) => (
-                        <SelectItem key={key} value={key} className="text-xs">{label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <Badge
-                    variant="outline"
-                    className={`text-[10px] cursor-pointer hover:opacity-80 ${DOC_TYPE_COLORS[(doc.doc_type as DocumentType) || 'document']}`}
-                    onClick={() => setEditingTypeId(doc.id)}
-                  >
-                    {DOC_TYPE_LABELS[(doc.doc_type as DocumentType) || 'document']}
-                  </Badge>
-                )}
+                    <button
+                      className="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 opacity-0 group-hover:opacity-100 transition-all"
+                      disabled={deletingId === doc.id}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </ConfirmDialog>
+                </div>
               </div>
-              <div className="flex items-center gap-1.5 mt-0.5">
-                {getStatusIcon(doc.extraction_status)}
-                <span className="text-xs text-muted-foreground">
-                  {getStatusLabel(doc)}
-                </span>
-              </div>
-            </div>
-            <div className="flex items-center gap-1">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    className="p-1.5 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/10 opacity-0 group-hover:opacity-100 transition-all"
-                    onClick={() => handleReanalyze(doc)}
-                    disabled={reanalyzingId === doc.id}
-                  >
-                    <Sparkles className={`h-3.5 w-3.5 ${reanalyzingId === doc.id ? 'animate-pulse' : ''}`} />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="top" className="text-xs">Re-analyse this document</TooltipContent>
-              </Tooltip>
-              <ConfirmDialog
-                title={`Delete ${doc.file_name}?`}
-                description="This will permanently remove the document and its extracted text. This cannot be undone."
-                onConfirm={() => handleDelete(doc)}
-              >
-                <button
-                  className="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 opacity-0 group-hover:opacity-100 transition-all"
-                  disabled={deletingId === doc.id}
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              </ConfirmDialog>
-            </div>
-          </motion.div>
-        ))}
+
+              {/* Extracted Text Preview */}
+              {previewDocId === doc.id && doc.extracted_text && (
+                <div className="border-t border-border/30 px-4 py-3 bg-muted/20">
+                  <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-1.5">
+                    Extracted Text Preview (first 2,000 chars)
+                  </p>
+                  <pre className="text-xs text-foreground/80 whitespace-pre-wrap break-words max-h-48 overflow-y-auto font-mono leading-relaxed">
+                    {doc.extracted_text.slice(0, 2000)}
+                    {doc.extracted_text.length > 2000 && '\n\n[...truncated]'}
+                  </pre>
+                </div>
+              )}
+            </motion.div>
+          );
+        })}
       </div>
 
       {hasUnextracted && projectId && (
