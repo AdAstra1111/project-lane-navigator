@@ -54,6 +54,7 @@ const CalibrationLab = lazy(() => import("./pages/CalibrationLab"));
 const PitchDeckViewer = lazy(() => import("./pages/PitchDeckViewer"));
 const InvestorPresentation = lazy(() => import("./pages/InvestorPresentation"));
 const DevelopmentEngine = lazy(() => import("./pages/DevelopmentEngine"));
+const ProjectDevelopmentEngine = lazy(() => import("./pages/ProjectDevelopmentEngine"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient({
@@ -117,6 +118,7 @@ const AnimatedRoutes = () => {
           <Route path="/demo/executive" element={<ExecutiveDemo />} />
           <Route path="/investor" element={<ProtectedRoute><InvestorPresentation /></ProtectedRoute>} />
           <Route path="/development-engine" element={<ProtectedRoute><DevelopmentEngine /></ProtectedRoute>} />
+          <Route path="/projects/:id/development" element={<ProtectedRoute><ProjectDevelopmentEngine /></ProtectedRoute>} />
           <Route path="/invite" element={<AcceptInvite />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
