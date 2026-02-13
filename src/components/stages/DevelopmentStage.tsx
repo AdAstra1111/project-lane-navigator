@@ -1,6 +1,6 @@
 /**
  * Development Stage: Creative and commercial validation.
- * Contains: Script coverage, analysis, project details, insights, comp analysis.
+ * Now uses ScriptStudio for the 2-column read-only script page layout.
  * For documentary projects: switches to Documentary Intelligence Mode automatically.
  */
 
@@ -8,9 +8,7 @@ import { useMemo } from 'react';
 import { FileText, TrendingUp, AlertTriangle, Quote, CheckCircle2, ShieldAlert, MessageSquareQuote } from 'lucide-react';
 import { StageReadinessScore } from '@/components/StageReadinessScore';
 import { DevelopmentIntelligencePanel } from '@/components/intelligence/DevelopmentIntelligencePanel';
-import { DraftDeltaPanel } from '@/components/script/DraftDeltaPanel';
-import { ScriptEnginePanel } from '@/components/script/ScriptEnginePanel';
-import { ScriptCoverage } from '@/components/script/ScriptCoverage';
+import { ScriptStudio } from '@/components/script/ScriptStudio';
 import { ProjectInsightPanel } from '@/components/project/ProjectInsightPanel';
 import { AnalysisPassesDisplay } from '@/components/AnalysisPassesDisplay';
 import { ProjectRelevantSignals } from '@/components/project/ProjectRelevantSignals';
@@ -18,7 +16,6 @@ import { CompAnalysis } from '@/components/market/CompAnalysis';
 import { GeographySelector } from '@/components/GeographySelector';
 import { ProjectNoteInput } from '@/components/project/ProjectNoteInput';
 import { AddDocumentsUpload } from '@/components/AddDocumentsUpload';
-import { TreatmentComparePanel } from '@/components/script/TreatmentComparePanel';
 import { DocumentsList } from '@/components/DocumentsList';
 import { DocumentaryIntelligencePanel } from '@/components/documentary/DocumentaryIntelligencePanel';
 
@@ -81,36 +78,9 @@ export function DevelopmentStage({
         coverageVerdict={project.script_coverage_verdict}
       />
 
-      {/* Draft Delta */}
-      <DraftDeltaPanel projectId={projectId} />
-
-      {/* Script Engine */}
-      <ScriptEnginePanel projectId={projectId} productionType={project.format} genre={project.genres?.[0]} />
-
-      {/* Script Status */}
-      <div className={`flex items-center gap-3 glass-card rounded-lg px-4 py-2.5 text-sm ${
-        currentScript ? 'border-l-4 border-emerald-500/50' : hasScript ? 'border-l-4 border-amber-500/50' : 'border-l-4 border-muted'
-      }`}>
-        <FileText className={`h-4 w-4 shrink-0 ${currentScript ? 'text-emerald-400' : 'text-muted-foreground'}`} />
-        {currentScript ? (
-          <span className="text-foreground">
-            Current Script: <strong>{currentScript.version_label}</strong>
-            <span className="text-muted-foreground ml-2 text-xs">
-              {new Date(currentScript.created_at).toLocaleDateString()}
-            </span>
-          </span>
-        ) : hasScript ? (
-          <span className="text-muted-foreground">
-            {scripts.length} archived script{scripts.length > 1 ? 's' : ''} — no current draft set
-          </span>
-        ) : (
-          <span className="text-muted-foreground">No script attached — upload one to unlock deeper analysis</span>
-        )}
-      </div>
-
-      {/* Coverage: Script (non-documentary only — doc coverage lives inside DocumentaryIntelligencePanel) */}
+      {/* Script Studio — 2-column read-only layout (replaces old scattered ScriptEngine/Coverage/DraftDelta) */}
       {!isDoc && (hasDocuments || hasScript) && (
-        <ScriptCoverage
+        <ScriptStudio
           projectId={projectId}
           projectTitle={project.title}
           format={project.format}
@@ -119,6 +89,10 @@ export function DevelopmentStage({
           productionType={project.format}
           packagingMode={(project as any).packaging_mode || 'streamer_prestige'}
           packagingStage={(project as any).packaging_stage || 'early_dev'}
+          scripts={scripts}
+          currentScript={currentScript}
+          documents={documents}
+          scriptText={scriptText}
         />
       )}
 
