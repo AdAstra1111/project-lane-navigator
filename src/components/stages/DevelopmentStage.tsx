@@ -21,7 +21,7 @@ import { AddDocumentsUpload } from '@/components/AddDocumentsUpload';
 import { TreatmentComparePanel } from '@/components/script/TreatmentComparePanel';
 import { DocumentsList } from '@/components/DocumentsList';
 import { DocumentaryIntelligencePanel } from '@/components/documentary/DocumentaryIntelligencePanel';
-import { DocumentaryCoveragePanel } from '@/components/documentary/DocumentaryCoveragePanel';
+
 import { isDocumentaryFormat } from '@/lib/types';
 import type { Project, FullAnalysis, Recommendation } from '@/lib/types';
 import type { ProjectDocument } from '@/lib/types';
@@ -108,30 +108,18 @@ export function DevelopmentStage({
         )}
       </div>
 
-      {/* Coverage: Documentary vs Script */}
-      {isDoc ? (
-        (hasDocuments || hasScript) && (
-          <DocumentaryCoveragePanel
-            projectId={projectId}
-            projectTitle={project.title}
-            format={project.format}
-            genres={project.genres || []}
-            lane={project.assigned_lane}
-          />
-        )
-      ) : (
-        (hasDocuments || hasScript) && (
-          <ScriptCoverage
-            projectId={projectId}
-            projectTitle={project.title}
-            format={project.format}
-            genres={project.genres || []}
-            hasDocuments={hasDocuments || hasScript}
-            productionType={project.format}
-            packagingMode={(project as any).packaging_mode || 'streamer_prestige'}
-            packagingStage={(project as any).packaging_stage || 'early_dev'}
-          />
-        )
+      {/* Coverage: Script (non-documentary only — doc coverage lives inside DocumentaryIntelligencePanel) */}
+      {!isDoc && (hasDocuments || hasScript) && (
+        <ScriptCoverage
+          projectId={projectId}
+          projectTitle={project.title}
+          format={project.format}
+          genres={project.genres || []}
+          hasDocuments={hasDocuments || hasScript}
+          productionType={project.format}
+          packagingMode={(project as any).packaging_mode || 'streamer_prestige'}
+          packagingStage={(project as any).packaging_stage || 'early_dev'}
+        />
       )}
 
       {/* IFFY Verdict */}
