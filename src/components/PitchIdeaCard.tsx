@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Copy, ChevronDown, ChevronUp, ThumbsUp, Minus, ThumbsDown, ArrowUp, ArrowDown, Trash2, Link2, Share2, Bookmark, BookmarkCheck, Lock, Shield, Rocket } from 'lucide-react';
+import { Copy, ChevronDown, ChevronUp, ThumbsUp, Minus, ThumbsDown, ArrowUp, ArrowDown, Trash2, Link2, Share2, Bookmark, BookmarkCheck, Lock, Shield, Rocket, Send } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -10,6 +10,7 @@ import type { PitchIdea } from '@/hooks/usePitchIdeas';
 import { usePitchFeedback } from '@/hooks/usePitchIdeas';
 import { LANE_LABELS, type MonetisationLane } from '@/lib/types';
 import { ConceptLockPanel } from '@/components/ConceptLockPanel';
+import { SendToProjectDialog } from '@/components/SendToProjectDialog';
 
 const FEEDBACK_TAGS = ['character', 'world', 'hook', 'tone', 'budget', 'market fit'];
 
@@ -24,6 +25,7 @@ interface Props {
 export function PitchIdeaCard({ idea, onDelete, onUpdate, onLinkProject, rank }: Props) {
   const [expanded, setExpanded] = useState(false);
   const [conceptLockOpen, setConceptLockOpen] = useState(false);
+  const [sendToProjectOpen, setSendToProjectOpen] = useState(false);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const { feedback, submitFeedback } = usePitchFeedback(idea.id);
   const userFeedback = feedback[0];
@@ -126,6 +128,9 @@ export function PitchIdeaCard({ idea, onDelete, onUpdate, onLinkProject, rank }:
                 <Link2 className="h-3.5 w-3.5" />
               </Button>
             )}
+            <Button variant="ghost" size="icon" className="h-7 w-7 text-primary" onClick={() => setSendToProjectOpen(true)} title="Send to Project">
+              <Send className="h-3.5 w-3.5" />
+            </Button>
             <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => onDelete(idea.id)} title="Delete">
               <Trash2 className="h-3.5 w-3.5" />
             </Button>
@@ -310,6 +315,8 @@ export function PitchIdeaCard({ idea, onDelete, onUpdate, onLinkProject, rank }:
           </CollapsibleContent>
         </Collapsible>
       </CardContent>
+
+      <SendToProjectDialog idea={idea} open={sendToProjectOpen} onOpenChange={setSendToProjectOpen} />
     </Card>
   );
 }
