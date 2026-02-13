@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useNavigate } from 'react-router-dom';
-import { LogOut, Plus, Radio, Landmark, HelpCircle, ChevronDown, Calendar, Users, LayoutGrid, Globe, BarChart3, Settings, Menu, X, Building2, GraduationCap, FlaskConical, Lightbulb } from 'lucide-react';
+import { LogOut, Plus, Radio, Landmark, HelpCircle, ChevronDown, Calendar, Users, LayoutGrid, Globe, BarChart3, Settings, Menu, X, Building2, GraduationCap, FlaskConical, Lightbulb, Film } from 'lucide-react';
 import iffyLogo from '@/assets/iffy-logo-v3.png';
 import { NotificationBell } from '@/components/NotificationBell';
 import { GlobalSearch } from '@/components/GlobalSearch';
@@ -89,6 +89,12 @@ export function Header() {
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => setShowTutorial(true)}>
                 <GraduationCap className="h-4 w-4 mr-2" /> Tutorial
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => navigate('/demo')}>
+                <Film className="h-4 w-4 mr-2" /> Cinematic Demo
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => navigate('/demo/interactive')}>
+                <Film className="h-4 w-4 mr-2" /> Interactive Demo
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => navigate('/faq')}>Help Centre</DropdownMenuItem>
               <DropdownMenuItem onClick={() => navigate('/how-iffy-thinks')}>How IFFY Thinks</DropdownMenuItem>
