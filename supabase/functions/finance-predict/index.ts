@@ -6,6 +6,52 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+function formatFinanceRules(format: string): string {
+  const f = (format || '').toLowerCase();
+  if (f === 'tv-series' || f.includes('series') && !f.includes('doc'))
+    return `This is a TV SERIES. Finance psychology: Commissioning Executive + Streamer Strategy Head.
+- Primary finance model: Platform commission / Broadcaster deal / Deficit finance
+- Evaluate per-episode cost vs platform budget appetite
+- Co-production treaty value and international pre-sales per territory
+- Deficit financing risk: how much does the producer need to bridge?
+- Do NOT model theatrical P&A, gap finance, or equity waterfall as primary
+- Finance stack should reflect: Platform deal %, Broadcaster %, Co-Pro %, Tax Credit %, Deficit %
+- ROI model: cost-per-subscriber or cost-per-viewer, not theatrical box office`;
+  if (f === 'documentary' || f === 'documentary-series' || f === 'hybrid-documentary')
+    return `This is a DOCUMENTARY project. Finance psychology: Grant Evaluator + Impact Investor + Broadcaster.
+- Primary finance model: Grants + Broadcaster pre-sales + Impact investors
+- Evaluate grant eligibility (BFI, Sundance, IDFA, etc.)
+- Impact funding potential and NGO partnership value
+- Do NOT model equity waterfall or theatrical recoupment as primary
+- Finance stack should reflect: Grants %, Broadcaster %, Impact %, Sales %, Self-Fund %`;
+  if (f === 'vertical-drama')
+    return `This is a VERTICAL DRAMA. Finance psychology: Platform Deal + Brand Integration + Volume Economics.
+- Primary finance model: Platform deal / Brand integration / Ad revenue
+- Evaluate cost-per-episode efficiency (target: very low CPE)
+- Volume scalability: can this produce 50-100 episodes efficiently?
+- Do NOT model theatrical, festival, or traditional pre-sales
+- Finance stack should reflect: Platform Deal %, Brand %, Ad Revenue %, Self-Fund %`;
+  if (f === 'commercial' || f === 'branded-content')
+    return `This is a COMMERCIAL/BRANDED project. Finance psychology: Client Budget + Production Margin.
+- Primary finance model: Client budget with production fee and margin
+- Evaluate production margin target (typically 15-25%)
+- Usage rights and talent buyout costs
+- Do NOT model pre-sales, equity, or recoupment waterfall
+- Finance stack should reflect: Client Budget %, Production Fee %, Contingency %`;
+  if (f === 'short-film' || f === 'proof-of-concept')
+    return `This is a ${f === 'short-film' ? 'SHORT FILM' : 'PROOF OF CONCEPT'}. Finance psychology: Self-Fund + Grant + In-Kind.
+- Primary finance model: Self-funded / Grants / In-kind / Crowdfunding
+- Do NOT model pre-sales, equity waterfall, or gap finance
+- Evaluate grant potential and feature development fund eligibility
+- Finance stack should reflect: Self-Fund %, Grants %, In-Kind %, Crowdfunding %`;
+  // Default: feature film
+  return `This is a FEATURE FILM. Finance psychology: Equity Financier + Sales Agent.
+- Primary finance model: Pre-sales + Equity + Tax Credits + Gap
+- Evaluate territory pre-sales viability and cast bankability
+- Model recoupment waterfall with realistic fee structures
+- Finance stack should reflect: Pre-Sales %, Equity %, Tax Credits %, Gap %, Streamer %`;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -55,6 +101,9 @@ Your job: simulate realistic financing logic including pre-sales, equity risk, t
 
 Be measured, strategic, and realistic. Align with independent production realities. Avoid unrealistic optimism. Do not assume streamer acquisition unless justified.
 This is an internal capital allocation system. The purpose: move projects toward greenlight — or kill them early.
+
+FORMAT-SPECIFIC FINANCE RULES:
+${formatFinanceRules(format)}
 
 CALIBRATION RULES:
 ${scoringGrid ? `- Coverage scores: ${JSON.stringify(scoringGrid)}` : '- No coverage scores available'}
