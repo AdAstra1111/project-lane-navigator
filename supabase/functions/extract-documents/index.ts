@@ -10,23 +10,24 @@ const corsHeaders = {
 const MAX_PAGES = 300;
 const WORDS_PER_PAGE = 250;
 const MAX_WORDS = MAX_PAGES * WORDS_PER_PAGE;
+const MIN_CHAR_THRESHOLD = 1500; // Below this, PDF is likely image-based
 
 interface ExtractionResult {
   text: string;
   totalPages: number | null;
   pagesAnalyzed: number | null;
-  status: "success" | "partial" | "failed";
+  status: "success" | "partial" | "failed" | "needs_ocr";
   error: string | null;
+  sourceType: "pdf_text" | "ocr" | "docx" | "plain";
 }
 
-// ---- Gemini-based PDF extraction (reliable for all PDFs) ----
-async function extractPDFWithGemini(data: ArrayBuffer): Promise<ExtractionResult> {
+// ---- Gemini-based PDF extraction / OCR (reliable for all PDFs) ----
+async function extractPDFWithGemini(data: ArrayBuffer, isOCR: boolean = false): Promise<ExtractionResult> {
   const apiKey = Deno.env.get("LOVABLE_API_KEY");
   if (!apiKey) {
-    return { text: "", totalPages: null, pagesAnalyzed: null, status: "failed", error: "No API key for AI extraction" };
+    return { text: "", totalPages: null, pagesAnalyzed: null, status: "failed", error: "No API key for AI extraction", sourceType: "ocr" };
   }
 
-  // Chunked base64 encoding to avoid stack overflow on large files
   const bytes = new Uint8Array(data);
   let binary = "";
   const chunkSize = 8192;
@@ -36,15 +37,19 @@ async function extractPDFWithGemini(data: ArrayBuffer): Promise<ExtractionResult
   }
   const base64 = btoa(binary);
 
+  const ocrInstruction = isOCR
+    ? "This PDF appears to be image-based. Use OCR to read all visible text from each page image, including headers, body text, captions, labels, and any text embedded in graphics or diagrams."
+    : "";
+
   const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: "google/gemini-2.5-flash-lite",
+      model: "google/gemini-2.5-flash",
       messages: [
         {
           role: "system",
-          content: "You are a document text extractor. Extract ALL text content from the provided PDF document. Preserve paragraph structure with line breaks. Output ONLY the extracted text, nothing else. No commentary, no summaries, no markdown formatting.",
+          content: `You are a document text extractor. Extract ALL text content from the provided PDF document. ${ocrInstruction} Preserve paragraph structure with line breaks. Output ONLY the extracted text, nothing else. No commentary, no summaries, no markdown formatting. Do NOT infer, fabricate, or add any content that is not visually present on the pages.`,
         },
         {
           role: "user",
@@ -56,7 +61,7 @@ async function extractPDFWithGemini(data: ArrayBuffer): Promise<ExtractionResult
                 file_data: `data:application/pdf;base64,${base64}`,
               },
             },
-            { type: "text", text: "Extract all text from this PDF document. Output only the raw text content." },
+            { type: "text", text: `Extract all text from this PDF document. ${isOCR ? "This is an image-based/graphic-heavy PDF — use OCR to read all visible text from every page." : "Output only the raw text content."}` },
           ],
         },
       ],
@@ -68,14 +73,14 @@ async function extractPDFWithGemini(data: ArrayBuffer): Promise<ExtractionResult
   if (!response.ok) {
     const errText = await response.text();
     console.error("Gemini extraction error:", response.status, errText);
-    return { text: "", totalPages: null, pagesAnalyzed: null, status: "failed", error: `AI extraction failed: ${response.status}` };
+    return { text: "", totalPages: null, pagesAnalyzed: null, status: "failed", error: `AI extraction failed: ${response.status}`, sourceType: "ocr" };
   }
 
   const result = await response.json();
-  const text = result.choices?.[0]?.message?.content?.trim() || "";
+  const text = (result.choices?.[0]?.message?.content?.trim() || "").replace(/\u0000/g, "");
 
   if (text.length < 50) {
-    return { text: "", totalPages: null, pagesAnalyzed: null, status: "failed", error: "AI could not extract readable text from this PDF" };
+    return { text: "", totalPages: null, pagesAnalyzed: null, status: "failed", error: "AI could not extract readable text from this PDF", sourceType: "ocr" };
   }
 
   const wordCount = text.split(/\s+/).length;
@@ -87,6 +92,7 @@ async function extractPDFWithGemini(data: ArrayBuffer): Promise<ExtractionResult
     pagesAnalyzed: estimatedPages,
     status: "success",
     error: null,
+    sourceType: isOCR ? "ocr" : "pdf_text",
   };
 }
 
@@ -122,13 +128,13 @@ function basicPDFExtract(bytes: Uint8Array): string {
       s.replace(/\\n/g, "\n").replace(/\\\(/g, "(").replace(/\\\)/g, ")").replace(/\\\\/g, "\\")
     )
     .join(" ")
+    .replace(/\u0000/g, "")
     .replace(/\s+/g, " ")
     .trim();
 }
 
 function isGarbageText(text: string): boolean {
   if (text.length < 100) return true;
-  // Check if text has a high ratio of non-printable/non-ASCII characters
   const printable = text.replace(/[^\x20-\x7E\n\r\t]/g, "");
   return printable.length / text.length < 0.5;
 }
@@ -138,22 +144,25 @@ async function extractFromPDF(data: ArrayBuffer): Promise<ExtractionResult> {
   const bytes = new Uint8Array(data);
   const basicText = basicPDFExtract(bytes);
 
-  if (basicText.length >= 200 && !isGarbageText(basicText)) {
+  if (basicText.length >= MIN_CHAR_THRESHOLD && !isGarbageText(basicText)) {
     const wordCount = basicText.split(/\s+/).length;
     const estimatedPages = Math.ceil(wordCount / WORDS_PER_PAGE);
     const isPartial = wordCount > MAX_WORDS;
+    console.log(`[extract] Basic PDF extraction OK: ${basicText.length} chars, ${wordCount} words`);
     return {
       text: isPartial ? basicText.split(/\s+/).slice(0, MAX_WORDS).join(" ") : basicText,
       totalPages: estimatedPages,
       pagesAnalyzed: isPartial ? MAX_PAGES : estimatedPages,
       status: isPartial ? "partial" : "success",
       error: null,
+      sourceType: "pdf_text",
     };
   }
 
-  // Basic extraction failed or produced garbage — use Gemini
-  console.log("[extract] Basic PDF extraction insufficient, using AI extraction");
-  return extractPDFWithGemini(data);
+  // Below threshold — this PDF is likely image-based. Use Gemini OCR.
+  const charCount = basicText.length;
+  console.log(`[extract] Basic extraction yielded only ${charCount} chars (threshold: ${MIN_CHAR_THRESHOLD}). Triggering OCR fallback via Gemini vision.`);
+  return extractPDFWithGemini(data, true);
 }
 
 async function extractFromDOCX(data: ArrayBuffer): Promise<ExtractionResult> {
@@ -164,7 +173,7 @@ async function extractFromDOCX(data: ArrayBuffer): Promise<ExtractionResult> {
     const docXml = await zip.file("word/document.xml")?.async("text");
 
     if (!docXml) {
-      return { text: "", totalPages: null, pagesAnalyzed: null, status: "failed", error: "Couldn't read content from this DOCX file." };
+      return { text: "", totalPages: null, pagesAnalyzed: null, status: "failed", error: "Couldn't read content from this DOCX file.", sourceType: "docx" };
     }
 
     const textParts: string[] = [];
@@ -175,9 +184,9 @@ async function extractFromDOCX(data: ArrayBuffer): Promise<ExtractionResult> {
       if (paraText.trim()) textParts.push(paraText.trim());
     }
 
-    const text = textParts.join("\n");
+    const text = textParts.join("\n").replace(/\u0000/g, "");
     if (text.length < 50) {
-      return { text: "", totalPages: null, pagesAnalyzed: null, status: "failed", error: "Couldn't extract enough text from this DOCX file." };
+      return { text: "", totalPages: null, pagesAnalyzed: null, status: "failed", error: "Couldn't extract enough text from this DOCX file.", sourceType: "docx" };
     }
 
     const wordCount = text.split(/\s+/).length;
@@ -190,17 +199,18 @@ async function extractFromDOCX(data: ArrayBuffer): Promise<ExtractionResult> {
       pagesAnalyzed: isPartial ? MAX_PAGES : estimatedPages,
       status: isPartial ? "partial" : "success",
       error: null,
+      sourceType: "docx",
     };
   } catch (err) {
     console.error("DOCX extraction error:", err);
-    return { text: "", totalPages: null, pagesAnalyzed: null, status: "failed", error: "Failed to parse DOCX file." };
+    return { text: "", totalPages: null, pagesAnalyzed: null, status: "failed", error: "Failed to parse DOCX file.", sourceType: "docx" };
   }
 }
 
 function extractFromPlainText(rawText: string): ExtractionResult {
-  const text = rawText.trim();
+  const text = rawText.trim().replace(/\u0000/g, "");
   if (text.length < 20) {
-    return { text: "", totalPages: null, pagesAnalyzed: null, status: "failed", error: "File contains too little text." };
+    return { text: "", totalPages: null, pagesAnalyzed: null, status: "failed", error: "File contains too little text.", sourceType: "plain" };
   }
   const wordCount = text.split(/\s+/).length;
   const estimatedPages = Math.ceil(wordCount / WORDS_PER_PAGE);
@@ -211,6 +221,7 @@ function extractFromPlainText(rawText: string): ExtractionResult {
     pagesAnalyzed: isPartial ? MAX_PAGES : estimatedPages,
     status: isPartial ? "partial" : "success",
     error: null,
+    sourceType: "plain",
   };
 }
 
@@ -229,7 +240,7 @@ async function extractTextFromFile(data: Blob, fileName: string): Promise<Extrac
     const buffer = await data.arrayBuffer();
     return extractFromDOCX(buffer);
   }
-  return { text: "", totalPages: null, pagesAnalyzed: null, status: "failed", error: `Unsupported file type: .${ext}` };
+  return { text: "", totalPages: null, pagesAnalyzed: null, status: "failed", error: `Unsupported file type: .${ext}`, sourceType: "plain" };
 }
 
 // ---- MAIN HANDLER ----
@@ -256,7 +267,6 @@ serve(async (req) => {
       throw new Error("Missing projectId or documentPaths");
     }
 
-    // Validate user has access to this project
     const { data: hasAccess } = await supabase.rpc('has_project_access', {
       _user_id: user.id,
       _project_id: projectId
@@ -276,6 +286,8 @@ serve(async (req) => {
       total_pages: number | null;
       pages_analyzed: number | null;
       error_message: string | null;
+      source_type: string;
+      char_count: number;
     }
 
     const docResults: DocResult[] = [];
@@ -289,7 +301,7 @@ serve(async (req) => {
 
       if (downloadError || !fileData) {
         console.error(`Failed to download ${path}:`, downloadError);
-        docResults.push({
+        const failResult: DocResult = {
           file_name: fileName,
           file_path: path,
           extracted_text: "",
@@ -297,27 +309,74 @@ serve(async (req) => {
           total_pages: null,
           pages_analyzed: null,
           error_message: `Failed to download: ${downloadError?.message || "Unknown error"}`,
+          source_type: "pdf_text",
+          char_count: 0,
+        };
+        docResults.push(failResult);
+
+        // Log ingestion
+        await adminClient.from("document_ingestions").insert({
+          project_id: projectId,
+          user_id: user.id,
+          file_path: path,
+          source_type: "pdf_text",
+          char_count: 0,
+          pages_processed: null,
+          status: "failed",
+          error: failResult.error_message,
         });
         continue;
       }
 
       const result = await extractTextFromFile(fileData, fileName);
+      const cleanText = result.text.replace(/\x00/g, "");
+      const charCount = cleanText.trim().length;
 
-      // Strip null bytes that PostgreSQL cannot store
-      const cleanText = result.text.replace(/\x00/g, '');
+      // Determine ingestion status
+      let ingestionStatus = "ok";
+      if (result.status === "failed") {
+        ingestionStatus = "failed";
+      } else if (charCount < MIN_CHAR_THRESHOLD && result.sourceType !== "ocr") {
+        ingestionStatus = "needs_ocr";
+      } else if (result.sourceType === "ocr") {
+        ingestionStatus = charCount >= 1000 ? "ocr_success" : "failed";
+      }
+
+      // If needs_ocr and we haven't already done OCR, the extractFromPDF already handles this
+      // But log the final state
+      const finalStatus = ingestionStatus === "needs_ocr" ? "failed" : result.status;
+      const finalError = ingestionStatus === "needs_ocr"
+        ? "Text extraction yielded too little content. The PDF may be image-based. Please upload a text-based export or PPTX."
+        : result.error;
 
       docResults.push({
         file_name: fileName,
         file_path: path,
         extracted_text: cleanText,
-        extraction_status: result.status,
+        extraction_status: finalStatus === "needs_ocr" ? "failed" : (finalStatus as string),
         total_pages: result.totalPages,
         pages_analyzed: result.pagesAnalyzed,
-        error_message: result.error,
+        error_message: finalError,
+        source_type: result.sourceType,
+        char_count: charCount,
       });
+
+      // Log to document_ingestions
+      await adminClient.from("document_ingestions").insert({
+        project_id: projectId,
+        user_id: user.id,
+        file_path: path,
+        source_type: result.sourceType,
+        char_count: charCount,
+        pages_processed: result.pagesAnalyzed,
+        status: ingestionStatus,
+        error: finalError,
+      });
+
+      console.log(`[extract] ${fileName}: source=${result.sourceType}, chars=${charCount}, status=${ingestionStatus}`);
     }
 
-    // Save document records to DB (upsert by file_path to avoid duplicates)
+    // Save document records to DB (upsert by file_path)
     for (const doc of docResults) {
       const { data: existing } = await adminClient
         .from("project_documents")
@@ -326,16 +385,20 @@ serve(async (req) => {
         .eq("file_path", doc.file_path)
         .maybeSingle();
 
+      const docRecord = {
+        extracted_text: doc.extracted_text || null,
+        extraction_status: doc.extraction_status,
+        total_pages: doc.total_pages,
+        pages_analyzed: doc.pages_analyzed,
+        error_message: doc.error_message,
+        ingestion_source: doc.source_type,
+        char_count: doc.char_count,
+      };
+
       if (existing) {
         const { error: updateErr } = await adminClient
           .from("project_documents")
-          .update({
-            extracted_text: doc.extracted_text || null,
-            extraction_status: doc.extraction_status,
-            total_pages: doc.total_pages,
-            pages_analyzed: doc.pages_analyzed,
-            error_message: doc.error_message,
-          })
+          .update(docRecord)
           .eq("id", existing.id);
         if (updateErr) console.error("Failed to update document record:", updateErr);
       } else {
@@ -344,11 +407,7 @@ serve(async (req) => {
           user_id: user.id,
           file_name: doc.file_name,
           file_path: doc.file_path,
-          extracted_text: doc.extracted_text || null,
-          extraction_status: doc.extraction_status,
-          total_pages: doc.total_pages,
-          pages_analyzed: doc.pages_analyzed,
-          error_message: doc.error_message,
+          ...docRecord,
         });
         if (docError) console.error("Failed to save document record:", docError);
       }

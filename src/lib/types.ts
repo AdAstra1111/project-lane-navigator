@@ -108,6 +108,8 @@ export interface ProjectDocument {
   error_message: string | null;
   created_at: string;
   doc_type: DocumentType;
+  ingestion_source?: string;
+  char_count?: number;
 }
 
 // ---- AI Response ----

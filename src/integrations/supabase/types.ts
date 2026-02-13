@@ -1660,6 +1660,53 @@ export type Database = {
         }
         Relationships: []
       }
+      document_ingestions: {
+        Row: {
+          char_count: number
+          created_at: string
+          error: string | null
+          file_path: string
+          id: string
+          pages_processed: number | null
+          project_id: string
+          source_type: string
+          status: string
+          user_id: string
+        }
+        Insert: {
+          char_count?: number
+          created_at?: string
+          error?: string | null
+          file_path: string
+          id?: string
+          pages_processed?: number | null
+          project_id: string
+          source_type?: string
+          status?: string
+          user_id: string
+        }
+        Update: {
+          char_count?: number
+          created_at?: string
+          error?: string | null
+          file_path?: string
+          id?: string
+          pages_processed?: number | null
+          project_id?: string
+          source_type?: string
+          status?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "document_ingestions_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       edit_versions: {
         Row: {
           created_at: string
@@ -4280,6 +4327,7 @@ export type Database = {
       }
       project_documents: {
         Row: {
+          char_count: number | null
           created_at: string
           doc_type: string
           error_message: string | null
@@ -4288,12 +4336,14 @@ export type Database = {
           file_name: string
           file_path: string
           id: string
+          ingestion_source: string | null
           pages_analyzed: number | null
           project_id: string
           total_pages: number | null
           user_id: string
         }
         Insert: {
+          char_count?: number | null
           created_at?: string
           doc_type?: string
           error_message?: string | null
@@ -4302,12 +4352,14 @@ export type Database = {
           file_name: string
           file_path: string
           id?: string
+          ingestion_source?: string | null
           pages_analyzed?: number | null
           project_id: string
           total_pages?: number | null
           user_id: string
         }
         Update: {
+          char_count?: number | null
           created_at?: string
           doc_type?: string
           error_message?: string | null
@@ -4316,6 +4368,7 @@ export type Database = {
           file_name?: string
           file_path?: string
           id?: string
+          ingestion_source?: string | null
           pages_analyzed?: number | null
           project_id?: string
           total_pages?: number | null
