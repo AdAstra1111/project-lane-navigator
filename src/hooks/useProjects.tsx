@@ -278,7 +278,12 @@ export function useProjectDocuments(projectId: string | undefined) {
         .eq('project_id', projectId)
         .order('created_at', { ascending: true });
       if (error) throw error;
-      const docs = data as unknown as ProjectDocument[];
+      // Filter out ghost docs: empty file_path + failed/no content + generic name
+      const filtered = (data as unknown as ProjectDocument[]).filter(d => {
+        if (!d.file_path && d.file_name === 'document' && d.extraction_status === 'failed') return false;
+        return true;
+      });
+      const docs = filtered;
 
       // For dev-engine docs (empty file_path), fetch latest version plaintext
       const devEngineDocs = docs.filter(d => !d.file_path);
