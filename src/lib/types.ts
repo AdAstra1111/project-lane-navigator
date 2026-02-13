@@ -83,6 +83,18 @@ export interface DocumentExtractionResult {
   error_message: string | null;
 }
 
+export type DocumentType = 'script' | 'treatment' | 'deck' | 'lookbook' | 'schedule' | 'budget' | 'document';
+
+export const DOC_TYPE_LABELS: Record<DocumentType, string> = {
+  script: 'Script',
+  treatment: 'Treatment',
+  deck: 'Deck',
+  lookbook: 'Lookbook',
+  schedule: 'Schedule',
+  budget: 'Budget',
+  document: 'Document',
+};
+
 export interface ProjectDocument {
   id: string;
   project_id: string;
@@ -95,6 +107,7 @@ export interface ProjectDocument {
   pages_analyzed: number | null;
   error_message: string | null;
   created_at: string;
+  doc_type: DocumentType;
 }
 
 // ---- AI Response ----

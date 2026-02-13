@@ -471,7 +471,7 @@ export default function ProjectDetail() {
               hasDocuments={hasDocuments}
               hasScript={hasScript}
               documents={documents}
-              onUpload={(files, scriptInfo) => addDocuments.mutate({ files, scriptInfo })}
+              onUpload={(files, scriptInfo, docType) => addDocuments.mutate({ files, scriptInfo, docType })}
               isUploading={addDocuments.isPending}
               scriptText={scriptText}
               devReadiness={devReadiness}

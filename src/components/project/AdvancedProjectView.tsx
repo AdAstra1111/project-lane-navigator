@@ -69,7 +69,7 @@ interface Props {
   hasDocuments: boolean;
   hasScript: boolean;
   documents: any[];
-  onUpload: (files: File[], scriptInfo?: any) => void;
+  onUpload: (files: File[], scriptInfo?: any, docType?: string) => void;
   isUploading: boolean;
   scriptText: string | null;
   devReadiness: any;
