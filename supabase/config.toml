@@ -104,3 +104,6 @@ verify_jwt = false
 
 [functions.convergence-engine]
 verify_jwt = false
+
+[functions.development-engine]
+verify_jwt = false

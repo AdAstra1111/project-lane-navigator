@@ -1849,6 +1849,211 @@ export type Database = {
         }
         Relationships: []
       }
+      dev_engine_iterations: {
+        Row: {
+          approved_notes: Json | null
+          changes_summary: string | null
+          character_enhancements: Json | null
+          ci_score: number | null
+          clarify_items: Json | null
+          commercial_improvements: string | null
+          convergence_status: string | null
+          created_at: string
+          creative_preserved: string | null
+          delta_ci: number | null
+          delta_gap: number | null
+          delta_gp: number | null
+          elevate_items: Json | null
+          escalation_improvements: Json | null
+          gap: number | null
+          gp_score: number | null
+          id: string
+          iteration_number: number
+          lane_clarity_moves: Json | null
+          packaging_magnetism_moves: Json | null
+          phase: string
+          primary_commercial_risk: string | null
+          primary_creative_risk: string | null
+          protect_items: Json | null
+          raw_ai_response: Json | null
+          reassess_ci: number | null
+          reassess_convergence: string | null
+          reassess_gap: number | null
+          reassess_gp: number | null
+          remove_items: Json | null
+          rewritten_text: string | null
+          risk_mitigation_fixes: Json | null
+          session_id: string
+          strengthen_items: Json | null
+          structural_adjustments: Json | null
+          trajectory: string | null
+          user_decision: string | null
+          user_id: string
+        }
+        Insert: {
+          approved_notes?: Json | null
+          changes_summary?: string | null
+          character_enhancements?: Json | null
+          ci_score?: number | null
+          clarify_items?: Json | null
+          commercial_improvements?: string | null
+          convergence_status?: string | null
+          created_at?: string
+          creative_preserved?: string | null
+          delta_ci?: number | null
+          delta_gap?: number | null
+          delta_gp?: number | null
+          elevate_items?: Json | null
+          escalation_improvements?: Json | null
+          gap?: number | null
+          gp_score?: number | null
+          id?: string
+          iteration_number?: number
+          lane_clarity_moves?: Json | null
+          packaging_magnetism_moves?: Json | null
+          phase?: string
+          primary_commercial_risk?: string | null
+          primary_creative_risk?: string | null
+          protect_items?: Json | null
+          raw_ai_response?: Json | null
+          reassess_ci?: number | null
+          reassess_convergence?: string | null
+          reassess_gap?: number | null
+          reassess_gp?: number | null
+          remove_items?: Json | null
+          rewritten_text?: string | null
+          risk_mitigation_fixes?: Json | null
+          session_id: string
+          strengthen_items?: Json | null
+          structural_adjustments?: Json | null
+          trajectory?: string | null
+          user_decision?: string | null
+          user_id: string
+        }
+        Update: {
+          approved_notes?: Json | null
+          changes_summary?: string | null
+          character_enhancements?: Json | null
+          ci_score?: number | null
+          clarify_items?: Json | null
+          commercial_improvements?: string | null
+          convergence_status?: string | null
+          created_at?: string
+          creative_preserved?: string | null
+          delta_ci?: number | null
+          delta_gap?: number | null
+          delta_gp?: number | null
+          elevate_items?: Json | null
+          escalation_improvements?: Json | null
+          gap?: number | null
+          gp_score?: number | null
+          id?: string
+          iteration_number?: number
+          lane_clarity_moves?: Json | null
+          packaging_magnetism_moves?: Json | null
+          phase?: string
+          primary_commercial_risk?: string | null
+          primary_creative_risk?: string | null
+          protect_items?: Json | null
+          raw_ai_response?: Json | null
+          reassess_ci?: number | null
+          reassess_convergence?: string | null
+          reassess_gap?: number | null
+          reassess_gp?: number | null
+          remove_items?: Json | null
+          rewritten_text?: string | null
+          risk_mitigation_fixes?: Json | null
+          session_id?: string
+          strengthen_items?: Json | null
+          structural_adjustments?: Json | null
+          trajectory?: string | null
+          user_decision?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dev_engine_iterations_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "dev_engine_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      dev_engine_sessions: {
+        Row: {
+          budget: string | null
+          convergence_status: string | null
+          created_at: string
+          current_iteration: number
+          format: string | null
+          genres: string[] | null
+          id: string
+          input_text: string
+          input_type: string
+          lane: string | null
+          latest_ci: number | null
+          latest_gap: number | null
+          latest_gp: number | null
+          project_id: string | null
+          status: string
+          title: string
+          trajectory: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          budget?: string | null
+          convergence_status?: string | null
+          created_at?: string
+          current_iteration?: number
+          format?: string | null
+          genres?: string[] | null
+          id?: string
+          input_text?: string
+          input_type?: string
+          lane?: string | null
+          latest_ci?: number | null
+          latest_gap?: number | null
+          latest_gp?: number | null
+          project_id?: string | null
+          status?: string
+          title?: string
+          trajectory?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          budget?: string | null
+          convergence_status?: string | null
+          created_at?: string
+          current_iteration?: number
+          format?: string | null
+          genres?: string[] | null
+          id?: string
+          input_text?: string
+          input_type?: string
+          lane?: string | null
+          latest_ci?: number | null
+          latest_gap?: number | null
+          latest_gp?: number | null
+          project_id?: string | null
+          status?: string
+          title?: string
+          trajectory?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dev_engine_sessions_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       development_briefs: {
         Row: {
           audience_demo: string | null
