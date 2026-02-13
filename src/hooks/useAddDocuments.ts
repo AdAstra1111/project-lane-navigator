@@ -97,7 +97,7 @@ export function useAddDocuments(projectId: string | undefined) {
                 .select('file_path')
                 .eq('project_id', projectId);
 
-              const allPaths = allDocs?.map(d => d.file_path) || documentPaths;
+              const allPaths = (allDocs?.map(d => d.file_path) || documentPaths).filter(p => p && p.trim() !== '');
 
               await supabase.functions.invoke('analyze-project', {
                 body: {
