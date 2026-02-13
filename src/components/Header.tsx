@@ -99,6 +99,9 @@ export function Header() {
               <DropdownMenuItem onClick={() => navigate('/demo/executive')}>
                 <Film className="h-4 w-4 mr-2" /> Executive Mode
               </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => navigate('/investor')}>
+                <Film className="h-4 w-4 mr-2" /> Investor Presentation
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={() => navigate('/faq')}>Help Centre</DropdownMenuItem>
               <DropdownMenuItem onClick={() => navigate('/how-iffy-thinks')}>How IFFY Thinks</DropdownMenuItem>
               <DropdownMenuItem onClick={() => navigate('/about')}>About IFFY</DropdownMenuItem>
@@ -166,6 +169,7 @@ export function Header() {
             { label: 'Platform Overview', path: '/demo', icon: Film },
             { label: 'Interactive Demo', path: '/demo/interactive', icon: Film },
             { label: 'Executive Mode', path: '/demo/executive', icon: Film },
+            { label: 'Investor Presentation', path: '/investor', icon: Film },
             { label: 'Settings', path: '/settings', icon: Settings },
           ].map(item => (
             <button
