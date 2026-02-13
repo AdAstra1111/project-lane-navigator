@@ -149,6 +149,9 @@ Deno.serve(async (req) => {
     const ideaText = sections.join("\n");
 
     // 4) Create project_documents row
+    const fileName = `pitch-idea-${idea.title?.toLowerCase().replace(/\s+/g, "-").slice(0, 30) || "untitled"}`;
+    const filePath = `projects/${projectId}/${fileName}.txt`;
+
     const { data: doc, error: docErr } = await supabase
       .from("project_documents")
       .insert({
@@ -157,7 +160,8 @@ Deno.serve(async (req) => {
         title: `Pitch Idea — ${idea.title || "Untitled"}`,
         doc_type: "idea",
         source: "generated",
-        file_name: `pitch-idea-${idea.title?.toLowerCase().replace(/\s+/g, "-").slice(0, 30) || "untitled"}`,
+        file_name: fileName,
+        file_path: filePath,
         plaintext: ideaText,
       })
       .select("id")
