@@ -90,5 +90,8 @@ verify_jwt = false
 [functions.embed-corpus]
 verify_jwt = false
 
+[functions.generate-pitch-deck]
+verify_jwt = false
+
 [functions.nightly-outcome-rollup]
 verify_jwt = false
