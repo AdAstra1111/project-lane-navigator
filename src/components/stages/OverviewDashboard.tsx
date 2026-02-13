@@ -112,9 +112,9 @@ export function OverviewDashboard({
               'bg-red-500/15 text-red-400 border-red-500/30'
             }`}>{masterViability.label}</Badge>
           </div>
-          <div className="flex items-center gap-4">
-            <div className="text-4xl font-display font-bold text-foreground">{masterViability.score}</div>
-            <div className="flex-1 grid grid-cols-3 gap-2">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+            <div className="text-4xl font-display font-bold text-foreground shrink-0">{masterViability.score}</div>
+            <div className="flex-1 grid grid-cols-2 sm:grid-cols-3 gap-2">
               {LIFECYCLE_STAGES.map((stage) => {
                 const score = masterViability.stageScores[stage.value];
                 const meta = getStageMeta(stage.value);

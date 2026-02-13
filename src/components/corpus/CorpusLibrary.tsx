@@ -33,9 +33,9 @@ export function CorpusLibrary() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <BookOpen className="w-5 h-5 text-primary" />
+          <BookOpen className="w-5 h-5 text-primary shrink-0" />
           <h3 className="text-lg font-semibold text-foreground">Great Scripts Library</h3>
           <Badge variant="secondary">{completedScripts.length}</Badge>
         </div>
@@ -44,7 +44,7 @@ export function CorpusLibrary() {
           disabled={embedAll.isPending}
           size="sm"
           variant="outline"
-          className="text-xs"
+          className="text-xs shrink-0"
         >
           {embedAll.isPending ? <Loader2 className="w-3 h-3 mr-1.5 animate-spin" /> : <Zap className="w-3 h-3 mr-1.5" />}
           Embed All Pending
@@ -165,15 +165,15 @@ function CorpusScriptCard({ script, isExpanded, onToggle }: { script: any; isExp
   return (
     <Collapsible open={isExpanded} onOpenChange={onToggle}>
       <CollapsibleTrigger asChild>
-        <div className="flex items-center justify-between p-3 rounded-md border border-border bg-card cursor-pointer hover:bg-muted/50 transition-colors">
-          <div className="flex items-center gap-3">
-            <Film className="w-4 h-4 text-primary" />
-            <span className="font-medium text-sm">{title}</span>
-            <Badge variant="outline" className="text-xs">~{script.page_count_estimate} pp</Badge>
+        <div className="flex items-center justify-between gap-2 p-3 rounded-md border border-border bg-card cursor-pointer hover:bg-muted/50 transition-colors">
+          <div className="flex items-center gap-2 min-w-0">
+            <Film className="w-4 h-4 text-primary shrink-0" />
+            <span className="font-medium text-sm truncate">{title}</span>
+            <Badge variant="outline" className="text-xs shrink-0 hidden sm:inline-flex">~{script.page_count_estimate} pp</Badge>
           </div>
-          <div className="flex items-center gap-2">
-            {beats.length > 0 && <Badge variant="secondary" className="text-xs">{beats.length} beats</Badge>}
-            {arcs.length > 0 && <Badge variant="secondary" className="text-xs">{arcs.length} arcs</Badge>}
+          <div className="flex items-center gap-1.5 shrink-0">
+            {beats.length > 0 && <Badge variant="secondary" className="text-xs hidden sm:inline-flex">{beats.length} beats</Badge>}
+            {arcs.length > 0 && <Badge variant="secondary" className="text-xs hidden sm:inline-flex">{arcs.length} arcs</Badge>}
             <EmbeddingStatusBadge status={embeddingStatus} />
             {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
           </div>

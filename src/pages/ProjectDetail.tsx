@@ -347,25 +347,25 @@ export default function ProjectDetail() {
           transition={{ duration: 0.3 }}
         >
           {/* Project Header (compact) */}
-          <div className="flex items-start justify-between gap-4 mb-2">
-            <div className="flex items-center gap-3">
+          <div className="flex items-start justify-between gap-2 mb-2">
+            <div className="flex items-center gap-3 min-w-0">
               <button
                 onClick={() => navigate('/dashboard')}
-                className="inline-flex items-center justify-center h-8 w-8 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                className="inline-flex items-center justify-center h-8 w-8 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0"
               >
                 <ArrowLeft className="h-4 w-4" />
               </button>
-              <div>
+              <div className="min-w-0">
                 {project.genres && project.genres.length > 0 && (
-                  <p className="text-xs text-muted-foreground">{project.genres.join(' · ')}</p>
+                  <p className="text-xs text-muted-foreground truncate">{project.genres.join(' · ')}</p>
                 )}
               </div>
             </div>
 
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1 shrink-0">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary shrink-0" title="Export">
+                  <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary shrink-0 h-8 w-8" title="Export">
                     <Download className="h-4 w-4" />
                   </Button>
                 </DropdownMenuTrigger>
@@ -391,22 +391,22 @@ export default function ProjectDetail() {
                   )}
                 </DropdownMenuContent>
               </DropdownMenu>
-              <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary shrink-0" title="Duplicate" onClick={handleDuplicate} disabled={duplicate.isPending}>
+              <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary shrink-0 h-8 w-8 hidden sm:inline-flex" title="Duplicate" onClick={handleDuplicate} disabled={duplicate.isPending}>
                 {duplicate.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Copy className="h-4 w-4" />}
               </Button>
-              <Link to={`/projects/${id}/present`}>
-                <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary shrink-0" title="Presentation Mode">
+              <Link to={`/projects/${id}/present`} className="hidden sm:inline-flex">
+                <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary shrink-0 h-8 w-8" title="Presentation Mode">
                   <Presentation className="h-4 w-4" />
                 </Button>
               </Link>
-              <Link to="/compare">
-                <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary shrink-0" title="Compare">
+              <Link to="/compare" className="hidden sm:inline-flex">
+                <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary shrink-0 h-8 w-8" title="Compare">
                   <ArrowLeftRight className="h-4 w-4" />
                 </Button>
               </Link>
               <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
                 <AlertDialogTrigger asChild>
-                  <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive hover:bg-destructive/10 shrink-0">
+                  <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive hover:bg-destructive/10 shrink-0 h-8 w-8">
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 </AlertDialogTrigger>
