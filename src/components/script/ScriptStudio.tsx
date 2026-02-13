@@ -720,16 +720,49 @@ export function ScriptStudio({
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
+            {/* Document selector */}
+            {documents.length > 0 && (
+              <Select
+                value={currentScript?.id || documents[0]?.id || ''}
+                onValueChange={(docId) => {
+                  // Find the selected document index for version switching
+                  const idx = documents.findIndex((d: any) => d.id === docId);
+                  if (idx >= 0) setSelectedVersionIdx(idx);
+                }}
+              >
+                <SelectTrigger className="h-8 w-[220px] text-xs bg-background border-border">
+                  <SelectValue placeholder="Select document…" />
+                </SelectTrigger>
+                <SelectContent className="bg-popover border-border z-50 max-h-[300px]">
+                  {documents.map((doc: any) => {
+                    const isActive = doc.id === (currentScript?.id || documents[0]?.id);
+                    return (
+                      <SelectItem
+                        key={doc.id}
+                        value={doc.id}
+                        className={`text-xs ${isActive ? 'font-semibold text-primary' : ''}`}
+                      >
+                        <span className="flex items-center gap-1.5">
+                          <FileText className="h-3 w-3 shrink-0" />
+                          <span className="truncate max-w-[170px]">{doc.file_name || doc.version_label || 'Untitled'}</span>
+                        </span>
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+            )}
+
             {/* Version selector */}
             {versions.length > 1 && (
               <Select
                 value={String(selectedVersionIdx)}
                 onValueChange={v => setSelectedVersionIdx(Number(v))}
               >
-                <SelectTrigger className="h-8 w-[150px] text-xs">
+                <SelectTrigger className="h-8 w-[150px] text-xs bg-background border-border">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="bg-popover border-border z-50">
                   {versions.map((v, i) => (
                     <SelectItem key={v.id} value={String(i)} className="text-xs">
                       Version {v.draft_number} — {fmtDate(new Date(v.created_at), 'dd MMM')}
