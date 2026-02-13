@@ -12,7 +12,7 @@ import { PackagingModeSelector } from '@/components/PackagingModeSelector';
 import type { Project, MonetisationLane } from '@/lib/types';
 import type { ReadinessResult } from '@/lib/readiness-score';
 import { getFormatMeta } from '@/lib/mode-engine';
-import type { PackagingMode } from '@/lib/role-gravity-engine';
+import type { PackagingMode, PackagingStage } from '@/lib/role-gravity-engine';
 
 interface Props {
   project: Project;
@@ -71,10 +71,11 @@ export function ProjectSummaryBar({ project, readiness, onBestAction }: Props) {
           </Button>
         )}
 
-        {/* Packaging Target */}
+        {/* Packaging Target + Stage */}
         <PackagingModeSelector
           projectId={project.id}
           currentMode={((project as any).packaging_mode as PackagingMode) || 'streamer_prestige'}
+          currentStage={((project as any).packaging_stage as PackagingStage) || 'early_dev'}
           compact
         />
 
