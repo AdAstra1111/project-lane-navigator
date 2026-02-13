@@ -795,7 +795,7 @@ export function ScriptStudio({
 
             {/* Development Engine */}
             <Button variant="outline" size="sm" className="text-xs gap-1.5" asChild>
-              <Link to="/development-engine">
+              <Link to={`/projects/${projectId}/development`}>
                 <Zap className="h-3.5 w-3.5" />Dev Engine
               </Link>
             </Button>
