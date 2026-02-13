@@ -101,3 +101,6 @@ verify_jwt = false
 
 [functions.treatment-compare]
 verify_jwt = false
+
+[functions.convergence-engine]
+verify_jwt = false
