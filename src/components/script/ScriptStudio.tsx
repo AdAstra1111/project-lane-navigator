@@ -668,7 +668,8 @@ export function ScriptStudio({
 
       if (!scriptId) throw new Error('Failed to create script record');
 
-      const label = draftLabel || `Draft ${runs.length + 1}`;
+      const versionInfo = versions[selectedVersionIdx] ? ` (v${versions[selectedVersionIdx].draft_number})` : '';
+      const label = (draftLabel || `Draft ${runs.length + 1}`) + versionInfo;
       const { data, error } = await supabase.functions.invoke('script-coverage', {
         body: { projectId, scriptId, draftLabel: label, scriptText: trimmedScript, format, genres, lane },
       });
@@ -736,9 +737,16 @@ export function ScriptStudio({
             <h2 className="font-display font-semibold text-foreground text-lg truncate">
               {currentScript?.version_label || activeScript?.version_label || 'Script'}
             </h2>
-            <Link to={`/projects/${projectId}`} className="text-xs text-muted-foreground hover:text-primary transition-colors">
-              ← {projectTitle}
-            </Link>
+            <div className="flex items-center gap-2">
+              <Link to={`/projects/${projectId}`} className="text-xs text-muted-foreground hover:text-primary transition-colors">
+                ← {projectTitle}
+              </Link>
+              {versions.length > 0 && (
+                <Badge variant="outline" className="text-[9px] px-1.5 py-0 border-border">
+                  v{versions[selectedVersionIdx]?.draft_number || versions.length} · {versions[selectedVersionIdx] ? fmtDate(new Date(versions[selectedVersionIdx].created_at), 'dd MMM yyyy') : ''}
+                </Badge>
+              )}
+            </div>
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
