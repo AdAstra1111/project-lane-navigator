@@ -615,6 +615,28 @@ export function ScriptStudio({
         .join('\n\n---\n\n');
 
       if (!text || text.length < 100) {
+        // Fallback: check project_document_versions (Dev Engine generated scripts)
+        const { data: projDocs } = await (supabase as any)
+          .from('project_documents')
+          .select('id')
+          .eq('project_id', projectId);
+        const projDocIds = new Set((projDocs || []).map((d: any) => d.id));
+
+        if (projDocIds.size > 0) {
+          const { data: versionDocs } = await (supabase as any)
+            .from('project_document_versions')
+            .select('plaintext, document_id')
+            .in('document_id', Array.from(projDocIds))
+            .order('version_number', { ascending: false })
+            .limit(1);
+
+          if (versionDocs?.length && versionDocs[0].plaintext?.length > 100) {
+            text = versionDocs[0].plaintext;
+          }
+        }
+      }
+
+      if (!text || text.length < 100) {
         toast.error('No extracted text found — upload a script document first.');
         return;
       }
