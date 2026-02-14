@@ -562,6 +562,33 @@ export function ScriptStudio({
   // Version selector
   const [selectedVersionIdx, setSelectedVersionIdx] = useState(0);
 
+  // Document version counts (project_document_versions per document)
+  const [docVersionCounts, setDocVersionCounts] = useState<Record<string, number>>({});
+  const [docLatestVersions, setDocLatestVersions] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    if (!documents.length) return;
+    const docIds = documents.map((d: any) => d.id);
+    (supabase as any)
+      .from('project_document_versions')
+      .select('document_id, version_number')
+      .in('document_id', docIds)
+      .order('version_number', { ascending: false })
+      .then(({ data }: any) => {
+        if (!data) return;
+        const counts: Record<string, number> = {};
+        const latest: Record<string, number> = {};
+        for (const row of data) {
+          counts[row.document_id] = (counts[row.document_id] || 0) + 1;
+          if (!latest[row.document_id] || row.version_number > latest[row.document_id]) {
+            latest[row.document_id] = row.version_number;
+          }
+        }
+        setDocVersionCounts(counts);
+        setDocLatestVersions(latest);
+      });
+  }, [documents]);
+
   // Coverage progress state for bottom bar
   const [showProgress, setShowProgress] = useState(false);
 
@@ -668,7 +695,16 @@ export function ScriptStudio({
 
       if (!scriptId) throw new Error('Failed to create script record');
 
-      const versionInfo = versions[selectedVersionIdx] ? ` (v${versions[selectedVersionIdx].draft_number})` : '';
+      // Build version info from either script engine versions or document versions
+      let versionInfo = '';
+      if (versions[selectedVersionIdx]) {
+        versionInfo = ` (v${versions[selectedVersionIdx].draft_number})`;
+      } else {
+        // Fallback: use document version info
+        const activeDocId = currentScript?.id || documents[0]?.id;
+        const latestV = activeDocId ? docLatestVersions[activeDocId] : 0;
+        if (latestV > 0) versionInfo = ` (v${latestV})`;
+      }
       const label = (draftLabel || `Draft ${runs.length + 1}`) + versionInfo;
       const { data, error } = await supabase.functions.invoke('script-coverage', {
         body: { projectId, scriptId, draftLabel: label, scriptText: trimmedScript, format, genres, lane },
@@ -741,11 +777,20 @@ export function ScriptStudio({
               <Link to={`/projects/${projectId}`} className="text-xs text-muted-foreground hover:text-primary transition-colors">
                 ← {projectTitle}
               </Link>
-              {versions.length > 0 && (
+              {versions.length > 0 ? (
                 <Badge variant="outline" className="text-[9px] px-1.5 py-0 border-border">
                   v{versions[selectedVersionIdx]?.draft_number || versions.length} · {versions[selectedVersionIdx] ? fmtDate(new Date(versions[selectedVersionIdx].created_at), 'dd MMM yyyy') : ''}
                 </Badge>
-              )}
+              ) : (() => {
+                const activeDocId = currentScript?.id || documents[0]?.id;
+                const latestV = activeDocId ? docLatestVersions[activeDocId] : 0;
+                const vCount = activeDocId ? docVersionCounts[activeDocId] : 0;
+                return latestV > 0 ? (
+                  <Badge variant="outline" className="text-[9px] px-1.5 py-0 border-border">
+                    v{latestV}{vCount > 1 ? ` · ${vCount} drafts` : ''}
+                  </Badge>
+                ) : null;
+              })()}
             </div>
           </div>
 
@@ -764,8 +809,10 @@ export function ScriptStudio({
                   <SelectValue placeholder="Select document…" />
                 </SelectTrigger>
                 <SelectContent className="bg-popover border-border z-50 max-h-[400px] min-w-[350px] w-auto">
-                  {documents.map((doc: any) => {
+                {documents.map((doc: any, docIdx: number) => {
                     const isActive = doc.id === (currentScript?.id || documents[0]?.id);
+                    const vCount = docVersionCounts[doc.id] || 0;
+                    const latestV = docLatestVersions[doc.id] || 0;
                     return (
                       <SelectItem
                         key={doc.id}
@@ -775,6 +822,11 @@ export function ScriptStudio({
                         <span className="flex items-center gap-1.5">
                           <FileText className="h-3 w-3 shrink-0" />
                           <span className="whitespace-normal break-words">{doc.file_name || doc.version_label || 'Untitled'}</span>
+                          {vCount > 0 && (
+                            <Badge variant="outline" className="text-[9px] px-1 py-0 ml-1 shrink-0 border-border">
+                              v{latestV}{vCount > 1 ? ` · ${vCount} drafts` : ''}
+                            </Badge>
+                          )}
                         </span>
                       </SelectItem>
                     );
