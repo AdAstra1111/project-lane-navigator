@@ -233,6 +233,7 @@ export function AdvancedProjectView(props: Props) {
                     financeScenarios={props.financeScenarios}
                     isTV={props.isTV}
                     shootDayCount={props.scheduleMetrics.shootDayCount || 0}
+                    scriptText={props.scriptText}
                   />
                 </AccordionContent>
               </AccordionItem>
