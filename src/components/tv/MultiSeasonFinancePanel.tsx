@@ -80,7 +80,7 @@ export function MultiSeasonFinancePanel({
         {computed.map((s, i) => (
           <div key={i} className="glass-card rounded-lg p-4 flex items-center gap-4 text-sm">
             <span className="font-display font-bold text-primary text-lg w-10 shrink-0">S{s.season}</span>
-            <div className="flex-1 grid grid-cols-4 gap-3">
+            <div className="flex-1 grid grid-cols-2 md:grid-cols-4 gap-3">
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-muted-foreground">Episodes</label>
                 <Input
