@@ -1,20 +1,19 @@
 /**
  * Series Writer Panel — Episode grid for Vertical Drama.
- * Creates N episodes, generates scripts sequentially via script-engine.
+ * Per-episode generation + script reader dialog.
  */
 
-import { useState } from 'react';
-import { motion } from 'framer-motion';
+import { useState, useCallback } from 'react';
 import {
   Layers, Play, CheckCircle2, Circle, Loader2, AlertTriangle,
-  Plus, Trash2, Pen, ChevronDown, ChevronRight, Sparkles,
+  Plus, Pen, ChevronDown, ChevronRight, Sparkles, BookOpen,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Progress } from '@/components/ui/progress';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { InfoTooltip } from '@/components/InfoTooltip';
 import { useSeriesWriter, type SeriesEpisode, type SeriesProgress } from '@/hooks/useSeriesWriter';
 
@@ -70,8 +69,15 @@ function ProgressBar({ progress }: { progress: SeriesProgress }) {
   );
 }
 
-function EpisodeCard({ episode, isActive }: { episode: SeriesEpisode; isActive: boolean }) {
-  const [expanded, setExpanded] = useState(false);
+interface EpisodeCardProps {
+  episode: SeriesEpisode;
+  isActive: boolean;
+  isGenerating: boolean;
+  onGenerate: () => void;
+  onRead: () => void;
+}
+
+function EpisodeCard({ episode, isActive, isGenerating, onGenerate, onRead }: EpisodeCardProps) {
   const style = STATUS_STYLES[episode.status] || STATUS_STYLES.pending;
   const Icon = style.icon;
   const phase = (episode.generation_progress as any)?.phase;
@@ -80,10 +86,7 @@ function EpisodeCard({ episode, isActive }: { episode: SeriesEpisode; isActive: 
     <div className={`border rounded-lg transition-colors ${
       isActive ? 'border-primary/50 bg-primary/5' : 'border-border/50 bg-card/50'
     }`}>
-      <div
-        className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-muted/20"
-        onClick={() => setExpanded(!expanded)}
-      >
+      <div className="flex items-center gap-3 px-3 py-2.5">
         <Icon className={`h-4 w-4 shrink-0 ${style.color} ${
           episode.status === 'generating' ? 'animate-spin' : ''
         }`} />
@@ -102,12 +105,48 @@ function EpisodeCard({ episode, isActive }: { episode: SeriesEpisode; isActive: 
           )}
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-1.5 shrink-0">
           {episode.status === 'generating' && phase && (
             <Badge variant="outline" className="text-[9px] border-amber-500/30 text-amber-400 bg-amber-500/10">
               {PHASE_LABELS[phase] || phase}
             </Badge>
           )}
+
+          {episode.status === 'complete' && episode.script_id && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs gap-1 text-emerald-400 hover:text-emerald-300"
+              onClick={onRead}
+            >
+              <BookOpen className="h-3 w-3" /> Read
+            </Button>
+          )}
+
+          {episode.status === 'pending' && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 px-2.5 text-xs gap-1"
+              onClick={onGenerate}
+              disabled={isGenerating}
+            >
+              <Play className="h-3 w-3" /> Generate
+            </Button>
+          )}
+
+          {episode.status === 'error' && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 px-2.5 text-xs gap-1 border-red-500/30 text-red-400 hover:text-red-300"
+              onClick={onGenerate}
+              disabled={isGenerating}
+            >
+              <Play className="h-3 w-3" /> Retry
+            </Button>
+          )}
+
           <Badge variant="outline" className={`text-[9px] ${
             episode.status === 'complete' ? 'border-emerald-500/30 text-emerald-400' :
             episode.status === 'error' ? 'border-red-500/30 text-red-400' :
@@ -116,41 +155,85 @@ function EpisodeCard({ episode, isActive }: { episode: SeriesEpisode; isActive: 
           }`}>
             {style.label}
           </Badge>
-          {expanded ? <ChevronDown className="h-3 w-3 text-muted-foreground" /> : <ChevronRight className="h-3 w-3 text-muted-foreground" />}
         </div>
       </div>
-
-      {expanded && (
-        <div className="px-3 pb-3 border-t border-border/30 pt-2 space-y-2">
-          {episode.script_id ? (
-            <div className="text-xs text-muted-foreground">
-              Script ID: <span className="font-mono text-foreground">{episode.script_id.slice(0, 8)}…</span>
-            </div>
-          ) : (
-            <div className="text-xs text-muted-foreground italic">No script generated yet</div>
-          )}
-          {episode.status === 'error' && (
-            <p className="text-xs text-red-400">
-              Generation failed at {phase || 'unknown'} phase. You can retry by running generation again.
-            </p>
-          )}
-        </div>
-      )}
     </div>
+  );
+}
+
+function ScriptReaderDialog({
+  episode,
+  open,
+  onOpenChange,
+  fetchContent,
+}: {
+  episode: SeriesEpisode | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  fetchContent: (scriptId: string) => Promise<string>;
+}) {
+  const [content, setContent] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const loadContent = useCallback(async (scriptId: string) => {
+    setLoading(true);
+    try {
+      const text = await fetchContent(scriptId);
+      setContent(text);
+    } catch {
+      setContent('Failed to load script content.');
+    }
+    setLoading(false);
+  }, [fetchContent]);
+
+  // Load content when dialog opens
+  const handleOpenChange = (isOpen: boolean) => {
+    if (isOpen && episode?.script_id) {
+      loadContent(episode.script_id);
+    }
+    if (!isOpen) setContent('');
+    onOpenChange(isOpen);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent className="max-w-3xl max-h-[80vh] flex flex-col">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-base">
+            <BookOpen className="h-4 w-4 text-primary" />
+            {episode ? `EP ${String(episode.episode_number).padStart(2, '0')} — ${episode.title || `Episode ${episode.episode_number}`}` : 'Script'}
+          </DialogTitle>
+        </DialogHeader>
+        {loading ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : (
+          <ScrollArea className="flex-1 max-h-[60vh]">
+            <pre className="whitespace-pre-wrap text-xs leading-relaxed font-mono text-foreground p-4">
+              {content}
+            </pre>
+          </ScrollArea>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 
 export function SeriesWriterPanel({ projectId }: Props) {
   const {
     episodes, isLoading, progress, isGenerating,
-    createEpisodes, updateEpisode, generateAll,
+    createEpisodes, generateAll, generateOne, fetchScriptContent,
   } = useSeriesWriter(projectId);
 
   const [episodeCount, setEpisodeCount] = useState('10');
+  const [readerEpisode, setReaderEpisode] = useState<SeriesEpisode | null>(null);
+  const [readerOpen, setReaderOpen] = useState(false);
 
   const hasEpisodes = episodes.length > 0;
   const allComplete = hasEpisodes && episodes.every(e => e.status === 'complete');
   const completedCount = episodes.filter(e => e.status === 'complete').length;
+  const pendingCount = episodes.filter(e => e.status !== 'complete').length;
 
   if (isLoading) {
     return (
@@ -167,7 +250,7 @@ export function SeriesWriterPanel({ projectId }: Props) {
         <div className="flex items-center gap-2">
           <Layers className="h-4 w-4 text-primary" />
           <h3 className="text-sm font-semibold text-foreground">Series Writer</h3>
-          <InfoTooltip text="Generate full episodic scripts for your vertical drama series. Each episode gets its own Blueprint → Architecture → Draft → Score pipeline." />
+          <InfoTooltip text="Generate episodic scripts one at a time or all at once. Click 'Read' on any completed episode to view its script." />
         </div>
         {hasEpisodes && (
           <span className="text-xs text-muted-foreground">
@@ -176,13 +259,13 @@ export function SeriesWriterPanel({ projectId }: Props) {
         )}
       </div>
 
-      {/* Episode count selector — always visible */}
+      {/* Episode count selector */}
       <div className={`border ${hasEpisodes ? 'border-border/50' : 'border-dashed border-border/60'} rounded-lg p-4 space-y-3`}>
         {!hasEpisodes && (
           <div className="space-y-1 text-center">
             <p className="text-sm font-medium text-foreground">Configure Your Series</p>
             <p className="text-xs text-muted-foreground">
-              Choose the number of episodes. Each episode will be generated with its own script pipeline.
+              Choose the number of episodes. You can generate them one at a time or all at once.
             </p>
           </div>
         )}
@@ -230,15 +313,16 @@ export function SeriesWriterPanel({ projectId }: Props) {
       {/* Episode Grid */}
       {hasEpisodes && (
         <div className="space-y-3">
-          {/* Generate button */}
-          {!allComplete && !isGenerating && (
+          {/* Generate All button */}
+          {!allComplete && !isGenerating && pendingCount > 1 && (
             <Button
               onClick={generateAll}
               disabled={isGenerating}
+              variant="outline"
               className="w-full h-9 text-xs gap-1.5"
             >
               <Play className="h-3.5 w-3.5" />
-              Generate All Episodes ({episodes.filter(e => e.status !== 'complete').length} remaining)
+              Generate All Remaining ({pendingCount} episodes)
             </Button>
           )}
 
@@ -258,12 +342,23 @@ export function SeriesWriterPanel({ projectId }: Props) {
                   key={ep.id}
                   episode={ep}
                   isActive={isGenerating && progress.currentEpisode === ep.episode_number}
+                  isGenerating={isGenerating}
+                  onGenerate={() => generateOne(ep)}
+                  onRead={() => { setReaderEpisode(ep); setReaderOpen(true); }}
                 />
               ))}
             </div>
           </ScrollArea>
         </div>
       )}
+
+      {/* Script Reader Dialog */}
+      <ScriptReaderDialog
+        episode={readerEpisode}
+        open={readerOpen}
+        onOpenChange={setReaderOpen}
+        fetchContent={fetchScriptContent}
+      />
     </div>
   );
 }

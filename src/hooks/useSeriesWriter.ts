@@ -124,6 +124,48 @@ export function useSeriesWriter(projectId: string) {
     await supabase.from('series_episodes').update(updates).eq('id', episodeId);
   }
 
+  // Generate a single episode through the full pipeline
+  const generateOne = useCallback(async (episode: SeriesEpisode) => {
+    if (runningRef.current) {
+      toast.warning('Generation already in progress');
+      return;
+    }
+    runningRef.current = true;
+    setProgress({ currentEpisode: episode.episode_number, totalEpisodes: 1, phase: 'blueprint' });
+
+    try {
+      await updateEpisodeProgress(episode.id, 'blueprint', 'generating');
+      const bpResult = await callEngine('blueprint', projectId);
+      const scriptId = bpResult.scriptId;
+      if (!scriptId) throw new Error('Blueprint did not return scriptId');
+      await updateEpisodeProgress(episode.id, 'blueprint', 'generating', scriptId);
+
+      setProgress({ currentEpisode: episode.episode_number, totalEpisodes: 1, phase: 'architecture' });
+      await updateEpisodeProgress(episode.id, 'architecture', 'generating');
+      await callEngine('architecture', projectId, scriptId);
+
+      setProgress({ currentEpisode: episode.episode_number, totalEpisodes: 1, phase: 'draft' });
+      await updateEpisodeProgress(episode.id, 'draft', 'generating');
+      await callEngine('draft', projectId, scriptId);
+
+      setProgress({ currentEpisode: episode.episode_number, totalEpisodes: 1, phase: 'score' });
+      await updateEpisodeProgress(episode.id, 'score', 'generating');
+      await callEngine('score', projectId, scriptId);
+
+      await updateEpisodeProgress(episode.id, 'complete', 'complete');
+      toast.success(`Episode ${episode.episode_number} generated`);
+    } catch (err: any) {
+      console.error(`Episode ${episode.episode_number} generation failed:`, err);
+      await updateEpisodeProgress(episode.id, 'error', 'error');
+      setProgress({ currentEpisode: episode.episode_number, totalEpisodes: 1, phase: 'error', error: err.message });
+      toast.error(`Episode ${episode.episode_number} failed: ${err.message}`);
+    }
+
+    setProgress(prev => ({ ...prev, phase: 'complete' }));
+    invalidate();
+    runningRef.current = false;
+  }, [projectId]);
+
   // Generate all episodes sequentially
   const generateAll = useCallback(async () => {
     if (runningRef.current) {
@@ -132,7 +174,6 @@ export function useSeriesWriter(projectId: string) {
     }
     runningRef.current = true;
 
-    // Refresh episode list
     const { data: freshEpisodes, error: fetchErr } = await supabase
       .from('series_episodes')
       .select('*')
@@ -150,45 +191,36 @@ export function useSeriesWriter(projectId: string) {
 
     for (let i = 0; i < total; i++) {
       const ep = freshEpisodes[i] as SeriesEpisode;
-      if (ep.status === 'complete') continue; // Skip already done
+      if (ep.status === 'complete') continue;
 
       setProgress({ currentEpisode: ep.episode_number, totalEpisodes: total, phase: 'blueprint' });
 
       try {
-        // Phase 1: Blueprint — creates a scripts row and returns scriptId
         await updateEpisodeProgress(ep.id, 'blueprint', 'generating');
         const bpResult = await callEngine('blueprint', projectId);
         const scriptId = bpResult.scriptId;
         if (!scriptId) throw new Error('Blueprint did not return scriptId');
-
-        // Link script to episode
         await updateEpisodeProgress(ep.id, 'blueprint', 'generating', scriptId);
 
-        // Phase 2: Architecture
         setProgress({ currentEpisode: ep.episode_number, totalEpisodes: total, phase: 'architecture' });
         await updateEpisodeProgress(ep.id, 'architecture', 'generating');
         await callEngine('architecture', projectId, scriptId);
 
-        // Phase 3: Draft (single batch for vertical drama — short episodes)
         setProgress({ currentEpisode: ep.episode_number, totalEpisodes: total, phase: 'draft' });
         await updateEpisodeProgress(ep.id, 'draft', 'generating');
         await callEngine('draft', projectId, scriptId);
 
-        // Phase 4: Score
         setProgress({ currentEpisode: ep.episode_number, totalEpisodes: total, phase: 'score' });
         await updateEpisodeProgress(ep.id, 'score', 'generating');
         await callEngine('score', projectId, scriptId);
 
-        // Done
         await updateEpisodeProgress(ep.id, 'complete', 'complete');
         invalidate();
-
       } catch (err: any) {
         console.error(`Episode ${ep.episode_number} generation failed:`, err);
         await updateEpisodeProgress(ep.id, 'error', 'error');
         setProgress({ currentEpisode: ep.episode_number, totalEpisodes: total, phase: 'error', error: err.message });
         toast.error(`Episode ${ep.episode_number} failed: ${err.message}`);
-        // Continue to next episode rather than halting everything
       }
     }
 
@@ -197,6 +229,17 @@ export function useSeriesWriter(projectId: string) {
     invalidate();
     runningRef.current = false;
   }, [projectId]);
+
+  // Fetch script content for reading
+  const fetchScriptContent = useCallback(async (scriptId: string): Promise<string> => {
+    const { data, error } = await supabase
+      .from('scripts')
+      .select('text_content')
+      .eq('id', scriptId)
+      .single();
+    if (error) throw error;
+    return data?.text_content || 'No content available.';
+  }, []);
 
   const isGenerating = runningRef.current;
 
@@ -208,5 +251,7 @@ export function useSeriesWriter(projectId: string) {
     createEpisodes,
     updateEpisode,
     generateAll,
+    generateOne,
+    fetchScriptContent,
   };
 }
