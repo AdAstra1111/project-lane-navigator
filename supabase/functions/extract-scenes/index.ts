@@ -149,9 +149,13 @@ serve(async (req) => {
 - time_of_day: DAY, NIGHT, DAWN, DUSK, CONTINUOUS, etc.
 - description: a one-sentence summary of what happens in the scene
 - cast_members: array of character names who appear or speak in this scene
-- page_count: estimated page count for the scene (eighth of a page precision, e.g. 1.25, 0.375)
+- page_count: estimated page count for the scene using the standard rule of 250 words per page. Count the actual words in each scene's text (including action lines, dialogue, and parentheticals) and divide by 250. Round to nearest eighth (0.125). A typical feature film scene with 2 pages of dialogue and action = 2.0 pages. Do NOT underestimate — a scene with substantial dialogue between multiple characters is usually at least 1.5-3 pages. Short transitional scenes are typically 0.25-0.5 pages.
 
-Be thorough — include every scene, even short ones.`,
+IMPORTANT PAGE COUNT RULES:
+- A standard feature screenplay is 90-120 pages. If your total page count is below 50, you are severely underestimating.
+- Count ALL words in the scene text including action/description paragraphs, character names, dialogue, and parentheticals.
+- 250 words = 1 page. A scene with 500 words of text = 2 pages.
+- Be thorough — include every scene, even short ones.`,
     };
 
     let userMessage: any;
