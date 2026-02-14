@@ -97,7 +97,7 @@ export function useSeriesWriter(projectId: string) {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  // Call script-engine for a specific action
+  // Call script-engine for a specific action (with optional episode context)
   async function callEngine(action: string, pId: string, scriptId?: string, extra: Record<string, any> = {}) {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) throw new Error('Not authenticated');
@@ -134,23 +134,31 @@ export function useSeriesWriter(projectId: string) {
     setProgress({ currentEpisode: episode.episode_number, totalEpisodes: 1, phase: 'blueprint' });
 
     try {
+      const episodeContext = {
+        episodeNumber: episode.episode_number,
+        episodeTitle: episode.title,
+        episodeLogline: episode.logline,
+        totalEpisodes: 1,
+        seriesMode: true,
+      };
+
       await updateEpisodeProgress(episode.id, 'blueprint', 'generating');
-      const bpResult = await callEngine('blueprint', projectId, undefined, { forceNew: true });
+      const bpResult = await callEngine('blueprint', projectId, undefined, { forceNew: true, ...episodeContext });
       const scriptId = bpResult.scriptId;
       if (!scriptId) throw new Error('Blueprint did not return scriptId');
       await updateEpisodeProgress(episode.id, 'blueprint', 'generating', scriptId);
 
       setProgress({ currentEpisode: episode.episode_number, totalEpisodes: 1, phase: 'architecture' });
       await updateEpisodeProgress(episode.id, 'architecture', 'generating');
-      await callEngine('architecture', projectId, scriptId);
+      await callEngine('architecture', projectId, scriptId, episodeContext);
 
       setProgress({ currentEpisode: episode.episode_number, totalEpisodes: 1, phase: 'draft' });
       await updateEpisodeProgress(episode.id, 'draft', 'generating');
-      await callEngine('draft', projectId, scriptId);
+      await callEngine('draft', projectId, scriptId, episodeContext);
 
       setProgress({ currentEpisode: episode.episode_number, totalEpisodes: 1, phase: 'score' });
       await updateEpisodeProgress(episode.id, 'score', 'generating');
-      await callEngine('score', projectId, scriptId);
+      await callEngine('score', projectId, scriptId, episodeContext);
 
       await updateEpisodeProgress(episode.id, 'complete', 'complete');
       toast.success(`Episode ${episode.episode_number} generated`);
@@ -193,26 +201,34 @@ export function useSeriesWriter(projectId: string) {
       const ep = freshEpisodes[i] as SeriesEpisode;
       if (ep.status === 'complete') continue;
 
+      const episodeContext = {
+        episodeNumber: ep.episode_number,
+        episodeTitle: ep.title,
+        episodeLogline: ep.logline,
+        totalEpisodes: total,
+        seriesMode: true,
+      };
+
       setProgress({ currentEpisode: ep.episode_number, totalEpisodes: total, phase: 'blueprint' });
 
       try {
         await updateEpisodeProgress(ep.id, 'blueprint', 'generating');
-        const bpResult = await callEngine('blueprint', projectId, undefined, { forceNew: true });
+        const bpResult = await callEngine('blueprint', projectId, undefined, { forceNew: true, ...episodeContext });
         const scriptId = bpResult.scriptId;
         if (!scriptId) throw new Error('Blueprint did not return scriptId');
         await updateEpisodeProgress(ep.id, 'blueprint', 'generating', scriptId);
 
         setProgress({ currentEpisode: ep.episode_number, totalEpisodes: total, phase: 'architecture' });
         await updateEpisodeProgress(ep.id, 'architecture', 'generating');
-        await callEngine('architecture', projectId, scriptId);
+        await callEngine('architecture', projectId, scriptId, episodeContext);
 
         setProgress({ currentEpisode: ep.episode_number, totalEpisodes: total, phase: 'draft' });
         await updateEpisodeProgress(ep.id, 'draft', 'generating');
-        await callEngine('draft', projectId, scriptId);
+        await callEngine('draft', projectId, scriptId, episodeContext);
 
         setProgress({ currentEpisode: ep.episode_number, totalEpisodes: total, phase: 'score' });
         await updateEpisodeProgress(ep.id, 'score', 'generating');
-        await callEngine('score', projectId, scriptId);
+        await callEngine('score', projectId, scriptId, episodeContext);
 
         await updateEpisodeProgress(ep.id, 'complete', 'complete');
         invalidate();

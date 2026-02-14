@@ -585,7 +585,7 @@ serve(async (req) => {
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
 
     const body = await req.json();
-    const { action, projectId, scriptId, forceNew } = body;
+    const { action, projectId, scriptId, forceNew, seriesMode, episodeNumber, episodeTitle, episodeLogline, totalEpisodes } = body;
     if (!projectId) throw new Error("projectId required");
 
     // Verify project access
@@ -652,7 +652,24 @@ serve(async (req) => {
         project.format === "short-film" ? "Short Film" : "Narrative Feature";
 
       const blueprintCalibration = await getCorpusCalibration(supabase, project.format, (project.genres || [])[0]);
-      const prompt = getBlueprintPrompt(productionType, project, conceptDocs || [], blueprintCalibration);
+
+      // For series mode (vertical drama episodes), generate a single-episode blueprint
+      let prompt: string;
+      if (seriesMode && episodeNumber) {
+        const epContext = `
+SERIES EPISODE CONTEXT:
+This is Episode ${episodeNumber}${totalEpisodes ? ` of ${totalEpisodes}` : ''}.
+Episode Title: ${episodeTitle || `Episode ${episodeNumber}`}
+Episode Logline: ${episodeLogline || 'Not specified'}
+
+CRITICAL: Generate a blueprint for THIS SINGLE EPISODE ONLY (2-5 minutes runtime, 3-8 scenes max).
+Do NOT generate the entire series. Focus only on Episode ${episodeNumber}.
+The episode should be self-contained but fit within the larger series arc.
+`;
+        prompt = getBlueprintPrompt(productionType, project, conceptDocs || [], blueprintCalibration) + epContext;
+      } else {
+        prompt = getBlueprintPrompt(productionType, project, conceptDocs || [], blueprintCalibration);
+      }
       const blueprint = await callAI(prompt);
 
       // Create or update script record
@@ -718,7 +735,13 @@ serve(async (req) => {
       const productionType = project.format;
       const genres = project.genres || [];
       const calibration = await getCorpusCalibration(supabase, productionType, genres[0]);
-      const prompt = getArchitecturePrompt(productionType, blueprint, project, calibration);
+      
+      let prompt = getArchitecturePrompt(productionType, blueprint, project, calibration);
+      if (seriesMode && episodeNumber) {
+        prompt += `\n\nCRITICAL: This is for a SINGLE EPISODE (Episode ${episodeNumber}) of a vertical drama series.
+Generate ONLY 3-8 scenes for this one short episode (2-5 minutes runtime).
+Do NOT generate architecture for the entire series. Keep it focused and compact.`;
+      }
       const architecture = await callAI(prompt);
 
       // Clear existing scenes and insert new
@@ -836,7 +859,8 @@ serve(async (req) => {
 
       console.log(`[draft] baseline_source=${baselineSource} confidence=${baselineConfidence} n=${baselineSampleSize} minPages=${corpusMinPages}`);
 
-      const belowMinimum = metrics.pageCountEst < corpusMinPages;
+      // For series mode (individual episodes), skip minimum page check — episodes are short
+      const belowMinimum = seriesMode ? false : metrics.pageCountEst < corpusMinPages;
       const isComplete = allScenesComplete && !belowMinimum;
 
       if (belowMinimum && allScenesComplete) {
@@ -846,7 +870,7 @@ serve(async (req) => {
       const newDraftNum = isComplete ? currentDraft + 1 : currentDraft;
       const newStatus = isComplete ? `DRAFT_${newDraftNum}` : "DRAFTING";
 
-      // Always update scripts with latest batch info + metrics
+      // Always update scripts with latest batch info + metrics + text_content for reading
       await supabase.from("scripts").update({
         status: newStatus,
         draft_number: newDraftNum,
@@ -857,6 +881,7 @@ serve(async (req) => {
         latest_runtime_min_est: metrics.runtimeMinEst,
         latest_runtime_min_low: metrics.runtimeMinLow,
         latest_runtime_min_high: metrics.runtimeMinHigh,
+        text_content: draftTextStr,
       }).eq("id", scriptId);
 
       // Always create script_versions row per batch with metrics
