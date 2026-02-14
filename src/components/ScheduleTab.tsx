@@ -3,11 +3,15 @@ import { motion } from 'framer-motion';
 import {
   CalendarDays, MapPin, Clock, Users, Loader2, Plus, Trash2, X, Check,
   Sun, Moon, Sunrise, Sunset, RefreshCw, FileDown, ChevronDown, ChevronRight,
+  Wand2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
 import {
   useProjectScenes,
   useShootDays,
@@ -136,13 +140,16 @@ function SceneListPanel({ scenes, isLoading, onExtract, extracting }: {
 }
 
 // ---- Shoot Day Scheduler ----
-function ShootDayScheduler({ projectId, scenes }: { projectId: string; scenes: ProjectScene[] }) {
+function ShootDayScheduler({ projectId, scenes, format, genres, budgetRange }: { projectId: string; scenes: ProjectScene[]; format?: string; genres?: string[]; budgetRange?: string }) {
   const { shootDays, addShootDay, deleteShootDay } = useShootDays(projectId);
   const { schedule, assignScene, unassignScene } = useSceneSchedule(projectId);
   const [addingDay, setAddingDay] = useState(false);
   const [dayForm, setDayForm] = useState({ shoot_date: '', unit: 'Main Unit' });
   const [assigningFor, setAssigningFor] = useState<string | null>(null);
   const [selectedScene, setSelectedScene] = useState('');
+  const [autoScheduling, setAutoScheduling] = useState(false);
+  const [autoProgress, setAutoProgress] = useState(0);
+  const [autoLabel, setAutoLabel] = useState('');
 
   const scheduledSceneIds = new Set(schedule.map(s => s.scene_id));
   const unscheduledScenes = scenes.filter(s => !scheduledSceneIds.has(s.id));
@@ -170,6 +177,53 @@ function ShootDayScheduler({ projectId, scenes }: { projectId: string; scenes: P
     setAssigningFor(null);
   };
 
+  const handleAutoSchedule = async () => {
+    if (scenes.length === 0) {
+      toast.error('Extract scenes from script first');
+      return;
+    }
+    setAutoScheduling(true);
+    setAutoProgress(0);
+    setAutoLabel('Analysing scenes…');
+
+    const progressInterval = setInterval(() => {
+      setAutoProgress(prev => {
+        const next = prev + Math.random() * 4 + 1;
+        if (next > 95) return 95;
+        if (next > 70) setAutoLabel('Assigning scenes to days…');
+        else if (next > 40) setAutoLabel('Optimising location groups…');
+        else if (next > 15) setAutoLabel('Building shoot day structure…');
+        return next;
+      });
+    }, 500);
+
+    try {
+      const { data, error } = await supabase.functions.invoke('auto-schedule', {
+        body: { projectId, format, genres, budgetRange },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+
+      setAutoProgress(100);
+      setAutoLabel('Done!');
+      toast.success(`Created ${data.total_days} shoot days with ${data.total_scheduled} scene assignments`);
+      if (data.warnings?.length) {
+        data.warnings.forEach((w: string) => toast.warning(w, { duration: 6000 }));
+      }
+      // Reload to refresh all queries
+      setTimeout(() => window.location.reload(), 800);
+    } catch (err: any) {
+      toast.error(err.message || 'Auto-scheduling failed');
+    } finally {
+      clearInterval(progressInterval);
+      setTimeout(() => {
+        setAutoScheduling(false);
+        setAutoProgress(0);
+        setAutoLabel('');
+      }, 1200);
+    }
+  };
+
   const getScenesForDay = (dayId: string) => {
     const entries = schedule.filter(s => s.shoot_day_id === dayId).sort((a, b) => a.sort_order - b.sort_order);
     return entries.map(entry => ({
@@ -190,14 +244,38 @@ function ShootDayScheduler({ projectId, scenes }: { projectId: string; scenes: P
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <h4 className="text-sm font-semibold text-foreground">Shoot Days</h4>
-        {unscheduledScenes.length > 0 && (
-          <span className="text-[10px] text-amber-400">{unscheduledScenes.length} unscheduled</span>
-        )}
+        <div className="flex items-center gap-2">
+          {unscheduledScenes.length > 0 && (
+            <span className="text-[10px] text-amber-400">{unscheduledScenes.length} unscheduled</span>
+          )}
+          {scenes.length > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleAutoSchedule}
+              disabled={autoScheduling}
+              className="text-xs gap-1.5"
+            >
+              {autoScheduling ? (
+                <><Loader2 className="h-3 w-3 animate-spin" /> Scheduling…</>
+              ) : (
+                <><Wand2 className="h-3 w-3" /> Auto-Schedule</>
+              )}
+            </Button>
+          )}
+        </div>
       </div>
 
-      {shootDays.length === 0 && !addingDay && (
+      {autoScheduling && (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-1.5">
+          <Progress value={autoProgress} className="h-2" />
+          <p className="text-[11px] text-muted-foreground text-center">{autoLabel}</p>
+        </motion.div>
+      )}
+
+      {shootDays.length === 0 && !addingDay && !autoScheduling && (
         <p className="text-xs text-muted-foreground text-center py-2">
-          Add shoot days then assign scenes to build your schedule.
+          Add shoot days manually or use Auto-Schedule to generate from your scenes.
         </p>
       )}
 
@@ -425,9 +503,12 @@ function CallSheetView({ projectId, scenes }: { projectId: string; scenes: Proje
 // ---- Main Schedule Tab ----
 interface Props {
   projectId: string;
+  format?: string;
+  genres?: string[];
+  budgetRange?: string;
 }
 
-export function ScheduleTab({ projectId }: Props) {
+export function ScheduleTab({ projectId, format, genres, budgetRange }: Props) {
   const { scenes, isLoading, extractScenes } = useProjectScenes(projectId);
   const [view, setView] = useState<'scenes' | 'schedule' | 'callsheet'>('scenes');
 
@@ -461,7 +542,7 @@ export function ScheduleTab({ projectId }: Props) {
           extracting={extractScenes.isPending}
         />
       )}
-      {view === 'schedule' && <ShootDayScheduler projectId={projectId} scenes={scenes} />}
+      {view === 'schedule' && <ShootDayScheduler projectId={projectId} scenes={scenes} format={format} genres={genres} budgetRange={budgetRange} />}
       {view === 'callsheet' && <CallSheetView projectId={projectId} scenes={scenes} />}
     </div>
   );
