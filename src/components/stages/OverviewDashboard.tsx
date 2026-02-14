@@ -267,10 +267,10 @@ export function OverviewDashboard({
       {isAdvanced && <DecisionJournal projectId={projectId} />}
 
       {/* Team & Activity */}
-      <div className="space-y-4">
+      <div className="space-y-3">
         <div className="flex items-center gap-2">
           <UsersRound className="h-4 w-4 text-primary" />
-          <h3 className="font-display font-semibold text-foreground">Team & Activity</h3>
+          <h3 className="font-display font-semibold text-foreground text-sm">Team & Activity</h3>
         </div>
         <ProjectCollaboratorsPanel projectId={projectId} isOwner={project.user_id === currentUserId} />
         <ProjectCommentsThread projectId={projectId} currentUserId={currentUserId} />

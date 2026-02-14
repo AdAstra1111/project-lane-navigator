@@ -27,11 +27,11 @@ export function ProjectSummaryBar({ project, readiness, onBestAction }: Props) {
     <div className="sticky top-0 z-30 bg-background/80 backdrop-blur-lg border-b border-border/40 -mx-4 px-4 py-3 mb-4">
       <div className="flex items-center gap-3 flex-wrap">
         {/* Title + Format */}
-        <div className="flex items-center gap-2 min-w-0 flex-1">
+        <div className="flex items-center gap-2 min-w-0 shrink">
           {formatMeta && (
             <formatMeta.icon className={`h-4 w-4 shrink-0 ${formatMeta.color}`} />
           )}
-          <h2 className="font-display font-bold text-foreground text-lg truncate">
+          <h2 className="font-display font-bold text-foreground text-lg leading-tight line-clamp-2">
             {project.title}
           </h2>
         </div>
