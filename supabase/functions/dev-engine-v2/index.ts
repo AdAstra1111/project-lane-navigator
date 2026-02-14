@@ -116,26 +116,21 @@ Return ONLY valid JSON:
   "commercial_improvements": "what commercial improvements were introduced"
 }`;
 
-const REWRITE_CHUNK_SYSTEM = `You are rewriting a feature-length screenplay for professional production quality.
+const REWRITE_CHUNK_SYSTEM = `You are rewriting a feature-length screenplay for professional quality.
 
 GOALS:
-- Improve clarity, precision, pacing, and dramatic impact.
-- Tighten dialogue.
-- Remove redundant phrasing.
-- Strengthen action lines.
-- Maintain professional screenplay formatting.
+- Tight, well-written prose and dialogue.
+- Stronger clarity, pacing, and dramatic impact.
+- Preserve professional screenplay formatting.
 - Preserve all PROTECT items absolutely.
 - Maintain perfect continuity with the previous chunk context provided.
 
-CRITICAL RULES:
-- Do NOT summarize scenes.
-- Do NOT merge scenes.
-- Do NOT remove story beats.
-- Preserve all scene headings (sluglines).
-- Preserve story structure and sequence.
-- The rewritten script must remain feature-length.
-- You may tighten writing within scenes, but the full screenplay must still feel like a complete theatrical feature — not a condensed version.
-- If your rewrite significantly reduces story scope, you are compressing. Do not compress.
+CRITICAL:
+- Do NOT summarize the story.
+- Do NOT collapse multiple beats into one line.
+- Do NOT turn scenes into summaries.
+- Maintain full feature-length pacing and dramatic beats.
+- You may tighten within moments, but do not reduce the film's overall scope or runtime.
 
 Output ONLY the rewritten screenplay text. No JSON, no commentary, no markdown.`;
 
@@ -535,32 +530,37 @@ MATERIAL TO REWRITE:\n${fullText}`;
       const { projectId, documentId, versionId, planRunId, assembledText } = body;
       if (!projectId || !documentId || !versionId || !assembledText) throw new Error("projectId, documentId, versionId, assembledText required");
 
-      // ── Global Length Guard ──
-      const { data: sourceVersion } = await supabase.from("project_document_versions")
-        .select("plaintext").eq("id", versionId).single();
-      if (sourceVersion?.plaintext) {
-        const originalLen = sourceVersion.plaintext.length;
-        const newLen = assembledText.length;
-        const minAllowed = Math.floor(originalLen * 0.85);
-        const maxAllowed = Math.floor(originalLen * 1.15);
-        if (newLen < minAllowed) {
-          throw new Error(`Rewrite too compressed (${newLen} vs ${originalLen} chars). Must remain at least 85% of original length.`);
-        }
-        if (newLen > maxAllowed) {
-          throw new Error(`Rewrite excessively expanded (${newLen} vs ${originalLen} chars). Must remain within 115% of original length.`);
-        }
+      // ── Runtime-Based Validation ──
+      function estimateRuntimeMinutes(text: string) {
+        const words = (text || "").trim().split(/\s+/).filter(Boolean).length;
+        const minutes = words / 220;
+        return { words, minutes };
       }
 
-      // ── Scene Count Validation ──
-      function extractScenes(text: string) {
-        return text.match(/^(INT\.|EXT\.|INT\/EXT\.|I\/E\.).+$/gm) || [];
+      // Fetch project runtime settings
+      const { data: projectRow } = await supabase.from("projects")
+        .select("target_runtime_minutes, runtime_tolerance_pct")
+        .eq("id", projectId).single();
+
+      const targetRuntime = projectRow?.target_runtime_minutes ?? 90;
+      const tol = Number(projectRow?.runtime_tolerance_pct ?? 0.10);
+      const { words: newWords, minutes: newMins } = estimateRuntimeMinutes(assembledText);
+      const minMins = targetRuntime * (1 - tol);
+      const maxMins = targetRuntime * (1 + tol);
+
+      if (newMins < minMins) {
+        throw new Error(
+          `Rewrite too short: ~${Math.round(newMins)} mins (words=${newWords}). ` +
+          `Target is ${targetRuntime} mins (min ${Math.round(minMins)}). ` +
+          `The rewrite likely compressed beats. Retry with 'no summarization; preserve full pacing'.`
+        );
       }
-      if (sourceVersion?.plaintext) {
-        const originalScenes = extractScenes(sourceVersion.plaintext);
-        const newScenes = extractScenes(assembledText);
-        if (originalScenes.length > 0 && newScenes.length < originalScenes.length * 0.95) {
-          throw new Error(`Scene loss detected: rewrite has ${newScenes.length} scenes vs original ${originalScenes.length}. Scenes must not drop below 95% of original count.`);
-        }
+      if (newMins > maxMins) {
+        throw new Error(
+          `Rewrite too long: ~${Math.round(newMins)} mins (words=${newWords}). ` +
+          `Target is ${targetRuntime} mins (max ${Math.round(maxMins)}). ` +
+          `Tighten pacing and remove redundancy, but do not cut beats.`
+        );
       }
 
       const { data: maxRow } = await supabase.from("project_document_versions")

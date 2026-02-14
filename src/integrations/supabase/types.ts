@@ -6462,10 +6462,12 @@ export type Database = {
           primary_territory: string
           reasoning: string | null
           recommendations: Json | null
+          runtime_tolerance_pct: number
           script_coverage_verdict: string
           secondary_territories: string[]
           source_pitch_idea_id: string | null
           target_audience: string
+          target_runtime_minutes: number
           title: string
           tone: string
           ui_mode_override: string | null
@@ -6496,10 +6498,12 @@ export type Database = {
           primary_territory?: string
           reasoning?: string | null
           recommendations?: Json | null
+          runtime_tolerance_pct?: number
           script_coverage_verdict?: string
           secondary_territories?: string[]
           source_pitch_idea_id?: string | null
           target_audience?: string
+          target_runtime_minutes?: number
           title: string
           tone?: string
           ui_mode_override?: string | null
@@ -6530,10 +6534,12 @@ export type Database = {
           primary_territory?: string
           reasoning?: string | null
           recommendations?: Json | null
+          runtime_tolerance_pct?: number
           script_coverage_verdict?: string
           secondary_territories?: string[]
           source_pitch_idea_id?: string | null
           target_audience?: string
+          target_runtime_minutes?: number
           title?: string
           tone?: string
           ui_mode_override?: string | null
