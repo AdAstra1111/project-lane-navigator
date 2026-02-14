@@ -117,7 +117,7 @@ export function FeatureLengthGuardrails({ projectId, versionText, selectedDocId,
               </Badge>
             </div>
           </div>
-          <p className="text-[9px] text-muted-foreground">{words.toLocaleString()} words · {mode} mode ({mode === 'dialogue_heavy' ? '200' : mode === 'lean' || mode === 'action_heavy' ? '240' : '220'} wpm)</p>
+          <p className="text-[9px] text-muted-foreground">{words.toLocaleString()} words · ~{Math.round(words / 250)} pages · {mode} mode ({mode === 'dialogue_heavy' ? '200' : mode === 'lean' || mode === 'action_heavy' ? '240' : '220'} wpm)</p>
 
           {/* Settings */}
           <div className="grid grid-cols-2 gap-2">
