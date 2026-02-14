@@ -147,14 +147,22 @@ Return ONLY valid JSON matching this EXACT schema:
     "gap": number,
     "allowed_gap": number
   },
-  "blocking_issues": ["only items preventing convergence — max 5"],
-  "actionable_notes": [
-    {"category": "structural|character|escalation|lane|packaging|risk|pacing|hook|cliffhanger", "note": "...", "impact": "high|medium|low", "convergence_lift": 1-10}
+  "blocking_issues": [
+    {"id": "unique_stable_key", "category": "structural|character|escalation|lane|packaging|risk|pacing|hook|cliffhanger", "description": "...", "why_it_matters": "...", "severity": "blocker"}
+  ],
+  "high_impact_notes": [
+    {"id": "unique_stable_key", "category": "structural|character|escalation|lane|packaging|risk|pacing|hook|cliffhanger", "description": "...", "why_it_matters": "...", "severity": "high"}
+  ],
+  "polish_notes": [
+    {"id": "unique_stable_key", "category": "structural|character|escalation|lane|packaging|risk|pacing|hook|cliffhanger", "description": "...", "why_it_matters": "...", "severity": "polish"}
   ],
   "rewrite_plan": ["what will change in next rewrite — max 5 items"],
   "convergence": {
     "status": "not_started" | "in_progress" | "converged",
     "reasons": ["why this status"],
+    "blockers_remaining": number,
+    "high_impact_remaining": number,
+    "polish_remaining": number,
     "next_best_document": "MUST be one of: idea, concept_brief, market_sheet, blueprint, architecture, character_bible, beat_sheet, script, production_draft, deck, documentary_outline"
   },
   "protect": ["non-negotiable creative strengths, 1-10 items"],
@@ -173,7 +181,16 @@ Return ONLY valid JSON matching this EXACT schema:
     "audience": "target audience",
     "genre": "primary genre"
   }
-}`;
+}
+
+RULES FOR NOTE GENERATION:
+- Each note id MUST be a stable, descriptive key (e.g. "weak_act2_midpoint", "flat_protagonist_arc"). Use consistent keys across runs.
+- blocking_issues: ONLY items that fundamentally prevent the document from working. Max 5. These gate convergence.
+- high_impact_notes: Significant improvements but do NOT block convergence. Max 8.
+- polish_notes: Optional refinements. NEVER block convergence. Max 5.
+- Once blockers reach zero, do NOT invent new blockers unless drift or regression is detected.
+- If high_impact_notes <= 3 AND polish_notes <= 5 AND blockers == 0, set convergence.status to "converged".
+- CONVERGENCE RULE: convergence.status = "converged" if and only if blocking_issues is empty.`;
 }
 
 function buildRewriteSystem(deliverable: string, format: string, behavior: string): string {
@@ -616,6 +633,35 @@ ${version.plaintext.slice(0, 25000)}`;
         }
       }
 
+      // Blocker-based convergence override: blockers gate convergence, not high/polish
+      const blockerCount = (parsed.blocking_issues || []).length;
+      const highCount = (parsed.high_impact_notes || []).length;
+      const polishCount = (parsed.polish_notes || []).length;
+      if (parsed.convergence) {
+        parsed.convergence.blockers_remaining = blockerCount;
+        parsed.convergence.high_impact_remaining = highCount;
+        parsed.convergence.polish_remaining = polishCount;
+        // Override AI convergence: only blockers prevent convergence
+        if (blockerCount > 0 && parsed.convergence.status === "converged") {
+          parsed.convergence.status = "in_progress";
+          parsed.convergence.reasons = [...(parsed.convergence.reasons || []), "Blocking issues remain"];
+        }
+        if (blockerCount === 0 && parsed.convergence.status !== "converged") {
+          // Check score thresholds still apply
+          const ciOk = (parsed.ci_score || 0) >= 60;
+          const gpOk = (parsed.gp_score || 0) >= 60;
+          if (ciOk && gpOk) {
+            parsed.convergence.status = "converged";
+            if (!parsed.convergence.reasons) parsed.convergence.reasons = [];
+            parsed.convergence.reasons.push("All blockers resolved");
+          }
+        }
+      }
+
+      // Stability status
+      parsed.stability_status = blockerCount === 0 && highCount <= 3 && polishCount <= 5
+        ? "structurally_stable" : blockerCount === 0 ? "refinement_phase" : "in_progress";
+
       const { data: run, error: runErr } = await supabase.from("development_runs").insert({
         project_id: projectId,
         document_id: documentId,
@@ -703,7 +749,7 @@ ${version.plaintext.slice(0, 25000)}`;
     }
 
     // ══════════════════════════════════════════════
-    // NOTES — now returns actionable_notes in standardized format
+    // NOTES — tiered structured notes with tracking
     // ══════════════════════════════════════════════
     if (action === "notes") {
       const { projectId, documentId, versionId, analysisJson } = body;
@@ -722,26 +768,127 @@ ${version.plaintext.slice(0, 25000)}`;
       }
       if (!analysis) throw new Error("No analysis found. Run Analyze first.");
 
-      const notesSystem = `You are IFFY. Convert review findings into ranked strategic notes.
+      // Check previous note keys to prevent endless repetition
+      const { data: prevNotes } = await supabase.from("development_notes")
+        .select("note_key, severity, resolved")
+        .eq("document_id", documentId);
+      const previouslyResolved = new Set((prevNotes || []).filter(n => n.resolved).map(n => n.note_key));
+      const existingUnresolved = (prevNotes || []).filter(n => !n.resolved);
+      const previousBlockerCount = existingUnresolved.filter(n => n.severity === 'blocker').length;
+
+      let antiRepeatRule = "";
+      if (previouslyResolved.size > 0) {
+        antiRepeatRule = `\nPREVIOUSLY RESOLVED NOTE KEYS (do NOT re-raise as blockers unless regression detected): ${[...previouslyResolved].join(", ")}`;
+      }
+      if (previousBlockerCount === 0 && existingUnresolved.length > 0) {
+        antiRepeatRule += `\nPREVIOUS ROUND HAD ZERO BLOCKERS. Do NOT invent new blockers unless drift/regression occurred. Only generate high/polish notes.`;
+      }
+
+      const notesSystem = `You are IFFY. Generate structured development notes in three tiers.
 Return ONLY valid JSON:
 {
   "protect": ["non-negotiable items to preserve"],
-  "actionable_notes": [
-    {"category": "structural|character|escalation|lane|packaging|risk|pacing|hook|cliffhanger", "note": "...", "impact": "high|medium|low", "convergence_lift": 1-10}
+  "blocking_issues": [
+    {"id": "stable_key", "category": "structural|character|escalation|lane|packaging|risk|pacing|hook|cliffhanger", "description": "...", "why_it_matters": "...", "severity": "blocker"}
   ],
-  "rewrite_plan": ["what will change in next rewrite — max 5 items"],
-  "blocking_issues": ["only items preventing convergence"]
+  "high_impact_notes": [
+    {"id": "stable_key", "category": "...", "description": "...", "why_it_matters": "...", "severity": "high"}
+  ],
+  "polish_notes": [
+    {"id": "stable_key", "category": "...", "description": "...", "why_it_matters": "...", "severity": "polish"}
+  ],
+  "rewrite_plan": ["what will change in next rewrite — max 5 items"]
 }
-Rank actionable_notes by highest convergence impact. Include 6-20 notes.`;
+
+RULES:
+- Each id must be a stable, descriptive snake_case key (e.g. "weak_act2_midpoint").
+- blocking_issues: ONLY items fundamentally preventing the document from working. Max 5.
+- high_impact_notes: Significant but non-blocking improvements. Max 8.
+- polish_notes: Optional refinements. Max 5.
+- Sort within each tier by structural importance.
+- Do NOT re-raise previously resolved issues as blockers.${antiRepeatRule}`;
 
       const userPrompt = `ANALYSIS:\n${JSON.stringify(analysis)}\n\nMATERIAL:\n${version.plaintext.slice(0, 12000)}`;
       const raw = await callAI(LOVABLE_API_KEY, PRO_MODEL, notesSystem, userPrompt, 0.25, 6000);
       const parsed = await parseAIJson(LOVABLE_API_KEY, raw);
 
-      // Backward compat: map actionable_notes to prioritized_moves
-      if (parsed.actionable_notes && !parsed.prioritized_moves) {
-        parsed.prioritized_moves = parsed.actionable_notes;
+      // Backward compat: build actionable_notes from tiered notes
+      const allTieredNotes = [
+        ...(parsed.blocking_issues || []).map((n: any) => ({ ...n, impact: "high", convergence_lift: 10, severity: "blocker" })),
+        ...(parsed.high_impact_notes || []).map((n: any) => ({ ...n, impact: "high", convergence_lift: 5, severity: "high" })),
+        ...(parsed.polish_notes || []).map((n: any) => ({ ...n, impact: "low", convergence_lift: 1, severity: "polish" })),
+      ];
+      parsed.actionable_notes = allTieredNotes.map(n => ({
+        category: n.category,
+        note: n.description,
+        impact: n.impact,
+        convergence_lift: n.convergence_lift,
+        severity: n.severity,
+        id: n.id,
+        why_it_matters: n.why_it_matters,
+      }));
+      parsed.prioritized_moves = parsed.actionable_notes;
+
+      // Track notes in development_notes table
+      const currentNoteKeys = new Set(allTieredNotes.map((n: any) => n.id).filter(Boolean));
+
+      // Mark previously unresolved notes that are no longer present as resolved
+      for (const prev of existingUnresolved) {
+        if (!currentNoteKeys.has(prev.note_key)) {
+          await supabase.from("development_notes")
+            .update({ resolved: true, resolved_in_version: versionId })
+            .eq("note_key", prev.note_key)
+            .eq("document_id", documentId)
+            .eq("resolved", false);
+        }
       }
+
+      // Check for regressions (previously resolved notes that reappear)
+      for (const note of allTieredNotes) {
+        if (note.id && previouslyResolved.has(note.id)) {
+          // Regressed — mark old resolved entry
+          await supabase.from("development_notes")
+            .update({ regressed: true })
+            .eq("note_key", note.id)
+            .eq("document_id", documentId)
+            .eq("resolved", true);
+        }
+      }
+
+      // Insert new note records
+      const noteInserts = allTieredNotes
+        .filter((n: any) => n.id)
+        .map((n: any) => ({
+          project_id: projectId,
+          document_id: documentId,
+          document_version_id: versionId,
+          note_key: n.id,
+          category: n.category,
+          severity: n.severity,
+          description: n.description,
+          why_it_matters: n.why_it_matters,
+        }));
+      if (noteInserts.length > 0) {
+        await supabase.from("development_notes").insert(noteInserts);
+      }
+
+      // Compute resolution summary
+      const resolvedCount = existingUnresolved.filter(n => !currentNoteKeys.has(n.note_key)).length;
+      const regressedCount = allTieredNotes.filter((n: any) => n.id && previouslyResolved.has(n.id)).length;
+      parsed.resolution_summary = {
+        resolved: resolvedCount,
+        regressed: regressedCount,
+        blockers_remaining: (parsed.blocking_issues || []).length,
+        high_impact_remaining: (parsed.high_impact_notes || []).length,
+        polish_remaining: (parsed.polish_notes || []).length,
+      };
+
+      // Stability status
+      const blockerCount = (parsed.blocking_issues || []).length;
+      const highCount = (parsed.high_impact_notes || []).length;
+      const polishCount = (parsed.polish_notes || []).length;
+      parsed.stability_status = blockerCount === 0 && highCount <= 3 && polishCount <= 5
+        ? "structurally_stable" : blockerCount === 0 ? "refinement_phase" : "in_progress";
 
       const { data: run, error: runErr } = await supabase.from("development_runs").insert({
         project_id: projectId,
