@@ -432,6 +432,7 @@ const formatToProductionType: Record<string, string> = {
 const docTypeMap: Record<string, string> = {
   IDEA: "idea",
   CONCEPT_BRIEF: "concept_brief",
+  "CONCEPT BRIEF": "concept_brief",
   MARKET_SHEET: "market_sheet",
   BLUEPRINT: "blueprint",
   ARCHITECTURE: "architecture",
@@ -1035,6 +1036,7 @@ MATERIAL:\n${version.plaintext.slice(0, 20000)}`;
         .select("drift_snapshot").eq("id", versionId).single();
       const upstreamCore = (upstreamVersion?.drift_snapshot as any)?.extracted_core || {};
 
+      const resolvedDeliverable = docTypeMap[targetOutput] || docTypeMap[(targetOutput || "").toUpperCase()] || "script";
       const { data: newVersion } = await supabase.from("project_document_versions").insert({
         document_id: newDoc.id,
         version_number: 1,
@@ -1042,6 +1044,7 @@ MATERIAL:\n${version.plaintext.slice(0, 20000)}`;
         plaintext: parsed.converted_text || "",
         created_by: user.id,
         change_summary: parsed.change_summary || "",
+        deliverable_type: resolvedDeliverable,
         inherited_core: upstreamCore,
         source_document_ids: [documentId],
       }).select().single();
