@@ -697,8 +697,21 @@ MATERIAL:\n${version.plaintext.slice(0, 20000)}`;
       }
 
       const docTypeMap: Record<string, string> = {
-        BLUEPRINT: "blueprint", ARCHITECTURE: "architecture", TREATMENT: "treatment",
-        ONE_PAGER: "one_pager", OUTLINE: "outline", DRAFT_SCRIPT: "script",
+        IDEA: "idea",
+        CONCEPT_BRIEF: "concept_brief",
+        MARKET_SHEET: "market_sheet",
+        BLUEPRINT: "blueprint",
+        ARCHITECTURE: "architecture",
+        CHARACTER_BIBLE: "character_bible",
+        BEAT_SHEET: "beat_sheet",
+        SCRIPT: "script",
+        PRODUCTION_DRAFT: "production_draft",
+        DECK: "deck",
+        DOCUMENTARY_OUTLINE: "documentary_outline",
+        TREATMENT: "treatment",
+        ONE_PAGER: "one_pager",
+        OUTLINE: "outline",
+        DRAFT_SCRIPT: "script",
       };
 
       const { data: newDoc, error: dErr } = await supabase.from("project_documents").insert({
