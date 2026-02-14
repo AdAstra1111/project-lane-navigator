@@ -3,13 +3,14 @@
  * One domain visible at a time, summary cards first, deep content behind accordions.
  */
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import {
   LayoutDashboard, FileText, TrendingUp, Users,
-  DollarSign, Clapperboard,
+  DollarSign, Clapperboard, Layers,
 } from 'lucide-react';
+import { isVerticalDrama } from '@/lib/format-helpers';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Badge } from '@/components/ui/badge';
 import type { Project, FullAnalysis, MonetisationLane, PipelineStage } from '@/lib/types';
@@ -31,20 +32,22 @@ import { BudgetingLayer } from '@/components/stages/BudgetingLayer';
 import { RecoupmentLayer } from '@/components/stages/RecoupmentLayer';
 import { TrendsLayer } from '@/components/stages/TrendsLayer';
 import { IntegrationHub } from '@/components/integrations/IntegrationHub';
+import { SeriesWriterPanel } from '@/components/series/SeriesWriterPanel';
 
 import { Cable } from 'lucide-react';
 
-const TABS = [
-  { id: 'overview', label: 'Overview', icon: LayoutDashboard },
-  { id: 'script', label: 'Script', icon: FileText },
-  { id: 'market', label: 'Market', icon: TrendingUp },
-  { id: 'package', label: 'Package', icon: Users },
-  { id: 'finance', label: 'Finance', icon: DollarSign },
-  { id: 'production', label: 'Production', icon: Clapperboard },
-  { id: 'integrations', label: 'Integrations', icon: Cable },
-] as const;
+const BASE_TABS = [
+  { id: 'overview' as const, label: 'Overview', icon: LayoutDashboard },
+  { id: 'script' as const, label: 'Script', icon: FileText },
+  { id: 'series-writer' as const, label: 'Series Writer', icon: Layers },
+  { id: 'market' as const, label: 'Market', icon: TrendingUp },
+  { id: 'package' as const, label: 'Package', icon: Users },
+  { id: 'finance' as const, label: 'Finance', icon: DollarSign },
+  { id: 'production' as const, label: 'Production', icon: Clapperboard },
+  { id: 'integrations' as const, label: 'Integrations', icon: Cable },
+];
 
-type TabId = (typeof TABS)[number]['id'];
+type TabId = 'overview' | 'script' | 'series-writer' | 'market' | 'package' | 'finance' | 'production' | 'integrations';
 
 interface Props {
   project: Project;
@@ -106,8 +109,17 @@ interface Props {
 export function AdvancedProjectView(props: Props) {
   const [activeTab, setActiveTab] = useState<TabId>('overview');
 
+  // Only show Series Writer tab for vertical drama projects
+  const TABS = useMemo(() => {
+    if (isVerticalDrama(props.project.format)) return BASE_TABS;
+    return BASE_TABS.filter(t => t.id !== 'series-writer');
+  }, [props.project.format]);
+
   const renderTab = () => {
     switch (activeTab) {
+      case 'series-writer':
+        return <SeriesWriterPanel projectId={props.projectId} />;
+
       case 'overview':
         return (
           <OverviewDashboard
