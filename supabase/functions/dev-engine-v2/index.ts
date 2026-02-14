@@ -10,6 +10,8 @@ const PRO_MODEL = "google/gemini-2.5-pro";
 const FAST_MODEL = "google/gemini-2.5-flash";
 const BALANCED_MODEL = "google/gemini-3-flash-preview";
 
+const SCHEMA_VERSION = "v3";
+
 function extractJSON(raw: string): string {
   let c = raw.replace(/^```[\s\S]*?\n/, "").replace(/\n?```\s*$/, "");
   if (!c.trim().startsWith("{") && !c.trim().startsWith("[")) {
@@ -61,52 +63,140 @@ async function parseAIJson(apiKey: string, raw: string): Promise<any> {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// PROMPTS
+// DELIVERABLE-AWARE RUBRICS
 // ═══════════════════════════════════════════════════════════════
 
-const ANALYZE_SYSTEM = `You are IFFY, a Creative–Commercial Alignment Architect.
-Evaluate the submitted material. Consider the production type, strategic priority, and development stage.
+const DELIVERABLE_RUBRICS: Record<string, string> = {
+  idea: `Evaluate as an IDEA/LOGLINE. Score clarity, originality, market hook, audience identification. Do NOT evaluate dialogue, pacing, or scene structure.`,
+  concept_brief: `Evaluate as a CONCEPT BRIEF. Score premise strength, theme clarity, genre positioning, tonal consistency. Do NOT evaluate scene-level craft or dialogue.`,
+  market_sheet: `Evaluate as a MARKET SHEET. Score market positioning, comparable titles, audience targeting, budget alignment. Do NOT evaluate narrative craft.`,
+  blueprint: `Evaluate as a BLUEPRINT. Score structural architecture, act breaks, key beats, escalation logic, thematic spine. Do NOT evaluate dialogue quality or specific prose.`,
+  architecture: `Evaluate as an ARCHITECTURE document. Score scene-by-scene planning, page allocation, structural balance, pacing blueprint. Do NOT evaluate dialogue.`,
+  character_bible: `Evaluate as a CHARACTER BIBLE. Score character depth, arc design, relationship dynamics, thematic integration. Do NOT evaluate scene structure or pacing.`,
+  beat_sheet: `Evaluate as a BEAT SHEET. Score beat progression, dramatic escalation, turning points, structural completeness. Do NOT evaluate prose quality or dialogue.`,
+  script: `Evaluate as a SCRIPT/SCREENPLAY. Score dialogue craft, scene dynamics, pacing, character voice, visual storytelling, structural integrity.`,
+  production_draft: `Evaluate as a PRODUCTION DRAFT. Score production readiness, clarity for department heads, scene feasibility, schedule implications. Also evaluate script quality.`,
+  deck: `Evaluate as a DECK/PITCH DOCUMENT. Score clarity of vision, market positioning, visual storytelling strategy, talent strategy. Do NOT invent characters or scenes. Do NOT use INT./EXT. scene headings.`,
+  documentary_outline: `Evaluate as a DOCUMENTARY OUTLINE. Score narrative structure, subject access, thematic coherence, editorial approach. Do NOT invent characters, fabricate scenes, or generate INT./EXT. sluglines. Use [PLACEHOLDER] for missing information.`,
+};
 
-Return ONLY valid JSON:
+const BEHAVIOR_MODIFIERS: Record<string, string> = {
+  efficiency: `BEHAVIOR MODE: Efficiency — prioritize clarity and directness. Score thresholds are relaxed. Focus on actionable, time-efficient improvements.`,
+  market: `BEHAVIOR MODE: Market — balanced rigor. Standard scoring thresholds apply.`,
+  prestige: `BEHAVIOR MODE: Prestige — highest structural and thematic standards. Scores must reach 85/80 minimum. Require deep craft analysis. Two rewrite cycles minimum for convergence.`,
+};
+
+const FORMAT_EXPECTATIONS: Record<string, string> = {
+  "film": `FORMAT: Feature Film — expect 3-act structure, 90-110 minute runtime, midpoint reversal, escalating stakes.`,
+  "feature": `FORMAT: Feature Film — expect 3-act structure, 90-110 minute runtime, midpoint reversal, escalating stakes.`,
+  "tv-series": `FORMAT: TV Series — evaluate pilot structure, series engine sustainability, episode-to-episode hooks.`,
+  "limited-series": `FORMAT: Limited Series — evaluate closed narrative arc, episode pacing, thematic unity across episodes.`,
+  "vertical-drama": `FORMAT: Vertical Drama — short-form mobile-first content. Hook must occur within first 10 seconds. Require cliffhanger ending. Enforce beat density per minute. Do NOT apply feature film pacing logic.`,
+  "documentary": `FORMAT: Documentary — evaluate editorial approach, subject access, ethical considerations. STRICT: Do NOT invent characters, fabricate scenes, or use INT./EXT. scene headings.`,
+  "documentary-series": `FORMAT: Documentary Series — multi-episode documentary. Same non-fabrication rules as documentary.`,
+  "hybrid-documentary": `FORMAT: Hybrid Documentary — docudrama approach. Non-fabrication rules apply to documentary sections.`,
+  "short": `FORMAT: Short Film — evaluate economy of storytelling, single-idea clarity, impact within constrained runtime.`,
+  "animation": `FORMAT: Animation — evaluate visual storytelling potential, world-building, character design implications.`,
+  "digital-series": `FORMAT: Digital Series — evaluate episode hooks, platform-native pacing, audience retention strategy.`,
+};
+
+// ═══════════════════════════════════════════════════════════════
+// STANDARDIZED OUTPUT SCHEMA (v3)
+// ═══════════════════════════════════════════════════════════════
+
+function buildAnalyzeSystem(deliverable: string, format: string, behavior: string, episodeDuration?: number): string {
+  const rubric = DELIVERABLE_RUBRICS[deliverable] || DELIVERABLE_RUBRICS.script;
+  const behaviorMod = BEHAVIOR_MODIFIERS[behavior] || BEHAVIOR_MODIFIERS.market;
+  const formatExp = FORMAT_EXPECTATIONS[format] || FORMAT_EXPECTATIONS.film;
+
+  let verticalRules = "";
+  if (format === "vertical-drama" && episodeDuration) {
+    const beatMin = episodeDuration <= 90 ? 3 : episodeDuration <= 120 ? 4 : episodeDuration <= 150 ? 5 : episodeDuration <= 180 ? 6 : 7;
+    const beatsPerMin = behavior === "efficiency" ? 2.5 : behavior === "prestige" ? 2.5 : 3.0;
+    verticalRules = `\nVERTICAL DRAMA RULES: Episode duration = ${episodeDuration}s. Required beat minimum = ${beatMin}. Required beats-per-minute ≥ ${beatsPerMin}. Hook within first 10s. Cliffhanger ending required.`;
+  }
+
+  // Documentary/deck safeguard
+  const isDocSafe = ["deck", "documentary_outline"].includes(deliverable) ||
+    ["documentary", "documentary-series", "hybrid-documentary"].includes(format);
+  const docGuard = isDocSafe
+    ? "\nDOCUMENTARY/DECK GUARD: Do NOT invent characters, fabricate scenes, or generate INT./EXT. sluglines. Use [PLACEHOLDER] for missing information."
+    : "";
+
+  return `You are IFFY, a Creative–Commercial Alignment Architect.
+
+${rubric}
+
+${formatExp}
+
+${behaviorMod}
+${verticalRules}${docGuard}
+
+Return ONLY valid JSON matching this EXACT schema:
 {
-  "ci_score": 0-100,
-  "gp_score": 0-100,
-  "gap": number (absolute difference),
-  "allowed_gap": number (based on type: doc=40, branded=10, feature=20, series=25),
-  "convergence_status": "Healthy Divergence" | "Strategic Tension" | "Dangerous Misalignment",
+  "meta": {
+    "deliverable_type": "${deliverable}",
+    "format": "${format}",
+    "development_behavior": "${behavior}",
+    "schema_version": "${SCHEMA_VERSION}"
+  },
+  "summary": ["max 5 bullet points — key findings"],
+  "scores": {
+    "ci_score": 0-100,
+    "gp_score": 0-100,
+    "gap": number,
+    "allowed_gap": number
+  },
+  "blocking_issues": ["only items preventing convergence — max 5"],
+  "actionable_notes": [
+    {"category": "structural|character|escalation|lane|packaging|risk|pacing|hook|cliffhanger", "note": "...", "impact": "high|medium|low", "convergence_lift": 1-10}
+  ],
+  "rewrite_plan": ["what will change in next rewrite — max 5 items"],
+  "convergence": {
+    "status": "not_started" | "in_progress" | "converged",
+    "reasons": ["why this status"],
+    "next_best_document": "suggested next deliverable type to work on"
+  },
+  "protect": ["non-negotiable creative strengths, 1-10 items"],
+  "verdict": "Invest" | "Develop Further" | "Major Rethink" | "Pass",
+  "executive_snapshot": "2-3 sentence strategic summary",
   "trajectory": null or "Converging" | "Eroding" | "Stalled" | "Strengthened" | "Over-Optimised",
   "primary_creative_risk": "one sentence",
-  "primary_commercial_risk": "one sentence",
-  "protect": ["non-negotiable creative strengths, 1-10 items"],
-  "strengthen": ["items needing more force, 1-12"],
-  "clarify": ["ambiguous items, 1-12"],
-  "elevate": ["items that could reach higher, 1-12"],
-  "remove": ["items dragging work down, 0-12"],
-  "verdict": "Invest" | "Develop Further" | "Major Rethink" | "Pass",
-  "executive_snapshot": "2-3 sentence strategic summary"
+  "primary_commercial_risk": "one sentence"
 }`;
-
-const NOTES_SYSTEM = `You are IFFY. Convert review findings into ranked strategic notes.
-Return ONLY valid JSON:
-{
-  "protect": ["non-negotiable items to preserve"],
-  "strengthen": ["items to improve"],
-  "clarify": ["items to make clearer"],
-  "elevate": ["items to push higher"],
-  "remove": ["items to cut"],
-  "prioritized_moves": [
-    {"category": "structural|character|escalation|lane|packaging|risk", "note": "...", "impact": "high|medium|low", "convergence_lift": 1-10}
-  ]
 }
-Rank prioritized_moves by highest convergence impact. Include 6-20 moves.`;
 
-const REWRITE_SYSTEM = `You are IFFY. Rewrite the material applying the approved strategic notes.
+function buildRewriteSystem(deliverable: string, format: string, behavior: string): string {
+  const isDocSafe = ["deck", "documentary_outline"].includes(deliverable) ||
+    ["documentary", "documentary-series", "hybrid-documentary"].includes(format);
+
+  let docGuard = "";
+  if (isDocSafe) {
+    docGuard = `\n\nHARD SAFEGUARDS:
+- FORBID inventing characters not present in the original
+- FORBID inventing scenes not present in the original
+- FORBID using INT./EXT. scene headings (unless already in source)
+- Use [PLACEHOLDER] instead of fabricating information
+- If you cannot rewrite without invention, return the original text unchanged with a note explaining why.`;
+  }
+
+  let formatRules = "";
+  if (format === "vertical-drama") {
+    formatRules = "\n\nVERTICAL DRAMA: Preserve hook in first 10 seconds. Maintain cliffhanger ending. Do NOT apply feature pacing logic.";
+  }
+
+  return `You are IFFY. Rewrite the material applying the approved strategic notes.
+DELIVERABLE TYPE: ${deliverable}
+FORMAT: ${format}
+BEHAVIOR: ${behavior}
+
 Rules:
 - Preserve all PROTECT items absolutely.
 - Do not flatten voice for minor commercial gain.
 - Strengthen escalation and improve packaging magnetism organically.
-- Match the target doc type format expectations.
+- Match the target deliverable type format expectations.
 - OUTPUT THE FULL REWRITTEN MATERIAL — do NOT summarize or truncate.
+${docGuard}${formatRules}
 
 Return ONLY valid JSON:
 {
@@ -115,6 +205,33 @@ Return ONLY valid JSON:
   "creative_preserved": "what creative elements were protected",
   "commercial_improvements": "what commercial improvements were introduced"
 }`;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// POST-PROCESSING SAFEGUARD
+// ═══════════════════════════════════════════════════════════════
+
+function validateDocSafety(originalText: string, rewrittenText: string, deliverable: string, format: string): string | null {
+  const isDocSafe = ["deck", "documentary_outline"].includes(deliverable) ||
+    ["documentary", "documentary-series", "hybrid-documentary"].includes(format);
+  if (!isDocSafe) return null;
+
+  // Check for INT./EXT. scene headings not in original
+  const sceneHeadingPattern = /^(INT\.|EXT\.|INT\/EXT\.|I\/E\.)\s/gm;
+  const originalHeadings = new Set((originalText.match(sceneHeadingPattern) || []).map(h => h.trim()));
+  const newHeadings = (rewrittenText.match(sceneHeadingPattern) || []).map(h => h.trim());
+  const addedHeadings = newHeadings.filter(h => !originalHeadings.has(h));
+
+  if (addedHeadings.length > 0) {
+    return `Safety guard triggered: Rewrite introduced ${addedHeadings.length} new scene heading(s) not present in the original (${addedHeadings.slice(0, 3).join(", ")}). For documentary/deck deliverables, the engine cannot invent scenes. The original text has been preserved.`;
+  }
+
+  return null;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PIPELINE PROMPTS (unchanged)
+// ═══════════════════════════════════════════════════════════════
 
 const REWRITE_CHUNK_SYSTEM = `You are rewriting a feature-length screenplay for professional quality.
 
@@ -170,8 +287,6 @@ Return ONLY valid JSON:
   "format": "target format name",
   "change_summary": "what was adapted/expanded/compressed"
 }`;
-
-// ── PIPELINE PROMPTS ──
 
 const SCRIPT_PLAN_SYSTEM = `You are IFFY, a professional screenplay architect.
 Given a concept/treatment/blueprint, create a detailed scene-by-scene plan for a feature-length screenplay.
@@ -232,6 +347,40 @@ At the very end, on a new line, write:
 followed by a brief list of what was fixed (or "No issues found").`;
 
 // ═══════════════════════════════════════════════════════════════
+// FORMAT HELPERS
+// ═══════════════════════════════════════════════════════════════
+
+const formatToProductionType: Record<string, string> = {
+  "vertical-drama": "vertical_drama",
+  "tv-series": "tv_series",
+  "limited-series": "limited_series",
+  "documentary": "documentary",
+  "documentary-series": "documentary_series",
+  "hybrid-documentary": "hybrid_documentary",
+  "short": "short_film",
+  "animation": "animation",
+  "digital-series": "digital_series",
+};
+
+const docTypeMap: Record<string, string> = {
+  IDEA: "idea",
+  CONCEPT_BRIEF: "concept_brief",
+  MARKET_SHEET: "market_sheet",
+  BLUEPRINT: "blueprint",
+  ARCHITECTURE: "architecture",
+  CHARACTER_BIBLE: "character_bible",
+  BEAT_SHEET: "beat_sheet",
+  SCRIPT: "script",
+  PRODUCTION_DRAFT: "production_draft",
+  DECK: "deck",
+  DOCUMENTARY_OUTLINE: "documentary_outline",
+  TREATMENT: "treatment",
+  ONE_PAGER: "one_pager",
+  OUTLINE: "outline",
+  DRAFT_SCRIPT: "script",
+};
+
+// ═══════════════════════════════════════════════════════════════
 // MAIN
 // ═══════════════════════════════════════════════════════════════
 
@@ -260,10 +409,13 @@ serve(async (req) => {
     const body = await req.json();
     const { action } = body;
 
-    // ── ANALYZE ──
+    // ══════════════════════════════════════════════
+    // ANALYZE — strict routing: deliverable → format → behavior
+    // ══════════════════════════════════════════════
     if (action === "analyze") {
-      const { projectId, documentId, versionId, productionType, strategicPriority, developmentStage, analysisMode, previousVersionId, deliverableType, developmentBehavior, format: reqFormat, episodeTargetDurationSeconds } = body;
+      const { projectId, documentId, versionId, deliverableType, developmentBehavior, format: reqFormat, episodeTargetDurationSeconds, strategicPriority, developmentStage, analysisMode, previousVersionId, productionType } = body;
       if (!projectId || !documentId || !versionId) throw new Error("projectId, documentId, versionId required");
+      if (!deliverableType) throw new Error("deliverableType is required — select a deliverable type before analyzing");
 
       const { data: version } = await supabase.from("project_document_versions")
         .select("plaintext").eq("id", versionId).single();
@@ -276,41 +428,17 @@ serve(async (req) => {
       const rawFormat = reqFormat || project?.format || "film";
       const effectiveFormat = rawFormat.toLowerCase().replace(/_/g, "-");
       const effectiveBehavior = developmentBehavior || project?.development_behavior || "market";
-      const effectiveDeliverable = deliverableType || "script";
+      const effectiveDeliverable = deliverableType;
       const effectiveDuration = episodeTargetDurationSeconds || project?.episode_target_duration_seconds;
-
-      // Derive production type from format if not explicitly provided
-      const formatToProductionType: Record<string, string> = {
-        "vertical-drama": "vertical_drama",
-        "tv-series": "tv_series",
-        "limited-series": "limited_series",
-        "documentary": "documentary",
-        "documentary-series": "documentary_series",
-        "hybrid-documentary": "hybrid_documentary",
-        "short": "short_film",
-        "animation": "animation",
-        "digital-series": "digital_series",
-      };
       const effectiveProductionType = productionType || formatToProductionType[effectiveFormat] || "narrative_feature";
 
-      // Build deliverable/format/behavior context for the prompt
-      let devOSContext = "";
-      if (effectiveDeliverable && effectiveDeliverable !== "script") {
-        devOSContext += `\nDELIVERABLE TYPE: ${effectiveDeliverable}`;
-      }
-      if (effectiveBehavior !== "market") {
-        devOSContext += `\nBEHAVIOR MODE: ${effectiveBehavior}`;
-      }
-      if (effectiveFormat === "vertical-drama" && effectiveDuration) {
-        devOSContext += `\nEPISODE DURATION: ${effectiveDuration}s`;
+      // Vertical drama: require episode duration
+      if (effectiveFormat === "vertical-drama" && !effectiveDuration) {
+        throw new Error("episode_target_duration_seconds is required for vertical drama format");
       }
 
-      // Documentary hallucination guard
-      const isDocFormat = ["documentary", "documentary-series", "hybrid-documentary"].includes(effectiveFormat);
-      const isDocDeliverable = effectiveDeliverable === "documentary_outline" || effectiveDeliverable === "deck";
-      if (isDocFormat || isDocDeliverable) {
-        devOSContext += "\nDOCUMENTARY GUARD: Do NOT invent characters, fabricate scenes, or generate INT./EXT. sluglines. Use [PLACEHOLDER] for missing information.";
-      }
+      // Build deliverable-aware system prompt (routing order: deliverable → format → behavior)
+      const systemPrompt = buildAnalyzeSystem(effectiveDeliverable, effectiveFormat, effectiveBehavior, effectiveDuration);
 
       let prevContext = "";
       if (previousVersionId) {
@@ -319,26 +447,36 @@ serve(async (req) => {
           .order("created_at", { ascending: false }).limit(1).single();
         if (prevRun?.output_json) {
           const pj = prevRun.output_json as any;
-          prevContext = `\nPREVIOUS SCORES: CI=${pj.ci_score}, GP=${pj.gp_score}, Gap=${pj.gap}`;
+          const scores = pj.scores || pj;
+          prevContext = `\nPREVIOUS SCORES: CI=${scores.ci_score}, GP=${scores.gp_score}, Gap=${scores.gap}`;
         }
       }
 
       const userPrompt = `PRODUCTION TYPE: ${effectiveProductionType}
-FORMAT: ${effectiveFormat}
 STRATEGIC PRIORITY: ${strategicPriority || "BALANCED"}
 DEVELOPMENT STAGE: ${developmentStage || "IDEA"}
-ANALYSIS MODE: ${analysisMode || "DUAL"}
 PROJECT: ${project?.title || "Unknown"}
 LANE: ${project?.assigned_lane || "Unknown"} | BUDGET: ${project?.budget_range || "Unknown"}
-${devOSContext}${prevContext}
+${prevContext}
 
 MATERIAL (${version.plaintext.length} chars):
 ${version.plaintext.slice(0, 25000)}`;
 
-      const raw = await callAI(LOVABLE_API_KEY, PRO_MODEL, ANALYZE_SYSTEM, userPrompt, 0.2, 6000);
+      const raw = await callAI(LOVABLE_API_KEY, PRO_MODEL, systemPrompt, userPrompt, 0.2, 6000);
       const parsed = await parseAIJson(LOVABLE_API_KEY, raw);
 
-      // Add convergence meta to output
+      // Normalize: ensure scores are at top level for backward compat
+      const scores = parsed.scores || {};
+      if (scores.ci_score != null && parsed.ci_score == null) {
+        parsed.ci_score = scores.ci_score;
+        parsed.gp_score = scores.gp_score;
+        parsed.gap = scores.gap;
+        parsed.allowed_gap = scores.allowed_gap;
+      }
+      // Ensure meta is present
+      if (!parsed.meta) {
+        parsed.meta = { deliverable_type: effectiveDeliverable, format: effectiveFormat, development_behavior: effectiveBehavior, schema_version: SCHEMA_VERSION };
+      }
       parsed.deliverable_type = effectiveDeliverable;
       parsed.development_behavior = effectiveBehavior;
 
@@ -357,7 +495,7 @@ ${version.plaintext.slice(0, 25000)}`;
         development_behavior: effectiveBehavior,
         format: effectiveFormat,
         episode_target_duration_seconds: effectiveDuration || null,
-        schema_version: "v2",
+        schema_version: SCHEMA_VERSION,
       }).select().single();
       if (runErr) throw runErr;
 
@@ -370,7 +508,7 @@ ${version.plaintext.slice(0, 25000)}`;
         greenlight_score: parsed.gp_score || 0,
         gap: parsed.gap ?? Math.abs((parsed.ci_score || 50) - (parsed.gp_score || 50)),
         allowed_gap: parsed.allowed_gap || 25,
-        convergence_status: parsed.convergence_status || "Unknown",
+        convergence_status: parsed.convergence?.status || parsed.convergence_status || "Unknown",
         trajectory: parsed.trajectory,
       });
 
@@ -379,7 +517,9 @@ ${version.plaintext.slice(0, 25000)}`;
       });
     }
 
-    // ── NOTES ──
+    // ══════════════════════════════════════════════
+    // NOTES — now returns actionable_notes in standardized format
+    // ══════════════════════════════════════════════
     if (action === "notes") {
       const { projectId, documentId, versionId, analysisJson } = body;
       if (!projectId || !documentId || !versionId) throw new Error("projectId, documentId, versionId required");
@@ -397,9 +537,26 @@ ${version.plaintext.slice(0, 25000)}`;
       }
       if (!analysis) throw new Error("No analysis found. Run Analyze first.");
 
+      const notesSystem = `You are IFFY. Convert review findings into ranked strategic notes.
+Return ONLY valid JSON:
+{
+  "protect": ["non-negotiable items to preserve"],
+  "actionable_notes": [
+    {"category": "structural|character|escalation|lane|packaging|risk|pacing|hook|cliffhanger", "note": "...", "impact": "high|medium|low", "convergence_lift": 1-10}
+  ],
+  "rewrite_plan": ["what will change in next rewrite — max 5 items"],
+  "blocking_issues": ["only items preventing convergence"]
+}
+Rank actionable_notes by highest convergence impact. Include 6-20 notes.`;
+
       const userPrompt = `ANALYSIS:\n${JSON.stringify(analysis)}\n\nMATERIAL:\n${version.plaintext.slice(0, 12000)}`;
-      const raw = await callAI(LOVABLE_API_KEY, PRO_MODEL, NOTES_SYSTEM, userPrompt, 0.25, 6000);
+      const raw = await callAI(LOVABLE_API_KEY, PRO_MODEL, notesSystem, userPrompt, 0.25, 6000);
       const parsed = await parseAIJson(LOVABLE_API_KEY, raw);
+
+      // Backward compat: map actionable_notes to prioritized_moves
+      if (parsed.actionable_notes && !parsed.prioritized_moves) {
+        parsed.prioritized_moves = parsed.actionable_notes;
+      }
 
       const { data: run, error: runErr } = await supabase.from("development_runs").insert({
         project_id: projectId,
@@ -416,26 +573,36 @@ ${version.plaintext.slice(0, 25000)}`;
       });
     }
 
-    // ── REWRITE ──
+    // ══════════════════════════════════════════════
+    // REWRITE — with doc safety guards
+    // ══════════════════════════════════════════════
     if (action === "rewrite") {
-      const { projectId, documentId, versionId, approvedNotes, protectItems, targetDocType } = body;
+      const { projectId, documentId, versionId, approvedNotes, protectItems, targetDocType, deliverableType, developmentBehavior, format: reqFormat } = body;
       if (!projectId || !documentId || !versionId) throw new Error("projectId, documentId, versionId required");
 
       const { data: version } = await supabase.from("project_document_versions")
         .select("plaintext, version_number").eq("id", versionId).single();
       if (!version) throw new Error("Version not found");
 
+      const { data: project } = await supabase.from("projects")
+        .select("format, development_behavior").eq("id", projectId).single();
+
+      const effectiveFormat = (reqFormat || project?.format || "film").toLowerCase().replace(/_/g, "-");
+      const effectiveBehavior = developmentBehavior || project?.development_behavior || "market";
+      const effectiveDeliverable = deliverableType || "script";
+
       const fullText = version.plaintext || "";
-      const LONG_THRESHOLD = 30000; // ~24 pages — anything above this uses chunked rewrite
+      const LONG_THRESHOLD = 30000;
 
-      let rewrittenText = "";
-      let changesSummary = "";
-      let creativePreserved = "";
-      let commercialImprovements = "";
+      if (fullText.length > LONG_THRESHOLD) {
+        return new Response(JSON.stringify({ error: "Document too long for single-pass rewrite. Use rewrite-plan/rewrite-chunk/rewrite-assemble pipeline.", needsPipeline: true, charCount: fullText.length }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
 
-      if (fullText.length <= LONG_THRESHOLD) {
-        // ── Short document: single-pass rewrite ──
-        const userPrompt = `PROTECT (non-negotiable):\n${JSON.stringify(protectItems || [])}
+      const rewriteSystemPrompt = buildRewriteSystem(effectiveDeliverable, effectiveFormat, effectiveBehavior);
+
+      const userPrompt = `PROTECT (non-negotiable):\n${JSON.stringify(protectItems || [])}
 
 APPROVED NOTES:\n${JSON.stringify(approvedNotes || [])}
 
@@ -443,20 +610,18 @@ TARGET FORMAT: ${targetDocType || "same as source"}
 
 MATERIAL TO REWRITE:\n${fullText}`;
 
-        const raw = await callAI(LOVABLE_API_KEY, BALANCED_MODEL, REWRITE_SYSTEM, userPrompt, 0.4, 12000);
-        const parsed = await parseAIJson(LOVABLE_API_KEY, raw);
-        rewrittenText = parsed.rewritten_text || "";
-        changesSummary = parsed.changes_summary || "";
-        creativePreserved = parsed.creative_preserved || "";
-        commercialImprovements = parsed.commercial_improvements || "";
-      } else {
-        // ── Feature-length: return error directing to chunked pipeline ──
-        return new Response(JSON.stringify({ error: "Document too long for single-pass rewrite. Use rewrite-plan/rewrite-chunk/rewrite-assemble pipeline.", needsPipeline: true, charCount: fullText.length }), {
+      const raw = await callAI(LOVABLE_API_KEY, BALANCED_MODEL, rewriteSystemPrompt, userPrompt, 0.4, 12000);
+      const parsed = await parseAIJson(LOVABLE_API_KEY, raw);
+      let rewrittenText = parsed.rewritten_text || "";
+
+      // Post-processing safety guard for documentary/deck
+      const safetyViolation = validateDocSafety(fullText, rewrittenText, effectiveDeliverable, effectiveFormat);
+      if (safetyViolation) {
+        return new Response(JSON.stringify({ error: safetyViolation, safety_blocked: true }), {
           status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
 
-      // Get max version number to avoid duplicate key conflicts
       const { data: maxRow } = await supabase.from("project_document_versions")
         .select("version_number")
         .eq("document_id", documentId)
@@ -472,19 +637,28 @@ MATERIAL TO REWRITE:\n${fullText}`;
         plaintext: rewrittenText,
         created_by: user.id,
         parent_version_id: versionId,
-        change_summary: changesSummary,
+        change_summary: parsed.changes_summary || "",
       }).select().single();
       if (vErr) throw vErr;
 
-      const parsed = { rewritten_text: rewrittenText, changes_summary: changesSummary, creative_preserved: creativePreserved, commercial_improvements: commercialImprovements };
-
+      // Store rewrite run with schema_version and deliverable metadata
       const { data: run } = await supabase.from("development_runs").insert({
         project_id: projectId,
         document_id: documentId,
         version_id: newVersion.id,
         user_id: user.id,
         run_type: "REWRITE",
-        output_json: { ...parsed, rewritten_text: `[${rewrittenText.length} chars]`, source_version_id: versionId },
+        output_json: {
+          changes_summary: parsed.changes_summary || "",
+          creative_preserved: parsed.creative_preserved || "",
+          commercial_improvements: parsed.commercial_improvements || "",
+          rewritten_text: `[${rewrittenText.length} chars]`,
+          source_version_id: versionId,
+        },
+        deliverable_type: effectiveDeliverable,
+        development_behavior: effectiveBehavior,
+        format: effectiveFormat,
+        schema_version: SCHEMA_VERSION,
       }).select().single();
 
       return new Response(JSON.stringify({ run, rewrite: { ...parsed, rewritten_text: `[${rewrittenText.length} chars — stored in version]` }, newVersion }), {
@@ -503,10 +677,9 @@ MATERIAL TO REWRITE:\n${fullText}`;
 
       const fullText = version.plaintext || "";
       const CHUNK_TARGET = 12000;
-      const chunks: { index: number; charCount: number }[] = [];
       const lines = fullText.split("\n");
       let currentChunk = "";
-      let chunkTexts: string[] = [];
+      const chunkTexts: string[] = [];
 
       for (const line of lines) {
         const isSlugline = /^(INT\.|EXT\.|INT\/EXT\.|I\/E\.)/.test(line.trim());
@@ -518,7 +691,6 @@ MATERIAL TO REWRITE:\n${fullText}`;
       }
       if (currentChunk.trim()) chunkTexts.push(currentChunk.trim());
 
-      // Store chunk texts in a temporary development_runs record for retrieval
       const { data: planRun } = await supabase.from("development_runs").insert({
         project_id: projectId,
         document_id: documentId,
@@ -542,7 +714,7 @@ MATERIAL TO REWRITE:\n${fullText}`;
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // ── REWRITE-CHUNK (chunked rewrite step 2 — one chunk at a time) ──
+    // ── REWRITE-CHUNK (chunked rewrite step 2) ──
     if (action === "rewrite-chunk") {
       const { planRunId, chunkIndex, previousChunkEnding } = body;
       if (!planRunId || chunkIndex === undefined) throw new Error("planRunId, chunkIndex required");
@@ -574,12 +746,11 @@ MATERIAL TO REWRITE:\n${fullText}`;
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // ── REWRITE-ASSEMBLE (chunked rewrite step 3 — save final version) ──
+    // ── REWRITE-ASSEMBLE (chunked rewrite step 3) ──
     if (action === "rewrite-assemble") {
       const { projectId, documentId, versionId, planRunId, assembledText } = body;
       if (!projectId || !documentId || !versionId || !assembledText) throw new Error("projectId, documentId, versionId, assembledText required");
 
-      // ── Runtime Floor Validation (not a target — just a floor) ──
       function estimateRuntimeMinutes(text: string, mode: string) {
         const words = (text || "").trim().split(/\s+/).filter(Boolean).length;
         const divisor = mode === 'dialogue_heavy' ? 200 : mode === 'lean' ? 240 : mode === 'action_heavy' ? 240 : 220;
@@ -595,20 +766,17 @@ MATERIAL TO REWRITE:\n${fullText}`;
       const hardMin = (projectRow as any)?.min_runtime_hard_floor ?? null;
       const { words: newWords, minutes: newMins } = estimateRuntimeMinutes(assembledText, mode);
 
-      // Hard block: prevents "way too short" (with 2-min tolerance for rounding)
       let runtimeWarning: string | null = null;
       if (hardMin && newMins < hardMin - 2) {
         throw new Error(
           `Script too short for feature: ~${Math.round(newMins)} mins (words=${newWords}). ` +
-          `Hard floor is ${hardMin} mins. Generate a fuller feature draft (expand Act 2 / add set-pieces / deepen beats).`
+          `Hard floor is ${hardMin} mins. Generate a fuller feature draft.`
         );
       } else if (hardMin && newMins < hardMin) {
         runtimeWarning = `Draft is near the hard floor: ~${Math.round(newMins)} mins (floor: ${hardMin}). Consider expanding.`;
       }
-
-      // Soft warn: allowed but flagged
       if (!runtimeWarning && softMin && newMins < softMin) {
-        runtimeWarning = `This draft estimates ~${Math.round(newMins)} mins (below preferred minimum ${softMin} mins for a feature).`;
+        runtimeWarning = `This draft estimates ~${Math.round(newMins)} mins (below preferred minimum ${softMin} mins).`;
       }
 
       const { data: maxRow } = await supabase.from("project_document_versions")
@@ -630,7 +798,6 @@ MATERIAL TO REWRITE:\n${fullText}`;
       }).select().single();
       if (vErr) throw vErr;
 
-      // Get plan info for notes count
       let notesCount = 0;
       if (planRunId) {
         const { data: planRun } = await supabase.from("development_runs")
@@ -649,6 +816,7 @@ MATERIAL TO REWRITE:\n${fullText}`;
           changes_summary: `Full chunked rewrite. Applied ${notesCount} notes.`,
           source_version_id: versionId,
         },
+        schema_version: SCHEMA_VERSION,
       }).select().single();
 
       return new Response(JSON.stringify({
@@ -695,24 +863,6 @@ MATERIAL:\n${version.plaintext.slice(0, 20000)}`;
       } else {
         parsed = await parseAIJson(LOVABLE_API_KEY, raw);
       }
-
-      const docTypeMap: Record<string, string> = {
-        IDEA: "idea",
-        CONCEPT_BRIEF: "concept_brief",
-        MARKET_SHEET: "market_sheet",
-        BLUEPRINT: "blueprint",
-        ARCHITECTURE: "architecture",
-        CHARACTER_BIBLE: "character_bible",
-        BEAT_SHEET: "beat_sheet",
-        SCRIPT: "script",
-        PRODUCTION_DRAFT: "production_draft",
-        DECK: "deck",
-        DOCUMENTARY_OUTLINE: "documentary_outline",
-        TREATMENT: "treatment",
-        ONE_PAGER: "one_pager",
-        OUTLINE: "outline",
-        DRAFT_SCRIPT: "script",
-      };
 
       const { data: newDoc, error: dErr } = await supabase.from("project_documents").insert({
         project_id: projectId,
@@ -783,11 +933,10 @@ MATERIAL:\n${version.plaintext.slice(0, 20000)}`;
       });
     }
 
-    // ═══════════════════════════════════════════════════════════
+    // ═══════════════════════════════════════════════
     // SCREENPLAY PIPELINE
-    // ═══════════════════════════════════════════════════════════
+    // ═══════════════════════════════════════════════
 
-    // ── SCRIPT PLAN ──
     if (action === "script-plan") {
       const { projectId, documentId, versionId, targetPages, protectItems } = body;
       if (!projectId || !documentId || !versionId) throw new Error("projectId, documentId, versionId required");
@@ -810,7 +959,6 @@ ${version.plaintext.slice(0, 25000)}`;
       const raw = await callAI(LOVABLE_API_KEY, PRO_MODEL, SCRIPT_PLAN_SYSTEM, userPrompt, 0.25, 8000);
       const parsed = await parseAIJson(LOVABLE_API_KEY, raw);
 
-      // Save plan as a run
       const { data: run, error: runErr } = await supabase.from("development_runs").insert({
         project_id: projectId,
         document_id: documentId,
@@ -821,7 +969,6 @@ ${version.plaintext.slice(0, 25000)}`;
       }).select().single();
       if (runErr) throw runErr;
 
-      // Create the master script document
       const { data: scriptDoc, error: sdErr } = await supabase.from("project_documents").insert({
         project_id: projectId,
         user_id: user.id,
@@ -835,7 +982,6 @@ ${version.plaintext.slice(0, 25000)}`;
       }).select().single();
       if (sdErr) throw sdErr;
 
-      // Create initial empty version
       const { data: scriptVersion } = await supabase.from("project_document_versions").insert({
         document_id: scriptDoc.id,
         version_number: 1,
@@ -845,7 +991,6 @@ ${version.plaintext.slice(0, 25000)}`;
         change_summary: "Pipeline generation in progress",
       }).select().single();
 
-      // Compute batches (group scenes into batches of ~5 pages each)
       const allScenes: any[] = [];
       for (const act of (parsed.acts || [])) {
         for (const scene of (act.scenes || [])) {
@@ -879,18 +1024,15 @@ ${version.plaintext.slice(0, 25000)}`;
       });
     }
 
-    // ── WRITE SCENES BATCH ──
     if (action === "write-batch") {
       const { projectId, scriptDocId, scriptVersionId, batchIndex, scenes, previousText, toneLock, nonNegotiables, totalBatches } = body;
       if (!projectId || !scriptDocId || !scriptVersionId || !scenes) throw new Error("Missing required fields");
 
       const batchPages = scenes.reduce((s: number, sc: any) => s + (sc.page_estimate || 2), 0);
-
       const scenesDesc = scenes.map((s: any) =>
         `${s.scene_id}: ${s.slug}\n  Purpose: ${s.purpose}\n  Target: ~${s.page_estimate || 2} pages`
       ).join("\n\n");
 
-      // Include last ~2000 chars of previous text for continuity
       const continuityContext = previousText
         ? `\n\nPREVIOUS SCREENPLAY ENDING (for continuity — do NOT repeat this, continue from here):\n...\n${previousText.slice(-2000)}`
         : "\n\nThis is the FIRST batch. Start with FADE IN:";
@@ -907,14 +1049,8 @@ ${continuityContext}
 Write these scenes NOW in proper screenplay format. Output ONLY screenplay text.`;
 
       const raw = await callAI(LOVABLE_API_KEY, PRO_MODEL, WRITE_BATCH_SYSTEM, userPrompt, 0.4, 8000);
+      const cleanText = raw.replace(/^```[\s\S]*?\n/, "").replace(/\n?```\s*$/, "").trim();
 
-      // Clean any accidental code fences
-      const cleanText = raw
-        .replace(/^```[\s\S]*?\n/, "")
-        .replace(/\n?```\s*$/, "")
-        .trim();
-
-      // Save run
       await supabase.from("development_runs").insert({
         project_id: projectId,
         document_id: scriptDocId,
@@ -940,7 +1076,6 @@ Write these scenes NOW in proper screenplay format. Output ONLY screenplay text.
       });
     }
 
-    // ── ASSEMBLE SCRIPT ──
     if (action === "assemble-script") {
       const { projectId, scriptDocId, scriptVersionId, assembledText, planJson } = body;
       if (!projectId || !scriptDocId || !scriptVersionId || !assembledText) throw new Error("Missing required fields");
@@ -948,7 +1083,6 @@ Write these scenes NOW in proper screenplay format. Output ONLY screenplay text.
       const wordCount = assembledText.split(/\s+/).length;
       const pageEstimate = Math.round(wordCount / 250);
 
-      // Runtime floor validation for script generation
       function estimateScriptRuntime(text: string, mode: string) {
         const w = (text || "").trim().split(/\s+/).filter(Boolean).length;
         const divisor = mode === 'dialogue_heavy' ? 200 : mode === 'lean' ? 240 : mode === 'action_heavy' ? 240 : 220;
@@ -963,30 +1097,23 @@ Write these scenes NOW in proper screenplay format. Output ONLY screenplay text.
 
       if (sHardMin && sMins < sHardMin - 2) {
         throw new Error(
-          `Script too short for feature: ~${Math.round(sMins)} mins (words=${sWords}). ` +
-          `Hard floor is ${sHardMin} mins. The draft needs expansion.`
+          `Script too short for feature: ~${Math.round(sMins)} mins (words=${sWords}). Hard floor is ${sHardMin} mins.`
         );
       }
 
-      // Save assembled text to the version
       const { error: vErr } = await supabase.from("project_document_versions")
         .update({
           plaintext: assembledText,
           label: `Feature screenplay (${pageEstimate} pages)`,
-          change_summary: `Assembled from ${planJson?.total_scenes || "?"} scenes across ${planJson?.acts?.length || 3} acts. ${wordCount} words, ~${pageEstimate} pages.`,
+          change_summary: `Assembled from ${planJson?.total_scenes || "?"} scenes. ${wordCount} words, ~${pageEstimate} pages.`,
         })
         .eq("id", scriptVersionId);
       if (vErr) throw vErr;
 
-      // Update the document
       await supabase.from("project_documents")
-        .update({
-          plaintext: assembledText,
-          extraction_status: "complete",
-        })
+        .update({ plaintext: assembledText, extraction_status: "complete" })
         .eq("id", scriptDocId);
 
-      // Save assembly run
       const { data: run } = await supabase.from("development_runs").insert({
         project_id: projectId,
         document_id: scriptDocId,
@@ -1003,17 +1130,12 @@ Write these scenes NOW in proper screenplay format. Output ONLY screenplay text.
       }).select().single();
 
       return new Response(JSON.stringify({
-        run,
-        wordCount,
-        pageEstimate,
-        scriptDocId,
-        scriptVersionId,
+        run, wordCount, pageEstimate, scriptDocId, scriptVersionId,
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // ── EXPAND TO FEATURE FLOOR ──
     if (action === "expand-to-feature-floor") {
       const { projectId, documentId, versionId, currentText } = body;
       if (!projectId || !documentId || !versionId || !currentText) throw new Error("projectId, documentId, versionId, currentText required");
@@ -1040,7 +1162,6 @@ Output ONLY the expanded screenplay text. No JSON, no commentary, no markdown.`;
       const expanded = await callAI(LOVABLE_API_KEY, PRO_MODEL, expandSystem, currentText, 0.4, 16000);
       const cleanExpanded = expanded.replace(/^```[\s\S]*?\n/, "").replace(/\n?```\s*$/, "").trim();
 
-      // Save as new version
       const { data: maxRow } = await supabase.from("project_document_versions")
         .select("version_number").eq("document_id", documentId)
         .order("version_number", { ascending: false }).limit(1).single();
