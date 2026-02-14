@@ -157,30 +157,37 @@ ${JSON.stringify(sceneSummary, null, 2)}`;
     }));
 
     // Calculate start date
-    const start = startDate ? new Date(startDate) : new Date(Date.now() + 30 * 86400000); // default: 30 days from now
+    const start = startDate ? new Date(startDate) : new Date(Date.now() + 30 * 86400000);
 
     // Delete existing shoot days and schedule for this project
     await supabase.from("scene_schedule").delete().eq("project_id", projectId);
     await supabase.from("shoot_days").delete().eq("project_id", projectId);
 
-    // Insert shoot days and schedule entries
+    // Insert shoot days — advance a running date, skipping weekends
     let totalScheduled = 0;
+    const currentDate = new Date(start);
+    // Skip to first weekday
+    while (currentDate.getDay() === 0 || currentDate.getDay() === 6) {
+      currentDate.setDate(currentDate.getDate() + 1);
+    }
+
     for (const day of shootDays) {
-      const shootDate = new Date(start);
-      shootDate.setDate(shootDate.getDate() + (day.day_number - 1));
-      // Skip weekends
-      while (shootDate.getDay() === 0 || shootDate.getDay() === 6) {
-        shootDate.setDate(shootDate.getDate() + 1);
-      }
+      const dateStr = currentDate.toISOString().split("T")[0];
 
       const { data: newDay, error: dayErr } = await supabase.from("shoot_days").insert({
         project_id: projectId,
         user_id: user.id,
-        shoot_date: shootDate.toISOString().split("T")[0],
+        shoot_date: dateStr,
         day_number: day.day_number,
         unit: day.unit,
         notes: day.notes,
       }).select().single();
+
+      // Advance to next weekday
+      currentDate.setDate(currentDate.getDate() + 1);
+      while (currentDate.getDay() === 0 || currentDate.getDay() === 6) {
+        currentDate.setDate(currentDate.getDate() + 1);
+      }
 
       if (dayErr) {
         console.error("Error inserting shoot day:", dayErr);
