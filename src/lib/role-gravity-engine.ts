@@ -8,7 +8,7 @@
 
 // ── Types ──────────────────────────────────────────────────────────
 
-export type PackagingMode = 'awards' | 'commercial' | 'streamer_prestige' | 'festival_arthouse' | 'hybrid_theatrical_streaming' | 'direct_to_platform' | 'international_copro';
+export type PackagingMode = 'awards' | 'commercial' | 'streamer_prestige' | 'festival_arthouse' | 'hybrid_theatrical_streaming' | 'direct_to_platform' | 'international_copro' | 'vertical_drama';
 export type PackagingStage = 'early_dev' | 'packaging_now' | 'pre_market' | 'financing_live' | 'post_greenlight';
 
 export const PACKAGING_MODE_LABELS: Record<PackagingMode, string> = {
@@ -19,6 +19,7 @@ export const PACKAGING_MODE_LABELS: Record<PackagingMode, string> = {
   hybrid_theatrical_streaming: 'Hybrid (Theatrical + Streaming)',
   direct_to_platform: 'Direct-to-Platform',
   international_copro: 'International Co-Production',
+  vertical_drama: 'Vertical Drama',
 };
 
 export const PACKAGING_STAGE_LABELS: Record<PackagingStage, string> = {
@@ -126,6 +127,14 @@ const MODE_WEIGHTS: Record<PackagingMode, ModeWeights> = {
     moral_conflict: 0.16,
     agency: 0.16,
     actor_moments: 0.18,
+  },
+  vertical_drama: {
+    presence: 0.22,
+    emotional_range: 0.14,
+    transformation: 0.10,
+    moral_conflict: 0.10,
+    agency: 0.22,
+    actor_moments: 0.22,
   },
 };
 
@@ -251,6 +260,13 @@ const COPRO_LEVERS: RewriteLever[] = [
   { area: 'Treaty Alignment', description: 'Ensure creative elements satisfy co-production treaty cultural requirements.', priority: 2 },
 ];
 
+const VERTICAL_DRAMA_LEVERS: RewriteLever[] = [
+  { area: 'Scroll-Stop Hook', description: 'Open every episode with an arresting visual or emotional beat that stops the scroll within 3 seconds.', priority: 1 },
+  { area: 'Micro-Cliffhanger', description: 'End each 2-5 minute episode on a cliffhanger that compels an immediate swipe to the next.', priority: 1 },
+  { area: 'Compressed Arc', description: 'Deliver a complete emotional beat per episode — setup, escalation, turn — in under 5 minutes.', priority: 2 },
+  { area: 'Visual Storytelling', description: 'Favour visual and physical storytelling over dialogue — vertical screens reward action and expression.', priority: 2 },
+];
+
 const MODE_LEVERS: Record<PackagingMode, RewriteLever[]> = {
   awards: AWARDS_LEVERS,
   commercial: COMMERCIAL_LEVERS,
@@ -259,6 +275,7 @@ const MODE_LEVERS: Record<PackagingMode, RewriteLever[]> = {
   hybrid_theatrical_streaming: HYBRID_LEVERS,
   direct_to_platform: PLATFORM_LEVERS,
   international_copro: COPRO_LEVERS,
+  vertical_drama: VERTICAL_DRAMA_LEVERS,
 };
 
 /**
@@ -494,6 +511,8 @@ export function getFinanceMultipliers(mode: PackagingMode): Record<string, 'low'
       return { presales_uplift: 'low', brand_value_uplift: 'medium', financing_speed: 'high', casting_breadth: 'medium', buyer_interest: 'high', series_viability: 'high' };
     case 'international_copro':
       return { presales_uplift: 'high', brand_value_uplift: 'medium', financing_speed: 'low', casting_breadth: 'medium', buyer_interest: 'medium', series_viability: 'medium' };
+    case 'vertical_drama':
+      return { presales_uplift: 'low', brand_value_uplift: 'medium', financing_speed: 'high', casting_breadth: 'low', buyer_interest: 'high', series_viability: 'high' };
   }
 }
 
