@@ -134,12 +134,34 @@ export function useSeriesWriter(projectId: string) {
     setProgress({ currentEpisode: episode.episode_number, totalEpisodes: 1, phase: 'blueprint' });
 
     try {
+      // Fetch previous episode's script for continuity context
+      let previousEpisodeSummary: string | undefined;
+      if (episode.episode_number > 1) {
+        const { data: prevEps } = await supabase
+          .from('series_episodes')
+          .select('script_id, title, logline')
+          .eq('project_id', projectId)
+          .eq('episode_number', episode.episode_number - 1)
+          .eq('status', 'complete')
+          .single();
+        if (prevEps?.script_id) {
+          const { data: prevScript } = await supabase
+            .from('scripts')
+            .select('text_content')
+            .eq('id', prevEps.script_id)
+            .single();
+          const prevText = prevScript?.text_content?.slice(0, 3000) || '';
+          previousEpisodeSummary = `Previous Episode "${prevEps.title}" (${prevEps.logline || 'no logline'}):\n${prevText}`;
+        }
+      }
+
       const episodeContext = {
         episodeNumber: episode.episode_number,
         episodeTitle: episode.title,
         episodeLogline: episode.logline,
         totalEpisodes: 1,
         seriesMode: true,
+        previousEpisodeSummary,
       };
 
       await updateEpisodeProgress(episode.id, 'blueprint', 'generating');
