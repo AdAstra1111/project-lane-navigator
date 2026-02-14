@@ -455,14 +455,18 @@ serve(async (req) => {
       // This avoids re-extracting image-based PDFs that already went through OCR.
       const { data: preExtracted } = await adminClient
         .from("project_documents")
-        .select("file_name, file_path, extracted_text, extraction_status, total_pages, pages_analyzed, error_message, char_count")
+        .select("id, file_name, file_path, plaintext, extracted_text, extraction_status, total_pages, pages_analyzed, error_message, char_count")
         .eq("project_id", projectInput.id || "")
         .in("file_path", documentPaths);
 
       const preExtractedMap = new Map<string, any>();
       for (const row of (preExtracted || [])) {
-        if (row.extracted_text && (row.char_count || 0) >= 500) {
-          preExtractedMap.set(row.file_path, row);
+        // Accept pre-extracted text OR plaintext as cached source
+        const usableText = (row.extracted_text && (row.char_count || 0) >= 500)
+          ? row.extracted_text
+          : (row.plaintext && row.plaintext.length >= 50) ? row.plaintext : null;
+        if (usableText) {
+          preExtractedMap.set(row.file_path, { ...row, _usable_text: usableText });
         }
       }
 
@@ -472,8 +476,8 @@ serve(async (req) => {
         // Use pre-extracted text if available and substantial
         const cached = preExtractedMap.get(path);
         if (cached) {
-          console.log(`[analyze] Using pre-extracted text for ${fileName}: ${cached.char_count} chars (source: DB cache)`);
-          const cleanText = (cached.extracted_text || "").replace(/\u0000/g, "");
+          const cleanText = (cached._usable_text || "").replace(/\u0000/g, "");
+          console.log(`[analyze] Using cached text for ${fileName}: ${cleanText.length} chars`);
           docResults.push({
             file_name: cached.file_name || fileName,
             file_path: path,
@@ -494,7 +498,42 @@ serve(async (req) => {
           .download(path);
 
         if (downloadError || !fileData) {
-          console.error(`Failed to download ${path}:`, downloadError);
+          console.warn(`Storage download failed for ${path}:`, downloadError);
+
+          // Fallback: try project_document_versions plaintext
+          const { data: docRow } = await adminClient
+            .from("project_documents")
+            .select("id, file_name")
+            .eq("file_path", path)
+            .limit(1)
+            .maybeSingle();
+
+          if (docRow) {
+            const { data: latestVersion } = await adminClient
+              .from("project_document_versions")
+              .select("plaintext, version_number")
+              .eq("document_id", docRow.id)
+              .order("version_number", { ascending: false })
+              .limit(1)
+              .maybeSingle();
+
+            const versionText = latestVersion?.plaintext?.replace(/\u0000/g, "")?.trim() || "";
+            if (versionText.length > 20) {
+              console.log(`[analyze] Using version plaintext for ${fileName} (v${latestVersion?.version_number}): ${versionText.length} chars`);
+              docResults.push({
+                file_name: docRow.file_name || fileName,
+                file_path: path,
+                extracted_text: versionText,
+                extraction_status: "success",
+                total_pages: Math.ceil(versionText.split(/\s+/).length / WORDS_PER_PAGE),
+                pages_analyzed: null,
+                error_message: null,
+              });
+              combinedText += `\n\n--- ${docRow.file_name || fileName} ---\n${versionText}`;
+              continue;
+            }
+          }
+
           docResults.push({
             file_name: fileName,
             file_path: path,
