@@ -70,15 +70,29 @@ export function PackagingModeSelector({ projectId, currentMode, currentStage = '
   if (compact) {
     return (
       <div className="flex items-center gap-1">
-        <Badge variant="outline" className="text-[10px] gap-1 cursor-default">
-          <Target className="h-2.5 w-2.5" />
-          {PACKAGING_MODE_LABELS[mode]}
-        </Badge>
+        <Select value={mode} onValueChange={handleModeChange} disabled={saving}>
+          <SelectTrigger className="h-6 w-auto min-w-0 border-border/50 bg-transparent px-2 text-[10px] gap-1">
+            <Target className="h-2.5 w-2.5 shrink-0" />
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {(Object.entries(PACKAGING_MODE_LABELS) as [PackagingMode, string][]).map(([val, label]) => (
+              <SelectItem key={val} value={val} className="text-xs">{label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         {showStage && (
-          <Badge variant="outline" className="text-[10px] gap-1 cursor-default">
-            <Milestone className="h-2.5 w-2.5" />
-            {PACKAGING_STAGE_LABELS[stage]}
-          </Badge>
+          <Select value={stage} onValueChange={handleStageChange} disabled={saving}>
+            <SelectTrigger className="h-6 w-auto min-w-0 border-border/50 bg-transparent px-2 text-[10px] gap-1">
+              <Milestone className="h-2.5 w-2.5 shrink-0" />
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {(Object.entries(PACKAGING_STAGE_LABELS) as [PackagingStage, string][]).map(([val, label]) => (
+                <SelectItem key={val} value={val} className="text-xs">{label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         )}
       </div>
     );
