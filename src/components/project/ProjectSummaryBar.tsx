@@ -24,7 +24,7 @@ export function ProjectSummaryBar({ project, readiness, onBestAction }: Props) {
   const formatMeta = getFormatMeta(project.format);
 
   return (
-    <div className="sticky top-0 z-30 bg-background/80 backdrop-blur-lg border-b border-border/40 -mx-4 px-4 py-3 mb-4">
+    <div className="sticky top-0 z-30 bg-background/70 backdrop-blur-2xl border-b border-border/20 -mx-4 px-4 py-2.5 mb-4">
       <div className="flex items-center gap-3 flex-wrap">
         {/* Title + Format */}
         <div className="flex items-center gap-2 min-w-0 shrink">

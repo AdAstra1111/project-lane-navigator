@@ -88,20 +88,20 @@ export default function Auth() {
   };
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex min-h-screen bg-background">
       {/* Left: Form */}
-      <div className="flex flex-1 flex-col items-center justify-center px-6 py-12 lg:px-8">
+      <div className="flex flex-1 flex-col items-center justify-center px-6 py-12 lg:px-12">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5 }}
           className="w-full max-w-sm"
         >
-          <div className="flex items-center gap-3 mb-10">
-            <img src={iffyLogo} alt="IFFY logo" className="h-12 w-12 rounded-lg" />
+          <div className="flex items-center gap-3 mb-12">
+            <img src={iffyLogo} alt="IFFY logo" className="h-10 w-10 rounded-lg ring-1 ring-border/30" />
             <div className="flex flex-col leading-none">
-              <span className="font-display font-bold text-3xl tracking-tight text-foreground">IFFY</span>
-              <span className="text-[10px] text-muted-foreground tracking-widest uppercase">From inception to legacy</span>
+              <span className="font-display font-bold text-2xl tracking-tight text-foreground">IFFY</span>
+              <span className="text-[9px] text-muted-foreground/60 tracking-[0.15em] uppercase">Film Intelligence</span>
             </div>
           </div>
 
@@ -222,16 +222,16 @@ export default function Auth() {
         <img
           src={authBg}
           alt=""
-          className="absolute inset-0 w-full h-full object-cover"
+          className="absolute inset-0 w-full h-full object-cover scale-105"
         />
-        <div className="absolute inset-0 bg-background/40 backdrop-blur-sm" />
-        <div className="relative z-10 max-w-md px-8 text-center">
-          <p className="text-xs font-display uppercase tracking-[0.2em] text-primary mb-3">Intelligent Film Flow & Yield</p>
-          <h2 className="text-3xl font-display font-bold text-foreground mb-4">
+        <div className="absolute inset-0 bg-background/60 backdrop-blur-sm" />
+        <div className="relative z-10 max-w-md px-10 text-center">
+          <p className="text-[10px] font-display uppercase tracking-[0.25em] text-primary/80 mb-4">Intelligent Film Flow & Yield</p>
+          <h2 className="text-2xl font-display font-bold text-foreground mb-3 leading-snug">
             From inception to legacy.
           </h2>
-          <p className="text-muted-foreground text-lg leading-relaxed mb-6">
-            IFFY guides film and TV projects from development through production to monetisation — preserving context, ownership, and financial clarity at every stage.
+          <p className="text-muted-foreground text-base leading-relaxed mb-8">
+            IFFY guides film and TV projects from development through production to monetisation.
           </p>
           <div className="flex flex-col items-center gap-3">
             <Link to="/demo" className="inline-flex items-center gap-2 text-sm font-medium text-primary hover:text-primary/80 transition-colors group">

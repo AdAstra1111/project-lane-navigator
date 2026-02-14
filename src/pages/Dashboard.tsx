@@ -81,13 +81,13 @@ export default function Dashboard() {
       <Header />
       <IntroExperience />
       <GuidedTutorial autoShow />
-      <main className="container py-10">
+      <main className="container py-8">
         <motion.div
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3 }}
         >
-          <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-8">
+          <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-6">
             <div>
               {displayCompany && (
                 <div className="mb-3">
@@ -199,19 +199,19 @@ export default function Dashboard() {
           )}
 
           {isLoading ? (
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {[...Array(3)].map((_, i) => (
-                <div key={i} className="glass-card rounded-lg p-5 animate-pulse">
-                  <div className="h-3 w-16 bg-muted rounded mb-3" />
-                  <div className="h-5 w-40 bg-muted rounded mb-2" />
-                  <div className="h-3 w-28 bg-muted rounded mb-4" />
-                  <div className="h-6 w-24 bg-muted rounded-full" />
+                <div key={i} className="glass-card rounded-xl p-5 animate-pulse">
+                  <div className="h-2.5 w-14 bg-muted rounded mb-3" />
+                  <div className="h-4 w-36 bg-muted rounded mb-2" />
+                  <div className="h-2.5 w-24 bg-muted rounded mb-4" />
+                  <div className="h-5 w-20 bg-muted rounded-full" />
                 </div>
               ))}
             </div>
           ) : filteredProjects.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-24 text-center">
-              <div className="h-16 w-16 rounded-xl bg-muted flex items-center justify-center mb-6">
+              <div className="h-14 w-14 rounded-xl bg-muted/50 flex items-center justify-center mb-6">
                 <Clapperboard className="h-8 w-8 text-muted-foreground" />
               </div>
               <h2 className="text-xl font-display font-semibold text-foreground mb-2">
@@ -236,7 +236,7 @@ export default function Dashboard() {
               {roleView !== 'none' && (
                 <RoleDashboard projects={filteredProjects} role={roleView as any} />
               )}
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {filteredProjects.map((project, i) => (
                   <ProjectCard
                     key={project.id}
