@@ -370,8 +370,14 @@ export default function ProjectDevelopmentEngine() {
                               : 'hover:bg-muted/50 border border-transparent'
                           }`}
                         >
-                          <span className="font-medium">v{v.version_number}</span>
-                          {v.label && <span className="text-muted-foreground ml-1">— {v.label}</span>}
+                          <div className="flex items-center justify-between">
+                            <span className="font-medium">v{v.version_number}</span>
+                            <Badge variant="outline" className="text-[8px] px-1 py-0 border-border">
+                              {new Date(v.created_at).toLocaleDateString()}
+                            </Badge>
+                          </div>
+                          {v.label && <span className="text-muted-foreground text-[10px] block mt-0.5">{v.label}</span>}
+                          {v.change_summary && <span className="text-muted-foreground/60 text-[9px] block mt-0.5 truncate">{v.change_summary}</span>}
                         </button>
                       ))}
                     </div>
@@ -539,13 +545,22 @@ export default function ProjectDevelopmentEngine() {
               ) : (
                 <Tabs value={activeTab} onValueChange={setActiveTab}>
                   <div className="flex items-center justify-between mb-2">
-                    <TabsList className="h-8">
-                      <TabsTrigger value="content" className="text-xs h-7">Content</TabsTrigger>
-                      <TabsTrigger value="scores" className="text-xs h-7">Scores</TabsTrigger>
-                      <TabsTrigger value="notes" className="text-xs h-7">Notes</TabsTrigger>
-                      <TabsTrigger value="rewrite" className="text-xs h-7">Rewrite</TabsTrigger>
-                      <TabsTrigger value="history" className="text-xs h-7">History</TabsTrigger>
-                    </TabsList>
+                    <div className="flex items-center gap-2">
+                      <TabsList className="h-8">
+                        <TabsTrigger value="content" className="text-xs h-7">Content</TabsTrigger>
+                        <TabsTrigger value="scores" className="text-xs h-7">Scores</TabsTrigger>
+                        <TabsTrigger value="notes" className="text-xs h-7">Notes</TabsTrigger>
+                        <TabsTrigger value="rewrite" className="text-xs h-7">Rewrite</TabsTrigger>
+                        <TabsTrigger value="history" className="text-xs h-7">History</TabsTrigger>
+                      </TabsList>
+                      {selectedVersion && (
+                        <Badge variant="outline" className="text-[9px] px-1.5 py-0 border-border gap-1">
+                          <GitBranch className="h-2.5 w-2.5" />
+                          v{selectedVersion.version_number}
+                          {selectedVersion.label ? ` · ${selectedVersion.label}` : ''}
+                        </Badge>
+                      )}
+                    </div>
                     <div className="flex gap-1.5">
                       <Button size="sm" className="h-7 text-xs gap-1" onClick={handleAnalyze} disabled={isLoading || !versionText}>
                         {analyze.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
