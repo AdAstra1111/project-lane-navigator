@@ -182,6 +182,7 @@ export function useDevEngineV2(projectId: string | undefined) {
   // ── Mutations ──
 
   // Resolve versionId at call time: prefer explicit selection, fall back to latest version from DB
+  // If no version exists at all, auto-create one from the document's extracted_text/plaintext
   async function resolveVersionId() {
     if (selectedVersionId) return selectedVersionId;
     if (versions.length > 0) return versions[versions.length - 1].id;
@@ -192,9 +193,32 @@ export function useDevEngineV2(projectId: string | undefined) {
         .select('id')
         .eq('document_id', selectedDocId)
         .order('version_number', { ascending: false })
-        .limit(1)
+        .limit(1);
+      if (data && data.length > 0) return data[0].id as string;
+
+      // No versions exist — auto-create v1 from document text
+      const doc = documents.find(d => d.id === selectedDocId);
+      const text = doc?.extracted_text || doc?.plaintext || '';
+      if (!text) return null;
+
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return null;
+
+      const { data: newVersion, error } = await (supabase as any)
+        .from('project_document_versions')
+        .insert({
+          document_id: selectedDocId,
+          version_number: 1,
+          label: 'v1 (auto)',
+          plaintext: text,
+          created_by: user.id,
+        })
+        .select('id')
         .single();
-      if (data?.id) return data.id as string;
+      if (error || !newVersion) return null;
+      setSelectedVersionId(newVersion.id);
+      invalidateAll();
+      return newVersion.id as string;
     }
     return null;
   }
