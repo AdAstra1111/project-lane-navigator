@@ -116,20 +116,26 @@ Return ONLY valid JSON:
   "commercial_improvements": "what commercial improvements were introduced"
 }`;
 
-const REWRITE_CHUNK_SYSTEM = `You are IFFY, a professional screenplay rewriter. Rewrite this CHUNK of a screenplay applying the approved strategic notes.
+const REWRITE_CHUNK_SYSTEM = `You are rewriting a feature-length screenplay for professional production quality.
 
-Rules:
+GOALS:
+- Improve clarity, precision, pacing, and dramatic impact.
+- Tighten dialogue.
+- Remove redundant phrasing.
+- Strengthen action lines.
+- Maintain professional screenplay formatting.
 - Preserve all PROTECT items absolutely.
-- Do not flatten voice for minor commercial gain.
-- Maintain screenplay format: sluglines, action, dialogue.
-- OUTPUT THE FULL REWRITTEN CHUNK — every scene, every line of dialogue. Do NOT summarize or skip.
 - Maintain perfect continuity with the previous chunk context provided.
 
-CRITICAL LENGTH RULE:
-- Your output MUST be AT LEAST as long as the input chunk. The input chunk's character count will be provided.
-- Do NOT compress, condense, or abbreviate any scenes. If anything, EXPAND scenes slightly.
-- Every scene heading in the input must appear in the output. Every character who speaks must still speak.
-- If your output is shorter than the input, you have failed. Add richer action lines, fuller dialogue, and more vivid description to match or exceed the original length.
+CRITICAL RULES:
+- Do NOT summarize scenes.
+- Do NOT merge scenes.
+- Do NOT remove story beats.
+- Preserve all scene headings (sluglines).
+- Preserve story structure and sequence.
+- The rewritten script must remain feature-length.
+- You may tighten writing within scenes, but the full screenplay must still feel like a complete theatrical feature — not a condensed version.
+- If your rewrite significantly reduces story scope, you are compressing. Do not compress.
 
 Output ONLY the rewritten screenplay text. No JSON, no commentary, no markdown.`;
 
@@ -510,8 +516,7 @@ MATERIAL TO REWRITE:\n${fullText}`;
         ? `\n\nPREVIOUS CHUNK ENDING (for continuity):\n${previousChunkEnding}`
         : "";
 
-      const chunkWordCount = chunkText.split(/\s+/).filter(Boolean).length;
-      const chunkPrompt = `${notesContext}${prevContext}\n\nCHUNK ${chunkIndex + 1} OF ${plan.total_chunks} — Rewrite this section completely, maintaining all scenes and dialogue.\n\nINPUT LENGTH: ${chunkText.length} characters, ~${chunkWordCount} words. Your output MUST be at least ${chunkWordCount} words. Do NOT shorten.\n\n${chunkText}`;
+      const chunkPrompt = `${notesContext}${prevContext}\n\nCHUNK ${chunkIndex + 1} OF ${plan.total_chunks} — Rewrite this section, applying notes while preserving all scenes and story beats:\n\n${chunkText}`;
 
       console.log(`Rewrite chunk ${chunkIndex + 1}/${plan.total_chunks} (${chunkText.length} chars)`);
       const rewrittenChunk = await callAI(
@@ -529,6 +534,34 @@ MATERIAL TO REWRITE:\n${fullText}`;
     if (action === "rewrite-assemble") {
       const { projectId, documentId, versionId, planRunId, assembledText } = body;
       if (!projectId || !documentId || !versionId || !assembledText) throw new Error("projectId, documentId, versionId, assembledText required");
+
+      // ── Global Length Guard ──
+      const { data: sourceVersion } = await supabase.from("project_document_versions")
+        .select("plaintext").eq("id", versionId).single();
+      if (sourceVersion?.plaintext) {
+        const originalLen = sourceVersion.plaintext.length;
+        const newLen = assembledText.length;
+        const minAllowed = Math.floor(originalLen * 0.85);
+        const maxAllowed = Math.floor(originalLen * 1.15);
+        if (newLen < minAllowed) {
+          throw new Error(`Rewrite too compressed (${newLen} vs ${originalLen} chars). Must remain at least 85% of original length.`);
+        }
+        if (newLen > maxAllowed) {
+          throw new Error(`Rewrite excessively expanded (${newLen} vs ${originalLen} chars). Must remain within 115% of original length.`);
+        }
+      }
+
+      // ── Scene Count Validation ──
+      function extractScenes(text: string) {
+        return text.match(/^(INT\.|EXT\.|INT\/EXT\.|I\/E\.).+$/gm) || [];
+      }
+      if (sourceVersion?.plaintext) {
+        const originalScenes = extractScenes(sourceVersion.plaintext);
+        const newScenes = extractScenes(assembledText);
+        if (originalScenes.length > 0 && newScenes.length < originalScenes.length * 0.95) {
+          throw new Error(`Scene loss detected: rewrite has ${newScenes.length} scenes vs original ${originalScenes.length}. Scenes must not drop below 95% of original count.`);
+        }
+      }
 
       const { data: maxRow } = await supabase.from("project_document_versions")
         .select("version_number")
