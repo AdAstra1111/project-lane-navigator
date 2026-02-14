@@ -568,7 +568,7 @@ export default function ProjectDevelopmentEngine() {
                 </Card>
               ) : (
                 <Tabs value={activeTab} onValueChange={setActiveTab}>
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-2 gap-2">
+                  <div className="flex flex-col mb-2 gap-2">
                     <div className="flex items-center gap-2 overflow-x-auto">
                       <TabsList className="h-8">
                         <TabsTrigger value="content" className="text-xs h-7">Content</TabsTrigger>
@@ -585,7 +585,7 @@ export default function ProjectDevelopmentEngine() {
                         </Badge>
                       )}
                     </div>
-                    <div className="flex gap-1.5 shrink-0">
+                    <div className="flex flex-wrap gap-1.5">
                       <Button size="sm" className="h-7 text-xs gap-1" onClick={handleAnalyze} disabled={isLoading || !versionText}>
                         {analyze.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
                         Analyze
