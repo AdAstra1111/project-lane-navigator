@@ -9,6 +9,7 @@ import { CashflowModelPanel } from '@/components/finance/CashflowModelPanel';
 import { ScriptToBudgetPanel } from '@/components/script/ScriptToBudgetPanel';
 import { MultiSeasonFinancePanel } from '@/components/tv/MultiSeasonFinancePanel';
 import { useProjectBudgets } from '@/hooks/useBudgets';
+import { useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import type { Project } from '@/lib/types';
@@ -30,6 +31,7 @@ export function BudgetingLayer({
   const lockedBudget = budgets.find((b: any) => b.status === 'locked');
   const totalBudget = lockedBudget?.total_amount ? Number(lockedBudget.total_amount) : undefined;
   const { addBudget } = useProjectBudgets(projectId);
+  const queryClient = useQueryClient();
 
   const handleScriptBudgetImport = async (lines: { category: string; line_name: string; amount: number }[], estimatedTotal: number) => {
     try {
@@ -72,9 +74,8 @@ export function BudgetingLayer({
       if (lineErr) throw lineErr;
 
       toast.success(`Imported ${lines.length} line items into budget`);
-      // Refresh budgets
-      addBudget.reset();
-      window.location.reload(); // simplest way to refresh all budget queries
+      queryClient.invalidateQueries({ queryKey: ['project-budgets', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['budget-lines'] });
     } catch (err: any) {
       toast.error(err.message || 'Failed to import budget lines');
     }

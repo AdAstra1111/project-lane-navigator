@@ -12,6 +12,7 @@ import { Progress } from '@/components/ui/progress';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   useProjectScenes,
   useShootDays,
@@ -141,6 +142,7 @@ function SceneListPanel({ scenes, isLoading, onExtract, extracting }: {
 
 // ---- Shoot Day Scheduler ----
 function ShootDayScheduler({ projectId, scenes, format, genres, budgetRange }: { projectId: string; scenes: ProjectScene[]; format?: string; genres?: string[]; budgetRange?: string }) {
+  const queryClient = useQueryClient();
   const { shootDays, addShootDay, deleteShootDay } = useShootDays(projectId);
   const { schedule, assignScene, unassignScene } = useSceneSchedule(projectId);
   const [addingDay, setAddingDay] = useState(false);
@@ -210,8 +212,9 @@ function ShootDayScheduler({ projectId, scenes, format, genres, budgetRange }: {
       if (data.warnings?.length) {
         data.warnings.forEach((w: string) => toast.warning(w, { duration: 6000 }));
       }
-      // Reload to refresh all queries
-      setTimeout(() => window.location.reload(), 800);
+      // Refresh queries without page reload
+      queryClient.invalidateQueries({ queryKey: ['shoot-days', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['scene-schedule', projectId] });
     } catch (err: any) {
       toast.error(err.message || 'Auto-scheduling failed');
     } finally {
