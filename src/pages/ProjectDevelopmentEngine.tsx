@@ -742,7 +742,7 @@ export default function ProjectDevelopmentEngine() {
                         </div>
                       </CardHeader>
                       <CardContent className="px-2 pb-2">
-                        <ScrollArea className="max-h-[250px]">
+                        <div className="max-h-[300px] overflow-y-auto">
                           <div className="space-y-1.5 pr-1">
                             {allPrioritizedMoves.map((move: any, i: number) => (
                               <div key={i} className={`flex items-start gap-2 p-2 rounded border transition-colors cursor-pointer ${
@@ -778,7 +778,7 @@ export default function ProjectDevelopmentEngine() {
                               </div>
                             ))}
                           </div>
-                        </ScrollArea>
+                        </div>
                         <div className="mt-2 flex gap-2">
                           <Button size="sm" className="h-7 text-xs gap-1.5 flex-1"
                             onClick={handleRewrite}
