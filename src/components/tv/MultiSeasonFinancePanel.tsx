@@ -78,40 +78,40 @@ export function MultiSeasonFinancePanel({
       {/* Season rows */}
       <div className="space-y-2">
         {computed.map((s, i) => (
-          <div key={i} className="glass-card rounded-lg p-3 flex items-center gap-3 text-sm">
-            <span className="font-display font-bold text-primary w-8">S{s.season}</span>
-            <div className="flex-1 grid grid-cols-4 gap-2">
-              <div>
-                <p className="text-xs text-muted-foreground">Episodes</p>
+          <div key={i} className="glass-card rounded-lg p-4 flex items-center gap-4 text-sm">
+            <span className="font-display font-bold text-primary text-lg w-10 shrink-0">S{s.season}</span>
+            <div className="flex-1 grid grid-cols-4 gap-3">
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground">Episodes</label>
                 <Input
                   type="number"
                   value={s.episodeCount}
                   onChange={e => updateSeason(i, 'episodeCount', parseInt(e.target.value) || 1)}
-                  className="h-7 text-xs"
+                  className="h-9 text-sm font-medium"
                   min={1}
                   max={52}
                 />
               </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Cost / Ep</p>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground">Cost / Ep</label>
                 <Input
                   type="number"
                   value={s.costPerEpisode}
                   onChange={e => updateSeason(i, 'costPerEpisode', parseInt(e.target.value) || 0)}
-                  className="h-7 text-xs"
+                  className="h-9 text-sm font-medium"
                 />
               </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Total Cost</p>
-                <p className="text-foreground font-medium mt-1">{fmt(s.totalCost)}</p>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground">Total Cost</label>
+                <p className="text-foreground font-semibold h-9 flex items-center">{fmt(s.totalCost)}</p>
               </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Revenue Est.</p>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground">Revenue Est.</label>
                 <Input
                   type="number"
                   value={seasons[i].projectedRevenue}
                   onChange={e => updateSeason(i, 'projectedRevenue', parseInt(e.target.value) || 0)}
-                  className="h-7 text-xs"
+                  className="h-9 text-sm font-medium"
                 />
               </div>
             </div>
