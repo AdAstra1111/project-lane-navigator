@@ -39,13 +39,13 @@ export function Header() {
   ];
 
   return (
-    <header className="sticky top-0 z-50 border-b border-border/50 bg-background/80 backdrop-blur-xl">
-      <div className="container flex h-16 items-center justify-between gap-4">
-        <Link to="/dashboard" className="flex items-center gap-2 shrink-0">
-          <img src={iffyLogo} alt="IFFY logo" className="h-12 w-12 rounded-md" />
+    <header className="sticky top-0 z-50 border-b border-border/20 bg-background/70 backdrop-blur-2xl">
+      <div className="container flex h-14 items-center justify-between gap-4">
+        <Link to="/dashboard" className="flex items-center gap-2.5 shrink-0 group">
+          <img src={iffyLogo} alt="IFFY logo" className="h-9 w-9 rounded-lg ring-1 ring-border/30 group-hover:ring-primary/40 transition-all" />
           <div className="flex flex-col leading-none">
-            <span className="font-display font-semibold text-lg tracking-tight text-foreground">IFFY</span>
-            <span className="text-[10px] text-muted-foreground tracking-widest uppercase">Intelligent Film Flow & Yield</span>
+            <span className="font-display font-semibold text-base tracking-tight text-foreground">IFFY</span>
+            <span className="text-[9px] text-muted-foreground/70 tracking-[0.15em] uppercase">Film Intelligence</span>
           </div>
         </Link>
 
@@ -118,10 +118,10 @@ export function Header() {
             variant="outline"
             size="sm"
             onClick={() => navigate('/projects/new')}
-            className="border-border/50 hover:border-primary/50 hover:bg-primary/5"
+            className="border-border/30 hover:border-primary/40 hover:bg-primary/5 text-xs"
           >
-            <Plus className="h-4 w-4 mr-1" />
-            New Project
+            <Plus className="h-3.5 w-3.5 mr-1" />
+            New
           </Button>
           <Button
             variant="ghost"
@@ -146,7 +146,7 @@ export function Header() {
 
       {/* Mobile drawer */}
       {mobileOpen && (
-        <div className="md:hidden border-t border-border/50 bg-background p-4 space-y-1 animate-in slide-in-from-top-2 duration-200">
+        <div className="md:hidden border-t border-border/20 bg-background/95 backdrop-blur-2xl p-4 space-y-1 animate-in slide-in-from-top-2 duration-200">
           <div className="flex items-center gap-2 px-3 py-2.5">
             <ModeToggle />
           </div>

@@ -90,9 +90,9 @@ export function ProjectCard({ project, index, readinessScore, financeReadinessSc
 
       <Link
         to={`/projects/${project.id}`}
-        className={`group block glass-card rounded-lg p-5 transition-all duration-300 hover:border-primary/30 hover:shadow-[0_0_30px_hsl(var(--glow-primary))] ${
-          selected ? 'ring-2 ring-primary/50' : ''
-        } ${project.pinned ? 'border-primary/20' : ''}`}
+        className={`group block glass-card rounded-xl p-5 transition-all duration-300 hover:border-primary/20 hover:shadow-lg hover:shadow-primary/5 ${
+          selected ? 'ring-1 ring-primary/40' : ''
+        } ${project.pinned ? 'border-primary/15' : ''}`}
       >
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1 min-w-0">
