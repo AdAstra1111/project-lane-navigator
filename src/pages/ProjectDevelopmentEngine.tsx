@@ -86,6 +86,9 @@ const DOC_TYPE_LABELS: Record<string, string> = {
   idea: 'Idea', logline: 'Logline', one_pager: 'One-Pager', treatment: 'Treatment',
   script: 'Script', blueprint: 'Blueprint', architecture: 'Architecture',
   notes: 'Notes', outline: 'Outline', deck_text: 'Deck', other: 'Other',
+  concept_brief: 'Concept Brief', market_sheet: 'Market Sheet',
+  character_bible: 'Character Bible', beat_sheet: 'Beat Sheet',
+  production_draft: 'Production Draft', deck: 'Deck', documentary_outline: 'Doc Outline',
 };
 
 // ── Set as Latest Draft Button ──
@@ -159,17 +162,13 @@ export default function ProjectDevelopmentEngine() {
   const rewritePipeline = useRewritePipeline(projectId);
 
   // Controls
-  const [strategicPriority, setStrategicPriority] = useState('BALANCED');
-  const [developmentStage, setDevelopmentStage] = useState('IDEA');
-  const [analysisMode, setAnalysisMode] = useState('DUAL');
-  const [activeTab, setActiveTab] = useState('content');
-  const [targetPages, setTargetPages] = useState(100);
   const [selectedDeliverableType, setSelectedDeliverableType] = useState<DeliverableType>('script');
   // Paste dialog
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteTitle, setPasteTitle] = useState('');
   const [pasteType, setPasteType] = useState('treatment');
   const [pasteText, setPasteText] = useState('');
+  const [targetPages, setTargetPages] = useState(100);
 
   // Notes selection
   const [selectedNotes, setSelectedNotes] = useState<Set<number>>(new Set());
@@ -189,12 +188,19 @@ export default function ProjectDevelopmentEngine() {
     }
   }, [documents, docsLoading, searchParams, importHandled, selectDocument, setSelectedVersionId]);
 
-
-
+  // Auto-set deliverable type from selected doc
+  useEffect(() => {
+    if (selectedDoc?.doc_type) {
+      const mapped = defaultDeliverableForDocType(selectedDoc.doc_type);
+      setSelectedDeliverableType(mapped);
+    }
+  }, [selectedDoc?.doc_type]);
 
   const allPrioritizedMoves = useMemo(() => {
-    if (!latestNotes?.prioritized_moves) return [];
-    return latestNotes.prioritized_moves as any[];
+    // Support both new (actionable_notes) and old (prioritized_moves) format
+    const notes = latestNotes?.actionable_notes || latestNotes?.prioritized_moves;
+    if (!notes) return [];
+    return notes as any[];
   }, [latestNotes]);
 
   // Sync episode duration from project data
@@ -219,18 +225,15 @@ export default function ProjectDevelopmentEngine() {
     setPasteText('');
   };
 
-  const handleAnalyze = () => {
-    // Find previous version for trajectory
+  // Unified engine call — explicit params, no guessing
+  const handleRunEngine = () => {
     const prevVersion = versions.length > 1 ? versions[versions.length - 2] : null;
     analyze.mutate({
-      strategicPriority,
-      developmentStage,
-      analysisMode,
-      previousVersionId: prevVersion?.id,
       deliverableType: selectedDeliverableType,
       developmentBehavior: projectBehavior,
       format: projectFormat,
-      episodeTargetDurationSeconds: project?.episode_target_duration_seconds || undefined,
+      episodeTargetDurationSeconds: (isVerticalDrama || isSeriesFormat) ? episodeDuration : undefined,
+      previousVersionId: prevVersion?.id,
     });
   };
 
@@ -240,15 +243,51 @@ export default function ProjectDevelopmentEngine() {
     const textLength = (selectedVersion?.plaintext || selectedDoc?.plaintext || '').length;
 
     if (textLength > 30000 && selectedDocId && selectedVersionId) {
-      // Use chunked pipeline for long documents
       rewritePipeline.startRewrite(selectedDocId, selectedVersionId, approved, protectItems);
     } else {
-      rewrite.mutate({ approvedNotes: approved, protectItems });
+      rewrite.mutate({
+        approvedNotes: approved,
+        protectItems,
+        deliverableType: selectedDeliverableType,
+        developmentBehavior: projectBehavior,
+        format: projectFormat,
+      });
     }
   };
 
   const versionText = selectedVersion?.plaintext ||
     selectedDoc?.plaintext || selectedDoc?.extracted_text || '';
+
+  // Compute pipeline stage statuses from document runs
+  const pipelineStatuses = useMemo(() => {
+    const statuses: Record<string, PipelineStageStatus> = {};
+    for (const doc of documents) {
+      const dt = doc.doc_type;
+      // Find if any ANALYZE run for this doc has convergence
+      const docRuns = allDocRuns.filter(r => r.document_id === doc.id);
+      const analyzeRuns = docRuns.filter(r => r.run_type === 'ANALYZE');
+      const latestRun = analyzeRuns[analyzeRuns.length - 1];
+      const output = latestRun?.output_json;
+
+      if (output) {
+        const convStatus = output?.convergence?.status || output?.convergence_status;
+        if (convStatus === 'converged' || convStatus === 'Converged' || convStatus === 'Healthy Divergence') {
+          statuses[dt] = 'converged';
+        } else {
+          statuses[dt] = 'in_progress';
+        }
+      } else if (doc.plaintext || doc.extracted_text) {
+        // Has content but no analysis
+        if (!statuses[dt]) statuses[dt] = 'in_progress';
+      }
+    }
+    return statuses;
+  }, [documents, allDocRuns]);
+
+  // Convergence info from latest analysis (support both v2 and v3 shapes)
+  const analysisConvergence = latestAnalysis?.convergence;
+  const isAnalysisConverged = analysisConvergence?.status === 'converged' || convergenceStatus === 'Converged';
+  const nextBestDocument = analysisConvergence?.next_best_document;
 
   return (
     <PageTransition>
@@ -258,16 +297,28 @@ export default function ProjectDevelopmentEngine() {
           {/* Top bar */}
           <div className="flex flex-col gap-2 mb-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 flex-wrap">
                 <Link to={`/projects/${projectId}`} className="text-sm text-muted-foreground hover:text-foreground">
                   ← Project
                 </Link>
                 <h1 className="text-lg font-display font-bold text-foreground">Development Engine</h1>
-                {/* Behavior badge */}
+              </div>
+              {/* Visible badges — always shown */}
+              <div className="flex flex-wrap items-center gap-1.5">
                 <Badge variant="outline" className={`text-[10px] ${BEHAVIOR_COLORS[projectBehavior]}`}>
-                  {BEHAVIOR_LABELS[projectBehavior]}
+                  Behavior: {BEHAVIOR_LABELS[projectBehavior]}
                 </Badge>
-                {/* Convergence badge */}
+                <Badge variant="outline" className="text-[10px] bg-muted/40 text-muted-foreground">
+                  Format: {normalizedFormat}
+                </Badge>
+                <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/30">
+                  Deliverable: {DELIVERABLE_LABELS[selectedDeliverableType]}
+                </Badge>
+                {(isVerticalDrama || isSeriesFormat) && (
+                  <Badge variant="outline" className="text-[10px] bg-muted/40 text-muted-foreground">
+                    {episodeDuration}s / ep
+                  </Badge>
+                )}
                 <Badge variant="outline" className={`text-[10px] ${
                   convergenceStatus === 'Converged' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' :
                   convergenceStatus === 'In Progress' ? 'bg-amber-500/20 text-amber-400 border-amber-500/30' :
@@ -277,87 +328,60 @@ export default function ProjectDevelopmentEngine() {
                   {convergenceStatus}
                 </Badge>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                {/* Deliverable Type selector */}
-                <Select value={selectedDeliverableType} onValueChange={(v) => setSelectedDeliverableType(v as DeliverableType)}>
-                  <SelectTrigger className="h-8 text-xs w-[140px]"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {Object.entries(DELIVERABLE_LABELS).map(([key, label]) => (
-                      <SelectItem key={key} value={key}>{label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select value={strategicPriority} onValueChange={setStrategicPriority}>
-                  <SelectTrigger className="h-8 text-xs w-[130px]"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="PRESTIGE">Prestige</SelectItem>
-                    <SelectItem value="BALANCED">Balanced</SelectItem>
-                    <SelectItem value="COMMERCIAL_EXPANSION">Commercial</SelectItem>
-                    <SelectItem value="CASHFLOW_STABILISATION">Cashflow</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select value={developmentStage} onValueChange={setDevelopmentStage}>
-                  <SelectTrigger className="h-8 text-xs w-[110px]"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="IDEA">Idea</SelectItem>
-                    <SelectItem value="EARLY_DRAFT">Early Draft</SelectItem>
-                    <SelectItem value="REDRAFT">Redraft</SelectItem>
-                    <SelectItem value="PRE_PACKAGING">Pre-Packaging</SelectItem>
-                    <SelectItem value="FINANCE">Finance</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select value={analysisMode} onValueChange={setAnalysisMode}>
-                  <SelectTrigger className="h-8 text-xs w-[100px]"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="DUAL">Dual Analysis</SelectItem>
-                    <SelectItem value="CREATIVE_INTEGRITY">Script Strength Only</SelectItem>
-                    <SelectItem value="GREENLIGHT_ARCHITECT">Finance Readiness Only</SelectItem>
-                  </SelectContent>
-                </Select>
-                {/* Development Behavior selector */}
-                <Select value={projectBehavior} onValueChange={async (v) => {
-                  if (!projectId) return;
-                  await (supabase as any).from('projects').update({ development_behavior: v }).eq('id', projectId);
-                  qc.invalidateQueries({ queryKey: ['dev-engine-project', projectId] });
-                }}>
-                  <SelectTrigger className="h-8 text-xs w-[110px]"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {Object.entries(BEHAVIOR_LABELS).map(([key, label]) => (
-                      <SelectItem key={key} value={key}>{label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {/* Episode duration (series formats) */}
-                {(isVerticalDrama || isSeriesFormat) && (
-                  <div className="flex items-center gap-1">
-                    <Input
-                      type="number"
-                      className="h-8 text-xs w-[70px]"
-                      value={episodeDuration}
-                      onChange={(e) => setEpisodeDuration(Number(e.target.value))}
-                      onBlur={async () => {
-                        if (!projectId || !episodeDuration) return;
-                        await (supabase as any).from('projects').update({ episode_target_duration_seconds: episodeDuration }).eq('id', projectId);
-                        qc.invalidateQueries({ queryKey: ['dev-engine-project', projectId] });
-                      }}
-                      min={30}
-                      max={7200}
-                    />
-                    <span className="text-[10px] text-muted-foreground">s/ep</span>
-                  </div>
-                )}
-              </div>
             </div>
+
+            {/* Settings row — compact */}
+            <div className="flex flex-wrap items-center gap-2">
+              <Select value={selectedDeliverableType} onValueChange={(v) => setSelectedDeliverableType(v as DeliverableType)}>
+                <SelectTrigger className="h-7 text-xs w-[130px]"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {Object.entries(DELIVERABLE_LABELS).map(([key, label]) => (
+                    <SelectItem key={key} value={key}>{label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={projectBehavior} onValueChange={async (v) => {
+                if (!projectId) return;
+                await (supabase as any).from('projects').update({ development_behavior: v }).eq('id', projectId);
+                qc.invalidateQueries({ queryKey: ['dev-engine-project', projectId] });
+              }}>
+                <SelectTrigger className="h-7 text-xs w-[100px]"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {Object.entries(BEHAVIOR_LABELS).map(([key, label]) => (
+                    <SelectItem key={key} value={key}>{label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {(isVerticalDrama || isSeriesFormat) && (
+                <div className="flex items-center gap-1">
+                  <Input
+                    type="number"
+                    className="h-7 text-xs w-[65px]"
+                    value={episodeDuration}
+                    onChange={(e) => setEpisodeDuration(Number(e.target.value))}
+                    onBlur={async () => {
+                      if (!projectId || !episodeDuration) return;
+                      await (supabase as any).from('projects').update({ episode_target_duration_seconds: episodeDuration }).eq('id', projectId);
+                      qc.invalidateQueries({ queryKey: ['dev-engine-project', projectId] });
+                    }}
+                    min={30}
+                    max={7200}
+                  />
+                  <span className="text-[10px] text-muted-foreground">s/ep</span>
+                </div>
+              )}
+            </div>
+
             {/* Deliverable Pipeline */}
             <DeliverablePipeline
-              stageStatuses={{}}
+              stageStatuses={pipelineStatuses}
               activeDeliverable={selectedDeliverableType}
               onStageClick={(dt) => setSelectedDeliverableType(dt)}
             />
           </div>
 
           {/* 3-column layout */}
-          <div className="grid grid-cols-1 md:grid-cols-12 gap-4" style={{ minHeight: 'calc(100vh - 140px)' }}>
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-4" style={{ minHeight: 'calc(100vh - 180px)' }}>
 
             {/* ── LEFT: Document Selector ── */}
             <div className="md:col-span-3 space-y-3">
@@ -380,10 +404,11 @@ export default function ProjectDevelopmentEngine() {
                           <Select value={pasteType} onValueChange={setPasteType}>
                             <SelectTrigger><SelectValue /></SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="idea">Idea</SelectItem>
-                              <SelectItem value="logline">Logline</SelectItem>
+                              {Object.entries(DELIVERABLE_LABELS).map(([key, label]) => (
+                                <SelectItem key={key} value={key}>{label}</SelectItem>
+                              ))}
                               <SelectItem value="treatment">Treatment</SelectItem>
-                              <SelectItem value="script">Script</SelectItem>
+                              <SelectItem value="logline">Logline</SelectItem>
                               <SelectItem value="one_pager">One-Pager</SelectItem>
                               <SelectItem value="outline">Outline</SelectItem>
                               <SelectItem value="other">Other</SelectItem>
@@ -401,7 +426,7 @@ export default function ProjectDevelopmentEngine() {
                   </div>
                 </CardHeader>
                  <CardContent className="px-2 pb-2">
-                  <div className="h-[calc(100vh-320px)] overflow-y-auto">
+                  <div className="h-[calc(100vh-360px)] overflow-y-auto">
                     <div className="space-y-1">
                       {documents.map(doc => (
                         <div
@@ -482,9 +507,6 @@ export default function ProjectDevelopmentEngine() {
                 </Card>
               )}
 
-              {/* Convert button removed — use pipeline bar + Convert button in action bar */}
-
-
               {/* Generate Feature Script Pipeline */}
               {isFeature && selectedDocId && selectedVersionId && (
                 <Card className="border-primary/20">
@@ -521,9 +543,6 @@ export default function ProjectDevelopmentEngine() {
                           <Film className="h-3 w-3" />
                           Generate Feature Script
                         </Button>
-                        <p className="text-[9px] text-muted-foreground text-center">
-                          Plans scenes → writes in batches → assembles full screenplay
-                        </p>
                       </>
                     )}
 
@@ -562,7 +581,6 @@ export default function ProjectDevelopmentEngine() {
                           </div>
                         </div>
 
-                        {/* Progress bar */}
                         {pipeline.totalBatches > 0 && (
                           <div className="space-y-1">
                             <Progress
@@ -605,53 +623,86 @@ export default function ProjectDevelopmentEngine() {
                   </div>
                 </Card>
               ) : (
-                <Tabs value={activeTab} onValueChange={setActiveTab}>
-                  <div className="flex flex-col mb-2 gap-2">
-                    <div className="flex items-center gap-2 overflow-x-auto">
-                      <TabsList className="h-8">
-                        <TabsTrigger value="content" className="text-xs h-7">Content</TabsTrigger>
-                        <TabsTrigger value="scores" className="text-xs h-7">Scores</TabsTrigger>
-                        <TabsTrigger value="notes" className="text-xs h-7">Notes</TabsTrigger>
-                        <TabsTrigger value="rewrite" className="text-xs h-7">Rewrite</TabsTrigger>
-                        <TabsTrigger value="history" className="text-xs h-7">History</TabsTrigger>
-                      </TabsList>
-                      {selectedVersion && (
-                        <Badge variant="outline" className="text-[9px] px-1.5 py-0 border-border gap-1 shrink-0">
-                          <GitBranch className="h-2.5 w-2.5" />
-                          v{selectedVersion.version_number}
-                          {selectedVersion.label ? ` · ${selectedVersion.label}` : ''}
-                        </Badge>
-                      )}
+                <div className="space-y-3">
+                  {/* Version badge */}
+                  {selectedVersion && (
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" className="text-[9px] px-1.5 py-0 border-border gap-1">
+                        <GitBranch className="h-2.5 w-2.5" />
+                        v{selectedVersion.version_number}
+                        {selectedVersion.label ? ` · ${selectedVersion.label}` : ''}
+                      </Badge>
                     </div>
-                    <div className="flex flex-wrap gap-1.5">
-                      <Button size="sm" className="h-7 text-xs gap-1" onClick={handleAnalyze} disabled={isLoading || !versionText}>
-                        {analyze.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
-                        Analyze
-                      </Button>
-                      <Button size="sm" variant="outline" className="h-7 text-xs gap-1"
-                        onClick={() => generateNotes.mutate(undefined)} disabled={isLoading || !latestAnalysis}>
-                        {generateNotes.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Zap className="h-3 w-3" />}
-                        Notes
-                      </Button>
-                      <Button size="sm" variant="outline" className="h-7 text-xs gap-1"
-                        onClick={handleRewrite} disabled={isLoading || rewritePipeline.status !== 'idle' || !latestNotes || selectedNotes.size === 0}>
-                        {(rewrite.isPending || rewritePipeline.status !== 'idle') ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-                        Rewrite
-                      </Button>
-                      <Button size="sm" variant="outline" className="h-7 text-xs gap-1"
-                        onClick={() => convert.mutate({ targetOutput: selectedDeliverableType.toUpperCase(), protectItems: latestAnalysis?.protect })}
-                        disabled={isLoading || !selectedDocId || !selectedVersionId}>
-                        {convert.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <ArrowRight className="h-3 w-3" />}
-                        Convert → {DELIVERABLE_LABELS[selectedDeliverableType]}
-                      </Button>
-                    </div>
+                  )}
+
+                  {/* ── TWO-BUTTON DEVELOPMENT LOOP ── */}
+                  <div className="flex flex-wrap gap-2">
+                    {!isAnalysisConverged ? (
+                      <>
+                        {/* Primary: Run Review (Analyze + Notes in one) or Apply Rewrite */}
+                        {!latestAnalysis ? (
+                          <Button size="sm" className="h-8 text-xs gap-1.5" onClick={handleRunEngine} disabled={isLoading || !versionText}>
+                            {analyze.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
+                            Run Review
+                          </Button>
+                        ) : (
+                          <>
+                            <Button size="sm" className="h-8 text-xs gap-1.5"
+                              onClick={handleRewrite}
+                              disabled={isLoading || rewritePipeline.status !== 'idle' || allPrioritizedMoves.length === 0 || selectedNotes.size === 0}>
+                              {(rewrite.isPending || rewritePipeline.status !== 'idle') ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                              Apply Rewrite
+                            </Button>
+                            <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5" onClick={handleRunEngine} disabled={isLoading}>
+                              {analyze.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                              Run Review Again
+                            </Button>
+                          </>
+                        )}
+                        {/* Notes generation (auto after analyze, but allow manual) */}
+                        {latestAnalysis && !latestNotes && (
+                          <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5"
+                            onClick={() => generateNotes.mutate(undefined)} disabled={isLoading}>
+                            {generateNotes.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Zap className="h-3 w-3" />}
+                            Generate Notes
+                          </Button>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        {/* Converged state */}
+                        <Button size="sm" className="h-8 text-xs gap-1.5 bg-emerald-600 hover:bg-emerald-700"
+                          onClick={() => {
+                            if (nextBestDocument) {
+                              setSelectedDeliverableType(nextBestDocument as DeliverableType);
+                              convert.mutate({ targetOutput: nextBestDocument.toUpperCase(), protectItems: latestAnalysis?.protect });
+                            }
+                          }}
+                          disabled={isLoading || !nextBestDocument}>
+                          <ArrowRight className="h-3 w-3" />
+                          Promote to Next Stage{nextBestDocument ? `: ${DELIVERABLE_LABELS[nextBestDocument as DeliverableType] || nextBestDocument}` : ''}
+                        </Button>
+                        <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5" onClick={handleRunEngine} disabled={isLoading}>
+                          <RefreshCw className="h-3 w-3" />
+                          Run Review Again
+                        </Button>
+                      </>
+                    )}
+                    {/* Convert button — always available as secondary */}
+                    <Button size="sm" variant="ghost" className="h-8 text-xs gap-1.5"
+                      onClick={() => convert.mutate({ targetOutput: selectedDeliverableType.toUpperCase(), protectItems: latestAnalysis?.protect })}
+                      disabled={isLoading || !selectedDocId || !selectedVersionId}>
+                      {convert.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <ArrowRight className="h-3 w-3" />}
+                      Convert → {DELIVERABLE_LABELS[selectedDeliverableType]}
+                    </Button>
                   </div>
-                  <OperationProgress isActive={analyze.isPending} stages={DEV_ANALYZE_STAGES} className="mb-2" />
-                  <OperationProgress isActive={generateNotes.isPending} stages={DEV_NOTES_STAGES} className="mb-2" />
-                  <OperationProgress isActive={rewrite.isPending} stages={DEV_REWRITE_STAGES} className="mb-2" />
-                  <OperationProgress isActive={convert.isPending} stages={DEV_CONVERT_STAGES} className="mb-2" />
+
+                  <OperationProgress isActive={analyze.isPending} stages={DEV_ANALYZE_STAGES} className="mb-1" />
+                  <OperationProgress isActive={generateNotes.isPending} stages={DEV_NOTES_STAGES} className="mb-1" />
+                  <OperationProgress isActive={rewrite.isPending} stages={DEV_REWRITE_STAGES} className="mb-1" />
+                  <OperationProgress isActive={convert.isPending} stages={DEV_CONVERT_STAGES} className="mb-1" />
                   {rewritePipeline.status !== 'idle' && rewritePipeline.status !== 'complete' && (
-                    <div className="mb-2 p-3 rounded-lg border bg-muted/30">
+                    <div className="mb-1 p-3 rounded-lg border bg-muted/30">
                       <div className="flex items-center gap-2 text-sm mb-1">
                         <Loader2 className="h-3 w-3 animate-spin" />
                         <span className="font-medium">
@@ -667,266 +718,38 @@ export default function ProjectDevelopmentEngine() {
                     </div>
                   )}
 
-                  {/* Content tab */}
-                  <TabsContent value="content" className="mt-0">
-                    <Card>
-                      <CardContent className="p-4">
-                        <ScrollArea className="h-[calc(100vh-260px)]">
-                          <pre className="text-sm text-foreground whitespace-pre-wrap font-mono leading-relaxed">
-                            {versionText || 'No content available.'}
-                          </pre>
-                        </ScrollArea>
-                      </CardContent>
-                    </Card>
-                    {selectedDocId && selectedVersionId && versionText && (selectedDeliverableType === 'script' || selectedDeliverableType === 'production_draft') && (
-                      <div className="mt-2">
-                        <FeatureLengthGuardrails
-                          projectId={projectId!}
-                          versionText={versionText}
-                          selectedDocId={selectedDocId}
-                          selectedVersionId={selectedVersionId}
-                        />
-                      </div>
-                    )}
-                    {selectedDocId && selectedVersionId && versionText && (
-                      <div className="mt-2">
-                        <SetAsLatestDraftButton
-                          projectId={projectId}
-                          title={selectedDoc?.title || selectedDoc?.file_name || 'Dev Engine Draft'}
-                          text={versionText}
-                        />
-                      </div>
-                    )}
-                  </TabsContent>
+                  {/* Content area */}
+                  <Card>
+                    <CardContent className="p-4">
+                      <ScrollArea className="h-[calc(100vh-380px)]">
+                        <pre className="text-sm text-foreground whitespace-pre-wrap font-mono leading-relaxed">
+                          {versionText || 'No content available.'}
+                        </pre>
+                      </ScrollArea>
+                    </CardContent>
+                  </Card>
 
-                  {/* Scores tab */}
-                  <TabsContent value="scores" className="mt-0">
-                    <Card>
-                      <CardContent className="p-4 space-y-4">
-                        {latestAnalysis ? (
-                          <>
-                            <ConvergenceGauge
-                              ci={latestAnalysis.ci_score} gp={latestAnalysis.gp_score}
-                              gap={latestAnalysis.gap} status={latestAnalysis.convergence_status}
-                              allowedGap={latestAnalysis.allowed_gap}
-                            />
-                            {latestAnalysis.trajectory && (
-                              <div className="text-center">
-                                <Badge variant={latestAnalysis.trajectory === 'Converging' || latestAnalysis.trajectory === 'Strengthened' ? 'default' : 'secondary'}>
-                                  {latestAnalysis.trajectory}
-                                </Badge>
-                              </div>
-                            )}
-                            <Separator />
-                            <div className="grid grid-cols-2 gap-3">
-                              {latestAnalysis.primary_creative_risk && (
-                                <div className="p-3 rounded-lg bg-amber-500/10 text-sm">
-                                  <p className="text-amber-400 font-medium text-xs mb-1">Creative Risk</p>
-                                  <p className="text-foreground text-xs">{latestAnalysis.primary_creative_risk}</p>
-                                </div>
-                              )}
-                              {latestAnalysis.primary_commercial_risk && (
-                                <div className="p-3 rounded-lg bg-red-500/10 text-sm">
-                                  <p className="text-red-400 font-medium text-xs mb-1">Commercial Risk</p>
-                                  <p className="text-foreground text-xs">{latestAnalysis.primary_commercial_risk}</p>
-                                </div>
-                              )}
-                            </div>
-                            {latestAnalysis.executive_snapshot && (
-                              <div className="p-3 rounded-lg bg-muted/50 text-sm">
-                                <p className="text-foreground">{latestAnalysis.executive_snapshot}</p>
-                              </div>
-                            )}
-                            <Separator />
-                            {/* Protect / Strengthen / Clarify / Elevate / Remove */}
-                            <div className="space-y-3">
-                              {[
-                                { key: 'protect', label: 'Protect', icon: <Shield className="h-3.5 w-3.5 text-emerald-400" />, color: 'text-emerald-400' },
-                                { key: 'strengthen', label: 'Strengthen', icon: <TrendingUp className="h-3.5 w-3.5 text-primary" />, color: 'text-primary' },
-                                { key: 'clarify', label: 'Clarify', icon: <AlertTriangle className="h-3.5 w-3.5 text-amber-400" />, color: 'text-amber-400' },
-                                { key: 'elevate', label: 'Elevate', icon: <ArrowUpRight className="h-3.5 w-3.5 text-purple-400" />, color: 'text-purple-400' },
-                                { key: 'remove', label: 'Remove', icon: <Minus className="h-3.5 w-3.5 text-red-400" />, color: 'text-red-400' },
-                              ].map(cat => {
-                                const items = latestAnalysis[cat.key] || [];
-                                if (!items.length) return null;
-                                return (
-                                  <div key={cat.key}>
-                                    <div className="flex items-center gap-1.5 mb-1">
-                                      {cat.icon}
-                                      <span className={`text-xs font-semibold ${cat.color}`}>{cat.label}</span>
-                                      <Badge variant="secondary" className="text-[9px]">{items.length}</Badge>
-                                    </div>
-                                    <ul className="space-y-1 pl-5">
-                                      {items.map((item: string, i: number) => (
-                                        <li key={i} className="text-xs text-muted-foreground">{item}</li>
-                                      ))}
-                                    </ul>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </>
-                        ) : (
-                          <div className="text-center py-12 text-muted-foreground">
-                            <BarChart3 className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                            <p className="text-sm">No analysis yet. Click "Analyze" to score this version.</p>
-                          </div>
-                        )}
-                      </CardContent>
-                    </Card>
-                  </TabsContent>
-
-                  {/* Notes tab */}
-                  <TabsContent value="notes" className="mt-0">
-                    <Card>
-                      <CardContent className="p-4">
-                        {latestNotes ? (
-                          <div className="space-y-4">
-                            <div className="flex items-center justify-between">
-                              <h3 className="font-display font-semibold text-sm">Strategic Notes</h3>
-                              <div className="flex gap-1">
-                                <Button variant="ghost" size="sm" className="text-xs h-6"
-                                  onClick={() => setSelectedNotes(new Set(allPrioritizedMoves.map((_, i) => i)))}>All</Button>
-                                <Button variant="ghost" size="sm" className="text-xs h-6"
-                                  onClick={() => setSelectedNotes(new Set())}>None</Button>
-                              </div>
-                            </div>
-                            <ScrollArea className="h-[calc(100vh-340px)]">
-                              <div className="space-y-2 pr-2">
-                                {allPrioritizedMoves.map((move: any, i: number) => (
-                                  <div key={i} className="flex items-start gap-2.5 p-2.5 rounded-lg border border-border/50 hover:border-border transition-colors">
-                                    <Checkbox
-                                      checked={selectedNotes.has(i)}
-                                      onCheckedChange={() => {
-                                        setSelectedNotes(prev => {
-                                          const next = new Set(prev);
-                                          if (next.has(i)) next.delete(i); else next.add(i);
-                                          return next;
-                                        });
-                                      }}
-                                      className="mt-0.5"
-                                    />
-                                    <div className="flex-1 min-w-0">
-                                      <div className="flex items-center gap-1.5 mb-1">
-                                        <Badge variant="outline" className="text-[9px]">{move.category}</Badge>
-                                        <Badge variant={move.impact === 'high' ? 'default' : 'secondary'} className="text-[9px]">{move.impact}</Badge>
-                                        {move.convergence_lift && (
-                                          <span className="text-[9px] text-emerald-400">+{move.convergence_lift}</span>
-                                        )}
-                                      </div>
-                                      <p className="text-xs text-foreground leading-relaxed">{move.note}</p>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            </ScrollArea>
-                            <Button className="w-full" size="sm" onClick={handleRewrite}
-                              disabled={isLoading || rewritePipeline.status !== 'idle' || selectedNotes.size === 0}>
-                              {(rewrite.isPending || rewritePipeline.status !== 'idle') ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Sparkles className="h-4 w-4 mr-2" />}
-                              Apply {selectedNotes.size} Notes & Rewrite
-                            </Button>
-                          </div>
-                        ) : (
-                          <div className="text-center py-12 text-muted-foreground">
-                            <Zap className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                            <p className="text-sm">No notes yet. Analyze first, then generate notes.</p>
-                          </div>
-                        )}
-                      </CardContent>
-                    </Card>
-                  </TabsContent>
-
-                  {/* Rewrite tab — shows latest rewrite output */}
-                  <TabsContent value="rewrite" className="mt-0">
-                    <Card>
-                      <CardContent className="p-4">
-                        {(() => {
-                          const rewriteRun = runs.filter(r => r.run_type === 'REWRITE').pop();
-                          if (!rewriteRun) return (
-                            <div className="text-center py-12 text-muted-foreground">
-                              <RefreshCw className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                              <p className="text-sm">No rewrite for this version yet.</p>
-                            </div>
-                          );
-                          const out = rewriteRun.output_json;
-                          return (
-                            <div className="space-y-3">
-                              {out.changes_summary && (
-                                <div className="p-3 rounded-lg bg-muted/50 text-xs">
-                                  <p className="font-medium text-foreground mb-1">Changes</p>
-                                  <p className="text-muted-foreground">{out.changes_summary}</p>
-                                </div>
-                              )}
-                              {out.creative_preserved && (
-                                <div className="p-3 rounded-lg bg-emerald-500/5 text-xs">
-                                  <p className="font-medium text-emerald-400 mb-1">Preserved</p>
-                                  <p className="text-muted-foreground">{out.creative_preserved}</p>
-                                </div>
-                              )}
-                              {out.commercial_improvements && (
-                                <div className="p-3 rounded-lg bg-primary/5 text-xs">
-                                  <p className="font-medium text-primary mb-1">Improvements</p>
-                                  <p className="text-muted-foreground">{out.commercial_improvements}</p>
-                                </div>
-                              )}
-                              <p className="text-xs text-muted-foreground">
-                                The rewrite was saved as a new version. Select it from the version list to view the full text.
-                              </p>
-                            </div>
-                          );
-                        })()}
-                      </CardContent>
-                    </Card>
-                  </TabsContent>
-
-                  {/* History tab */}
-                  <TabsContent value="history" className="mt-0">
-                    <Card>
-                      <CardContent className="p-4 space-y-3">
-                        {allDocRuns.length === 0 ? (
-                          <p className="text-sm text-muted-foreground text-center py-8">No runs yet.</p>
-                        ) : (
-                          <ScrollArea className="h-[calc(100vh-280px)]">
-                            <div className="space-y-2 pr-2">
-                              {allDocRuns.map(run => {
-                                const out = run.output_json || {};
-                                return (
-                                  <div key={run.id} className="p-3 rounded-lg border border-border/50">
-                                    <div className="flex items-center justify-between mb-1.5">
-                                      <Badge variant="outline" className="text-[9px]">{run.run_type}</Badge>
-                                      <span className="text-[9px] text-muted-foreground">
-                                        {new Date(run.created_at).toLocaleString()}
-                                      </span>
-                                    </div>
-                                    {out.ci_score != null && (
-                                      <div className="grid grid-cols-3 gap-2 text-center text-xs">
-                                        <div><span className="text-muted-foreground">SS</span> <span className="font-bold">{out.ci_score}</span></div>
-                                        <div><span className="text-muted-foreground">FR</span> <span className="font-bold">{out.gp_score}</span></div>
-                                        <div><span className="text-muted-foreground">Gap</span> <span className="font-bold">{out.gap}</span></div>
-                                      </div>
-                                    )}
-                                    {out.verdict && (
-                                      <p className="text-[10px] text-center mt-1">
-                                        <Badge variant="secondary" className="text-[9px]">{out.verdict}</Badge>
-                                      </p>
-                                    )}
-                                    {out.changes_summary && (
-                                      <p className="text-[10px] text-muted-foreground mt-1 truncate">{out.changes_summary}</p>
-                                    )}
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </ScrollArea>
-                        )}
-                      </CardContent>
-                    </Card>
-                  </TabsContent>
-                </Tabs>
+                  {/* Feature length guardrails + Set as draft (only for scripts) */}
+                  {selectedDocId && selectedVersionId && versionText && (selectedDeliverableType === 'script' || selectedDeliverableType === 'production_draft') && (
+                    <FeatureLengthGuardrails
+                      projectId={projectId!}
+                      versionText={versionText}
+                      selectedDocId={selectedDocId}
+                      selectedVersionId={selectedVersionId}
+                    />
+                  )}
+                  {selectedDocId && selectedVersionId && versionText && (
+                    <SetAsLatestDraftButton
+                      projectId={projectId}
+                      title={selectedDoc?.title || selectedDoc?.file_name || 'Dev Engine Draft'}
+                      text={versionText}
+                    />
+                  )}
+                </div>
               )}
             </div>
 
-            {/* ── RIGHT: Progress Tracker ── */}
+            {/* ── RIGHT: Analysis & Notes Panel ── */}
             <div className="md:col-span-3 space-y-3">
               {/* Convergence chart */}
               <Card>
@@ -952,41 +775,82 @@ export default function ProjectDevelopmentEngine() {
                 </CardContent>
               </Card>
 
-              {/* Latest scores summary */}
+              {/* Latest scores */}
               {latestAnalysis && (
                 <Card>
                   <CardHeader className="py-2 px-3">
-                    <CardTitle className="text-xs">Latest Scores</CardTitle>
+                    <CardTitle className="text-xs">Scores</CardTitle>
                   </CardHeader>
-                  <CardContent className="px-3 pb-3">
+                  <CardContent className="px-3 pb-3 space-y-3">
                     <ConvergenceGauge
-                      ci={latestAnalysis.ci_score} gp={latestAnalysis.gp_score}
-                      gap={latestAnalysis.gap} status={latestAnalysis.convergence_status}
+                      ci={latestAnalysis.ci_score || latestAnalysis.scores?.ci_score}
+                      gp={latestAnalysis.gp_score || latestAnalysis.scores?.gp_score}
+                      gap={latestAnalysis.gap || latestAnalysis.scores?.gap}
+                      status={latestAnalysis.convergence_status || latestAnalysis.convergence?.status || ''}
                     />
+                    {/* Summary bullets */}
+                    {latestAnalysis.summary && (
+                      <div className="space-y-1 mt-2">
+                        {(latestAnalysis.summary as string[]).slice(0, 5).map((s: string, i: number) => (
+                          <p key={i} className="text-[10px] text-muted-foreground">• {s}</p>
+                        ))}
+                      </div>
+                    )}
+                    {/* Blocking issues */}
+                    {latestAnalysis.blocking_issues?.length > 0 && (
+                      <div className="mt-2 p-2 rounded bg-destructive/10 border border-destructive/20">
+                        <p className="text-[10px] font-semibold text-destructive mb-1">Blocking Issues</p>
+                        {(latestAnalysis.blocking_issues as string[]).map((b: string, i: number) => (
+                          <p key={i} className="text-[10px] text-destructive/80">• {b}</p>
+                        ))}
+                      </div>
+                    )}
+                    {latestAnalysis.executive_snapshot && (
+                      <p className="text-[10px] text-muted-foreground mt-2 italic">{latestAnalysis.executive_snapshot}</p>
+                    )}
                   </CardContent>
                 </Card>
               )}
 
-              {/* Convergence timeline */}
-              {convergenceHistory.length > 0 && (
+              {/* Actionable Notes */}
+              {allPrioritizedMoves.length > 0 && (
                 <Card>
                   <CardHeader className="py-2 px-3">
-                    <CardTitle className="text-xs flex items-center gap-1.5">
-                      <Clock className="h-3 w-3" /> Timeline
-                    </CardTitle>
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-xs">Notes ({allPrioritizedMoves.length})</CardTitle>
+                      <div className="flex gap-1">
+                        <Button variant="ghost" size="sm" className="text-[10px] h-5 px-1.5"
+                          onClick={() => setSelectedNotes(new Set(allPrioritizedMoves.map((_, i) => i)))}>All</Button>
+                        <Button variant="ghost" size="sm" className="text-[10px] h-5 px-1.5"
+                          onClick={() => setSelectedNotes(new Set())}>None</Button>
+                      </div>
+                    </div>
                   </CardHeader>
                   <CardContent className="px-2 pb-2">
-                    <ScrollArea className="h-[200px]">
-                      <div className="space-y-1.5">
-                        {convergenceHistory.slice().reverse().map((pt, i) => (
-                          <div key={pt.id} className="p-2 rounded bg-muted/30 text-[10px]">
-                            <div className="flex justify-between">
-                              <span>SS: {Number(pt.creative_score)} | FR: {Number(pt.greenlight_score)}</span>
-                              <span className="text-muted-foreground">Gap: {Number(pt.gap)}</span>
-                            </div>
-                            <div className="flex justify-between mt-0.5">
-                              <Badge variant="outline" className="text-[8px] px-1 py-0">{pt.convergence_status}</Badge>
-                              {pt.trajectory && <span className="text-muted-foreground">{pt.trajectory}</span>}
+                    <ScrollArea className="h-[calc(100vh-700px)] min-h-[150px]">
+                      <div className="space-y-1.5 pr-1">
+                        {allPrioritizedMoves.map((move: any, i: number) => (
+                          <div key={i} className="flex items-start gap-2 p-2 rounded border border-border/40 hover:border-border transition-colors">
+                            <Checkbox
+                              checked={selectedNotes.has(i)}
+                              onCheckedChange={() => {
+                                setSelectedNotes(prev => {
+                                  const next = new Set(prev);
+                                  if (next.has(i)) next.delete(i); else next.add(i);
+                                  return next;
+                                });
+                              }}
+                              className="mt-0.5 h-3.5 w-3.5"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-1 mb-0.5">
+                                <Badge variant="outline" className="text-[8px] px-1 py-0">{move.category}</Badge>
+                                <Badge variant={move.impact === 'high' ? 'default' : 'secondary'} className="text-[8px] px-1 py-0">{move.impact}</Badge>
+                                {move.convergence_lift && (
+                                  <span className="text-[8px] text-emerald-400">+{move.convergence_lift}</span>
+                                )}
+                              </div>
+                              <p className="text-[10px] text-foreground leading-relaxed">{move.note}</p>
                             </div>
                           </div>
                         ))}
@@ -996,12 +860,47 @@ export default function ProjectDevelopmentEngine() {
                 </Card>
               )}
 
-              {/* Convergence indicator */}
-              {isConverged && (
-                <Card className="border-emerald-500/30">
-                  <CardContent className="p-3 text-center">
-                    <p className="text-sm font-medium text-emerald-400">✓ High Convergence</p>
-                    <p className="text-[10px] text-muted-foreground mt-1">Script Strength ≥ 80, Finance Readiness ≥ 80, Gap within tolerance</p>
+              {/* Rewrite plan preview */}
+              {(latestAnalysis?.rewrite_plan || latestNotes?.rewrite_plan) && (
+                <Card>
+                  <CardHeader className="py-2 px-3">
+                    <CardTitle className="text-xs">Rewrite Plan</CardTitle>
+                  </CardHeader>
+                  <CardContent className="px-3 pb-3">
+                    <div className="space-y-1">
+                      {((latestNotes?.rewrite_plan || latestAnalysis?.rewrite_plan) as string[]).slice(0, 5).map((item: string, i: number) => (
+                        <p key={i} className="text-[10px] text-muted-foreground">• {item}</p>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* History */}
+              {convergenceHistory.length > 0 && (
+                <Card>
+                  <CardHeader className="py-2 px-3">
+                    <CardTitle className="text-xs flex items-center gap-1.5">
+                      <Clock className="h-3 w-3" /> Timeline
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="px-2 pb-2">
+                    <ScrollArea className="h-[150px]">
+                      <div className="space-y-1.5">
+                        {convergenceHistory.slice().reverse().map((pt, i) => (
+                          <div key={pt.id} className="p-2 rounded bg-muted/30 text-[10px]">
+                            <div className="flex justify-between">
+                              <span>SS: {Number(pt.creative_score)} | FR: {Number(pt.greenlight_score)}</span>
+                              <span className="text-muted-foreground">{new Date(pt.created_at).toLocaleDateString()}</span>
+                            </div>
+                            <div className="flex items-center gap-1 mt-0.5">
+                              <Badge variant="outline" className="text-[8px] px-1 py-0">{pt.convergence_status}</Badge>
+                              {pt.trajectory && <span className="text-muted-foreground text-[8px]">{pt.trajectory}</span>}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </ScrollArea>
                   </CardContent>
                 </Card>
               )}
