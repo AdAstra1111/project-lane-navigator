@@ -153,6 +153,7 @@ export default function ProjectDevelopmentEngine() {
     runs, allDocRuns, convergenceHistory,
     latestAnalysis, latestNotes, isConverged, convergenceStatus, isLoading,
     analyze, generateNotes, rewrite, convert, createPaste, deleteDocument,
+    driftEvents, latestDrift, acknowledgeDrift, resolveDrift,
   } = useDevEngineV2(projectId);
 
   // Script pipeline
@@ -172,6 +173,9 @@ export default function ProjectDevelopmentEngine() {
 
   // Notes selection
   const [selectedNotes, setSelectedNotes] = useState<Set<number>>(new Set());
+  // Drift promotion override
+  const [driftOverrideOpen, setDriftOverrideOpen] = useState(false);
+  const hasUnresolvedMajorDrift = latestDrift?.drift_level === 'major' && !latestDrift?.resolved;
 
   // Import landing: auto-select doc/version from query params
   const [importHandled, setImportHandled] = useState(false);
@@ -641,7 +645,71 @@ export default function ProjectDevelopmentEngine() {
                     </div>
                   )}
 
-                  {/* ── TWO-BUTTON DEVELOPMENT LOOP ── */}
+                  {/* ── DRIFT DETECTION BANNER ── */}
+                  {latestDrift && latestDrift.drift_level !== 'none' && !latestDrift.resolved && (
+                    <div className={`p-3 rounded-lg border ${
+                      latestDrift.drift_level === 'major'
+                        ? 'bg-destructive/10 border-destructive/30'
+                        : 'bg-amber-500/10 border-amber-500/30'
+                    }`}>
+                      <div className="flex items-start gap-2">
+                        <AlertTriangle className={`h-4 w-4 mt-0.5 flex-shrink-0 ${
+                          latestDrift.drift_level === 'major' ? 'text-destructive' : 'text-amber-500'
+                        }`} />
+                        <div className="flex-1 min-w-0">
+                          <p className={`text-xs font-semibold ${
+                            latestDrift.drift_level === 'major' ? 'text-destructive' : 'text-amber-500'
+                          }`}>
+                            {latestDrift.drift_level === 'major'
+                              ? 'Major Narrative Pivot Detected'
+                              : 'Structural Drift Detected'}
+                          </p>
+                          <p className="text-[10px] text-muted-foreground mt-0.5">
+                            {latestDrift.drift_level === 'major'
+                              ? 'Core elements differ significantly from previous stage. Reconcile before convergence.'
+                              : 'This document diverges from inherited core elements. Resolve or acknowledge before convergence.'}
+                          </p>
+                          {latestDrift.drift_items && latestDrift.drift_items.length > 0 && (
+                            <div className="mt-1.5 space-y-1">
+                              {latestDrift.drift_items.slice(0, 4).map((item: any, i: number) => (
+                                <div key={i} className="text-[9px] text-muted-foreground flex items-center gap-1">
+                                  <span className="font-medium capitalize">{item.field}:</span>
+                                  <span>{item.similarity}% match</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          <div className="flex flex-wrap gap-1.5 mt-2">
+                            <Button size="sm" variant="outline" className="h-6 text-[10px] px-2"
+                              onClick={() => resolveDrift.mutate({ driftEventId: latestDrift.id, resolutionType: 'reseed' })}
+                              disabled={resolveDrift.isPending}>
+                              Re-seed From Upstream
+                            </Button>
+                            <Button size="sm" variant="outline" className="h-6 text-[10px] px-2"
+                              onClick={() => resolveDrift.mutate({ driftEventId: latestDrift.id, resolutionType: 'intentional_pivot' })}
+                              disabled={resolveDrift.isPending}>
+                              {latestDrift.drift_level === 'major' ? 'Mark Intentional Pivot' : 'Update Upstream'}
+                            </Button>
+                            {latestDrift.drift_level === 'moderate' && !latestDrift.acknowledged && (
+                              <Button size="sm" variant="ghost" className="h-6 text-[10px] px-2"
+                                onClick={() => acknowledgeDrift.mutate(latestDrift.id)}
+                                disabled={acknowledgeDrift.isPending}>
+                                Accept Drift
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  {/* Drift stable indicator */}
+                  {latestDrift && (latestDrift.drift_level === 'none' || latestDrift.resolved) && (
+                    <div className="flex items-center gap-1.5 text-[10px] text-emerald-500">
+                      <Check className="h-3 w-3" />
+                      <span>Upstream Alignment: Stable</span>
+                    </div>
+                  )}
+
                   <div className="flex flex-wrap gap-2">
                     {!isAnalysisConverged ? (
                       <>
@@ -679,6 +747,10 @@ export default function ProjectDevelopmentEngine() {
                         {/* Converged state */}
                         <Button size="sm" className="h-8 text-xs gap-1.5 bg-emerald-600 hover:bg-emerald-700"
                           onClick={() => {
+                            if (hasUnresolvedMajorDrift) {
+                              setDriftOverrideOpen(true);
+                              return;
+                            }
                             if (nextBestDocument) {
                               setSelectedDeliverableType(nextBestDocument as DeliverableType);
                               convert.mutate({ targetOutput: nextBestDocument.toUpperCase(), protectItems: latestAnalysis?.protect });
@@ -687,6 +759,7 @@ export default function ProjectDevelopmentEngine() {
                           disabled={isLoading || !nextBestDocument}>
                           <ArrowRight className="h-3 w-3" />
                           Promote to Next Stage{nextBestDocument ? `: ${DELIVERABLE_LABELS[nextBestDocument as DeliverableType] || nextBestDocument}` : ''}
+                          {hasUnresolvedMajorDrift && <AlertTriangle className="h-3 w-3 text-amber-400" />}
                         </Button>
                         <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5" onClick={handleRunEngine} disabled={isLoading}>
                           <RefreshCw className="h-3 w-3" />
@@ -981,6 +1054,47 @@ export default function ProjectDevelopmentEngine() {
           </div>
         </div>
       </div>
+
+      {/* Drift Override Confirmation Dialog */}
+      <Dialog open={driftOverrideOpen} onOpenChange={setDriftOverrideOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="h-5 w-5" />
+              Unresolved Major Drift
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Unresolved major structural drift detected. Proceeding may cause structural instability
+              in downstream documents.
+            </p>
+            {latestDrift?.drift_items && (
+              <div className="p-2 rounded bg-destructive/5 border border-destructive/20 space-y-1">
+                {latestDrift.drift_items.slice(0, 5).map((item: any, i: number) => (
+                  <p key={i} className="text-[10px] text-muted-foreground">
+                    <span className="font-medium capitalize">{item.field}</span>: {item.similarity}% match
+                  </p>
+                ))}
+              </div>
+            )}
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" size="sm" onClick={() => setDriftOverrideOpen(false)}>
+                Cancel
+              </Button>
+              <Button variant="destructive" size="sm" onClick={() => {
+                setDriftOverrideOpen(false);
+                if (nextBestDocument) {
+                  setSelectedDeliverableType(nextBestDocument as DeliverableType);
+                  convert.mutate({ targetOutput: nextBestDocument.toUpperCase(), protectItems: latestAnalysis?.protect });
+                }
+              }}>
+                Promote Anyway
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </PageTransition>
   );
 }

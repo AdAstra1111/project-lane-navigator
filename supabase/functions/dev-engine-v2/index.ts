@@ -162,7 +162,17 @@ Return ONLY valid JSON matching this EXACT schema:
   "executive_snapshot": "2-3 sentence strategic summary",
   "trajectory": null or "Converging" | "Eroding" | "Stalled" | "Strengthened" | "Over-Optimised",
   "primary_creative_risk": "one sentence",
-  "primary_commercial_risk": "one sentence"
+  "primary_commercial_risk": "one sentence",
+  "extracted_core": {
+    "protagonist": "main character name and one-line description",
+    "antagonist": "antagonist or opposing force",
+    "stakes": "what is at stake",
+    "midpoint": "key midpoint event",
+    "climax": "climactic moment",
+    "tone": "overall tone",
+    "audience": "target audience",
+    "genre": "primary genre"
+  }
 }`;
 }
 
@@ -347,6 +357,63 @@ At the very end, on a new line, write:
 followed by a brief list of what was fixed (or "No issues found").`;
 
 // ═══════════════════════════════════════════════════════════════
+// DRIFT DETECTION
+// ═══════════════════════════════════════════════════════════════
+
+const CORE_FIELDS = ["protagonist", "antagonist", "stakes", "midpoint", "climax", "tone", "audience", "genre"] as const;
+
+function textSimilarity(a: string, b: string): number {
+  if (!a || !b) return 0;
+  const wordsA = new Set(a.toLowerCase().split(/\s+/).filter(w => w.length > 2));
+  const wordsB = new Set(b.toLowerCase().split(/\s+/).filter(w => w.length > 2));
+  if (wordsA.size === 0 && wordsB.size === 0) return 100;
+  if (wordsA.size === 0 || wordsB.size === 0) return 0;
+  let overlap = 0;
+  for (const w of wordsA) { if (wordsB.has(w)) overlap++; }
+  const union = new Set([...wordsA, ...wordsB]).size;
+  return Math.round((overlap / union) * 100);
+}
+
+function detectDrift(currentCore: Record<string, string>, inheritedCore: Record<string, string>): { level: string; items: Array<{ field: string; similarity: number; inherited: string; current: string }> } {
+  const items: Array<{ field: string; similarity: number; inherited: string; current: string }> = [];
+  let hasIdentityChange = false;
+
+  for (const field of CORE_FIELDS) {
+    const inherited = inheritedCore[field] || "";
+    const current = currentCore[field] || "";
+    if (!inherited && !current) continue;
+    const sim = textSimilarity(inherited, current);
+    if (sim < 85) {
+      items.push({ field, similarity: sim, inherited, current });
+      if (["protagonist", "antagonist", "stakes"].includes(field) && sim < 40) {
+        hasIdentityChange = true;
+      }
+    }
+  }
+
+  if (items.length === 0) return { level: "none", items: [] };
+  const avgSim = items.reduce((s, i) => s + i.similarity, 0) / items.length;
+  if (avgSim < 60 || hasIdentityChange) return { level: "major", items };
+  return { level: "moderate", items };
+}
+
+function extractCoreFromText(text: string): Record<string, string> {
+  // Simple heuristic extraction — will be enhanced by AI in analyze
+  const lower = text.toLowerCase();
+  const lines = text.split("\n").filter(l => l.trim());
+  return {
+    protagonist: "",
+    antagonist: "",
+    stakes: "",
+    midpoint: "",
+    climax: "",
+    tone: "",
+    audience: "",
+    genre: "",
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════
 // FORMAT HELPERS
 // ═══════════════════════════════════════════════════════════════
 
@@ -511,6 +578,54 @@ ${version.plaintext.slice(0, 25000)}`;
         convergence_status: parsed.convergence?.status || parsed.convergence_status || "Unknown",
         trajectory: parsed.trajectory,
       });
+
+      // ── DRIFT DETECTION ──
+      const extractedCore = parsed.extracted_core || {};
+      let driftReport: any = { level: "none", items: [], acknowledged: false, resolved: false };
+
+      // Get inherited_core from version
+      const { data: versionMeta } = await supabase.from("project_document_versions")
+        .select("inherited_core").eq("id", versionId).single();
+
+      if (versionMeta?.inherited_core) {
+        const drift = detectDrift(extractedCore, versionMeta.inherited_core as Record<string, string>);
+        driftReport = { ...drift, acknowledged: false, resolved: false };
+
+        if (drift.level !== "none") {
+          // Store drift event
+          await supabase.from("document_drift_events").insert({
+            project_id: projectId,
+            document_version_id: versionId,
+            drift_level: drift.level,
+            drift_items: drift.items,
+          });
+        }
+
+        // Store drift snapshot on version
+        await supabase.from("project_document_versions")
+          .update({ drift_snapshot: driftReport })
+          .eq("id", versionId);
+
+        // Drift-aware convergence: modify status if unresolved
+        if (drift.level === "major") {
+          if (parsed.convergence) {
+            parsed.convergence.status = "in_progress";
+            parsed.convergence.reasons = [...(parsed.convergence.reasons || []), "Unresolved major structural drift detected"];
+          }
+        } else if (drift.level === "moderate") {
+          if (parsed.convergence?.status === "converged") {
+            parsed.convergence.status = "in_progress";
+            parsed.convergence.reasons = [...(parsed.convergence.reasons || []), "Unacknowledged moderate drift requires resolution"];
+          }
+        }
+      }
+
+      // Store extracted core on version for future drift comparisons
+      await supabase.from("project_document_versions")
+        .update({ drift_snapshot: { ...driftReport, extracted_core: extractedCore } })
+        .eq("id", versionId);
+
+      parsed.drift_report = driftReport;
 
       return new Response(JSON.stringify({ run, analysis: parsed }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -877,6 +992,11 @@ MATERIAL:\n${version.plaintext.slice(0, 20000)}`;
       }).select().single();
       if (dErr) throw dErr;
 
+      // Get upstream drift snapshot for inherited_core
+      const { data: upstreamVersion } = await supabase.from("project_document_versions")
+        .select("drift_snapshot").eq("id", versionId).single();
+      const upstreamCore = (upstreamVersion?.drift_snapshot as any)?.extracted_core || {};
+
       const { data: newVersion } = await supabase.from("project_document_versions").insert({
         document_id: newDoc.id,
         version_number: 1,
@@ -884,6 +1004,8 @@ MATERIAL:\n${version.plaintext.slice(0, 20000)}`;
         plaintext: parsed.converted_text || "",
         created_by: user.id,
         change_summary: parsed.change_summary || "",
+        inherited_core: upstreamCore,
+        source_document_ids: [documentId],
       }).select().single();
 
       await supabase.from("development_runs").insert({
@@ -1200,6 +1322,67 @@ Output ONLY the expanded screenplay text. No JSON, no commentary, no markdown.`;
         estimatedMinutes: Math.round(expandedMins),
         wordCount: expandedWords,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ══════════════════════════════════════════════
+    // DRIFT RESOLUTION ACTIONS
+    // ══════════════════════════════════════════════
+    if (action === "drift-acknowledge") {
+      const { driftEventId } = body;
+      if (!driftEventId) throw new Error("driftEventId required");
+      const { error } = await supabase.from("document_drift_events")
+        .update({ acknowledged: true })
+        .eq("id", driftEventId);
+      if (error) throw error;
+      return new Response(JSON.stringify({ success: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "drift-resolve") {
+      const { driftEventId, resolutionType, versionId: targetVersionId } = body;
+      if (!driftEventId || !resolutionType) throw new Error("driftEventId and resolutionType required");
+
+      if (resolutionType === "accept_drift") {
+        // Accept drift — just mark acknowledged
+        await supabase.from("document_drift_events")
+          .update({ acknowledged: true, resolved: false, resolution_type: "accept_drift" })
+          .eq("id", driftEventId);
+      } else if (resolutionType === "intentional_pivot") {
+        // Mark as intentional — update inherited_core to current core
+        const { data: event } = await supabase.from("document_drift_events")
+          .select("document_version_id").eq("id", driftEventId).single();
+        if (event) {
+          const { data: verData } = await supabase.from("project_document_versions")
+            .select("drift_snapshot").eq("id", event.document_version_id).single();
+          const currentCore = (verData?.drift_snapshot as any)?.extracted_core || {};
+          await supabase.from("project_document_versions")
+            .update({ inherited_core: currentCore })
+            .eq("id", event.document_version_id);
+        }
+        await supabase.from("document_drift_events")
+          .update({ resolved: true, resolved_at: new Date().toISOString(), resolved_by: user.id, resolution_type: "intentional_pivot" })
+          .eq("id", driftEventId);
+      } else if (resolutionType === "reseed") {
+        // Re-seed: replace inherited fields in current version
+        const { data: event } = await supabase.from("document_drift_events")
+          .select("document_version_id").eq("id", driftEventId).single();
+        if (event) {
+          const { data: verData } = await supabase.from("project_document_versions")
+            .select("inherited_core, drift_snapshot").eq("id", event.document_version_id).single();
+          // Reset drift snapshot to reflect alignment
+          await supabase.from("project_document_versions")
+            .update({ drift_snapshot: { level: "none", items: [], acknowledged: false, resolved: true, extracted_core: verData?.inherited_core } })
+            .eq("id", event.document_version_id);
+        }
+        await supabase.from("document_drift_events")
+          .update({ resolved: true, resolved_at: new Date().toISOString(), resolved_by: user.id, resolution_type: "reseed" })
+          .eq("id", driftEventId);
+      }
+
+      return new Response(JSON.stringify({ success: true, resolutionType }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     throw new Error(`Unknown action: ${action}`);
