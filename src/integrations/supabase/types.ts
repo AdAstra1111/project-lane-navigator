@@ -2136,6 +2136,54 @@ export type Database = {
           },
         ]
       }
+      development_branches: {
+        Row: {
+          branch_name: string
+          branch_type: string
+          created_at: string
+          id: string
+          parent_branch_id: string | null
+          project_id: string
+          status: string
+          user_id: string
+        }
+        Insert: {
+          branch_name?: string
+          branch_type?: string
+          created_at?: string
+          id?: string
+          parent_branch_id?: string | null
+          project_id: string
+          status?: string
+          user_id: string
+        }
+        Update: {
+          branch_name?: string
+          branch_type?: string
+          created_at?: string
+          id?: string
+          parent_branch_id?: string | null
+          project_id?: string
+          status?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "development_branches_parent_branch_id_fkey"
+            columns: ["parent_branch_id"]
+            isOneToOne: false
+            referencedRelation: "development_branches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "development_branches_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       development_briefs: {
         Row: {
           audience_demo: string | null
@@ -5423,6 +5471,7 @@ export type Database = {
       }
       project_document_versions: {
         Row: {
+          branch_id: string | null
           change_summary: string | null
           created_at: string
           created_by: string
@@ -5439,6 +5488,7 @@ export type Database = {
           version_number: number
         }
         Insert: {
+          branch_id?: string | null
           change_summary?: string | null
           created_at?: string
           created_by: string
@@ -5455,6 +5505,7 @@ export type Database = {
           version_number?: number
         }
         Update: {
+          branch_id?: string | null
           change_summary?: string | null
           created_at?: string
           created_by?: string
@@ -5471,6 +5522,13 @@ export type Database = {
           version_number?: number
         }
         Relationships: [
+          {
+            foreignKeyName: "project_document_versions_branch_id_fkey"
+            columns: ["branch_id"]
+            isOneToOne: false
+            referencedRelation: "development_branches"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "project_document_versions_document_id_fkey"
             columns: ["document_id"]
@@ -6646,6 +6704,7 @@ export type Database = {
           ui_mode_override: string | null
           updated_at: string
           user_id: string
+          vertical_engine_weights: Json | null
           viability_breakdown: Json | null
         }
         Insert: {
@@ -6689,6 +6748,7 @@ export type Database = {
           ui_mode_override?: string | null
           updated_at?: string
           user_id: string
+          vertical_engine_weights?: Json | null
           viability_breakdown?: Json | null
         }
         Update: {
@@ -6732,6 +6792,7 @@ export type Database = {
           ui_mode_override?: string | null
           updated_at?: string
           user_id?: string
+          vertical_engine_weights?: Json | null
           viability_breakdown?: Json | null
         }
         Relationships: [

@@ -148,13 +148,13 @@ Return ONLY valid JSON matching this EXACT schema:
     "allowed_gap": number
   },
   "blocking_issues": [
-    {"id": "unique_stable_key", "category": "structural|character|escalation|lane|packaging|risk|pacing|hook|cliffhanger", "description": "...", "why_it_matters": "...", "severity": "blocker"}
+    {"id": "unique_stable_key", "note_key": "same_as_id", "category": "structural|character|escalation|lane|packaging|risk|pacing|hook|cliffhanger", "description": "...", "why_it_matters": "...", "severity": "blocker"}
   ],
   "high_impact_notes": [
-    {"id": "unique_stable_key", "category": "structural|character|escalation|lane|packaging|risk|pacing|hook|cliffhanger", "description": "...", "why_it_matters": "...", "severity": "high"}
+    {"id": "unique_stable_key", "note_key": "same_as_id", "category": "structural|character|escalation|lane|packaging|risk|pacing|hook|cliffhanger", "description": "...", "why_it_matters": "...", "severity": "high"}
   ],
   "polish_notes": [
-    {"id": "unique_stable_key", "category": "structural|character|escalation|lane|packaging|risk|pacing|hook|cliffhanger", "description": "...", "why_it_matters": "...", "severity": "polish"}
+    {"id": "unique_stable_key", "note_key": "same_as_id", "category": "structural|character|escalation|lane|packaging|risk|pacing|hook|cliffhanger", "description": "...", "why_it_matters": "...", "severity": "polish"}
   ],
   "rewrite_plan": ["what will change in next rewrite — max 5 items"],
   "convergence": {
@@ -184,10 +184,11 @@ Return ONLY valid JSON matching this EXACT schema:
 }
 
 RULES FOR NOTE GENERATION:
-- Each note id MUST be a stable, descriptive key (e.g. "weak_act2_midpoint", "flat_protagonist_arc"). Use consistent keys across runs.
+- Each note id and note_key MUST be identical, stable, descriptive snake_case keys (e.g. "weak_act2_midpoint", "flat_protagonist_arc"). Use consistent keys across runs.
 - blocking_issues: ONLY items that fundamentally prevent the document from working. Max 5. These gate convergence.
-- high_impact_notes: Significant improvements but do NOT block convergence. Max 8.
+- high_impact_notes: Significant improvements but do NOT block convergence. Max 5.
 - polish_notes: Optional refinements. NEVER block convergence. Max 5.
+- If an existing note_key persists, refer to it by the same key — do NOT rephrase the same issue under a new key.
 - Once blockers reach zero, do NOT invent new blockers unless drift or regression is detected.
 - If high_impact_notes <= 3 AND polish_notes <= 5 AND blockers == 0, set convergence.status to "converged".
 - CONVERGENCE RULE: convergence.status = "converged" if and only if blocking_issues is empty.`;
@@ -633,6 +634,16 @@ ${version.plaintext.slice(0, 25000)}`;
         }
       }
 
+      // Enforce caps: max 5 per tier
+      if (parsed.blocking_issues && parsed.blocking_issues.length > 5) parsed.blocking_issues = parsed.blocking_issues.slice(0, 5);
+      if (parsed.high_impact_notes && parsed.high_impact_notes.length > 5) parsed.high_impact_notes = parsed.high_impact_notes.slice(0, 5);
+      if (parsed.polish_notes && parsed.polish_notes.length > 5) parsed.polish_notes = parsed.polish_notes.slice(0, 5);
+
+      // Ensure note_key = id for all notes
+      for (const arr of [parsed.blocking_issues, parsed.high_impact_notes, parsed.polish_notes]) {
+        if (arr) for (const n of arr) { if (!n.note_key) n.note_key = n.id; if (!n.id) n.id = n.note_key; }
+      }
+
       // Blocker-based convergence override: blockers gate convergence, not high/polish
       const blockerCount = (parsed.blocking_issues || []).length;
       const highCount = (parsed.high_impact_notes || []).length;
@@ -801,12 +812,13 @@ Return ONLY valid JSON:
 }
 
 RULES:
-- Each id must be a stable, descriptive snake_case key (e.g. "weak_act2_midpoint").
+- Each id and note_key must be identical, stable, descriptive snake_case keys (e.g. "weak_act2_midpoint").
 - blocking_issues: ONLY items fundamentally preventing the document from working. Max 5.
-- high_impact_notes: Significant but non-blocking improvements. Max 8.
+- high_impact_notes: Significant but non-blocking improvements. Max 5.
 - polish_notes: Optional refinements. Max 5.
 - Sort within each tier by structural importance.
-- Do NOT re-raise previously resolved issues as blockers.${antiRepeatRule}`;
+- Do NOT re-raise previously resolved issues as blockers.
+- If an existing note_key persists, use the same key — do NOT rephrase under a new key.${antiRepeatRule}`;
 
       const userPrompt = `ANALYSIS:\n${JSON.stringify(analysis)}\n\nMATERIAL:\n${version.plaintext.slice(0, 12000)}`;
       const raw = await callAI(LOVABLE_API_KEY, PRO_MODEL, notesSystem, userPrompt, 0.25, 6000);
@@ -1613,6 +1625,211 @@ Output ONLY the expanded screenplay text. No JSON, no commentary, no markdown.`;
       return new Response(JSON.stringify({ success: true, resolutionType }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+
+    // ══════════════════════════════════════════════
+    // ENGINE WEIGHT RECOMMENDATION (Step 3)
+    // ══════════════════════════════════════════════
+    if (action === "recommend-weights") {
+      const { projectId } = body;
+      if (!projectId) throw new Error("projectId required");
+
+      const { data: project } = await supabase.from("projects")
+        .select("title, format, genres, tone, target_audience, budget_range, assigned_lane")
+        .eq("id", projectId).single();
+      if (!project) throw new Error("Project not found");
+
+      const { data: conceptDocs } = await supabase.from("project_documents")
+        .select("plaintext, extracted_text")
+        .eq("project_id", projectId)
+        .in("doc_type", ["concept_brief", "idea", "treatment", "blueprint"])
+        .order("created_at", { ascending: false })
+        .limit(1);
+      const conceptText = conceptDocs?.[0]?.plaintext || conceptDocs?.[0]?.extracted_text || "";
+
+      const weightSystem = `You are IFFY. Analyze the project concept and recommend Vertical Drama engine weights.
+
+The 5 engines are:
+- power_conflict: Power struggles, authority clashes, corporate politics
+- romantic_tension: Love triangles, forbidden attraction, emotional manipulation
+- thriller_mystery: Suspense, secrets, reveals, investigation
+- revenge_arc: Payback, justice, escalating retaliation
+- social_exposure: Public shame, viral moments, reputation destruction
+
+Weights must total exactly 100.
+
+Return ONLY valid JSON:
+{
+  "compatibility": {"power_conflict": 0-100, "romantic_tension": 0-100, "thriller_mystery": 0-100, "revenge_arc": 0-100, "social_exposure": 0-100},
+  "recommended_weights": {"power_conflict": number, "romantic_tension": number, "thriller_mystery": number, "revenge_arc": number, "social_exposure": number},
+  "rationale": ["max 5 bullets"],
+  "example_cliffs": ["3-6 example cliffhangers"],
+  "suggested_escalation_style": ["max 3 bullets"]
+}`;
+
+      const userPrompt = `PROJECT: ${project.title}\nGENRES: ${(project.genres || []).join(", ")}\nTONE: ${project.tone || "Unknown"}\nAUDIENCE: ${project.target_audience || "Unknown"}\nLANE: ${project.assigned_lane || "Unknown"}\n\nCONCEPT:\n${conceptText.slice(0, 8000)}`;
+      const raw = await callAI(LOVABLE_API_KEY, BALANCED_MODEL, weightSystem, userPrompt, 0.3, 4000);
+      const parsed = await parseAIJson(LOVABLE_API_KEY, raw);
+
+      return new Response(JSON.stringify({ recommendation: parsed }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "save-weights") {
+      const { projectId, weights } = body;
+      if (!projectId || !weights) throw new Error("projectId and weights required");
+      const total = Object.values(weights).reduce((s: number, v: any) => s + Number(v), 0);
+      if (Math.abs(total - 100) > 1) throw new Error(`Weights must total 100 (got ${total})`);
+      await supabase.from("projects").update({ vertical_engine_weights: weights }).eq("id", projectId);
+      return new Response(JSON.stringify({ success: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ══════════════════════════════════════════════
+    // GENERATE EPISODE GRID (Step 6)
+    // ══════════════════════════════════════════════
+    if (action === "generate-grid") {
+      const { projectId } = body;
+      if (!projectId) throw new Error("projectId required");
+
+      const { data: project } = await supabase.from("projects")
+        .select("season_episode_count, episode_target_duration_seconds, vertical_engine_weights, development_behavior")
+        .eq("id", projectId).single();
+      if (!project) throw new Error("Project not found");
+
+      const E = (project as any).season_episode_count;
+      const duration = project.episode_target_duration_seconds;
+      const weights = (project as any).vertical_engine_weights || { power_conflict: 20, romantic_tension: 20, thriller_mystery: 20, revenge_arc: 20, social_exposure: 20 };
+
+      if (!E || !duration) throw new Error("season_episode_count and episode_target_duration_seconds required");
+
+      // Compute season architecture
+      let arch: any;
+      if (E >= 10) {
+        const actSize = Math.floor(E * 0.2);
+        const remainder = E - actSize * 5;
+        const acts: any[] = [];
+        let cursor = 1;
+        for (let a = 1; a <= 5; a++) {
+          const extra = a > (5 - remainder) ? 1 : 0;
+          const count = actSize + extra;
+          acts.push({ act: a, start_episode: cursor, end_episode: cursor + count - 1, episode_count: count });
+          cursor += count;
+        }
+        arch = { model: "5-act", episode_count: E, acts, anchors: { reveal_index: Math.round(E * 0.25), mid_index: Math.round(E * 0.50), pre_finale_index: Math.round(E * 0.80), finale_index: E } };
+      } else {
+        const act1 = Math.round(E * 0.3); const act3 = Math.round(E * 0.3); const act2 = E - act1 - act3;
+        arch = { model: "3-act", episode_count: E, acts: [
+          { act: 1, start_episode: 1, end_episode: act1, episode_count: act1 },
+          { act: 2, start_episode: act1 + 1, end_episode: act1 + act2, episode_count: act2 },
+          { act: 3, start_episode: act1 + act2 + 1, end_episode: E, episode_count: act3 },
+        ], anchors: { reveal_index: Math.round(E * 0.33), mid_index: Math.round(E * 0.55), finale_index: E } };
+      }
+
+      const beatMin = duration <= 90 ? 3 : duration <= 120 ? 4 : duration <= 150 ? 5 : duration <= 180 ? 6 : 7;
+      const engines = Object.keys(weights) as string[];
+      const weightValues = engines.map(k => weights[k] as number);
+      const totalWeight = weightValues.reduce((s, v) => s + v, 0);
+
+      // Build cliff type pool proportional to weights, then distribute
+      const cliffPool: string[] = [];
+      for (let i = 0; i < engines.length; i++) {
+        const count = Math.max(1, Math.round((weightValues[i] / totalWeight) * E));
+        for (let j = 0; j < count; j++) cliffPool.push(engines[i]);
+      }
+      while (cliffPool.length > E) cliffPool.pop();
+      while (cliffPool.length < E) cliffPool.push(engines[0]);
+      for (let i = cliffPool.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [cliffPool[i], cliffPool[j]] = [cliffPool[j], cliffPool[i]];
+      }
+
+      const grid = [];
+      for (let ep = 1; ep <= E; ep++) {
+        const act = arch.acts.find((a: any) => ep >= a.start_episode && ep <= a.end_episode);
+        const progress = ep / E;
+        let intensity = progress > 0.75 ? 1.0 : progress > 0.5 ? 0.7 : progress > 0.25 ? 0.4 : 0.2;
+        if (ep === arch.anchors.mid_index || ep === arch.anchors.pre_finale_index) intensity = Math.min(1.0, intensity + 0.2);
+        if (ep === arch.anchors.finale_index) intensity = 1.0;
+        intensity = Math.round(intensity * 10) / 10;
+
+        let cliff_tier = "soft";
+        if (ep === arch.anchors.finale_index) cliff_tier = "ultimate";
+        else if (ep === arch.anchors.mid_index || ep === arch.anchors.pre_finale_index) cliff_tier = "hard";
+        else if (progress > 0.5) cliff_tier = "hard";
+
+        let anchor_type: string | null = null;
+        if (ep === arch.anchors.reveal_index) anchor_type = "reveal";
+        else if (ep === arch.anchors.mid_index) anchor_type = "midpoint";
+        else if (ep === arch.anchors.pre_finale_index) anchor_type = "pre_finale";
+        else if (ep === arch.anchors.finale_index) anchor_type = "finale";
+
+        grid.push({
+          episode_number: ep, act_number: act?.act || 1, escalation_intensity: intensity,
+          hook: "", escalation: "", turn: "", cliff: "",
+          cliff_type: cliffPool[ep - 1], cliff_tier,
+          anchor_flags: anchor_type ? [anchor_type] : [],
+          beat_minimum: beatMin,
+        });
+      }
+
+      return new Response(JSON.stringify({
+        architecture: arch, grid, engine_weights: weights, beat_minimum: beatMin,
+        short_season_warning: E < 10 ? `Short season (${E} episodes): using 3-act model` : null,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ══════════════════════════════════════════════
+    // BRANCH MANAGEMENT (Step 7)
+    // ══════════════════════════════════════════════
+    if (action === "create-branch") {
+      const { projectId, branchName, branchType } = body;
+      if (!projectId || !branchName) throw new Error("projectId and branchName required");
+      const { data: branch, error } = await supabase.from("development_branches").insert({
+        project_id: projectId, branch_name: branchName, branch_type: branchType || "sandbox", user_id: user.id,
+      }).select().single();
+      if (error) throw error;
+
+      if (branchType === "sandbox" || !branchType) {
+        const { data: mainline } = await supabase.from("development_branches")
+          .select("id").eq("project_id", projectId).eq("branch_type", "mainline").eq("status", "active").limit(1).single();
+        if (mainline) {
+          const { data: mainlineVersions } = await supabase.from("project_document_versions")
+            .select("*").eq("branch_id", mainline.id).order("version_number", { ascending: false });
+          if (mainlineVersions && mainlineVersions.length > 0) {
+            const copies = mainlineVersions.map((v: any) => ({
+              document_id: v.document_id, version_number: v.version_number,
+              label: `[Sandbox] ${v.label || ''}`, plaintext: v.plaintext,
+              created_by: user.id, parent_version_id: v.id,
+              change_summary: `Branched from mainline`, branch_id: branch.id,
+              inherited_core: v.inherited_core, source_document_ids: v.source_document_ids,
+            }));
+            await supabase.from("project_document_versions").insert(copies);
+          }
+        }
+      }
+      return new Response(JSON.stringify({ branch }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    if (action === "replace-mainline") {
+      const { projectId, sandboxBranchId } = body;
+      if (!projectId || !sandboxBranchId) throw new Error("projectId and sandboxBranchId required");
+      await supabase.from("development_branches").update({ status: "archived" })
+        .eq("project_id", projectId).eq("branch_type", "mainline").eq("status", "active");
+      await supabase.from("development_branches").update({ branch_type: "mainline", status: "active" })
+        .eq("id", sandboxBranchId);
+      return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    if (action === "list-branches") {
+      const { projectId } = body;
+      if (!projectId) throw new Error("projectId required");
+      const { data: branches, error } = await supabase.from("development_branches")
+        .select("*").eq("project_id", projectId).order("created_at", { ascending: true });
+      if (error) throw error;
+      return new Response(JSON.stringify({ branches: branches || [] }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     throw new Error(`Unknown action: ${action}`);
