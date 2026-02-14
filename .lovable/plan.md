@@ -1,167 +1,226 @@
 
 
-# Script Corpus Ingestion + Learning Pipeline
+# IFFY Development Operating System Upgrade
 
-## Summary
+## Overview
+This is a structural upgrade transforming IFFY from a script-centric analysis tool into a unified, deliverable-aware Development Operating System supporting all formats (Feature Film, TV Series, Vertical Drama, Documentary) with behavior-driven intelligence and convergence control.
 
-Upgrade the existing corpus ingestion system from a basic parse-and-chunk pipeline into a full **structured intelligence extraction** system. The 103 seeded IMSDB scripts will be analyzed with AI to produce format calibration models, and those models will feed back into the Script Engine, Coverage, and Rewrite systems.
-
----
-
-## Phase 1: Schema Upgrades
-
-Extend the existing `corpus_scripts` table with new analysis columns and create three new tables.
-
-**Alter `corpus_scripts`** -- add columns:
-- `title`, `production_type`, `format_subtype`, `genre`, `subgenre`
-- `page_count` (integer), `runtime_est` (numeric), `scene_count`, `word_count`
-- `avg_scene_length`, `avg_dialogue_ratio`, `cast_count`, `location_count`
-- `int_ext_ratio`, `day_night_ratio`
-- `vfx_flag` (boolean), `budget_tier_est`, `quality_score_est` (numeric)
-- `market_success_flag` (boolean)
-- `midpoint_position`, `climax_position`
-- `analysis_status` (text, default 'pending')
-
-**New table: `corpus_scene_patterns`**
-- `corpus_script_id` (FK to corpus_scripts), `scene_number`, `act_estimate`
-- `has_turn`, `conflict_type`, `scene_length_est`
-
-**New table: `corpus_character_profiles`**
-- `corpus_script_id` (FK), `character_name`, `dialogue_ratio`
-- `arc_type`, `protagonist_flag`
-
-**New table: `corpus_insights`** (aggregated calibration data)
-- `insight_type`, `production_type`, `lane`, `pattern` (jsonb), `weight`
-
-All tables get `user_id` columns and RLS policies matching existing corpus tables.
+The upgrade is sequenced into 8 phases. Each phase is backward-compatible -- legacy projects default to `script` deliverable type and `market` behavior mode.
 
 ---
 
-## Phase 2: Deep Analysis Edge Function
+## Phase 1: Database Migrations
 
-Create a new `analyze-corpus` edge function (or add an `analyze` action to the existing `ingest-corpus` function) that runs a structured AI analysis pass on an already-ingested script.
+Add new columns to existing tables. No destructive changes.
 
-**Per-script extraction** (using Gemini Flash via tool calling):
-1. Format detection (film/TV/short/doc)
-2. Genre and subgenre classification
-3. Act break positions, midpoint, climax
-4. Scene-by-scene pattern extraction (conflict type, turns, length estimates)
-5. Character extraction with dialogue ratios and arc types
-6. Dialogue vs action ratio, average line length
-7. Location count, INT/EXT ratio, DAY/NIGHT ratio
-8. VFX intensity markers
-9. Budget tier estimation
-10. Quality score estimation
+**projects table:**
+- `development_behavior TEXT DEFAULT 'market'` (with validation trigger for `efficiency`, `market`, `prestige`)
+- `episode_target_duration_seconds INTEGER` (nullable, used only for vertical drama)
 
-Store structured results back into the extended `corpus_scripts` columns, `corpus_scene_patterns`, and `corpus_character_profiles`.
+**project_document_versions table:**
+- `deliverable_type TEXT` (nullable, stores deliverable classification)
+- `stage TEXT` (nullable, tracks pipeline position)
 
----
+**development_runs table** (the actual run table used by dev-engine-v2):
+- `deliverable_type TEXT`
+- `development_behavior TEXT`
+- `format TEXT`
+- `episode_target_duration_seconds INTEGER`
+- `schema_version TEXT DEFAULT 'v2'`
 
-## Phase 3: Aggregation + Calibration Models
+**coverage_runs table:**
+- Same five columns as above
 
-Add an `aggregate` action that:
-1. Groups completed analyses by `production_type` + `format_subtype`
-2. Calculates medians for: page count, scene count, runtime, dialogue ratio, cast size, location count, midpoint position
-3. Stores results in `corpus_insights` as typed JSON patterns
-4. These become the "Format Calibration Models" -- live reference data for other systems
+**improvement_runs table:**
+- Same five columns as above
 
----
+**Backfill:** Set `deliverable_type = 'script'` on existing `project_document_versions` rows where null.
 
-## Phase 4: Script Engine Integration
-
-Modify the `script-engine` edge function to:
-1. Before blueprint generation, fetch relevant `corpus_insights` for the project's production type
-2. Replace static page targets (e.g., "90-120") with corpus median ranges
-3. Scene count targeting uses `median_scene_count` with a tolerance band
-4. Architecture prompt includes corpus-derived structural norms
-
-Add a helper function `getCorpusCalibration(db, productionType)` that returns the median targets.
+Note: We use TEXT columns (not an enum) for `deliverable_type` to match the existing codebase pattern and avoid migration complexity. Validation happens in application code.
 
 ---
 
-## Phase 5: Coverage Integration
+## Phase 2: Types and Configuration
 
-Modify the `script-coverage` edge function to:
-1. Fetch corpus calibration for the project's format
-2. Add "Deviation from corpus norms" section to the analyst prompt
-3. Score adjustments: penalize significant deviations from median structure, dialogue ratio, and length without creative justification
-4. Add deviation metrics to the coverage output
+**New file: `src/lib/dev-os-config.ts`**
 
----
+Single source of truth containing:
 
-## Phase 6: Rewrite Playbook Generation
+- `DevelopmentBehavior` type (`efficiency | market | prestige`)
+- `DeliverableType` type (11 values: `idea`, `concept_brief`, `market_sheet`, `blueprint`, `architecture`, `character_bible`, `beat_sheet`, `script`, `production_draft`, `deck`, `documentary_outline`)
+- `behaviorConfig` object with convergence multipliers, rewrite intensity, packaging depth, and beat density settings per behavior
+- `verticalBeatMinimum(durationSeconds)` function returning required beat count based on episode length
+- `DELIVERABLE_LABELS` and `DELIVERABLE_PIPELINE_ORDER` for UI rendering
+- Format-aware guardrail constants (feature: 90-110 min, vertical: adaptive, etc.)
 
-Add a `generate-playbooks` action to the analyze-corpus function:
-1. Extract patterns from top-scoring corpus scripts (quality_score_est > threshold)
-2. Identify common structural patterns (Act 2 complications, B-story density, climax intensity)
-3. Generate playbook entries stored in `corpus_insights` with `insight_type = 'playbook'`
-4. Script Engine's "Improve Draft" mode retrieves relevant playbooks as rewrite strategy templates
+The existing `ProjectFormat` type in `src/lib/types.ts` is preserved as-is -- no breaking rename.
 
 ---
 
-## Phase 7: Retrieval Augmentation
+## Phase 3: Deliverable-Aware Review Engine
 
-Before drafting/rewriting in the Script Engine:
-1. Query `corpus_scripts` for 3 structurally similar scripts (same production_type + genre)
-2. Extract **metrics only** (page count, scene count, act breaks, dialogue ratio) -- never full text
-3. Include these as constraint guidance in the generation prompt
+**New file: `src/lib/review-schema-registry.ts`**
 
----
+A registry mapping each `DeliverableType` to:
+- `rubricSections` -- what dimensions to evaluate
+- `analysisPromptModifier` -- injected into the dev-engine-v2 system prompt
+- `rewritePromptModifier` -- scopes rewrite behavior
+- `convergenceRules` -- thresholds for declaring convergence
+- `forbiddenCritique` -- what NOT to evaluate (e.g., no dialogue notes on blueprints, no invented scenes on documentaries)
 
-## Phase 8: UI Additions
+**Edge function update: `supabase/functions/dev-engine-v2/index.ts`**
 
-**Corpus Insights Dashboard** (new component, accessible from Settings or Development view):
-- Median film length, pilot length by format
-- Dialogue averages by genre (bar chart)
-- Scene counts by format
-- Cast size and location complexity averages
-- Uses Recharts (already installed)
+The `analyze`, `notes`, and `rewrite` actions will:
+1. Accept `deliverableType` and `developmentBehavior` in the request payload
+2. Look up the appropriate rubric from the registry (passed as prompt context)
+3. Inject format-specific and behavior-specific modifiers into system prompts
+4. Store the `deliverable_type`, `development_behavior`, `format`, and `schema_version` on the resulting `development_runs` row
 
-**Deviation Gauge** (added to ScriptEnginePanel):
-- Structure deviation % vs corpus median
-- Dialogue deviation %
-- Length deviation %
-- Visual gauge/badge indicators
-
----
-
-## Phase 9: Batch Ingestion Trigger
-
-Add a "Analyze All" button in the CorpusSourceManager that:
-1. Iterates through all ingested but unanalyzed scripts
-2. Queues them for the deep analysis pass (one at a time to avoid rate limits)
-3. Shows progress
-4. Triggers aggregation after all complete
+Key rubric examples:
+- **idea**: Concept spark, emotional promise, audience clarity
+- **blueprint**: Act logic, escalation curve, midpoint shift (NO line edits)
+- **script**: Full scene construction, dialogue, subtext, visual storytelling
+- **deck / documentary_outline**: Strict factual integrity, no invented content
 
 ---
 
-## Technical Details
+## Phase 4: Format-Aware Intelligence
 
-### Files to Create
-- `supabase/functions/analyze-corpus/index.ts` -- deep analysis + aggregation + playbook generation
-- `src/components/CorpusInsightsDashboard.tsx` -- admin insights UI
-- `src/components/DeviationGauge.tsx` -- deviation display component
-- `src/hooks/useCorpusInsights.ts` -- hook for fetching calibration data
+**Update: `src/lib/review-schema-registry.ts`**
 
-### Files to Modify
-- `supabase/functions/ingest-corpus/index.ts` -- minor: set `analysis_status = 'pending'` on new scripts
-- `supabase/functions/script-engine/index.ts` -- inject corpus calibration into prompts
-- `supabase/functions/script-coverage/index.ts` -- add deviation scoring
-- `src/components/CorpusSourceManager.tsx` -- add "Analyze All" button
-- `src/components/CorpusLibrary.tsx` -- show analysis metrics
-- `src/components/ScriptEnginePanel.tsx` -- add deviation gauges
-- `src/components/ScriptCoverage.tsx` -- show deviation section
-- `src/hooks/useCorpus.ts` -- add hooks for analysis, aggregation, insights
-- `supabase/config.toml` -- register new edge function
+Format overlays applied on top of deliverable rubrics:
 
-### Security
-- All new tables get RLS with `user_id = auth.uid()` policies
-- `corpus_insights` readable by all authenticated users (shared calibration data)
-- Full script text never exposed in UI -- only structural metrics and short snippets (<=25 words)
+- **Feature Film**: 3-act spine required, midpoint reversal expected, 90-110 min soft guardrail
+- **TV Series**: Pilot engine clarity, season escalation logic, character longevity
+- **Vertical Drama**: Adaptive `episode_target_duration_seconds`, hook within 3-10 seconds, mandatory cliffhanger, beat minimum from `verticalBeatMinimum()`
+- **Documentary**: No fictionalization, emotional truth allowed, discovery arc, structure shaping only
 
-### Performance
-- Analysis uses `google/gemini-2.5-flash` with tool calling for structured output
-- Scripts analyzed one at a time with progress tracking
-- Aggregation is a lightweight SQL/JS pass over completed analyses
-- Rate limit handling with 429/402 error surfacing
+The edge function composes the final prompt as: `base rubric + deliverable modifier + format overlay + behavior modifier`.
+
+---
+
+## Phase 5: Convergence Engine Upgrade
+
+**Update: `src/lib/dev-os-config.ts`**
+
+Per-deliverable convergence thresholds, modified by behavior:
+
+- `efficiency`: Lower thresholds (CI >= 65, GP >= 65), faster convergence
+- `market`: Balanced (CI >= 75, GP >= 75)
+- `prestige`: Higher (CI >= 85, GP >= 80), minimum 2 rewrite cycles required
+
+**Update: `src/hooks/useDevEngineV2.ts`**
+
+- `isConverged` logic updated to check behavior-specific thresholds
+- New `convergenceStatus` computed property: `Not Started | In Progress | Converged`
+- Convergence stored per deliverable in run output
+
+**Update: `supabase/functions/dev-engine-v2/index.ts`**
+
+- `analyze` action includes `convergence_met: boolean` and `convergence_blockers: string[]` in output JSON
+- Behavior multiplier applied to allowed_gap calculation
+
+---
+
+## Phase 6: Packaging Intelligence Gate
+
+**Update: `src/components/intelligence/PackagingIntelligencePanel.tsx`**
+
+- Check convergence status before enabling packaging analysis
+- Show locked state with message: "Script must converge before packaging analysis"
+- When unlocked, scope packaging depth by behavior:
+  - `efficiency`: Budget realism check only
+  - `market`: Full casting, director, territory, streamer analysis
+  - `prestige`: Festival strategy, awards pathway, cultural positioning
+
+**Update: `supabase/functions/packaging-intelligence/index.ts`**
+
+- Accept `development_behavior` parameter
+- Adjust packaging prompt depth accordingly
+
+---
+
+## Phase 7: UI Upgrades
+
+**Update: `src/pages/ProjectDevelopmentEngine.tsx`**
+
+New controls in the top bar:
+- **Deliverable Type selector** (required, defaults based on doc_type)
+- **Behavior Mode selector** (project-level: Efficiency / Market / Prestige)
+- **Episode Duration field** (visible only for vertical drama format)
+
+New badges displayed:
+- Behavior mode badge (color-coded)
+- Format badge
+- Active deliverable type
+
+**New component: `src/components/DeliverablePipeline.tsx`**
+
+Visual pipeline strip: Idea > Concept > Market > Blueprint > Architecture > Character > Beats > Script > Production
+
+- Grey = Not Started (no version with this deliverable type)
+- Yellow = In Progress (version exists, not converged)
+- Green = Converged
+
+Clicking a stage filters the document list to that deliverable type.
+
+**Behavior switching:**
+- Changing behavior mode shows a warning dialog
+- Offers to re-evaluate current document with new behavior settings
+
+**Update: `src/components/project/ProjectSummaryBar.tsx`**
+- Add behavior mode badge next to packaging mode
+
+---
+
+## Phase 8: Non-Hallucination Safeguards
+
+**Update: `src/lib/review-schema-registry.ts`**
+
+For `deck` and `documentary_outline` deliverable types:
+- Explicit `forbiddenCritique` rules injected into prompts
+- "Do NOT invent characters, fabricate scenes, or generate scene headings"
+- "Use [PLACEHOLDER] for missing information"
+- Flag if AI output contains INT./EXT. sluglines for documentary outlines
+
+**Update: `supabase/functions/dev-engine-v2/index.ts`**
+
+- For documentary formats: append hallucination guard to all prompts
+- For `rewrite` action on deck/documentary_outline: second-pass validation checks output for fabricated content markers
+
+---
+
+## Implementation Sequence
+
+The work is ordered to maintain stability at every step:
+
+1. **Phase 1** -- Database migrations (safe, additive columns only)
+2. **Phase 2** -- TypeScript config file (no existing code changes)
+3. **Phase 3** -- Review schema registry (new file) + edge function prompt injection
+4. **Phase 4** -- Format overlays added to registry
+5. **Phase 5** -- Convergence logic upgrade (hook + edge function)
+6. **Phase 7** -- UI selectors and pipeline view
+7. **Phase 6** -- Packaging gate (depends on convergence being visible)
+8. **Phase 8** -- Hallucination safeguards (final hardening)
+
+---
+
+## Files Created
+- `src/lib/dev-os-config.ts` -- Behavior config, deliverable types, vertical beat logic
+- `src/lib/review-schema-registry.ts` -- Rubrics, prompts, convergence rules per deliverable
+- `src/components/DeliverablePipeline.tsx` -- Visual pipeline component
+
+## Files Modified
+- `supabase/functions/dev-engine-v2/index.ts` -- Prompt injection, behavior/deliverable context, hallucination guards
+- `supabase/functions/packaging-intelligence/index.ts` -- Behavior-scoped packaging depth
+- `src/hooks/useDevEngineV2.ts` -- Pass deliverable/behavior params, updated convergence logic
+- `src/pages/ProjectDevelopmentEngine.tsx` -- New selectors, badges, pipeline view
+- `src/components/project/ProjectSummaryBar.tsx` -- Behavior badge
+- `src/lib/types.ts` -- Add `development_behavior` and `episode_target_duration_seconds` to Project interface
+
+## Backward Compatibility
+- All new columns have defaults or are nullable
+- Legacy projects auto-resolve to `deliverable_type = 'script'` and `development_behavior = 'market'`
+- Existing RLS policies are untouched (new columns are on existing tables)
+- No existing type unions are renamed or removed
 
