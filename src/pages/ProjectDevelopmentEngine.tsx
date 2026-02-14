@@ -4,6 +4,7 @@ import { Header } from '@/components/Header';
 import { PageTransition } from '@/components/PageTransition';
 import { useDevEngineV2 } from '@/hooks/useDevEngineV2';
 import { useScriptPipeline } from '@/hooks/useScriptPipeline';
+import { useRewritePipeline } from '@/hooks/useRewritePipeline';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
@@ -125,6 +126,9 @@ export default function ProjectDevelopmentEngine() {
   // Script pipeline
   const pipeline = useScriptPipeline(projectId);
 
+  // Rewrite pipeline for long documents
+  const rewritePipeline = useRewritePipeline(projectId);
+
   // Controls
   const [strategicPriority, setStrategicPriority] = useState('BALANCED');
   const [developmentStage, setDevelopmentStage] = useState('IDEA');
@@ -191,10 +195,15 @@ export default function ProjectDevelopmentEngine() {
 
   const handleRewrite = () => {
     const approved = allPrioritizedMoves.filter((_, i) => selectedNotes.has(i));
-    rewrite.mutate({
-      approvedNotes: approved,
-      protectItems: latestNotes?.protect || latestAnalysis?.protect || [],
-    });
+    const protectItems = latestNotes?.protect || latestAnalysis?.protect || [];
+    const textLength = (selectedVersion?.plaintext || selectedDoc?.plaintext || '').length;
+
+    if (textLength > 30000 && selectedDocId && selectedVersionId) {
+      // Use chunked pipeline for long documents
+      rewritePipeline.startRewrite(selectedDocId, selectedVersionId, approved, protectItems);
+    } else {
+      rewrite.mutate({ approvedNotes: approved, protectItems });
+    }
   };
 
   const versionText = selectedVersion?.plaintext ||
@@ -537,8 +546,8 @@ export default function ProjectDevelopmentEngine() {
                         Notes
                       </Button>
                       <Button size="sm" variant="outline" className="h-7 text-xs gap-1"
-                        onClick={handleRewrite} disabled={isLoading || !latestNotes || selectedNotes.size === 0}>
-                        {rewrite.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                        onClick={handleRewrite} disabled={isLoading || rewritePipeline.status !== 'idle' || !latestNotes || selectedNotes.size === 0}>
+                        {(rewrite.isPending || rewritePipeline.status !== 'idle') ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
                         Rewrite
                       </Button>
                     </div>
@@ -547,6 +556,22 @@ export default function ProjectDevelopmentEngine() {
                   <OperationProgress isActive={generateNotes.isPending} stages={DEV_NOTES_STAGES} className="mb-2" />
                   <OperationProgress isActive={rewrite.isPending} stages={DEV_REWRITE_STAGES} className="mb-2" />
                   <OperationProgress isActive={convert.isPending} stages={DEV_CONVERT_STAGES} className="mb-2" />
+                  {rewritePipeline.status !== 'idle' && rewritePipeline.status !== 'complete' && (
+                    <div className="mb-2 p-3 rounded-lg border bg-muted/30">
+                      <div className="flex items-center gap-2 text-sm mb-1">
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        <span className="font-medium">
+                          {rewritePipeline.status === 'planning' && 'Planning chunked rewrite…'}
+                          {rewritePipeline.status === 'writing' && `Rewriting chunk ${rewritePipeline.currentChunk}/${rewritePipeline.totalChunks}…`}
+                          {rewritePipeline.status === 'assembling' && 'Assembling final version…'}
+                          {rewritePipeline.status === 'error' && `Error: ${rewritePipeline.error}`}
+                        </span>
+                      </div>
+                      {rewritePipeline.totalChunks > 0 && (
+                        <Progress value={(rewritePipeline.currentChunk / rewritePipeline.totalChunks) * 100} className="h-1.5" />
+                      )}
+                    </div>
+                  )}
 
                   {/* Content tab */}
                   <TabsContent value="content" className="mt-0">
@@ -683,8 +708,8 @@ export default function ProjectDevelopmentEngine() {
                               </div>
                             </ScrollArea>
                             <Button className="w-full" size="sm" onClick={handleRewrite}
-                              disabled={isLoading || selectedNotes.size === 0}>
-                              {rewrite.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Sparkles className="h-4 w-4 mr-2" />}
+                              disabled={isLoading || rewritePipeline.status !== 'idle' || selectedNotes.size === 0}>
+                              {(rewrite.isPending || rewritePipeline.status !== 'idle') ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Sparkles className="h-4 w-4 mr-2" />}
                               Apply {selectedNotes.size} Notes & Rewrite
                             </Button>
                           </div>

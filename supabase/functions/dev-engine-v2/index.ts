@@ -395,55 +395,10 @@ MATERIAL TO REWRITE:\n${fullText}`;
         creativePreserved = parsed.creative_preserved || "";
         commercialImprovements = parsed.commercial_improvements || "";
       } else {
-        // ── Feature-length: chunked rewrite ──
-        console.log(`Chunked rewrite: ${fullText.length} chars, splitting into batches`);
-
-        // Split at scene boundaries (sluglines) for clean chunks
-        const CHUNK_TARGET = 12000; // ~10 pages per chunk
-        const chunks: string[] = [];
-        const lines = fullText.split("\n");
-        let currentChunk = "";
-
-        for (const line of lines) {
-          const isSlugline = /^(INT\.|EXT\.|INT\/EXT\.|I\/E\.)/.test(line.trim());
-          if (isSlugline && currentChunk.length >= CHUNK_TARGET) {
-            chunks.push(currentChunk.trim());
-            currentChunk = "";
-          }
-          currentChunk += line + "\n";
-        }
-        if (currentChunk.trim()) chunks.push(currentChunk.trim());
-
-        console.log(`Split into ${chunks.length} chunks`);
-
-        const notesContext = `PROTECT (non-negotiable):\n${JSON.stringify(protectItems || [])}\n\nAPPROVED NOTES:\n${JSON.stringify(approvedNotes || [])}`;
-        const rewrittenChunks: string[] = [];
-
-        for (let i = 0; i < chunks.length; i++) {
-          const prevContext = i > 0 
-            ? `\n\nPREVIOUS CHUNK ENDING (for continuity):\n${rewrittenChunks[i - 1].slice(-2000)}`
-            : "";
-
-          const chunkPrompt = `${notesContext}
-${prevContext}
-
-CHUNK ${i + 1} OF ${chunks.length} — Rewrite this section completely, maintaining all scenes and dialogue:
-
-${chunks[i]}`;
-
-          console.log(`Writing chunk ${i + 1}/${chunks.length} (${chunks[i].length} chars)`);
-          const chunkResult = await callAI(
-            LOVABLE_API_KEY, BALANCED_MODEL, REWRITE_CHUNK_SYSTEM, chunkPrompt, 0.4, 16000
-          );
-          rewrittenChunks.push(chunkResult.trim());
-        }
-
-        rewrittenText = rewrittenChunks.join("\n\n");
-        changesSummary = `Chunked rewrite: ${chunks.length} batches processed. Applied ${(approvedNotes || []).length} approved notes across full screenplay.`;
-        creativePreserved = (protectItems || []).join(", ");
-        commercialImprovements = "Applied strategic notes across all acts while maintaining full screenplay length.";
-
-        console.log(`Assembled rewrite: ${rewrittenText.length} chars (original: ${fullText.length} chars)`);
+        // ── Feature-length: return error directing to chunked pipeline ──
+        return new Response(JSON.stringify({ error: "Document too long for single-pass rewrite. Use rewrite-plan/rewrite-chunk/rewrite-assemble pipeline.", needsPipeline: true, charCount: fullText.length }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
       // Get max version number to avoid duplicate key conflicts
@@ -478,6 +433,141 @@ ${chunks[i]}`;
       }).select().single();
 
       return new Response(JSON.stringify({ run, rewrite: { ...parsed, rewritten_text: `[${rewrittenText.length} chars — stored in version]` }, newVersion }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ── REWRITE-PLAN (chunked rewrite step 1) ──
+    if (action === "rewrite-plan") {
+      const { projectId, documentId, versionId, approvedNotes, protectItems } = body;
+      if (!projectId || !documentId || !versionId) throw new Error("projectId, documentId, versionId required");
+
+      const { data: version } = await supabase.from("project_document_versions")
+        .select("plaintext, version_number").eq("id", versionId).single();
+      if (!version) throw new Error("Version not found");
+
+      const fullText = version.plaintext || "";
+      const CHUNK_TARGET = 12000;
+      const chunks: { index: number; charCount: number }[] = [];
+      const lines = fullText.split("\n");
+      let currentChunk = "";
+      let chunkTexts: string[] = [];
+
+      for (const line of lines) {
+        const isSlugline = /^(INT\.|EXT\.|INT\/EXT\.|I\/E\.)/.test(line.trim());
+        if (isSlugline && currentChunk.length >= CHUNK_TARGET) {
+          chunkTexts.push(currentChunk.trim());
+          currentChunk = "";
+        }
+        currentChunk += line + "\n";
+      }
+      if (currentChunk.trim()) chunkTexts.push(currentChunk.trim());
+
+      // Store chunk texts in a temporary development_runs record for retrieval
+      const { data: planRun } = await supabase.from("development_runs").insert({
+        project_id: projectId,
+        document_id: documentId,
+        version_id: versionId,
+        user_id: user.id,
+        run_type: "REWRITE_PLAN",
+        output_json: {
+          total_chunks: chunkTexts.length,
+          chunk_char_counts: chunkTexts.map(c => c.length),
+          original_char_count: fullText.length,
+          approved_notes: approvedNotes || [],
+          protect_items: protectItems || [],
+          chunk_texts: chunkTexts,
+        },
+      }).select().single();
+
+      return new Response(JSON.stringify({
+        planRunId: planRun!.id,
+        totalChunks: chunkTexts.length,
+        originalCharCount: fullText.length,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ── REWRITE-CHUNK (chunked rewrite step 2 — one chunk at a time) ──
+    if (action === "rewrite-chunk") {
+      const { planRunId, chunkIndex, previousChunkEnding } = body;
+      if (!planRunId || chunkIndex === undefined) throw new Error("planRunId, chunkIndex required");
+
+      const { data: planRun } = await supabase.from("development_runs")
+        .select("output_json").eq("id", planRunId).single();
+      if (!planRun) throw new Error("Plan run not found");
+
+      const plan = planRun.output_json as any;
+      const chunkText = plan.chunk_texts[chunkIndex];
+      if (!chunkText) throw new Error(`Chunk ${chunkIndex} not found`);
+
+      const notesContext = `PROTECT (non-negotiable):\n${JSON.stringify(plan.protect_items || [])}\n\nAPPROVED NOTES:\n${JSON.stringify(plan.approved_notes || [])}`;
+      const prevContext = previousChunkEnding
+        ? `\n\nPREVIOUS CHUNK ENDING (for continuity):\n${previousChunkEnding}`
+        : "";
+
+      const chunkPrompt = `${notesContext}${prevContext}\n\nCHUNK ${chunkIndex + 1} OF ${plan.total_chunks} — Rewrite this section completely, maintaining all scenes and dialogue:\n\n${chunkText}`;
+
+      console.log(`Rewrite chunk ${chunkIndex + 1}/${plan.total_chunks} (${chunkText.length} chars)`);
+      const rewrittenChunk = await callAI(
+        LOVABLE_API_KEY, BALANCED_MODEL, REWRITE_CHUNK_SYSTEM, chunkPrompt, 0.4, 16000
+      );
+
+      return new Response(JSON.stringify({
+        chunkIndex,
+        rewrittenText: rewrittenChunk.trim(),
+        charCount: rewrittenChunk.trim().length,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ── REWRITE-ASSEMBLE (chunked rewrite step 3 — save final version) ──
+    if (action === "rewrite-assemble") {
+      const { projectId, documentId, versionId, planRunId, assembledText } = body;
+      if (!projectId || !documentId || !versionId || !assembledText) throw new Error("projectId, documentId, versionId, assembledText required");
+
+      const { data: maxRow } = await supabase.from("project_document_versions")
+        .select("version_number")
+        .eq("document_id", documentId)
+        .order("version_number", { ascending: false })
+        .limit(1)
+        .single();
+      const nextVersion = (maxRow?.version_number ?? 0) + 1;
+
+      const { data: newVersion, error: vErr } = await supabase.from("project_document_versions").insert({
+        document_id: documentId,
+        version_number: nextVersion,
+        label: `Rewrite pass ${nextVersion}`,
+        plaintext: assembledText,
+        created_by: user.id,
+        parent_version_id: versionId,
+        change_summary: `Chunked rewrite across ${nextVersion - 1} iterations.`,
+      }).select().single();
+      if (vErr) throw vErr;
+
+      // Get plan info for notes count
+      let notesCount = 0;
+      if (planRunId) {
+        const { data: planRun } = await supabase.from("development_runs")
+          .select("output_json").eq("id", planRunId).single();
+        if (planRun) notesCount = ((planRun.output_json as any).approved_notes || []).length;
+      }
+
+      const { data: run } = await supabase.from("development_runs").insert({
+        project_id: projectId,
+        document_id: documentId,
+        version_id: newVersion.id,
+        user_id: user.id,
+        run_type: "REWRITE",
+        output_json: {
+          rewritten_text: `[${assembledText.length} chars]`,
+          changes_summary: `Full chunked rewrite. Applied ${notesCount} notes.`,
+          source_version_id: versionId,
+        },
+      }).select().single();
+
+      // Record convergence
+      await recordConvergence(supabase, projectId, documentId, newVersion.id, user.id);
+
+      return new Response(JSON.stringify({ run, newVersion }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
