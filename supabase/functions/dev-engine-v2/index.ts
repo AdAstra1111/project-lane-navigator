@@ -434,16 +434,21 @@ const docTypeMap: Record<string, string> = {
   CONCEPT_BRIEF: "concept_brief",
   "CONCEPT BRIEF": "concept_brief",
   MARKET_SHEET: "market_sheet",
+  "MARKET SHEET": "market_sheet",
   BLUEPRINT: "blueprint",
   ARCHITECTURE: "architecture",
   CHARACTER_BIBLE: "character_bible",
+  "CHARACTER BIBLE": "character_bible",
   BEAT_SHEET: "beat_sheet",
+  "BEAT SHEET": "beat_sheet",
   SCRIPT: "script",
   PILOT_SCRIPT: "script",
   "PILOT SCRIPT": "script",
   PRODUCTION_DRAFT: "production_draft",
+  "PRODUCTION DRAFT": "production_draft",
   DECK: "deck",
   DOCUMENTARY_OUTLINE: "documentary_outline",
+  "DOCUMENTARY OUTLINE": "documentary_outline",
   TREATMENT: "treatment",
   ONE_PAGER: "one_pager",
   OUTLINE: "outline",
@@ -1023,13 +1028,16 @@ MATERIAL:\n${version.plaintext.slice(0, 20000)}`;
         parsed = await parseAIJson(LOVABLE_API_KEY, raw);
       }
 
+      const normalizedTarget = (targetOutput || "").toUpperCase().replace(/\s+/g, "_");
+      const resolvedDocType = docTypeMap[targetOutput] || docTypeMap[normalizedTarget] || docTypeMap[(targetOutput || "").toUpperCase()] || "other";
+
       const { data: newDoc, error: dErr } = await supabase.from("project_documents").insert({
         project_id: projectId,
         user_id: user.id,
         file_name: `${srcDoc?.title || "Document"} — ${targetOutput}`,
         file_path: "",
         extraction_status: "complete",
-        doc_type: docTypeMap[targetOutput] || "other",
+        doc_type: resolvedDocType,
         title: `${srcDoc?.title || "Document"} — ${targetOutput}`,
         source: "generated",
         plaintext: parsed.converted_text || "",
@@ -1041,7 +1049,7 @@ MATERIAL:\n${version.plaintext.slice(0, 20000)}`;
         .select("drift_snapshot").eq("id", versionId).single();
       const upstreamCore = (upstreamVersion?.drift_snapshot as any)?.extracted_core || {};
 
-      const resolvedDeliverable = docTypeMap[targetOutput] || docTypeMap[(targetOutput || "").toUpperCase()] || "script";
+      const resolvedDeliverable = resolvedDocType === "other" ? "script" : resolvedDocType;
       const { data: newVersion } = await supabase.from("project_document_versions").insert({
         document_id: newDoc.id,
         version_number: 1,

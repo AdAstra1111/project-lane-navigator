@@ -289,22 +289,34 @@ export function isNonScriptDeliverable(deliverableType: DeliverableType): boolea
 }
 
 export function defaultDeliverableForDocType(docType: string): DeliverableType {
+  const normalized = (docType || '').toLowerCase().trim();
   const map: Record<string, DeliverableType> = {
     idea: 'idea',
     concept_brief: 'concept_brief',
     'concept brief': 'concept_brief',
     logline: 'concept_brief',
+    market_sheet: 'market_sheet',
+    'market sheet': 'market_sheet',
     treatment: 'blueprint',
     script: 'script',
     pilot_script: 'script',
     'pilot script': 'script',
     one_pager: 'market_sheet',
     outline: 'beat_sheet',
+    beat_sheet: 'beat_sheet',
+    'beat sheet': 'beat_sheet',
     blueprint: 'blueprint',
     architecture: 'architecture',
+    character_bible: 'character_bible',
+    'character bible': 'character_bible',
+    production_draft: 'production_draft',
+    'production draft': 'production_draft',
     deck_text: 'deck',
+    deck: 'deck',
+    documentary_outline: 'documentary_outline',
+    'documentary outline': 'documentary_outline',
     notes: 'concept_brief',
     other: 'concept_brief',
   };
-  return map[docType] || 'script';
+  return map[normalized] || 'script';
 }
