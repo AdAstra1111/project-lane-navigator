@@ -124,7 +124,12 @@ Rules:
 - Maintain screenplay format: sluglines, action, dialogue.
 - OUTPUT THE FULL REWRITTEN CHUNK — every scene, every line of dialogue. Do NOT summarize or skip.
 - Maintain perfect continuity with the previous chunk context provided.
-- Match the approximate page count of the input chunk.
+
+CRITICAL LENGTH RULE:
+- Your output MUST be AT LEAST as long as the input chunk. The input chunk's character count will be provided.
+- Do NOT compress, condense, or abbreviate any scenes. If anything, EXPAND scenes slightly.
+- Every scene heading in the input must appear in the output. Every character who speaks must still speak.
+- If your output is shorter than the input, you have failed. Add richer action lines, fuller dialogue, and more vivid description to match or exceed the original length.
 
 Output ONLY the rewritten screenplay text. No JSON, no commentary, no markdown.`;
 
@@ -505,7 +510,8 @@ MATERIAL TO REWRITE:\n${fullText}`;
         ? `\n\nPREVIOUS CHUNK ENDING (for continuity):\n${previousChunkEnding}`
         : "";
 
-      const chunkPrompt = `${notesContext}${prevContext}\n\nCHUNK ${chunkIndex + 1} OF ${plan.total_chunks} — Rewrite this section completely, maintaining all scenes and dialogue:\n\n${chunkText}`;
+      const chunkWordCount = chunkText.split(/\s+/).filter(Boolean).length;
+      const chunkPrompt = `${notesContext}${prevContext}\n\nCHUNK ${chunkIndex + 1} OF ${plan.total_chunks} — Rewrite this section completely, maintaining all scenes and dialogue.\n\nINPUT LENGTH: ${chunkText.length} characters, ~${chunkWordCount} words. Your output MUST be at least ${chunkWordCount} words. Do NOT shorten.\n\n${chunkText}`;
 
       console.log(`Rewrite chunk ${chunkIndex + 1}/${plan.total_chunks} (${chunkText.length} chars)`);
       const rewrittenChunk = await callAI(
