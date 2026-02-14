@@ -155,7 +155,7 @@ Return ONLY valid JSON matching this EXACT schema:
   "convergence": {
     "status": "not_started" | "in_progress" | "converged",
     "reasons": ["why this status"],
-    "next_best_document": "suggested next deliverable type to work on"
+    "next_best_document": "MUST be one of: idea, concept_brief, market_sheet, blueprint, architecture, character_bible, beat_sheet, script, production_draft, deck, documentary_outline"
   },
   "protect": ["non-negotiable creative strengths, 1-10 items"],
   "verdict": "Invest" | "Develop Further" | "Major Rethink" | "Pass",
@@ -595,6 +595,23 @@ ${version.plaintext.slice(0, 25000)}`;
       parsed.deliverable_type = effectiveDeliverable;
       parsed.development_behavior = effectiveBehavior;
 
+      // Validate next_best_document — must be a valid deliverable type key
+      const VALID_DELIVERABLES = new Set(["idea","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","script","production_draft","deck","documentary_outline"]);
+      if (parsed.convergence?.next_best_document) {
+        const raw_nbd = parsed.convergence.next_best_document;
+        const normalized_nbd = raw_nbd.toLowerCase().replace(/[\s\-]+/g, "_").replace(/[^a-z_]/g, "");
+        // Try direct match, then docTypeMap, then fuzzy
+        if (VALID_DELIVERABLES.has(normalized_nbd)) {
+          parsed.convergence.next_best_document = normalized_nbd;
+        } else if (docTypeMap[raw_nbd.toUpperCase()]) {
+          parsed.convergence.next_best_document = docTypeMap[raw_nbd.toUpperCase()];
+        } else {
+          // Fuzzy: find best match from valid set
+          const fuzzyMatch = [...VALID_DELIVERABLES].find(d => normalized_nbd.includes(d) || d.includes(normalized_nbd));
+          parsed.convergence.next_best_document = fuzzyMatch || "script";
+        }
+      }
+
       const { data: run, error: runErr } = await supabase.from("development_runs").insert({
         project_id: projectId,
         document_id: documentId,
@@ -1029,7 +1046,15 @@ MATERIAL:\n${version.plaintext.slice(0, 20000)}`;
       }
 
       const normalizedTarget = (targetOutput || "").toUpperCase().replace(/\s+/g, "_");
-      const resolvedDocType = docTypeMap[targetOutput] || docTypeMap[normalizedTarget] || docTypeMap[(targetOutput || "").toUpperCase()] || "other";
+      let resolvedDocType = docTypeMap[targetOutput] || docTypeMap[normalizedTarget] || docTypeMap[(targetOutput || "").toUpperCase()] || "other";
+
+      const VALID_DELIVERABLES_SET = new Set(["idea","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","script","production_draft","deck","documentary_outline"]);
+      if (resolvedDocType === "other") {
+        // Fuzzy match: strip numbers, parens, normalize
+        const aggressive = (targetOutput || "").toLowerCase().replace(/[\s\-()0-9]+/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "");
+        const fuzzy = [...VALID_DELIVERABLES_SET].find(d => aggressive.includes(d) || d.includes(aggressive));
+        resolvedDocType = fuzzy || "script"; // Never fall through to "other"
+      }
 
       const { data: newDoc, error: dErr } = await supabase.from("project_documents").insert({
         project_id: projectId,
