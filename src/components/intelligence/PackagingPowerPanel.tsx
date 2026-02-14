@@ -56,7 +56,9 @@ const multiplierColor = (m: 'low' | 'medium' | 'high') =>
 const STAGE_ICONS: Record<PackagingStage, typeof FileText> = {
   early_dev: FileText,
   packaging_now: ClipboardCheck,
+  pre_market: ClipboardCheck,
   financing_live: AlertTriangle,
+  post_greenlight: AlertTriangle,
 };
 
 export function PackagingPowerPanel({ projectId, packagingMode, packagingStage, roles }: Props) {
