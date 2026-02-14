@@ -216,7 +216,7 @@ export default function ProjectDevelopmentEngine() {
         <Header />
         <div className="max-w-[1600px] mx-auto px-4 py-4">
           {/* Top bar */}
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-2">
             <div className="flex items-center gap-3">
               <Link to={`/projects/${projectId}`} className="text-sm text-muted-foreground hover:text-foreground">
                 ← Project
@@ -228,9 +228,9 @@ export default function ProjectDevelopmentEngine() {
                 </Badge>
               )}
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Select value={strategicPriority} onValueChange={setStrategicPriority}>
-                <SelectTrigger className="h-8 text-xs w-[150px]"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="h-8 text-xs w-[130px]"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="PRESTIGE">Prestige</SelectItem>
                   <SelectItem value="BALANCED">Balanced</SelectItem>
@@ -239,7 +239,7 @@ export default function ProjectDevelopmentEngine() {
                 </SelectContent>
               </Select>
               <Select value={developmentStage} onValueChange={setDevelopmentStage}>
-                <SelectTrigger className="h-8 text-xs w-[130px]"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="h-8 text-xs w-[110px]"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="IDEA">Idea</SelectItem>
                   <SelectItem value="EARLY_DRAFT">Early Draft</SelectItem>
@@ -260,10 +260,10 @@ export default function ProjectDevelopmentEngine() {
           </div>
 
           {/* 3-column layout */}
-          <div className="grid grid-cols-12 gap-4" style={{ minHeight: 'calc(100vh - 140px)' }}>
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-4" style={{ minHeight: 'calc(100vh - 140px)' }}>
 
             {/* ── LEFT: Document Selector ── */}
-            <div className="col-span-3 space-y-3">
+            <div className="md:col-span-3 space-y-3">
               <Card>
                 <CardHeader className="py-3 px-3">
                   <div className="flex items-center justify-between">
@@ -531,7 +531,7 @@ export default function ProjectDevelopmentEngine() {
             </div>
 
             {/* ── CENTER: Workspace ── */}
-            <div className="col-span-6">
+            <div className="md:col-span-6">
               {!selectedDocId ? (
                 <Card className="h-full flex items-center justify-center">
                   <div className="text-center space-y-3 p-8">
@@ -544,8 +544,8 @@ export default function ProjectDevelopmentEngine() {
                 </Card>
               ) : (
                 <Tabs value={activeTab} onValueChange={setActiveTab}>
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-2 gap-2">
+                    <div className="flex items-center gap-2 overflow-x-auto">
                       <TabsList className="h-8">
                         <TabsTrigger value="content" className="text-xs h-7">Content</TabsTrigger>
                         <TabsTrigger value="scores" className="text-xs h-7">Scores</TabsTrigger>
@@ -554,14 +554,14 @@ export default function ProjectDevelopmentEngine() {
                         <TabsTrigger value="history" className="text-xs h-7">History</TabsTrigger>
                       </TabsList>
                       {selectedVersion && (
-                        <Badge variant="outline" className="text-[9px] px-1.5 py-0 border-border gap-1">
+                        <Badge variant="outline" className="text-[9px] px-1.5 py-0 border-border gap-1 shrink-0">
                           <GitBranch className="h-2.5 w-2.5" />
                           v{selectedVersion.version_number}
                           {selectedVersion.label ? ` · ${selectedVersion.label}` : ''}
                         </Badge>
                       )}
                     </div>
-                    <div className="flex gap-1.5">
+                    <div className="flex gap-1.5 shrink-0">
                       <Button size="sm" className="h-7 text-xs gap-1" onClick={handleAnalyze} disabled={isLoading || !versionText}>
                         {analyze.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
                         Analyze
@@ -840,7 +840,7 @@ export default function ProjectDevelopmentEngine() {
             </div>
 
             {/* ── RIGHT: Progress Tracker ── */}
-            <div className="col-span-3 space-y-3">
+            <div className="md:col-span-3 space-y-3">
               {/* Convergence chart */}
               <Card>
                 <CardHeader className="py-2 px-3">
