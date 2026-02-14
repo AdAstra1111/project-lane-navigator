@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useParams, Link, useSearchParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { Header } from '@/components/Header';
@@ -30,6 +30,7 @@ import { OperationProgress, DEV_ANALYZE_STAGES, DEV_NOTES_STAGES, DEV_REWRITE_ST
 import { useSetAsLatestDraft } from '@/hooks/useSetAsLatestDraft';
 import { FeatureLengthGuardrails } from '@/components/FeatureLengthGuardrails';
 import { type DevelopmentBehavior, BEHAVIOR_LABELS, BEHAVIOR_COLORS, DELIVERABLE_LABELS, defaultDeliverableForDocType, type DeliverableType } from '@/lib/dev-os-config';
+import { isSeriesFormat as checkSeriesFormat } from '@/lib/format-helpers';
 import { DeliverablePipeline, type PipelineStageStatus } from '@/components/DeliverablePipeline';
 
 // ── Convergence Gauge ──
@@ -118,10 +119,11 @@ function SetAsLatestDraftButton({ projectId, title, text }: { projectId?: string
 export default function ProjectDevelopmentEngine() {
   const { id: projectId } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
+  const qc = useQueryClient();
 
   // Fetch project metadata
   const { data: project } = useQuery({
-    queryKey: ['project-meta', projectId],
+    queryKey: ['dev-engine-project', projectId],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('projects')
@@ -136,8 +138,10 @@ export default function ProjectDevelopmentEngine() {
   const normalizedFormat = (project?.format || 'film').toLowerCase().replace(/_/g, '-');
   const isFeature = !project?.format || normalizedFormat === 'feature' || normalizedFormat === 'film';
   const isVerticalDrama = normalizedFormat === 'vertical-drama';
+  const isSeriesFormat = checkSeriesFormat(normalizedFormat);
   const projectBehavior = (project?.development_behavior as DevelopmentBehavior) || 'market';
   const projectFormat = normalizedFormat;
+  const [episodeDuration, setEpisodeDuration] = useState(project?.episode_target_duration_seconds || 120);
 
   const {
     documents, docsLoading, versions, versionsLoading,
@@ -192,6 +196,13 @@ export default function ProjectDevelopmentEngine() {
     if (!latestNotes?.prioritized_moves) return [];
     return latestNotes.prioritized_moves as any[];
   }, [latestNotes]);
+
+  // Sync episode duration from project data
+  useEffect(() => {
+    if (project?.episode_target_duration_seconds) {
+      setEpisodeDuration(project.episode_target_duration_seconds);
+    }
+  }, [project?.episode_target_duration_seconds]);
 
   // Auto-select all notes when they load
   useMemo(() => {
@@ -303,11 +314,37 @@ export default function ProjectDevelopmentEngine() {
                     <SelectItem value="GREENLIGHT_ARCHITECT">Finance Readiness Only</SelectItem>
                   </SelectContent>
                 </Select>
-                {/* Episode duration (vertical drama only) */}
-                {isVerticalDrama && (
-                  <Badge variant="outline" className="text-[10px] text-muted-foreground">
-                    {project?.episode_target_duration_seconds || 120}s / ep
-                  </Badge>
+                {/* Development Behavior selector */}
+                <Select value={projectBehavior} onValueChange={async (v) => {
+                  if (!projectId) return;
+                  await (supabase as any).from('projects').update({ development_behavior: v }).eq('id', projectId);
+                  qc.invalidateQueries({ queryKey: ['dev-engine-project', projectId] });
+                }}>
+                  <SelectTrigger className="h-8 text-xs w-[110px]"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {Object.entries(BEHAVIOR_LABELS).map(([key, label]) => (
+                      <SelectItem key={key} value={key}>{label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {/* Episode duration (series formats) */}
+                {(isVerticalDrama || isSeriesFormat) && (
+                  <div className="flex items-center gap-1">
+                    <Input
+                      type="number"
+                      className="h-8 text-xs w-[70px]"
+                      value={episodeDuration}
+                      onChange={(e) => setEpisodeDuration(Number(e.target.value))}
+                      onBlur={async () => {
+                        if (!projectId || !episodeDuration) return;
+                        await (supabase as any).from('projects').update({ episode_target_duration_seconds: episodeDuration }).eq('id', projectId);
+                        qc.invalidateQueries({ queryKey: ['dev-engine-project', projectId] });
+                      }}
+                      min={30}
+                      max={7200}
+                    />
+                    <span className="text-[10px] text-muted-foreground">s/ep</span>
+                  </div>
                 )}
               </div>
             </div>
