@@ -585,7 +585,7 @@ serve(async (req) => {
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
 
     const body = await req.json();
-    const { action, projectId, scriptId } = body;
+    const { action, projectId, scriptId, forceNew } = body;
     if (!projectId) throw new Error("projectId required");
 
     // Verify project access
@@ -657,7 +657,7 @@ serve(async (req) => {
 
       // Create or update script record
       let sid = scriptId;
-      if (!sid) {
+      if (!sid && !forceNew) {
         const { data: existing } = await supabase
           .from("scripts")
           .select("id")

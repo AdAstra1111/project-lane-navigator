@@ -135,7 +135,7 @@ export function useSeriesWriter(projectId: string) {
 
     try {
       await updateEpisodeProgress(episode.id, 'blueprint', 'generating');
-      const bpResult = await callEngine('blueprint', projectId);
+      const bpResult = await callEngine('blueprint', projectId, undefined, { forceNew: true });
       const scriptId = bpResult.scriptId;
       if (!scriptId) throw new Error('Blueprint did not return scriptId');
       await updateEpisodeProgress(episode.id, 'blueprint', 'generating', scriptId);
@@ -197,7 +197,7 @@ export function useSeriesWriter(projectId: string) {
 
       try {
         await updateEpisodeProgress(ep.id, 'blueprint', 'generating');
-        const bpResult = await callEngine('blueprint', projectId);
+        const bpResult = await callEngine('blueprint', projectId, undefined, { forceNew: true });
         const scriptId = bpResult.scriptId;
         if (!scriptId) throw new Error('Blueprint did not return scriptId');
         await updateEpisodeProgress(ep.id, 'blueprint', 'generating', scriptId);
