@@ -133,10 +133,11 @@ export default function ProjectDevelopmentEngine() {
     },
     enabled: !!projectId,
   });
-  const isFeature = !project?.format || project.format === 'feature';
-  const isVerticalDrama = project?.format === 'vertical-drama';
+  const normalizedFormat = (project?.format || 'film').toLowerCase().replace(/_/g, '-');
+  const isFeature = !project?.format || normalizedFormat === 'feature' || normalizedFormat === 'film';
+  const isVerticalDrama = normalizedFormat === 'vertical-drama';
   const projectBehavior = (project?.development_behavior as DevelopmentBehavior) || 'market';
-  const projectFormat = project?.format || 'film';
+  const projectFormat = normalizedFormat;
 
   const {
     documents, docsLoading, versions, versionsLoading,

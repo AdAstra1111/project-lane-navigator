@@ -273,10 +273,25 @@ serve(async (req) => {
         .select("title, budget_range, assigned_lane, format, development_behavior, episode_target_duration_seconds")
         .eq("id", projectId).single();
 
-      const effectiveFormat = reqFormat || project?.format || "film";
+      const rawFormat = reqFormat || project?.format || "film";
+      const effectiveFormat = rawFormat.toLowerCase().replace(/_/g, "-");
       const effectiveBehavior = developmentBehavior || project?.development_behavior || "market";
       const effectiveDeliverable = deliverableType || "script";
       const effectiveDuration = episodeTargetDurationSeconds || project?.episode_target_duration_seconds;
+
+      // Derive production type from format if not explicitly provided
+      const formatToProductionType: Record<string, string> = {
+        "vertical-drama": "vertical_drama",
+        "tv-series": "tv_series",
+        "limited-series": "limited_series",
+        "documentary": "documentary",
+        "documentary-series": "documentary_series",
+        "hybrid-documentary": "hybrid_documentary",
+        "short": "short_film",
+        "animation": "animation",
+        "digital-series": "digital_series",
+      };
+      const effectiveProductionType = productionType || formatToProductionType[effectiveFormat] || "narrative_feature";
 
       // Build deliverable/format/behavior context for the prompt
       let devOSContext = "";
@@ -308,7 +323,8 @@ serve(async (req) => {
         }
       }
 
-      const userPrompt = `PRODUCTION TYPE: ${productionType || "narrative_feature"}
+      const userPrompt = `PRODUCTION TYPE: ${effectiveProductionType}
+FORMAT: ${effectiveFormat}
 STRATEGIC PRIORITY: ${strategicPriority || "BALANCED"}
 DEVELOPMENT STAGE: ${developmentStage || "IDEA"}
 ANALYSIS MODE: ${analysisMode || "DUAL"}
@@ -332,7 +348,7 @@ ${version.plaintext.slice(0, 25000)}`;
         version_id: versionId,
         user_id: user.id,
         run_type: "ANALYZE",
-        production_type: productionType || "narrative_feature",
+        production_type: effectiveProductionType,
         strategic_priority: strategicPriority || "BALANCED",
         development_stage: developmentStage || "IDEA",
         analysis_mode: analysisMode || "DUAL",
