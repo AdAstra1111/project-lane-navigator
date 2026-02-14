@@ -724,6 +724,73 @@ export default function ProjectDevelopmentEngine() {
                     </div>
                   )}
 
+                  {/* ── Notes Approval Panel (center, prominent) ── */}
+                  {allPrioritizedMoves.length > 0 && (
+                    <Card className="border-primary/30 bg-primary/5">
+                      <CardHeader className="py-2 px-3">
+                        <div className="flex items-center justify-between">
+                          <CardTitle className="text-xs flex items-center gap-1.5">
+                            <Zap className="h-3 w-3 text-primary" />
+                            Review Notes ({selectedNotes.size}/{allPrioritizedMoves.length} approved)
+                          </CardTitle>
+                          <div className="flex gap-1">
+                            <Button variant="ghost" size="sm" className="text-[10px] h-5 px-1.5"
+                              onClick={() => setSelectedNotes(new Set(allPrioritizedMoves.map((_, i) => i)))}>All</Button>
+                            <Button variant="ghost" size="sm" className="text-[10px] h-5 px-1.5"
+                              onClick={() => setSelectedNotes(new Set())}>None</Button>
+                          </div>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="px-2 pb-2">
+                        <ScrollArea className="max-h-[250px]">
+                          <div className="space-y-1.5 pr-1">
+                            {allPrioritizedMoves.map((move: any, i: number) => (
+                              <div key={i} className={`flex items-start gap-2 p-2 rounded border transition-colors cursor-pointer ${
+                                selectedNotes.has(i) ? 'border-primary/40 bg-primary/5' : 'border-border/40 opacity-60'
+                              }`} onClick={() => {
+                                setSelectedNotes(prev => {
+                                  const next = new Set(prev);
+                                  if (next.has(i)) next.delete(i); else next.add(i);
+                                  return next;
+                                });
+                              }}>
+                                <Checkbox
+                                  checked={selectedNotes.has(i)}
+                                  onCheckedChange={() => {
+                                    setSelectedNotes(prev => {
+                                      const next = new Set(prev);
+                                      if (next.has(i)) next.delete(i); else next.add(i);
+                                      return next;
+                                    });
+                                  }}
+                                  className="mt-0.5 h-3.5 w-3.5"
+                                />
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-1 mb-0.5">
+                                    <Badge variant="outline" className="text-[8px] px-1 py-0">{move.category}</Badge>
+                                    <Badge variant={move.impact === 'high' ? 'default' : 'secondary'} className="text-[8px] px-1 py-0">{move.impact}</Badge>
+                                    {move.convergence_lift && (
+                                      <span className="text-[8px] text-emerald-400">+{move.convergence_lift}</span>
+                                    )}
+                                  </div>
+                                  <p className="text-[10px] text-foreground leading-relaxed">{move.note}</p>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </ScrollArea>
+                        <div className="mt-2 flex gap-2">
+                          <Button size="sm" className="h-7 text-xs gap-1.5 flex-1"
+                            onClick={handleRewrite}
+                            disabled={isLoading || rewritePipeline.status !== 'idle' || selectedNotes.size === 0}>
+                            {(rewrite.isPending || rewritePipeline.status !== 'idle') ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                            Apply Rewrite ({selectedNotes.size} notes)
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+
                   {/* Content area */}
                   <Card>
                     <CardContent className="p-4">
