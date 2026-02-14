@@ -2,6 +2,8 @@ import { useState, useCallback } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import type { DeliverableType, DevelopmentBehavior, ConvergenceStatus } from '@/lib/dev-os-config';
+import { computeConvergenceStatus } from '@/lib/dev-os-config';
 
 // ── Types ──
 
@@ -224,7 +226,7 @@ export function useDevEngineV2(projectId: string | undefined) {
   }
 
   const analyze = useMutation({
-    mutationFn: async (params: { productionType?: string; strategicPriority?: string; developmentStage?: string; analysisMode?: string; previousVersionId?: string }) => {
+    mutationFn: async (params: { productionType?: string; strategicPriority?: string; developmentStage?: string; analysisMode?: string; previousVersionId?: string; deliverableType?: DeliverableType; developmentBehavior?: DevelopmentBehavior; format?: string; episodeTargetDurationSeconds?: number }) => {
       const vid = await resolveVersionId();
       if (!vid) throw new Error('No version found — please select a document first');
       return callEngineV2('analyze', { projectId, documentId: selectedDocId, versionId: vid, ...params });
@@ -320,17 +322,27 @@ export function useDevEngineV2(projectId: string | undefined) {
 
   const isLoading = analyze.isPending || generateNotes.isPending || rewrite.isPending || convert.isPending || createPaste.isPending;
 
-  const isConverged = latestAnalysis &&
-    (latestAnalysis.ci_score ?? 0) >= 80 &&
-    (latestAnalysis.gp_score ?? 0) >= 80 &&
-    (latestAnalysis.gap ?? 100) <= (latestAnalysis.allowed_gap ?? 25);
+  // Behavior-aware convergence
+  const rewriteCount = allDocRuns.filter(r => r.run_type === 'REWRITE').length;
+  const currentBehavior: DevelopmentBehavior = (latestAnalysis?.development_behavior as DevelopmentBehavior) || 'market';
+
+  const convergenceStatus: ConvergenceStatus = computeConvergenceStatus(
+    latestAnalysis?.ci_score ?? null,
+    latestAnalysis?.gp_score ?? null,
+    latestAnalysis?.gap ?? null,
+    latestAnalysis?.allowed_gap ?? 25,
+    currentBehavior,
+    rewriteCount,
+  );
+
+  const isConverged = convergenceStatus === 'Converged';
 
   return {
     documents, docsLoading, versions, versionsLoading,
     selectedDoc, selectedVersion, selectedDocId, selectedVersionId,
     selectDocument, setSelectedVersionId,
     runs, allDocRuns, convergenceHistory,
-    latestAnalysis, latestNotes, isConverged, isLoading,
+    latestAnalysis, latestNotes, isConverged, convergenceStatus, isLoading,
     analyze, generateNotes, rewrite, convert, createPaste, deleteDocument,
   };
 }

@@ -1,6 +1,6 @@
 /**
  * Sticky project summary bar — always visible at top of project page.
- * Shows title, production type, lane, readiness, mode toggle, and primary CTA.
+ * Shows title, production type, lane, readiness, mode toggle, behavior badge, and primary CTA.
  */
 
 import { Gauge, ArrowRight } from 'lucide-react';
@@ -13,6 +13,7 @@ import type { Project, MonetisationLane } from '@/lib/types';
 import type { ReadinessResult } from '@/lib/readiness-score';
 import { getFormatMeta } from '@/lib/mode-engine';
 import type { PackagingMode, PackagingStage } from '@/lib/role-gravity-engine';
+import { BEHAVIOR_LABELS, BEHAVIOR_COLORS, type DevelopmentBehavior } from '@/lib/dev-os-config';
 
 interface Props {
   project: Project;
@@ -22,6 +23,7 @@ interface Props {
 
 export function ProjectSummaryBar({ project, readiness, onBestAction }: Props) {
   const formatMeta = getFormatMeta(project.format);
+  const behavior = (project.development_behavior as DevelopmentBehavior) || 'market';
 
   return (
     <div className="sticky top-0 z-30 bg-background/70 backdrop-blur-2xl border-b border-border/20 -mx-4 px-4 py-2.5 mb-4">
@@ -40,6 +42,11 @@ export function ProjectSummaryBar({ project, readiness, onBestAction }: Props) {
         {project.assigned_lane && (
           <LaneBadge lane={project.assigned_lane as MonetisationLane} size="sm" />
         )}
+
+        {/* Behavior badge */}
+        <Badge variant="outline" className={`text-[10px] ${BEHAVIOR_COLORS[behavior]}`}>
+          {BEHAVIOR_LABELS[behavior]}
+        </Badge>
 
         {/* Readiness chip */}
         {readiness && (

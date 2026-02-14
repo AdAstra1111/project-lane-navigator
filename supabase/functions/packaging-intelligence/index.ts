@@ -100,8 +100,16 @@ serve(async (req) => {
       projectTitle, format, genres, lane, budget,
       scoringGrid, riskFlags, developmentTier,
       greenlightVerdict, greenlightSummary,
-      coverageSummary, characters,
+      coverageSummary, characters, developmentBehavior,
     } = await req.json();
+
+    const effectiveBehavior = developmentBehavior || "market";
+    let behaviorPackagingDirective = "";
+    if (effectiveBehavior === "efficiency") {
+      behaviorPackagingDirective = "\nBEHAVIOR: Efficiency — focus on budget realism check ONLY. Skip deep casting/festival/awards analysis.";
+    } else if (effectiveBehavior === "prestige") {
+      behaviorPackagingDirective = "\nBEHAVIOR: Prestige — include festival strategy, awards pathway, prestige director targeting, and cultural positioning.";
+    }
 
     if (!projectTitle) {
       return new Response(JSON.stringify({ error: "Project title required" }), {
@@ -123,6 +131,7 @@ Never default to generic notes. Never analyse purely for craft. Always think in 
 
 FORMAT-SPECIFIC PACKAGING RULES:
 ${formatPackagingRules(format)}
+${behaviorPackagingDirective}
 
 CALIBRATION RULES:
 ${scoringGrid ? `- Coverage scores provided: ${JSON.stringify(scoringGrid)}` : '- No coverage scores available'}

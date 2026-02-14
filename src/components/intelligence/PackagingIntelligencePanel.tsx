@@ -73,17 +73,24 @@ interface Props {
   coverageSummary?: string;
   characters?: any[];
   packagingMode?: string;
+  isConverged?: boolean;
+  developmentBehavior?: string;
 }
 
 export function PackagingIntelligencePanel({
   projectTitle, format, genres, lane, budget,
   scoringGrid, riskFlags, developmentTier,
   greenlightVerdict, greenlightSummary, coverageSummary, characters, packagingMode,
+  isConverged = true, developmentBehavior,
 }: Props) {
   const [result, setResult] = useState<PackagingResult | null>(null);
   const [loading, setLoading] = useState(false);
 
   const run = async () => {
+    if (!isConverged) {
+      toast.error('Script must converge before packaging analysis');
+      return;
+    }
     setLoading(true);
     try {
       const { data, error } = await supabase.functions.invoke('packaging-intelligence', {
@@ -94,6 +101,7 @@ export function PackagingIntelligencePanel({
           coverageSummary: coverageSummary?.slice(0, 2000),
           characters: characters?.slice(0, 15),
           packagingMode: packagingMode || 'streamer_prestige',
+          developmentBehavior: developmentBehavior || 'market',
         },
       });
       if (error) throw error;
@@ -122,9 +130,9 @@ export function PackagingIntelligencePanel({
           <Package className="h-4 w-4 text-primary" />
           <h4 className="font-display font-semibold text-foreground">Packaging & Attachment Intelligence</h4>
         </div>
-        <Button size="sm" variant="outline" onClick={run} disabled={loading}>
+        <Button size="sm" variant="outline" onClick={run} disabled={loading || !isConverged}>
           {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Package className="h-3.5 w-3.5 mr-1.5" />}
-          Run Analysis
+          {!isConverged ? 'Awaiting Convergence' : 'Run Analysis'}
         </Button>
       </div>
 
@@ -132,7 +140,9 @@ export function PackagingIntelligencePanel({
 
       {!result && !loading && (
         <p className="text-sm text-muted-foreground">
-          Converts development analysis into actionable packaging strategy for talent attachment, director targeting, sales leverage, and finance positioning.
+          {!isConverged
+            ? 'Script must converge before packaging analysis can be run. Complete development iterations until convergence is achieved.'
+            : 'Converts development analysis into actionable packaging strategy for talent attachment, director targeting, sales leverage, and finance positioning.'}
         </p>
       )}
 
