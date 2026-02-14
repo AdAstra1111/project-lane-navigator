@@ -8,19 +8,25 @@
 
 // ── Types ──────────────────────────────────────────────────────────
 
-export type PackagingMode = 'awards' | 'commercial' | 'streamer_prestige';
-export type PackagingStage = 'early_dev' | 'packaging_now' | 'financing_live';
+export type PackagingMode = 'awards' | 'commercial' | 'streamer_prestige' | 'festival_arthouse' | 'hybrid_theatrical_streaming' | 'direct_to_platform' | 'international_copro';
+export type PackagingStage = 'early_dev' | 'packaging_now' | 'pre_market' | 'financing_live' | 'post_greenlight';
 
 export const PACKAGING_MODE_LABELS: Record<PackagingMode, string> = {
   awards: 'Awards / Festival',
   commercial: 'Commercial / Franchise',
   streamer_prestige: 'Streamer Prestige',
+  festival_arthouse: 'Festival / Arthouse',
+  hybrid_theatrical_streaming: 'Hybrid (Theatrical + Streaming)',
+  direct_to_platform: 'Direct-to-Platform',
+  international_copro: 'International Co-Production',
 };
 
 export const PACKAGING_STAGE_LABELS: Record<PackagingStage, string> = {
   early_dev: 'Early Development',
   packaging_now: 'Packaging Now',
+  pre_market: 'Pre-Market',
   financing_live: 'Financing Live',
+  post_greenlight: 'Post-Greenlight',
 };
 
 export interface SubScores {
@@ -89,6 +95,38 @@ const MODE_WEIGHTS: Record<PackagingMode, ModeWeights> = {
     agency: 0.17,
     actor_moments: 0.17,
   },
+  festival_arthouse: {
+    presence: 0.10,
+    emotional_range: 0.24,
+    transformation: 0.24,
+    moral_conflict: 0.20,
+    agency: 0.10,
+    actor_moments: 0.12,
+  },
+  hybrid_theatrical_streaming: {
+    presence: 0.18,
+    emotional_range: 0.16,
+    transformation: 0.16,
+    moral_conflict: 0.12,
+    agency: 0.20,
+    actor_moments: 0.18,
+  },
+  direct_to_platform: {
+    presence: 0.16,
+    emotional_range: 0.17,
+    transformation: 0.17,
+    moral_conflict: 0.14,
+    agency: 0.18,
+    actor_moments: 0.18,
+  },
+  international_copro: {
+    presence: 0.14,
+    emotional_range: 0.18,
+    transformation: 0.18,
+    moral_conflict: 0.16,
+    agency: 0.16,
+    actor_moments: 0.18,
+  },
 };
 
 // ── Stage Multipliers ──────────────────────────────────────────────
@@ -113,6 +151,14 @@ const STAGE_MULTIPLIERS: Record<PackagingStage, StageMultipliers> = {
     agency: 1.0,
     actor_moments: 1.10,
   },
+  pre_market: {
+    presence: 1.08,
+    emotional_range: 1.0,
+    transformation: 0.98,
+    moral_conflict: 1.0,
+    agency: 1.05,
+    actor_moments: 1.05,
+  },
   financing_live: {
     presence: 1.05,
     emotional_range: 1.0,
@@ -120,6 +166,14 @@ const STAGE_MULTIPLIERS: Record<PackagingStage, StageMultipliers> = {
     moral_conflict: 0.95,
     agency: 1.10,
     actor_moments: 1.0,
+  },
+  post_greenlight: {
+    presence: 1.0,
+    emotional_range: 1.0,
+    transformation: 1.0,
+    moral_conflict: 1.0,
+    agency: 1.05,
+    actor_moments: 1.05,
   },
 };
 
@@ -169,10 +223,42 @@ const STREAMER_LEVERS: RewriteLever[] = [
   { area: 'Contained Intensity', description: 'Balance contained intensity with character depth — interior worlds drive exterior action.', priority: 2 },
 ];
 
+const FESTIVAL_LEVERS: RewriteLever[] = [
+  { area: 'Auteur Vision', description: 'Strengthen the singular directorial voice — every frame should feel intentional and authored.', priority: 1 },
+  { area: 'Subtext Density', description: 'Layer meaning beneath the surface — what\'s unsaid matters more than what\'s spoken.', priority: 1 },
+  { area: 'Structural Risk', description: 'Embrace non-linear or unconventional structure that rewards attentive viewing.', priority: 2 },
+  { area: 'Cultural Specificity', description: 'Root the story in specific cultural texture — universality emerges from specificity.', priority: 2 },
+];
+
+const HYBRID_LEVERS: RewriteLever[] = [
+  { area: 'Dual Appeal', description: 'Balance critical credibility with audience accessibility — the film must work in both cinemas and living rooms.', priority: 1 },
+  { area: 'Event Quality', description: 'Build "must-see" moments that justify theatrical while ensuring replay value for streaming.', priority: 1 },
+  { area: 'Star Vehicle', description: 'Shape roles that attract talent who bridge prestige and commercial audiences.', priority: 2 },
+  { area: 'Window Strategy', description: 'Ensure the narrative has theatrical urgency and streaming longevity.', priority: 2 },
+];
+
+const PLATFORM_LEVERS: RewriteLever[] = [
+  { area: 'Algorithmic Hook', description: 'Front-load a compelling premise that works in a thumbnail and 30-second preview.', priority: 1 },
+  { area: 'Completion Rate', description: 'Engineer pacing that minimises drop-off — every 10 minutes must re-engage.', priority: 1 },
+  { area: 'Social Currency', description: 'Build "watercooler moments" that drive organic conversation and social sharing.', priority: 2 },
+  { area: 'IP Extensibility', description: 'Design the world and characters for spin-offs, sequels, or universe expansion.', priority: 2 },
+];
+
+const COPRO_LEVERS: RewriteLever[] = [
+  { area: 'Cultural Bridge', description: 'Embed authentic multi-territory cultural elements without feeling forced or touristic.', priority: 1 },
+  { area: 'Location Flexibility', description: 'Write locations that can shift between partner territories without breaking story logic.', priority: 1 },
+  { area: 'Cast Diversity', description: 'Build roles that naturally accommodate talent from multiple partner countries.', priority: 2 },
+  { area: 'Treaty Alignment', description: 'Ensure creative elements satisfy co-production treaty cultural requirements.', priority: 2 },
+];
+
 const MODE_LEVERS: Record<PackagingMode, RewriteLever[]> = {
   awards: AWARDS_LEVERS,
   commercial: COMMERCIAL_LEVERS,
   streamer_prestige: STREAMER_LEVERS,
+  festival_arthouse: FESTIVAL_LEVERS,
+  hybrid_theatrical_streaming: HYBRID_LEVERS,
+  direct_to_platform: PLATFORM_LEVERS,
+  international_copro: COPRO_LEVERS,
 };
 
 /**
@@ -190,6 +276,13 @@ function prioritizeLevers(levers: RewriteLever[], stage: PackagingStage): Rewrit
     case 'packaging_now':
       // Moments/presence first, then clarity
       return sorted.sort((a, b) => b.priority - a.priority);
+    case 'pre_market':
+      // Market-readiness items first
+      return sorted.sort((a, b) => {
+        const aIsMarket = /hook|appeal|currency|strategy|positioning/i.test(a.area) ? 0 : 1;
+        const bIsMarket = /hook|appeal|currency|strategy|positioning/i.test(b.area) ? 0 : 1;
+        return aIsMarket - bIsMarket || a.priority - b.priority;
+      });
     case 'financing_live':
       // Clarity/risk items first
       return sorted.sort((a, b) => {
@@ -197,6 +290,9 @@ function prioritizeLevers(levers: RewriteLever[], stage: PackagingStage): Rewrit
         const bIsClarity = /clarity|agency|hook|goal/i.test(b.area) ? 0 : 1;
         return aIsClarity - bIsClarity || a.priority - b.priority;
       });
+    case 'post_greenlight':
+      // Execution-focused: clarity first, then creative polish
+      return sorted.sort((a, b) => a.priority - b.priority);
   }
 }
 
@@ -288,6 +384,45 @@ const STAGE_RECOMMENDATIONS: Record<PackagingStage, StageRecommendation[]> = {
       ],
     },
   ],
+  pre_market: [
+    {
+      heading: 'Market Testing Checklist',
+      items: [
+        'Soft-sound key buyers — gauge appetite before formal launch',
+        'Prepare one-sheet, sizzle reel, and director statement',
+        'Identify anchor territory for first close',
+        'Sales agent feedback incorporated into pitch materials',
+      ],
+    },
+    {
+      heading: 'Positioning Refinement',
+      items: [
+        'Comp titles validated with actual market performance data',
+        'Genre positioning tested against current buyer mandates',
+        'Budget level confirmed as achievable with current attachments',
+      ],
+    },
+  ],
+  post_greenlight: [
+    {
+      heading: 'Execution Readiness',
+      items: [
+        'All key department heads confirmed and available',
+        'Final shooting script locked with no outstanding notes',
+        'Insurance and completion bond in place',
+        'Delivery schedule agreed with all distributors',
+      ],
+    },
+    {
+      heading: 'Deal Optimisation',
+      items: [
+        'Negotiate holdback windows to maximise revenue across platforms',
+        'Confirm all territory deals have matching delivery specs',
+        'Lock marketing commitments from distribution partners',
+        'Finalise profit participation and backend deal points',
+      ],
+    },
+  ],
 };
 
 // ── Public API ─────────────────────────────────────────────────────
@@ -346,32 +481,19 @@ export function getStageRecommendations(stage: PackagingStage): StageRecommendat
 export function getFinanceMultipliers(mode: PackagingMode): Record<string, 'low' | 'medium' | 'high'> {
   switch (mode) {
     case 'awards':
-      return {
-        presales_uplift: 'low',
-        brand_value_uplift: 'high',
-        financing_speed: 'low',
-        casting_breadth: 'medium',
-        buyer_interest: 'medium',
-        series_viability: 'low',
-      };
+      return { presales_uplift: 'low', brand_value_uplift: 'high', financing_speed: 'low', casting_breadth: 'medium', buyer_interest: 'medium', series_viability: 'low' };
     case 'commercial':
-      return {
-        presales_uplift: 'high',
-        brand_value_uplift: 'low',
-        financing_speed: 'high',
-        casting_breadth: 'high',
-        buyer_interest: 'medium',
-        series_viability: 'medium',
-      };
+      return { presales_uplift: 'high', brand_value_uplift: 'low', financing_speed: 'high', casting_breadth: 'high', buyer_interest: 'medium', series_viability: 'medium' };
     case 'streamer_prestige':
-      return {
-        presales_uplift: 'medium',
-        brand_value_uplift: 'medium',
-        financing_speed: 'medium',
-        casting_breadth: 'medium',
-        buyer_interest: 'high',
-        series_viability: 'high',
-      };
+      return { presales_uplift: 'medium', brand_value_uplift: 'medium', financing_speed: 'medium', casting_breadth: 'medium', buyer_interest: 'high', series_viability: 'high' };
+    case 'festival_arthouse':
+      return { presales_uplift: 'low', brand_value_uplift: 'high', financing_speed: 'low', casting_breadth: 'low', buyer_interest: 'medium', series_viability: 'low' };
+    case 'hybrid_theatrical_streaming':
+      return { presales_uplift: 'medium', brand_value_uplift: 'medium', financing_speed: 'medium', casting_breadth: 'high', buyer_interest: 'high', series_viability: 'medium' };
+    case 'direct_to_platform':
+      return { presales_uplift: 'low', brand_value_uplift: 'medium', financing_speed: 'high', casting_breadth: 'medium', buyer_interest: 'high', series_viability: 'high' };
+    case 'international_copro':
+      return { presales_uplift: 'high', brand_value_uplift: 'medium', financing_speed: 'low', casting_breadth: 'medium', buyer_interest: 'medium', series_viability: 'medium' };
   }
 }
 
@@ -384,7 +506,11 @@ export function getStageFinanceGuidance(stage: PackagingStage): { label: string;
       return { label: 'What to fix before packaging', guidance: 'Focus on script-level changes that unlock attachability. Finance conversations are premature — prioritize creative readiness.' };
     case 'packaging_now':
       return { label: 'What attachments unlock next', guidance: 'Each confirmed attachment changes the finance picture. Track which attachments trigger pre-sale conversations and equity interest.' };
+    case 'pre_market':
+      return { label: 'Pre-market positioning', guidance: 'Test buyer appetite with soft-sounds before formal launch. Refine materials based on initial feedback and confirm anchor territory strategy.' };
     case 'financing_live':
       return { label: 'Closing checklist & materials', guidance: 'Ensure all sales materials are ready, tax incentive applications filed, and gap financing strategy confirmed. Every day in financing costs money.' };
+    case 'post_greenlight':
+      return { label: 'Deal optimisation & execution', guidance: 'Maximise deal terms across all territories. Lock delivery specs, marketing commitments, and backend participation before principal photography.' };
   }
 }
