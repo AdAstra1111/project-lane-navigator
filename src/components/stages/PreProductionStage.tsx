@@ -74,7 +74,7 @@ export function PreProductionStage({
         onToggleBondItem={toggleBondItem}
       />
 
-      <ScheduleTab projectId={projectId} />
+      <ScheduleTab projectId={projectId} format={project?.format} genres={project?.genres} budgetRange={project?.budget_range} />
       <ScheduleIntelligencePanel
         projectId={projectId}
         format={project?.format}
