@@ -13,7 +13,7 @@ const GREENLIGHT_STAGES = [
   { at: 40, label: 'Running specialist analysis…' },
   { at: 65, label: 'Running calibrator pass…' },
   { at: 85, label: 'Validating output schema…' },
-  { at: 95, label: 'Finalizing greenlight verdict…' },
+  { at: 95, label: 'Finalizing finance readiness verdict…' },
 ];
 
 // IFFY_ANALYSIS_V1 schema
@@ -144,7 +144,7 @@ export function GreenlightSimulator({
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Zap className="h-4 w-4 text-primary" />
-          <h4 className="font-display font-semibold text-foreground">Greenlight Simulator</h4>
+          <h4 className="font-display font-semibold text-foreground">Finance Readiness Simulator</h4>
         </div>
         <Button size="sm" variant="outline" onClick={simulate} disabled={loading}>
           {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Zap className="h-3.5 w-3.5 mr-1.5" />}
@@ -156,7 +156,7 @@ export function GreenlightSimulator({
 
       {!result && !loading && (
         <p className="text-sm text-muted-foreground">
-          Runs a multi-pass greenlight simulation — Specialist → Calibrator — calibrated to your project's production type.
+          Runs a multi-pass finance readiness simulation — Specialist → Calibrator — calibrated to your project's production type.
         </p>
       )}
 

@@ -35,11 +35,11 @@ function ConvergenceGauge({ ci, gp, gap, status, allowedGap }: { ci: number; gp:
   return (
     <div className="grid grid-cols-3 gap-3 text-center">
       <div>
-        <p className="text-[10px] text-muted-foreground uppercase tracking-wider">CI</p>
+        <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Script Strength</p>
         <p className="text-2xl font-display font-bold text-foreground">{ci}</p>
       </div>
       <div>
-        <p className="text-[10px] text-muted-foreground uppercase tracking-wider">GP</p>
+        <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Finance Readiness</p>
         <p className="text-2xl font-display font-bold text-foreground">{gp}</p>
       </div>
       <div>
@@ -251,9 +251,9 @@ export default function ProjectDevelopmentEngine() {
               <Select value={analysisMode} onValueChange={setAnalysisMode}>
                 <SelectTrigger className="h-8 text-xs w-[100px]"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="DUAL">Dual</SelectItem>
-                  <SelectItem value="CREATIVE_INTEGRITY">CI Only</SelectItem>
-                  <SelectItem value="GREENLIGHT_ARCHITECT">GP Only</SelectItem>
+                  <SelectItem value="DUAL">Dual Analysis</SelectItem>
+                  <SelectItem value="CREATIVE_INTEGRITY">Script Strength Only</SelectItem>
+                  <SelectItem value="GREENLIGHT_ARCHITECT">Finance Readiness Only</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -813,8 +813,8 @@ export default function ProjectDevelopmentEngine() {
                                     </div>
                                     {out.ci_score != null && (
                                       <div className="grid grid-cols-3 gap-2 text-center text-xs">
-                                        <div><span className="text-muted-foreground">CI</span> <span className="font-bold">{out.ci_score}</span></div>
-                                        <div><span className="text-muted-foreground">GP</span> <span className="font-bold">{out.gp_score}</span></div>
+                                        <div><span className="text-muted-foreground">SS</span> <span className="font-bold">{out.ci_score}</span></div>
+                                        <div><span className="text-muted-foreground">FR</span> <span className="font-bold">{out.gp_score}</span></div>
                                         <div><span className="text-muted-foreground">Gap</span> <span className="font-bold">{out.gap}</span></div>
                                       </div>
                                     )}
@@ -853,8 +853,8 @@ export default function ProjectDevelopmentEngine() {
                     <div className="space-y-2">
                       <ConvergenceSparkline history={convergenceHistory} />
                       <div className="flex justify-between text-[9px] text-muted-foreground">
-                        <span>— CI <span className="text-primary">━</span></span>
-                        <span>GP <span className="text-emerald-400">╌</span></span>
+                        <span>— Script Strength <span className="text-primary">━</span></span>
+                        <span>Finance Readiness <span className="text-emerald-400">╌</span></span>
                       </div>
                     </div>
                   ) : (
@@ -894,7 +894,7 @@ export default function ProjectDevelopmentEngine() {
                         {convergenceHistory.slice().reverse().map((pt, i) => (
                           <div key={pt.id} className="p-2 rounded bg-muted/30 text-[10px]">
                             <div className="flex justify-between">
-                              <span>CI: {Number(pt.creative_score)} | GP: {Number(pt.greenlight_score)}</span>
+                              <span>SS: {Number(pt.creative_score)} | FR: {Number(pt.greenlight_score)}</span>
                               <span className="text-muted-foreground">Gap: {Number(pt.gap)}</span>
                             </div>
                             <div className="flex justify-between mt-0.5">
@@ -914,7 +914,7 @@ export default function ProjectDevelopmentEngine() {
                 <Card className="border-emerald-500/30">
                   <CardContent className="p-3 text-center">
                     <p className="text-sm font-medium text-emerald-400">✓ High Convergence</p>
-                    <p className="text-[10px] text-muted-foreground mt-1">CI ≥ 80, GP ≥ 80, Gap within tolerance</p>
+                    <p className="text-[10px] text-muted-foreground mt-1">Script Strength ≥ 80, Finance Readiness ≥ 80, Gap within tolerance</p>
                   </CardContent>
                 </Card>
               )}

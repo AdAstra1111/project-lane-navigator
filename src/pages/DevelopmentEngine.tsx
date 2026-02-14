@@ -27,11 +27,11 @@ function ConvergenceGauge({ ci, gp, gap, status }: { ci: number; gp: number; gap
   return (
     <div className="grid grid-cols-3 gap-4 text-center">
       <div>
-        <p className="text-xs text-muted-foreground uppercase tracking-wider">Creative Integrity</p>
+        <p className="text-xs text-muted-foreground uppercase tracking-wider">Script Strength</p>
         <p className="text-3xl font-display font-bold text-foreground">{ci}</p>
       </div>
       <div>
-        <p className="text-xs text-muted-foreground uppercase tracking-wider">Greenlight Prob.</p>
+        <p className="text-xs text-muted-foreground uppercase tracking-wider">Finance Readiness</p>
         <p className="text-3xl font-display font-bold text-foreground">{gp}</p>
       </div>
       <div>
@@ -436,11 +436,11 @@ export default function DevelopmentEngine() {
                                 </div>
                                 <div className="grid grid-cols-3 gap-2 text-center text-sm">
                                   <div>
-                                    <p className="text-muted-foreground text-xs">CI</p>
+                                    <p className="text-muted-foreground text-xs">Script Strength</p>
                                     <p className="font-bold">{it.reassess_ci ?? it.ci_score ?? '—'}</p>
                                   </div>
                                   <div>
-                                    <p className="text-muted-foreground text-xs">GP</p>
+                                    <p className="text-muted-foreground text-xs">Finance Readiness</p>
                                     <p className="font-bold">{it.reassess_gp ?? it.gp_score ?? '—'}</p>
                                   </div>
                                   <div>
@@ -450,8 +450,8 @@ export default function DevelopmentEngine() {
                                 </div>
                                 {it.delta_ci != null && (
                                   <div className="flex gap-4 mt-2 justify-center">
-                                    <DeltaBadge value={Number(it.delta_ci)} label="CI" />
-                                    <DeltaBadge value={Number(it.delta_gp)} label="GP" />
+                                    <DeltaBadge value={Number(it.delta_ci)} label="SS" />
+                                    <DeltaBadge value={Number(it.delta_gp)} label="FR" />
                                     <DeltaBadge value={Number(it.delta_gap)} label="Gap" />
                                   </div>
                                 )}
@@ -581,8 +581,8 @@ export default function DevelopmentEngine() {
                           status={latestIteration.reassess_convergence || 'Unknown'}
                         />
                         <div className="flex gap-4 justify-center">
-                          <DeltaBadge value={Number(latestIteration.delta_ci)} label="CI" />
-                          <DeltaBadge value={Number(latestIteration.delta_gp)} label="GP" />
+                          <DeltaBadge value={Number(latestIteration.delta_ci)} label="SS" />
+                          <DeltaBadge value={Number(latestIteration.delta_gp)} label="FR" />
                           <DeltaBadge value={Number(latestIteration.delta_gap)} label="Gap" />
                         </div>
                         {latestIteration.trajectory && (
