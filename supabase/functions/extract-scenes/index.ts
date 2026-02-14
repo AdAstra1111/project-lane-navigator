@@ -253,6 +253,47 @@ IMPORTANT PAGE COUNT RULES:
       console.error("Failed to parse AI scene response:", parseErr);
     }
 
+    // --- Deterministic page count override ---
+    // Split the full script text at sluglines and count words per scene
+    if (extractedText && scenes.length > 0) {
+      const sluglinePattern = /^(INT\.|EXT\.|INT\/EXT\.|I\/E\.)/m;
+      const lines = extractedText.split("\n");
+      const sceneChunks: string[] = [];
+      let currentChunk = "";
+
+      for (const line of lines) {
+        if (sluglinePattern.test(line.trim()) && currentChunk.length > 0) {
+          sceneChunks.push(currentChunk);
+          currentChunk = "";
+        }
+        currentChunk += line + "\n";
+      }
+      if (currentChunk.trim()) sceneChunks.push(currentChunk);
+
+      // If chunk count roughly matches scene count, assign word-based page counts
+      if (sceneChunks.length > 0) {
+        const totalWords = extractedText.split(/\s+/).filter(Boolean).length;
+        const totalPages = Math.ceil(totalWords / 250);
+
+        if (Math.abs(sceneChunks.length - scenes.length) <= 3) {
+          // Direct mapping
+          for (let i = 0; i < scenes.length; i++) {
+            const chunk = sceneChunks[Math.min(i, sceneChunks.length - 1)];
+            const wordCount = chunk.split(/\s+/).filter(Boolean).length;
+            scenes[i].page_count = Math.round((wordCount / 250) * 8) / 8; // eighth-page precision
+          }
+        } else {
+          // Distribute proportionally based on AI ratios but scaled to real total
+          const aiTotal = scenes.reduce((sum: number, s: any) => sum + (s.page_count || 1), 0);
+          for (const scene of scenes) {
+            const ratio = (scene.page_count || 1) / aiTotal;
+            scene.page_count = Math.round((ratio * totalPages) * 8) / 8;
+          }
+        }
+        console.log(`Page count corrected: ${totalPages} pages from ${totalWords} words across ${scenes.length} scenes`);
+      }
+    }
+
     // Save scenes to DB
     if (scenes.length > 0) {
       // Delete existing scenes for this project first (fresh extraction)
