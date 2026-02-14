@@ -446,14 +446,6 @@ export default function ProjectDevelopmentEngine() {
 
               {/* Convert button removed — use pipeline bar + Convert button in action bar */}
 
-              {/* Set as Latest Draft */}
-              {selectedDocId && selectedVersionId && versionText && (
-                <SetAsLatestDraftButton
-                  projectId={projectId}
-                  title={selectedDoc?.title || selectedDoc?.file_name || 'Dev Engine Draft'}
-                  text={versionText}
-                />
-              )}
 
               {/* Generate Feature Script Pipeline */}
               {isFeature && selectedDocId && selectedVersionId && (
@@ -657,6 +649,15 @@ export default function ProjectDevelopmentEngine() {
                         </ScrollArea>
                       </CardContent>
                     </Card>
+                    {selectedDocId && selectedVersionId && versionText && (
+                      <div className="mt-2">
+                        <SetAsLatestDraftButton
+                          projectId={projectId}
+                          title={selectedDoc?.title || selectedDoc?.file_name || 'Dev Engine Draft'}
+                          text={versionText}
+                        />
+                      </div>
+                    )}
                   </TabsContent>
 
                   {/* Scores tab */}
