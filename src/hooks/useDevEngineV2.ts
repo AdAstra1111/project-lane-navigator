@@ -371,6 +371,8 @@ export function useDevEngineV2(projectId: string | undefined) {
   const rewriteCount = allDocRuns.filter(r => r.run_type === 'REWRITE').length;
   const currentBehavior: DevelopmentBehavior = (latestAnalysis?.development_behavior as DevelopmentBehavior) || 'market';
 
+  const blockersRemaining = latestAnalysis?.convergence?.blockers_remaining ?? latestAnalysis?.blocking_issues?.length ?? null;
+
   const convergenceStatus: ConvergenceStatus = computeConvergenceStatus(
     latestAnalysis?.ci_score ?? null,
     latestAnalysis?.gp_score ?? null,
@@ -378,6 +380,7 @@ export function useDevEngineV2(projectId: string | undefined) {
     latestAnalysis?.allowed_gap ?? 25,
     currentBehavior,
     rewriteCount,
+    blockersRemaining,
   );
 
   const isConverged = convergenceStatus === 'Converged';

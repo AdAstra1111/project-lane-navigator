@@ -113,8 +113,21 @@ export function computeConvergenceStatus(
   allowedGap: number,
   behavior: DevelopmentBehavior = 'market',
   rewriteCycles: number = 0,
+  blockersRemaining: number | null = null,
 ): ConvergenceStatus {
   if (ciScore == null || gpScore == null) return 'Not Started';
+
+  // If we have explicit blocker info from the engine, use blockers-only gating
+  if (blockersRemaining !== null) {
+    if (blockersRemaining > 0) return 'In Progress';
+    // Blockers are zero — check minimum score thresholds
+    const t = convergenceThresholds[behavior];
+    const meetsCycles = rewriteCycles >= t.minRewriteCycles;
+    if (ciScore >= t.minCI && gpScore >= t.minGP && meetsCycles) return 'Converged';
+    return 'In Progress';
+  }
+
+  // Legacy path: score-based convergence
   const t = convergenceThresholds[behavior];
   const adjustedAllowedGap = allowedGap * behaviorConfig[behavior].convergenceMultiplier;
   const meetsCI = ciScore >= t.minCI;

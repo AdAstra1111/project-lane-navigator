@@ -2193,6 +2193,62 @@ export type Database = {
         }
         Relationships: []
       }
+      development_notes: {
+        Row: {
+          category: string | null
+          created_at: string | null
+          description: string | null
+          document_id: string
+          document_version_id: string
+          id: string
+          note_key: string
+          project_id: string
+          regressed: boolean | null
+          resolved: boolean | null
+          resolved_in_version: string | null
+          severity: string | null
+          why_it_matters: string | null
+        }
+        Insert: {
+          category?: string | null
+          created_at?: string | null
+          description?: string | null
+          document_id: string
+          document_version_id: string
+          id?: string
+          note_key: string
+          project_id: string
+          regressed?: boolean | null
+          resolved?: boolean | null
+          resolved_in_version?: string | null
+          severity?: string | null
+          why_it_matters?: string | null
+        }
+        Update: {
+          category?: string | null
+          created_at?: string | null
+          description?: string | null
+          document_id?: string
+          document_version_id?: string
+          id?: string
+          note_key?: string
+          project_id?: string
+          regressed?: boolean | null
+          resolved?: boolean | null
+          resolved_in_version?: string | null
+          severity?: string | null
+          why_it_matters?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "development_notes_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       development_runs: {
         Row: {
           analysis_mode: string | null

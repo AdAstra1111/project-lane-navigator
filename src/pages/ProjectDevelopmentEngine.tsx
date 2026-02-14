@@ -203,12 +203,27 @@ export default function ProjectDevelopmentEngine() {
     }
   }, [selectedDoc?.doc_type]);
 
+  // Build tiered notes from latest notes output
+  const tieredNotes = useMemo(() => {
+    const blockers = latestNotes?.blocking_issues || latestAnalysis?.blocking_issues || [];
+    const high = latestNotes?.high_impact_notes || latestAnalysis?.high_impact_notes || [];
+    const polish = latestNotes?.polish_notes || latestAnalysis?.polish_notes || [];
+    return { blockers, high, polish };
+  }, [latestNotes, latestAnalysis]);
+
   const allPrioritizedMoves = useMemo(() => {
-    // Support both new (actionable_notes) and old (prioritized_moves) format
+    // Order: blockers first, then high impact, then polish
+    const all = [
+      ...tieredNotes.blockers.map((n: any) => ({ ...n, note: n.description || n.note, impact: 'high', convergence_lift: 10, severity: 'blocker' })),
+      ...tieredNotes.high.map((n: any) => ({ ...n, note: n.description || n.note, impact: 'high', convergence_lift: 5, severity: 'high' })),
+      ...tieredNotes.polish.map((n: any) => ({ ...n, note: n.description || n.note, impact: 'low', convergence_lift: 1, severity: 'polish' })),
+    ];
+    if (all.length > 0) return all;
+    // Fallback to legacy format
     const notes = latestNotes?.actionable_notes || latestNotes?.prioritized_moves;
     if (!notes) return [];
     return notes as any[];
-  }, [latestNotes]);
+  }, [tieredNotes, latestNotes]);
 
   // Sync episode duration and season episodes from project data
   useEffect(() => {
@@ -836,6 +851,30 @@ export default function ProjectDevelopmentEngine() {
                     </div>
                   )}
 
+                  {/* ── Resolution Summary (after rewrite) ── */}
+                  {latestNotes?.resolution_summary && (latestNotes.resolution_summary.resolved > 0 || latestNotes.resolution_summary.regressed > 0) && (
+                    <div className="flex flex-wrap gap-2 text-[10px]">
+                      {latestNotes.resolution_summary.resolved > 0 && (
+                        <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-[10px]">
+                          {latestNotes.resolution_summary.resolved} Resolved
+                        </Badge>
+                      )}
+                      {latestNotes.resolution_summary.regressed > 0 && (
+                        <Badge className="bg-destructive/20 text-destructive border-destructive/30 text-[10px]">
+                          {latestNotes.resolution_summary.regressed} Regressed
+                        </Badge>
+                      )}
+                    </div>
+                  )}
+
+                  {/* ── Stability Status ── */}
+                  {(latestNotes?.stability_status || latestAnalysis?.stability_status) === 'structurally_stable' && (
+                    <div className="flex items-center gap-1.5 text-[10px] text-emerald-500 p-2 rounded bg-emerald-500/10 border border-emerald-500/20">
+                      <Check className="h-3 w-3" />
+                      <span>Structurally Stable — Refinement Phase</span>
+                    </div>
+                  )}
+
                   {/* ── Notes Approval Panel (center, prominent) ── */}
                   {allPrioritizedMoves.length > 0 && (
                     <Card className="border-primary/30 bg-primary/5">
@@ -845,7 +884,22 @@ export default function ProjectDevelopmentEngine() {
                             <Zap className="h-3 w-3 text-primary" />
                             Review Notes ({selectedNotes.size}/{allPrioritizedMoves.length} approved)
                           </CardTitle>
-                          <div className="flex gap-1">
+                          <div className="flex gap-1 items-center">
+                            {tieredNotes.blockers.length > 0 && (
+                              <Badge className="bg-destructive/20 text-destructive border-destructive/30 text-[9px] px-1.5 py-0">
+                                {tieredNotes.blockers.length} Blockers
+                              </Badge>
+                            )}
+                            {tieredNotes.high.length > 0 && (
+                              <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/30 text-[9px] px-1.5 py-0">
+                                {tieredNotes.high.length} High
+                              </Badge>
+                            )}
+                            {tieredNotes.polish.length > 0 && (
+                              <Badge className="bg-muted/40 text-muted-foreground border-border/50 text-[9px] px-1.5 py-0">
+                                {tieredNotes.polish.length} Polish
+                              </Badge>
+                            )}
                             <Button variant="ghost" size="sm" className="text-[10px] h-5 px-1.5"
                               onClick={() => setSelectedNotes(new Set(allPrioritizedMoves.map((_, i) => i)))}>All</Button>
                             <Button variant="ghost" size="sm" className="text-[10px] h-5 px-1.5"
@@ -856,39 +910,53 @@ export default function ProjectDevelopmentEngine() {
                       <CardContent className="px-2 pb-2">
                         <div className="max-h-[300px] overflow-y-auto">
                           <div className="space-y-1.5 pr-1">
-                            {allPrioritizedMoves.map((move: any, i: number) => (
-                              <div key={i} className={`flex items-start gap-2 p-2 rounded border transition-colors cursor-pointer ${
-                                selectedNotes.has(i) ? 'border-primary/40 bg-primary/5' : 'border-border/40 opacity-60'
-                              }`} onClick={() => {
-                                setSelectedNotes(prev => {
-                                  const next = new Set(prev);
-                                  if (next.has(i)) next.delete(i); else next.add(i);
-                                  return next;
-                                });
-                              }}>
-                                <Checkbox
-                                  checked={selectedNotes.has(i)}
-                                  onCheckedChange={() => {
-                                    setSelectedNotes(prev => {
-                                      const next = new Set(prev);
-                                      if (next.has(i)) next.delete(i); else next.add(i);
-                                      return next;
-                                    });
-                                  }}
-                                  className="mt-0.5 h-3.5 w-3.5"
-                                />
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex items-center gap-1 mb-0.5">
-                                    <Badge variant="outline" className="text-[8px] px-1 py-0">{move.category}</Badge>
-                                    <Badge variant={move.impact === 'high' ? 'default' : 'secondary'} className="text-[8px] px-1 py-0">{move.impact}</Badge>
-                                    {move.convergence_lift && (
-                                      <span className="text-[8px] text-emerald-400">+{move.convergence_lift}</span>
+                            {allPrioritizedMoves.map((move: any, i: number) => {
+                              const severityColor = move.severity === 'blocker'
+                                ? 'border-destructive/40 bg-destructive/5'
+                                : move.severity === 'high'
+                                ? 'border-amber-500/40 bg-amber-500/5'
+                                : 'border-border/40';
+                              const severityBadge = move.severity === 'blocker'
+                                ? 'bg-destructive/20 text-destructive border-destructive/30'
+                                : move.severity === 'high'
+                                ? 'bg-amber-500/20 text-amber-400 border-amber-500/30'
+                                : 'bg-muted/40 text-muted-foreground border-border/50';
+                              return (
+                                <div key={i} className={`flex items-start gap-2 p-2 rounded border transition-colors cursor-pointer ${
+                                  selectedNotes.has(i) ? severityColor : 'border-border/40 opacity-60'
+                                }`} onClick={() => {
+                                  setSelectedNotes(prev => {
+                                    const next = new Set(prev);
+                                    if (next.has(i)) next.delete(i); else next.add(i);
+                                    return next;
+                                  });
+                                }}>
+                                  <Checkbox
+                                    checked={selectedNotes.has(i)}
+                                    onCheckedChange={() => {
+                                      setSelectedNotes(prev => {
+                                        const next = new Set(prev);
+                                        if (next.has(i)) next.delete(i); else next.add(i);
+                                        return next;
+                                      });
+                                    }}
+                                    className="mt-0.5 h-3.5 w-3.5"
+                                  />
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-1 mb-0.5">
+                                      <Badge variant="outline" className={`text-[8px] px-1 py-0 ${severityBadge}`}>
+                                        {move.severity === 'blocker' ? '🔴 Blocker' : move.severity === 'high' ? '🟠 High' : '⚪ Polish'}
+                                      </Badge>
+                                      <Badge variant="outline" className="text-[8px] px-1 py-0">{move.category}</Badge>
+                                    </div>
+                                    <p className="text-[10px] text-foreground leading-relaxed">{move.note || move.description}</p>
+                                    {move.why_it_matters && (
+                                      <p className="text-[9px] text-muted-foreground mt-0.5 italic">{move.why_it_matters}</p>
                                     )}
                                   </div>
-                                  <p className="text-[10px] text-foreground leading-relaxed">{move.note}</p>
                                 </div>
-                              </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         </div>
                         <div className="mt-2 flex gap-2">
@@ -981,12 +1049,27 @@ export default function ProjectDevelopmentEngine() {
                         ))}
                       </div>
                     )}
-                    {/* Blocking issues */}
-                    {latestAnalysis.blocking_issues?.length > 0 && (
+                    {/* Tiered note counts */}
+                    <div className="flex gap-2 mt-2">
+                      <div className="flex items-center gap-1 text-[10px]">
+                        <span className="w-2 h-2 rounded-full bg-destructive inline-block" />
+                        <span className="text-destructive font-medium">{tieredNotes.blockers.length} Blockers</span>
+                      </div>
+                      <div className="flex items-center gap-1 text-[10px]">
+                        <span className="w-2 h-2 rounded-full bg-amber-500 inline-block" />
+                        <span className="text-amber-400 font-medium">{tieredNotes.high.length} High</span>
+                      </div>
+                      <div className="flex items-center gap-1 text-[10px]">
+                        <span className="w-2 h-2 rounded-full bg-muted-foreground inline-block" />
+                        <span className="text-muted-foreground font-medium">{tieredNotes.polish.length} Polish</span>
+                      </div>
+                    </div>
+                    {/* Blocking issues detail */}
+                    {tieredNotes.blockers.length > 0 && (
                       <div className="mt-2 p-2 rounded bg-destructive/10 border border-destructive/20">
                         <p className="text-[10px] font-semibold text-destructive mb-1">Blocking Issues</p>
-                        {(latestAnalysis.blocking_issues as string[]).map((b: string, i: number) => (
-                          <p key={i} className="text-[10px] text-destructive/80">• {b}</p>
+                        {tieredNotes.blockers.map((b: any, i: number) => (
+                          <p key={i} className="text-[10px] text-destructive/80">• {b.description || b}</p>
                         ))}
                       </div>
                     )}
@@ -997,7 +1080,7 @@ export default function ProjectDevelopmentEngine() {
                 </Card>
               )}
 
-              {/* Actionable Notes */}
+              {/* Tiered Notes Summary */}
               {allPrioritizedMoves.length > 0 && (
                 <Card>
                   <CardHeader className="py-2 px-3">
@@ -1014,31 +1097,40 @@ export default function ProjectDevelopmentEngine() {
                   <CardContent className="px-2 pb-2">
                     <ScrollArea className="h-[calc(100vh-700px)] min-h-[150px]">
                       <div className="space-y-1.5 pr-1">
-                        {allPrioritizedMoves.map((move: any, i: number) => (
-                          <div key={i} className="flex items-start gap-2 p-2 rounded border border-border/40 hover:border-border transition-colors">
-                            <Checkbox
-                              checked={selectedNotes.has(i)}
-                              onCheckedChange={() => {
-                                setSelectedNotes(prev => {
-                                  const next = new Set(prev);
-                                  if (next.has(i)) next.delete(i); else next.add(i);
-                                  return next;
-                                });
-                              }}
-                              className="mt-0.5 h-3.5 w-3.5"
-                            />
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-1 mb-0.5">
-                                <Badge variant="outline" className="text-[8px] px-1 py-0">{move.category}</Badge>
-                                <Badge variant={move.impact === 'high' ? 'default' : 'secondary'} className="text-[8px] px-1 py-0">{move.impact}</Badge>
-                                {move.convergence_lift && (
-                                  <span className="text-[8px] text-emerald-400">+{move.convergence_lift}</span>
+                        {allPrioritizedMoves.map((move: any, i: number) => {
+                          const severityBadge = move.severity === 'blocker'
+                            ? 'bg-destructive/20 text-destructive border-destructive/30'
+                            : move.severity === 'high'
+                            ? 'bg-amber-500/20 text-amber-400 border-amber-500/30'
+                            : 'bg-muted/40 text-muted-foreground border-border/50';
+                          return (
+                            <div key={i} className="flex items-start gap-2 p-2 rounded border border-border/40 hover:border-border transition-colors">
+                              <Checkbox
+                                checked={selectedNotes.has(i)}
+                                onCheckedChange={() => {
+                                  setSelectedNotes(prev => {
+                                    const next = new Set(prev);
+                                    if (next.has(i)) next.delete(i); else next.add(i);
+                                    return next;
+                                  });
+                                }}
+                                className="mt-0.5 h-3.5 w-3.5"
+                              />
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-1 mb-0.5">
+                                  <Badge variant="outline" className={`text-[8px] px-1 py-0 ${severityBadge}`}>
+                                    {move.severity === 'blocker' ? '🔴' : move.severity === 'high' ? '🟠' : '⚪'} {move.severity}
+                                  </Badge>
+                                  <Badge variant="outline" className="text-[8px] px-1 py-0">{move.category}</Badge>
+                                </div>
+                                <p className="text-[10px] text-foreground leading-relaxed">{move.note || move.description}</p>
+                                {move.why_it_matters && (
+                                  <p className="text-[9px] text-muted-foreground mt-0.5 italic">{move.why_it_matters}</p>
                                 )}
                               </div>
-                              <p className="text-[10px] text-foreground leading-relaxed">{move.note}</p>
                             </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </ScrollArea>
                   </CardContent>
