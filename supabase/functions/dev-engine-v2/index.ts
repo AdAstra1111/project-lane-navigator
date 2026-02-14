@@ -438,6 +438,8 @@ const docTypeMap: Record<string, string> = {
   CHARACTER_BIBLE: "character_bible",
   BEAT_SHEET: "beat_sheet",
   SCRIPT: "script",
+  PILOT_SCRIPT: "script",
+  "PILOT SCRIPT": "script",
   PRODUCTION_DRAFT: "production_draft",
   DECK: "deck",
   DOCUMENTARY_OUTLINE: "documentary_outline",
