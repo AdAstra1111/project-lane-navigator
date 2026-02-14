@@ -563,6 +563,8 @@ export function ScriptStudio({
   const [selectedVersionIdx, setSelectedVersionIdx] = useState(0);
   // Selected document ID (controlled)
   const [selectedDocId, setSelectedDocId] = useState<string>(currentScript?.id || documents[0]?.id || '');
+  // Display text — starts from prop, updates when user selects a different document
+  const [displayText, setDisplayText] = useState<string | null>(scriptText);
 
   // Document version counts (project_document_versions per document)
   const [docVersionCounts, setDocVersionCounts] = useState<Record<string, number>>({});
@@ -590,6 +592,35 @@ export function ScriptStudio({
         setDocLatestVersions(latest);
       });
   }, [documents]);
+
+  // Sync displayText when scriptText prop changes (initial load / parent re-render)
+  useEffect(() => {
+    setDisplayText(scriptText);
+  }, [scriptText]);
+
+  // When user selects a different document, load its text
+  useEffect(() => {
+    if (!selectedDocId) return;
+    const doc = documents.find((d: any) => d.id === selectedDocId);
+    if (!doc) return;
+    const directText = doc.extracted_text || doc.version_plaintext || null;
+    if (directText) {
+      setDisplayText(directText);
+      return;
+    }
+    // Fallback: fetch from project_document_versions
+    (async () => {
+      const { data } = await (supabase as any)
+        .from('project_document_versions')
+        .select('content_plaintext')
+        .eq('document_id', selectedDocId)
+        .order('version_number', { ascending: false })
+        .limit(1);
+      if (data?.[0]?.content_plaintext) {
+        setDisplayText(data[0].content_plaintext);
+      }
+    })();
+  }, [selectedDocId, documents]);
 
   // Coverage progress state for bottom bar
   const [showProgress, setShowProgress] = useState(false);
@@ -742,15 +773,15 @@ export function ScriptStudio({
   };
 
   const handleCopyText = () => {
-    if (scriptText) {
-      navigator.clipboard.writeText(scriptText);
+    if (displayText) {
+      navigator.clipboard.writeText(displayText);
       toast.success('Script text copied');
     }
   };
 
   const handleDownload = () => {
-    if (scriptText) {
-      const blob = new Blob([scriptText], { type: 'text/plain' });
+    if (displayText) {
+      const blob = new Blob([displayText], { type: 'text/plain' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -892,10 +923,10 @@ export function ScriptStudio({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={handleDownload} disabled={!scriptText}>
+                <DropdownMenuItem onClick={handleDownload} disabled={!displayText}>
                   <Download className="h-3.5 w-3.5 mr-2" />Download
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={handleCopyText} disabled={!scriptText}>
+                <DropdownMenuItem onClick={handleCopyText} disabled={!displayText}>
                   <Copy className="h-3.5 w-3.5 mr-2" />Copy text
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -914,7 +945,7 @@ export function ScriptStudio({
         {/* LEFT COLUMN: Script Viewer */}
         <div className="flex-[7] min-w-0 border-r border-border/40">
           <ScriptViewer
-            text={scriptText === '__SCRIPT_EXISTS_NO_TEXT__' ? null : scriptText}
+            text={displayText === '__SCRIPT_EXISTS_NO_TEXT__' ? null : displayText}
             scenes={scenes}
             isAdvanced={isAdvanced}
           />
