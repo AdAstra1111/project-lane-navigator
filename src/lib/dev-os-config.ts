@@ -291,6 +291,8 @@ export function isNonScriptDeliverable(deliverableType: DeliverableType): boolea
 export function defaultDeliverableForDocType(docType: string): DeliverableType {
   const map: Record<string, DeliverableType> = {
     idea: 'idea',
+    concept_brief: 'concept_brief',
+    'concept brief': 'concept_brief',
     logline: 'concept_brief',
     treatment: 'blueprint',
     script: 'script',
