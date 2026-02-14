@@ -15,7 +15,7 @@ import { toast } from 'sonner';
 import { OperationProgress, PROMOTE_STAGES } from '@/components/OperationProgress';
 
 const BUDGET_BANDS = ['Micro (<$500K)', 'Low ($500K–$2M)', 'Mid ($2M–$10M)', 'Mid-High ($10M–$25M)', 'High ($25M–$50M)', 'Studio ($50M+)'];
-const PRODUCTION_TYPES = ['feature_film', 'tv_series', 'limited_series', 'documentary', 'short_film', 'animation'];
+const PRODUCTION_TYPES = ['feature_film', 'tv_series', 'limited_series', 'documentary', 'short_film', 'animation', 'vertical_drama', 'digital_series', 'commercial', 'branded_content', 'music_video', 'proof_of_concept', 'hybrid'];
 const STRATEGIC_PRIORITIES = ['PRESTIGE', 'BALANCED', 'COMMERCIAL_EXPANSION', 'CASHFLOW_STABILISATION'];
 
 interface Props {
