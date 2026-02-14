@@ -294,6 +294,8 @@ export function defaultDeliverableForDocType(docType: string): DeliverableType {
     logline: 'concept_brief',
     treatment: 'blueprint',
     script: 'script',
+    pilot_script: 'script',
+    'pilot script': 'script',
     one_pager: 'market_sheet',
     outline: 'beat_sheet',
     blueprint: 'blueprint',
