@@ -8,22 +8,17 @@ import { useDevEngineV2 } from '@/hooks/useDevEngineV2';
 import { useScriptPipeline } from '@/hooks/useScriptPipeline';
 import { useRewritePipeline } from '@/hooks/useRewritePipeline';
 import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Separator } from '@/components/ui/separator';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Progress } from '@/components/ui/progress';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
-  ArrowRight, Play, Check, Shield, TrendingUp, TrendingDown, Minus,
-  Zap, FileText, Loader2, Target, Sparkles, ArrowUpRight,
-  Plus, ClipboardPaste, Upload, ChevronDown, BarChart3,
-  AlertTriangle, GitBranch, Clock, RefreshCw, Film, Pause, Square, RotateCcw, Trash2
+  ArrowRight, Play, Loader2, Target, ClipboardPaste, Upload,
+  AlertTriangle, GitBranch, Clock, Film, Pause, Square, RotateCcw, ChevronDown,
 } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { OperationProgress, DEV_ANALYZE_STAGES, DEV_NOTES_STAGES, DEV_REWRITE_STAGES, DEV_CONVERT_STAGES } from '@/components/OperationProgress';
@@ -33,90 +28,12 @@ import { type DevelopmentBehavior, BEHAVIOR_LABELS, BEHAVIOR_COLORS, DELIVERABLE
 import { isSeriesFormat as checkSeriesFormat } from '@/lib/format-helpers';
 import { DeliverablePipeline, type PipelineStageStatus } from '@/components/DeliverablePipeline';
 
-// ── Convergence Gauge ──
-function ConvergenceGauge({ ci, gp, gap, status, allowedGap }: { ci: number; gp: number; gap: number; status: string; allowedGap?: number }) {
-  const statusColor = status === 'Healthy Divergence' ? 'text-emerald-400' :
-    status === 'Strategic Tension' ? 'text-amber-400' : 'text-red-400';
-  return (
-    <div className="grid grid-cols-3 gap-3 text-center">
-      <div>
-        <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Script Strength</p>
-        <p className="text-2xl font-display font-bold text-foreground">{ci}</p>
-      </div>
-      <div>
-        <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Finance Readiness</p>
-        <p className="text-2xl font-display font-bold text-foreground">{gp}</p>
-      </div>
-      <div>
-        <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Gap</p>
-        <p className={`text-2xl font-display font-bold ${statusColor}`}>{gap}</p>
-        <p className={`text-[10px] ${statusColor}`}>{status}</p>
-      </div>
-    </div>
-  );
-}
-
-// ── Sparkline for convergence ──
-function ConvergenceSparkline({ history }: { history: any[] }) {
-  if (history.length < 2) return null;
-  const w = 200, h = 48, pad = 4;
-  const ciPoints = history.map(h => Number(h.creative_score));
-  const gpPoints = history.map(h => Number(h.greenlight_score));
-  const all = [...ciPoints, ...gpPoints];
-  const min = Math.min(...all, 0);
-  const max = Math.max(...all, 100);
-  const range = max - min || 1;
-
-  const toPath = (pts: number[]) => pts.map((v, i) => {
-    const x = pad + (i / (pts.length - 1)) * (w - pad * 2);
-    const y = h - pad - ((v - min) / range) * (h - pad * 2);
-    return `${i === 0 ? 'M' : 'L'}${x},${y}`;
-  }).join(' ');
-
-  return (
-    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} className="w-full">
-      <path d={toPath(ciPoints)} fill="none" stroke="hsl(var(--primary))" strokeWidth="2" strokeLinecap="round" />
-      <path d={toPath(gpPoints)} fill="none" stroke="hsl(142 71% 45%)" strokeWidth="2" strokeLinecap="round" strokeDasharray="4 2" />
-    </svg>
-  );
-}
-
-// ── Doc type badge ──
-const DOC_TYPE_LABELS: Record<string, string> = {
-  idea: 'Idea', logline: 'Logline', one_pager: 'One-Pager', treatment: 'Treatment',
-  script: 'Script', blueprint: 'Blueprint', architecture: 'Architecture',
-  notes: 'Notes', outline: 'Outline', deck_text: 'Deck', other: 'Other',
-  concept_brief: 'Concept Brief', market_sheet: 'Market Sheet',
-  character_bible: 'Character Bible', beat_sheet: 'Beat Sheet',
-  production_draft: 'Production Draft', deck: 'Deck', documentary_outline: 'Doc Outline',
-};
-
-// ── Set as Latest Draft Button ──
-function SetAsLatestDraftButton({ projectId, title, text }: { projectId?: string; title: string; text: string }) {
-  const setAsDraft = useSetAsLatestDraft(projectId);
-  return (
-    <Card>
-      <CardContent className="px-3 py-3">
-        <ConfirmDialog
-          title="Set as Latest Draft?"
-          description={`This will register "${title}" as the project's current script draft, archive any previous draft, and trigger a full re-analysis.`}
-          confirmLabel="Set as Latest Draft"
-          onConfirm={() => setAsDraft.mutate({ title, text })}
-        >
-          <Button
-            variant="outline"
-            size="sm"
-            className="w-full text-xs gap-1.5 border-primary/30 hover:bg-primary/10"
-            disabled={setAsDraft.isPending}
-          >
-            {setAsDraft.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
-            Set as Latest Draft
-          </Button>
-        </ConfirmDialog>
-      </CardContent>
-    </Card>
-  );
-}
+// Extracted components
+import { DocumentSidebar } from '@/components/devengine/DocumentSidebar';
+import { ActionToolbar } from '@/components/devengine/ActionToolbar';
+import { NotesPanel } from '@/components/devengine/NotesPanel';
+import { ConvergencePanel } from '@/components/devengine/ConvergencePanel';
+import { DriftBanner } from '@/components/devengine/DriftBanner';
 
 // ── Main Page ──
 export default function ProjectDevelopmentEngine() {
@@ -138,6 +55,7 @@ export default function ProjectDevelopmentEngine() {
     },
     enabled: !!projectId,
   });
+
   const normalizedFormat = (project?.format || 'film').toLowerCase().replace(/_/g, '-');
   const isFeature = !project?.format || normalizedFormat === 'feature' || normalizedFormat === 'film';
   const isVerticalDrama = normalizedFormat === 'vertical-drama';
@@ -148,6 +66,8 @@ export default function ProjectDevelopmentEngine() {
   const [seasonEpisodes, setSeasonEpisodes] = useState((project as any)?.season_episode_count || 8);
   const [softGateOpen, setSoftGateOpen] = useState(false);
   const [pendingStageAction, setPendingStageAction] = useState<(() => void) | null>(null);
+  const [driftOverrideOpen, setDriftOverrideOpen] = useState(false);
+  const [timelineOpen, setTimelineOpen] = useState(false);
 
   const {
     documents, docsLoading, versions, versionsLoading,
@@ -159,28 +79,16 @@ export default function ProjectDevelopmentEngine() {
     driftEvents, latestDrift, acknowledgeDrift, resolveDrift,
   } = useDevEngineV2(projectId);
 
-  // Script pipeline
   const pipeline = useScriptPipeline(projectId);
-
-  // Rewrite pipeline for long documents
   const rewritePipeline = useRewritePipeline(projectId);
 
-  // Controls
   const [selectedDeliverableType, setSelectedDeliverableType] = useState<DeliverableType>('script');
-  // Paste dialog
-  const [pasteOpen, setPasteOpen] = useState(false);
-  const [pasteTitle, setPasteTitle] = useState('');
-  const [pasteType, setPasteType] = useState('treatment');
-  const [pasteText, setPasteText] = useState('');
+  const [selectedNotes, setSelectedNotes] = useState<Set<number>>(new Set());
   const [targetPages, setTargetPages] = useState(100);
 
-  // Notes selection
-  const [selectedNotes, setSelectedNotes] = useState<Set<number>>(new Set());
-  // Drift promotion override
-  const [driftOverrideOpen, setDriftOverrideOpen] = useState(false);
   const hasUnresolvedMajorDrift = latestDrift?.drift_level === 'major' && !latestDrift?.resolved;
 
-  // Import landing: auto-select doc/version from query params
+  // Import landing
   const [importHandled, setImportHandled] = useState(false);
   useEffect(() => {
     if (importHandled || docsLoading) return;
@@ -188,9 +96,7 @@ export default function ProjectDevelopmentEngine() {
     const versionParam = searchParams.get('version');
     if (docParam && documents.some(d => d.id === docParam)) {
       selectDocument(docParam);
-      if (versionParam) {
-        setSelectedVersionId(versionParam);
-      }
+      if (versionParam) setSelectedVersionId(versionParam);
       setImportHandled(true);
     }
   }, [documents, docsLoading, searchParams, importHandled, selectDocument, setSelectedVersionId]);
@@ -198,12 +104,11 @@ export default function ProjectDevelopmentEngine() {
   // Auto-set deliverable type from selected doc
   useEffect(() => {
     if (selectedDoc?.doc_type) {
-      const mapped = defaultDeliverableForDocType(selectedDoc.doc_type);
-      setSelectedDeliverableType(mapped);
+      setSelectedDeliverableType(defaultDeliverableForDocType(selectedDoc.doc_type));
     }
   }, [selectedDoc?.doc_type]);
 
-  // Build tiered notes from latest notes output
+  // Tiered notes
   const tieredNotes = useMemo(() => {
     const blockers = latestNotes?.blocking_issues || latestAnalysis?.blocking_issues || [];
     const high = latestNotes?.high_impact_notes || latestAnalysis?.high_impact_notes || [];
@@ -212,46 +117,31 @@ export default function ProjectDevelopmentEngine() {
   }, [latestNotes, latestAnalysis]);
 
   const allPrioritizedMoves = useMemo(() => {
-    // Order: blockers first, then high impact, then polish
     const all = [
-      ...tieredNotes.blockers.map((n: any) => ({ ...n, note: n.description || n.note, impact: 'high', convergence_lift: 10, severity: 'blocker' })),
-      ...tieredNotes.high.map((n: any) => ({ ...n, note: n.description || n.note, impact: 'high', convergence_lift: 5, severity: 'high' })),
-      ...tieredNotes.polish.map((n: any) => ({ ...n, note: n.description || n.note, impact: 'low', convergence_lift: 1, severity: 'polish' })),
+      ...tieredNotes.blockers.map((n: any) => ({ ...n, note: n.description || n.note, severity: 'blocker' })),
+      ...tieredNotes.high.map((n: any) => ({ ...n, note: n.description || n.note, severity: 'high' })),
+      ...tieredNotes.polish.map((n: any) => ({ ...n, note: n.description || n.note, severity: 'polish' })),
     ];
     if (all.length > 0) return all;
-    // Fallback to legacy format
     const notes = latestNotes?.actionable_notes || latestNotes?.prioritized_moves;
     if (!notes) return [];
     return notes as any[];
   }, [tieredNotes, latestNotes]);
 
-  // Sync episode duration and season episodes from project data
+  // Sync episode params
   useEffect(() => {
-    if (project?.episode_target_duration_seconds) {
-      setEpisodeDuration(project.episode_target_duration_seconds);
-    }
-    if ((project as any)?.season_episode_count) {
-      setSeasonEpisodes((project as any).season_episode_count);
-    }
+    if (project?.episode_target_duration_seconds) setEpisodeDuration(project.episode_target_duration_seconds);
+    if ((project as any)?.season_episode_count) setSeasonEpisodes((project as any).season_episode_count);
   }, [project?.episode_target_duration_seconds, (project as any)?.season_episode_count]);
 
-  // Auto-select all notes when they load
+  // Auto-select all notes
   useMemo(() => {
     if (allPrioritizedMoves.length > 0) {
       setSelectedNotes(new Set(allPrioritizedMoves.map((_, i) => i)));
     }
   }, [allPrioritizedMoves]);
 
-  const handlePaste = () => {
-    if (!pasteText.trim()) return;
-    createPaste.mutate({ title: pasteTitle || 'Pasted Document', docType: pasteType, text: pasteText.trim() });
-    setPasteOpen(false);
-    setPasteTitle('');
-    setPasteText('');
-  };
-
-  // Unified engine call — explicit params, no guessing
-  // Chains: Analyze → auto-generate Notes
+  // Handlers
   const handleRunEngine = () => {
     const prevVersion = versions.length > 1 ? versions[versions.length - 2] : null;
     analyze.mutate({
@@ -262,7 +152,6 @@ export default function ProjectDevelopmentEngine() {
       previousVersionId: prevVersion?.id,
     }, {
       onSuccess: (analysisResult: any) => {
-        // Auto-generate notes after analysis completes
         generateNotes.mutate(analysisResult);
       },
     });
@@ -286,393 +175,228 @@ export default function ProjectDevelopmentEngine() {
     }
   };
 
-  const versionText = selectedVersion?.plaintext ||
-    selectedDoc?.plaintext || selectedDoc?.extracted_text || '';
+  const handlePromote = () => {
+    if (hasUnresolvedMajorDrift) {
+      setDriftOverrideOpen(true);
+      return;
+    }
+    const nextBestDocument = latestAnalysis?.convergence?.next_best_document;
+    if (nextBestDocument) {
+      setSelectedDeliverableType(nextBestDocument as DeliverableType);
+      convert.mutate({ targetOutput: nextBestDocument.toUpperCase(), protectItems: latestAnalysis?.protect });
+    }
+  };
 
-  // Compute pipeline stage statuses from document runs
+  const handleSkipStage = () => {
+    const nextBestDocument = latestAnalysis?.convergence?.next_best_document;
+    setPendingStageAction(() => () => {
+      if (nextBestDocument) {
+        setSelectedDeliverableType(nextBestDocument as DeliverableType);
+        convert.mutate({ targetOutput: nextBestDocument.toUpperCase(), protectItems: latestAnalysis?.protect });
+      }
+    });
+    setSoftGateOpen(true);
+  };
+
+  const versionText = selectedVersion?.plaintext || selectedDoc?.plaintext || selectedDoc?.extracted_text || '';
+
+  const analysisConvergence = latestAnalysis?.convergence;
+  const isAnalysisConverged = analysisConvergence?.status === 'converged' || convergenceStatus === 'Converged';
+  const nextBestDocument = analysisConvergence?.next_best_document;
+
+  // Pipeline statuses
   const pipelineStatuses = useMemo(() => {
     const statuses: Record<string, PipelineStageStatus> = {};
     for (const doc of documents) {
       const dt = doc.doc_type;
-      // Find if any ANALYZE run for this doc has convergence
       const docRuns = allDocRuns.filter(r => r.document_id === doc.id);
       const analyzeRuns = docRuns.filter(r => r.run_type === 'ANALYZE');
       const latestRun = analyzeRuns[analyzeRuns.length - 1];
       const output = latestRun?.output_json;
-
       if (output) {
         const convStatus = output?.convergence?.status || output?.convergence_status;
-        if (convStatus === 'converged' || convStatus === 'Converged' || convStatus === 'Healthy Divergence') {
-          statuses[dt] = 'converged';
-        } else {
-          statuses[dt] = 'in_progress';
-        }
+        statuses[dt] = (convStatus === 'converged' || convStatus === 'Converged' || convStatus === 'Healthy Divergence')
+          ? 'converged' : 'in_progress';
       } else if (doc.plaintext || doc.extracted_text) {
-        // Has content but no analysis
         if (!statuses[dt]) statuses[dt] = 'in_progress';
       }
     }
     return statuses;
   }, [documents, allDocRuns]);
 
-  // Convergence info from latest analysis (support both v2 and v3 shapes)
-  const analysisConvergence = latestAnalysis?.convergence;
-  const isAnalysisConverged = analysisConvergence?.status === 'converged' || convergenceStatus === 'Converged';
-  const nextBestDocument = analysisConvergence?.next_best_document;
+  const setAsDraft = useSetAsLatestDraft(projectId);
+  const resolutionSummary = latestNotes?.resolution_summary;
+  const stabilityStatus = latestNotes?.stability_status || latestAnalysis?.stability_status;
 
   return (
     <PageTransition>
       <div className="min-h-screen bg-background">
         <Header />
-        <div className="max-w-[1600px] mx-auto px-4 py-4">
-          {/* Top bar */}
-          <div className="flex flex-col gap-2 mb-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <div className="flex items-center gap-2 flex-wrap">
-                <Link to={`/projects/${projectId}`} className="text-sm text-muted-foreground hover:text-foreground">
-                  ← Project
-                </Link>
-                <h1 className="text-lg font-display font-bold text-foreground">Development Engine</h1>
-              </div>
-              {/* Visible badges — always shown */}
-              <div className="flex flex-wrap items-center gap-1.5">
-                <Badge variant="outline" className={`text-[10px] ${BEHAVIOR_COLORS[projectBehavior]}`}>
-                  Behavior: {BEHAVIOR_LABELS[projectBehavior]}
-                </Badge>
-                <Badge variant="outline" className="text-[10px] bg-muted/40 text-muted-foreground">
-                  Format: {normalizedFormat}
-                </Badge>
-                <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/30">
-                  Deliverable: {DELIVERABLE_LABELS[selectedDeliverableType]}
-                </Badge>
-                {(isVerticalDrama || isSeriesFormat) && (
-                  <Badge variant="outline" className="text-[10px] bg-muted/40 text-muted-foreground">
-                    {episodeDuration}s / ep
-                  </Badge>
-                )}
-                <Badge variant="outline" className={`text-[10px] ${
-                  convergenceStatus === 'Converged' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' :
-                  convergenceStatus === 'In Progress' ? 'bg-amber-500/20 text-amber-400 border-amber-500/30' :
-                  'bg-muted/20 text-muted-foreground border-border/30'
-                }`}>
-                  {convergenceStatus === 'Converged' && <Check className="h-3 w-3 mr-1" />}
-                  {convergenceStatus}
-                </Badge>
-              </div>
-            </div>
+        <div className="max-w-[1600px] mx-auto px-4 py-4 space-y-3">
 
-            {/* Settings row — compact */}
-            <div className="flex flex-wrap items-center gap-2">
-              <Select value={selectedDeliverableType} onValueChange={(v) => setSelectedDeliverableType(v as DeliverableType)}>
-                <SelectTrigger className="h-7 text-xs w-[130px]"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {Object.entries(DELIVERABLE_LABELS).map(([key, label]) => (
-                    <SelectItem key={key} value={key}>{label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Select value={projectBehavior} onValueChange={async (v) => {
-                if (!projectId) return;
-                await (supabase as any).from('projects').update({ development_behavior: v }).eq('id', projectId);
-                qc.invalidateQueries({ queryKey: ['dev-engine-project', projectId] });
-              }}>
-                <SelectTrigger className="h-7 text-xs w-[100px]"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {Object.entries(BEHAVIOR_LABELS).map(([key, label]) => (
-                    <SelectItem key={key} value={key}>{label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-               {(isVerticalDrama || isSeriesFormat) && (
-                 <div className="flex items-center gap-1">
-                   <Input
-                     type="number"
-                     className="h-7 text-xs w-[65px]"
-                     value={episodeDuration}
-                     onChange={(e) => setEpisodeDuration(Number(e.target.value))}
-                     onBlur={async () => {
-                       if (!projectId || !episodeDuration) return;
-                       await (supabase as any).from('projects').update({ episode_target_duration_seconds: episodeDuration }).eq('id', projectId);
-                       qc.invalidateQueries({ queryKey: ['dev-engine-project', projectId] });
-                     }}
-                     min={30}
-                     max={7200}
-                   />
-                   <span className="text-[10px] text-muted-foreground">s/ep</span>
-                   <Input
-                     type="number"
-                     className="h-7 text-xs w-[55px]"
-                     value={seasonEpisodes}
-                     onChange={(e) => setSeasonEpisodes(Number(e.target.value))}
-                     onBlur={async () => {
-                       if (!projectId || !seasonEpisodes) return;
-                       await (supabase as any).from('projects').update({ season_episode_count: seasonEpisodes }).eq('id', projectId);
-                       qc.invalidateQueries({ queryKey: ['dev-engine-project', projectId] });
-                     }}
-                     min={3}
-                     max={100}
-                   />
-                   <span className="text-[10px] text-muted-foreground">eps</span>
-                 </div>
-               )}
+          {/* ═══ HEADER BAR ═══ */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div className="flex items-center gap-3">
+              <Link to={`/projects/${projectId}`} className="text-xs text-muted-foreground hover:text-foreground">
+                ← Project
+              </Link>
+              <h1 className="text-base font-display font-bold text-foreground">Development Engine</h1>
             </div>
-
-            {/* Deliverable Pipeline */}
-            <DeliverablePipeline
-              stageStatuses={pipelineStatuses}
-              activeDeliverable={selectedDeliverableType}
-              onStageClick={(dt) => setSelectedDeliverableType(dt)}
-            />
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Badge variant="outline" className={`text-[10px] ${BEHAVIOR_COLORS[projectBehavior]}`}>
+                {BEHAVIOR_LABELS[projectBehavior]}
+              </Badge>
+              <Badge variant="outline" className="text-[10px] bg-muted/40 text-muted-foreground">
+                {normalizedFormat}
+              </Badge>
+              <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/30">
+                {DELIVERABLE_LABELS[selectedDeliverableType]}
+              </Badge>
+            </div>
           </div>
 
-          {/* 3-column layout */}
-          <div className="grid grid-cols-1 md:grid-cols-12 gap-4" style={{ minHeight: 'calc(100vh - 180px)' }}>
+          {/* ═══ SETTINGS STRIP ═══ */}
+          <div className="flex flex-wrap items-center gap-2">
+            <Select value={selectedDeliverableType} onValueChange={(v) => setSelectedDeliverableType(v as DeliverableType)}>
+              <SelectTrigger className="h-7 text-xs w-[130px]"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {Object.entries(DELIVERABLE_LABELS).map(([key, label]) => (
+                  <SelectItem key={key} value={key}>{label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={projectBehavior} onValueChange={async (v) => {
+              if (!projectId) return;
+              await (supabase as any).from('projects').update({ development_behavior: v }).eq('id', projectId);
+              qc.invalidateQueries({ queryKey: ['dev-engine-project', projectId] });
+            }}>
+              <SelectTrigger className="h-7 text-xs w-[100px]"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {Object.entries(BEHAVIOR_LABELS).map(([key, label]) => (
+                  <SelectItem key={key} value={key}>{label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {(isVerticalDrama || isSeriesFormat) && (
+              <div className="flex items-center gap-1">
+                <Input type="number" className="h-7 text-xs w-[60px]" value={episodeDuration}
+                  onChange={(e) => setEpisodeDuration(Number(e.target.value))}
+                  onBlur={async () => {
+                    if (!projectId || !episodeDuration) return;
+                    await (supabase as any).from('projects').update({ episode_target_duration_seconds: episodeDuration }).eq('id', projectId);
+                    qc.invalidateQueries({ queryKey: ['dev-engine-project', projectId] });
+                  }}
+                  min={30} max={7200} />
+                <span className="text-[9px] text-muted-foreground">s/ep</span>
+                <Input type="number" className="h-7 text-xs w-[50px]" value={seasonEpisodes}
+                  onChange={(e) => setSeasonEpisodes(Number(e.target.value))}
+                  onBlur={async () => {
+                    if (!projectId || !seasonEpisodes) return;
+                    await (supabase as any).from('projects').update({ season_episode_count: seasonEpisodes }).eq('id', projectId);
+                    qc.invalidateQueries({ queryKey: ['dev-engine-project', projectId] });
+                  }}
+                  min={3} max={100} />
+                <span className="text-[9px] text-muted-foreground">eps</span>
+              </div>
+            )}
+          </div>
 
-            {/* ── LEFT: Document Selector ── */}
-            <div className="md:col-span-3 space-y-3">
-              <Card>
-                <CardHeader className="py-3 px-3">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-sm">Documents</CardTitle>
-                    <Dialog open={pasteOpen} onOpenChange={setPasteOpen}>
-                      <DialogTrigger asChild>
-                        <Button variant="ghost" size="sm" className="h-7 text-xs gap-1">
-                          <Plus className="h-3 w-3" /> New
-                        </Button>
-                      </DialogTrigger>
-                      <DialogContent className="max-w-lg">
-                        <DialogHeader>
-                          <DialogTitle>Paste New Document</DialogTitle>
-                        </DialogHeader>
-                        <div className="space-y-3">
-                          <Input placeholder="Title" value={pasteTitle} onChange={e => setPasteTitle(e.target.value)} />
-                          <Select value={pasteType} onValueChange={setPasteType}>
-                            <SelectTrigger><SelectValue /></SelectTrigger>
-                            <SelectContent>
-                              {Object.entries(DELIVERABLE_LABELS).map(([key, label]) => (
-                                <SelectItem key={key} value={key}>{label}</SelectItem>
-                              ))}
-                              <SelectItem value="treatment">Treatment</SelectItem>
-                              <SelectItem value="logline">Logline</SelectItem>
-                              <SelectItem value="one_pager">One-Pager</SelectItem>
-                              <SelectItem value="outline">Outline</SelectItem>
-                              <SelectItem value="other">Other</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <Textarea placeholder="Paste material here..." value={pasteText}
-                            onChange={e => setPasteText(e.target.value)} className="min-h-[200px] font-mono text-sm" />
-                          <Button onClick={handlePaste} disabled={!pasteText.trim() || createPaste.isPending} className="w-full">
-                            {createPaste.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <ClipboardPaste className="h-4 w-4 mr-2" />}
-                            Create Document
-                          </Button>
-                        </div>
-                      </DialogContent>
-                    </Dialog>
-                  </div>
-                </CardHeader>
-                 <CardContent className="px-2 pb-2">
-                  <div className="h-[calc(100vh-360px)] overflow-y-auto">
-                    <div className="space-y-1">
-                      {documents.map(doc => (
-                        <div
-                          key={doc.id}
-                          className={`w-full text-left p-2.5 rounded-md transition-colors text-sm cursor-pointer ${
-                            selectedDocId === doc.id
-                              ? 'bg-primary/10 border border-primary/30'
-                              : 'hover:bg-muted/50 border border-transparent'
-                          }`}
-                          onClick={() => selectDocument(doc.id)}
-                        >
-                          <p className="font-medium text-foreground truncate text-xs">{doc.title || doc.file_name}</p>
-                          <div className="flex items-center justify-between mt-1">
-                            <div className="flex items-center gap-1.5">
-                              <Badge variant="outline" className="text-[9px] px-1 py-0">
-                                {DOC_TYPE_LABELS[doc.doc_type] || doc.doc_type}
-                              </Badge>
-                              <span className="text-[9px] text-muted-foreground">
-                                {doc.source === 'generated' ? '✨' : doc.source === 'paste' ? '📋' : '📄'}
-                              </span>
-                            </div>
-                            <div onClick={e => e.stopPropagation()}>
-                              <ConfirmDialog
-                                title="Delete Document"
-                                description={`Delete "${doc.title || doc.file_name}" and all its versions? This cannot be undone.`}
-                                confirmLabel="Delete"
-                                variant="destructive"
-                                onConfirm={() => deleteDocument.mutate(doc.id)}
-                              >
-                                <button className="p-1 rounded bg-destructive/20 text-destructive hover:bg-destructive/40 transition-colors">
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                </button>
-                              </ConfirmDialog>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                      {documents.length === 0 && !docsLoading && (
-                        <p className="text-xs text-muted-foreground p-3 text-center">No documents yet. Paste or upload to start.</p>
-                      )}
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
+          {/* ═══ PIPELINE ═══ */}
+          <DeliverablePipeline stageStatuses={pipelineStatuses} activeDeliverable={selectedDeliverableType}
+            onStageClick={(dt) => setSelectedDeliverableType(dt)} />
 
-              {/* Version selector */}
-              {selectedDocId && versions.length > 0 && (
-                <Card>
-                  <CardHeader className="py-2 px-3">
-                    <CardTitle className="text-xs flex items-center gap-1.5">
-                      <GitBranch className="h-3 w-3" /> Versions
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="px-2 pb-2">
-                    <div className="space-y-1">
-                      {versions.map(v => (
-                        <button
-                          key={v.id}
-                          onClick={() => setSelectedVersionId(v.id)}
-                          className={`w-full text-left p-2 rounded-md text-xs transition-colors ${
-                            selectedVersionId === v.id
-                              ? 'bg-primary/10 border border-primary/30'
-                              : 'hover:bg-muted/50 border border-transparent'
-                          }`}
-                        >
-                          <div className="flex items-center justify-between">
-                            <span className="font-medium">v{v.version_number}</span>
-                            <Badge variant="outline" className="text-[8px] px-1 py-0 border-border">
-                              {new Date(v.created_at).toLocaleDateString()}
-                            </Badge>
-                          </div>
-                          {v.label && <span className="text-muted-foreground text-[10px] block mt-0.5">{v.label}</span>}
-                          {v.change_summary && <span className="text-muted-foreground/60 text-[9px] block mt-0.5 truncate">{v.change_summary}</span>}
-                        </button>
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
+          {/* ═══ 3-COLUMN LAYOUT ═══ */}
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-4" style={{ minHeight: 'calc(100vh - 240px)' }}>
 
-              {/* Generate Feature Script Pipeline */}
+            {/* ── LEFT: Documents ── */}
+            <div className="md:col-span-3">
+              <DocumentSidebar
+                documents={documents} docsLoading={docsLoading}
+                selectedDocId={selectedDocId} selectDocument={selectDocument}
+                deleteDocument={deleteDocument} versions={versions}
+                selectedVersionId={selectedVersionId} setSelectedVersionId={setSelectedVersionId}
+                createPaste={createPaste}
+              />
+
+              {/* Feature Script Pipeline — only for features */}
               {isFeature && selectedDocId && selectedVersionId && (
-                <Card className="border-primary/20">
+                <Card className="border-primary/20 mt-3">
                   <CardHeader className="py-2 px-3">
                     <CardTitle className="text-xs flex items-center gap-1.5">
-                      <Film className="h-3 w-3" /> Feature Script Pipeline
+                      <Film className="h-3 w-3" /> Script Pipeline
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="px-3 pb-3 space-y-2">
-                    {pipeline.status === 'idle' && (
+                    {pipeline.status === 'idle' ? (
                       <>
                         <div className="flex items-center gap-2">
-                          <label className="text-[10px] text-muted-foreground whitespace-nowrap">Target pages:</label>
-                          <Input
-                            type="number" min={80} max={130} value={targetPages}
-                            onChange={e => setTargetPages(Number(e.target.value))}
-                            className="h-7 text-xs w-20"
-                          />
+                          <label className="text-[9px] text-muted-foreground whitespace-nowrap">Pages:</label>
+                          <Input type="number" min={80} max={130} value={targetPages}
+                            onChange={e => setTargetPages(Number(e.target.value))} className="h-7 text-xs w-16" />
                         </div>
-                        <Button
-                          size="sm" className="w-full h-8 text-xs gap-1.5"
-                          disabled={isLoading}
-                          onClick={() => {
-                            if (selectedDocId && selectedVersionId) {
-                              pipeline.startPipeline(
-                                selectedDocId,
-                                selectedVersionId,
-                                targetPages,
-                                latestAnalysis?.protect || [],
-                              );
-                            }
-                          }}
-                        >
-                          <Film className="h-3 w-3" />
-                          Generate Feature Script
+                        <Button size="sm" className="w-full h-7 text-[10px] gap-1" disabled={isLoading}
+                          onClick={() => selectedDocId && selectedVersionId && pipeline.startPipeline(
+                            selectedDocId, selectedVersionId, targetPages, latestAnalysis?.protect || [])}>
+                          <Film className="h-3 w-3" /> Generate Script
                         </Button>
                       </>
-                    )}
-
-                    {pipeline.status !== 'idle' && (
+                    ) : (
                       <div className="space-y-2">
                         <div className="flex items-center justify-between">
                           <Badge variant="outline" className="text-[9px]">
-                            {pipeline.status === 'planning' && 'Planning scenes…'}
-                            {pipeline.status === 'writing' && `Writing batch ${pipeline.currentBatch + 1}/${pipeline.totalBatches}`}
-                            {pipeline.status === 'assembling' && 'Assembling screenplay…'}
+                            {pipeline.status === 'planning' && 'Planning…'}
+                            {pipeline.status === 'writing' && `Batch ${pipeline.currentBatch + 1}/${pipeline.totalBatches}`}
+                            {pipeline.status === 'assembling' && 'Assembling…'}
                             {pipeline.status === 'paused' && 'Paused'}
-                            {pipeline.status === 'complete' && 'Complete ✓'}
+                            {pipeline.status === 'complete' && '✓ Complete'}
                             {pipeline.status === 'error' && 'Error'}
                           </Badge>
-                          <div className="flex gap-1">
-                            {(pipeline.status === 'writing') && (
-                              <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={pipeline.pause}>
-                                <Pause className="h-3 w-3" />
-                              </Button>
+                          <div className="flex gap-0.5">
+                            {pipeline.status === 'writing' && (
+                              <Button variant="ghost" size="sm" className="h-5 w-5 p-0" onClick={pipeline.pause}><Pause className="h-3 w-3" /></Button>
                             )}
                             {pipeline.status === 'paused' && (
-                              <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={pipeline.resume}>
-                                <Play className="h-3 w-3" />
-                              </Button>
+                              <Button variant="ghost" size="sm" className="h-5 w-5 p-0" onClick={pipeline.resume}><Play className="h-3 w-3" /></Button>
                             )}
                             {['writing', 'paused'].includes(pipeline.status) && (
-                              <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={pipeline.abort}>
-                                <Square className="h-3 w-3" />
-                              </Button>
+                              <Button variant="ghost" size="sm" className="h-5 w-5 p-0" onClick={pipeline.abort}><Square className="h-3 w-3" /></Button>
                             )}
                             {['complete', 'error'].includes(pipeline.status) && (
-                              <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={pipeline.reset}>
-                                <RotateCcw className="h-3 w-3" />
-                              </Button>
+                              <Button variant="ghost" size="sm" className="h-5 w-5 p-0" onClick={pipeline.reset}><RotateCcw className="h-3 w-3" /></Button>
                             )}
                           </div>
                         </div>
-
                         {pipeline.totalBatches > 0 && (
-                          <div className="space-y-1">
-                            <Progress
-                              value={
-                                pipeline.status === 'planning' ? 5 :
-                                pipeline.status === 'assembling' ? 95 :
-                                pipeline.status === 'complete' ? 100 :
-                                Math.round((pipeline.currentBatch / pipeline.totalBatches) * 90) + 5
-                              }
-                              className="h-1.5"
-                            />
-                            <div className="flex justify-between text-[9px] text-muted-foreground">
-                              <span>{pipeline.pageEstimate} pages</span>
-                              <span>{pipeline.wordCount.toLocaleString()} words</span>
-                            </div>
-                          </div>
+                          <Progress value={
+                            pipeline.status === 'planning' ? 5 :
+                            pipeline.status === 'assembling' ? 95 :
+                            pipeline.status === 'complete' ? 100 :
+                            Math.round((pipeline.currentBatch / pipeline.totalBatches) * 90) + 5
+                          } className="h-1.5" />
                         )}
-
-                        {pipeline.error && (
-                          <p className="text-[10px] text-destructive">{pipeline.error}</p>
-                        )}
+                        {pipeline.error && <p className="text-[9px] text-destructive">{pipeline.error}</p>}
                       </div>
                     )}
                   </CardContent>
                 </Card>
               )}
-
             </div>
 
             {/* ── CENTER: Workspace ── */}
-            <div className="md:col-span-6">
+            <div className="md:col-span-6 space-y-3">
               {!selectedDocId ? (
-                <Card className="h-full flex items-center justify-center">
+                <Card className="h-full flex items-center justify-center min-h-[400px]">
                   <div className="text-center space-y-3 p-8">
-                    <Target className="h-10 w-10 text-muted-foreground mx-auto" />
-                    <p className="text-muted-foreground">Select a document or paste new material to begin</p>
-                    <Button variant="outline" onClick={() => setPasteOpen(true)}>
-                      <ClipboardPaste className="h-4 w-4 mr-2" /> Paste New Document
-                    </Button>
+                    <Target className="h-8 w-8 text-muted-foreground mx-auto" />
+                    <p className="text-sm text-muted-foreground">Select or paste a document to begin</p>
                   </div>
                 </Card>
               ) : (
-                <div className="space-y-3">
+                <>
                   {/* Version badge */}
                   {selectedVersion && (
                     <div className="flex items-center gap-2">
-                      <Badge variant="outline" className="text-[9px] px-1.5 py-0 border-border gap-1">
+                      <Badge variant="outline" className="text-[9px] px-1.5 py-0 gap-1">
                         <GitBranch className="h-2.5 w-2.5" />
                         v{selectedVersion.version_number}
                         {selectedVersion.label ? ` · ${selectedVersion.label}` : ''}
@@ -680,301 +404,58 @@ export default function ProjectDevelopmentEngine() {
                     </div>
                   )}
 
-                  {/* ── DRIFT DETECTION BANNER ── */}
-                  {latestDrift && latestDrift.drift_level !== 'none' && !latestDrift.resolved && (
-                    <div className={`p-3 rounded-lg border ${
-                      latestDrift.drift_level === 'major'
-                        ? 'bg-destructive/10 border-destructive/30'
-                        : 'bg-amber-500/10 border-amber-500/30'
-                    }`}>
-                      <div className="flex items-start gap-2">
-                        <AlertTriangle className={`h-4 w-4 mt-0.5 flex-shrink-0 ${
-                          latestDrift.drift_level === 'major' ? 'text-destructive' : 'text-amber-500'
-                        }`} />
-                        <div className="flex-1 min-w-0">
-                          <p className={`text-xs font-semibold ${
-                            latestDrift.drift_level === 'major' ? 'text-destructive' : 'text-amber-500'
-                          }`}>
-                            {latestDrift.drift_level === 'major'
-                              ? 'Major Narrative Pivot Detected'
-                              : 'Structural Drift Detected'}
-                          </p>
-                          <p className="text-[10px] text-muted-foreground mt-0.5">
-                            {latestDrift.drift_level === 'major'
-                              ? 'Core elements differ significantly from previous stage. Reconcile before convergence.'
-                              : 'This document diverges from inherited core elements. Resolve or acknowledge before convergence.'}
-                          </p>
-                          {latestDrift.drift_items && latestDrift.drift_items.length > 0 && (
-                            <div className="mt-1.5 space-y-1">
-                              {latestDrift.drift_items.slice(0, 4).map((item: any, i: number) => (
-                                <div key={i} className="text-[9px] text-muted-foreground flex items-center gap-1">
-                                  <span className="font-medium capitalize">{item.field}:</span>
-                                  <span>{item.similarity}% match</span>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                          <div className="flex flex-wrap gap-1.5 mt-2">
-                            <Button size="sm" variant="outline" className="h-6 text-[10px] px-2"
-                              onClick={() => resolveDrift.mutate({ driftEventId: latestDrift.id, resolutionType: 'reseed' })}
-                              disabled={resolveDrift.isPending}>
-                              Re-seed From Upstream
-                            </Button>
-                            <Button size="sm" variant="outline" className="h-6 text-[10px] px-2"
-                              onClick={() => resolveDrift.mutate({ driftEventId: latestDrift.id, resolutionType: 'intentional_pivot' })}
-                              disabled={resolveDrift.isPending}>
-                              {latestDrift.drift_level === 'major' ? 'Mark Intentional Pivot' : 'Update Upstream'}
-                            </Button>
-                            {latestDrift.drift_level === 'moderate' && !latestDrift.acknowledged && (
-                              <Button size="sm" variant="ghost" className="h-6 text-[10px] px-2"
-                                onClick={() => acknowledgeDrift.mutate(latestDrift.id)}
-                                disabled={acknowledgeDrift.isPending}>
-                                Accept Drift
-                              </Button>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                  {/* Drift stable indicator */}
-                  {latestDrift && (latestDrift.drift_level === 'none' || latestDrift.resolved) && (
-                    <div className="flex items-center gap-1.5 text-[10px] text-emerald-500">
-                      <Check className="h-3 w-3" />
-                      <span>Upstream Alignment: Stable</span>
-                    </div>
-                  )}
+                  {/* Drift banner */}
+                  <DriftBanner drift={latestDrift}
+                    onAcknowledge={() => latestDrift && acknowledgeDrift.mutate(latestDrift.id)}
+                    onResolve={() => latestDrift && resolveDrift.mutate({ driftEventId: latestDrift.id, resolutionType: 'accept_drift' })} />
 
-                  <div className="flex flex-wrap gap-2">
-                    {!isAnalysisConverged ? (
-                      <>
-                        {/* Primary: Run Review (Analyze + Notes in one) or Apply Rewrite */}
-                        {!latestAnalysis ? (
-                          <Button size="sm" className="h-8 text-xs gap-1.5" onClick={handleRunEngine} disabled={isLoading || !versionText}>
-                            {analyze.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
-                            Run Review
-                          </Button>
-                        ) : (
-                          <>
-                            <Button size="sm" className="h-8 text-xs gap-1.5"
-                              onClick={handleRewrite}
-                              disabled={isLoading || rewritePipeline.status !== 'idle' || allPrioritizedMoves.length === 0 || selectedNotes.size === 0}>
-                              {(rewrite.isPending || rewritePipeline.status !== 'idle') ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-                              Apply Rewrite
-                            </Button>
-                            <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5" onClick={handleRunEngine} disabled={isLoading}>
-                              {analyze.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
-                              Run Review Again
-                            </Button>
-                          </>
-                        )}
-                        {/* Notes auto-generate after Run Review — manual fallback if needed */}
-                        {latestAnalysis && !latestNotes && !generateNotes.isPending && (
-                          <Button size="sm" variant="ghost" className="h-8 text-xs gap-1.5"
-                            onClick={() => generateNotes.mutate(latestAnalysis)} disabled={isLoading}>
-                            <Zap className="h-3 w-3" />
-                            Generate Notes
-                          </Button>
-                        )}
-                      </>
-                    ) : (
-                      <>
-                       {/* Converged state */}
-                       <Button size="sm" className="h-8 text-xs gap-1.5 bg-emerald-600 hover:bg-emerald-700"
-                         onClick={() => {
-                           if (hasUnresolvedMajorDrift) {
-                             setDriftOverrideOpen(true);
-                             return;
-                           }
-                           const doPromote = () => {
-                             if (nextBestDocument) {
-                               setSelectedDeliverableType(nextBestDocument as DeliverableType);
-                               convert.mutate({ targetOutput: nextBestDocument.toUpperCase(), protectItems: latestAnalysis?.protect });
-                             }
-                           };
-                           doPromote();
-                         }}
-                         disabled={isLoading || !nextBestDocument}>
-                         <ArrowRight className="h-3 w-3" />
-                         Promote to Next Stage{nextBestDocument ? `: ${DELIVERABLE_LABELS[nextBestDocument as DeliverableType] || nextBestDocument}` : ''}
-                         {hasUnresolvedMajorDrift && <AlertTriangle className="h-3 w-3 text-amber-400" />}
-                       </Button>
-                       {/* Soft stage skip — proceed without convergence */}
-                       {!isAnalysisConverged && nextBestDocument && (
-                         <Button size="sm" variant="ghost" className="h-8 text-xs gap-1.5 text-amber-500"
-                           onClick={() => {
-                             setPendingStageAction(() => () => {
-                               if (nextBestDocument) {
-                                 setSelectedDeliverableType(nextBestDocument as DeliverableType);
-                                 convert.mutate({ targetOutput: nextBestDocument.toUpperCase(), protectItems: latestAnalysis?.protect });
-                               }
-                             });
-                             setSoftGateOpen(true);
-                           }}
-                           disabled={isLoading}>
-                           <AlertTriangle className="h-3 w-3" /> Skip Stage
-                         </Button>
-                       )}
-                       <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5" onClick={handleRunEngine} disabled={isLoading}>
-                         <RefreshCw className="h-3 w-3" />
-                         Run Review Again
-                       </Button>
-                      </>
-                    )}
-                    {/* Convert button — always available as secondary */}
-                    <Button size="sm" variant="ghost" className="h-8 text-xs gap-1.5"
-                      onClick={() => convert.mutate({ targetOutput: selectedDeliverableType.toUpperCase(), protectItems: latestAnalysis?.protect })}
-                      disabled={isLoading || !selectedDocId || !selectedVersionId}>
-                      {convert.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <ArrowRight className="h-3 w-3" />}
-                      Convert → {DELIVERABLE_LABELS[selectedDeliverableType]}
-                    </Button>
-                  </div>
+                  {/* Action toolbar */}
+                  <ActionToolbar
+                    hasAnalysis={!!latestAnalysis}
+                    isConverged={isAnalysisConverged}
+                    isLoading={isLoading}
+                    onRunReview={handleRunEngine}
+                    onApplyRewrite={handleRewrite}
+                    onPromote={handlePromote}
+                    onSkipStage={handleSkipStage}
+                    onConvert={() => convert.mutate({ targetOutput: selectedDeliverableType.toUpperCase(), protectItems: latestAnalysis?.protect })}
+                    selectedNoteCount={selectedNotes.size}
+                    totalNoteCount={allPrioritizedMoves.length}
+                    nextBestDocument={nextBestDocument || null}
+                    selectedDeliverableType={selectedDeliverableType}
+                    hasUnresolvedDrift={hasUnresolvedMajorDrift}
+                    analyzePending={analyze.isPending}
+                    rewritePending={rewrite.isPending || rewritePipeline.status !== 'idle'}
+                    convertPending={convert.isPending}
+                    generateNotesPending={generateNotes.isPending}
+                  />
 
-                  <OperationProgress isActive={analyze.isPending} stages={DEV_ANALYZE_STAGES} className="mb-1" />
-                  <OperationProgress isActive={generateNotes.isPending} stages={DEV_NOTES_STAGES} className="mb-1" />
-                  <OperationProgress isActive={rewrite.isPending} stages={DEV_REWRITE_STAGES} className="mb-1" />
-                  <OperationProgress isActive={convert.isPending} stages={DEV_CONVERT_STAGES} className="mb-1" />
+                  {/* Progress indicators */}
+                  <OperationProgress isActive={analyze.isPending} stages={DEV_ANALYZE_STAGES} />
+                  <OperationProgress isActive={generateNotes.isPending} stages={DEV_NOTES_STAGES} />
+                  <OperationProgress isActive={rewrite.isPending} stages={DEV_REWRITE_STAGES} />
+                  <OperationProgress isActive={convert.isPending} stages={DEV_CONVERT_STAGES} />
                   {rewritePipeline.status !== 'idle' && rewritePipeline.status !== 'complete' && (
-                    <div className="mb-1 p-3 rounded-lg border bg-muted/30">
-                      <div className="flex items-center gap-2 text-sm mb-1">
+                    <div className="p-2 rounded-lg border bg-muted/30">
+                      <div className="flex items-center gap-2 text-xs">
                         <Loader2 className="h-3 w-3 animate-spin" />
-                        <span className="font-medium">
-                          {rewritePipeline.status === 'planning' && 'Planning chunked rewrite…'}
-                          {rewritePipeline.status === 'writing' && `Rewriting chunk ${rewritePipeline.currentChunk}/${rewritePipeline.totalChunks}…`}
-                          {rewritePipeline.status === 'assembling' && 'Assembling final version…'}
+                        <span>
+                          {rewritePipeline.status === 'planning' && 'Planning rewrite…'}
+                          {rewritePipeline.status === 'writing' && `Chunk ${rewritePipeline.currentChunk}/${rewritePipeline.totalChunks}`}
+                          {rewritePipeline.status === 'assembling' && 'Assembling…'}
                           {rewritePipeline.status === 'error' && `Error: ${rewritePipeline.error}`}
                         </span>
                       </div>
                       {rewritePipeline.totalChunks > 0 && (
-                        <Progress value={(rewritePipeline.currentChunk / rewritePipeline.totalChunks) * 100} className="h-1.5" />
+                        <Progress value={(rewritePipeline.currentChunk / rewritePipeline.totalChunks) * 100} className="h-1 mt-1" />
                       )}
                     </div>
                   )}
 
-                  {/* ── Resolution Summary (after rewrite) ── */}
-                  {latestNotes?.resolution_summary && (latestNotes.resolution_summary.resolved > 0 || latestNotes.resolution_summary.regressed > 0) && (
-                    <div className="flex flex-wrap gap-2 text-[10px]">
-                      {latestNotes.resolution_summary.resolved > 0 && (
-                        <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-[10px]">
-                          {latestNotes.resolution_summary.resolved} Resolved
-                        </Badge>
-                      )}
-                      {latestNotes.resolution_summary.regressed > 0 && (
-                        <Badge className="bg-destructive/20 text-destructive border-destructive/30 text-[10px]">
-                          {latestNotes.resolution_summary.regressed} Regressed
-                        </Badge>
-                      )}
-                    </div>
-                  )}
-
-                  {/* ── Stability Status ── */}
-                  {(latestNotes?.stability_status || latestAnalysis?.stability_status) === 'structurally_stable' && (
-                    <div className="flex items-center gap-1.5 text-[10px] text-emerald-500 p-2 rounded bg-emerald-500/10 border border-emerald-500/20">
-                      <Check className="h-3 w-3" />
-                      <span>Structurally Stable — Refinement Phase</span>
-                    </div>
-                  )}
-
-                  {/* ── Notes Approval Panel (center, prominent) ── */}
-                  {allPrioritizedMoves.length > 0 && (
-                    <Card className="border-primary/30 bg-primary/5">
-                      <CardHeader className="py-2 px-3">
-                        <div className="flex items-center justify-between">
-                          <CardTitle className="text-xs flex items-center gap-1.5">
-                            <Zap className="h-3 w-3 text-primary" />
-                            Review Notes ({selectedNotes.size}/{allPrioritizedMoves.length} approved)
-                          </CardTitle>
-                          <div className="flex gap-1 items-center">
-                            {tieredNotes.blockers.length > 0 && (
-                              <Badge className="bg-destructive/20 text-destructive border-destructive/30 text-[9px] px-1.5 py-0">
-                                {tieredNotes.blockers.length} Blockers
-                              </Badge>
-                            )}
-                            {tieredNotes.high.length > 0 && (
-                              <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/30 text-[9px] px-1.5 py-0">
-                                {tieredNotes.high.length} High
-                              </Badge>
-                            )}
-                            {tieredNotes.polish.length > 0 && (
-                              <Badge className="bg-muted/40 text-muted-foreground border-border/50 text-[9px] px-1.5 py-0">
-                                {tieredNotes.polish.length} Polish
-                              </Badge>
-                            )}
-                            <Button variant="ghost" size="sm" className="text-[10px] h-5 px-1.5"
-                              onClick={() => setSelectedNotes(new Set(allPrioritizedMoves.map((_, i) => i)))}>All</Button>
-                            <Button variant="ghost" size="sm" className="text-[10px] h-5 px-1.5"
-                              onClick={() => setSelectedNotes(new Set())}>None</Button>
-                          </div>
-                        </div>
-                      </CardHeader>
-                      <CardContent className="px-2 pb-2">
-                        <div className="max-h-[300px] overflow-y-auto">
-                          <div className="space-y-1.5 pr-1">
-                            {allPrioritizedMoves.map((move: any, i: number) => {
-                              const severityColor = move.severity === 'blocker'
-                                ? 'border-destructive/40 bg-destructive/5'
-                                : move.severity === 'high'
-                                ? 'border-amber-500/40 bg-amber-500/5'
-                                : 'border-border/40';
-                              const severityBadge = move.severity === 'blocker'
-                                ? 'bg-destructive/20 text-destructive border-destructive/30'
-                                : move.severity === 'high'
-                                ? 'bg-amber-500/20 text-amber-400 border-amber-500/30'
-                                : 'bg-muted/40 text-muted-foreground border-border/50';
-                              return (
-                                <div key={i} className={`flex items-start gap-2 p-2 rounded border transition-colors cursor-pointer ${
-                                  selectedNotes.has(i) ? severityColor : 'border-border/40 opacity-60'
-                                }`} onClick={() => {
-                                  setSelectedNotes(prev => {
-                                    const next = new Set(prev);
-                                    if (next.has(i)) next.delete(i); else next.add(i);
-                                    return next;
-                                  });
-                                }}>
-                                  <Checkbox
-                                    checked={selectedNotes.has(i)}
-                                    onCheckedChange={() => {
-                                      setSelectedNotes(prev => {
-                                        const next = new Set(prev);
-                                        if (next.has(i)) next.delete(i); else next.add(i);
-                                        return next;
-                                      });
-                                    }}
-                                    className="mt-0.5 h-3.5 w-3.5"
-                                  />
-                                  <div className="flex-1 min-w-0">
-                                    <div className="flex items-center gap-1 mb-0.5">
-                                      <Badge variant="outline" className={`text-[8px] px-1 py-0 ${severityBadge}`}>
-                                        {move.severity === 'blocker' ? '🔴 Blocker' : move.severity === 'high' ? '🟠 High' : '⚪ Polish'}
-                                      </Badge>
-                                      <Badge variant="outline" className="text-[8px] px-1 py-0">{move.category}</Badge>
-                                    </div>
-                                    <p className="text-[10px] text-foreground leading-relaxed">{move.note || move.description}</p>
-                                    {move.why_it_matters && (
-                                      <p className="text-[9px] text-muted-foreground mt-0.5 italic">{move.why_it_matters}</p>
-                                    )}
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                        <div className="mt-2 flex gap-2">
-                          <Button size="sm" className="h-7 text-xs gap-1.5 flex-1"
-                            onClick={handleRewrite}
-                            disabled={isLoading || rewritePipeline.status !== 'idle' || selectedNotes.size === 0}>
-                            {(rewrite.isPending || rewritePipeline.status !== 'idle') ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-                            Apply Rewrite ({selectedNotes.size} notes)
-                          </Button>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  )}
-
-                  {/* Content area */}
+                  {/* Document content */}
                   <Card>
                     <CardContent className="p-4">
-                      <ScrollArea className="h-[calc(100vh-380px)]">
+                      <ScrollArea className="h-[calc(100vh-440px)]">
                         <pre className="text-sm text-foreground whitespace-pre-wrap font-mono leading-relaxed">
                           {versionText || 'No content available.'}
                         </pre>
@@ -982,275 +463,150 @@ export default function ProjectDevelopmentEngine() {
                     </CardContent>
                   </Card>
 
-                  {/* Feature length guardrails + Set as draft (only for scripts) */}
-                  {selectedDocId && selectedVersionId && versionText && (selectedDeliverableType === 'script' || selectedDeliverableType === 'production_draft') && (
-                    <FeatureLengthGuardrails
-                      projectId={projectId!}
-                      versionText={versionText}
-                      selectedDocId={selectedDocId}
-                      selectedVersionId={selectedVersionId}
-                    />
+                  {/* Feature guardrails + Set as draft */}
+                  {versionText && (selectedDeliverableType === 'script' || selectedDeliverableType === 'production_draft') && (
+                    <FeatureLengthGuardrails projectId={projectId!} versionText={versionText}
+                      selectedDocId={selectedDocId} selectedVersionId={selectedVersionId} />
                   )}
-                  {selectedDocId && selectedVersionId && versionText && (
-                    <SetAsLatestDraftButton
-                      projectId={projectId}
-                      title={selectedDoc?.title || selectedDoc?.file_name || 'Dev Engine Draft'}
-                      text={versionText}
-                    />
+                  {versionText && (
+                    <div className="flex justify-end">
+                      <ConfirmDialog
+                        title="Set as Latest Draft?"
+                        description={`Register "${selectedDoc?.title || 'this document'}" as the project's current script draft.`}
+                        confirmLabel="Set as Latest Draft"
+                        onConfirm={() => setAsDraft.mutate({ title: selectedDoc?.title || 'Dev Engine Draft', text: versionText })}
+                      >
+                        <Button variant="outline" size="sm" className="h-7 text-[10px] gap-1"
+                          disabled={setAsDraft.isPending}>
+                          {setAsDraft.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
+                          Set as Latest Draft
+                        </Button>
+                      </ConfirmDialog>
+                    </div>
                   )}
-                </div>
+                </>
               )}
             </div>
 
-            {/* ── RIGHT: Analysis & Notes Panel ── */}
+            {/* ── RIGHT: Intelligence ── */}
             <div className="md:col-span-3 space-y-3">
-              {/* Convergence chart */}
-              <Card>
-                <CardHeader className="py-2 px-3">
-                  <CardTitle className="text-xs flex items-center gap-1.5">
-                    <BarChart3 className="h-3 w-3" /> Convergence
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="px-3 pb-3">
-                  {convergenceHistory.length >= 2 ? (
-                    <div className="space-y-2">
-                      <ConvergenceSparkline history={convergenceHistory} />
-                      <div className="flex justify-between text-[9px] text-muted-foreground">
-                        <span>— Script Strength <span className="text-primary">━</span></span>
-                        <span>Finance Readiness <span className="text-emerald-400">╌</span></span>
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="text-[10px] text-muted-foreground py-4 text-center">
-                      Analyze 2+ versions to see trend
-                    </p>
-                  )}
-                </CardContent>
-              </Card>
+              {/* Convergence */}
+              <ConvergencePanel
+                latestAnalysis={latestAnalysis}
+                convergenceHistory={convergenceHistory}
+                convergenceStatus={convergenceStatus}
+                tieredNotes={tieredNotes}
+              />
 
-              {/* Latest scores */}
-              {latestAnalysis && (
-                <Card>
-                  <CardHeader className="py-2 px-3">
-                    <CardTitle className="text-xs">Scores</CardTitle>
-                  </CardHeader>
-                  <CardContent className="px-3 pb-3 space-y-3">
-                    <ConvergenceGauge
-                      ci={latestAnalysis.ci_score || latestAnalysis.scores?.ci_score}
-                      gp={latestAnalysis.gp_score || latestAnalysis.scores?.gp_score}
-                      gap={latestAnalysis.gap || latestAnalysis.scores?.gap}
-                      status={latestAnalysis.convergence_status || latestAnalysis.convergence?.status || ''}
-                    />
-                    {/* Summary bullets */}
-                    {latestAnalysis.summary && (
-                      <div className="space-y-1 mt-2">
-                        {(latestAnalysis.summary as string[]).slice(0, 5).map((s: string, i: number) => (
-                          <p key={i} className="text-[10px] text-muted-foreground">• {s}</p>
-                        ))}
-                      </div>
-                    )}
-                    {/* Tiered note counts */}
-                    <div className="flex gap-2 mt-2">
-                      <div className="flex items-center gap-1 text-[10px]">
-                        <span className="w-2 h-2 rounded-full bg-destructive inline-block" />
-                        <span className="text-destructive font-medium">{tieredNotes.blockers.length} Blockers</span>
-                      </div>
-                      <div className="flex items-center gap-1 text-[10px]">
-                        <span className="w-2 h-2 rounded-full bg-amber-500 inline-block" />
-                        <span className="text-amber-400 font-medium">{tieredNotes.high.length} High</span>
-                      </div>
-                      <div className="flex items-center gap-1 text-[10px]">
-                        <span className="w-2 h-2 rounded-full bg-muted-foreground inline-block" />
-                        <span className="text-muted-foreground font-medium">{tieredNotes.polish.length} Polish</span>
-                      </div>
-                    </div>
-                    {/* Blocking issues detail */}
-                    {tieredNotes.blockers.length > 0 && (
-                      <div className="mt-2 p-2 rounded bg-destructive/10 border border-destructive/20">
-                        <p className="text-[10px] font-semibold text-destructive mb-1">Blocking Issues</p>
-                        {tieredNotes.blockers.map((b: any, i: number) => (
-                          <p key={i} className="text-[10px] text-destructive/80">• {b.description || b}</p>
-                        ))}
-                      </div>
-                    )}
-                    {latestAnalysis.executive_snapshot && (
-                      <p className="text-[10px] text-muted-foreground mt-2 italic">{latestAnalysis.executive_snapshot}</p>
-                    )}
-                  </CardContent>
-                </Card>
-              )}
+              {/* Notes */}
+              <NotesPanel
+                allNotes={allPrioritizedMoves}
+                tieredNotes={tieredNotes}
+                selectedNotes={selectedNotes}
+                setSelectedNotes={setSelectedNotes}
+                onApplyRewrite={handleRewrite}
+                isRewriting={rewrite.isPending || rewritePipeline.status !== 'idle'}
+                isLoading={isLoading}
+                resolutionSummary={resolutionSummary}
+                stabilityStatus={stabilityStatus}
+              />
 
-              {/* Tiered Notes Summary */}
-              {allPrioritizedMoves.length > 0 && (
-                <Card>
-                  <CardHeader className="py-2 px-3">
-                    <div className="flex items-center justify-between">
-                      <CardTitle className="text-xs">Notes ({allPrioritizedMoves.length})</CardTitle>
-                      <div className="flex gap-1">
-                        <Button variant="ghost" size="sm" className="text-[10px] h-5 px-1.5"
-                          onClick={() => setSelectedNotes(new Set(allPrioritizedMoves.map((_, i) => i)))}>All</Button>
-                        <Button variant="ghost" size="sm" className="text-[10px] h-5 px-1.5"
-                          onClick={() => setSelectedNotes(new Set())}>None</Button>
-                      </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="px-2 pb-2">
-                    <ScrollArea className="h-[calc(100vh-700px)] min-h-[150px]">
-                      <div className="space-y-1.5 pr-1">
-                        {allPrioritizedMoves.map((move: any, i: number) => {
-                          const severityBadge = move.severity === 'blocker'
-                            ? 'bg-destructive/20 text-destructive border-destructive/30'
-                            : move.severity === 'high'
-                            ? 'bg-amber-500/20 text-amber-400 border-amber-500/30'
-                            : 'bg-muted/40 text-muted-foreground border-border/50';
-                          return (
-                            <div key={i} className="flex items-start gap-2 p-2 rounded border border-border/40 hover:border-border transition-colors">
-                              <Checkbox
-                                checked={selectedNotes.has(i)}
-                                onCheckedChange={() => {
-                                  setSelectedNotes(prev => {
-                                    const next = new Set(prev);
-                                    if (next.has(i)) next.delete(i); else next.add(i);
-                                    return next;
-                                  });
-                                }}
-                                className="mt-0.5 h-3.5 w-3.5"
-                              />
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-1 mb-0.5">
-                                  <Badge variant="outline" className={`text-[8px] px-1 py-0 ${severityBadge}`}>
-                                    {move.severity === 'blocker' ? '🔴' : move.severity === 'high' ? '🟠' : '⚪'} {move.severity}
-                                  </Badge>
-                                  <Badge variant="outline" className="text-[8px] px-1 py-0">{move.category}</Badge>
-                                </div>
-                                <p className="text-[10px] text-foreground leading-relaxed">{move.note || move.description}</p>
-                                {move.why_it_matters && (
-                                  <p className="text-[9px] text-muted-foreground mt-0.5 italic">{move.why_it_matters}</p>
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </ScrollArea>
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* Rewrite plan preview */}
+              {/* Rewrite plan */}
               {(latestAnalysis?.rewrite_plan || latestNotes?.rewrite_plan) && (
                 <Card>
                   <CardHeader className="py-2 px-3">
                     <CardTitle className="text-xs">Rewrite Plan</CardTitle>
                   </CardHeader>
                   <CardContent className="px-3 pb-3">
-                    <div className="space-y-1">
+                    <div className="space-y-0.5">
                       {((latestNotes?.rewrite_plan || latestAnalysis?.rewrite_plan) as string[]).slice(0, 5).map((item: string, i: number) => (
-                        <p key={i} className="text-[10px] text-muted-foreground">• {item}</p>
+                        <p key={i} className="text-[9px] text-muted-foreground">• {item}</p>
                       ))}
                     </div>
                   </CardContent>
                 </Card>
               )}
 
-              {/* History */}
+              {/* Timeline — collapsed */}
               {convergenceHistory.length > 0 && (
-                <Card>
-                  <CardHeader className="py-2 px-3">
-                    <CardTitle className="text-xs flex items-center gap-1.5">
-                      <Clock className="h-3 w-3" /> Timeline
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="px-2 pb-2">
-                    <ScrollArea className="h-[150px]">
-                      <div className="space-y-1.5">
-                        {convergenceHistory.slice().reverse().map((pt, i) => (
-                          <div key={pt.id} className="p-2 rounded bg-muted/30 text-[10px]">
-                            <div className="flex justify-between">
-                              <span>SS: {Number(pt.creative_score)} | FR: {Number(pt.greenlight_score)}</span>
-                              <span className="text-muted-foreground">{new Date(pt.created_at).toLocaleDateString()}</span>
+                <Collapsible open={timelineOpen} onOpenChange={setTimelineOpen}>
+                  <Card>
+                    <CardHeader className="py-2 px-3">
+                      <CollapsibleTrigger className="flex items-center justify-between w-full">
+                        <CardTitle className="text-xs flex items-center gap-1.5">
+                          <Clock className="h-3 w-3" /> Timeline ({convergenceHistory.length})
+                        </CardTitle>
+                        <ChevronDown className={`h-3 w-3 text-muted-foreground transition-transform ${timelineOpen ? 'rotate-0' : '-rotate-90'}`} />
+                      </CollapsibleTrigger>
+                    </CardHeader>
+                    <CollapsibleContent>
+                      <CardContent className="px-2 pb-2">
+                        <div className="space-y-1 max-h-[150px] overflow-y-auto">
+                          {convergenceHistory.slice().reverse().map((pt) => (
+                            <div key={pt.id} className="p-1.5 rounded bg-muted/30 text-[9px]">
+                              <div className="flex justify-between">
+                                <span>SS: {Number(pt.creative_score)} | FR: {Number(pt.greenlight_score)}</span>
+                                <span className="text-muted-foreground">{new Date(pt.created_at).toLocaleDateString()}</span>
+                              </div>
+                              <Badge variant="outline" className="text-[7px] px-1 py-0 mt-0.5">{pt.convergence_status}</Badge>
                             </div>
-                            <div className="flex items-center gap-1 mt-0.5">
-                              <Badge variant="outline" className="text-[8px] px-1 py-0">{pt.convergence_status}</Badge>
-                              {pt.trajectory && <span className="text-muted-foreground text-[8px]">{pt.trajectory}</span>}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </ScrollArea>
-                  </CardContent>
-                </Card>
+                          ))}
+                        </div>
+                      </CardContent>
+                    </CollapsibleContent>
+                  </Card>
+                </Collapsible>
               )}
             </div>
           </div>
         </div>
       </div>
 
-      {/* Drift Override Confirmation Dialog */}
+      {/* Drift Override Dialog */}
       <Dialog open={driftOverrideOpen} onOpenChange={setDriftOverrideOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-destructive">
-              <AlertTriangle className="h-5 w-5" />
-              Unresolved Major Drift
+              <AlertTriangle className="h-5 w-5" /> Unresolved Major Drift
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <p className="text-sm text-muted-foreground">
-              Unresolved major structural drift detected. Proceeding may cause structural instability
-              in downstream documents.
+              Major structural drift detected. Proceeding may cause instability downstream.
             </p>
-            {latestDrift?.drift_items && (
-              <div className="p-2 rounded bg-destructive/5 border border-destructive/20 space-y-1">
-                {latestDrift.drift_items.slice(0, 5).map((item: any, i: number) => (
-                  <p key={i} className="text-[10px] text-muted-foreground">
-                    <span className="font-medium capitalize">{item.field}</span>: {item.similarity}% match
-                  </p>
-                ))}
-              </div>
-            )}
             <div className="flex gap-2 justify-end">
-              <Button variant="outline" size="sm" onClick={() => setDriftOverrideOpen(false)}>
-                Cancel
-              </Button>
+              <Button variant="outline" size="sm" onClick={() => setDriftOverrideOpen(false)}>Cancel</Button>
               <Button variant="destructive" size="sm" onClick={() => {
                 setDriftOverrideOpen(false);
                 if (nextBestDocument) {
                   setSelectedDeliverableType(nextBestDocument as DeliverableType);
                   convert.mutate({ targetOutput: nextBestDocument.toUpperCase(), protectItems: latestAnalysis?.protect });
                 }
-              }}>
-                Promote Anyway
-              </Button>
+              }}>Promote Anyway</Button>
             </div>
           </div>
         </DialogContent>
       </Dialog>
-      {/* Soft Stage Gating Dialog */}
+
+      {/* Soft Gate Dialog */}
       <Dialog open={softGateOpen} onOpenChange={setSoftGateOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-amber-500">
-              <AlertTriangle className="h-5 w-5" />
-              Stage Not Converged
+              <AlertTriangle className="h-5 w-5" /> Stage Not Converged
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <p className="text-sm text-muted-foreground">
-              The previous stage has not reached convergence. Proceeding may increase rewrite cycles
-              and introduce structural instability downstream.
+              This stage hasn't converged. Proceeding may increase rewrite cycles downstream.
             </p>
             <div className="flex gap-2 justify-end">
-              <Button variant="outline" size="sm" onClick={() => setSoftGateOpen(false)}>
-                Cancel
-              </Button>
-              <Button variant="default" size="sm" className="bg-amber-600 hover:bg-amber-700" onClick={() => {
+              <Button variant="outline" size="sm" onClick={() => setSoftGateOpen(false)}>Cancel</Button>
+              <Button size="sm" className="bg-amber-600 hover:bg-amber-700" onClick={() => {
                 setSoftGateOpen(false);
                 pendingStageAction?.();
                 setPendingStageAction(null);
-              }}>
-                Proceed Anyway
-              </Button>
+              }}>Proceed Anyway</Button>
             </div>
           </div>
         </DialogContent>
