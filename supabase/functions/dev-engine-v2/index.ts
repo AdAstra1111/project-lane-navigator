@@ -546,17 +546,19 @@ MATERIAL TO REWRITE:\n${fullText}`;
       const hardMin = (projectRow as any)?.min_runtime_hard_floor ?? null;
       const { words: newWords, minutes: newMins } = estimateRuntimeMinutes(assembledText, mode);
 
-      // Hard block: prevents "way too short"
-      if (hardMin && newMins < hardMin) {
+      // Hard block: prevents "way too short" (with 2-min tolerance for rounding)
+      let runtimeWarning: string | null = null;
+      if (hardMin && newMins < hardMin - 2) {
         throw new Error(
           `Script too short for feature: ~${Math.round(newMins)} mins (words=${newWords}). ` +
           `Hard floor is ${hardMin} mins. Generate a fuller feature draft (expand Act 2 / add set-pieces / deepen beats).`
         );
+      } else if (hardMin && newMins < hardMin) {
+        runtimeWarning = `Draft is near the hard floor: ~${Math.round(newMins)} mins (floor: ${hardMin}). Consider expanding.`;
       }
 
       // Soft warn: allowed but flagged
-      let runtimeWarning: string | null = null;
-      if (softMin && newMins < softMin) {
+      if (!runtimeWarning && softMin && newMins < softMin) {
         runtimeWarning = `This draft estimates ~${Math.round(newMins)} mins (below preferred minimum ${softMin} mins for a feature).`;
       }
 
@@ -897,7 +899,7 @@ Write these scenes NOW in proper screenplay format. Output ONLY screenplay text.
       const sHardMin = (projRow as any)?.min_runtime_hard_floor ?? null;
       const { words: sWords, minutes: sMins } = estimateScriptRuntime(assembledText, sMode);
 
-      if (sHardMin && sMins < sHardMin) {
+      if (sHardMin && sMins < sHardMin - 2) {
         throw new Error(
           `Script too short for feature: ~${Math.round(sMins)} mins (words=${sWords}). ` +
           `Hard floor is ${sHardMin} mins. The draft needs expansion.`
