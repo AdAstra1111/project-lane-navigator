@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { OperationProgress, DEV_ANALYZE_STAGES, DEV_NOTES_STAGES, DEV_REWRITE_STAGES, DEV_CONVERT_STAGES } from '@/components/OperationProgress';
+import { useSetAsLatestDraft } from '@/hooks/useSetAsLatestDraft';
 
 // ── Convergence Gauge ──
 function ConvergenceGauge({ ci, gp, gap, status, allowedGap }: { ci: number; gp: number; gap: number; status: string; allowedGap?: number }) {
@@ -79,6 +80,33 @@ const DOC_TYPE_LABELS: Record<string, string> = {
   script: 'Script', blueprint: 'Blueprint', architecture: 'Architecture',
   notes: 'Notes', outline: 'Outline', deck_text: 'Deck', other: 'Other',
 };
+
+// ── Set as Latest Draft Button ──
+function SetAsLatestDraftButton({ projectId, title, text }: { projectId?: string; title: string; text: string }) {
+  const setAsDraft = useSetAsLatestDraft(projectId);
+  return (
+    <Card>
+      <CardContent className="px-3 py-3">
+        <ConfirmDialog
+          title="Set as Latest Draft?"
+          description={`This will register "${title}" as the project's current script draft, archive any previous draft, and trigger a full re-analysis.`}
+          confirmLabel="Set as Latest Draft"
+          onConfirm={() => setAsDraft.mutate({ title, text })}
+        >
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full text-xs gap-1.5 border-primary/30 hover:bg-primary/10"
+            disabled={setAsDraft.isPending}
+          >
+            {setAsDraft.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
+            Set as Latest Draft
+          </Button>
+        </ConfirmDialog>
+      </CardContent>
+    </Card>
+  );
+}
 
 // ── Main Page ──
 export default function ProjectDevelopmentEngine() {
@@ -359,6 +387,15 @@ export default function ProjectDevelopmentEngine() {
                     <OperationProgress isActive={convert.isPending} stages={DEV_CONVERT_STAGES} className="mt-2" />
                   </CardContent>
                 </Card>
+              )}
+
+              {/* Set as Latest Draft */}
+              {selectedDocId && selectedVersionId && versionText && (
+                <SetAsLatestDraftButton
+                  projectId={projectId}
+                  title={selectedDoc?.title || selectedDoc?.file_name || 'Dev Engine Draft'}
+                  text={versionText}
+                />
               )}
 
               {/* Generate Feature Script Pipeline */}
