@@ -93,6 +93,13 @@ export function useRewritePipeline(projectId: string | undefined) {
       setState(s => ({ ...s, status: 'assembling' }));
       const assembledText = rewrittenChunks.join('\n\n');
 
+      // Length preservation check
+      const originalCharCount = plan.originalCharCount || 0;
+      if (originalCharCount > 0 && assembledText.length < originalCharCount * 0.75) {
+        const pctLost = Math.round((1 - assembledText.length / originalCharCount) * 100);
+        toast.warning(`Warning: Rewrite is ${pctLost}% shorter than the original (${assembledText.length.toLocaleString()} vs ${originalCharCount.toLocaleString()} chars). The AI may have compressed scenes.`);
+      }
+
       const assembleResult = await callEngine('rewrite-assemble', {
         projectId, documentId, versionId, planRunId, assembledText,
       });
