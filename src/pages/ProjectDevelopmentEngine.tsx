@@ -552,15 +552,6 @@ export default function ProjectDevelopmentEngine() {
                 </Card>
               )}
 
-              {/* ── Feature Length Guardrails ── */}
-              {selectedDoc && (
-                <FeatureLengthGuardrails
-                  projectId={projectId!}
-                  versionText={versionText}
-                  selectedDocId={selectedDocId}
-                  selectedVersionId={selectedVersionId}
-                />
-              )}
             </div>
 
             {/* ── CENTER: Workspace ── */}
@@ -649,6 +640,16 @@ export default function ProjectDevelopmentEngine() {
                         </ScrollArea>
                       </CardContent>
                     </Card>
+                    {selectedDocId && selectedVersionId && versionText && (selectedDeliverableType === 'script' || selectedDeliverableType === 'production_draft') && (
+                      <div className="mt-2">
+                        <FeatureLengthGuardrails
+                          projectId={projectId!}
+                          versionText={versionText}
+                          selectedDocId={selectedDocId}
+                          selectedVersionId={selectedVersionId}
+                        />
+                      </div>
+                    )}
                     {selectedDocId && selectedVersionId && versionText && (
                       <div className="mt-2">
                         <SetAsLatestDraftButton
