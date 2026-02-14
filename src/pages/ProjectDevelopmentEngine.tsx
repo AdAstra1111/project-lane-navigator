@@ -226,6 +226,7 @@ export default function ProjectDevelopmentEngine() {
   };
 
   // Unified engine call — explicit params, no guessing
+  // Chains: Analyze → auto-generate Notes
   const handleRunEngine = () => {
     const prevVersion = versions.length > 1 ? versions[versions.length - 2] : null;
     analyze.mutate({
@@ -234,6 +235,11 @@ export default function ProjectDevelopmentEngine() {
       format: projectFormat,
       episodeTargetDurationSeconds: (isVerticalDrama || isSeriesFormat) ? episodeDuration : undefined,
       previousVersionId: prevVersion?.id,
+    }, {
+      onSuccess: (analysisResult: any) => {
+        // Auto-generate notes after analysis completes
+        generateNotes.mutate(analysisResult);
+      },
     });
   };
 
@@ -659,11 +665,11 @@ export default function ProjectDevelopmentEngine() {
                             </Button>
                           </>
                         )}
-                        {/* Notes generation (auto after analyze, but allow manual) */}
-                        {latestAnalysis && !latestNotes && (
-                          <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5"
-                            onClick={() => generateNotes.mutate(undefined)} disabled={isLoading}>
-                            {generateNotes.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Zap className="h-3 w-3" />}
+                        {/* Notes auto-generate after Run Review — manual fallback if needed */}
+                        {latestAnalysis && !latestNotes && !generateNotes.isPending && (
+                          <Button size="sm" variant="ghost" className="h-8 text-xs gap-1.5"
+                            onClick={() => generateNotes.mutate(latestAnalysis)} disabled={isLoading}>
+                            <Zap className="h-3 w-3" />
                             Generate Notes
                           </Button>
                         )}
