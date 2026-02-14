@@ -106,6 +106,7 @@ Rules:
 - Do not flatten voice for minor commercial gain.
 - Strengthen escalation and improve packaging magnetism organically.
 - Match the target doc type format expectations.
+- OUTPUT THE FULL REWRITTEN MATERIAL — do NOT summarize or truncate.
 
 Return ONLY valid JSON:
 {
@@ -114,6 +115,18 @@ Return ONLY valid JSON:
   "creative_preserved": "what creative elements were protected",
   "commercial_improvements": "what commercial improvements were introduced"
 }`;
+
+const REWRITE_CHUNK_SYSTEM = `You are IFFY, a professional screenplay rewriter. Rewrite this CHUNK of a screenplay applying the approved strategic notes.
+
+Rules:
+- Preserve all PROTECT items absolutely.
+- Do not flatten voice for minor commercial gain.
+- Maintain screenplay format: sluglines, action, dialogue.
+- OUTPUT THE FULL REWRITTEN CHUNK — every scene, every line of dialogue. Do NOT summarize or skip.
+- Maintain perfect continuity with the previous chunk context provided.
+- Match the approximate page count of the input chunk.
+
+Output ONLY the rewritten screenplay text. No JSON, no commentary, no markdown.`;
 
 const CONVERT_SYSTEM = `You are IFFY. Convert the source material into the specified target format.
 Preserve the creative DNA (protect items). Adapt structure and detail level to the target format.
@@ -357,27 +370,94 @@ ${version.plaintext.slice(0, 25000)}`;
         .select("plaintext, version_number").eq("id", versionId).single();
       if (!version) throw new Error("Version not found");
 
-      const userPrompt = `PROTECT (non-negotiable):\n${JSON.stringify(protectItems || [])}
+      const fullText = version.plaintext || "";
+      const LONG_THRESHOLD = 30000; // ~24 pages — anything above this uses chunked rewrite
+
+      let rewrittenText = "";
+      let changesSummary = "";
+      let creativePreserved = "";
+      let commercialImprovements = "";
+
+      if (fullText.length <= LONG_THRESHOLD) {
+        // ── Short document: single-pass rewrite ──
+        const userPrompt = `PROTECT (non-negotiable):\n${JSON.stringify(protectItems || [])}
 
 APPROVED NOTES:\n${JSON.stringify(approvedNotes || [])}
 
 TARGET FORMAT: ${targetDocType || "same as source"}
 
-MATERIAL TO REWRITE:\n${version.plaintext.slice(0, 20000)}`;
+MATERIAL TO REWRITE:\n${fullText}`;
 
-      const raw = await callAI(LOVABLE_API_KEY, BALANCED_MODEL, REWRITE_SYSTEM, userPrompt, 0.4, 12000);
-      const parsed = await parseAIJson(LOVABLE_API_KEY, raw);
+        const raw = await callAI(LOVABLE_API_KEY, BALANCED_MODEL, REWRITE_SYSTEM, userPrompt, 0.4, 12000);
+        const parsed = await parseAIJson(LOVABLE_API_KEY, raw);
+        rewrittenText = parsed.rewritten_text || "";
+        changesSummary = parsed.changes_summary || "";
+        creativePreserved = parsed.creative_preserved || "";
+        commercialImprovements = parsed.commercial_improvements || "";
+      } else {
+        // ── Feature-length: chunked rewrite ──
+        console.log(`Chunked rewrite: ${fullText.length} chars, splitting into batches`);
+
+        // Split at scene boundaries (sluglines) for clean chunks
+        const CHUNK_TARGET = 12000; // ~10 pages per chunk
+        const chunks: string[] = [];
+        const lines = fullText.split("\n");
+        let currentChunk = "";
+
+        for (const line of lines) {
+          const isSlugline = /^(INT\.|EXT\.|INT\/EXT\.|I\/E\.)/.test(line.trim());
+          if (isSlugline && currentChunk.length >= CHUNK_TARGET) {
+            chunks.push(currentChunk.trim());
+            currentChunk = "";
+          }
+          currentChunk += line + "\n";
+        }
+        if (currentChunk.trim()) chunks.push(currentChunk.trim());
+
+        console.log(`Split into ${chunks.length} chunks`);
+
+        const notesContext = `PROTECT (non-negotiable):\n${JSON.stringify(protectItems || [])}\n\nAPPROVED NOTES:\n${JSON.stringify(approvedNotes || [])}`;
+        const rewrittenChunks: string[] = [];
+
+        for (let i = 0; i < chunks.length; i++) {
+          const prevContext = i > 0 
+            ? `\n\nPREVIOUS CHUNK ENDING (for continuity):\n${rewrittenChunks[i - 1].slice(-2000)}`
+            : "";
+
+          const chunkPrompt = `${notesContext}
+${prevContext}
+
+CHUNK ${i + 1} OF ${chunks.length} — Rewrite this section completely, maintaining all scenes and dialogue:
+
+${chunks[i]}`;
+
+          console.log(`Writing chunk ${i + 1}/${chunks.length} (${chunks[i].length} chars)`);
+          const chunkResult = await callAI(
+            LOVABLE_API_KEY, BALANCED_MODEL, REWRITE_CHUNK_SYSTEM, chunkPrompt, 0.4, 16000
+          );
+          rewrittenChunks.push(chunkResult.trim());
+        }
+
+        rewrittenText = rewrittenChunks.join("\n\n");
+        changesSummary = `Chunked rewrite: ${chunks.length} batches processed. Applied ${(approvedNotes || []).length} approved notes across full screenplay.`;
+        creativePreserved = (protectItems || []).join(", ");
+        commercialImprovements = "Applied strategic notes across all acts while maintaining full screenplay length.";
+
+        console.log(`Assembled rewrite: ${rewrittenText.length} chars (original: ${fullText.length} chars)`);
+      }
 
       const { data: newVersion, error: vErr } = await supabase.from("project_document_versions").insert({
         document_id: documentId,
         version_number: version.version_number + 1,
         label: `Rewrite pass ${version.version_number + 1}`,
-        plaintext: parsed.rewritten_text || "",
+        plaintext: rewrittenText,
         created_by: user.id,
         parent_version_id: versionId,
-        change_summary: parsed.changes_summary || "",
+        change_summary: changesSummary,
       }).select().single();
       if (vErr) throw vErr;
+
+      const parsed = { rewritten_text: rewrittenText, changes_summary: changesSummary, creative_preserved: creativePreserved, commercial_improvements: commercialImprovements };
 
       const { data: run } = await supabase.from("development_runs").insert({
         project_id: projectId,
@@ -385,10 +465,10 @@ MATERIAL TO REWRITE:\n${version.plaintext.slice(0, 20000)}`;
         version_id: newVersion.id,
         user_id: user.id,
         run_type: "REWRITE",
-        output_json: { ...parsed, source_version_id: versionId },
+        output_json: { ...parsed, rewritten_text: `[${rewrittenText.length} chars]`, source_version_id: versionId },
       }).select().single();
 
-      return new Response(JSON.stringify({ run, rewrite: parsed, newVersion }), {
+      return new Response(JSON.stringify({ run, rewrite: { ...parsed, rewritten_text: `[${rewrittenText.length} chars — stored in version]` }, newVersion }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
