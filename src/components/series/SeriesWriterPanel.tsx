@@ -176,45 +176,53 @@ export function SeriesWriterPanel({ projectId }: Props) {
         )}
       </div>
 
-      {/* Setup (no episodes yet) */}
-      {!hasEpisodes && (
-        <div className="border border-dashed border-border/60 rounded-lg p-6 text-center space-y-4">
-          <div className="space-y-1">
+      {/* Episode count selector — always visible */}
+      <div className={`border ${hasEpisodes ? 'border-border/50' : 'border-dashed border-border/60'} rounded-lg p-4 space-y-3`}>
+        {!hasEpisodes && (
+          <div className="space-y-1 text-center">
             <p className="text-sm font-medium text-foreground">Configure Your Series</p>
             <p className="text-xs text-muted-foreground">
               Choose the number of episodes. Each episode will be generated with its own script pipeline.
             </p>
           </div>
+        )}
 
-          <div className="flex items-center justify-center gap-3">
-            <Select value={episodeCount} onValueChange={setEpisodeCount}>
-              <SelectTrigger className="w-32 h-8 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {[5, 8, 10, 12, 15, 20, 25, 30].map(n => (
-                  <SelectItem key={n} value={String(n)} className="text-xs">
-                    {n} episodes
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+        <div className="flex items-center justify-center gap-3">
+          <Select value={episodeCount} onValueChange={setEpisodeCount} disabled={isGenerating}>
+            <SelectTrigger className="w-32 h-8 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {[5, 8, 10, 12, 15, 20, 25, 30].map(n => (
+                <SelectItem key={n} value={String(n)} className="text-xs">
+                  {n} episodes
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
 
-            <Button
-              size="sm"
-              onClick={() => createEpisodes.mutate(Number(episodeCount))}
-              disabled={createEpisodes.isPending}
-              className="h-8 text-xs"
-            >
-              {createEpisodes.isPending ? (
-                <><Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> Creating…</>
-              ) : (
-                <><Plus className="h-3 w-3 mr-1.5" /> Create Episodes</>
-              )}
-            </Button>
-          </div>
+          <Button
+            size="sm"
+            onClick={() => createEpisodes.mutate(Number(episodeCount))}
+            disabled={createEpisodes.isPending || isGenerating}
+            className="h-8 text-xs"
+          >
+            {createEpisodes.isPending ? (
+              <><Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> Creating…</>
+            ) : hasEpisodes ? (
+              <><Pen className="h-3 w-3 mr-1.5" /> Reset to {episodeCount}</>
+            ) : (
+              <><Plus className="h-3 w-3 mr-1.5" /> Create Episodes</>
+            )}
+          </Button>
         </div>
-      )}
+
+        {hasEpisodes && Number(episodeCount) !== episodes.length && (
+          <p className="text-[10px] text-amber-400 text-center">
+            Resetting will remove existing episodes and start fresh.
+          </p>
+        )}
+      </div>
 
       {/* Generation Progress */}
       {isGenerating && <ProgressBar progress={progress} />}
