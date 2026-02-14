@@ -6954,6 +6954,63 @@ export type Database = {
           },
         ]
       }
+      series_episodes: {
+        Row: {
+          created_at: string
+          episode_number: number
+          generation_progress: Json | null
+          id: string
+          logline: string | null
+          project_id: string
+          script_id: string | null
+          status: string
+          title: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          episode_number: number
+          generation_progress?: Json | null
+          id?: string
+          logline?: string | null
+          project_id: string
+          script_id?: string | null
+          status?: string
+          title?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          episode_number?: number
+          generation_progress?: Json | null
+          id?: string
+          logline?: string | null
+          project_id?: string
+          script_id?: string | null
+          status?: string
+          title?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "series_episodes_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "series_episodes_script_id_fkey"
+            columns: ["script_id"]
+            isOneToOne: false
+            referencedRelation: "scripts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       shadow_source_evaluations: {
         Row: {
           accuracy_score: number
