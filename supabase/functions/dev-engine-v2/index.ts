@@ -564,9 +564,6 @@ MATERIAL TO REWRITE:\n${fullText}`;
         },
       }).select().single();
 
-      // Record convergence
-      await recordConvergence(supabase, projectId, documentId, newVersion.id, user.id);
-
       return new Response(JSON.stringify({ run, newVersion }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
