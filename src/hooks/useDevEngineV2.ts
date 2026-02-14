@@ -181,23 +181,28 @@ export function useDevEngineV2(projectId: string | undefined) {
 
   // ── Mutations ──
 
+  // Resolve versionId: prefer explicit selection, fall back to latest loaded version
+  const resolvedVersionId = selectedVersionId || (versions.length > 0 ? versions[versions.length - 1].id : null);
+
   const analyze = useMutation({
-    mutationFn: (params: { productionType?: string; strategicPriority?: string; developmentStage?: string; analysisMode?: string; previousVersionId?: string }) =>
-      callEngineV2('analyze', { projectId, documentId: selectedDocId, versionId: selectedVersionId, ...params }),
+    mutationFn: (params: { productionType?: string; strategicPriority?: string; developmentStage?: string; analysisMode?: string; previousVersionId?: string }) => {
+      if (!resolvedVersionId) throw new Error('No version selected — please select a document first');
+      return callEngineV2('analyze', { projectId, documentId: selectedDocId, versionId: resolvedVersionId, ...params });
+    },
     onSuccess: () => { toast.success('Analysis complete'); invalidateAll(); },
     onError: (e: Error) => toast.error(e.message),
   });
 
   const generateNotes = useMutation({
     mutationFn: (analysisJson?: any) =>
-      callEngineV2('notes', { projectId, documentId: selectedDocId, versionId: selectedVersionId, analysisJson }),
+      callEngineV2('notes', { projectId, documentId: selectedDocId, versionId: resolvedVersionId, analysisJson }),
     onSuccess: () => { toast.success('Notes generated'); invalidateAll(); },
     onError: (e: Error) => toast.error(e.message),
   });
 
   const rewrite = useMutation({
     mutationFn: (params: { approvedNotes: any[]; protectItems?: string[]; targetDocType?: string }) =>
-      callEngineV2('rewrite', { projectId, documentId: selectedDocId, versionId: selectedVersionId, ...params }),
+      callEngineV2('rewrite', { projectId, documentId: selectedDocId, versionId: resolvedVersionId, ...params }),
     onSuccess: (data) => {
       toast.success('Rewrite complete — new version created');
       if (data.newVersion) setSelectedVersionId(data.newVersion.id);
@@ -208,7 +213,7 @@ export function useDevEngineV2(projectId: string | undefined) {
 
   const convert = useMutation({
     mutationFn: (params: { targetOutput: string; protectItems?: string[] }) =>
-      callEngineV2('convert', { projectId, documentId: selectedDocId, versionId: selectedVersionId, ...params }),
+      callEngineV2('convert', { projectId, documentId: selectedDocId, versionId: resolvedVersionId, ...params }),
     onSuccess: (data) => {
       toast.success(`Converted to ${data.newDoc?.doc_type || 'new format'}`);
       if (data.newDoc) {
