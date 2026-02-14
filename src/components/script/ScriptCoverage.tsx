@@ -615,6 +615,32 @@ export function ScriptCoverage({ projectId, projectTitle, format, genres, hasDoc
         .join('\n\n---\n\n');
 
       if (!scriptText || scriptText.length < 100) {
+        // Fallback: check project_document_versions (Dev Engine generated scripts)
+        const { data: versionDocs } = await (supabase as any)
+          .from('project_document_versions')
+          .select('plaintext, document_id')
+          .order('version_number', { ascending: false })
+          .limit(20);
+
+        if (versionDocs?.length) {
+          // Get document IDs that belong to this project
+          const { data: projDocs } = await (supabase as any)
+            .from('project_documents')
+            .select('id')
+            .eq('project_id', projectId);
+          const projDocIds = new Set((projDocs || []).map((d: any) => d.id));
+
+          const versionTexts = (versionDocs as any[])
+            .filter((v: any) => projDocIds.has(v.document_id) && v.plaintext && v.plaintext.length > 100)
+            .map((v: any) => v.plaintext);
+
+          if (versionTexts.length > 0) {
+            scriptText = versionTexts[0]; // Use latest version
+          }
+        }
+      }
+
+      if (!scriptText || scriptText.length < 100) {
         const { data: scripts } = await supabase
           .from('project_scripts' as any)
           .select('file_path')
