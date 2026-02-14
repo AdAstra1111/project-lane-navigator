@@ -6455,6 +6455,8 @@ export type Database = {
           id: string
           incentive_insights: Json | null
           lifecycle_stage: string
+          min_runtime_hard_floor: number | null
+          min_runtime_minutes: number | null
           packaging_mode: string
           packaging_stage: string
           pinned: boolean
@@ -6462,6 +6464,7 @@ export type Database = {
           primary_territory: string
           reasoning: string | null
           recommendations: Json | null
+          runtime_estimation_mode: string
           runtime_tolerance_pct: number
           script_coverage_verdict: string
           secondary_territories: string[]
@@ -6491,6 +6494,8 @@ export type Database = {
           id?: string
           incentive_insights?: Json | null
           lifecycle_stage?: string
+          min_runtime_hard_floor?: number | null
+          min_runtime_minutes?: number | null
           packaging_mode?: string
           packaging_stage?: string
           pinned?: boolean
@@ -6498,6 +6503,7 @@ export type Database = {
           primary_territory?: string
           reasoning?: string | null
           recommendations?: Json | null
+          runtime_estimation_mode?: string
           runtime_tolerance_pct?: number
           script_coverage_verdict?: string
           secondary_territories?: string[]
@@ -6527,6 +6533,8 @@ export type Database = {
           id?: string
           incentive_insights?: Json | null
           lifecycle_stage?: string
+          min_runtime_hard_floor?: number | null
+          min_runtime_minutes?: number | null
           packaging_mode?: string
           packaging_stage?: string
           pinned?: boolean
@@ -6534,6 +6542,7 @@ export type Database = {
           primary_territory?: string
           reasoning?: string | null
           recommendations?: Json | null
+          runtime_estimation_mode?: string
           runtime_tolerance_pct?: number
           script_coverage_verdict?: string
           secondary_territories?: string[]

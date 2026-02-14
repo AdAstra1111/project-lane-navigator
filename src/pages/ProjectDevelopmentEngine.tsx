@@ -26,6 +26,7 @@ import {
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { OperationProgress, DEV_ANALYZE_STAGES, DEV_NOTES_STAGES, DEV_REWRITE_STAGES, DEV_CONVERT_STAGES } from '@/components/OperationProgress';
 import { useSetAsLatestDraft } from '@/hooks/useSetAsLatestDraft';
+import { FeatureLengthGuardrails } from '@/components/FeatureLengthGuardrails';
 
 // ── Convergence Gauge ──
 function ConvergenceGauge({ ci, gp, gap, status, allowedGap }: { ci: number; gp: number; gap: number; status: string; allowedGap?: number }) {
@@ -510,6 +511,16 @@ export default function ProjectDevelopmentEngine() {
                     )}
                   </CardContent>
                 </Card>
+              )}
+
+              {/* ── Feature Length Guardrails ── */}
+              {selectedDoc && (
+                <FeatureLengthGuardrails
+                  projectId={projectId!}
+                  versionText={versionText}
+                  selectedDocId={selectedDocId}
+                  selectedVersionId={selectedVersionId}
+                />
               )}
             </div>
 
