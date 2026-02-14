@@ -489,7 +489,7 @@ serve(async (req) => {
       if (!version) throw new Error("Version not found");
 
       const { data: project } = await supabase.from("projects")
-        .select("title, budget_range, assigned_lane, format, development_behavior, episode_target_duration_seconds")
+        .select("title, budget_range, assigned_lane, format, development_behavior, episode_target_duration_seconds, season_episode_count")
         .eq("id", projectId).single();
 
       const rawFormat = reqFormat || project?.format || "film";
@@ -502,6 +502,41 @@ serve(async (req) => {
       // Vertical drama: require episode duration
       if (effectiveFormat === "vertical-drama" && !effectiveDuration) {
         throw new Error("episode_target_duration_seconds is required for vertical drama format");
+      }
+
+      // Fetch season config for vertical drama
+      const seasonEpisodeCount = body.seasonEpisodeCount || (project as any)?.season_episode_count;
+      let seasonArchitecture: any = null;
+      if (effectiveFormat === "vertical-drama" && seasonEpisodeCount) {
+        // Compute season architecture inline (mirrors dev-os-config.ts logic)
+        const E = seasonEpisodeCount;
+        if (E >= 10) {
+          const actSize = Math.floor(E * 0.2);
+          const remainder = E - actSize * 5;
+          const acts: any[] = [];
+          let cursor = 1;
+          for (let a = 1; a <= 5; a++) {
+            const extra = a > (5 - remainder) ? 1 : 0;
+            const count = actSize + extra;
+            acts.push({ act: a, start_episode: cursor, end_episode: cursor + count - 1, episode_count: count });
+            cursor += count;
+          }
+          seasonArchitecture = {
+            model: "5-act", episode_count: E, acts,
+            anchors: { reveal_index: Math.round(E * 0.25), mid_index: Math.round(E * 0.50), pre_finale_index: Math.round(E * 0.80), finale_index: E },
+          };
+        } else {
+          const act1 = Math.round(E * 0.3); const act3 = Math.round(E * 0.3); const act2 = E - act1 - act3;
+          seasonArchitecture = {
+            model: "3-act", episode_count: E,
+            acts: [
+              { act: 1, start_episode: 1, end_episode: act1, episode_count: act1 },
+              { act: 2, start_episode: act1 + 1, end_episode: act1 + act2, episode_count: act2 },
+              { act: 3, start_episode: act1 + act2 + 1, end_episode: E, episode_count: act3 },
+            ],
+            anchors: { reveal_index: Math.round(E * 0.33), mid_index: Math.round(E * 0.55), finale_index: E },
+          };
+        }
       }
 
       // Build deliverable-aware system prompt (routing order: deliverable → format → behavior)
@@ -626,6 +661,7 @@ ${version.plaintext.slice(0, 25000)}`;
         .eq("id", versionId);
 
       parsed.drift_report = driftReport;
+      if (seasonArchitecture) parsed.season_architecture = seasonArchitecture;
 
       return new Response(JSON.stringify({ run, analysis: parsed }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
