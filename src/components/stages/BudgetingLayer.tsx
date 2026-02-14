@@ -8,7 +8,9 @@ import { CostTrackingPanel } from '@/components/finance/CostTrackingPanel';
 import { CashflowModelPanel } from '@/components/finance/CashflowModelPanel';
 import { ScriptToBudgetPanel } from '@/components/script/ScriptToBudgetPanel';
 import { MultiSeasonFinancePanel } from '@/components/tv/MultiSeasonFinancePanel';
-import { useBudgetLines } from '@/hooks/useBudgets';
+import { useProjectBudgets } from '@/hooks/useBudgets';
+import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
 import type { Project } from '@/lib/types';
 
 interface Props {
@@ -27,14 +29,55 @@ export function BudgetingLayer({
 }: Props) {
   const lockedBudget = budgets.find((b: any) => b.status === 'locked');
   const totalBudget = lockedBudget?.total_amount ? Number(lockedBudget.total_amount) : undefined;
+  const { addBudget } = useProjectBudgets(projectId);
 
-  // Find an active draft budget to import AI lines into
-  const draftBudget = budgets.find((b: any) => b.status === 'draft');
-  const { addLines } = useBudgetLines(draftBudget?.id || '', projectId);
+  const handleScriptBudgetImport = async (lines: { category: string; line_name: string; amount: number }[], estimatedTotal: number) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { toast.error('Not authenticated'); return; }
 
-  const handleScriptBudgetImport = (lines: { category: string; line_name: string; amount: number }[], estimatedTotal: number) => {
-    if (!draftBudget) return;
-    addLines.mutate(lines.map((l, i) => ({ ...l, sort_order: i })));
+      // Find or create a draft budget
+      let targetBudgetId: string;
+      const draftBudget = budgets.find((b: any) => b.status === 'draft');
+
+      if (draftBudget) {
+        targetBudgetId = draftBudget.id;
+      } else {
+        // Create a new budget
+        const { data, error } = await supabase.from('project_budgets').insert({
+          project_id: projectId,
+          user_id: user.id,
+          version_label: `AI Estimate v${budgets.length + 1}`,
+          total_amount: estimatedTotal,
+          currency: 'USD',
+          lane_template: '',
+          status: 'draft',
+          notes: 'Auto-created from Script → Budget estimate',
+        } as any).select().single();
+        if (error) throw error;
+        targetBudgetId = (data as any).id;
+      }
+
+      // Insert all lines
+      const rows = lines.map((l, i) => ({
+        budget_id: targetBudgetId,
+        project_id: projectId,
+        user_id: user.id,
+        category: l.category,
+        line_name: l.line_name,
+        amount: l.amount,
+        sort_order: i,
+      }));
+      const { error: lineErr } = await supabase.from('project_budget_lines').insert(rows as any);
+      if (lineErr) throw lineErr;
+
+      toast.success(`Imported ${lines.length} line items into budget`);
+      // Refresh budgets
+      addBudget.reset();
+      window.location.reload(); // simplest way to refresh all budget queries
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to import budget lines');
+    }
   };
 
   return (
