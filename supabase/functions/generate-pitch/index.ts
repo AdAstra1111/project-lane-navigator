@@ -169,10 +169,31 @@ ${coverageContext ? "\nMode: Coverage Transformer — pivot the existing coverag
     }
 
     const result = await response.json();
-    const toolCall = result.choices?.[0]?.message?.tool_calls?.[0];
-    if (!toolCall) throw new Error("No structured output returned");
+    const msg = result.choices?.[0]?.message;
+    const toolCall = msg?.tool_calls?.[0];
 
-    const ideas = JSON.parse(toolCall.function.arguments);
+    let ideas: any;
+    if (toolCall?.function?.arguments) {
+      ideas = JSON.parse(toolCall.function.arguments);
+    } else if (msg?.content) {
+      // Fallback: extract JSON from content
+      const raw = msg.content;
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        ideas = JSON.parse(jsonMatch[0]);
+      } else {
+        console.error("No parseable JSON in content:", raw.substring(0, 500));
+        throw new Error("No structured output returned");
+      }
+    } else {
+      console.error("Unexpected response shape:", JSON.stringify(result).substring(0, 500));
+      throw new Error("No structured output returned");
+    }
+
+    // Normalize: ensure { ideas: [...] } shape
+    if (Array.isArray(ideas)) ideas = { ideas };
+    if (!ideas.ideas) ideas = { ideas: [ideas] };
+
     return new Response(JSON.stringify(ideas), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
