@@ -57,6 +57,18 @@ export interface ConvergencePoint {
   created_at: string;
 }
 
+export interface DriftEvent {
+  id: string;
+  project_id: string;
+  document_version_id: string;
+  drift_level: 'none' | 'moderate' | 'major';
+  drift_items: Array<{ field: string; similarity: number; inherited: string; current: string }>;
+  acknowledged: boolean;
+  resolved: boolean;
+  resolution_type: string | null;
+  created_at: string;
+}
+
 // ── API helper ──
 
 async function callEngineV2(action: string, extra: Record<string, any> = {}) {
@@ -163,6 +175,24 @@ export function useDevEngineV2(projectId: string | undefined) {
     enabled: !!selectedDocId,
   });
 
+  // Drift events for selected version
+  const { data: driftEvents = [], refetch: refetchDrift } = useQuery({
+    queryKey: ['dev-v2-drift', selectedVersionId],
+    queryFn: async () => {
+      if (!selectedVersionId) return [];
+      const { data, error } = await (supabase as any)
+        .from('document_drift_events')
+        .select('*')
+        .eq('document_version_id', selectedVersionId)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      return (data || []) as DriftEvent[];
+    },
+    enabled: !!selectedVersionId,
+  });
+
+  const latestDrift = driftEvents.length > 0 ? driftEvents[0] : null;
+
   function invalidateAll() {
     qc.invalidateQueries({ queryKey: ['dev-v2-docs', projectId] });
     if (selectedDocId) {
@@ -172,6 +202,7 @@ export function useDevEngineV2(projectId: string | undefined) {
     }
     if (selectedVersionId) {
       qc.invalidateQueries({ queryKey: ['dev-v2-runs', selectedVersionId] });
+      qc.invalidateQueries({ queryKey: ['dev-v2-drift', selectedVersionId] });
     }
   }
 
@@ -289,7 +320,6 @@ export function useDevEngineV2(projectId: string | undefined) {
 
   const deleteDocument = useMutation({
     mutationFn: async (docId: string) => {
-      // Delete related versions, runs, convergence history first
       await (supabase as any).from('development_runs').delete().eq('document_id', docId);
       await (supabase as any).from('dev_engine_convergence_history').delete().eq('document_id', docId);
       await (supabase as any).from('project_document_versions').delete().eq('document_id', docId);
@@ -304,6 +334,21 @@ export function useDevEngineV2(projectId: string | undefined) {
       }
       invalidateAll();
     },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  // Drift resolution mutations
+  const acknowledgeDrift = useMutation({
+    mutationFn: async (driftEventId: string) =>
+      callEngineV2('drift-acknowledge', { driftEventId }),
+    onSuccess: () => { toast.success('Drift acknowledged'); invalidateAll(); },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const resolveDrift = useMutation({
+    mutationFn: async (params: { driftEventId: string; resolutionType: 'accept_drift' | 'intentional_pivot' | 'reseed'; versionId?: string }) =>
+      callEngineV2('drift-resolve', params),
+    onSuccess: () => { toast.success('Drift resolved'); invalidateAll(); },
     onError: (e: Error) => toast.error(e.message),
   });
 
@@ -344,5 +389,7 @@ export function useDevEngineV2(projectId: string | undefined) {
     runs, allDocRuns, convergenceHistory,
     latestAnalysis, latestNotes, isConverged, convergenceStatus, isLoading,
     analyze, generateNotes, rewrite, convert, createPaste, deleteDocument,
+    // Drift
+    driftEvents, latestDrift, acknowledgeDrift, resolveDrift,
   };
 }

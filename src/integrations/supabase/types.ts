@@ -2275,6 +2275,56 @@ export type Database = {
           },
         ]
       }
+      document_drift_events: {
+        Row: {
+          acknowledged: boolean | null
+          created_at: string | null
+          document_version_id: string
+          drift_items: Json | null
+          drift_level: string
+          id: string
+          project_id: string
+          resolution_type: string | null
+          resolved: boolean | null
+          resolved_at: string | null
+          resolved_by: string | null
+        }
+        Insert: {
+          acknowledged?: boolean | null
+          created_at?: string | null
+          document_version_id: string
+          drift_items?: Json | null
+          drift_level?: string
+          id?: string
+          project_id: string
+          resolution_type?: string | null
+          resolved?: boolean | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+        }
+        Update: {
+          acknowledged?: boolean | null
+          created_at?: string | null
+          document_version_id?: string
+          drift_items?: Json | null
+          drift_level?: string
+          id?: string
+          project_id?: string
+          resolution_type?: string | null
+          resolved?: boolean | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "document_drift_events_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       document_ingestions: {
         Row: {
           char_count: number
@@ -5322,10 +5372,13 @@ export type Database = {
           created_by: string
           deliverable_type: string | null
           document_id: string
+          drift_snapshot: Json | null
           id: string
+          inherited_core: Json | null
           label: string | null
           parent_version_id: string | null
           plaintext: string
+          source_document_ids: Json | null
           stage: string | null
           version_number: number
         }
@@ -5335,10 +5388,13 @@ export type Database = {
           created_by: string
           deliverable_type?: string | null
           document_id: string
+          drift_snapshot?: Json | null
           id?: string
+          inherited_core?: Json | null
           label?: string | null
           parent_version_id?: string | null
           plaintext?: string
+          source_document_ids?: Json | null
           stage?: string | null
           version_number?: number
         }
@@ -5348,10 +5404,13 @@ export type Database = {
           created_by?: string
           deliverable_type?: string | null
           document_id?: string
+          drift_snapshot?: Json | null
           id?: string
+          inherited_core?: Json | null
           label?: string | null
           parent_version_id?: string | null
           plaintext?: string
+          source_document_ids?: Json | null
           stage?: string | null
           version_number?: number
         }
