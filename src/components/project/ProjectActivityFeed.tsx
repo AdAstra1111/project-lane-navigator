@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import {
   Activity, Users, DollarSign, Handshake, FileText, Package,
-  MessageSquare, Film, Briefcase, ScrollText, Clock,
+  MessageSquare, Film, Briefcase, ScrollText, Clock, ChevronDown,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
 import { cn } from '@/lib/utils';
@@ -50,11 +50,35 @@ const SECTION_LABELS: Record<string, string> = {
   project_scripts: 'Scripts',
 };
 
+const ACTION_VERBS: Record<string, Record<string, string>> = {
+  project_documents: { create: 'uploaded a document', update: 'updated a document', delete: 'removed a document' },
+  project_cast: { create: 'added cast', update: 'updated cast', delete: 'removed cast' },
+  project_deals: { create: 'logged a deal', update: 'updated a deal', delete: 'removed a deal' },
+  project_budgets: { create: 'added a budget', update: 'updated budget', delete: 'removed a budget' },
+  project_contracts: { create: 'added a contract', update: 'updated a contract', delete: 'removed a contract' },
+  project_deliverables: { create: 'added a deliverable', update: 'updated a deliverable', delete: 'removed a deliverable' },
+  project_hods: { create: 'added an HOD', update: 'updated an HOD', delete: 'removed an HOD' },
+  project_partners: { create: 'added a partner', update: 'updated a partner', delete: 'removed a partner' },
+  project_comments: { create: 'left a comment', update: 'edited a comment', delete: 'deleted a comment' },
+  project_scripts: { create: 'added a script', update: 'updated a script', delete: 'removed a script' },
+};
+
 const ACTION_COLORS: Record<string, string> = {
   create: 'text-emerald-400',
   update: 'text-sky-400',
   delete: 'text-red-400',
 };
+
+const INITIAL_VISIBLE = 8;
+
+function humanSummary(entry: ActivityEntry): string {
+  const sectionVerbs = ACTION_VERBS[entry.section];
+  if (sectionVerbs?.[entry.action]) return sectionVerbs[entry.action];
+  // Fallback: clean up the raw summary
+  const label = SECTION_LABELS[entry.section] || entry.section.replace(/_/g, ' ');
+  const verb = entry.action === 'create' ? 'added' : entry.action === 'delete' ? 'removed' : 'updated';
+  return `${verb} ${label.toLowerCase()}`;
+}
 
 function timeAgo(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -67,6 +91,20 @@ function timeAgo(dateStr: string): string {
   return `${days}d ago`;
 }
 
+/** Deduplicate consecutive identical actions (e.g. 10x "uploaded a document" in a row) */
+function deduplicateEntries(entries: ActivityEntry[]): (ActivityEntry & { count: number })[] {
+  const result: (ActivityEntry & { count: number })[] = [];
+  for (const entry of entries) {
+    const prev = result[result.length - 1];
+    if (prev && prev.user_id === entry.user_id && prev.section === entry.section && prev.action === entry.action) {
+      prev.count += 1;
+    } else {
+      result.push({ ...entry, count: 1 });
+    }
+  }
+  return result;
+}
+
 interface Props {
   projectId: string;
 }
@@ -74,6 +112,7 @@ interface Props {
 export function ProjectActivityFeed({ projectId }: Props) {
   const queryClient = useQueryClient();
   const [sectionFilter, setSectionFilter] = useState<string>('all');
+  const [showAll, setShowAll] = useState(false);
 
   const { data: activities = [], isLoading } = useQuery({
     queryKey: ['project-activity', projectId],
@@ -128,85 +167,94 @@ export function ProjectActivityFeed({ projectId }: Props) {
     return activities.filter(a => a.section === sectionFilter);
   }, [activities, sectionFilter]);
 
-  // Group by date
-  const grouped = useMemo(() => {
-    const groups: Record<string, ActivityEntry[]> = {};
-    for (const a of filtered) {
-      const d = new Date(a.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-      if (!groups[d]) groups[d] = [];
-      groups[d].push(a);
-    }
-    return groups;
-  }, [filtered]);
+  const deduplicated = useMemo(() => deduplicateEntries(filtered), [filtered]);
+  const visible = showAll ? deduplicated : deduplicated.slice(0, INITIAL_VISIBLE);
+  const hasMore = deduplicated.length > INITIAL_VISIBLE;
 
   if (isLoading) {
     return (
-      <div className="text-center py-8 text-sm text-muted-foreground">
-        <Clock className="h-5 w-5 mx-auto mb-2 animate-pulse" />
+      <div className="text-center py-6 text-sm text-muted-foreground">
+        <Clock className="h-4 w-4 mx-auto mb-1.5 animate-pulse" />
         Loading activity…
       </div>
     );
   }
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-4">
-        <h4 className="font-display font-semibold text-foreground text-lg flex items-center gap-2">
-          <Activity className="h-5 w-5 text-primary" />
-          Activity Feed
+    <div className="glass-card rounded-xl p-4">
+      <div className="flex items-center justify-between mb-3">
+        <h4 className="font-display font-semibold text-foreground text-sm flex items-center gap-2">
+          <Activity className="h-4 w-4 text-primary" />
+          Activity
         </h4>
-        <Select value={sectionFilter} onValueChange={setSectionFilter}>
-          <SelectTrigger className="w-36 h-8 text-xs">
-            <SelectValue placeholder="All sections" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All sections</SelectItem>
-            {sections.map(s => (
-              <SelectItem key={s} value={s}>{SECTION_LABELS[s] || s}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {sections.length > 1 && (
+          <Select value={sectionFilter} onValueChange={setSectionFilter}>
+            <SelectTrigger className="w-28 h-7 text-[10px]">
+              <SelectValue placeholder="All" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All</SelectItem>
+              {sections.map(s => (
+                <SelectItem key={s} value={s}>{SECTION_LABELS[s] || s}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
       </div>
 
       {filtered.length === 0 ? (
-        <div className="text-center py-8 text-sm text-muted-foreground">
-          No activity recorded yet. Changes to cast, deals, budgets, and more will appear here.
-        </div>
+        <p className="text-center py-4 text-xs text-muted-foreground">
+          No activity yet. Changes will appear here.
+        </p>
       ) : (
-        <div className="space-y-6">
-          {Object.entries(grouped).map(([date, entries]) => (
-            <div key={date}>
-              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">{date}</p>
-              <div className="space-y-1">
-                {entries.map((entry, i) => {
-                  const Icon = SECTION_ICONS[entry.section] || Activity;
-                  const userName = profileMap[entry.user_id] || 'Unknown';
-                  return (
-                    <motion.div
-                      key={entry.id}
-                      initial={{ opacity: 0, x: -6 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: i * 0.02 }}
-                      className="flex items-start gap-3 px-3 py-2 rounded-lg hover:bg-muted/30 transition-colors"
-                    >
-                      <Icon className={cn('h-4 w-4 mt-0.5 shrink-0', ACTION_COLORS[entry.action] || 'text-muted-foreground')} />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm text-foreground">
-                          <span className="font-medium">{userName}</span>
-                          <span className="text-muted-foreground"> · {entry.summary}</span>
-                        </p>
-                        <p className="text-[10px] text-muted-foreground">{timeAgo(entry.created_at)}</p>
-                      </div>
-                      <Badge variant="outline" className="text-[10px] shrink-0">
-                        {SECTION_LABELS[entry.section] || entry.section}
-                      </Badge>
-                    </motion.div>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
+        <div className="space-y-0.5">
+          {visible.map((entry, i) => {
+            const Icon = SECTION_ICONS[entry.section] || Activity;
+            const userName = profileMap[entry.user_id] || 'Unknown';
+            const summary = humanSummary(entry);
+            return (
+              <motion.div
+                key={entry.id}
+                initial={{ opacity: 0, x: -4 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: i * 0.015 }}
+                className="flex items-center gap-2.5 px-2 py-1.5 rounded-md hover:bg-muted/30 transition-colors"
+              >
+                <Icon className={cn('h-3.5 w-3.5 shrink-0', ACTION_COLORS[entry.action] || 'text-muted-foreground')} />
+                <p className="flex-1 min-w-0 text-xs text-foreground truncate">
+                  <span className="font-medium">{userName}</span>
+                  <span className="text-muted-foreground"> {summary}</span>
+                  {entry.count > 1 && (
+                    <span className="text-muted-foreground/70"> ×{entry.count}</span>
+                  )}
+                </p>
+                <span className="text-[10px] text-muted-foreground/60 shrink-0 tabular-nums">{timeAgo(entry.created_at)}</span>
+              </motion.div>
+            );
+          })}
         </div>
+      )}
+
+      {hasMore && !showAll && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="w-full mt-2 text-[10px] text-muted-foreground h-7 gap-1"
+          onClick={() => setShowAll(true)}
+        >
+          <ChevronDown className="h-3 w-3" />
+          Show {deduplicated.length - INITIAL_VISIBLE} more
+        </Button>
+      )}
+      {showAll && hasMore && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="w-full mt-2 text-[10px] text-muted-foreground h-7"
+          onClick={() => setShowAll(false)}
+        >
+          Show less
+        </Button>
       )}
     </div>
   );
