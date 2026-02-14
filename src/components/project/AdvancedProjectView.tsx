@@ -10,7 +10,7 @@ import {
   LayoutDashboard, FileText, TrendingUp, Users,
   DollarSign, Clapperboard, Layers,
 } from 'lucide-react';
-import { isVerticalDrama } from '@/lib/format-helpers';
+import { isSeriesFormat } from '@/lib/format-helpers';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Badge } from '@/components/ui/badge';
 import type { Project, FullAnalysis, MonetisationLane, PipelineStage } from '@/lib/types';
@@ -111,7 +111,7 @@ export function AdvancedProjectView(props: Props) {
 
   // Only show Series Writer tab for vertical drama projects
   const TABS = useMemo(() => {
-    if (isVerticalDrama(props.project.format)) return BASE_TABS;
+    if (isSeriesFormat(props.project.format)) return BASE_TABS;
     return BASE_TABS.filter(t => t.id !== 'series-writer');
   }, [props.project.format]);
 
