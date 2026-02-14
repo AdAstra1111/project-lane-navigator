@@ -444,25 +444,7 @@ export default function ProjectDevelopmentEngine() {
                 </Card>
               )}
 
-              {/* Convert dropdown */}
-              {selectedDocId && selectedVersionId && (
-                <Card>
-                  <CardHeader className="py-2 px-3">
-                    <CardTitle className="text-xs">Convert To</CardTitle>
-                  </CardHeader>
-                  <CardContent className="px-2 pb-2 space-y-1">
-                    {['BLUEPRINT', 'ARCHITECTURE', 'TREATMENT', 'ONE_PAGER', 'OUTLINE'].map(t => (
-                      <Button key={t} variant="ghost" size="sm" className="w-full justify-start text-xs h-7"
-                        disabled={isLoading}
-                        onClick={() => convert.mutate({ targetOutput: t, protectItems: latestAnalysis?.protect })}>
-                        <ArrowRight className="h-3 w-3 mr-1.5" />
-                        {t.replace(/_/g, ' ')}
-                      </Button>
-                    ))}
-                    <OperationProgress isActive={convert.isPending} stages={DEV_CONVERT_STAGES} className="mt-2" />
-                  </CardContent>
-                </Card>
-              )}
+              {/* Convert button removed — use pipeline bar + Convert button in action bar */}
 
               {/* Set as Latest Draft */}
               {selectedDocId && selectedVersionId && versionText && (
@@ -634,6 +616,12 @@ export default function ProjectDevelopmentEngine() {
                         onClick={handleRewrite} disabled={isLoading || rewritePipeline.status !== 'idle' || !latestNotes || selectedNotes.size === 0}>
                         {(rewrite.isPending || rewritePipeline.status !== 'idle') ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
                         Rewrite
+                      </Button>
+                      <Button size="sm" variant="outline" className="h-7 text-xs gap-1"
+                        onClick={() => convert.mutate({ targetOutput: selectedDeliverableType.toUpperCase(), protectItems: latestAnalysis?.protect })}
+                        disabled={isLoading || !selectedDocId || !selectedVersionId}>
+                        {convert.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <ArrowRight className="h-3 w-3" />}
+                        Convert → {DELIVERABLE_LABELS[selectedDeliverableType]}
                       </Button>
                     </div>
                   </div>
