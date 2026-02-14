@@ -218,7 +218,53 @@ export function computeSeasonArchitecture(episodeCount: number): SeasonArchitect
   }
 }
 
+// ── Engine Weight Types ──
+
+export const VERTICAL_ENGINES = ['power_conflict', 'romantic_tension', 'thriller_mystery', 'revenge_arc', 'social_exposure'] as const;
+export type VerticalEngine = typeof VERTICAL_ENGINES[number];
+
+export const ENGINE_LABELS: Record<VerticalEngine, string> = {
+  power_conflict: 'Power Conflict',
+  romantic_tension: 'Romantic Tension',
+  thriller_mystery: 'Thriller / Mystery',
+  revenge_arc: 'Revenge Arc',
+  social_exposure: 'Social Exposure',
+};
+
+export const ENGINE_COLORS: Record<VerticalEngine, string> = {
+  power_conflict: 'bg-red-500/20 text-red-400 border-red-500/30',
+  romantic_tension: 'bg-pink-500/20 text-pink-400 border-pink-500/30',
+  thriller_mystery: 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30',
+  revenge_arc: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
+  social_exposure: 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30',
+};
+
+export type VerticalWeights = Record<VerticalEngine, number>;
+
 export interface EpisodeGridRow {
+  episode_number: number;
+  act_number: number;
+  escalation_intensity: number;
+  hook: string;
+  escalation: string;
+  turn: string;
+  cliff: string;
+  cliff_type: string;
+  cliff_tier: 'soft' | 'hard' | 'ultimate';
+  anchor_flags: string[];
+  beat_minimum: number;
+}
+
+export interface EpisodeGridResult {
+  architecture: SeasonArchitecture;
+  grid: EpisodeGridRow[];
+  engine_weights: VerticalWeights;
+  beat_minimum: number;
+  short_season_warning: string | null;
+}
+
+// Legacy compat
+export interface LegacyEpisodeGridRow {
   episode: number;
   act: number;
   escalation_intensity: 'low' | 'medium' | 'high' | 'peak';
@@ -227,25 +273,25 @@ export interface EpisodeGridRow {
   anchor_type?: 'reveal' | 'midpoint' | 'pre_finale' | 'finale';
 }
 
-export function buildEpisodeGrid(arch: SeasonArchitecture, durationSeconds: number, behavior: DevelopmentBehavior = 'market'): EpisodeGridRow[] {
+export function buildEpisodeGrid(arch: SeasonArchitecture, durationSeconds: number, behavior: DevelopmentBehavior = 'market'): LegacyEpisodeGridRow[] {
   const { acts, anchors, episode_count } = arch;
-  const rows: EpisodeGridRow[] = [];
+  const rows: LegacyEpisodeGridRow[] = [];
 
   for (let ep = 1; ep <= episode_count; ep++) {
     const act = acts.find(a => ep >= a.start_episode && ep <= a.end_episode)!;
     const progress = ep / episode_count;
 
-    let escalation: EpisodeGridRow['escalation_intensity'] = 'low';
+    let escalation: LegacyEpisodeGridRow['escalation_intensity'] = 'low';
     if (progress > 0.75) escalation = 'peak';
     else if (progress > 0.5) escalation = 'high';
     else if (progress > 0.25) escalation = 'medium';
 
-    let cliff: EpisodeGridRow['required_cliff_tier'] = 'soft';
+    let cliff: LegacyEpisodeGridRow['required_cliff_tier'] = 'soft';
     if (ep === anchors.finale_index) cliff = 'ultimate';
     else if (ep === anchors.mid_index || ep === anchors.pre_finale_index) cliff = 'hard';
     else if (progress > 0.5) cliff = 'hard';
 
-    let anchor_type: EpisodeGridRow['anchor_type'] | undefined;
+    let anchor_type: LegacyEpisodeGridRow['anchor_type'] | undefined;
     if (ep === anchors.reveal_index) anchor_type = 'reveal';
     else if (ep === anchors.mid_index) anchor_type = 'midpoint';
     else if (ep === anchors.pre_finale_index) anchor_type = 'pre_finale';
