@@ -181,28 +181,48 @@ export function useDevEngineV2(projectId: string | undefined) {
 
   // ── Mutations ──
 
-  // Resolve versionId: prefer explicit selection, fall back to latest loaded version
-  const resolvedVersionId = selectedVersionId || (versions.length > 0 ? versions[versions.length - 1].id : null);
+  // Resolve versionId at call time: prefer explicit selection, fall back to latest version from DB
+  async function resolveVersionId() {
+    if (selectedVersionId) return selectedVersionId;
+    if (versions.length > 0) return versions[versions.length - 1].id;
+    // If versions haven't loaded yet, fetch directly
+    if (selectedDocId) {
+      const { data } = await (supabase as any)
+        .from('project_document_versions')
+        .select('id')
+        .eq('document_id', selectedDocId)
+        .order('version_number', { ascending: false })
+        .limit(1)
+        .single();
+      if (data?.id) return data.id as string;
+    }
+    return null;
+  }
 
   const analyze = useMutation({
-    mutationFn: (params: { productionType?: string; strategicPriority?: string; developmentStage?: string; analysisMode?: string; previousVersionId?: string }) => {
-      if (!resolvedVersionId) throw new Error('No version selected — please select a document first');
-      return callEngineV2('analyze', { projectId, documentId: selectedDocId, versionId: resolvedVersionId, ...params });
+    mutationFn: async (params: { productionType?: string; strategicPriority?: string; developmentStage?: string; analysisMode?: string; previousVersionId?: string }) => {
+      const vid = await resolveVersionId();
+      if (!vid) throw new Error('No version found — please select a document first');
+      return callEngineV2('analyze', { projectId, documentId: selectedDocId, versionId: vid, ...params });
     },
     onSuccess: () => { toast.success('Analysis complete'); invalidateAll(); },
     onError: (e: Error) => toast.error(e.message),
   });
 
   const generateNotes = useMutation({
-    mutationFn: (analysisJson?: any) =>
-      callEngineV2('notes', { projectId, documentId: selectedDocId, versionId: resolvedVersionId, analysisJson }),
+    mutationFn: async (analysisJson?: any) => {
+      const vid = await resolveVersionId();
+      return callEngineV2('notes', { projectId, documentId: selectedDocId, versionId: vid, analysisJson });
+    },
     onSuccess: () => { toast.success('Notes generated'); invalidateAll(); },
     onError: (e: Error) => toast.error(e.message),
   });
 
   const rewrite = useMutation({
-    mutationFn: (params: { approvedNotes: any[]; protectItems?: string[]; targetDocType?: string }) =>
-      callEngineV2('rewrite', { projectId, documentId: selectedDocId, versionId: resolvedVersionId, ...params }),
+    mutationFn: async (params: { approvedNotes: any[]; protectItems?: string[]; targetDocType?: string }) => {
+      const vid = await resolveVersionId();
+      return callEngineV2('rewrite', { projectId, documentId: selectedDocId, versionId: vid, ...params });
+    },
     onSuccess: (data) => {
       toast.success('Rewrite complete — new version created');
       if (data.newVersion) setSelectedVersionId(data.newVersion.id);
@@ -212,8 +232,10 @@ export function useDevEngineV2(projectId: string | undefined) {
   });
 
   const convert = useMutation({
-    mutationFn: (params: { targetOutput: string; protectItems?: string[] }) =>
-      callEngineV2('convert', { projectId, documentId: selectedDocId, versionId: resolvedVersionId, ...params }),
+    mutationFn: async (params: { targetOutput: string; protectItems?: string[] }) => {
+      const vid = await resolveVersionId();
+      return callEngineV2('convert', { projectId, documentId: selectedDocId, versionId: vid, ...params });
+    },
     onSuccess: (data) => {
       toast.success(`Converted to ${data.newDoc?.doc_type || 'new format'}`);
       if (data.newDoc) {
