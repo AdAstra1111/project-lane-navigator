@@ -561,6 +561,8 @@ export function ScriptStudio({
 
   // Version selector
   const [selectedVersionIdx, setSelectedVersionIdx] = useState(0);
+  // Selected document ID (controlled)
+  const [selectedDocId, setSelectedDocId] = useState<string>(currentScript?.id || documents[0]?.id || '');
 
   // Document version counts (project_document_versions per document)
   const [docVersionCounts, setDocVersionCounts] = useState<Record<string, number>>({});
@@ -782,7 +784,7 @@ export function ScriptStudio({
                   v{versions[selectedVersionIdx]?.draft_number || versions.length} · {versions[selectedVersionIdx] ? fmtDate(new Date(versions[selectedVersionIdx].created_at), 'dd MMM yyyy') : ''}
                 </Badge>
               ) : (() => {
-                const activeDocId = currentScript?.id || documents[0]?.id;
+                const activeDocId = selectedDocId || currentScript?.id || documents[0]?.id;
                 const latestV = activeDocId ? docLatestVersions[activeDocId] : 0;
                 const vCount = activeDocId ? docVersionCounts[activeDocId] : 0;
                 return latestV > 0 ? (
@@ -798,9 +800,9 @@ export function ScriptStudio({
             {/* Document selector */}
             {documents.length > 0 && (
               <Select
-                value={currentScript?.id || documents[0]?.id || ''}
+                value={selectedDocId || currentScript?.id || documents[0]?.id || 'none'}
                 onValueChange={(docId) => {
-                  // Find the selected document index for version switching
+                  setSelectedDocId(docId);
                   const idx = documents.findIndex((d: any) => d.id === docId);
                   if (idx >= 0) setSelectedVersionIdx(idx);
                 }}
@@ -810,7 +812,7 @@ export function ScriptStudio({
                 </SelectTrigger>
                 <SelectContent className="bg-popover border-border z-50 max-h-[400px] min-w-[350px] w-auto">
                 {documents.map((doc: any, docIdx: number) => {
-                    const isActive = doc.id === (currentScript?.id || documents[0]?.id);
+                    const isActive = doc.id === (selectedDocId || currentScript?.id || documents[0]?.id);
                     const vCount = docVersionCounts[doc.id] || 0;
                     const latestV = docLatestVersions[doc.id] || 0;
                     return (
