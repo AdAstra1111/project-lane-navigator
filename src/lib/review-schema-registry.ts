@@ -1,0 +1,264 @@
+/**
+ * Review Schema Registry — maps each DeliverableType to rubric sections,
+ * prompt modifiers, convergence rules, and forbidden critique.
+ * Format overlays (Phase 4) and hallucination safeguards (Phase 8) are included.
+ */
+
+import type { DeliverableType, DevelopmentBehavior } from './dev-os-config';
+import { getFormatGuardrails, verticalBeatMinimum, behaviorConfig } from './dev-os-config';
+
+// ── Types ──
+
+export interface RubricSection {
+  dimension: string;
+  weight: number;
+  description: string;
+}
+
+export interface ReviewSchema {
+  rubricSections: RubricSection[];
+  analysisPromptModifier: string;
+  rewritePromptModifier: string;
+  convergenceRules: { minCI: number; minGP: number };
+  forbiddenCritique: string[];
+}
+
+// ── Registry ──
+
+const registry: Record<DeliverableType, ReviewSchema> = {
+  idea: {
+    rubricSections: [
+      { dimension: 'Concept Spark', weight: 35, description: 'Is the core idea compelling and original?' },
+      { dimension: 'Emotional Promise', weight: 35, description: 'Does the concept promise a strong emotional experience?' },
+      { dimension: 'Audience Clarity', weight: 30, description: 'Is the target audience identifiable?' },
+    ],
+    analysisPromptModifier: 'This is an IDEA — evaluate concept strength, emotional promise, and audience clarity. Do NOT critique scene construction, dialogue, or structure.',
+    rewritePromptModifier: 'Sharpen the concept hook and clarify the emotional promise. Do NOT add scenes or dialogue.',
+    convergenceRules: { minCI: 60, minGP: 50 },
+    forbiddenCritique: ['dialogue quality', 'scene construction', 'act structure', 'slugline formatting'],
+  },
+  concept_brief: {
+    rubricSections: [
+      { dimension: 'Hook Clarity', weight: 25, description: 'Is the hook immediately graspable?' },
+      { dimension: 'Market Positioning', weight: 20, description: 'Is the market position clear?' },
+      { dimension: 'Audience Targeting', weight: 20, description: 'Is the audience well-defined?' },
+      { dimension: 'Originality', weight: 20, description: 'Does it feel fresh?' },
+      { dimension: 'Emotional Promise', weight: 15, description: 'Is the emotional engine clear?' },
+    ],
+    analysisPromptModifier: 'This is a CONCEPT BRIEF — evaluate hook clarity, market positioning, audience targeting, originality, and emotional promise. Do NOT critique scene construction or dialogue.',
+    rewritePromptModifier: 'Strengthen the hook and clarify market positioning. Do NOT add scenes or dialogue.',
+    convergenceRules: { minCI: 65, minGP: 55 },
+    forbiddenCritique: ['scene construction', 'dialogue quality', 'visual storytelling', 'subtext'],
+  },
+  market_sheet: {
+    rubricSections: [
+      { dimension: 'Budget Band Logic', weight: 25, description: 'Is the budget positioning realistic?' },
+      { dimension: 'Buyer Positioning', weight: 25, description: 'Are target buyers identifiable?' },
+      { dimension: 'Territory Appeal', weight: 25, description: 'Does the project have international appeal?' },
+      { dimension: 'Franchise Potential', weight: 25, description: 'Is there sequel/series/IP extension potential?' },
+    ],
+    analysisPromptModifier: 'This is a MARKET SHEET — evaluate budget logic, buyer positioning, territory appeal, and franchise potential. Do NOT critique creative writing quality.',
+    rewritePromptModifier: 'Strengthen market positioning and buyer clarity. Do NOT add creative content.',
+    convergenceRules: { minCI: 55, minGP: 70 },
+    forbiddenCritique: ['dialogue quality', 'scene construction', 'character depth', 'emotional impact'],
+  },
+  blueprint: {
+    rubricSections: [
+      { dimension: 'Act Logic', weight: 30, description: 'Does the act structure hold?' },
+      { dimension: 'Escalation Curve', weight: 25, description: 'Does tension build consistently?' },
+      { dimension: 'Midpoint Shift', weight: 20, description: 'Is there a meaningful midpoint reversal?' },
+      { dimension: 'Climax Inevitability', weight: 25, description: 'Does the climax feel earned?' },
+    ],
+    analysisPromptModifier: 'This is a BLUEPRINT — evaluate act logic, escalation curve, midpoint shift, and climax inevitability. Do NOT critique line-level writing, dialogue, or prose quality.',
+    rewritePromptModifier: 'Strengthen structural architecture. Do NOT add dialogue or line-level prose edits.',
+    convergenceRules: { minCI: 70, minGP: 60 },
+    forbiddenCritique: ['dialogue quality', 'line edits', 'prose style', 'formatting'],
+  },
+  architecture: {
+    rubricSections: [
+      { dimension: 'Reversal Integrity', weight: 25, description: 'Do reversals land with impact?' },
+      { dimension: 'Payoff Mapping', weight: 25, description: 'Are setups paid off systematically?' },
+      { dimension: 'Structural Symmetry', weight: 25, description: 'Is the structure balanced and intentional?' },
+      { dimension: 'Character Arc Math', weight: 25, description: 'Do character arcs track logically?' },
+    ],
+    analysisPromptModifier: 'This is ARCHITECTURE — evaluate reversal integrity, payoff mapping, structural symmetry, and character arc logic. Do NOT critique dialogue or prose.',
+    rewritePromptModifier: 'Strengthen architectural precision. Do NOT rewrite dialogue or prose.',
+    convergenceRules: { minCI: 70, minGP: 60 },
+    forbiddenCritique: ['dialogue quality', 'prose style', 'scene description quality'],
+  },
+  character_bible: {
+    rubricSections: [
+      { dimension: 'Psychological Coherence', weight: 30, description: 'Are characters psychologically consistent?' },
+      { dimension: 'Desire vs Need', weight: 25, description: 'Is the want/need distinction clear?' },
+      { dimension: 'Moral Flaw', weight: 20, description: 'Is the flaw dramatically productive?' },
+      { dimension: 'Casting Clarity', weight: 25, description: 'Is the character castable as described?' },
+    ],
+    analysisPromptModifier: 'This is a CHARACTER BIBLE — evaluate psychological coherence, desire vs need, moral flaw, and casting clarity. Do NOT critique plot or scene structure.',
+    rewritePromptModifier: 'Deepen character psychology and castability. Do NOT restructure plot.',
+    convergenceRules: { minCI: 70, minGP: 55 },
+    forbiddenCritique: ['plot structure', 'act breaks', 'scene construction', 'pacing'],
+  },
+  beat_sheet: {
+    rubricSections: [
+      { dimension: 'Beat Density', weight: 30, description: 'Is the beat count appropriate for the runtime?' },
+      { dimension: 'Escalation Pacing', weight: 25, description: 'Does each beat escalate stakes?' },
+      { dimension: 'Cliff Positioning', weight: 20, description: 'Are cliffhangers well-placed (episodic)?' },
+      { dimension: 'Runtime Estimate', weight: 25, description: 'Does the beat count map to target runtime?' },
+    ],
+    analysisPromptModifier: 'This is a BEAT SHEET — evaluate beat density, escalation pacing, cliff positioning, and runtime estimate. Do NOT critique dialogue or prose quality.',
+    rewritePromptModifier: 'Tighten beat density and escalation logic. Do NOT add dialogue.',
+    convergenceRules: { minCI: 70, minGP: 65 },
+    forbiddenCritique: ['dialogue quality', 'prose style', 'visual description'],
+  },
+  script: {
+    rubricSections: [
+      { dimension: 'Scene Construction', weight: 20, description: 'Are scenes well-constructed with clear purpose?' },
+      { dimension: 'Dialogue', weight: 20, description: 'Is dialogue distinctive and purposeful?' },
+      { dimension: 'Subtext', weight: 15, description: 'Is subtext present beneath surface dialogue?' },
+      { dimension: 'Visual Storytelling', weight: 15, description: 'Does the writing think cinematically?' },
+      { dimension: 'Emotional Impact', weight: 15, description: 'Does the material move the reader?' },
+      { dimension: 'Production Feasibility', weight: 15, description: 'Is the script producible at its budget tier?' },
+    ],
+    analysisPromptModifier: 'This is a SCRIPT — full evaluation of scene construction, dialogue, subtext, visual storytelling, emotional impact, and production feasibility.',
+    rewritePromptModifier: 'Apply full script rewrite with attention to all craft dimensions.',
+    convergenceRules: { minCI: 75, minGP: 75 },
+    forbiddenCritique: [],
+  },
+  production_draft: {
+    rubricSections: [
+      { dimension: 'Budget Realism', weight: 30, description: 'Is the script producible at its stated budget?' },
+      { dimension: 'Shoot Efficiency', weight: 25, description: 'Can this be scheduled efficiently?' },
+      { dimension: 'Trailer Moments', weight: 20, description: 'Are there clear marketing trailer beats?' },
+      { dimension: 'Sales Clarity', weight: 25, description: 'Can this be pitched to buyers clearly?' },
+    ],
+    analysisPromptModifier: 'This is a PRODUCTION DRAFT — evaluate budget realism, shoot efficiency, trailer moments, and sales clarity.',
+    rewritePromptModifier: 'Optimize for production feasibility and sales clarity.',
+    convergenceRules: { minCI: 80, minGP: 80 },
+    forbiddenCritique: [],
+  },
+  deck: {
+    rubricSections: [
+      { dimension: 'Factual Integrity', weight: 40, description: 'Is all content factually accurate?' },
+      { dimension: 'Structural Coherence', weight: 30, description: 'Is the deck well-organized?' },
+      { dimension: 'Audience Targeting', weight: 30, description: 'Is the intended audience clear?' },
+    ],
+    analysisPromptModifier: 'This is a DECK — evaluate factual integrity and structural coherence. Do NOT invent characters, fabricate scenes, or generate scene headings. Use [PLACEHOLDER] for missing information.',
+    rewritePromptModifier: 'Improve structure and clarity ONLY. Do NOT invent any content. Use [PLACEHOLDER] for missing info.',
+    convergenceRules: { minCI: 65, minGP: 70 },
+    forbiddenCritique: ['dialogue quality', 'scene construction', 'visual storytelling', 'subtext', 'character depth'],
+  },
+  documentary_outline: {
+    rubricSections: [
+      { dimension: 'Factual Integrity', weight: 35, description: 'Is all content factually grounded?' },
+      { dimension: 'Discovery Arc', weight: 25, description: 'Does the outline build a compelling discovery journey?' },
+      { dimension: 'Emotional Truth', weight: 20, description: 'Does it convey emotional truth without fabrication?' },
+      { dimension: 'Structure Shaping', weight: 20, description: 'Is the structure clear and purposeful?' },
+    ],
+    analysisPromptModifier: 'This is a DOCUMENTARY OUTLINE — evaluate factual integrity, discovery arc, emotional truth, and structure. Do NOT invent characters, fabricate scenes, or generate scene headings (INT./EXT.). Emotional truth is allowed but fictionalization is PROHIBITED.',
+    rewritePromptModifier: 'Improve structure and discovery arc ONLY. Do NOT invent characters, fabricate scenes, or add INT./EXT. sluglines. Use [PLACEHOLDER] for any missing factual information.',
+    convergenceRules: { minCI: 65, minGP: 60 },
+    forbiddenCritique: ['dialogue quality', 'scene construction as fiction', 'character invention', 'fabricated scenes'],
+  },
+};
+
+// ── Public API ──
+
+export function getReviewSchema(deliverableType: DeliverableType): ReviewSchema {
+  return registry[deliverableType] || registry.script;
+}
+
+/**
+ * Build format overlay prompt modifier based on project format.
+ */
+export function getFormatOverlay(format: string, episodeDurationSeconds?: number | null): string {
+  const g = getFormatGuardrails(format);
+  const parts: string[] = [];
+
+  if (g.softMinMinutes && g.softMaxMinutes) {
+    parts.push(`FORMAT: Feature Film — target ${g.softMinMinutes}-${g.softMaxMinutes} minutes.`);
+  }
+  if (g.requiresThreeActSpine) parts.push('3-act spine required.');
+  if (g.requiresMidpointReversal) parts.push('Midpoint reversal expected.');
+
+  if (format === 'tv-series' || format === 'limited-series') {
+    parts.push('FORMAT: TV Series — evaluate pilot engine clarity, season escalation logic, and character longevity.');
+  }
+
+  if (format === 'vertical-drama') {
+    const dur = episodeDurationSeconds || 120;
+    const minBeats = verticalBeatMinimum(dur);
+    parts.push(`FORMAT: Vertical Drama — episode target ${dur}s. Hook required within 3-10 seconds. Mandatory cliffhanger per episode. Minimum ${minBeats} beats per episode.`);
+  }
+
+  if (g.noFictionalization) {
+    parts.push('FORMAT: Documentary — NO fictionalization. Emotional truth allowed. Discovery arc structure. Structure shaping only — never invent scenes or characters.');
+  }
+
+  return parts.join(' ');
+}
+
+/**
+ * Build behavior modifier for prompts.
+ */
+export function getBehaviorModifier(behavior: DevelopmentBehavior): string {
+  const cfg = behaviorConfig[behavior];
+  switch (behavior) {
+    case 'efficiency':
+      return 'BEHAVIOR MODE: Efficiency — prioritise speed and directness. Lower convergence bar. Focus on actionable, production-ready improvements. Skip deep thematic analysis.';
+    case 'prestige':
+      return `BEHAVIOR MODE: Prestige — apply highest creative standards. Require minimum ${cfg.minRewriteCycles || 2} rewrite cycles. Deep thematic and structural analysis. Festival/awards positioning awareness.`;
+    default:
+      return 'BEHAVIOR MODE: Market — balanced creative-commercial analysis. Standard convergence thresholds.';
+  }
+}
+
+/**
+ * Build non-hallucination safeguard prompt for documentary/deck deliverables.
+ */
+export function getHallucinationGuard(deliverableType: DeliverableType, format: string): string {
+  const guards: string[] = [];
+
+  if (deliverableType === 'deck' || deliverableType === 'documentary_outline') {
+    guards.push(
+      'HALLUCINATION SAFEGUARD: Do NOT invent characters, fabricate scenes, or generate scene headings.',
+      'Use [PLACEHOLDER] for any missing information.',
+      'If you detect INT./EXT. sluglines in your output for a documentary, flag this as an error.',
+    );
+  }
+
+  if (format === 'documentary' || format === 'documentary-series' || format === 'hybrid-documentary') {
+    guards.push(
+      'DOCUMENTARY GUARD: Never fictionalize. Emotional truth is allowed but invented scenes, characters, or dialogue are PROHIBITED.',
+      'Structure shaping and thematic analysis only.',
+    );
+  }
+
+  return guards.join('\n');
+}
+
+/**
+ * Compose the full system prompt modifier for a given deliverable + format + behavior.
+ */
+export function composePromptContext(
+  deliverableType: DeliverableType,
+  format: string,
+  behavior: DevelopmentBehavior,
+  episodeDurationSeconds?: number | null,
+): string {
+  const schema = getReviewSchema(deliverableType);
+  const parts = [
+    schema.analysisPromptModifier,
+    getFormatOverlay(format, episodeDurationSeconds),
+    getBehaviorModifier(behavior),
+  ];
+
+  const hallucinationGuard = getHallucinationGuard(deliverableType, format);
+  if (hallucinationGuard) parts.push(hallucinationGuard);
+
+  const forbidden = schema.forbiddenCritique;
+  if (forbidden.length > 0) {
+    parts.push(`FORBIDDEN CRITIQUE (do NOT evaluate): ${forbidden.join(', ')}.`);
+  }
+
+  return parts.filter(Boolean).join('\n\n');
+}

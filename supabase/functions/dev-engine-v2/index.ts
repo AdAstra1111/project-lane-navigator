@@ -262,7 +262,7 @@ serve(async (req) => {
 
     // ── ANALYZE ──
     if (action === "analyze") {
-      const { projectId, documentId, versionId, productionType, strategicPriority, developmentStage, analysisMode, previousVersionId } = body;
+      const { projectId, documentId, versionId, productionType, strategicPriority, developmentStage, analysisMode, previousVersionId, deliverableType, developmentBehavior, format: reqFormat, episodeTargetDurationSeconds } = body;
       if (!projectId || !documentId || !versionId) throw new Error("projectId, documentId, versionId required");
 
       const { data: version } = await supabase.from("project_document_versions")
@@ -270,8 +270,32 @@ serve(async (req) => {
       if (!version) throw new Error("Version not found");
 
       const { data: project } = await supabase.from("projects")
-        .select("title, budget_range, assigned_lane")
+        .select("title, budget_range, assigned_lane, format, development_behavior, episode_target_duration_seconds")
         .eq("id", projectId).single();
+
+      const effectiveFormat = reqFormat || project?.format || "film";
+      const effectiveBehavior = developmentBehavior || project?.development_behavior || "market";
+      const effectiveDeliverable = deliverableType || "script";
+      const effectiveDuration = episodeTargetDurationSeconds || project?.episode_target_duration_seconds;
+
+      // Build deliverable/format/behavior context for the prompt
+      let devOSContext = "";
+      if (effectiveDeliverable && effectiveDeliverable !== "script") {
+        devOSContext += `\nDELIVERABLE TYPE: ${effectiveDeliverable}`;
+      }
+      if (effectiveBehavior !== "market") {
+        devOSContext += `\nBEHAVIOR MODE: ${effectiveBehavior}`;
+      }
+      if (effectiveFormat === "vertical-drama" && effectiveDuration) {
+        devOSContext += `\nEPISODE DURATION: ${effectiveDuration}s`;
+      }
+
+      // Documentary hallucination guard
+      const isDocFormat = ["documentary", "documentary-series", "hybrid-documentary"].includes(effectiveFormat);
+      const isDocDeliverable = effectiveDeliverable === "documentary_outline" || effectiveDeliverable === "deck";
+      if (isDocFormat || isDocDeliverable) {
+        devOSContext += "\nDOCUMENTARY GUARD: Do NOT invent characters, fabricate scenes, or generate INT./EXT. sluglines. Use [PLACEHOLDER] for missing information.";
+      }
 
       let prevContext = "";
       if (previousVersionId) {
@@ -290,13 +314,17 @@ DEVELOPMENT STAGE: ${developmentStage || "IDEA"}
 ANALYSIS MODE: ${analysisMode || "DUAL"}
 PROJECT: ${project?.title || "Unknown"}
 LANE: ${project?.assigned_lane || "Unknown"} | BUDGET: ${project?.budget_range || "Unknown"}
-${prevContext}
+${devOSContext}${prevContext}
 
 MATERIAL (${version.plaintext.length} chars):
 ${version.plaintext.slice(0, 25000)}`;
 
       const raw = await callAI(LOVABLE_API_KEY, PRO_MODEL, ANALYZE_SYSTEM, userPrompt, 0.2, 6000);
       const parsed = await parseAIJson(LOVABLE_API_KEY, raw);
+
+      // Add convergence meta to output
+      parsed.deliverable_type = effectiveDeliverable;
+      parsed.development_behavior = effectiveBehavior;
 
       const { data: run, error: runErr } = await supabase.from("development_runs").insert({
         project_id: projectId,
@@ -309,6 +337,11 @@ ${version.plaintext.slice(0, 25000)}`;
         development_stage: developmentStage || "IDEA",
         analysis_mode: analysisMode || "DUAL",
         output_json: parsed,
+        deliverable_type: effectiveDeliverable,
+        development_behavior: effectiveBehavior,
+        format: effectiveFormat,
+        episode_target_duration_seconds: effectiveDuration || null,
+        schema_version: "v2",
       }).select().single();
       if (runErr) throw runErr;
 

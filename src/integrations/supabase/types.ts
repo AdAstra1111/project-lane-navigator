@@ -1717,8 +1717,12 @@ export type Database = {
         Row: {
           created_at: string
           created_by: string
+          deliverable_type: string | null
+          development_behavior: string | null
           draft_label: string
+          episode_target_duration_seconds: number | null
           final_coverage: string
+          format: string | null
           id: string
           inputs: Json
           lane: string | null
@@ -1730,14 +1734,19 @@ export type Database = {
           project_id: string
           project_type: string
           prompt_version_id: string
+          schema_version: string | null
           script_id: string
           structured_notes: Json | null
         }
         Insert: {
           created_at?: string
           created_by: string
+          deliverable_type?: string | null
+          development_behavior?: string | null
           draft_label?: string
+          episode_target_duration_seconds?: number | null
           final_coverage?: string
+          format?: string | null
           id?: string
           inputs?: Json
           lane?: string | null
@@ -1749,14 +1758,19 @@ export type Database = {
           project_id: string
           project_type: string
           prompt_version_id: string
+          schema_version?: string | null
           script_id: string
           structured_notes?: Json | null
         }
         Update: {
           created_at?: string
           created_by?: string
+          deliverable_type?: string | null
+          development_behavior?: string | null
           draft_label?: string
+          episode_target_duration_seconds?: number | null
           final_coverage?: string
+          format?: string | null
           id?: string
           inputs?: Json
           lane?: string | null
@@ -1768,6 +1782,7 @@ export type Database = {
           project_id?: string
           project_type?: string
           prompt_version_id?: string
+          schema_version?: string | null
           script_id?: string
           structured_notes?: Json | null
         }
@@ -2182,13 +2197,18 @@ export type Database = {
         Row: {
           analysis_mode: string | null
           created_at: string
+          deliverable_type: string | null
+          development_behavior: string | null
           development_stage: string | null
           document_id: string
+          episode_target_duration_seconds: number | null
+          format: string | null
           id: string
           output_json: Json | null
           production_type: string | null
           project_id: string
           run_type: string
+          schema_version: string | null
           strategic_priority: string | null
           user_id: string
           version_id: string
@@ -2196,13 +2216,18 @@ export type Database = {
         Insert: {
           analysis_mode?: string | null
           created_at?: string
+          deliverable_type?: string | null
+          development_behavior?: string | null
           development_stage?: string | null
           document_id: string
+          episode_target_duration_seconds?: number | null
+          format?: string | null
           id?: string
           output_json?: Json | null
           production_type?: string | null
           project_id: string
           run_type?: string
+          schema_version?: string | null
           strategic_priority?: string | null
           user_id: string
           version_id: string
@@ -2210,13 +2235,18 @@ export type Database = {
         Update: {
           analysis_mode?: string | null
           created_at?: string
+          deliverable_type?: string | null
+          development_behavior?: string | null
           development_stage?: string | null
           document_id?: string
+          episode_target_duration_seconds?: number | null
+          format?: string | null
           id?: string
           output_json?: Json | null
           production_type?: string | null
           project_id?: string
           run_type?: string
+          schema_version?: string | null
           strategic_priority?: string | null
           user_id?: string
           version_id?: string
@@ -2905,6 +2935,10 @@ export type Database = {
           before_version_id: string | null
           changes_summary: string
           created_at: string
+          deliverable_type: string | null
+          development_behavior: string | null
+          episode_target_duration_seconds: number | null
+          format: string | null
           goal: string
           id: string
           inflation_flag: boolean | null
@@ -2920,6 +2954,7 @@ export type Database = {
           regression_detected: boolean
           rolled_back: boolean
           scene_ops: Json
+          schema_version: string | null
           score_deltas: Json
           script_id: string
           status: string
@@ -2932,6 +2967,10 @@ export type Database = {
           before_version_id?: string | null
           changes_summary?: string
           created_at?: string
+          deliverable_type?: string | null
+          development_behavior?: string | null
+          episode_target_duration_seconds?: number | null
+          format?: string | null
           goal?: string
           id?: string
           inflation_flag?: boolean | null
@@ -2947,6 +2986,7 @@ export type Database = {
           regression_detected?: boolean
           rolled_back?: boolean
           scene_ops?: Json
+          schema_version?: string | null
           score_deltas?: Json
           script_id: string
           status?: string
@@ -2959,6 +2999,10 @@ export type Database = {
           before_version_id?: string | null
           changes_summary?: string
           created_at?: string
+          deliverable_type?: string | null
+          development_behavior?: string | null
+          episode_target_duration_seconds?: number | null
+          format?: string | null
           goal?: string
           id?: string
           inflation_flag?: boolean | null
@@ -2974,6 +3018,7 @@ export type Database = {
           regression_detected?: boolean
           rolled_back?: boolean
           scene_ops?: Json
+          schema_version?: string | null
           score_deltas?: Json
           script_id?: string
           status?: string
@@ -5275,33 +5320,39 @@ export type Database = {
           change_summary: string | null
           created_at: string
           created_by: string
+          deliverable_type: string | null
           document_id: string
           id: string
           label: string | null
           parent_version_id: string | null
           plaintext: string
+          stage: string | null
           version_number: number
         }
         Insert: {
           change_summary?: string | null
           created_at?: string
           created_by: string
+          deliverable_type?: string | null
           document_id: string
           id?: string
           label?: string | null
           parent_version_id?: string | null
           plaintext?: string
+          stage?: string | null
           version_number?: number
         }
         Update: {
           change_summary?: string | null
           created_at?: string
           created_by?: string
+          deliverable_type?: string | null
           document_id?: string
           id?: string
           label?: string | null
           parent_version_id?: string | null
           plaintext?: string
+          stage?: string | null
           version_number?: number
         }
         Relationships: [
@@ -6448,7 +6499,9 @@ export type Database = {
           concept_lock_version: number | null
           confidence: number | null
           created_at: string
+          development_behavior: string | null
           document_urls: string[]
+          episode_target_duration_seconds: number | null
           format: string
           genres: string[]
           hero_image_url: string | null
@@ -6487,7 +6540,9 @@ export type Database = {
           concept_lock_version?: number | null
           confidence?: number | null
           created_at?: string
+          development_behavior?: string | null
           document_urls?: string[]
+          episode_target_duration_seconds?: number | null
           format?: string
           genres?: string[]
           hero_image_url?: string | null
@@ -6526,7 +6581,9 @@ export type Database = {
           concept_lock_version?: number | null
           confidence?: number | null
           created_at?: string
+          development_behavior?: string | null
           document_urls?: string[]
+          episode_target_duration_seconds?: number | null
           format?: string
           genres?: string[]
           hero_image_url?: string | null

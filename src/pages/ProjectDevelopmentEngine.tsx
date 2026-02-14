@@ -29,6 +29,8 @@ import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { OperationProgress, DEV_ANALYZE_STAGES, DEV_NOTES_STAGES, DEV_REWRITE_STAGES, DEV_CONVERT_STAGES } from '@/components/OperationProgress';
 import { useSetAsLatestDraft } from '@/hooks/useSetAsLatestDraft';
 import { FeatureLengthGuardrails } from '@/components/FeatureLengthGuardrails';
+import { type DevelopmentBehavior, BEHAVIOR_LABELS, BEHAVIOR_COLORS, DELIVERABLE_LABELS, defaultDeliverableForDocType, type DeliverableType } from '@/lib/dev-os-config';
+import { DeliverablePipeline, type PipelineStageStatus } from '@/components/DeliverablePipeline';
 
 // ── Convergence Gauge ──
 function ConvergenceGauge({ ci, gp, gap, status, allowedGap }: { ci: number; gp: number; gap: number; status: string; allowedGap?: number }) {
@@ -117,13 +119,13 @@ export default function ProjectDevelopmentEngine() {
   const { id: projectId } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
 
-  // Fetch project production type
+  // Fetch project metadata
   const { data: project } = useQuery({
     queryKey: ['project-meta', projectId],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('projects')
-        .select('format')
+        .select('format, development_behavior, episode_target_duration_seconds')
         .eq('id', projectId!)
         .single();
       if (error) throw error;
@@ -132,13 +134,16 @@ export default function ProjectDevelopmentEngine() {
     enabled: !!projectId,
   });
   const isFeature = !project?.format || project.format === 'feature';
+  const isVerticalDrama = project?.format === 'vertical-drama';
+  const projectBehavior = (project?.development_behavior as DevelopmentBehavior) || 'market';
+  const projectFormat = project?.format || 'film';
 
   const {
     documents, docsLoading, versions, versionsLoading,
     selectedDoc, selectedVersion, selectedDocId, selectedVersionId,
     selectDocument, setSelectedVersionId,
     runs, allDocRuns, convergenceHistory,
-    latestAnalysis, latestNotes, isConverged, isLoading,
+    latestAnalysis, latestNotes, isConverged, convergenceStatus, isLoading,
     analyze, generateNotes, rewrite, convert, createPaste, deleteDocument,
   } = useDevEngineV2(projectId);
 
@@ -154,6 +159,7 @@ export default function ProjectDevelopmentEngine() {
   const [analysisMode, setAnalysisMode] = useState('DUAL');
   const [activeTab, setActiveTab] = useState('content');
   const [targetPages, setTargetPages] = useState(100);
+  const [selectedDeliverableType, setSelectedDeliverableType] = useState<DeliverableType>('script');
   // Paste dialog
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteTitle, setPasteTitle] = useState('');
@@ -209,6 +215,10 @@ export default function ProjectDevelopmentEngine() {
       developmentStage,
       analysisMode,
       previousVersionId: prevVersion?.id,
+      deliverableType: selectedDeliverableType,
+      developmentBehavior: projectBehavior,
+      format: projectFormat,
+      episodeTargetDurationSeconds: project?.episode_target_duration_seconds || undefined,
     });
   };
 
@@ -234,47 +244,78 @@ export default function ProjectDevelopmentEngine() {
         <Header />
         <div className="max-w-[1600px] mx-auto px-4 py-4">
           {/* Top bar */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-2">
-            <div className="flex items-center gap-3">
-              <Link to={`/projects/${projectId}`} className="text-sm text-muted-foreground hover:text-foreground">
-                ← Project
-              </Link>
-              <h1 className="text-lg font-display font-bold text-foreground">Development Engine</h1>
-              {isConverged && (
-                <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30">
-                  <Check className="h-3 w-3 mr-1" /> Converged
+          <div className="flex flex-col gap-2 mb-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="flex items-center gap-3">
+                <Link to={`/projects/${projectId}`} className="text-sm text-muted-foreground hover:text-foreground">
+                  ← Project
+                </Link>
+                <h1 className="text-lg font-display font-bold text-foreground">Development Engine</h1>
+                {/* Behavior badge */}
+                <Badge variant="outline" className={`text-[10px] ${BEHAVIOR_COLORS[projectBehavior]}`}>
+                  {BEHAVIOR_LABELS[projectBehavior]}
                 </Badge>
-              )}
+                {/* Convergence badge */}
+                <Badge variant="outline" className={`text-[10px] ${
+                  convergenceStatus === 'Converged' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' :
+                  convergenceStatus === 'In Progress' ? 'bg-amber-500/20 text-amber-400 border-amber-500/30' :
+                  'bg-muted/20 text-muted-foreground border-border/30'
+                }`}>
+                  {convergenceStatus === 'Converged' && <Check className="h-3 w-3 mr-1" />}
+                  {convergenceStatus}
+                </Badge>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Deliverable Type selector */}
+                <Select value={selectedDeliverableType} onValueChange={(v) => setSelectedDeliverableType(v as DeliverableType)}>
+                  <SelectTrigger className="h-8 text-xs w-[140px]"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {Object.entries(DELIVERABLE_LABELS).map(([key, label]) => (
+                      <SelectItem key={key} value={key}>{label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={strategicPriority} onValueChange={setStrategicPriority}>
+                  <SelectTrigger className="h-8 text-xs w-[130px]"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="PRESTIGE">Prestige</SelectItem>
+                    <SelectItem value="BALANCED">Balanced</SelectItem>
+                    <SelectItem value="COMMERCIAL_EXPANSION">Commercial</SelectItem>
+                    <SelectItem value="CASHFLOW_STABILISATION">Cashflow</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={developmentStage} onValueChange={setDevelopmentStage}>
+                  <SelectTrigger className="h-8 text-xs w-[110px]"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="IDEA">Idea</SelectItem>
+                    <SelectItem value="EARLY_DRAFT">Early Draft</SelectItem>
+                    <SelectItem value="REDRAFT">Redraft</SelectItem>
+                    <SelectItem value="PRE_PACKAGING">Pre-Packaging</SelectItem>
+                    <SelectItem value="FINANCE">Finance</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={analysisMode} onValueChange={setAnalysisMode}>
+                  <SelectTrigger className="h-8 text-xs w-[100px]"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="DUAL">Dual Analysis</SelectItem>
+                    <SelectItem value="CREATIVE_INTEGRITY">Script Strength Only</SelectItem>
+                    <SelectItem value="GREENLIGHT_ARCHITECT">Finance Readiness Only</SelectItem>
+                  </SelectContent>
+                </Select>
+                {/* Episode duration (vertical drama only) */}
+                {isVerticalDrama && (
+                  <Badge variant="outline" className="text-[10px] text-muted-foreground">
+                    {project?.episode_target_duration_seconds || 120}s / ep
+                  </Badge>
+                )}
+              </div>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Select value={strategicPriority} onValueChange={setStrategicPriority}>
-                <SelectTrigger className="h-8 text-xs w-[130px]"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="PRESTIGE">Prestige</SelectItem>
-                  <SelectItem value="BALANCED">Balanced</SelectItem>
-                  <SelectItem value="COMMERCIAL_EXPANSION">Commercial</SelectItem>
-                  <SelectItem value="CASHFLOW_STABILISATION">Cashflow</SelectItem>
-                </SelectContent>
-              </Select>
-              <Select value={developmentStage} onValueChange={setDevelopmentStage}>
-                <SelectTrigger className="h-8 text-xs w-[110px]"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="IDEA">Idea</SelectItem>
-                  <SelectItem value="EARLY_DRAFT">Early Draft</SelectItem>
-                  <SelectItem value="REDRAFT">Redraft</SelectItem>
-                  <SelectItem value="PRE_PACKAGING">Pre-Packaging</SelectItem>
-                  <SelectItem value="FINANCE">Finance</SelectItem>
-                </SelectContent>
-              </Select>
-              <Select value={analysisMode} onValueChange={setAnalysisMode}>
-                <SelectTrigger className="h-8 text-xs w-[100px]"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="DUAL">Dual Analysis</SelectItem>
-                  <SelectItem value="CREATIVE_INTEGRITY">Script Strength Only</SelectItem>
-                  <SelectItem value="GREENLIGHT_ARCHITECT">Finance Readiness Only</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+            {/* Deliverable Pipeline */}
+            <DeliverablePipeline
+              stageStatuses={{}}
+              activeDeliverable={selectedDeliverableType}
+              onStageClick={(dt) => setSelectedDeliverableType(dt)}
+            />
           </div>
 
           {/* 3-column layout */}

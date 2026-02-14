@@ -229,6 +229,8 @@ export interface Project {
   pinned: boolean;
   created_at: string;
   updated_at: string;
+  development_behavior?: string | null;
+  episode_target_duration_seconds?: number | null;
 }
 
 export const LANE_LABELS: Record<MonetisationLane, string> = {
