@@ -451,7 +451,11 @@ const docTypeMap: Record<string, string> = {
   "DOCUMENTARY OUTLINE": "documentary_outline",
   TREATMENT: "treatment",
   ONE_PAGER: "one_pager",
-  OUTLINE: "outline",
+  OUTLINE: "blueprint",
+  EPISODE_OUTLINE: "blueprint",
+  "EPISODE OUTLINE": "blueprint",
+  "EPISODE_BEAT_SHEET": "beat_sheet",
+  "EPISODE BEAT SHEET": "beat_sheet",
   DRAFT_SCRIPT: "script",
 };
 
