@@ -92,26 +92,22 @@ export function useRewritePipeline(projectId: string | undefined) {
       setState(s => ({ ...s, status: 'assembling' }));
       const assembledText = rewrittenChunks.join('\n\n');
 
-      // Client-side runtime drift warning (non-blocking)
-      const assembledWords = assembledText.split(/\s+/).filter(Boolean).length;
-      const estMins = assembledWords / 220;
-      const targetRuntime = plan.targetRuntime || 90;
-      if (estMins < targetRuntime * 0.95) {
-        toast.warning(`Rewrite trending short (~${Math.round(estMins)} mins vs ${targetRuntime} min target). Review for compression.`);
-      } else if (estMins > targetRuntime * 1.05) {
-        toast.warning(`Rewrite trending long (~${Math.round(estMins)} mins vs ${targetRuntime} min target). Consider tightening.`);
-      }
-
       const assembleResult = await callEngine('rewrite-assemble', {
         projectId, documentId, versionId, planRunId, assembledText,
       });
+
+      // Show runtime warning from server if present
+      if (assembleResult.runtimeWarning) {
+        toast.warning(assembleResult.runtimeWarning);
+      }
 
       setState(s => ({
         ...s, status: 'complete', newVersionId: assembleResult.newVersion?.id || null,
       }));
 
       invalidate();
-      toast.success(`Full rewrite complete — ${assembledText.length.toLocaleString()} chars`);
+      const mins = assembleResult.estimatedMinutes ? ` (~${assembleResult.estimatedMinutes} mins)` : '';
+      toast.success(`Full rewrite complete — ${assembledText.length.toLocaleString()} chars${mins}`);
 
     } catch (err: any) {
       console.error('Rewrite pipeline error:', err);

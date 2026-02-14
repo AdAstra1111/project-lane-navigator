@@ -530,37 +530,34 @@ MATERIAL TO REWRITE:\n${fullText}`;
       const { projectId, documentId, versionId, planRunId, assembledText } = body;
       if (!projectId || !documentId || !versionId || !assembledText) throw new Error("projectId, documentId, versionId, assembledText required");
 
-      // ── Runtime-Based Validation ──
-      function estimateRuntimeMinutes(text: string) {
+      // ── Runtime Floor Validation (not a target — just a floor) ──
+      function estimateRuntimeMinutes(text: string, mode: string) {
         const words = (text || "").trim().split(/\s+/).filter(Boolean).length;
-        const minutes = words / 220;
-        return { words, minutes };
+        const divisor = mode === 'dialogue_heavy' ? 200 : mode === 'lean' ? 240 : mode === 'action_heavy' ? 240 : 220;
+        return { words, minutes: words / divisor };
       }
 
-      // Fetch project runtime settings
       const { data: projectRow } = await supabase.from("projects")
-        .select("target_runtime_minutes, runtime_tolerance_pct")
+        .select("min_runtime_minutes, min_runtime_hard_floor, runtime_estimation_mode")
         .eq("id", projectId).single();
 
-      const targetRuntime = projectRow?.target_runtime_minutes ?? 90;
-      const tol = Number(projectRow?.runtime_tolerance_pct ?? 0.10);
-      const { words: newWords, minutes: newMins } = estimateRuntimeMinutes(assembledText);
-      const minMins = targetRuntime * (1 - tol);
-      const maxMins = targetRuntime * (1 + tol);
+      const mode = (projectRow as any)?.runtime_estimation_mode ?? 'feature';
+      const softMin = (projectRow as any)?.min_runtime_minutes ?? null;
+      const hardMin = (projectRow as any)?.min_runtime_hard_floor ?? null;
+      const { words: newWords, minutes: newMins } = estimateRuntimeMinutes(assembledText, mode);
 
-      if (newMins < minMins) {
+      // Hard block: prevents "way too short"
+      if (hardMin && newMins < hardMin) {
         throw new Error(
-          `Rewrite too short: ~${Math.round(newMins)} mins (words=${newWords}). ` +
-          `Target is ${targetRuntime} mins (min ${Math.round(minMins)}). ` +
-          `The rewrite likely compressed beats. Retry with 'no summarization; preserve full pacing'.`
+          `Script too short for feature: ~${Math.round(newMins)} mins (words=${newWords}). ` +
+          `Hard floor is ${hardMin} mins. Generate a fuller feature draft (expand Act 2 / add set-pieces / deepen beats).`
         );
       }
-      if (newMins > maxMins) {
-        throw new Error(
-          `Rewrite too long: ~${Math.round(newMins)} mins (words=${newWords}). ` +
-          `Target is ${targetRuntime} mins (max ${Math.round(maxMins)}). ` +
-          `Tighten pacing and remove redundancy, but do not cut beats.`
-        );
+
+      // Soft warn: allowed but flagged
+      let runtimeWarning: string | null = null;
+      if (softMin && newMins < softMin) {
+        runtimeWarning = `This draft estimates ~${Math.round(newMins)} mins (below preferred minimum ${softMin} mins for a feature).`;
       }
 
       const { data: maxRow } = await supabase.from("project_document_versions")
@@ -603,7 +600,12 @@ MATERIAL TO REWRITE:\n${fullText}`;
         },
       }).select().single();
 
-      return new Response(JSON.stringify({ run, newVersion }), {
+      return new Response(JSON.stringify({
+        run, newVersion,
+        runtimeWarning,
+        estimatedMinutes: Math.round(newMins),
+        wordCount: newWords,
+      }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -882,6 +884,26 @@ Write these scenes NOW in proper screenplay format. Output ONLY screenplay text.
       const wordCount = assembledText.split(/\s+/).length;
       const pageEstimate = Math.round(wordCount / 250);
 
+      // Runtime floor validation for script generation
+      function estimateScriptRuntime(text: string, mode: string) {
+        const w = (text || "").trim().split(/\s+/).filter(Boolean).length;
+        const divisor = mode === 'dialogue_heavy' ? 200 : mode === 'lean' ? 240 : mode === 'action_heavy' ? 240 : 220;
+        return { words: w, minutes: w / divisor };
+      }
+      const { data: projRow } = await supabase.from("projects")
+        .select("min_runtime_minutes, min_runtime_hard_floor, runtime_estimation_mode")
+        .eq("id", projectId).single();
+      const sMode = (projRow as any)?.runtime_estimation_mode ?? 'feature';
+      const sHardMin = (projRow as any)?.min_runtime_hard_floor ?? null;
+      const { words: sWords, minutes: sMins } = estimateScriptRuntime(assembledText, sMode);
+
+      if (sHardMin && sMins < sHardMin) {
+        throw new Error(
+          `Script too short for feature: ~${Math.round(sMins)} mins (words=${sWords}). ` +
+          `Hard floor is ${sHardMin} mins. The draft needs expansion.`
+        );
+      }
+
       // Save assembled text to the version
       const { error: vErr } = await supabase.from("project_document_versions")
         .update({
@@ -925,6 +947,74 @@ Write these scenes NOW in proper screenplay format. Output ONLY screenplay text.
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+
+    // ── EXPAND TO FEATURE FLOOR ──
+    if (action === "expand-to-feature-floor") {
+      const { projectId, documentId, versionId, currentText } = body;
+      if (!projectId || !documentId || !versionId || !currentText) throw new Error("projectId, documentId, versionId, currentText required");
+
+      const { data: proj } = await supabase.from("projects")
+        .select("min_runtime_minutes, runtime_estimation_mode")
+        .eq("id", projectId).single();
+
+      const eMode = (proj as any)?.runtime_estimation_mode ?? 'feature';
+      const softMin = (proj as any)?.min_runtime_minutes ?? 80;
+      const divisor = eMode === 'dialogue_heavy' ? 200 : eMode === 'lean' ? 240 : eMode === 'action_heavy' ? 240 : 220;
+      const currentWords = currentText.trim().split(/\s+/).filter(Boolean).length;
+      const currentMins = currentWords / divisor;
+      const targetWords = Math.ceil(softMin * divisor);
+
+      const expandSystem = `You are expanding a feature screenplay that is too short (~${Math.round(currentMins)} mins, needs at least ${softMin} mins).
+
+Do NOT add filler. Expand cinematic beats: obstacles, reversals, complications, aftermath moments, and set-pieces where structurally appropriate.
+Strengthen Act 2 escalation and character dynamics.
+Do NOT summarize. Output full screenplay pages in proper format.
+Target approximately ${targetWords} words total.
+Output ONLY the expanded screenplay text. No JSON, no commentary, no markdown.`;
+
+      const expanded = await callAI(LOVABLE_API_KEY, PRO_MODEL, expandSystem, currentText, 0.4, 16000);
+      const cleanExpanded = expanded.replace(/^```[\s\S]*?\n/, "").replace(/\n?```\s*$/, "").trim();
+
+      // Save as new version
+      const { data: maxRow } = await supabase.from("project_document_versions")
+        .select("version_number").eq("document_id", documentId)
+        .order("version_number", { ascending: false }).limit(1).single();
+      const nextVer = (maxRow?.version_number ?? 0) + 1;
+
+      const expandedWords = cleanExpanded.split(/\s+/).filter(Boolean).length;
+      const expandedMins = expandedWords / divisor;
+
+      const { data: newVersion, error: vErr } = await supabase.from("project_document_versions").insert({
+        document_id: documentId,
+        version_number: nextVer,
+        label: `Expanded to ~${Math.round(expandedMins)} mins`,
+        plaintext: cleanExpanded,
+        created_by: user.id,
+        parent_version_id: versionId,
+        change_summary: `Auto-expanded from ~${Math.round(currentMins)} to ~${Math.round(expandedMins)} mins.`,
+      }).select().single();
+      if (vErr) throw vErr;
+
+      await supabase.from("development_runs").insert({
+        project_id: projectId,
+        document_id: documentId,
+        version_id: newVersion.id,
+        user_id: user.id,
+        run_type: "EXPAND",
+        output_json: {
+          from_minutes: Math.round(currentMins),
+          to_minutes: Math.round(expandedMins),
+          from_words: currentWords,
+          to_words: expandedWords,
+        },
+      });
+
+      return new Response(JSON.stringify({
+        newVersion,
+        estimatedMinutes: Math.round(expandedMins),
+        wordCount: expandedWords,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     throw new Error(`Unknown action: ${action}`);
