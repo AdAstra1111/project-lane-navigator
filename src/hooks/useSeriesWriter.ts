@@ -148,6 +148,26 @@ export function useSeriesWriter(projectId: string) {
       if (!scriptId) throw new Error('Blueprint did not return scriptId');
       await updateEpisodeProgress(episode.id, 'blueprint', 'generating', scriptId);
 
+      // Extract title/logline from blueprint and update episode
+      const bp = bpResult.blueprint || {};
+      const extractedTitle = bp.title || bp.episode_title || 
+        bp.three_act_breakdown?.act_1?.name ||
+        bp.hook_cadence?.[0]?.episode_title || 
+        bp.season_arc?.episode_title;
+      const extractedLogline = bp.resolution?.description ||
+        bp.thematic_spine?.theme ||
+        (typeof bp.thematic_spine === 'string' ? bp.thematic_spine : null) ||
+        bp.season_arc?.compressed_arc || 
+        bp.retention_mechanics;
+      if (extractedTitle || extractedLogline) {
+        const updates: Record<string, any> = {};
+        if (extractedTitle && typeof extractedTitle === 'string') updates.title = extractedTitle.substring(0, 100);
+        if (extractedLogline && typeof extractedLogline === 'string') updates.logline = extractedLogline.substring(0, 300);
+        if (Object.keys(updates).length > 0) {
+          await supabase.from('series_episodes').update(updates).eq('id', episode.id);
+        }
+      }
+
       setProgress({ currentEpisode: episode.episode_number, totalEpisodes: 1, phase: 'architecture' });
       await updateEpisodeProgress(episode.id, 'architecture', 'generating');
       await callEngine('architecture', projectId, scriptId, episodeContext);
@@ -217,6 +237,26 @@ export function useSeriesWriter(projectId: string) {
         const scriptId = bpResult.scriptId;
         if (!scriptId) throw new Error('Blueprint did not return scriptId');
         await updateEpisodeProgress(ep.id, 'blueprint', 'generating', scriptId);
+
+        // Extract title/logline from blueprint and update episode
+        const bp = bpResult.blueprint || {};
+        const extractedTitle = bp.title || bp.episode_title || 
+          bp.three_act_breakdown?.act_1?.name ||
+          bp.hook_cadence?.[0]?.episode_title || 
+          bp.season_arc?.episode_title;
+        const extractedLogline = bp.resolution?.description ||
+          bp.thematic_spine?.theme ||
+          (typeof bp.thematic_spine === 'string' ? bp.thematic_spine : null) ||
+          bp.season_arc?.compressed_arc || 
+          bp.retention_mechanics;
+        if (extractedTitle || extractedLogline) {
+          const updates: Record<string, any> = {};
+          if (extractedTitle && typeof extractedTitle === 'string') updates.title = extractedTitle.substring(0, 100);
+          if (extractedLogline && typeof extractedLogline === 'string') updates.logline = extractedLogline.substring(0, 300);
+          if (Object.keys(updates).length > 0) {
+            await supabase.from('series_episodes').update(updates).eq('id', ep.id);
+          }
+        }
 
         setProgress({ currentEpisode: ep.episode_number, totalEpisodes: total, phase: 'architecture' });
         await updateEpisodeProgress(ep.id, 'architecture', 'generating');
