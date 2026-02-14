@@ -121,7 +121,7 @@ export function ScheduleIntelligencePanel({ projectId, format, genres, budgetRan
               { label: 'Est. Days', value: result.estimated_shoot_days },
               { label: 'Pages/Day', value: result.estimated_pages_per_day?.toFixed(1) },
               { label: 'Night Scenes', value: result.night_shoot_count },
-              { label: 'Ext. %', value: `${Math.round((result.ext_ratio || 0) * 100)}%` },
+              { label: 'Ext. %', value: `${Math.round((result.ext_ratio || 0) > 1 ? result.ext_ratio : result.ext_ratio * 100)}%` },
             ].map(s => (
               <div key={s.label} className="bg-muted/30 rounded-lg px-2 py-1.5">
                 <p className="text-lg font-bold text-foreground">{s.value}</p>
