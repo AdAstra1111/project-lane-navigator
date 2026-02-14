@@ -6558,6 +6558,7 @@ export type Database = {
           concept_lock_version: number | null
           confidence: number | null
           created_at: string
+          current_stage: string | null
           development_behavior: string | null
           document_urls: string[]
           episode_target_duration_seconds: number | null
@@ -6579,6 +6580,7 @@ export type Database = {
           runtime_estimation_mode: string
           runtime_tolerance_pct: number
           script_coverage_verdict: string
+          season_episode_count: number | null
           secondary_territories: string[]
           source_pitch_idea_id: string | null
           target_audience: string
@@ -6599,6 +6601,7 @@ export type Database = {
           concept_lock_version?: number | null
           confidence?: number | null
           created_at?: string
+          current_stage?: string | null
           development_behavior?: string | null
           document_urls?: string[]
           episode_target_duration_seconds?: number | null
@@ -6620,6 +6623,7 @@ export type Database = {
           runtime_estimation_mode?: string
           runtime_tolerance_pct?: number
           script_coverage_verdict?: string
+          season_episode_count?: number | null
           secondary_territories?: string[]
           source_pitch_idea_id?: string | null
           target_audience?: string
@@ -6640,6 +6644,7 @@ export type Database = {
           concept_lock_version?: number | null
           confidence?: number | null
           created_at?: string
+          current_stage?: string | null
           development_behavior?: string | null
           document_urls?: string[]
           episode_target_duration_seconds?: number | null
@@ -6661,6 +6666,7 @@ export type Database = {
           runtime_estimation_mode?: string
           runtime_tolerance_pct?: number
           script_coverage_verdict?: string
+          season_episode_count?: number | null
           secondary_territories?: string[]
           source_pitch_idea_id?: string | null
           target_audience?: string

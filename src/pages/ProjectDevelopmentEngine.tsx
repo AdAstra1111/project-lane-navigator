@@ -130,7 +130,7 @@ export default function ProjectDevelopmentEngine() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('projects')
-        .select('format, development_behavior, episode_target_duration_seconds')
+        .select('format, development_behavior, episode_target_duration_seconds, season_episode_count')
         .eq('id', projectId!)
         .single();
       if (error) throw error;
@@ -145,6 +145,9 @@ export default function ProjectDevelopmentEngine() {
   const projectBehavior = (project?.development_behavior as DevelopmentBehavior) || 'market';
   const projectFormat = normalizedFormat;
   const [episodeDuration, setEpisodeDuration] = useState(project?.episode_target_duration_seconds || 120);
+  const [seasonEpisodes, setSeasonEpisodes] = useState((project as any)?.season_episode_count || 8);
+  const [softGateOpen, setSoftGateOpen] = useState(false);
+  const [pendingStageAction, setPendingStageAction] = useState<(() => void) | null>(null);
 
   const {
     documents, docsLoading, versions, versionsLoading,
@@ -207,12 +210,15 @@ export default function ProjectDevelopmentEngine() {
     return notes as any[];
   }, [latestNotes]);
 
-  // Sync episode duration from project data
+  // Sync episode duration and season episodes from project data
   useEffect(() => {
     if (project?.episode_target_duration_seconds) {
       setEpisodeDuration(project.episode_target_duration_seconds);
     }
-  }, [project?.episode_target_duration_seconds]);
+    if ((project as any)?.season_episode_count) {
+      setSeasonEpisodes((project as any).season_episode_count);
+    }
+  }, [project?.episode_target_duration_seconds, (project as any)?.season_episode_count]);
 
   // Auto-select all notes when they load
   useMemo(() => {
@@ -362,24 +368,38 @@ export default function ProjectDevelopmentEngine() {
                   ))}
                 </SelectContent>
               </Select>
-              {(isVerticalDrama || isSeriesFormat) && (
-                <div className="flex items-center gap-1">
-                  <Input
-                    type="number"
-                    className="h-7 text-xs w-[65px]"
-                    value={episodeDuration}
-                    onChange={(e) => setEpisodeDuration(Number(e.target.value))}
-                    onBlur={async () => {
-                      if (!projectId || !episodeDuration) return;
-                      await (supabase as any).from('projects').update({ episode_target_duration_seconds: episodeDuration }).eq('id', projectId);
-                      qc.invalidateQueries({ queryKey: ['dev-engine-project', projectId] });
-                    }}
-                    min={30}
-                    max={7200}
-                  />
-                  <span className="text-[10px] text-muted-foreground">s/ep</span>
-                </div>
-              )}
+               {(isVerticalDrama || isSeriesFormat) && (
+                 <div className="flex items-center gap-1">
+                   <Input
+                     type="number"
+                     className="h-7 text-xs w-[65px]"
+                     value={episodeDuration}
+                     onChange={(e) => setEpisodeDuration(Number(e.target.value))}
+                     onBlur={async () => {
+                       if (!projectId || !episodeDuration) return;
+                       await (supabase as any).from('projects').update({ episode_target_duration_seconds: episodeDuration }).eq('id', projectId);
+                       qc.invalidateQueries({ queryKey: ['dev-engine-project', projectId] });
+                     }}
+                     min={30}
+                     max={7200}
+                   />
+                   <span className="text-[10px] text-muted-foreground">s/ep</span>
+                   <Input
+                     type="number"
+                     className="h-7 text-xs w-[55px]"
+                     value={seasonEpisodes}
+                     onChange={(e) => setSeasonEpisodes(Number(e.target.value))}
+                     onBlur={async () => {
+                       if (!projectId || !seasonEpisodes) return;
+                       await (supabase as any).from('projects').update({ season_episode_count: seasonEpisodes }).eq('id', projectId);
+                       qc.invalidateQueries({ queryKey: ['dev-engine-project', projectId] });
+                     }}
+                     min={3}
+                     max={100}
+                   />
+                   <span className="text-[10px] text-muted-foreground">eps</span>
+                 </div>
+               )}
             </div>
 
             {/* Deliverable Pipeline */}
@@ -744,27 +764,46 @@ export default function ProjectDevelopmentEngine() {
                       </>
                     ) : (
                       <>
-                        {/* Converged state */}
-                        <Button size="sm" className="h-8 text-xs gap-1.5 bg-emerald-600 hover:bg-emerald-700"
-                          onClick={() => {
-                            if (hasUnresolvedMajorDrift) {
-                              setDriftOverrideOpen(true);
-                              return;
-                            }
-                            if (nextBestDocument) {
-                              setSelectedDeliverableType(nextBestDocument as DeliverableType);
-                              convert.mutate({ targetOutput: nextBestDocument.toUpperCase(), protectItems: latestAnalysis?.protect });
-                            }
-                          }}
-                          disabled={isLoading || !nextBestDocument}>
-                          <ArrowRight className="h-3 w-3" />
-                          Promote to Next Stage{nextBestDocument ? `: ${DELIVERABLE_LABELS[nextBestDocument as DeliverableType] || nextBestDocument}` : ''}
-                          {hasUnresolvedMajorDrift && <AlertTriangle className="h-3 w-3 text-amber-400" />}
-                        </Button>
-                        <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5" onClick={handleRunEngine} disabled={isLoading}>
-                          <RefreshCw className="h-3 w-3" />
-                          Run Review Again
-                        </Button>
+                       {/* Converged state */}
+                       <Button size="sm" className="h-8 text-xs gap-1.5 bg-emerald-600 hover:bg-emerald-700"
+                         onClick={() => {
+                           if (hasUnresolvedMajorDrift) {
+                             setDriftOverrideOpen(true);
+                             return;
+                           }
+                           const doPromote = () => {
+                             if (nextBestDocument) {
+                               setSelectedDeliverableType(nextBestDocument as DeliverableType);
+                               convert.mutate({ targetOutput: nextBestDocument.toUpperCase(), protectItems: latestAnalysis?.protect });
+                             }
+                           };
+                           doPromote();
+                         }}
+                         disabled={isLoading || !nextBestDocument}>
+                         <ArrowRight className="h-3 w-3" />
+                         Promote to Next Stage{nextBestDocument ? `: ${DELIVERABLE_LABELS[nextBestDocument as DeliverableType] || nextBestDocument}` : ''}
+                         {hasUnresolvedMajorDrift && <AlertTriangle className="h-3 w-3 text-amber-400" />}
+                       </Button>
+                       {/* Soft stage skip — proceed without convergence */}
+                       {!isAnalysisConverged && nextBestDocument && (
+                         <Button size="sm" variant="ghost" className="h-8 text-xs gap-1.5 text-amber-500"
+                           onClick={() => {
+                             setPendingStageAction(() => () => {
+                               if (nextBestDocument) {
+                                 setSelectedDeliverableType(nextBestDocument as DeliverableType);
+                                 convert.mutate({ targetOutput: nextBestDocument.toUpperCase(), protectItems: latestAnalysis?.protect });
+                               }
+                             });
+                             setSoftGateOpen(true);
+                           }}
+                           disabled={isLoading}>
+                           <AlertTriangle className="h-3 w-3" /> Skip Stage
+                         </Button>
+                       )}
+                       <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5" onClick={handleRunEngine} disabled={isLoading}>
+                         <RefreshCw className="h-3 w-3" />
+                         Run Review Again
+                       </Button>
                       </>
                     )}
                     {/* Convert button — always available as secondary */}
@@ -1090,6 +1129,35 @@ export default function ProjectDevelopmentEngine() {
                 }
               }}>
                 Promote Anyway
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+      {/* Soft Stage Gating Dialog */}
+      <Dialog open={softGateOpen} onOpenChange={setSoftGateOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-amber-500">
+              <AlertTriangle className="h-5 w-5" />
+              Stage Not Converged
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              The previous stage has not reached convergence. Proceeding may increase rewrite cycles
+              and introduce structural instability downstream.
+            </p>
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" size="sm" onClick={() => setSoftGateOpen(false)}>
+                Cancel
+              </Button>
+              <Button variant="default" size="sm" className="bg-amber-600 hover:bg-amber-700" onClick={() => {
+                setSoftGateOpen(false);
+                pendingStageAction?.();
+                setPendingStageAction(null);
+              }}>
+                Proceed Anyway
               </Button>
             </div>
           </div>
