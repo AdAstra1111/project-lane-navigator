@@ -446,10 +446,19 @@ ${chunks[i]}`;
         console.log(`Assembled rewrite: ${rewrittenText.length} chars (original: ${fullText.length} chars)`);
       }
 
+      // Get max version number to avoid duplicate key conflicts
+      const { data: maxRow } = await supabase.from("project_document_versions")
+        .select("version_number")
+        .eq("document_id", documentId)
+        .order("version_number", { ascending: false })
+        .limit(1)
+        .single();
+      const nextVersion = (maxRow?.version_number ?? 0) + 1;
+
       const { data: newVersion, error: vErr } = await supabase.from("project_document_versions").insert({
         document_id: documentId,
-        version_number: version.version_number + 1,
-        label: `Rewrite pass ${version.version_number + 1}`,
+        version_number: nextVersion,
+        label: `Rewrite pass ${nextVersion}`,
         plaintext: rewrittenText,
         created_by: user.id,
         parent_version_id: versionId,
