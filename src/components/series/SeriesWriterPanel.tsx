@@ -73,11 +73,12 @@ interface EpisodeCardProps {
   episode: SeriesEpisode;
   isActive: boolean;
   isGenerating: boolean;
+  disabled: boolean;
   onGenerate: () => void;
   onRead: () => void;
 }
 
-function EpisodeCard({ episode, isActive, isGenerating, onGenerate, onRead }: EpisodeCardProps) {
+function EpisodeCard({ episode, isActive, isGenerating, disabled, onGenerate, onRead }: EpisodeCardProps) {
   const style = STATUS_STYLES[episode.status] || STATUS_STYLES.pending;
   const Icon = style.icon;
   const phase = (episode.generation_progress as any)?.phase;
@@ -123,7 +124,7 @@ function EpisodeCard({ episode, isActive, isGenerating, onGenerate, onRead }: Ep
             </Button>
           )}
 
-          {episode.status === 'pending' && (
+          {episode.status === 'pending' && !disabled && (
             <Button
               variant="outline"
               size="sm"
@@ -223,7 +224,7 @@ function ScriptReaderDialog({
 export function SeriesWriterPanel({ projectId }: Props) {
   const {
     episodes, isLoading, progress, isGenerating,
-    createEpisodes, generateAll, generateOne, fetchScriptContent,
+    createEpisodes, generateOne, fetchScriptContent,
   } = useSeriesWriter(projectId);
 
   const [episodeCount, setEpisodeCount] = useState('10');
@@ -250,7 +251,7 @@ export function SeriesWriterPanel({ projectId }: Props) {
         <div className="flex items-center gap-2">
           <Layers className="h-4 w-4 text-primary" />
           <h3 className="text-sm font-semibold text-foreground">Series Writer</h3>
-          <InfoTooltip text="Generate episodic scripts one at a time or all at once. Click 'Read' on any completed episode to view its script." />
+          <InfoTooltip text="Generate episodes one at a time in order. Each episode builds on the previous for narrative continuity." />
         </div>
         {hasEpisodes && (
           <span className="text-xs text-muted-foreground">
@@ -313,19 +314,6 @@ export function SeriesWriterPanel({ projectId }: Props) {
       {/* Episode Grid */}
       {hasEpisodes && (
         <div className="space-y-3">
-          {/* Generate All button */}
-          {!allComplete && !isGenerating && pendingCount > 1 && (
-            <Button
-              onClick={generateAll}
-              disabled={isGenerating}
-              variant="outline"
-              className="w-full h-9 text-xs gap-1.5"
-            >
-              <Play className="h-3.5 w-3.5" />
-              Generate All Remaining ({pendingCount} episodes)
-            </Button>
-          )}
-
           {allComplete && (
             <div className="flex items-center gap-2 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
               <CheckCircle2 className="h-4 w-4 text-emerald-400" />
@@ -335,18 +323,30 @@ export function SeriesWriterPanel({ projectId }: Props) {
             </div>
           )}
 
+          {!allComplete && !isGenerating && (
+            <p className="text-xs text-muted-foreground text-center">
+              Generate episodes in order — each builds on the previous.
+            </p>
+          )}
+
           <ScrollArea className="max-h-[500px]">
             <div className="space-y-1.5">
-              {episodes.map(ep => (
-                <EpisodeCard
-                  key={ep.id}
-                  episode={ep}
-                  isActive={isGenerating && progress.currentEpisode === ep.episode_number}
-                  isGenerating={isGenerating}
-                  onGenerate={() => generateOne(ep)}
-                  onRead={() => { setReaderEpisode(ep); setReaderOpen(true); }}
-                />
-              ))}
+              {episodes.map((ep, idx) => {
+                // Only allow generating the next episode in sequence
+                const prevComplete = idx === 0 || episodes[idx - 1].status === 'complete';
+                const isNextPending = prevComplete && (ep.status === 'pending' || ep.status === 'error');
+                return (
+                  <EpisodeCard
+                    key={ep.id}
+                    episode={ep}
+                    isActive={isGenerating && progress.currentEpisode === ep.episode_number}
+                    isGenerating={isGenerating}
+                    disabled={!isNextPending}
+                    onGenerate={() => generateOne(ep)}
+                    onRead={() => { setReaderEpisode(ep); setReaderOpen(true); }}
+                  />
+                );
+              })}
             </div>
           </ScrollArea>
         </div>

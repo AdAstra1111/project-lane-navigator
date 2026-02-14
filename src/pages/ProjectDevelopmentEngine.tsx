@@ -1,5 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useParams, Link, useSearchParams } from 'react-router-dom';
+import { supabase } from '@/integrations/supabase/client';
 import { Header } from '@/components/Header';
 import { PageTransition } from '@/components/PageTransition';
 import { useDevEngineV2 } from '@/hooks/useDevEngineV2';
@@ -114,6 +116,22 @@ function SetAsLatestDraftButton({ projectId, title, text }: { projectId?: string
 export default function ProjectDevelopmentEngine() {
   const { id: projectId } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
+
+  // Fetch project production type
+  const { data: project } = useQuery({
+    queryKey: ['project-meta', projectId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('projects')
+        .select('format')
+        .eq('id', projectId!)
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!projectId,
+  });
+  const isFeature = !project?.format || project.format === 'feature';
 
   const {
     documents, docsLoading, versions, versionsLoading,
@@ -415,7 +433,7 @@ export default function ProjectDevelopmentEngine() {
               )}
 
               {/* Generate Feature Script Pipeline */}
-              {selectedDocId && selectedVersionId && (
+              {isFeature && selectedDocId && selectedVersionId && (
                 <Card className="border-primary/20">
                   <CardHeader className="py-2 px-3">
                     <CardTitle className="text-xs flex items-center gap-1.5">
