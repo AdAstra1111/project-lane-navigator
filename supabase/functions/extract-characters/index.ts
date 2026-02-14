@@ -71,6 +71,52 @@ serve(async (req) => {
       extractedText = fallbackDocs?.[0]?.extracted_text || "";
     }
 
+    // Fallback: check project_document_versions (dev-engine generated scripts)
+    if (!extractedText) {
+      // Find the script document for this project
+      const { data: scriptDoc } = await adminClient
+        .from("project_documents")
+        .select("id")
+        .eq("project_id", projectId)
+        .eq("doc_type", "script")
+        .order("created_at", { ascending: false })
+        .limit(1);
+
+      if (scriptDoc?.[0]?.id) {
+        const { data: versions } = await adminClient
+          .from("project_document_versions")
+          .select("plaintext")
+          .eq("document_id", scriptDoc[0].id)
+          .order("version_number", { ascending: false })
+          .limit(1);
+        extractedText = versions?.[0]?.plaintext || "";
+      }
+    }
+
+    // Final fallback: any document version with plaintext
+    if (!extractedText) {
+      const { data: allDocs } = await adminClient
+        .from("project_documents")
+        .select("id")
+        .eq("project_id", projectId)
+        .order("created_at", { ascending: false })
+        .limit(5);
+
+      for (const doc of allDocs || []) {
+        const { data: ver } = await adminClient
+          .from("project_document_versions")
+          .select("plaintext")
+          .eq("document_id", doc.id)
+          .not("plaintext", "is", null)
+          .order("version_number", { ascending: false })
+          .limit(1);
+        if (ver?.[0]?.plaintext && ver[0].plaintext.length > 500) {
+          extractedText = ver[0].plaintext;
+          break;
+        }
+      }
+    }
+
     // If no extracted text is available, return empty — avoid downloading
     // large PDFs into memory which can exceed edge function limits.
     if (!extractedText) {
