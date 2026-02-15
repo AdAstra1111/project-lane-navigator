@@ -2,7 +2,7 @@
  * DecisionModePanel — Streamlined "Decision Mode" panel.
  * Shows decisions list, global directions, document viewer header, and single primary CTA.
  */
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -40,7 +40,7 @@ interface DecisionModePanelProps {
   onAutoRunContinue?: (
     selectedOptions: Array<{ note_id: string; option_id: string; custom_direction?: string }>,
     globalDirections?: string[]
-  ) => void;
+  ) => void | Promise<void>;
   onGenerateOptions?: () => void;
   isGeneratingOptions?: boolean;
   /** Available versions for "continue from" dropdown */
@@ -132,11 +132,14 @@ export function DecisionModePanel({
   const allBlockersCovered = uncoveredBlockers.length === 0;
   const selectedCount = Object.values(selectedOptions).filter(Boolean).length;
 
+  const applyingRef = React.useRef(false);
   const handleApplyDecisions = useCallback(async () => {
     if (!allBlockersCovered) {
       toast.error(`Select options for all ${uncoveredBlockers.length} blocker(s) first`);
       return;
     }
+    if (applyingRef.current) return;
+    applyingRef.current = true;
     setIsApplying(true);
     try {
       const opts = Object.entries(selectedOptions)
@@ -149,7 +152,7 @@ export function DecisionModePanel({
       const gd = globalDirections.map(d => d.direction);
 
       if (jobId && onAutoRunContinue) {
-        onAutoRunContinue(opts, gd);
+        await onAutoRunContinue(opts, gd);
       } else {
         if (!documentId || !versionId) return;
         const effectiveVersionId = continueVersionId === 'latest' ? versionId : continueVersionId;
@@ -165,6 +168,7 @@ export function DecisionModePanel({
       toast.error(e.message);
     } finally {
       setIsApplying(false);
+      applyingRef.current = false;
     }
   }, [allBlockersCovered, selectedOptions, customDirections, globalDirections, jobId, documentId, versionId, continueVersionId, projectId, onAutoRunContinue, onRewriteComplete, uncoveredBlockers.length]);
 
