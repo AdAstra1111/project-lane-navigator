@@ -423,37 +423,201 @@ Deno.serve(async (req) => {
       if (jobErr || !job) return respond({ error: "Job not found" }, 404);
 
       const pending = job.pending_decisions || [];
-      const decision = pending.find((d: any) => d.id === decisionId);
-      if (!decision) return respond({ error: `Decision ${decisionId} not found` }, 404);
+      // Support both old format (decisionId + selectedValue) and new choice format (choiceId)
+      const choiceId = body.choiceId || decisionId;
+      const choiceValue = body.selectedValue || "yes";
 
-      // Apply the selected value based on decision id patterns
+      const decision = pending.find((d: any) => d.id === choiceId);
+      if (!decision) return respond({ error: `Decision ${choiceId} not found in pending_decisions` }, 404);
+
+      const stepCount = job.step_count + 1;
+      const currentDoc = job.current_document as DocStage;
+
+      // ── Handle step-limit choices ──
+      if (choiceId === "raise_step_limit_once" && choiceValue === "yes") {
+        const newMax = job.max_total_steps + 6;
+        await logStep(supabase, jobId, stepCount, currentDoc, "decision_applied",
+          `Step limit raised: ${job.max_total_steps} → ${newMax}`,
+          {}, undefined, { choiceId, choiceValue }
+        );
+        await updateJob(supabase, jobId, {
+          step_count: stepCount,
+          max_total_steps: newMax,
+          status: "running",
+          stop_reason: null,
+          pending_decisions: null,
+        });
+        return respondWithJob(supabase, jobId, "run-next");
+      }
+
+      if (choiceId === "raise_step_limit_once" && choiceValue === "no") {
+        await logStep(supabase, jobId, stepCount, currentDoc, "decision_applied",
+          "User declined step extension — stopping run",
+          {}, undefined, { choiceId, choiceValue }
+        );
+        await updateJob(supabase, jobId, {
+          step_count: stepCount,
+          status: "stopped",
+          stop_reason: "User stopped at step limit",
+          pending_decisions: null,
+        });
+        return respondWithJob(supabase, jobId, "none");
+      }
+
+      if (choiceId === "run_exec_strategy" && choiceValue === "yes") {
+        // Run executive strategy inline
+        try {
+          const { data: project } = await supabase.from("projects")
+            .select("format, development_behavior")
+            .eq("id", job.project_id).single();
+          const format = (project?.format || "film").toLowerCase().replace(/_/g, "-");
+          const behavior = project?.development_behavior || "market";
+
+          const { data: docs } = await supabase.from("project_documents")
+            .select("id").eq("project_id", job.project_id).eq("doc_type", currentDoc)
+            .order("created_at", { ascending: false }).limit(1);
+          const doc = docs?.[0];
+          if (!doc) throw new Error("No document found for executive strategy");
+
+          const { data: versions } = await supabase.from("project_document_versions")
+            .select("id").eq("document_id", doc.id)
+            .order("version_number", { ascending: false }).limit(1);
+          const latestVersion = versions?.[0];
+          if (!latestVersion) throw new Error("No version found");
+
+          const stratResult = await callEdgeFunctionWithRetry(
+            supabase, supabaseUrl, "dev-engine-v2", {
+              action: "executive-strategy",
+              projectId: job.project_id,
+              documentId: doc.id,
+              versionId: latestVersion.id,
+              deliverableType: currentDoc,
+              format,
+              developmentBehavior: behavior,
+            }, token, job.project_id, format, currentDoc, jobId, stepCount
+          );
+
+          const strat = stratResult?.result || stratResult || {};
+          const autoFixes = strat.auto_fixes || {};
+          const mustDecide = Array.isArray(strat.must_decide) ? strat.must_decide : [];
+
+          // Apply auto_fixes
+          const projectUpdates: Record<string, any> = {};
+          if (autoFixes.assigned_lane) projectUpdates.assigned_lane = autoFixes.assigned_lane;
+          if (autoFixes.budget_range) projectUpdates.budget_range = autoFixes.budget_range;
+          const qualFixes = autoFixes.qualifications || {};
+          if (Object.keys(qualFixes).length > 0) {
+            const { data: curProj } = await supabase.from("projects").select("guardrails_config").eq("id", job.project_id).single();
+            const gc = curProj?.guardrails_config || {};
+            gc.overrides = gc.overrides || {};
+            gc.overrides.qualifications = { ...(gc.overrides.qualifications || {}), ...qualFixes };
+            projectUpdates.guardrails_config = gc;
+            if (qualFixes.episode_target_duration_seconds) {
+              projectUpdates.episode_target_duration_seconds = qualFixes.episode_target_duration_seconds;
+            }
+          }
+          if (Object.keys(projectUpdates).length > 0) {
+            await supabase.from("projects").update(projectUpdates).eq("id", job.project_id);
+          }
+
+          await logStep(supabase, jobId, stepCount, currentDoc, "executive_strategy",
+            strat.summary || `Auto-fixes applied: ${Object.keys(projectUpdates).join(", ") || "none"}`,
+            {}, undefined, { strategy: strat, updates: projectUpdates }
+          );
+
+          // If strategy produced blocking decisions, pause again
+          const blockingDecisions = mustDecide.filter((d: any) => d.impact === "blocking");
+          if (blockingDecisions.length > 0) {
+            await updateJob(supabase, jobId, {
+              step_count: stepCount,
+              stage_loop_count: 0,
+              status: "paused",
+              stop_reason: `Approval required: ${blockingDecisions[0].question}`,
+              pending_decisions: mustDecide,
+            });
+            return respondWithJob(supabase, jobId, "approve-decision");
+          }
+
+          // Resume with extended steps
+          await updateJob(supabase, jobId, {
+            step_count: stepCount,
+            stage_loop_count: 0,
+            max_total_steps: job.max_total_steps + 6,
+            status: "running",
+            stop_reason: null,
+            pending_decisions: null,
+          });
+          return respondWithJob(supabase, jobId, "run-next");
+        } catch (stratErr: any) {
+          await logStep(supabase, jobId, stepCount, currentDoc, "decision_applied",
+            `Executive strategy failed: ${stratErr.message}`,
+          );
+          // Fall through to just raise step limit
+          await updateJob(supabase, jobId, {
+            step_count: stepCount,
+            max_total_steps: job.max_total_steps + 6,
+            status: "running",
+            stop_reason: null,
+            pending_decisions: null,
+          });
+          return respondWithJob(supabase, jobId, "run-next");
+        }
+      }
+
+      if (choiceId === "force_promote" && choiceValue === "yes") {
+        const next = nextDoc(currentDoc);
+        if (next && LADDER.indexOf(next) <= LADDER.indexOf(job.target_document as DocStage)) {
+          await logStep(supabase, jobId, stepCount, currentDoc, "decision_applied",
+            `Force-promoted: ${currentDoc} → ${next}`,
+            {}, undefined, { choiceId, choiceValue }
+          );
+          await updateJob(supabase, jobId, {
+            step_count: stepCount,
+            current_document: next,
+            stage_loop_count: 0,
+            max_total_steps: job.max_total_steps + 6,
+            status: "running",
+            stop_reason: null,
+            pending_decisions: null,
+          });
+          return respondWithJob(supabase, jobId, "run-next");
+        } else {
+          await updateJob(supabase, jobId, {
+            step_count: stepCount,
+            status: "completed",
+            stop_reason: "Reached target document (force-promoted)",
+            pending_decisions: null,
+          });
+          return respondWithJob(supabase, jobId);
+        }
+      }
+
+      // ── Generic decision handling (original executive-strategy must_decide) ──
       const projectUpdates: Record<string, any> = {};
-      const did = decisionId.toLowerCase();
+      const did = choiceId.toLowerCase();
       if (did.includes("lane") || did.includes("positioning")) {
-        projectUpdates.assigned_lane = selectedValue;
+        projectUpdates.assigned_lane = choiceValue;
       } else if (did.includes("budget")) {
-        projectUpdates.budget_range = selectedValue;
+        projectUpdates.budget_range = choiceValue;
       } else if (did.includes("format")) {
-        projectUpdates.format = selectedValue;
+        projectUpdates.format = choiceValue;
       } else if (did.includes("episode") || did.includes("duration") || did.includes("runtime")) {
-        // Attempt to parse as number for qualification fields
-        const num = Number(selectedValue);
+        const num = Number(choiceValue);
         if (!isNaN(num)) {
           const { data: curProj } = await supabase.from("projects").select("guardrails_config").eq("id", job.project_id).single();
           const gc = curProj?.guardrails_config || {};
           gc.overrides = gc.overrides || {};
-          gc.overrides.qualifications = { ...(gc.overrides.qualifications || {}), [decisionId]: num };
+          gc.overrides.qualifications = { ...(gc.overrides.qualifications || {}), [choiceId]: num };
           projectUpdates.guardrails_config = gc;
           if (did.includes("episode_target_duration")) {
             projectUpdates.episode_target_duration_seconds = num;
           }
         }
       } else {
-        // Generic: store as guardrails qualification override
         const { data: curProj } = await supabase.from("projects").select("guardrails_config").eq("id", job.project_id).single();
         const gc = curProj?.guardrails_config || {};
         gc.overrides = gc.overrides || {};
-        gc.overrides.qualifications = { ...(gc.overrides.qualifications || {}), [decisionId]: selectedValue };
+        gc.overrides.qualifications = { ...(gc.overrides.qualifications || {}), [choiceId]: choiceValue };
         projectUpdates.guardrails_config = gc;
       }
 
@@ -461,19 +625,15 @@ Deno.serve(async (req) => {
         await supabase.from("projects").update(projectUpdates).eq("id", job.project_id);
       }
 
-      // Remove the resolved decision from pending list
-      const remainingDecisions = pending.filter((d: any) => d.id !== decisionId);
+      const remainingDecisions = pending.filter((d: any) => d.id !== choiceId);
       const hasBlockingRemaining = remainingDecisions.some((d: any) => d.impact === "blocking");
 
-      // Log the decision
-      const stepCount = job.step_count + 1;
       await logStep(supabase, jobId, stepCount, job.current_document, "decision_applied",
-        `${decision.question} → ${selectedValue}`,
-        {}, undefined, { decisionId, selectedValue, updates: projectUpdates }
+        `${decision.question} → ${choiceValue}`,
+        {}, undefined, { decisionId: choiceId, selectedValue: choiceValue, updates: projectUpdates }
       );
 
       if (hasBlockingRemaining) {
-        // More blocking decisions remain
         const nextBlocking = remainingDecisions.find((d: any) => d.impact === "blocking");
         await updateJob(supabase, jobId, {
           step_count: stepCount,
@@ -483,7 +643,6 @@ Deno.serve(async (req) => {
         return respondWithJob(supabase, jobId, "approve-decision");
       }
 
-      // All blocking decisions resolved — resume
       await updateJob(supabase, jobId, {
         step_count: stepCount,
         status: "running",
@@ -507,11 +666,62 @@ Deno.serve(async (req) => {
       const stepCount = job.step_count;
       const stageLoopCount = job.stage_loop_count;
 
-      // ── Guard: max steps ──
+      // ── Guard: max steps — pause with actionable choices ──
       if (stepCount >= job.max_total_steps) {
-        await updateJob(supabase, jobId, { status: "paused", stop_reason: "Step limit reached — manual decision required" });
-        await logStep(supabase, jobId, stepCount + 1, currentDoc, "stop", "Step limit reached");
-        return respondWithJob(supabase, jobId);
+        const stepLimitDecisions = [
+          {
+            id: "raise_step_limit_once",
+            question: `Step limit (${job.max_total_steps}) reached. Continue with 6 more steps?`,
+            options: [
+              { value: "yes", why: "Add 6 more steps and continue the current development cycle" },
+              { value: "no", why: "Stop the run here" },
+            ],
+            recommended: "yes",
+            impact: "blocking" as const,
+          },
+          {
+            id: "run_exec_strategy",
+            question: "Run Executive Strategy to diagnose and reposition?",
+            options: [
+              { value: "yes", why: "Recommended when progress has stalled — analyses lane, budget, and qualifications" },
+              { value: "no", why: "Skip strategic review" },
+            ],
+            recommended: "yes",
+            impact: "non_blocking" as const,
+          },
+          {
+            id: "force_promote",
+            question: "Force-promote to the next document stage?",
+            options: [
+              { value: "yes", why: "Skip remaining loops and advance to the next stage immediately" },
+              { value: "no", why: "Stay at current stage" },
+            ],
+            impact: "non_blocking" as const,
+          },
+        ];
+
+        const pendingBundle = {
+          reason: "step_limit_reached",
+          current_document: currentDoc,
+          last_ci: job.last_ci,
+          last_gp: job.last_gp,
+          last_gap: job.last_gap,
+          last_readiness: job.last_readiness,
+          last_risk_flags: job.last_risk_flags,
+          choices: stepLimitDecisions,
+        };
+
+        await updateJob(supabase, jobId, {
+          status: "paused",
+          stop_reason: "Approval required to continue",
+          pending_decisions: stepLimitDecisions,
+        });
+        await logStep(supabase, jobId, stepCount + 1, currentDoc, "pause_for_approval",
+          `Step limit (${job.max_total_steps}) reached — awaiting user decision`,
+          { ci: job.last_ci, gp: job.last_gp, gap: job.last_gap, readiness: job.last_readiness },
+          undefined, pendingBundle
+        );
+        return respondWithJob(supabase, jobId, "approve-decision");
       }
 
       // ── Guard: already at target ──
