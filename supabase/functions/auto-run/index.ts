@@ -1249,10 +1249,24 @@ Deno.serve(async (req) => {
       const currentDoc = job.current_document as DocStage;
       const stepCount = job.step_count + 1;
 
-      // Resolve doc and version — use pending or latest
-      const docId = job.pending_doc_id;
-      const versionId = job.pending_version_id;
-      if (!docId || !versionId) return respond({ error: "No pending document/version to apply decisions to" }, 400);
+      // Resolve doc and version — use pending or fall back to latest
+      let docId = job.pending_doc_id;
+      let versionId = job.pending_version_id;
+
+      // Fallback: resolve latest document/version for current stage if pending not set
+      if (!docId || !versionId) {
+        const { data: latestDoc } = await supabase.from("project_documents")
+          .select("id").eq("project_id", job.project_id).eq("doc_type", currentDoc)
+          .order("created_at", { ascending: false }).limit(1).single();
+        if (latestDoc) {
+          docId = latestDoc.id;
+          const { data: latestVer } = await supabase.from("project_document_versions")
+            .select("id").eq("document_id", latestDoc.id)
+            .order("version_number", { ascending: false }).limit(1).single();
+          versionId = latestVer?.id || null;
+        }
+      }
+      if (!docId || !versionId) return respond({ error: "No document/version found for current stage" }, 400);
 
       const { data: project } = await supabase.from("projects")
         .select("format, development_behavior").eq("id", job.project_id).single();
@@ -1868,6 +1882,8 @@ Deno.serve(async (req) => {
               status: "paused",
               stop_reason: `Approval required: ${escalateReason}`,
               pending_decisions: escalateDecisions,
+              pending_doc_id: doc.id,
+              pending_version_id: latestVersion.id,
             });
             return respondWithJob(supabase, jobId, "approve-decision");
           }
