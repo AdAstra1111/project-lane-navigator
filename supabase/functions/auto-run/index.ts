@@ -870,12 +870,29 @@ Deno.serve(async (req) => {
       }
 
       // ── Document exists — run editorial loop ──
-      const { data: versions } = await supabase.from("project_document_versions").select("id").eq("document_id", doc.id).order("version_number", { ascending: false }).limit(1);
+      const { data: versions } = await supabase.from("project_document_versions")
+        .select("id, plaintext, version_number")
+        .eq("document_id", doc.id)
+        .order("version_number", { ascending: false }).limit(1);
       const latestVersion = versions?.[0];
       if (!latestVersion) {
         await updateJob(supabase, jobId, { status: "failed", error: "No version for current document" });
         return respondWithJob(supabase, jobId);
       }
+
+      // Resolve the actual text being fed into analysis (version plaintext > doc extracted_text > doc plaintext)
+      const reviewText = latestVersion.plaintext || doc.extracted_text || doc.plaintext || "";
+      const reviewCharCount = reviewText.length;
+
+      // ── review_input visibility step ──
+      const simpleHash = reviewCharCount > 0
+        ? reviewText.slice(0, 64).replace(/\s+/g, " ").trim()
+        : "(empty)";
+      await logStep(supabase, jobId, stepCount, currentDoc, "review_input",
+        `Reviewing ${currentDoc} docId=${doc.id} versionId=${latestVersion.id} chars=${reviewCharCount}`,
+        {}, reviewText.slice(0, 500),
+        { docId: doc.id, versionId: latestVersion.id, doc_type: currentDoc, char_count: reviewCharCount, preview_hash: simpleHash }
+      );
 
       // Step A: Run review (analyze + notes) with retry
       try {
@@ -1018,7 +1035,7 @@ Deno.serve(async (req) => {
           const protectItems = notes?.protect || analyzeResult?.protect || [];
 
           try {
-            await callEdgeFunctionWithRetry(
+            const rewriteResult = await callEdgeFunctionWithRetry(
               supabase, supabaseUrl, "dev-engine-v2", {
                 action: "rewrite",
                 projectId: job.project_id,
@@ -1032,8 +1049,19 @@ Deno.serve(async (req) => {
               }, token, job.project_id, format, currentDoc, jobId, newStep + 2
             );
 
+            // Re-fetch latest version after rewrite to track new versionId
+            const { data: postRewriteVersions } = await supabase.from("project_document_versions")
+              .select("id, version_number")
+              .eq("document_id", doc.id)
+              .order("version_number", { ascending: false }).limit(1);
+            const newVersionId = postRewriteVersions?.[0]?.id || rewriteResult?.result?.newVersion?.id || "unknown";
+
             await updateJob(supabase, jobId, { stage_loop_count: newLoopCount, step_count: newStep + 2 });
             await logStep(supabase, jobId, newStep + 2, currentDoc, "rewrite", `Applied rewrite (loop ${newLoopCount}/${job.max_stage_loops})`);
+            await logStep(supabase, jobId, newStep + 3, currentDoc, "rewrite_output_ref",
+              `Rewrite created new versionId=${newVersionId}`,
+              {}, undefined, { docId: doc.id, newVersionId }
+            );
             return respondWithJob(supabase, jobId, "run-next");
           } catch (e: any) {
             await updateJob(supabase, jobId, { status: "failed", error: `Rewrite failed: ${e.message}` });
