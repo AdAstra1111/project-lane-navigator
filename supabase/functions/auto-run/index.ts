@@ -20,13 +20,133 @@ function isOnLadder(d: string): d is DocStage {
 }
 
 // ── Mode Config ──
-const MODE_CONFIG: Record<string, { max_stage_loops: number; require_readiness?: number }> = {
-  fast: { max_stage_loops: 1 },
-  balanced: { max_stage_loops: 2 },
-  premium: { max_stage_loops: 3, require_readiness: 82 },
+const MODE_CONFIG: Record<string, { max_stage_loops: number; max_total_steps: number; require_readiness?: number }> = {
+  fast: { max_stage_loops: 1, max_total_steps: 8 },
+  balanced: { max_stage_loops: 2, max_total_steps: 12 },
+  premium: { max_stage_loops: 3, max_total_steps: 18, require_readiness: 82 },
 };
 
-// ── Promotion Intel (inline, mirrors usePromotionIntelligence local compute) ──
+// ── Qualification Resolver ──
+
+interface QualificationDefaults {
+  episode_target_duration_seconds?: number;
+  season_episode_count?: number;
+  target_runtime_min_low?: number;
+  target_runtime_min_high?: number;
+}
+
+const FORMAT_DEFAULTS: Record<string, QualificationDefaults> = {
+  "vertical-drama": { episode_target_duration_seconds: 60, season_episode_count: 30 },
+  "limited-series": { episode_target_duration_seconds: 3300, season_episode_count: 8 },
+  "tv-series": { episode_target_duration_seconds: 2700, season_episode_count: 10 },
+  "anim-series": { episode_target_duration_seconds: 1320, season_episode_count: 10 },
+  "documentary-series": { episode_target_duration_seconds: 2700, season_episode_count: 6 },
+  "digital-series": { episode_target_duration_seconds: 600, season_episode_count: 10 },
+  "reality": { episode_target_duration_seconds: 2700, season_episode_count: 10 },
+  "film": { target_runtime_min_low: 85, target_runtime_min_high: 110 },
+  "anim-feature": { target_runtime_min_low: 80, target_runtime_min_high: 100 },
+  "short-film": { target_runtime_min_low: 5, target_runtime_min_high: 20 },
+};
+
+// Stages where episode qualifications become required
+const SERIES_STAGE_THRESHOLD = LADDER.indexOf("concept_brief"); // concept_brief+
+const FILM_STAGE_THRESHOLD = LADDER.indexOf("draft"); // draft+
+
+function needsEpisodeQuals(format: string, stageIdx: number): boolean {
+  const seriesFormats = ["vertical-drama", "tv-series", "limited-series", "anim-series", "documentary-series", "digital-series", "reality"];
+  return seriesFormats.includes(format) && stageIdx >= SERIES_STAGE_THRESHOLD;
+}
+
+function needsFilmQuals(format: string, stageIdx: number): boolean {
+  const filmFormats = ["film", "anim-feature", "short-film"];
+  return filmFormats.includes(format) && stageIdx >= FILM_STAGE_THRESHOLD;
+}
+
+interface PreflightResult {
+  resolved: Record<string, any>;
+  changed: boolean;
+}
+
+async function runPreflight(
+  supabase: any, projectId: string, format: string, currentDoc: DocStage
+): Promise<PreflightResult> {
+  const { data: project } = await supabase.from("projects")
+    .select("episode_target_duration_seconds, season_episode_count, assigned_lane, budget_range, guardrails_config")
+    .eq("id", projectId).single();
+
+  if (!project) return { resolved: {}, changed: false };
+
+  const stageIdx = LADDER.indexOf(currentDoc);
+  const defaults = FORMAT_DEFAULTS[format] || {};
+  const updates: Record<string, any> = {};
+  const resolved: Record<string, any> = {};
+
+  // Episode qualifications for series formats
+  if (needsEpisodeQuals(format, stageIdx)) {
+    if (!project.episode_target_duration_seconds && defaults.episode_target_duration_seconds) {
+      updates.episode_target_duration_seconds = defaults.episode_target_duration_seconds;
+      resolved.episode_target_duration_seconds = defaults.episode_target_duration_seconds;
+    }
+    // season_episode_count — try guardrails_config overrides
+    const existingOverrides = project.guardrails_config?.overrides?.qualifications || {};
+    if (!existingOverrides.season_episode_count && defaults.season_episode_count) {
+      const gc = project.guardrails_config || {};
+      gc.overrides = gc.overrides || {};
+      gc.overrides.qualifications = { ...(gc.overrides.qualifications || {}), season_episode_count: defaults.season_episode_count };
+      updates.guardrails_config = gc;
+      resolved.season_episode_count = defaults.season_episode_count;
+    }
+  }
+
+  // Film qualifications
+  if (needsFilmQuals(format, stageIdx)) {
+    const existingOverrides = (updates.guardrails_config || project.guardrails_config)?.overrides?.qualifications || {};
+    if (!existingOverrides.target_runtime_min_low && defaults.target_runtime_min_low) {
+      const gc = updates.guardrails_config || project.guardrails_config || {};
+      gc.overrides = gc.overrides || {};
+      gc.overrides.qualifications = {
+        ...(gc.overrides.qualifications || {}),
+        target_runtime_min_low: defaults.target_runtime_min_low,
+        target_runtime_min_high: defaults.target_runtime_min_high,
+      };
+      updates.guardrails_config = gc;
+      resolved.target_runtime_min_low = defaults.target_runtime_min_low;
+      resolved.target_runtime_min_high = defaults.target_runtime_min_high;
+    }
+  }
+
+  // Lane fallback
+  if (!project.assigned_lane) {
+    updates.assigned_lane = "independent-film";
+    resolved.assigned_lane = "independent-film";
+  }
+
+  // Budget fallback
+  if (!project.budget_range) {
+    updates.budget_range = "low";
+    resolved.budget_range = "low";
+  }
+
+  if (Object.keys(updates).length > 0) {
+    await supabase.from("projects").update(updates).eq("id", projectId);
+    return { resolved, changed: true };
+  }
+
+  return { resolved, changed: false };
+}
+
+// Patterns that indicate a missing qualification error
+const QUAL_ERROR_PATTERNS = [
+  "missing qualification", "episode_target_duration", "season_episode_count",
+  "required", "episode duration", "episode count", "target_runtime",
+];
+
+function isQualificationError(msg: string): boolean {
+  const lower = msg.toLowerCase();
+  return QUAL_ERROR_PATTERNS.some(p => lower.includes(p));
+}
+
+// ── Promotion Intel (inline) ──
 const WEIGHTS: Record<string, { ci: number; gp: number; gap: number; traj: number; hi: number; pen: number }> = {
   idea:          { ci: 0.20, gp: 0.30, gap: 0.10, traj: 0.15, hi: 0.20, pen: 0.05 },
   concept_brief: { ci: 0.25, gp: 0.25, gap: 0.10, traj: 0.15, hi: 0.20, pen: 0.05 },
@@ -98,7 +218,6 @@ function computePromotion(
     return { recommendation: "stabilise", readiness_score: readinessScore, confidence, risk_flags, reasons };
   }
 
-  // Decision bands
   let recommendation: "promote" | "stabilise" | "escalate";
   if (readinessScore >= 78) recommendation = "promote";
   else if (readinessScore >= 65) recommendation = "stabilise";
@@ -113,7 +232,7 @@ function computePromotion(
   return { recommendation, readiness_score: readinessScore, confidence, risk_flags, reasons };
 }
 
-// ── Helper: call another edge function ──
+// ── Helper: call another edge function (with retry on qualification errors) ──
 async function callEdgeFunction(
   supabaseUrl: string, functionName: string, body: any, token: string
 ): Promise<any> {
@@ -128,6 +247,31 @@ async function callEdgeFunction(
   const text = await resp.text();
   if (!resp.ok) throw new Error(`${functionName} error: ${text}`);
   try { return JSON.parse(text); } catch { return { raw: text }; }
+}
+
+async function callEdgeFunctionWithRetry(
+  supabase: any, supabaseUrl: string, functionName: string, body: any, token: string,
+  projectId: string, format: string, currentDoc: DocStage,
+  jobId: string, stepCount: number
+): Promise<{ result: any; retried: boolean }> {
+  try {
+    const result = await callEdgeFunction(supabaseUrl, functionName, body, token);
+    return { result, retried: false };
+  } catch (e: any) {
+    if (!isQualificationError(e.message)) throw e;
+
+    // Attempt blockage resolve
+    const preflight = await runPreflight(supabase, projectId, format, currentDoc);
+    if (preflight.changed) {
+      await logStep(supabase, jobId, stepCount, currentDoc, "blockage_resolve",
+        `Resolved missing qualifications: ${Object.keys(preflight.resolved).join(", ")}`,
+      );
+    }
+
+    // Retry once
+    const result = await callEdgeFunction(supabaseUrl, functionName, body, token);
+    return { result, retried: true };
+  }
 }
 
 // ── Helper: log a step ──
@@ -212,7 +356,12 @@ Deno.serve(async (req) => {
 
       const modeConf = MODE_CONFIG[mode || "balanced"] || MODE_CONFIG.balanced;
       const effectiveMaxLoops = max_stage_loops ?? modeConf.max_stage_loops;
-      const effectiveMaxSteps = max_total_steps ?? 12;
+      const effectiveMaxSteps = max_total_steps ?? modeConf.max_total_steps;
+
+      // ── Preflight qualification resolver at start ──
+      const { data: proj } = await supabase.from("projects").select("format").eq("id", projectId).single();
+      const fmt = (proj?.format || "film").toLowerCase().replace(/_/g, "-");
+      const preflight = await runPreflight(supabase, projectId, fmt, startDoc as DocStage);
 
       const { data: job, error } = await supabase.from("auto_run_jobs").insert({
         user_id: userId,
@@ -229,6 +378,12 @@ Deno.serve(async (req) => {
       if (error) throw new Error(`Failed to create job: ${error.message}`);
 
       await logStep(supabase, job.id, 0, startDoc, "start", `Auto-run started: ${startDoc} → ${targetDoc} (${mode || "balanced"} mode)`);
+
+      if (preflight.changed) {
+        await logStep(supabase, job.id, 0, startDoc, "preflight_resolve",
+          `Resolved qualifications: ${Object.keys(preflight.resolved).join(", ")} → ${JSON.stringify(preflight.resolved)}`,
+        );
+      }
 
       return respond({ job, latest_steps: [], next_action_hint: "run-next" });
     }
@@ -282,18 +437,33 @@ Deno.serve(async (req) => {
         return respondWithJob(supabase, jobId);
       }
 
-      // ── Fetch project context ──
-      const { data: project } = await supabase.from("projects").select("title, format, development_behavior, episode_target_duration_seconds, season_episode_count").eq("id", job.project_id).single();
+      // ── Preflight qualification resolver before every cycle ──
+      const { data: project } = await supabase.from("projects")
+        .select("title, format, development_behavior, episode_target_duration_seconds, season_episode_count, guardrails_config")
+        .eq("id", job.project_id).single();
       const format = (project?.format || "film").toLowerCase().replace(/_/g, "-");
       const behavior = project?.development_behavior || "market";
+
+      const preflight = await runPreflight(supabase, job.project_id, format, currentDoc);
+      if (preflight.changed) {
+        await logStep(supabase, jobId, stepCount, currentDoc, "preflight_resolve",
+          `Resolved: ${Object.keys(preflight.resolved).join(", ")}`,
+        );
+      }
+
+      // Re-fetch project after preflight may have updated it
+      const { data: freshProject } = await supabase.from("projects")
+        .select("episode_target_duration_seconds, season_episode_count, guardrails_config")
+        .eq("id", job.project_id).single();
+      const episodeDuration = freshProject?.episode_target_duration_seconds ||
+        freshProject?.guardrails_config?.overrides?.qualifications?.episode_target_duration_seconds;
 
       // ── Fetch latest document for current stage ──
       const { data: docs } = await supabase.from("project_documents").select("id, doc_type, plaintext, extracted_text").eq("project_id", job.project_id).eq("doc_type", currentDoc).order("created_at", { ascending: false }).limit(1);
       const doc = docs?.[0];
 
-      // If no document exists for current stage, we need to generate one via convert
+      // If no document exists for current stage, generate one
       if (!doc) {
-        // Find the previous stage's document to convert from
         const ladderIdx = LADDER.indexOf(currentDoc);
         if (ladderIdx <= 0) {
           await updateJob(supabase, jobId, { status: "failed", error: "No source document found for initial stage" });
@@ -308,7 +478,6 @@ Deno.serve(async (req) => {
           return respondWithJob(supabase, jobId);
         }
 
-        // Get latest version
         const { data: prevVersions } = await supabase.from("project_document_versions").select("id").eq("document_id", prevDoc.id).order("version_number", { ascending: false }).limit(1);
         const prevVersion = prevVersions?.[0];
         if (!prevVersion) {
@@ -316,15 +485,16 @@ Deno.serve(async (req) => {
           return respondWithJob(supabase, jobId);
         }
 
-        // Convert to current document type
         try {
-          const convertResult = await callEdgeFunction(supabaseUrl, "dev-engine-v2", {
-            action: "convert",
-            projectId: job.project_id,
-            documentId: prevDoc.id,
-            versionId: prevVersion.id,
-            targetOutput: currentDoc.toUpperCase(),
-          }, token);
+          const { result: convertResult } = await callEdgeFunctionWithRetry(
+            supabase, supabaseUrl, "dev-engine-v2", {
+              action: "convert",
+              projectId: job.project_id,
+              documentId: prevDoc.id,
+              versionId: prevVersion.id,
+              targetOutput: currentDoc.toUpperCase(),
+            }, token, job.project_id, format, currentDoc, jobId, stepCount + 1
+          );
 
           const newStep = stepCount + 1;
           await logStep(supabase, jobId, newStep, currentDoc, "generate", `Generated ${currentDoc} from ${prevStage}`, {}, convertResult?.newDoc?.id ? `Created doc ${convertResult.newDoc.id}` : undefined, convertResult?.newDoc ? { docId: convertResult.newDoc.id } : undefined);
@@ -338,7 +508,6 @@ Deno.serve(async (req) => {
       }
 
       // ── Document exists — run editorial loop ──
-      // Get latest version
       const { data: versions } = await supabase.from("project_document_versions").select("id").eq("document_id", doc.id).order("version_number", { ascending: false }).limit(1);
       const latestVersion = versions?.[0];
       if (!latestVersion) {
@@ -346,18 +515,20 @@ Deno.serve(async (req) => {
         return respondWithJob(supabase, jobId);
       }
 
-      // Step A: Run review (analyze + notes)
+      // Step A: Run review (analyze + notes) with retry
       try {
-        const analyzeResult = await callEdgeFunction(supabaseUrl, "dev-engine-v2", {
-          action: "analyze",
-          projectId: job.project_id,
-          documentId: doc.id,
-          versionId: latestVersion.id,
-          deliverableType: currentDoc,
-          developmentBehavior: behavior,
-          format,
-          episodeTargetDurationSeconds: project?.episode_target_duration_seconds,
-        }, token);
+        const { result: analyzeResult } = await callEdgeFunctionWithRetry(
+          supabase, supabaseUrl, "dev-engine-v2", {
+            action: "analyze",
+            projectId: job.project_id,
+            documentId: doc.id,
+            versionId: latestVersion.id,
+            deliverableType: currentDoc,
+            developmentBehavior: behavior,
+            format,
+            episodeTargetDurationSeconds: episodeDuration,
+          }, token, job.project_id, format, currentDoc, jobId, stepCount
+        );
 
         const ci = analyzeResult?.ci_score ?? analyzeResult?.scores?.ci_score ?? 0;
         const gp = analyzeResult?.gp_score ?? analyzeResult?.scores?.gp_score ?? 0;
@@ -373,14 +544,16 @@ Deno.serve(async (req) => {
           analyzeResult?.executive_snapshot || analyzeResult?.verdict || undefined
         );
 
-        // Step B: Generate notes
-        await callEdgeFunction(supabaseUrl, "dev-engine-v2", {
-          action: "notes",
-          projectId: job.project_id,
-          documentId: doc.id,
-          versionId: latestVersion.id,
-          analysisJson: analyzeResult,
-        }, token);
+        // Step B: Generate notes with retry
+        await callEdgeFunctionWithRetry(
+          supabase, supabaseUrl, "dev-engine-v2", {
+            action: "notes",
+            projectId: job.project_id,
+            documentId: doc.id,
+            versionId: latestVersion.id,
+            analysisJson: analyzeResult,
+          }, token, job.project_id, format, currentDoc, jobId, newStep
+        );
 
         // Step C: Compute promotion intelligence
         const promo = computePromotion(ci, gp, gap, trajectory, currentDoc, blockersCount, highImpactCount, stageLoopCount + 1);
@@ -424,7 +597,6 @@ Deno.serve(async (req) => {
               await logStep(supabase, jobId, newStep + 2, currentDoc, "stop", "Blockers persist after max loops");
               return respondWithJob(supabase, jobId);
             }
-            // No blockers but still stabilise — try promoting anyway
             const next = nextDoc(currentDoc);
             if (next && LADDER.indexOf(next) <= LADDER.indexOf(job.target_document as DocStage)) {
               await updateJob(supabase, jobId, { current_document: next, stage_loop_count: 0 });
@@ -433,7 +605,7 @@ Deno.serve(async (req) => {
             }
           }
 
-          // Apply rewrite with all notes
+          // Apply rewrite with all notes (with retry)
           const notesResult = await supabase.from("development_runs").select("output_json").eq("document_id", doc.id).eq("run_type", "NOTES").order("created_at", { ascending: false }).limit(1).single();
           const notes = notesResult.data?.output_json;
           const approvedNotes = [
@@ -443,17 +615,19 @@ Deno.serve(async (req) => {
           const protectItems = notes?.protect || analyzeResult?.protect || [];
 
           try {
-            await callEdgeFunction(supabaseUrl, "dev-engine-v2", {
-              action: "rewrite",
-              projectId: job.project_id,
-              documentId: doc.id,
-              versionId: latestVersion.id,
-              approvedNotes,
-              protectItems,
-              deliverableType: currentDoc,
-              developmentBehavior: behavior,
-              format,
-            }, token);
+            await callEdgeFunctionWithRetry(
+              supabase, supabaseUrl, "dev-engine-v2", {
+                action: "rewrite",
+                projectId: job.project_id,
+                documentId: doc.id,
+                versionId: latestVersion.id,
+                approvedNotes,
+                protectItems,
+                deliverableType: currentDoc,
+                developmentBehavior: behavior,
+                format,
+              }, token, job.project_id, format, currentDoc, jobId, newStep + 2
+            );
 
             await updateJob(supabase, jobId, { stage_loop_count: newLoopCount, step_count: newStep + 2 });
             await logStep(supabase, jobId, newStep + 2, currentDoc, "rewrite", `Applied rewrite (loop ${newLoopCount}/${job.max_stage_loops})`);
@@ -468,7 +642,6 @@ Deno.serve(async (req) => {
         if (promo.recommendation === "promote") {
           const modeConf = MODE_CONFIG[job.mode] || MODE_CONFIG.balanced;
           if (modeConf.require_readiness && promo.readiness_score < modeConf.require_readiness) {
-            // Premium mode: needs higher readiness — stabilise instead
             await updateJob(supabase, jobId, { stage_loop_count: stageLoopCount + 1, step_count: newStep + 1 });
             await logStep(supabase, jobId, newStep + 2, currentDoc, "stabilise", `Readiness ${promo.readiness_score} < ${modeConf.require_readiness} (premium threshold)`);
             return respondWithJob(supabase, jobId, "run-next");
@@ -480,7 +653,6 @@ Deno.serve(async (req) => {
             await logStep(supabase, jobId, newStep + 2, currentDoc, "promote", `Promoted: ${currentDoc} → ${next}`);
             return respondWithJob(supabase, jobId, "run-next");
           } else {
-            // At or past target
             await updateJob(supabase, jobId, { status: "completed", stop_reason: "Reached target document" });
             await logStep(supabase, jobId, newStep + 2, currentDoc, "stop", "Target reached");
             return respondWithJob(supabase, jobId);
