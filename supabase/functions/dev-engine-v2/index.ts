@@ -37,7 +37,31 @@ async function callAI(apiKey: string, model: string, system: string, user: strin
       }),
     });
     if (response.ok) {
-      const data = await response.json();
+      const text = await response.text();
+      if (!text || text.trim().length === 0) {
+        console.error(`Empty response body from AI (attempt ${attempt + 1}/${MAX_RETRIES})`);
+        if (attempt < MAX_RETRIES - 1) {
+          await new Promise(r => setTimeout(r, Math.pow(2, attempt) * 2000));
+          continue;
+        }
+        throw new Error("AI returned empty response after retries");
+      }
+      let data: any;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        const lastBrace = text.lastIndexOf("}");
+        if (lastBrace > 0) {
+          try {
+            data = JSON.parse(text.substring(0, lastBrace + 1));
+            console.warn("Recovered truncated JSON from AI response");
+          } catch {
+            throw new Error("AI returned unparseable response");
+          }
+        } else {
+          throw new Error("AI returned unparseable response");
+        }
+      }
       return data.choices?.[0]?.message?.content || "";
     }
     const t = await response.text();
