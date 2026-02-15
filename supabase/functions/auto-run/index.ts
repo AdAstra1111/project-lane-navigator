@@ -248,7 +248,7 @@ const WEIGHTS: Record<string, { ci: number; gp: number; gap: number; traj: numbe
 function clamp(v: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, v)); }
 
 // ── Helper: robust score extraction ──
-function pickNumber(obj: any, paths: string[], fallback: number, riskFlags?: string[]): number {
+function pickNumberRaw(obj: any, paths: string[]): number | null {
   for (const path of paths) {
     const parts = path.split(".");
     let cur = obj;
@@ -258,8 +258,27 @@ function pickNumber(obj: any, paths: string[], fallback: number, riskFlags?: str
     }
     if (cur != null && typeof cur === "number" && isFinite(cur)) return cur;
   }
+  return null;
+}
+
+function pickNumber(obj: any, paths: string[], fallback: number, riskFlags?: string[]): number {
+  const v = pickNumberRaw(obj, paths);
+  if (v != null) return v;
   if (riskFlags) riskFlags.push("score_missing_fallback");
   return fallback;
+}
+
+function pickArray(obj: any, paths: string[]): any[] {
+  for (const path of paths) {
+    const parts = path.split(".");
+    let cur = obj;
+    for (const p of parts) {
+      if (cur == null) break;
+      cur = cur[p];
+    }
+    if (Array.isArray(cur) && cur.length > 0) return cur;
+  }
+  return [];
 }
 
 function trajectoryScore(t: string | null): number {
@@ -1292,6 +1311,18 @@ Deno.serve(async (req) => {
       const reviewText = latestVersion.plaintext || doc.extracted_text || doc.plaintext || "";
       const reviewCharCount = reviewText.length;
 
+      // ── C) STOP if input text is empty ──
+      if (reviewCharCount === 0) {
+        await updateJob(supabase, jobId, {
+          status: "failed",
+          error: `Input text empty for stage ${currentDoc} — cannot score. Open document and regenerate.`,
+        });
+        await logStep(supabase, jobId, stepCount + 1, currentDoc, "stop",
+          `Input text empty for ${currentDoc} (docId=${doc.id} verId=${latestVersion.id}). Cannot proceed.`,
+        );
+        return respondWithJob(supabase, jobId);
+      }
+
       // ── review_input visibility step ──
       const simpleHash = reviewCharCount > 0
         ? reviewText.slice(0, 64).replace(/\s+/g, " ").trim()
@@ -1321,18 +1352,35 @@ Deno.serve(async (req) => {
         const analyzeResult = rawAnalyzeResult?.analysis || rawAnalyzeResult || {};
 
         const scoreRiskFlags: string[] = [...resumeRiskFlags];
-        const ci = pickNumber(analyzeResult, ["ci_score", "scores.ci", "scores.ci_score", "ci"], 50, scoreRiskFlags);
-        const gp = pickNumber(analyzeResult, ["gp_score", "scores.gp", "scores.gp_score", "gp"], 50, scoreRiskFlags);
-        const gap = pickNumber(analyzeResult, ["gap", "scores.gap"], Math.abs(ci - gp), scoreRiskFlags);
+        const ciRaw = pickNumberRaw(analyzeResult, ["ci_score", "scores.ci_score", "scores.ci", "ci"]);
+        const gpRaw = pickNumberRaw(analyzeResult, ["gp_score", "scores.gp_score", "scores.gp", "gp"]);
+        const used_fallback_scores = ciRaw == null && gpRaw == null;
+        const ci = ciRaw ?? 0;
+        const gp = gpRaw ?? 0;
+        if (used_fallback_scores) scoreRiskFlags.push("used_fallback_scores");
+        const gap = pickNumber(analyzeResult, ["gap", "scores.gap"], Math.abs(ci - gp));
         const trajectory = analyzeResult?.trajectory ?? analyzeResult?.convergence?.trajectory ?? null;
-        const blockersCount = (analyzeResult?.blocking_issues || []).length;
-        const highImpactCount = (analyzeResult?.high_impact_notes || []).length;
+        const blockers = pickArray(analyzeResult, ["blocking_issues", "blockers", "scores.blocking_issues"]);
+        const highImpact = pickArray(analyzeResult, ["high_impact_notes", "high_impact"]);
+        const blockersCount = blockers.length;
+        const highImpactCount = highImpact.length;
 
         const newStep = stepCount + 1;
+        const analyzeShapeKeys = Object.keys(analyzeResult || {});
         await logStep(supabase, jobId, newStep, currentDoc, "review",
           `CI:${ci} GP:${gp} Gap:${gap} Traj:${trajectory || "?"} B:${blockersCount} HI:${highImpactCount}`,
           { ci, gp, gap, readiness: 0, confidence: 0, risk_flags: scoreRiskFlags },
-          analyzeResult?.executive_snapshot || analyzeResult?.verdict || undefined
+          analyzeResult?.executive_snapshot || analyzeResult?.verdict || undefined,
+          {
+            input_doc_id: doc.id,
+            input_version_id: latestVersion.id,
+            input_text_len: reviewCharCount,
+            analyze_output_ci: ci,
+            analyze_output_gp: gp,
+            analyze_output_gap: gap,
+            analyze_output_shape_keys: analyzeShapeKeys,
+            used_fallback_scores,
+          }
         );
 
         // Step B: Generate notes with retry
@@ -1477,11 +1525,19 @@ Deno.serve(async (req) => {
               .order("version_number", { ascending: false }).limit(1);
             const newVersionId = postRewriteVersions?.[0]?.id || rewriteResult?.result?.newVersion?.id || "unknown";
 
-            await updateJob(supabase, jobId, { stage_loop_count: newLoopCount, step_count: newStep + 2 });
+            // D) After rewrite, update job to use new version for next cycle
+            await updateJob(supabase, jobId, {
+              stage_loop_count: newLoopCount,
+              step_count: newStep + 2,
+              // Clear pinned source so next run-next picks up the new version
+              follow_latest: true,
+              resume_document_id: doc.id,
+              resume_version_id: newVersionId !== "unknown" ? newVersionId : null,
+            });
             await logStep(supabase, jobId, newStep + 2, currentDoc, "rewrite", `Applied rewrite (loop ${newLoopCount}/${job.max_stage_loops})`);
             await logStep(supabase, jobId, newStep + 3, currentDoc, "rewrite_output_ref",
               `Rewrite created new versionId=${newVersionId}`,
-              {}, undefined, { docId: doc.id, newVersionId }
+              {}, undefined, { docId: doc.id, newVersionId, advanced_to_new_version: true }
             );
             return respondWithJob(supabase, jobId, "run-next");
           } catch (e: any) {
