@@ -334,7 +334,7 @@ export default function ProjectDevelopmentEngine() {
             onStageClick={(dt) => setSelectedDeliverableType(dt)} />
 
           {/* ═══ 3-COLUMN LAYOUT ═══ */}
-          <div className="grid grid-cols-1 md:grid-cols-12 gap-3" style={{ minHeight: 'calc(100vh - 240px)' }}>
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
 
             {/* ── LEFT: Documents ── */}
             <div className="md:col-span-2">
@@ -411,7 +411,7 @@ export default function ProjectDevelopmentEngine() {
             </div>
 
             {/* ── CENTER: Workspace ── */}
-            <div className="md:col-span-7 space-y-3">
+            <div className="md:col-span-10 space-y-3" style={{ minHeight: 'calc(100vh - 280px)' }}>
               {!selectedDocId ? (
                 <Card className="h-full flex items-center justify-center min-h-[400px]">
                   <div className="text-center space-y-3 p-8">
@@ -511,69 +511,22 @@ export default function ProjectDevelopmentEngine() {
               )}
             </div>
 
-            {/* ── RIGHT: Intelligence ── */}
-            <div className="md:col-span-3 space-y-3">
-              {/* Convergence */}
+          {/* ═══ INTELLIGENCE PANELS (below workspace) ═══ */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {/* Convergence + Promotion */}
+            <div className="space-y-3">
               <ConvergencePanel
                 latestAnalysis={latestAnalysis}
                 convergenceHistory={convergenceHistory}
                 convergenceStatus={convergenceStatus}
                 tieredNotes={tieredNotes}
               />
-
-              {/* Promotion Intelligence */}
               <PromotionIntelligenceCard
                 data={promotionIntel.data}
                 isLoading={promotionIntel.isLoading}
                 onPromote={handlePromote}
                 onReReview={handleRunEngine}
               />
-
-              {/* Auto-Run Panel */}
-              <AutoRunMissionControl
-                projectId={projectId!}
-                currentDeliverable={selectedDeliverableType}
-                job={autoRun.job}
-                steps={autoRun.steps}
-                isRunning={autoRun.isRunning}
-                error={autoRun.error}
-                onStart={autoRun.start}
-                onRunNext={autoRun.runNext}
-                onResume={autoRun.resume}
-                onPause={autoRun.pause}
-                onStop={autoRun.stop}
-                onClear={autoRun.clear}
-                onApproveDecision={autoRun.approveDecision}
-                onGetPendingDoc={autoRun.getPendingDoc}
-                onApproveNext={autoRun.approveNext}
-                onSetStage={autoRun.setStage}
-                onForcePromote={autoRun.forcePromote}
-                onRestartFromStage={autoRun.restartFromStage}
-                onSaveStorySetup={autoRun.saveStorySetup}
-                onSaveQualifications={autoRun.saveQualifications}
-                onSaveLaneBudget={autoRun.saveLaneBudget}
-                onSaveGuardrails={autoRun.saveGuardrails}
-                fetchDocumentText={autoRun.fetchDocumentText}
-              />
-              {versionText && !isVerticalDrama && (selectedDeliverableType === 'script' || selectedDeliverableType === 'production_draft') && (
-                <FeatureLengthGuardrails projectId={projectId!} versionText={versionText}
-                  selectedDocId={selectedDocId} selectedVersionId={selectedVersionId} />
-              )}
-
-              {/* Notes */}
-              <NotesPanel
-                allNotes={allPrioritizedMoves}
-                tieredNotes={tieredNotes}
-                selectedNotes={selectedNotes}
-                setSelectedNotes={setSelectedNotes}
-                onApplyRewrite={handleRewrite}
-                isRewriting={rewrite.isPending || rewritePipeline.status !== 'idle'}
-                isLoading={isLoading}
-                resolutionSummary={resolutionSummary}
-                stabilityStatus={stabilityStatus}
-              />
-
-              {/* Rewrite plan */}
               {(latestAnalysis?.rewrite_plan || latestNotes?.rewrite_plan) && (
                 <Card>
                   <CardHeader className="py-2 px-3">
@@ -588,8 +541,6 @@ export default function ProjectDevelopmentEngine() {
                   </CardContent>
                 </Card>
               )}
-
-              {/* Timeline — collapsed */}
               {convergenceHistory.length > 0 && (
                 <Collapsible open={timelineOpen} onOpenChange={setTimelineOpen}>
                   <Card>
@@ -620,6 +571,55 @@ export default function ProjectDevelopmentEngine() {
                 </Collapsible>
               )}
             </div>
+
+            {/* Notes */}
+            <div className="space-y-3">
+              <NotesPanel
+                allNotes={allPrioritizedMoves}
+                tieredNotes={tieredNotes}
+                selectedNotes={selectedNotes}
+                setSelectedNotes={setSelectedNotes}
+                onApplyRewrite={handleRewrite}
+                isRewriting={rewrite.isPending || rewritePipeline.status !== 'idle'}
+                isLoading={isLoading}
+                resolutionSummary={resolutionSummary}
+                stabilityStatus={stabilityStatus}
+              />
+              {versionText && !isVerticalDrama && (selectedDeliverableType === 'script' || selectedDeliverableType === 'production_draft') && (
+                <FeatureLengthGuardrails projectId={projectId!} versionText={versionText}
+                  selectedDocId={selectedDocId} selectedVersionId={selectedVersionId} />
+              )}
+            </div>
+
+            {/* Auto-Run Mission Control */}
+            <div className="space-y-3 md:col-span-2 lg:col-span-1">
+              <AutoRunMissionControl
+                projectId={projectId!}
+                currentDeliverable={selectedDeliverableType}
+                job={autoRun.job}
+                steps={autoRun.steps}
+                isRunning={autoRun.isRunning}
+                error={autoRun.error}
+                onStart={autoRun.start}
+                onRunNext={autoRun.runNext}
+                onResume={autoRun.resume}
+                onPause={autoRun.pause}
+                onStop={autoRun.stop}
+                onClear={autoRun.clear}
+                onApproveDecision={autoRun.approveDecision}
+                onGetPendingDoc={autoRun.getPendingDoc}
+                onApproveNext={autoRun.approveNext}
+                onSetStage={autoRun.setStage}
+                onForcePromote={autoRun.forcePromote}
+                onRestartFromStage={autoRun.restartFromStage}
+                onSaveStorySetup={autoRun.saveStorySetup}
+                onSaveQualifications={autoRun.saveQualifications}
+                onSaveLaneBudget={autoRun.saveLaneBudget}
+                onSaveGuardrails={autoRun.saveGuardrails}
+                fetchDocumentText={autoRun.fetchDocumentText}
+              />
+            </div>
+          </div>
           </div>
         </div>
       </div>
