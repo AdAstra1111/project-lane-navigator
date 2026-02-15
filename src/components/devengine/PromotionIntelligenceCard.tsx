@@ -1,7 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ArrowRight, RefreshCw, AlertTriangle, TrendingUp, Shield, Loader2 } from 'lucide-react';
+import { ArrowRight, RefreshCw, AlertTriangle, TrendingUp, Shield, Loader2, ShieldAlert } from 'lucide-react';
 
 export interface PromotionRecommendation {
   recommendation: 'promote' | 'stabilise' | 'escalate';
@@ -48,6 +48,7 @@ export function PromotionIntelligenceCard({ data, isLoading, onPromote, onReRevi
   const { recommendation, next_document, readiness_score, confidence, reasons, must_fix_next, risk_flags } = data;
   const meta = LABELS[recommendation] || LABELS.stabilise;
   const Icon = meta.icon;
+  const hasHardGate = risk_flags.some(f => f.startsWith('hard_gate:'));
 
   return (
     <Card className="border-primary/20">
@@ -57,6 +58,13 @@ export function PromotionIntelligenceCard({ data, isLoading, onPromote, onReRevi
         </CardTitle>
       </CardHeader>
       <CardContent className="px-3 pb-3 space-y-2">
+        {/* Hard Gate indicator */}
+        {hasHardGate && (
+          <Badge variant="outline" className="text-[9px] px-1.5 py-0.5 text-destructive border-destructive/40 bg-destructive/10 gap-1">
+            <ShieldAlert className="h-3 w-3" /> Hard Gate Active
+          </Badge>
+        )}
+
         {/* Recommendation badge */}
         <div className="flex items-center gap-2">
           <Badge className={`text-[10px] ${meta.color}`}>

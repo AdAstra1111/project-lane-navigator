@@ -139,127 +139,7 @@ Deno.serve(async (req) => {
     }
 
     // ══════════════════════════════════
-    // HARD GATES
-    // ══════════════════════════════════
-
-    // Gate A — Blockers (always stops promotion)
-    if (blockersCount > 0) {
-      reasons.push("Blocking issues remain (" + blockersCount + " active)");
-      mustFixNext.push(...latestCounts.blockerTexts.slice(0, 3));
-      if (mustFixNext.length === 0) mustFixNext.push("Resolve blocking issues");
-
-      return respond({
-        recommendation: "stabilise",
-        next_document: null,
-        readiness_score: 0,
-        confidence: computeConfidence(currentIteration, highImpactCount, latestGap, sessionTrajectory),
-        reasons,
-        must_fix_next: mustFixNext,
-        risk_flags: riskFlags,
-      });
-    }
-
-    // Gate B — Trajectory crash (eroding 2 consecutive)
-    if (iters.length >= 2) {
-      const lastTwo = iters.slice(-2);
-      const bothEroding = lastTwo.every(
-        (it) => (it.trajectory || "").toLowerCase() === "eroding"
-      );
-      if (bothEroding) {
-        reasons.push("Trajectory eroding across iterations");
-        mustFixNext.push("Run Executive Strategy Loop");
-        return respond({
-          recommendation: "escalate",
-          next_document: null,
-          readiness_score: 0,
-          confidence: computeConfidence(currentIteration, highImpactCount, latestGap, sessionTrajectory),
-          reasons,
-          must_fix_next: mustFixNext,
-          risk_flags: riskFlags,
-        });
-      }
-    }
-
-    // Gate D — Early-stage high-impact hard gate
-    if ((currentDocument === "idea" || currentDocument === "concept_brief") && highImpactCount > 0) {
-      reasons.push("High-impact issues remain at early stage (" + highImpactCount + " active)");
-      const hiNotes = (latestIter?.raw_ai_response?.high_impact_notes || latestIter?.raw_ai_response?.high_impact || []).slice(0, 3);
-      for (const n of hiNotes) {
-        mustFixNext.push(typeof n === "string" ? n : n?.description || n?.note || "Resolve high-impact notes");
-      }
-      if (mustFixNext.length === 0) mustFixNext.push("Resolve high-impact notes");
-      mustFixNext.push("Run another editorial pass");
-      return respond({
-        recommendation: "stabilise",
-        next_document: null,
-        readiness_score: 0,
-        confidence: computeConfidence(currentIteration, highImpactCount, latestGap, sessionTrajectory),
-        reasons,
-        must_fix_next: mustFixNext,
-        risk_flags: riskFlags,
-      });
-    }
-
-    // Gate B — Trajectory crash (eroding 2 consecutive)
-    if (iters.length >= 2) {
-      const lastTwo = iters.slice(-2);
-      const bothEroding = lastTwo.every(
-        (it) => (it.trajectory || "").toLowerCase() === "eroding"
-      );
-      if (bothEroding) {
-        reasons.push("Trajectory eroding across iterations");
-        mustFixNext.push("Run Executive Strategy Loop");
-        return respond({
-          recommendation: "escalate",
-          next_document: null,
-          readiness_score: 0,
-          confidence: computeConfidence(currentIteration, highImpactCount, latestGap, sessionTrajectory),
-          reasons,
-          must_fix_next: mustFixNext,
-          risk_flags: riskFlags,
-        });
-      }
-    }
-
-    // Gate C — Thrash detection
-    if (iters.length >= 3) {
-      const counts = iters.map((it) => deriveCounts(it.raw_ai_response).blockers);
-      // oscillation: 0→N→0 or N→0→N
-      const oscillation =
-        (counts[0] === 0 && counts[1] > 0 && counts[2] === 0) ||
-        (counts[0] > 0 && counts[1] === 0 && counts[2] > 0);
-
-      // same top issue repeats 3 times
-      let repeatedIssue = false;
-      const allBlockerHashes = iters.map((it) =>
-        deriveCounts(it.raw_ai_response).blockerTexts.map(hashStr)
-      );
-      if (allBlockerHashes.length === 3) {
-        const flat0 = new Set(allBlockerHashes[0]);
-        const flat1 = new Set(allBlockerHashes[1]);
-        const flat2 = new Set(allBlockerHashes[2]);
-        for (const h of flat0) {
-          if (flat1.has(h) && flat2.has(h)) { repeatedIssue = true; break; }
-        }
-      }
-
-      if (oscillation || repeatedIssue) {
-        reasons.push("Note thrash detected");
-        mustFixNext.push("Run Executive Strategy Loop");
-        return respond({
-          recommendation: "escalate",
-          next_document: null,
-          readiness_score: 0,
-          confidence: computeConfidence(currentIteration, highImpactCount, latestGap, sessionTrajectory),
-          reasons,
-          must_fix_next: mustFixNext,
-          risk_flags: riskFlags,
-        });
-      }
-    }
-
-    // ══════════════════════════════════
-    // WEIGHTED READINESS SCORE
+    // WEIGHTED READINESS SCORE (computed first, always)
     // ══════════════════════════════════
 
     const w = WEIGHTS[currentDocument];
@@ -278,7 +158,117 @@ Deno.serve(async (req) => {
     );
     readinessScore = clamp(readinessScore, 0, 100);
 
-    // ── Decision ──
+    const confidence = computeConfidence(currentIteration, highImpactCount, latestGap, sessionTrajectory);
+
+    // ══════════════════════════════════
+    // HARD GATES (override recommendation, keep readinessScore)
+    // ══════════════════════════════════
+
+    // Gate A — Blockers
+    if (blockersCount > 0) {
+      riskFlags.push("hard_gate:blockers");
+      reasons.push("Promotion blocked by active blocking issues (" + blockersCount + ")");
+      reasons.push("Readiness score: " + readinessScore + "/100");
+      mustFixNext.push(...latestCounts.blockerTexts.slice(0, 3));
+      if (mustFixNext.length === 0) mustFixNext.push("Resolve blocking issues");
+
+      return respond({
+        recommendation: "stabilise",
+        next_document: null,
+        readiness_score: readinessScore,
+        confidence,
+        reasons,
+        must_fix_next: mustFixNext,
+        risk_flags: riskFlags,
+      });
+    }
+
+    // Gate B — Trajectory crash (eroding 2 consecutive)
+    if (iters.length >= 2) {
+      const lastTwo = iters.slice(-2);
+      const bothEroding = lastTwo.every(
+        (it) => (it.trajectory || "").toLowerCase() === "eroding"
+      );
+      if (bothEroding) {
+        riskFlags.push("hard_gate:eroding_trajectory");
+        reasons.push("Trajectory eroding across iterations");
+        reasons.push("Readiness score: " + readinessScore + "/100");
+        mustFixNext.push("Run Executive Strategy Loop");
+        return respond({
+          recommendation: "escalate",
+          next_document: null,
+          readiness_score: readinessScore,
+          confidence,
+          reasons,
+          must_fix_next: mustFixNext,
+          risk_flags: riskFlags,
+        });
+      }
+    }
+
+    // Gate C — Thrash detection
+    if (iters.length >= 3) {
+      const counts = iters.map((it) => deriveCounts(it.raw_ai_response).blockers);
+      const oscillation =
+        (counts[0] === 0 && counts[1] > 0 && counts[2] === 0) ||
+        (counts[0] > 0 && counts[1] === 0 && counts[2] > 0);
+
+      let repeatedIssue = false;
+      const allBlockerHashes = iters.map((it) =>
+        deriveCounts(it.raw_ai_response).blockerTexts.map(hashStr)
+      );
+      if (allBlockerHashes.length === 3) {
+        const flat0 = new Set(allBlockerHashes[0]);
+        const flat1 = new Set(allBlockerHashes[1]);
+        const flat2 = new Set(allBlockerHashes[2]);
+        for (const h of flat0) {
+          if (flat1.has(h) && flat2.has(h)) { repeatedIssue = true; break; }
+        }
+      }
+
+      if (oscillation || repeatedIssue) {
+        riskFlags.push("hard_gate:thrash");
+        reasons.push("Note thrash detected");
+        reasons.push("Readiness score: " + readinessScore + "/100");
+        mustFixNext.push("Run Executive Strategy Loop");
+        return respond({
+          recommendation: "escalate",
+          next_document: null,
+          readiness_score: readinessScore,
+          confidence,
+          reasons,
+          must_fix_next: mustFixNext,
+          risk_flags: riskFlags,
+        });
+      }
+    }
+
+    // Gate D — Early-stage high-impact
+    if ((currentDocument === "idea" || currentDocument === "concept_brief") && highImpactCount > 0) {
+      riskFlags.push("hard_gate:early_stage_high_impact");
+      reasons.push("Promotion blocked by early-stage high-impact issues (" + highImpactCount + ")");
+      reasons.push("Readiness score: " + readinessScore + "/100");
+      const hiNotes = (latestIter?.raw_ai_response?.high_impact_notes || latestIter?.raw_ai_response?.high_impact || []).slice(0, 3);
+      for (const n of hiNotes) {
+        mustFixNext.push(typeof n === "string" ? n : n?.description || n?.note || "Resolve high-impact notes");
+      }
+      if (mustFixNext.length === 0) mustFixNext.push("Resolve high-impact notes");
+      mustFixNext.push("Run another editorial pass");
+      return respond({
+        recommendation: "stabilise",
+        next_document: null,
+        readiness_score: readinessScore,
+        confidence,
+        reasons,
+        must_fix_next: mustFixNext,
+        risk_flags: riskFlags,
+      });
+    }
+
+    // ══════════════════════════════════
+    // DECISION BANDS (no hard gate fired)
+    // ══════════════════════════════════
+
     let recommendation: "promote" | "stabilise" | "escalate";
     const next = nextDoc(currentDocument);
 
@@ -316,7 +306,6 @@ Deno.serve(async (req) => {
     if (recommendation === "promote" && next) {
       mustFixNext.push(`Promote to ${next}`);
     } else if (recommendation === "stabilise") {
-      // Include top 2 high-impact note summaries
       const hiNotes = (latestIter?.raw_ai_response?.high_impact_notes || []).slice(0, 2);
       for (const n of hiNotes) {
         mustFixNext.push(typeof n === "string" ? n : n?.description || n?.note || "Resolve high-impact notes");
@@ -327,8 +316,6 @@ Deno.serve(async (req) => {
       mustFixNext.push("Run Executive Strategy Loop");
       mustFixNext.push("Consider repositioning format or lane");
     }
-
-    const confidence = computeConfidence(currentIteration, highImpactCount, latestGap, sessionTrajectory);
 
     return respond({
       recommendation,

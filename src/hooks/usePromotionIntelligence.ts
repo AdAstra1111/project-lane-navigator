@@ -116,31 +116,7 @@ function computeLocally(input: PromotionInput): PromotionRecommendation {
     console.debug('Promotion Intel Input:', { ci, gp, gap, blockersCount, highImpactCount, trajectory, currentDocument: doc, iterationCount });
   }
 
-  // Gate A — Blockers (hard gate, always stops promotion)
-  if (blockersCount > 0) {
-    reasons.push(`Blocking issues remain (${blockersCount} active)`);
-    mustFixNext.push(...blockerTexts.slice(0, 3));
-    if (mustFixNext.length === 0) mustFixNext.push('Resolve blocking issues');
-    return { recommendation: 'stabilise', next_document: null, readiness_score: 0, confidence, reasons, must_fix_next: mustFixNext, risk_flags: riskFlags };
-  }
-
-  // Gate B — Eroding trajectory
-  if ((trajectory || '').toLowerCase() === 'eroding') {
-    reasons.push('Trajectory is eroding');
-    mustFixNext.push('Run Executive Strategy Loop');
-    return { recommendation: 'escalate', next_document: null, readiness_score: 0, confidence, reasons, must_fix_next: mustFixNext, risk_flags: riskFlags };
-  }
-
-  // Gate D — Early-stage high-impact hard gate
-  if ((doc === 'idea' || doc === 'concept_brief') && highImpactCount > 0) {
-    reasons.push(`High-impact issues remain at early stage (${highImpactCount} active)`);
-    mustFixNext.push(...highImpactTexts.slice(0, 3));
-    if (mustFixNext.length === 0) mustFixNext.push('Resolve high-impact notes');
-    mustFixNext.push('Run another editorial pass');
-    return { recommendation: 'stabilise', next_document: null, readiness_score: 0, confidence, reasons, must_fix_next: mustFixNext, risk_flags: riskFlags };
-  }
-
-  // Weighted score (only runs when all hard gates pass)
+  // ── Compute weighted score FIRST (always) ──
   const w = WEIGHTS[doc] || WEIGHTS.concept_brief;
   const gapScore = 100 - clamp(gap * 2, 0, 100);
   const trajScore = trajectoryScore(trajectory);
@@ -152,6 +128,39 @@ function computeLocally(input: PromotionInput): PromotionRecommendation {
   );
   readinessScore = clamp(readinessScore, 0, 100);
 
+  // ── Hard Gates (override recommendation but keep readinessScore) ──
+
+  // Gate A — Blockers
+  if (blockersCount > 0) {
+    riskFlags.push('hard_gate:blockers');
+    reasons.push(`Promotion blocked by active blocking issues (${blockersCount})`);
+    reasons.push(`Readiness score: ${readinessScore}/100`);
+    mustFixNext.push(...blockerTexts.slice(0, 3));
+    if (mustFixNext.length === 0) mustFixNext.push('Resolve blocking issues');
+    return { recommendation: 'stabilise', next_document: null, readiness_score: readinessScore, confidence, reasons, must_fix_next: mustFixNext, risk_flags: riskFlags };
+  }
+
+  // Gate B — Eroding trajectory
+  if ((trajectory || '').toLowerCase() === 'eroding') {
+    riskFlags.push('hard_gate:eroding_trajectory');
+    reasons.push('Trajectory is eroding');
+    reasons.push(`Readiness score: ${readinessScore}/100`);
+    mustFixNext.push('Run Executive Strategy Loop');
+    return { recommendation: 'escalate', next_document: null, readiness_score: readinessScore, confidence, reasons, must_fix_next: mustFixNext, risk_flags: riskFlags };
+  }
+
+  // Gate D — Early-stage high-impact
+  if ((doc === 'idea' || doc === 'concept_brief') && highImpactCount > 0) {
+    riskFlags.push('hard_gate:early_stage_high_impact');
+    reasons.push(`Promotion blocked by early-stage high-impact issues (${highImpactCount})`);
+    reasons.push(`Readiness score: ${readinessScore}/100`);
+    mustFixNext.push(...highImpactTexts.slice(0, 3));
+    if (mustFixNext.length === 0) mustFixNext.push('Resolve high-impact notes');
+    mustFixNext.push('Run another editorial pass');
+    return { recommendation: 'stabilise', next_document: null, readiness_score: readinessScore, confidence, reasons, must_fix_next: mustFixNext, risk_flags: riskFlags };
+  }
+
+  // ── Decision bands (only reached when no hard gate fires) ──
   let recommendation: 'promote' | 'stabilise' | 'escalate';
   const next = nextDoc(doc);
 
