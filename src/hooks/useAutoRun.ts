@@ -255,6 +255,7 @@ export function useAutoRun(projectId: string | undefined) {
 
   const approveNext = useCallback(async (decision: 'approve' | 'revise' | 'stop') => {
     if (!job) return;
+    if (isRunning) return; // prevent duplicate calls while loop is active
     setError(null);
     abortRef.current = false;
     try {
@@ -262,12 +263,16 @@ export function useAutoRun(projectId: string | undefined) {
       setJob(result.job);
       setSteps(result.latest_steps || []);
       if (result.job?.status === 'running') {
+        // Small delay to avoid race with any lingering poll
+        await new Promise(r => setTimeout(r, 300));
         runLoop(result.job.id);
       }
     } catch (e: any) {
+      // Ignore "not awaiting approval" if already processed
+      if (e.message?.includes('not awaiting approval')) return;
       setError(e.message);
     }
-  }, [job, runLoop]);
+  }, [job, runLoop, isRunning]);
 
   return { job, steps, isRunning, error, start, runNext, resume, pause, stop, clear, approveDecision, getPendingDoc, approveNext };
 }
