@@ -36,6 +36,8 @@ import { ConvergencePanel } from '@/components/devengine/ConvergencePanel';
 import { DriftBanner } from '@/components/devengine/DriftBanner';
 import { PromotionIntelligenceCard } from '@/components/devengine/PromotionIntelligenceCard';
 import { usePromotionIntelligence, extractNoteCounts } from '@/hooks/usePromotionIntelligence';
+import { AutoRunPanel } from '@/components/devengine/AutoRunPanel';
+import { useAutoRun } from '@/hooks/useAutoRun';
 
 // ── Main Page ──
 export default function ProjectDevelopmentEngine() {
@@ -84,6 +86,7 @@ export default function ProjectDevelopmentEngine() {
   const pipeline = useScriptPipeline(projectId);
   const promotionIntel = usePromotionIntelligence();
   const rewritePipeline = useRewritePipeline(projectId);
+  const autoRun = useAutoRun(projectId);
 
   const [selectedDeliverableType, setSelectedDeliverableType] = useState<DeliverableType>('script');
   const [selectedNotes, setSelectedNotes] = useState<Set<number>>(new Set());
@@ -526,7 +529,20 @@ export default function ProjectDevelopmentEngine() {
                 onReReview={handleRunEngine}
               />
 
-              {/* Feature Length Guardrails — right sidebar */}
+              {/* Auto-Run Panel */}
+              <AutoRunPanel
+                job={autoRun.job}
+                steps={autoRun.steps}
+                isRunning={autoRun.isRunning}
+                error={autoRun.error}
+                currentDeliverable={selectedDeliverableType}
+                onStart={autoRun.start}
+                onRunNext={autoRun.runNext}
+                onResume={autoRun.resume}
+                onPause={autoRun.pause}
+                onStop={autoRun.stop}
+                onClear={autoRun.clear}
+              />
               {versionText && !isVerticalDrama && (selectedDeliverableType === 'script' || selectedDeliverableType === 'production_draft') && (
                 <FeatureLengthGuardrails projectId={projectId!} versionText={versionText}
                   selectedDocId={selectedDocId} selectedVersionId={selectedVersionId} />

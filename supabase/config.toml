@@ -116,3 +116,6 @@ verify_jwt = false
 
 [functions.suggest-promotion]
 verify_jwt = false
+
+[functions.auto-run]
+verify_jwt = false
