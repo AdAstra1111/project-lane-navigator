@@ -972,6 +972,182 @@ Deno.serve(async (req) => {
     }
 
     // ═══════════════════════════════════════
+    // ACTION: apply-rewrite (manual rewrite from Promotion Intelligence)
+    // ═══════════════════════════════════════
+    if (action === "apply-rewrite") {
+      if (!jobId) return respond({ error: "jobId required" }, 400);
+      const { data: job, error: jobErr } = await supabase.from("auto_run_jobs").select("*").eq("id", jobId).eq("user_id", userId).single();
+      if (jobErr || !job) return respond({ error: "Job not found" }, 404);
+
+      const currentDoc = job.current_document as DocStage;
+      const stepCount = job.step_count + 1;
+
+      // Fetch latest doc + version for current stage
+      const { data: docs } = await supabase.from("project_documents")
+        .select("id, doc_type, plaintext, extracted_text")
+        .eq("project_id", job.project_id).eq("doc_type", currentDoc)
+        .order("created_at", { ascending: false }).limit(1);
+      const doc = docs?.[0];
+      if (!doc) return respond({ error: `No document found for stage ${currentDoc}` }, 400);
+
+      const { data: versions } = await supabase.from("project_document_versions")
+        .select("id, plaintext, version_number")
+        .eq("document_id", doc.id)
+        .order("version_number", { ascending: false }).limit(1);
+      const latestVersion = versions?.[0];
+      if (!latestVersion) return respond({ error: "No version found" }, 400);
+
+      // Fetch latest notes
+      const notesResult = await supabase.from("development_runs")
+        .select("output_json").eq("document_id", doc.id).eq("run_type", "NOTES")
+        .order("created_at", { ascending: false }).limit(1).single();
+      const notes = notesResult.data?.output_json;
+      const approvedNotes = [
+        ...(notes?.blocking_issues || []),
+        ...(notes?.high_impact_notes || []),
+      ];
+      const protectItems = notes?.protect || [];
+
+      const { data: project } = await supabase.from("projects")
+        .select("format, development_behavior").eq("id", job.project_id).single();
+      const format = (project?.format || "film").toLowerCase().replace(/_/g, "-");
+      const behavior = project?.development_behavior || "market";
+
+      try {
+        const rewriteResult = await callEdgeFunctionWithRetry(
+          supabase, supabaseUrl, "dev-engine-v2", {
+            action: "rewrite",
+            projectId: job.project_id,
+            documentId: doc.id,
+            versionId: latestVersion.id,
+            approvedNotes,
+            protectItems,
+            deliverableType: currentDoc,
+            developmentBehavior: behavior,
+            format,
+          }, token, job.project_id, format, currentDoc, jobId, stepCount
+        );
+
+        // Re-fetch latest version after rewrite
+        const { data: postRewriteVersions } = await supabase.from("project_document_versions")
+          .select("id, version_number")
+          .eq("document_id", doc.id)
+          .order("version_number", { ascending: false }).limit(1);
+        const newVersionId = postRewriteVersions?.[0]?.id || "unknown";
+
+        const newLoopCount = job.stage_loop_count + 1;
+        await logStep(supabase, jobId, stepCount, currentDoc, "manual_rewrite",
+          `Manual rewrite applied (loop ${newLoopCount}). New version: ${newVersionId}`,
+          {}, undefined, { docId: doc.id, newVersionId }
+        );
+        await updateJob(supabase, jobId, {
+          step_count: stepCount,
+          stage_loop_count: newLoopCount,
+          status: "running",
+          stop_reason: null,
+          follow_latest: true,
+          resume_document_id: doc.id,
+          resume_version_id: newVersionId !== "unknown" ? newVersionId : null,
+        });
+        return respondWithJob(supabase, jobId, "run-next");
+      } catch (e: any) {
+        await logStep(supabase, jobId, stepCount, currentDoc, "manual_rewrite_failed", `Rewrite failed: ${e.message}`);
+        return respond({ error: `Rewrite failed: ${e.message}` }, 500);
+      }
+    }
+
+    // ═══════════════════════════════════════
+    // ACTION: run-strategy (manual executive strategy from Promotion Intelligence)
+    // ═══════════════════════════════════════
+    if (action === "run-strategy") {
+      if (!jobId) return respond({ error: "jobId required" }, 400);
+      const { data: job, error: jobErr } = await supabase.from("auto_run_jobs").select("*").eq("id", jobId).eq("user_id", userId).single();
+      if (jobErr || !job) return respond({ error: "Job not found" }, 404);
+
+      const currentDoc = job.current_document as DocStage;
+      const stepCount = job.step_count + 1;
+
+      const { data: project } = await supabase.from("projects")
+        .select("format, development_behavior").eq("id", job.project_id).single();
+      const format = (project?.format || "film").toLowerCase().replace(/_/g, "-");
+      const behavior = project?.development_behavior || "market";
+
+      const { data: docs } = await supabase.from("project_documents")
+        .select("id").eq("project_id", job.project_id).eq("doc_type", currentDoc)
+        .order("created_at", { ascending: false }).limit(1);
+      const doc = docs?.[0];
+      if (!doc) return respond({ error: `No document found for stage ${currentDoc}` }, 400);
+
+      const { data: vers } = await supabase.from("project_document_versions")
+        .select("id").eq("document_id", doc.id)
+        .order("version_number", { ascending: false }).limit(1);
+      const latestVersion = vers?.[0];
+      if (!latestVersion) return respond({ error: "No version found" }, 400);
+
+      try {
+        const stratResult = await callEdgeFunctionWithRetry(
+          supabase, supabaseUrl, "dev-engine-v2", {
+            action: "executive-strategy",
+            projectId: job.project_id,
+            documentId: doc.id,
+            versionId: latestVersion.id,
+            deliverableType: currentDoc,
+            format,
+            developmentBehavior: behavior,
+          }, token, job.project_id, format, currentDoc, jobId, stepCount
+        );
+
+        const strat = stratResult?.result || stratResult || {};
+        const autoFixes = strat.auto_fixes || {};
+        const mustDecide = Array.isArray(strat.must_decide) ? strat.must_decide : [];
+
+        // Apply auto_fixes to project
+        const projectUpdates: Record<string, any> = {};
+        if (autoFixes.assigned_lane) projectUpdates.assigned_lane = autoFixes.assigned_lane;
+        if (autoFixes.budget_range) projectUpdates.budget_range = autoFixes.budget_range;
+        const qualFixes = autoFixes.qualifications || {};
+        if (Object.keys(qualFixes).length > 0) {
+          const { data: curProj } = await supabase.from("projects").select("guardrails_config").eq("id", job.project_id).single();
+          const gc = curProj?.guardrails_config || {};
+          gc.overrides = gc.overrides || {};
+          gc.overrides.qualifications = { ...(gc.overrides.qualifications || {}), ...qualFixes };
+          projectUpdates.guardrails_config = gc;
+        }
+        if (Object.keys(projectUpdates).length > 0) {
+          await supabase.from("projects").update(projectUpdates).eq("id", job.project_id);
+        }
+
+        await logStep(supabase, jobId, stepCount, currentDoc, "manual_strategy",
+          strat.summary || `Executive strategy: auto-fixes=${Object.keys(projectUpdates).join(",")||"none"}, decisions=${mustDecide.length}`,
+          {}, undefined, { strategy: strat, updates: projectUpdates }
+        );
+
+        // If blocking decisions exist, pause for user
+        const blockingDecisions = mustDecide.filter((d: any) => d.impact === "blocking");
+        if (blockingDecisions.length > 0) {
+          await updateJob(supabase, jobId, {
+            step_count: stepCount,
+            status: "paused",
+            stop_reason: `Executive strategy decision required: ${blockingDecisions[0].question}`,
+            pending_decisions: mustDecide,
+          });
+          return respondWithJob(supabase, jobId, "approve-decision");
+        }
+
+        // No blocking decisions — resume
+        await updateJob(supabase, jobId, {
+          step_count: stepCount,
+          status: "paused",
+          stop_reason: "Executive strategy complete — review applied changes",
+        });
+        return respondWithJob(supabase, jobId, "resume");
+      } catch (e: any) {
+        await logStep(supabase, jobId, stepCount, currentDoc, "manual_strategy_failed", `Strategy failed: ${e.message}`);
+        return respond({ error: `Strategy failed: ${e.message}` }, 500);
+      }
+    }
+
+    // ═══════════════════════════════════════
     // ACTION: run-next (core state machine step)
     // ═══════════════════════════════════════
     if (action === "run-next") {

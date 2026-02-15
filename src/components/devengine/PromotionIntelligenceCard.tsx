@@ -7,8 +7,9 @@ import { Textarea } from '@/components/ui/textarea';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
   ArrowRight, RefreshCw, AlertTriangle, Shield, Loader2, ShieldAlert,
-  ChevronDown, Pencil, SkipForward, CheckCircle2,
+  ChevronDown, Pencil, SkipForward, CheckCircle2, Pause, Zap,
 } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
 
 export interface PromotionRecommendation {
   recommendation: 'promote' | 'stabilise' | 'escalate';
@@ -30,8 +31,13 @@ interface QueueItem {
 interface Props {
   data: PromotionRecommendation | null;
   isLoading: boolean;
+  jobId?: string | null;
+  onJobRefresh?: () => void;
+  /** @deprecated Use jobId + onJobRefresh instead */
   onPromote?: () => void;
+  /** @deprecated */
   onReReview?: () => void;
+  /** @deprecated */
   onEscalate?: () => void;
 }
 
@@ -46,15 +52,31 @@ const DOC_LABELS: Record<string, string> = {
   architecture: 'Architecture', draft: 'Draft', coverage: 'Coverage',
 };
 
-export function PromotionIntelligenceCard({ data, isLoading, onPromote, onReReview, onEscalate }: Props) {
+async function callAutoRun(action: string, extra: Record<string, any> = {}) {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('Not authenticated');
+  const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/auto-run`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify({ action, ...extra }),
+  });
+  const result = await resp.json();
+  if (!resp.ok) throw new Error(result.error || 'Auto-run error');
+  return result;
+}
+
+export function PromotionIntelligenceCard({ data, isLoading, jobId, onJobRefresh, onPromote, onReReview, onEscalate }: Props) {
   const [queueItems, setQueueItems] = useState<QueueItem[]>([]);
   const [queueOpen, setQueueOpen] = useState(true);
   const [showDetails, setShowDetails] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
 
-  // Reset queue when data changes
   useEffect(() => {
     if (!data) { setQueueItems([]); return; }
     const items: QueueItem[] = (data.must_fix_next.length > 0
@@ -77,15 +99,48 @@ export function PromotionIntelligenceCard({ data, isLoading, onPromote, onReRevi
     });
   }, []);
 
+  const executeAction = useCallback(async (actionName: string) => {
+    if (!jobId || actionLoading) return;
+    setActionLoading(actionName);
+    try {
+      const result = await callAutoRun(actionName, { jobId });
+      // Mark queue items as approved
+      setQueueItems(prev => prev.map(item =>
+        selectedIds.has(item.id) ? { ...item, status: 'approved' as const } : item
+      ));
+      onJobRefresh?.();
+      // If the action hints at run-next, auto-trigger once
+      if (result?.next_action_hint === 'run-next') {
+        setTimeout(async () => {
+          try {
+            await callAutoRun('run-next', { jobId });
+            onJobRefresh?.();
+          } catch { /* ignore */ }
+        }, 500);
+      }
+    } catch (e: any) {
+      console.error(`Action ${actionName} failed:`, e.message);
+    } finally {
+      setActionLoading(null);
+    }
+  }, [jobId, actionLoading, selectedIds, onJobRefresh]);
+
+  // Legacy fallback for when jobId is not provided
   const handleApproveSelected = useCallback(() => {
+    if (jobId) {
+      if (data?.recommendation === 'promote') executeAction('force-promote');
+      else if (data?.recommendation === 'stabilise') executeAction('apply-rewrite');
+      else if (data?.recommendation === 'escalate') executeAction('run-strategy');
+      return;
+    }
+    // Legacy callbacks
     setQueueItems(prev => prev.map(item =>
       selectedIds.has(item.id) ? { ...item, status: 'approved' as const } : item
     ));
-    // Execute the recommended action
     if (data?.recommendation === 'promote') onPromote?.();
     else if (data?.recommendation === 'stabilise') onReReview?.();
     else if (data?.recommendation === 'escalate') onEscalate?.();
-  }, [selectedIds, data?.recommendation, onPromote, onReReview, onEscalate]);
+  }, [jobId, selectedIds, data?.recommendation, executeAction, onPromote, onReReview, onEscalate]);
 
   const handleApproveNext = useCallback(() => {
     const next = queueItems.find(i => i.status === 'pending');
@@ -126,12 +181,13 @@ export function PromotionIntelligenceCard({ data, isLoading, onPromote, onReRevi
   const meta = LABELS[recommendation] || LABELS.stabilise;
   const Icon = meta.icon;
   const hasHardGate = risk_flags.some(f => f.startsWith('hard_gate:'));
+  const hasBlockers = risk_flags.includes('hard_gate:blockers');
   const pendingCount = queueItems.filter(i => i.status === 'pending').length;
   const whyText = reasons[0] || '—';
+  const isAnyLoading = !!actionLoading;
 
   return (
     <Card className="border-primary/20">
-      {/* Header */}
       <CardHeader className="py-2 px-3">
         <div className="flex items-center justify-between">
           <CardTitle className="text-xs">Next Step</CardTitle>
@@ -160,13 +216,10 @@ export function PromotionIntelligenceCard({ data, isLoading, onPromote, onReRevi
           </Badge>
         </div>
 
-        {/* Why (single line) */}
+        {/* Why */}
         <p className="text-[10px] text-muted-foreground line-clamp-1">{whyText}</p>
         {reasons.length > 1 && (
-          <button
-            onClick={() => setShowDetails(!showDetails)}
-            className="text-[9px] text-primary hover:underline"
-          >
+          <button onClick={() => setShowDetails(!showDetails)} className="text-[9px] text-primary hover:underline">
             {showDetails ? 'Hide details' : `Show details (${reasons.length - 1} more)`}
           </button>
         )}
@@ -178,7 +231,7 @@ export function PromotionIntelligenceCard({ data, isLoading, onPromote, onReRevi
           </div>
         )}
 
-        {/* Risk flags (compact) */}
+        {/* Risk flags */}
         {risk_flags.length > 0 && (
           <div className="flex flex-wrap gap-1">
             {risk_flags.slice(0, 4).map((f, i) => (
@@ -189,6 +242,52 @@ export function PromotionIntelligenceCard({ data, isLoading, onPromote, onReRevi
             {risk_flags.length > 4 && (
               <span className="text-[7px] text-muted-foreground">+{risk_flags.length - 4}</span>
             )}
+          </div>
+        )}
+
+        {/* Direct Action Buttons */}
+        {jobId && (
+          <div className="flex flex-wrap gap-1 pt-1 border-t border-border/40">
+            <Button
+              size="sm"
+              className="h-6 text-[9px] gap-1 px-2"
+              disabled={isAnyLoading || (hasBlockers && recommendation !== 'promote')}
+              onClick={() => executeAction('force-promote')}
+              title={hasBlockers ? 'Blockers active — resolve before promoting' : undefined}
+            >
+              {actionLoading === 'force-promote' ? <Loader2 className="h-3 w-3 animate-spin" /> : <ArrowRight className="h-3 w-3" />}
+              {hasBlockers ? 'Force Promote' : 'Promote'}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-6 text-[9px] gap-1 px-2"
+              disabled={isAnyLoading}
+              onClick={() => executeAction('apply-rewrite')}
+            >
+              {actionLoading === 'apply-rewrite' ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+              Rewrite
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-6 text-[9px] gap-1 px-2"
+              disabled={isAnyLoading}
+              onClick={() => executeAction('run-strategy')}
+            >
+              {actionLoading === 'run-strategy' ? <Loader2 className="h-3 w-3 animate-spin" /> : <Zap className="h-3 w-3" />}
+              Strategy
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 text-[9px] gap-1 px-2"
+              disabled={isAnyLoading}
+              onClick={() => executeAction('pause')}
+            >
+              {actionLoading === 'pause' ? <Loader2 className="h-3 w-3 animate-spin" /> : <Pause className="h-3 w-3" />}
+              Pause
+            </Button>
           </div>
         )}
 
@@ -233,8 +332,6 @@ export function PromotionIntelligenceCard({ data, isLoading, onPromote, onReRevi
                       </button>
                     )}
                   </div>
-
-                  {/* Inline edit */}
                   {editingId === item.id && (
                     <div className="mt-1.5 space-y-1">
                       <Textarea
@@ -243,24 +340,18 @@ export function PromotionIntelligenceCard({ data, isLoading, onPromote, onReRevi
                         className="text-[10px] min-h-[40px] h-10"
                       />
                       <div className="flex gap-1 justify-end">
-                        <Button size="sm" variant="ghost" className="h-5 text-[9px] px-2" onClick={() => setEditingId(null)}>
-                          Cancel
-                        </Button>
-                        <Button size="sm" className="h-5 text-[9px] px-2" onClick={() => handleSaveEdit(item.id)}>
-                          Save
-                        </Button>
+                        <Button size="sm" variant="ghost" className="h-5 text-[9px] px-2" onClick={() => setEditingId(null)}>Cancel</Button>
+                        <Button size="sm" className="h-5 text-[9px] px-2" onClick={() => handleSaveEdit(item.id)}>Save</Button>
                       </div>
                     </div>
                   )}
                 </div>
               ))}
             </div>
-
-            {/* Queue buttons */}
             {pendingCount > 0 && (
               <div className="flex flex-wrap gap-1 mt-2">
-                <Button size="sm" className="h-6 text-[9px] gap-1 px-2" onClick={handleApproveSelected}>
-                  <CheckCircle2 className="h-3 w-3" /> Approve selected
+                <Button size="sm" className="h-6 text-[9px] gap-1 px-2" disabled={isAnyLoading} onClick={handleApproveSelected}>
+                  {isAnyLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />} Approve selected
                 </Button>
                 <Button size="sm" variant="outline" className="h-6 text-[9px] gap-1 px-2" onClick={handleApproveNext}>
                   Approve next
