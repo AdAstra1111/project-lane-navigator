@@ -489,11 +489,6 @@ export default function ProjectDevelopmentEngine() {
                     </CardContent>
                   </Card>
 
-                  {/* Feature guardrails + Set as draft */}
-                  {versionText && (selectedDeliverableType === 'script' || selectedDeliverableType === 'production_draft') && (
-                    <FeatureLengthGuardrails projectId={projectId!} versionText={versionText}
-                      selectedDocId={selectedDocId} selectedVersionId={selectedVersionId} />
-                  )}
                   {versionText && (
                     <div className="flex justify-end">
                       <ConfirmDialog
@@ -531,6 +526,12 @@ export default function ProjectDevelopmentEngine() {
                 onPromote={handlePromote}
                 onReReview={handleRunEngine}
               />
+
+              {/* Feature Length Guardrails — right sidebar */}
+              {versionText && (selectedDeliverableType === 'script' || selectedDeliverableType === 'production_draft') && (
+                <FeatureLengthGuardrails projectId={projectId!} versionText={versionText}
+                  selectedDocId={selectedDocId} selectedVersionId={selectedVersionId} />
+              )}
 
               {/* Notes */}
               <NotesPanel
