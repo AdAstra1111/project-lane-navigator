@@ -32,6 +32,13 @@ export interface AutoRunJob {
   stop_reason: string | null;
   error: string | null;
   pending_decisions: PendingDecision[] | null;
+  awaiting_approval: boolean;
+  approval_type: string | null;
+  approval_payload: any;
+  pending_doc_id: string | null;
+  pending_version_id: string | null;
+  pending_doc_type: string | null;
+  pending_next_doc_type: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -150,6 +157,10 @@ export function useAutoRun(projectId: string | undefined) {
         if (!result.job || !['running'].includes(result.job.status)) {
           break;
         }
+        // Stop polling if awaiting approval
+        if (result.job?.awaiting_approval || result.next_action_hint === 'awaiting-approval') {
+          break;
+        }
       } catch (e: any) {
         setError(e.message);
         break;
@@ -231,5 +242,32 @@ export function useAutoRun(projectId: string | undefined) {
     abortRef.current = true;
   }, []);
 
-  return { job, steps, isRunning, error, start, runNext, resume, pause, stop, clear, approveDecision };
+  const getPendingDoc = useCallback(async () => {
+    if (!job) return null;
+    try {
+      const result = await callAutoRun('get-pending-doc', { jobId: job.id });
+      return result.pending_doc || null;
+    } catch (e: any) {
+      setError(e.message);
+      return null;
+    }
+  }, [job]);
+
+  const approveNext = useCallback(async (decision: 'approve' | 'revise' | 'stop') => {
+    if (!job) return;
+    setError(null);
+    abortRef.current = false;
+    try {
+      const result = await callAutoRun('approve-next', { jobId: job.id, decision });
+      setJob(result.job);
+      setSteps(result.latest_steps || []);
+      if (result.job?.status === 'running') {
+        runLoop(result.job.id);
+      }
+    } catch (e: any) {
+      setError(e.message);
+    }
+  }, [job, runLoop]);
+
+  return { job, steps, isRunning, error, start, runNext, resume, pause, stop, clear, approveDecision, getPendingDoc, approveNext };
 }

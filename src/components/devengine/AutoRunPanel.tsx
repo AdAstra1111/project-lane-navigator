@@ -1,11 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Play, Pause, Square, RotateCcw, Zap, AlertTriangle, CheckCircle2, Loader2, ChevronDown, HelpCircle } from 'lucide-react';
+import { Play, Pause, Square, RotateCcw, Zap, AlertTriangle, CheckCircle2, Loader2, ChevronDown, HelpCircle, FileText, Eye } from 'lucide-react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import type { AutoRunJob, AutoRunStep, PendingDecision } from '@/hooks/useAutoRun';
 import type { DeliverableType } from '@/lib/dev-os-config';
@@ -41,6 +41,19 @@ interface AutoRunPanelProps {
   onStop: () => void;
   onClear: () => void;
   onApproveDecision?: (decisionId: string, selectedValue: string) => void;
+  onGetPendingDoc?: () => Promise<any>;
+  onApproveNext?: (decision: 'approve' | 'revise' | 'stop') => void;
+}
+
+interface PendingDocData {
+  doc_id: string;
+  version_id: string;
+  doc_type: string;
+  next_doc_type: string;
+  approval_type: string;
+  char_count: number;
+  text: string;
+  preview: string;
 }
 
 function DecisionApprovalCard({ decision, onApprove }: { decision: PendingDecision; onApprove: (decisionId: string, value: string) => void }) {
@@ -78,9 +91,28 @@ function DecisionApprovalCard({ decision, onApprove }: { decision: PendingDecisi
 export function AutoRunPanel({
   job, steps, isRunning, error, currentDeliverable,
   onStart, onRunNext, onResume, onPause, onStop, onClear, onApproveDecision,
+  onGetPendingDoc, onApproveNext,
 }: AutoRunPanelProps) {
   const [mode, setMode] = useState<string>('balanced');
   const [timelineOpen, setTimelineOpen] = useState(false);
+  const [pendingDoc, setPendingDoc] = useState<PendingDocData | null>(null);
+  const [loadingDoc, setLoadingDoc] = useState(false);
+  const [docExpanded, setDocExpanded] = useState(false);
+
+  // Load pending doc when job enters approval state
+  useEffect(() => {
+    if (job?.awaiting_approval && onGetPendingDoc && !pendingDoc && !loadingDoc) {
+      setLoadingDoc(true);
+      onGetPendingDoc().then((doc) => {
+        setPendingDoc(doc);
+        setLoadingDoc(false);
+      }).catch(() => setLoadingDoc(false));
+    }
+    if (!job?.awaiting_approval) {
+      setPendingDoc(null);
+      setDocExpanded(false);
+    }
+  }, [job?.awaiting_approval, job?.id]);
 
   const hasPendingDecisions = job?.pending_decisions && job.pending_decisions.length > 0;
   const blockingDecision = hasPendingDecisions
@@ -200,8 +232,62 @@ export function AutoRunPanel({
           <DecisionApprovalCard decision={blockingDecision} onApprove={onApproveDecision} />
         )}
 
-        {/* Stop reason (only show if no pending decisions) */}
-        {job.stop_reason && !hasPendingDecisions && (
+        {/* Human Approval Gate */}
+        {job.awaiting_approval && onApproveNext && (
+          <div className="border border-primary/30 bg-primary/5 rounded-md p-2 space-y-2">
+            <div className="flex items-center gap-1.5">
+              <Eye className="h-3.5 w-3.5 text-primary shrink-0" />
+              <p className="text-[10px] font-semibold text-foreground">
+                Approval Required: Review {LADDER_LABELS[job.pending_doc_type || ''] || job.pending_doc_type}
+                {job.pending_next_doc_type && ` → ${LADDER_LABELS[job.pending_next_doc_type] || job.pending_next_doc_type}`}
+              </p>
+            </div>
+
+            {loadingDoc && (
+              <div className="flex items-center gap-1 text-[9px] text-muted-foreground">
+                <Loader2 className="h-3 w-3 animate-spin" /> Loading document…
+              </div>
+            )}
+
+            {pendingDoc && (
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-2 text-[8px] text-muted-foreground">
+                  <FileText className="h-3 w-3" />
+                  <span>{pendingDoc.char_count.toLocaleString()} chars</span>
+                  <Badge variant="outline" className="text-[7px] px-1 py-0">{pendingDoc.approval_type}</Badge>
+                </div>
+
+                <Collapsible open={docExpanded} onOpenChange={setDocExpanded}>
+                  <CollapsibleTrigger className="flex items-center gap-1 text-[9px] text-primary hover:underline">
+                    <Eye className="h-3 w-3" /> {docExpanded ? 'Hide' : 'Show'} document text
+                  </CollapsibleTrigger>
+                  <CollapsibleContent>
+                    <ScrollArea className="max-h-[200px] mt-1 border border-border/50 rounded p-1.5 bg-background">
+                      <pre className="text-[8px] whitespace-pre-wrap text-foreground font-mono leading-relaxed">
+                        {pendingDoc.text || pendingDoc.preview || '(empty)'}
+                      </pre>
+                    </ScrollArea>
+                  </CollapsibleContent>
+                </Collapsible>
+              </div>
+            )}
+
+            <div className="flex gap-1">
+              <Button size="sm" className="h-6 text-[9px] flex-1 gap-1" onClick={() => onApproveNext('approve')}>
+                <CheckCircle2 className="h-3 w-3" /> Approve & Continue
+              </Button>
+              <Button variant="outline" size="sm" className="h-6 text-[9px] gap-1" onClick={() => onApproveNext('revise')}>
+                🔁 Revise
+              </Button>
+              <Button variant="destructive" size="sm" className="h-6 text-[9px] gap-1" onClick={() => onApproveNext('stop')}>
+                ⛔ Stop
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Stop reason (only show if no pending decisions and not awaiting approval) */}
+        {job.stop_reason && !hasPendingDecisions && !job.awaiting_approval && (
           <div className="text-[9px] text-amber-500 bg-amber-500/5 border border-amber-500/20 rounded p-1.5">
             {job.stop_reason}
           </div>
@@ -220,7 +306,7 @@ export function AutoRunPanel({
               <Pause className="h-3 w-3" /> Pause
             </Button>
           )}
-          {job.status === 'paused' && !hasPendingDecisions && (
+          {job.status === 'paused' && !hasPendingDecisions && !job.awaiting_approval && (
             <Button size="sm" className="h-6 text-[9px] flex-1 gap-1" onClick={onResume}>
               <Play className="h-3 w-3" /> Resume
             </Button>

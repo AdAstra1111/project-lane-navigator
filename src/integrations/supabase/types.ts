@@ -108,6 +108,9 @@ export type Database = {
       }
       auto_run_jobs: {
         Row: {
+          approval_payload: Json | null
+          approval_type: string | null
+          awaiting_approval: boolean
           created_at: string | null
           current_document: string
           error: string | null
@@ -122,6 +125,10 @@ export type Database = {
           max_total_steps: number
           mode: string
           pending_decisions: Json | null
+          pending_doc_id: string | null
+          pending_doc_type: string | null
+          pending_next_doc_type: string | null
+          pending_version_id: string | null
           project_id: string
           stage_loop_count: number
           start_document: string
@@ -133,6 +140,9 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          approval_payload?: Json | null
+          approval_type?: string | null
+          awaiting_approval?: boolean
           created_at?: string | null
           current_document: string
           error?: string | null
@@ -147,6 +157,10 @@ export type Database = {
           max_total_steps?: number
           mode?: string
           pending_decisions?: Json | null
+          pending_doc_id?: string | null
+          pending_doc_type?: string | null
+          pending_next_doc_type?: string | null
+          pending_version_id?: string | null
           project_id: string
           stage_loop_count?: number
           start_document: string
@@ -158,6 +172,9 @@ export type Database = {
           user_id: string
         }
         Update: {
+          approval_payload?: Json | null
+          approval_type?: string | null
+          awaiting_approval?: boolean
           created_at?: string | null
           current_document?: string
           error?: string | null
@@ -172,6 +189,10 @@ export type Database = {
           max_total_steps?: number
           mode?: string
           pending_decisions?: Json | null
+          pending_doc_id?: string | null
+          pending_doc_type?: string | null
+          pending_next_doc_type?: string | null
+          pending_version_id?: string | null
           project_id?: string
           stage_loop_count?: number
           start_document?: string

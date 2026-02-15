@@ -543,6 +543,8 @@ export default function ProjectDevelopmentEngine() {
                 onStop={autoRun.stop}
                 onClear={autoRun.clear}
                 onApproveDecision={autoRun.approveDecision}
+                onGetPendingDoc={autoRun.getPendingDoc}
+                onApproveNext={autoRun.approveNext}
               />
               {versionText && !isVerticalDrama && (selectedDeliverableType === 'script' || selectedDeliverableType === 'production_draft') && (
                 <FeatureLengthGuardrails projectId={projectId!} versionText={versionText}
