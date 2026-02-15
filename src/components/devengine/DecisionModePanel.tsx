@@ -6,7 +6,7 @@ import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ScrollArea } from '@/components/ui/scroll-area';
+
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   Loader2, Sparkles, AlertTriangle, ArrowRight, Lightbulb, FileText, Clock,
@@ -271,20 +271,18 @@ export function DecisionModePanel({
 
             {/* Decision items */}
             {decisions.length > 0 && (
-              <ScrollArea className="max-h-[500px]">
-                <div className="space-y-2">
-                  {decisions.map((decision) => (
-                    <DecisionCard
-                      key={decision.note_id}
-                      decision={decision}
-                      selectedOptionId={selectedOptions[decision.note_id]}
-                      customDirection={customDirections[decision.note_id]}
-                      onSelectOption={(optId) => handleSelectOption(decision.note_id, optId)}
-                      onCustomDirection={(text) => handleCustomDirection(decision.note_id, text)}
-                    />
-                  ))}
-                </div>
-              </ScrollArea>
+              <div className="space-y-2">
+                {decisions.map((decision) => (
+                  <DecisionCard
+                    key={decision.note_id}
+                    decision={decision}
+                    selectedOptionId={selectedOptions[decision.note_id]}
+                    customDirection={customDirections[decision.note_id]}
+                    onSelectOption={(optId) => handleSelectOption(decision.note_id, optId)}
+                    onCustomDirection={(text) => handleCustomDirection(decision.note_id, text)}
+                  />
+                ))}
+              </div>
             )}
 
             {/* Continue from version dropdown */}
