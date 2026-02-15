@@ -40,6 +40,16 @@ function trajectoryScore(t: string | null): number {
 function clamp(v: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, v)); }
 
 // ── Derive blocker / high-impact counts from raw_ai_response JSONB ──
+const SEMANTIC_BLOCKER_PHRASES = [
+  "major blocker", "narrative blocker", "fatal flaw", "core flaw",
+  "doesn't work", "does not work", "fundamental problem", "story breaks",
+  "no clear protagonist", "no stakes", "no engine",
+];
+
+function isSemanticBlocker(text: string): boolean {
+  return SEMANTIC_BLOCKER_PHRASES.some(p => text.toLowerCase().includes(p));
+}
+
 function deriveCounts(raw: any): { blockers: number; highImpact: number; blockerTexts: string[] } {
   if (!raw) return { blockers: 0, highImpact: 0, blockerTexts: [] };
   const blocking = raw.blocking_issues || raw.blockers || [];
@@ -47,7 +57,16 @@ function deriveCounts(raw: any): { blockers: number; highImpact: number; blocker
   const blockerTexts = blocking.map((b: any) =>
     typeof b === "string" ? b : b?.description || b?.note || JSON.stringify(b)
   );
-  return { blockers: blocking.length, highImpact: high.length, blockerTexts };
+
+  // Promote semantic blockers from high-impact into blockers
+  const hiTexts = high.map((h: any) => typeof h === "string" ? h : h?.description || h?.note || "");
+  const promoted = hiTexts.filter((t: string) => isSemanticBlocker(t) && !blockerTexts.includes(t));
+
+  return {
+    blockers: blocking.length + promoted.length,
+    highImpact: high.length - promoted.length,
+    blockerTexts: [...blockerTexts, ...promoted],
+  };
 }
 
 // ── Simple string hash for thrash detection ──

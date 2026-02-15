@@ -33,6 +33,18 @@ function trajectoryScore(t: string | null): number {
   return 55;
 }
 
+// ── Semantic blocker detection ──
+const SEMANTIC_BLOCKER_PHRASES = [
+  "major blocker", "narrative blocker", "fatal flaw", "core flaw",
+  "doesn't work", "does not work", "fundamental problem", "story breaks",
+  "no clear protagonist", "no stakes", "no engine",
+];
+
+function isSemanticBlocker(text: string): boolean {
+  const lower = text.toLowerCase();
+  return SEMANTIC_BLOCKER_PHRASES.some(p => lower.includes(p));
+}
+
 // ── Robust note extraction from any analysis shape ──
 function noteToText(n: any): string {
   if (typeof n === 'string') return n;
@@ -49,7 +61,6 @@ export function extractNoteCounts(latestAnalysis: any, latestNotes?: any): {
 } {
   if (!latestAnalysis && !latestNotes) return { blockers: [], highImpact: [] };
 
-  // Collect from all known field paths across analysis + notes objects
   const sources = [latestAnalysis, latestNotes].filter(Boolean);
 
   const rawBlockers: any[] = [];
@@ -62,7 +73,6 @@ export function extractNoteCounts(latestAnalysis: any, latestNotes?: any): {
     rawHigh.push(...asArray(src?.high_impact));
   }
 
-  // Deduplicate by description text
   const dedup = (items: any[]): string[] => {
     const seen = new Set<string>();
     const result: string[] = [];
@@ -76,9 +86,27 @@ export function extractNoteCounts(latestAnalysis: any, latestNotes?: any): {
     return result;
   };
 
+  const blockers = dedup(rawBlockers);
+  const highImpact = dedup(rawHigh);
+
+  // Promote semantic blockers from highImpact into blockers
+  const promoted: string[] = [];
+  const filteredHigh: string[] = [];
+  for (const text of highImpact) {
+    if (isSemanticBlocker(text) && !blockers.includes(text)) {
+      promoted.push(text);
+    } else {
+      filteredHigh.push(text);
+    }
+  }
+
+  if (import.meta.env.DEV && promoted.length > 0) {
+    console.debug(`[PromotionIntel] semanticBlockerHits: ${promoted.length}`, promoted);
+  }
+
   return {
-    blockers: dedup(rawBlockers),
-    highImpact: dedup(rawHigh),
+    blockers: [...blockers, ...promoted],
+    highImpact: filteredHigh,
   };
 }
 
