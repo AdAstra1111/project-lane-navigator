@@ -119,3 +119,6 @@ verify_jwt = false
 
 [functions.auto-run]
 verify_jwt = false
+
+[functions.resolve-qualifications]
+verify_jwt = false

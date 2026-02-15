@@ -6873,6 +6873,9 @@ export type Database = {
           primary_territory: string
           reasoning: string | null
           recommendations: Json | null
+          resolved_qualifications: Json | null
+          resolved_qualifications_hash: string | null
+          resolved_qualifications_version: number | null
           runtime_estimation_mode: string
           runtime_tolerance_pct: number
           script_coverage_verdict: string
@@ -6918,6 +6921,9 @@ export type Database = {
           primary_territory?: string
           reasoning?: string | null
           recommendations?: Json | null
+          resolved_qualifications?: Json | null
+          resolved_qualifications_hash?: string | null
+          resolved_qualifications_version?: number | null
           runtime_estimation_mode?: string
           runtime_tolerance_pct?: number
           script_coverage_verdict?: string
@@ -6963,6 +6969,9 @@ export type Database = {
           primary_territory?: string
           reasoning?: string | null
           recommendations?: Json | null
+          resolved_qualifications?: Json | null
+          resolved_qualifications_hash?: string | null
+          resolved_qualifications_version?: number | null
           runtime_estimation_mode?: string
           runtime_tolerance_pct?: number
           script_coverage_verdict?: string

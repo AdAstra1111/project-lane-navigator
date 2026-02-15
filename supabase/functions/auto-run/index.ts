@@ -1433,8 +1433,44 @@ Deno.serve(async (req) => {
         return respondWithJob(supabase, jobId, "fix-criteria");
       }
 
-      // Re-fetch qualifications using canonical resolver (persist-on-resolve)
-      const resolvedQuals = await resolveSeriesQualifications(supabase, job.project_id, format);
+      // ── Canonical Qualification Resolver — call edge function ──
+      let resolvedQuals: any = null;
+      let resolverHash: string | null = null;
+      try {
+        const resolverResp = await fetch(`${supabaseUrl}/functions/v1/resolve-qualifications`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ projectId: job.project_id }),
+        });
+        if (resolverResp.ok) {
+          const resolverResult = await resolverResp.json();
+          resolvedQuals = resolverResult.resolvedQualifications || {};
+          resolverHash = resolverResult.resolver_hash || null;
+
+          // Check hash change mid-run — if the resolver hash changed since last step, log it
+          if (job.last_risk_flags && Array.isArray(job.last_risk_flags)) {
+            const prevHash = (job as any).resolved_qualifications_hash || null;
+            if (prevHash && resolverHash && prevHash !== resolverHash) {
+              await logStep(supabase, jobId, stepCount, currentDoc, "qualification_hash_changed",
+                `Qualification hash changed: ${prevHash} → ${resolverHash}. Re-analyzing with new values.`,
+                { risk_flags: ["qualification_hash_changed"] }
+              );
+            }
+          }
+        } else {
+          const errText = await resolverResp.text();
+          console.warn("[auto-run] resolve-qualifications failed:", errText);
+        }
+      } catch (resolverErr: any) {
+        console.warn("[auto-run] resolve-qualifications call failed:", resolverErr.message);
+      }
+
+      // Fallback to old resolver if edge function failed
+      if (!resolvedQuals) {
+        const fallbackQuals = await resolveSeriesQualifications(supabase, job.project_id, format);
+        resolvedQuals = fallbackQuals;
+      }
+
       const episodeDuration = resolvedQuals.episode_target_duration_seconds;
       const seasonEpisodeCount = resolvedQuals.season_episode_count;
 
