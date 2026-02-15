@@ -129,7 +129,13 @@ export function DecisionModePanel({
 
   // Blocker coverage validation
   const blockerDecisions = useMemo(() => decisions.filter(d => d.severity === 'blocker'), [decisions]);
-  const uncoveredBlockers = useMemo(() => blockerDecisions.filter(d => !selectedOptions[d.note_id]), [blockerDecisions, selectedOptions]);
+  const uncoveredBlockers = useMemo(() => blockerDecisions.filter(d => {
+    const sel = selectedOptions[d.note_id];
+    if (!sel) return true;
+    // "Other" requires custom text
+    if (sel === '__other__' && !customDirections[d.note_id]?.trim()) return true;
+    return false;
+  }), [blockerDecisions, selectedOptions, customDirections]);
   const allBlockersCovered = uncoveredBlockers.length === 0;
   const selectedCount = Object.values(selectedOptions).filter(Boolean).length;
 
