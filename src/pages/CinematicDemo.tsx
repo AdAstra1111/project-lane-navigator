@@ -97,7 +97,7 @@ const scenes = [
     icon: Target,
     preTitle: 'READINESS SCORES',
     title: 'Always know your\nnext best move.',
-    body: 'Two scoring engines — Project Readiness and Finance Readiness — updated in real time. One action, always the right one.',
+    body: 'Two scoring engines — Project Readiness and Greenlight Probability — updated in real time. One action, always the right one.',
     stat: { value: '2', label: 'scoring engines, always live' },
   },
   {

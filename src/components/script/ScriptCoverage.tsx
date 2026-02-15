@@ -856,7 +856,7 @@ export function ScriptCoverage({ projectId, projectTitle, format, genres, hasDoc
             <Tabs value={activeTab} onValueChange={setActiveTab}>
               <TabsList className="bg-muted/30">
                 <TabsTrigger value="coverage" className="text-xs">Final Coverage</TabsTrigger>
-                <TabsTrigger value="greenlight" className="text-xs gap-1"><Zap className="h-3 w-3" />Finance Readiness Sim</TabsTrigger>
+                <TabsTrigger value="greenlight" className="text-xs gap-1"><Zap className="h-3 w-3" />Greenlight Probability Sim</TabsTrigger>
                 <TabsTrigger value="convergence" className="text-xs gap-1"><Compass className="h-3 w-3" />Convergence</TabsTrigger>
                 <TabsTrigger value="packaging" className="text-xs gap-1"><Package className="h-3 w-3" />Packaging Intel</TabsTrigger>
                 <TabsTrigger value="packaging-power" className="text-xs gap-1"><Target className="h-3 w-3" />Packaging Power</TabsTrigger>

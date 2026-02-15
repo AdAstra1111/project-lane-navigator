@@ -44,8 +44,8 @@ const scoringLayers = [
   },
   {
     icon: DollarSign,
-    title: 'Finance Readiness',
-    detail: 'Grades how closeable your finance plan is (0–100). Components: budget lock status, capital stack coverage ratio, deal pipeline depth, incentive qualification, co-production eligibility, and structural risk flags (gap size, single-source dependency).',
+    title: 'Greenlight Probability',
+    detail: 'Grades how closeable your greenlight probability is (0–100). Components: budget lock status, capital stack coverage ratio, deal pipeline depth, incentive qualification, co-production eligibility, and structural risk flags (gap size, single-source dependency).',
     color: 'from-amber-500/20 to-amber-500/5',
   },
   {
@@ -94,7 +94,7 @@ const featureSystems: FeatureSystem[] = [
   {
     icon: Users,
     title: 'Packaging Pipeline',
-    detail: 'Track cast, director, producer, and key crew attachments with status, priority, and archetype classification. The packaging score feeds directly into Stage Readiness and Master Viability — weak packaging is the single most common blocker to finance readiness.',
+    detail: 'Track cast, director, producer, and key crew attachments with status, priority, and archetype classification. The packaging score feeds directly into Stage Readiness and Master Viability — weak packaging is the single most common blocker to greenlight probability.',
     advancedOnly: true,
   },
   {

@@ -408,7 +408,7 @@ export default function PresentationMode() {
 
                   <div className="flex gap-24">
                     {readiness && <ScoreRing value={readiness.score} label="Overall Readiness" color="hsl(var(--primary))" size={220} />}
-                    {financeReadiness && <ScoreRing value={financeReadiness.score} label="Finance Readiness" color="hsl(142 71% 45%)" size={220} />}
+                    {financeReadiness && <ScoreRing value={financeReadiness.score} label="Greenlight Probability" color="hsl(142 71% 45%)" size={220} />}
                   </div>
 
                   <div className="grid grid-cols-4 gap-8 w-full max-w-[1200px]">

@@ -123,9 +123,9 @@ export function ProjectCard({ project, index, readinessScore, financeReadinessSc
               </div>
             )}
             {financeReadinessScore != null && (
-              <div className="flex flex-col items-center gap-0.5" title="Finance Readiness">
+              <div className="flex flex-col items-center gap-0.5" title="Greenlight Probability">
                 <MiniScoreRing score={financeReadinessScore} />
-                <span className="text-[8px] text-muted-foreground">Finance</span>
+                <span className="text-[8px] text-muted-foreground">GP</span>
               </div>
             )}
             <ArrowRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity mt-1" />

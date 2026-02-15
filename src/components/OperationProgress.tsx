@@ -145,8 +145,8 @@ export const GENERATE_PITCH_STAGES: Stage[] = [
 
 export const DEV_ANALYZE_STAGES: Stage[] = [
   { at: 5, label: 'Reading document…' },
-  { at: 20, label: 'Evaluating script strength…' },
-  { at: 45, label: 'Assessing finance readiness…' },
+  { at: 20, label: 'Evaluating creative integrity…' },
+  { at: 45, label: 'Assessing greenlight probability…' },
   { at: 65, label: 'Scoring convergence…' },
   { at: 85, label: 'Building insights…' },
   { at: 95, label: 'Almost done…' },

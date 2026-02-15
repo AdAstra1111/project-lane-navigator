@@ -374,7 +374,7 @@ export default function InteractiveDemo() {
                 </motion.h2>
                 <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5 }}
                   className="text-white/40 leading-relaxed">
-                  Every attachment updates assessments in real time. Upload a new cast list → packaging score recalculates. Attach a deal memo → finance readiness adjusts. Nothing manual. Nothing stale.
+                  Every attachment updates assessments in real time. Upload a new cast list → packaging score recalculates. Attach a deal memo → greenlight probability adjusts. Nothing manual. Nothing stale.
                 </motion.p>
               </div>
               <MockUI title={`Dossier — ${BERLIN.title}`} delay={0.3}>

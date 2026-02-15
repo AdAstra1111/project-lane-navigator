@@ -87,12 +87,12 @@ const sections: HelpSection[] = [
     id: 'finance',
     label: 'Finance Modelling',
     icon: DollarSign,
-    description: 'Capital stacks, deal tracking, and finance readiness.',
+    description: 'Capital stacks, deal tracking, and greenlight probability.',
     advancedOnly: true,
     items: [
       { q: 'What is the Finance Tracker?', a: 'Log and manage all financing across six categories: Sales & Distribution, Equity & Investment, Tax Incentives, Soft Money, Gap & Debt, and Other. Each category tracks individual deals with status, amounts, and counterparties.' },
       { q: 'How are deal totals calculated?', a: 'IFFY aggregates the minimum guarantee amounts of all closed deals across each financing category. The waterfall chart visualises these totals against your budget to identify the remaining gap.' },
-      { q: 'What is Finance Readiness?', a: 'A 0–100 score grading how closeable your finance plan is, based on budget completeness, capital stack coverage, deal pipeline strength, and structural risk factors.' },
+      { q: 'What is Greenlight Probability?', a: 'A 0–100 score grading how closeable your finance plan is, based on budget completeness, capital stack coverage, deal pipeline strength, and structural risk factors.' },
       { q: 'What is the Co-Production Planner?', a: 'Evaluates official treaty frameworks, eligible countries, share percentages, and cultural requirements relevant to your project. Model co-production structures before engaging legal counsel.' },
     ],
   },
@@ -186,7 +186,7 @@ const tutorials: Tutorial[] = [
       'Each deal tracks status (pipeline, term-sheet, closed), amounts, and counterparties.',
       'The waterfall chart visualises closed vs. pipeline financing against your budget.',
       'Use Finance Scenarios to model what-if capital structures and compare gap positions.',
-      'The Finance Readiness score (0–100) grades how closeable your plan is.',
+      'The Greenlight Probability score (0–100) grades how closeable your plan is.',
     ],
   },
   {
