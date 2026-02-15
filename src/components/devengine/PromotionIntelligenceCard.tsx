@@ -33,6 +33,7 @@ interface Props {
   isLoading: boolean;
   jobId?: string | null;
   onJobRefresh?: () => void;
+  onScrollToDecisions?: () => void;
   /** @deprecated Use jobId + onJobRefresh instead */
   onPromote?: () => void;
   /** @deprecated */
@@ -68,7 +69,7 @@ async function callAutoRun(action: string, extra: Record<string, any> = {}) {
   return result;
 }
 
-export function PromotionIntelligenceCard({ data, isLoading, jobId, onJobRefresh, onPromote, onReReview, onEscalate }: Props) {
+export function PromotionIntelligenceCard({ data, isLoading, jobId, onJobRefresh, onScrollToDecisions, onPromote, onReReview, onEscalate }: Props) {
   const [queueItems, setQueueItems] = useState<QueueItem[]>([]);
   const [queueOpen, setQueueOpen] = useState(true);
   const [showDetails, setShowDetails] = useState(false);
@@ -248,16 +249,29 @@ export function PromotionIntelligenceCard({ data, isLoading, jobId, onJobRefresh
         {/* Direct Action Buttons */}
         {jobId && (
           <div className="flex flex-wrap gap-1 pt-1 border-t border-border/40">
-            <Button
-              size="sm"
-              className="h-6 text-[9px] gap-1 px-2"
-              disabled={isAnyLoading || (hasBlockers && recommendation !== 'promote')}
-              onClick={() => executeAction('force-promote')}
-              title={hasBlockers ? 'Blockers active — resolve before promoting' : undefined}
-            >
-              {actionLoading === 'force-promote' ? <Loader2 className="h-3 w-3 animate-spin" /> : <ArrowRight className="h-3 w-3" />}
-              {hasBlockers ? 'Force Promote' : 'Promote'}
-            </Button>
+            {/* If paused for decisions, show Review Decisions CTA */}
+            {data.recommendation === 'stabilise' && risk_flags.some(f => f === 'hard_gate:blockers' || f === 'hard_gate:early_stage_high_impact') ? (
+              <Button
+                size="sm"
+                className="h-6 text-[9px] gap-1 px-2 bg-amber-600 hover:bg-amber-700"
+                disabled={isAnyLoading}
+                onClick={() => onScrollToDecisions?.()}
+              >
+                <AlertTriangle className="h-3 w-3" />
+                Review Decisions
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                className="h-6 text-[9px] gap-1 px-2"
+                disabled={isAnyLoading || (hasBlockers && recommendation !== 'promote')}
+                onClick={() => executeAction('force-promote')}
+                title={hasBlockers ? 'Blockers active — resolve before promoting' : undefined}
+              >
+                {actionLoading === 'force-promote' ? <Loader2 className="h-3 w-3 animate-spin" /> : <ArrowRight className="h-3 w-3" />}
+                {hasBlockers ? 'Force Promote' : 'Promote'}
+              </Button>
+            )}
             <Button
               size="sm"
               variant="outline"
