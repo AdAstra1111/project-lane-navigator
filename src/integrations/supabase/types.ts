@@ -5537,45 +5537,63 @@ export type Database = {
       }
       project_decisions: {
         Row: {
+          applied_to_metadata_at: string | null
+          confirmed_at: string | null
+          confirmed_by: string | null
           context: string
           created_at: string
           decided_at: string
           decision: string
           decision_type: string
+          field_path: string | null
           id: string
+          new_value: Json | null
           outcome: string
           project_id: string
           reasoning: string
+          resulting_resolver_hash: string | null
           status: string
           title: string
           updated_at: string
           user_id: string
         }
         Insert: {
+          applied_to_metadata_at?: string | null
+          confirmed_at?: string | null
+          confirmed_by?: string | null
           context?: string
           created_at?: string
           decided_at?: string
           decision?: string
           decision_type?: string
+          field_path?: string | null
           id?: string
+          new_value?: Json | null
           outcome?: string
           project_id: string
           reasoning?: string
+          resulting_resolver_hash?: string | null
           status?: string
           title?: string
           updated_at?: string
           user_id: string
         }
         Update: {
+          applied_to_metadata_at?: string | null
+          confirmed_at?: string | null
+          confirmed_by?: string | null
           context?: string
           created_at?: string
           decided_at?: string
           decision?: string
           decision_type?: string
+          field_path?: string | null
           id?: string
+          new_value?: Json | null
           outcome?: string
           project_id?: string
           reasoning?: string
+          resulting_resolver_hash?: string | null
           status?: string
           title?: string
           updated_at?: string
@@ -6864,6 +6882,7 @@ export type Database = {
           id: string
           incentive_insights: Json | null
           lifecycle_stage: string
+          locked_fields: Json | null
           min_runtime_hard_floor: number | null
           min_runtime_minutes: number | null
           packaging_mode: string
@@ -6871,6 +6890,7 @@ export type Database = {
           pinned: boolean
           pipeline_stage: string
           primary_territory: string
+          qualifications: Json | null
           reasoning: string | null
           recommendations: Json | null
           resolved_qualifications: Json | null
@@ -6912,6 +6932,7 @@ export type Database = {
           id?: string
           incentive_insights?: Json | null
           lifecycle_stage?: string
+          locked_fields?: Json | null
           min_runtime_hard_floor?: number | null
           min_runtime_minutes?: number | null
           packaging_mode?: string
@@ -6919,6 +6940,7 @@ export type Database = {
           pinned?: boolean
           pipeline_stage?: string
           primary_territory?: string
+          qualifications?: Json | null
           reasoning?: string | null
           recommendations?: Json | null
           resolved_qualifications?: Json | null
@@ -6960,6 +6982,7 @@ export type Database = {
           id?: string
           incentive_insights?: Json | null
           lifecycle_stage?: string
+          locked_fields?: Json | null
           min_runtime_hard_floor?: number | null
           min_runtime_minutes?: number | null
           packaging_mode?: string
@@ -6967,6 +6990,7 @@ export type Database = {
           pinned?: boolean
           pipeline_stage?: string
           primary_territory?: string
+          qualifications?: Json | null
           reasoning?: string | null
           recommendations?: Json | null
           resolved_qualifications?: Json | null
