@@ -94,6 +94,7 @@ export function useAutoRun(projectId: string | undefined) {
     abortRef.current = false;
 
     // Map rich deliverable types to the auto-run ladder positions
+    // Map rich deliverable types to the auto-run ladder positions
     const LADDER_MAP: Record<string, string> = {
       idea: 'idea',
       concept_brief: 'concept_brief',
@@ -109,12 +110,16 @@ export function useAutoRun(projectId: string | undefined) {
     };
     const mappedStart = LADDER_MAP[startDocument] || 'idea';
 
+    // Mode-specific step limits
+    const MODE_STEPS: Record<string, number> = { fast: 8, balanced: 12, premium: 18 };
+
     try {
       const result = await callAutoRun('start', {
         projectId,
         mode,
         start_document: mappedStart,
         target_document: 'draft',
+        max_total_steps: MODE_STEPS[mode] || 12,
       });
       setJob(result.job);
       setSteps(result.latest_steps || []);
