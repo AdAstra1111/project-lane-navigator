@@ -260,7 +260,7 @@ export default function ProjectDevelopmentEngine() {
     <PageTransition>
       <div className="min-h-screen bg-background">
         <Header />
-        <div className="max-w-[1600px] mx-auto px-4 py-4 space-y-3">
+        <div className="max-w-[1800px] mx-auto px-4 py-4 space-y-3">
 
           {/* ═══ HEADER BAR ═══ */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -334,10 +334,10 @@ export default function ProjectDevelopmentEngine() {
             onStageClick={(dt) => setSelectedDeliverableType(dt)} />
 
           {/* ═══ 3-COLUMN LAYOUT ═══ */}
-          <div className="grid grid-cols-1 md:grid-cols-12 gap-4" style={{ minHeight: 'calc(100vh - 240px)' }}>
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-3" style={{ minHeight: 'calc(100vh - 240px)' }}>
 
             {/* ── LEFT: Documents ── */}
-            <div className="md:col-span-3">
+            <div className="md:col-span-2">
               <DocumentSidebar
                 documents={documents} docsLoading={docsLoading}
                 selectedDocId={selectedDocId} selectDocument={selectDocument}
@@ -411,7 +411,7 @@ export default function ProjectDevelopmentEngine() {
             </div>
 
             {/* ── CENTER: Workspace ── */}
-            <div className="md:col-span-6 space-y-3">
+            <div className="md:col-span-7 space-y-3">
               {!selectedDocId ? (
                 <Card className="h-full flex items-center justify-center min-h-[400px]">
                   <div className="text-center space-y-3 p-8">
@@ -484,7 +484,7 @@ export default function ProjectDevelopmentEngine() {
                   <Card>
                     <CardContent className="p-4">
                       <ScrollArea className="h-[calc(100vh-440px)]">
-                        <pre className="text-sm text-foreground whitespace-pre-wrap font-mono leading-relaxed">
+                        <pre className="text-sm text-foreground whitespace-pre-wrap font-body leading-relaxed">
                           {versionText || 'No content available.'}
                         </pre>
                       </ScrollArea>
