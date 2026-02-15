@@ -600,6 +600,8 @@ export default function ProjectDevelopmentEngine() {
                   <PromotionIntelligenceCard
                     data={promotionIntel.data}
                     isLoading={promotionIntel.isLoading}
+                    jobId={autoRun.job?.id}
+                    onJobRefresh={() => autoRun.runNext?.()}
                     onPromote={handlePromote}
                     onReReview={handleRunEngine}
                   />
