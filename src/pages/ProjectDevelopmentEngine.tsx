@@ -18,7 +18,7 @@ import { Progress } from '@/components/ui/progress';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
-  ArrowRight, Play, Loader2, Target, ClipboardPaste, Upload,
+  ArrowRight, Play, Loader2, Target, ClipboardPaste, Upload, Sparkles,
   AlertTriangle, GitBranch, Clock, Film, Pause, Square, RotateCcw, ChevronDown,
 } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
@@ -96,6 +96,7 @@ export default function ProjectDevelopmentEngine() {
   const [selectedDeliverableType, setSelectedDeliverableType] = useState<DeliverableType>('script');
   const [selectedNotes, setSelectedNotes] = useState<Set<number>>(new Set());
   const [targetPages, setTargetPages] = useState(100);
+  const [notesDecisions, setNotesDecisions] = useState<Record<string, string>>({});
 
   const hasUnresolvedMajorDrift = latestDrift?.drift_level === 'major' && !latestDrift?.resolved;
 
@@ -509,7 +510,7 @@ export default function ProjectDevelopmentEngine() {
                     onAcknowledge={() => latestDrift && acknowledgeDrift.mutate(latestDrift.id)}
                     onResolve={() => latestDrift && resolveDrift.mutate({ driftEventId: latestDrift.id, resolutionType: 'accept_drift' })} />
 
-                  {/* Action toolbar */}
+                  {/* Action toolbar — simplified: only Run Review, Promote, Convert */}
                   <ActionToolbar
                     hasAnalysis={!!latestAnalysis}
                     isConverged={isAnalysisConverged}
@@ -612,6 +613,8 @@ export default function ProjectDevelopmentEngine() {
                     resolutionSummary={resolutionSummary}
                     stabilityStatus={stabilityStatus}
                     globalDirections={latestNotes?.global_directions || []}
+                    hideApplyButton
+                    onDecisionsChange={setNotesDecisions}
                   />
 
                   {/* Decision Mode Panel — shows when blockers/high-impact or auto-run paused for decisions */}
@@ -626,10 +629,8 @@ export default function ProjectDevelopmentEngine() {
                       versionNumber={selectedVersion?.version_number}
                       updatedAt={selectedVersion?.created_at}
                       decisions={(() => {
-                        // Try to get decisions from latest OPTIONS run
                         const optionsRun = (runs || []).filter((r: any) => r.run_type === 'OPTIONS').pop();
                         if (optionsRun?.output_json?.decisions) return optionsRun.output_json.decisions;
-                        // Fallback: build from notes with inline decisions
                         const noteDecisions: Decision[] = [
                           ...tieredNotes.blockers.filter((n: any) => n.decisions?.length > 0).map((n: any) => ({
                             note_id: n.id, severity: 'blocker' as const, note: n.description || n.note,
@@ -655,7 +656,31 @@ export default function ProjectDevelopmentEngine() {
                       }}
                       onAutoRunContinue={(opts, gd) => autoRun.applyDecisionsAndContinue?.(opts, gd)}
                       availableVersions={versions?.map((v: any) => ({ id: v.id, version_number: v.version_number, label: v.label }))}
+                      hideApplyButton
                     />
+                  )}
+
+                  {/* ═══ UNIFIED BIG BUTTON: Apply All Notes & Decisions ═══ */}
+                  {allPrioritizedMoves.length > 0 && (
+                    <Button
+                      size="lg"
+                      className="w-full h-12 text-sm font-semibold gap-2"
+                      onClick={() => handleRewrite(
+                        Object.keys(notesDecisions).length > 0 ? notesDecisions : undefined,
+                        latestNotes?.global_directions || [],
+                      )}
+                      disabled={isLoading || rewrite.isPending || rewritePipeline.status !== 'idle' || selectedNotes.size === 0}
+                    >
+                      {(rewrite.isPending || rewritePipeline.status !== 'idle') ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Sparkles className="h-4 w-4" />
+                      )}
+                      Apply All Notes & Decisions ({selectedNotes.size} notes
+                      {Object.values(notesDecisions).filter(Boolean).length > 0
+                        ? `, ${Object.values(notesDecisions).filter(Boolean).length} decisions`
+                        : ''})
+                    </Button>
                   )}
                 </div>
                 <div className="space-y-3">

@@ -45,6 +45,7 @@ interface DecisionModePanelProps {
   isGeneratingOptions?: boolean;
   /** Available versions for "continue from" dropdown */
   availableVersions?: Array<{ id: string; version_number: number; label?: string | null }>;
+  hideApplyButton?: boolean;
 }
 
 async function callDevEngine(action: string, extra: Record<string, any> = {}) {
@@ -66,7 +67,7 @@ export function DecisionModePanel({
   decisions: externalDecisions, globalDirections: externalDirections,
   jobId, isAutoRunPaused,
   onRewriteComplete, onAutoRunContinue, onGenerateOptions,
-  isGeneratingOptions, availableVersions,
+  isGeneratingOptions, availableVersions, hideApplyButton,
 }: DecisionModePanelProps) {
   const [decisions, setDecisions] = useState<Decision[]>(externalDecisions || []);
   const [globalDirections, setGlobalDirections] = useState<GlobalDirection[]>(externalDirections || []);
@@ -306,8 +307,8 @@ export function DecisionModePanel({
               </div>
             )}
 
-            {/* Primary CTA */}
-            {decisions.length > 0 && (
+            {/* Primary CTA — hidden when parent provides unified button */}
+            {!hideApplyButton && decisions.length > 0 && (
               <Button
                 size="sm"
                 className="h-8 text-xs gap-1.5 w-full"
