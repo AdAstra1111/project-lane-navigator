@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { buildGuardrailBlock } from "../_shared/guardrails.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -75,7 +76,11 @@ serve(async (req) => {
 
     const analysis = project.analysis_passes || {};
 
+    const guardrails = buildGuardrailBlock({ productionType: project.format || "film" });
+    console.log(`[analyze-note] guardrails: profile=${guardrails.profileName}, hash=${guardrails.hash}`);
+
     const systemPrompt = `You are IFFY, a decision-support tool for international film and television finance. A producer has added a note to their project. Your job is to assess how this consideration might affect the project's finance readiness.
+${guardrails.textBlock}
 
 PROJECT CONTEXT:
 - Title: ${project.title}

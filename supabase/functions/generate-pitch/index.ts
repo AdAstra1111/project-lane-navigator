@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { buildGuardrailBlock } from "../_shared/guardrails.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -24,8 +25,13 @@ serve(async (req) => {
       : "";
 
     const notesSection = briefNotes ? `\n\nADDITIONAL BRIEF NOTES FROM PRODUCER:\n${briefNotes}` : "";
+    // Inject guardrails
+    const guardrails = buildGuardrailBlock({ productionType: typeLabel });
+    console.log(`[generate-pitch] guardrails: profile=${guardrails.profileName}, hash=${guardrails.hash}`);
 
     const systemPrompt = `You are IFFY's Development Pitch Engine — an expert development executive who generates production-ready concept pitches for the entertainment industry.
+
+${guardrails.textBlock}
 
 PRODUCTION TYPE: ${typeLabel}
 ALL outputs MUST be strictly constrained to this production type. Do not suggest formats, budgets, distribution, or packaging strategies that don't apply to ${typeLabel}.

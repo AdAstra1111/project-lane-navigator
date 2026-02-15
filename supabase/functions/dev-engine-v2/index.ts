@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { buildGuardrailBlock, validateOutput, buildRegenerationPrompt } from "../_shared/guardrails.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -594,7 +595,18 @@ serve(async (req) => {
       }
 
       // Build deliverable-aware system prompt (routing order: deliverable → format → behavior)
-      const systemPrompt = buildAnalyzeSystem(effectiveDeliverable, effectiveFormat, effectiveBehavior, effectiveDuration);
+      const baseSystemPrompt = buildAnalyzeSystem(effectiveDeliverable, effectiveFormat, effectiveBehavior, effectiveDuration);
+
+      // Inject guardrails
+      const guardrails = buildGuardrailBlock({
+        project: project ? { ...project, production_type: effectiveProductionType } : undefined,
+        productionType: effectiveFormat,
+        engineMode: ["documentary", "documentary-series", "hybrid-documentary"].includes(effectiveFormat) ? "hard-lock" : "soft-bias",
+        corpusEnabled: !!body.corpusEnabled,
+        corpusCalibration: body.corpusCalibration,
+      });
+      const systemPrompt = `${baseSystemPrompt}\n${guardrails.textBlock}`;
+      console.log(`[dev-engine-v2] guardrails: profile=${guardrails.profileName}, hash=${guardrails.hash}, mode=${guardrails.policy.engineMode}`);
 
       let prevContext = "";
       if (previousVersionId) {
