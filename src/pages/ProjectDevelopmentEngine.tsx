@@ -528,7 +528,7 @@ export default function ProjectDevelopmentEngine() {
               />
 
               {/* Feature Length Guardrails — right sidebar */}
-              {versionText && (selectedDeliverableType === 'script' || selectedDeliverableType === 'production_draft') && (
+              {versionText && !isVerticalDrama && (selectedDeliverableType === 'script' || selectedDeliverableType === 'production_draft') && (
                 <FeatureLengthGuardrails projectId={projectId!} versionText={versionText}
                   selectedDocId={selectedDocId} selectedVersionId={selectedVersionId} />
               )}
