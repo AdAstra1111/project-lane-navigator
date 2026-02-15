@@ -632,6 +632,15 @@ serve(async (req) => {
     const body = await req.json();
     const { action } = body;
 
+    // ── Centralized document existence check ──
+    // Any action that sends a documentId must reference a valid project_documents row
+    const centralDocId = body.documentId || body.scriptDocId;
+    if (centralDocId) {
+      const { data: docExists } = await supabase.from("project_documents")
+        .select("id").eq("id", centralDocId).single();
+      if (!docExists) throw new Error("Document not found — it may have been deleted. Please refresh and select another document.");
+    }
+
     // ══════════════════════════════════════════════
     // ANALYZE — strict routing: deliverable → format → behavior
     // ══════════════════════════════════════════════
@@ -640,6 +649,8 @@ serve(async (req) => {
 
       if (!projectId || !documentId || !versionId) throw new Error("projectId, documentId, versionId required");
       if (!deliverableType) throw new Error("deliverableType is required — select a deliverable type before analyzing");
+
+
 
       const { data: version } = await supabase.from("project_document_versions")
         .select("plaintext").eq("id", versionId).single();
