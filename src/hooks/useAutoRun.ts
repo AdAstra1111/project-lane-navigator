@@ -2,6 +2,14 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 
+export interface PendingDecision {
+  id: string;
+  question: string;
+  options: { value: string; why: string }[];
+  recommended?: string;
+  impact: 'blocking' | 'non_blocking';
+}
+
 export interface AutoRunJob {
   id: string;
   user_id: string;
@@ -23,6 +31,7 @@ export interface AutoRunJob {
   last_risk_flags: string[];
   stop_reason: string | null;
   error: string | null;
+  pending_decisions: PendingDecision[] | null;
   created_at: string;
   updated_at: string;
 }
@@ -93,8 +102,6 @@ export function useAutoRun(projectId: string | undefined) {
     setError(null);
     abortRef.current = false;
 
-    // Map rich deliverable types to the auto-run ladder positions
-    // Map rich deliverable types to the auto-run ladder positions
     const LADDER_MAP: Record<string, string> = {
       idea: 'idea',
       concept_brief: 'concept_brief',
@@ -110,7 +117,6 @@ export function useAutoRun(projectId: string | undefined) {
     };
     const mappedStart = LADDER_MAP[startDocument] || 'idea';
 
-    // Mode-specific step limits
     const MODE_STEPS: Record<string, number> = { fast: 8, balanced: 12, premium: 18 };
 
     try {
@@ -124,7 +130,6 @@ export function useAutoRun(projectId: string | undefined) {
       setJob(result.job);
       setSteps(result.latest_steps || []);
       setIsRunning(true);
-      // Start auto-loop
       runLoop(result.job.id);
     } catch (e: any) {
       setError(e.message);
@@ -137,7 +142,7 @@ export function useAutoRun(projectId: string | undefined) {
     while (!abortRef.current && attempts < 50) {
       attempts++;
       try {
-        await new Promise(r => setTimeout(r, 500)); // debounce
+        await new Promise(r => setTimeout(r, 500));
         const result = await callAutoRun('run-next', { jobId });
         setJob(result.job);
         setSteps(result.latest_steps || []);
@@ -202,6 +207,22 @@ export function useAutoRun(projectId: string | undefined) {
     }
   }, [job]);
 
+  const approveDecision = useCallback(async (decisionId: string, selectedValue: string) => {
+    if (!job) return;
+    setError(null);
+    try {
+      const result = await callAutoRun('approve-decision', { jobId: job.id, decisionId, selectedValue });
+      setJob(result.job);
+      setSteps(result.latest_steps || []);
+      // If job resumed to running, start the loop
+      if (result.job?.status === 'running') {
+        runLoop(result.job.id);
+      }
+    } catch (e: any) {
+      setError(e.message);
+    }
+  }, [job, runLoop]);
+
   const clear = useCallback(() => {
     setJob(null);
     setSteps([]);
@@ -210,5 +231,5 @@ export function useAutoRun(projectId: string | undefined) {
     abortRef.current = true;
   }, []);
 
-  return { job, steps, isRunning, error, start, runNext, resume, pause, stop, clear };
+  return { job, steps, isRunning, error, start, runNext, resume, pause, stop, clear, approveDecision };
 }

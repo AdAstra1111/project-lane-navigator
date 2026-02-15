@@ -1929,26 +1929,46 @@ CONTEXT:
 - Current budget band: ${budget}
 - Deliverable stage: ${deliverableType || "unknown"}
 - Development behavior: ${developmentBehavior || "market"}
+- Episode duration: ${project?.episode_target_duration_seconds || "not set"}
+- Season episode count: ${project?.season_episode_count || "not set"}
 
 Evaluate the material and latest analysis. Return ONLY valid JSON:
 {
-  "lane_suggestion": "<suggested lane or null if current is fine>",
-  "budget_suggestion": "<suggested budget band or null if current is fine>",
-  "qualification_fixes": {<key-value pairs to merge into qualifications, e.g. "episode_target_duration_seconds": 2700, or empty {}>},
-  "positioning_moves": ["<concrete strategic action 1>", "<action 2>", ...],
-  "must_decide": ["<decision the producer must make manually>", ...]
+  "auto_fixes": {
+    "qualifications": {
+      "episode_target_duration_seconds": <number or omit>,
+      "season_episode_count": <number or omit>,
+      "target_runtime_min_low": <number or omit>,
+      "target_runtime_min_high": <number or omit>
+    },
+    "assigned_lane": "<suggested lane or omit if current is fine>",
+    "budget_range": "<suggested budget band or omit if current is fine>"
+  },
+  "must_decide": [
+    {
+      "id": "<short_snake_case_id>",
+      "question": "<clear question the producer must answer>",
+      "options": [
+        {"value": "<option_value>", "why": "<1-sentence reasoning>"}
+      ],
+      "recommended": "<recommended option value or omit>",
+      "impact": "blocking" or "non_blocking"
+    }
+  ],
+  "summary": "<2-3 sentence executive summary of the strategic situation>"
 }
 
 Rules:
-- Only suggest lane/budget changes if the current positioning is clearly misaligned with the material.
-- qualification_fixes should include any missing technical metadata (episode duration, episode count, runtime).
-- positioning_moves are concrete, actionable (e.g. "Reframe as contained thriller to reduce budget requirements").
-- must_decide captures things you cannot resolve automatically (e.g. "Decide whether to keep ensemble or focus on single protagonist").
-- Do NOT recommend format changes — leave that for manual decision.
-- Keep positioning_moves to 3-5 max. Keep must_decide to 2-3 max.`;
+- auto_fixes.qualifications: include any missing technical metadata the system needs. Omit keys that are already correctly set.
+- auto_fixes.assigned_lane/budget_range: only include if clearly misaligned with the material.
+- must_decide: decisions the system CANNOT make automatically. If the project cannot progress without a human choice, set impact:"blocking".
+- Each must_decide item needs 2-4 concrete options with reasoning.
+- Do NOT recommend format changes — that belongs in must_decide if relevant.
+- Keep must_decide to 1-3 items max. Focus on the most impactful blocking decisions first.
+- summary should explain WHY the project is stuck and what the strategy resolves.`;
 
       const userPrompt = `LATEST ANALYSIS:\n${analysisSnippet}\n\nMATERIAL:\n${materialText}`;
-      const raw = await callAI(LOVABLE_API_KEY, FAST_MODEL, EXEC_STRATEGY_SYSTEM, userPrompt, 0.3, 2000);
+      const raw = await callAI(LOVABLE_API_KEY, FAST_MODEL, EXEC_STRATEGY_SYSTEM, userPrompt, 0.3, 2500);
       let parsed: any;
       try {
         parsed = JSON.parse(extractJSON(raw));
@@ -1957,7 +1977,12 @@ Rules:
         parsed = JSON.parse(extractJSON(repair));
       }
 
-      console.log(`[dev-engine-v2] executive-strategy: lane=${parsed.lane_suggestion}, budget=${parsed.budget_suggestion}, moves=${(parsed.positioning_moves||[]).length}`);
+      // Normalize structure
+      if (!parsed.auto_fixes) parsed.auto_fixes = {};
+      if (!parsed.must_decide) parsed.must_decide = [];
+      if (!parsed.summary) parsed.summary = "";
+
+      console.log(`[dev-engine-v2] executive-strategy: auto_fixes=${JSON.stringify(parsed.auto_fixes)}, must_decide=${parsed.must_decide.length}`);
 
       return new Response(JSON.stringify(parsed), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },

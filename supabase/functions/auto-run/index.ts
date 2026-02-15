@@ -412,6 +412,88 @@ Deno.serve(async (req) => {
     }
 
     // ═══════════════════════════════════════
+    // ACTION: approve-decision
+    // ═══════════════════════════════════════
+    if (action === "approve-decision") {
+      if (!jobId) return respond({ error: "jobId required" }, 400);
+      const { decisionId, selectedValue } = body;
+      if (!decisionId || !selectedValue) return respond({ error: "decisionId and selectedValue required" }, 400);
+
+      const { data: job, error: jobErr } = await supabase.from("auto_run_jobs").select("*").eq("id", jobId).eq("user_id", userId).single();
+      if (jobErr || !job) return respond({ error: "Job not found" }, 404);
+
+      const pending = job.pending_decisions || [];
+      const decision = pending.find((d: any) => d.id === decisionId);
+      if (!decision) return respond({ error: `Decision ${decisionId} not found` }, 404);
+
+      // Apply the selected value based on decision id patterns
+      const projectUpdates: Record<string, any> = {};
+      const did = decisionId.toLowerCase();
+      if (did.includes("lane") || did.includes("positioning")) {
+        projectUpdates.assigned_lane = selectedValue;
+      } else if (did.includes("budget")) {
+        projectUpdates.budget_range = selectedValue;
+      } else if (did.includes("format")) {
+        projectUpdates.format = selectedValue;
+      } else if (did.includes("episode") || did.includes("duration") || did.includes("runtime")) {
+        // Attempt to parse as number for qualification fields
+        const num = Number(selectedValue);
+        if (!isNaN(num)) {
+          const { data: curProj } = await supabase.from("projects").select("guardrails_config").eq("id", job.project_id).single();
+          const gc = curProj?.guardrails_config || {};
+          gc.overrides = gc.overrides || {};
+          gc.overrides.qualifications = { ...(gc.overrides.qualifications || {}), [decisionId]: num };
+          projectUpdates.guardrails_config = gc;
+          if (did.includes("episode_target_duration")) {
+            projectUpdates.episode_target_duration_seconds = num;
+          }
+        }
+      } else {
+        // Generic: store as guardrails qualification override
+        const { data: curProj } = await supabase.from("projects").select("guardrails_config").eq("id", job.project_id).single();
+        const gc = curProj?.guardrails_config || {};
+        gc.overrides = gc.overrides || {};
+        gc.overrides.qualifications = { ...(gc.overrides.qualifications || {}), [decisionId]: selectedValue };
+        projectUpdates.guardrails_config = gc;
+      }
+
+      if (Object.keys(projectUpdates).length > 0) {
+        await supabase.from("projects").update(projectUpdates).eq("id", job.project_id);
+      }
+
+      // Remove the resolved decision from pending list
+      const remainingDecisions = pending.filter((d: any) => d.id !== decisionId);
+      const hasBlockingRemaining = remainingDecisions.some((d: any) => d.impact === "blocking");
+
+      // Log the decision
+      const stepCount = job.step_count + 1;
+      await logStep(supabase, jobId, stepCount, job.current_document, "decision_applied",
+        `${decision.question} → ${selectedValue}`,
+        {}, undefined, { decisionId, selectedValue, updates: projectUpdates }
+      );
+
+      if (hasBlockingRemaining) {
+        // More blocking decisions remain
+        const nextBlocking = remainingDecisions.find((d: any) => d.impact === "blocking");
+        await updateJob(supabase, jobId, {
+          step_count: stepCount,
+          pending_decisions: remainingDecisions,
+          stop_reason: `Approval required: ${nextBlocking?.question || "pending decisions"}`,
+        });
+        return respondWithJob(supabase, jobId, "approve-decision");
+      }
+
+      // All blocking decisions resolved — resume
+      await updateJob(supabase, jobId, {
+        step_count: stepCount,
+        status: "running",
+        stop_reason: null,
+        pending_decisions: null,
+      });
+      return respondWithJob(supabase, jobId, "run-next");
+    }
+
+    // ═══════════════════════════════════════
     // ACTION: run-next (core state machine step)
     // ═══════════════════════════════════════
     if (action === "run-next") {
@@ -605,42 +687,62 @@ Deno.serve(async (req) => {
               }, token, job.project_id, format, currentDoc, jobId, newStep + 2
             );
 
-            const strat = stratResult?.result || {};
+            const strat = stratResult?.result || stratResult || {};
+            const autoFixes = strat.auto_fixes || {};
+            const mustDecide = Array.isArray(strat.must_decide) ? strat.must_decide : [];
 
-            // Apply deterministic project field fixes
+            // Apply auto_fixes immediately
             const projectUpdates: Record<string, any> = {};
-            if (strat.lane_suggestion && typeof strat.lane_suggestion === "string") {
-              projectUpdates.assigned_lane = strat.lane_suggestion;
+            if (autoFixes.assigned_lane && typeof autoFixes.assigned_lane === "string") {
+              projectUpdates.assigned_lane = autoFixes.assigned_lane;
             }
-            if (strat.budget_suggestion && typeof strat.budget_suggestion === "string") {
-              projectUpdates.budget_range = strat.budget_suggestion;
+            if (autoFixes.budget_range && typeof autoFixes.budget_range === "string") {
+              projectUpdates.budget_range = autoFixes.budget_range;
             }
-            // Merge qualification_fixes into guardrails_config
-            if (strat.qualification_fixes && typeof strat.qualification_fixes === "object" && Object.keys(strat.qualification_fixes).length > 0) {
+            // Merge qualification fixes into guardrails_config
+            const qualFixes = autoFixes.qualifications || {};
+            if (Object.keys(qualFixes).length > 0) {
               const { data: curProj } = await supabase.from("projects").select("guardrails_config").eq("id", job.project_id).single();
               const gc = curProj?.guardrails_config || {};
               gc.overrides = gc.overrides || {};
-              gc.overrides.qualifications = { ...(gc.overrides.qualifications || {}), ...strat.qualification_fixes };
+              gc.overrides.qualifications = { ...(gc.overrides.qualifications || {}), ...qualFixes };
               projectUpdates.guardrails_config = gc;
+              // Also set top-level episode fields if present
+              if (qualFixes.episode_target_duration_seconds) {
+                projectUpdates.episode_target_duration_seconds = qualFixes.episode_target_duration_seconds;
+              }
             }
-            // DO NOT auto-change project.format
 
             if (Object.keys(projectUpdates).length > 0) {
               await supabase.from("projects").update(projectUpdates).eq("id", job.project_id);
             }
 
-            await logStep(supabase, jobId, newStep + 2, currentDoc, "executive_strategy_applied",
-              `Strategy: ${Object.keys(projectUpdates).join(", ") || "advisory only"}. Moves: ${(strat.positioning_moves || []).length}, Decisions: ${(strat.must_decide || []).length}`,
-              { ci, gp, gap, readiness: promo.readiness_score, confidence: promo.confidence, risk_flags: [...promo.risk_flags, "executive_strategy_applied"] },
-              (strat.positioning_moves || []).slice(0, 3).join("; ") || undefined,
+            // Log strategy step
+            await logStep(supabase, jobId, newStep + 2, currentDoc, "executive_strategy",
+              strat.summary || `Auto-fixes: ${Object.keys(projectUpdates).join(", ") || "none"}. Decisions: ${mustDecide.length}`,
+              { ci, gp, gap, readiness: promo.readiness_score, confidence: promo.confidence, risk_flags: [...promo.risk_flags, "executive_strategy"] },
+              undefined,
               { strategy: strat, updates: projectUpdates }
             );
 
             // Re-run preflight after strategy updates
             await runPreflight(supabase, job.project_id, format, currentDoc);
 
-            // Continue at same stage with reset loop count
-            await updateJob(supabase, jobId, { step_count: newStep + 2, stage_loop_count: 0 });
+            // If must_decide has blocking items, PAUSE for user approval
+            const blockingDecisions = mustDecide.filter((d: any) => d.impact === "blocking");
+            if (blockingDecisions.length > 0) {
+              await updateJob(supabase, jobId, {
+                step_count: newStep + 2,
+                stage_loop_count: 0,
+                status: "paused",
+                stop_reason: `Approval required: ${blockingDecisions[0].question}`,
+                pending_decisions: mustDecide,
+              });
+              return respondWithJob(supabase, jobId, "approve-decision");
+            }
+
+            // No blocking decisions — continue at same stage with reset loop count
+            await updateJob(supabase, jobId, { step_count: newStep + 2, stage_loop_count: 0, pending_decisions: null });
             return respondWithJob(supabase, jobId, "run-next");
           } catch (stratErr: any) {
             console.error("[auto-run] Executive strategy failed:", stratErr.message);
@@ -757,7 +859,12 @@ async function respondWithJob(supabase: any, jobId: string, hint?: string): Prom
 function getHint(job: any): string {
   if (!job) return "none";
   if (job.status === "running") return "run-next";
-  if (job.status === "paused") return "resume";
+  if (job.status === "paused") {
+    if (job.pending_decisions && Array.isArray(job.pending_decisions) && job.pending_decisions.length > 0) {
+      return "approve-decision";
+    }
+    return "resume";
+  }
   if (job.status === "completed") return "none";
   if (job.status === "stopped") return "none";
   if (job.status === "failed") return "none";

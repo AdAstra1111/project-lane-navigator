@@ -121,6 +121,7 @@ export type Database = {
           max_stage_loops: number
           max_total_steps: number
           mode: string
+          pending_decisions: Json | null
           project_id: string
           stage_loop_count: number
           start_document: string
@@ -145,6 +146,7 @@ export type Database = {
           max_stage_loops?: number
           max_total_steps?: number
           mode?: string
+          pending_decisions?: Json | null
           project_id: string
           stage_loop_count?: number
           start_document: string
@@ -169,6 +171,7 @@ export type Database = {
           max_stage_loops?: number
           max_total_steps?: number
           mode?: string
+          pending_decisions?: Json | null
           project_id?: string
           stage_loop_count?: number
           start_document?: string
