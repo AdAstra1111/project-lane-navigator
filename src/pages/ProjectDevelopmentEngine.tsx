@@ -601,23 +601,24 @@ export default function ProjectDevelopmentEngine() {
 
             <TabsContent value="notes" className="mt-3 space-y-3">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div className="space-y-3">
-                  <NotesPanel
-                    allNotes={allPrioritizedMoves}
-                    tieredNotes={tieredNotes}
-                    selectedNotes={selectedNotes}
-                    setSelectedNotes={setSelectedNotes}
-                    onApplyRewrite={handleRewrite}
-                    isRewriting={rewrite.isPending || rewritePipeline.status !== 'idle'}
-                    isLoading={isLoading}
-                    resolutionSummary={resolutionSummary}
-                    stabilityStatus={stabilityStatus}
-                    globalDirections={latestNotes?.global_directions || []}
-                    hideApplyButton
-                    onDecisionsChange={setNotesDecisions}
-                  />
+                {/* LEFT: Notes */}
+                <NotesPanel
+                  allNotes={allPrioritizedMoves}
+                  tieredNotes={tieredNotes}
+                  selectedNotes={selectedNotes}
+                  setSelectedNotes={setSelectedNotes}
+                  onApplyRewrite={handleRewrite}
+                  isRewriting={rewrite.isPending || rewritePipeline.status !== 'idle'}
+                  isLoading={isLoading}
+                  resolutionSummary={resolutionSummary}
+                  stabilityStatus={stabilityStatus}
+                  globalDirections={latestNotes?.global_directions || []}
+                  hideApplyButton
+                  onDecisionsChange={setNotesDecisions}
+                />
 
-                  {/* Decision Mode Panel — shows when blockers/high-impact or auto-run paused for decisions */}
+                {/* RIGHT: Decisions */}
+                <div className="space-y-3">
                   {(tieredNotes.blockers.length > 0 || tieredNotes.high.length > 0 ||
                     (autoRun.job?.status === 'paused' && autoRun.job?.stop_reason?.includes('Decisions'))) && (
                     <DecisionModePanel
@@ -659,31 +660,6 @@ export default function ProjectDevelopmentEngine() {
                       hideApplyButton
                     />
                   )}
-
-                  {/* ═══ UNIFIED BIG BUTTON: Apply All Notes & Decisions ═══ */}
-                  {allPrioritizedMoves.length > 0 && (
-                    <Button
-                      size="lg"
-                      className="w-full h-12 text-sm font-semibold gap-2"
-                      onClick={() => handleRewrite(
-                        Object.keys(notesDecisions).length > 0 ? notesDecisions : undefined,
-                        latestNotes?.global_directions || [],
-                      )}
-                      disabled={isLoading || rewrite.isPending || rewritePipeline.status !== 'idle' || selectedNotes.size === 0}
-                    >
-                      {(rewrite.isPending || rewritePipeline.status !== 'idle') ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Sparkles className="h-4 w-4" />
-                      )}
-                      Apply All Notes & Decisions ({selectedNotes.size} notes
-                      {Object.values(notesDecisions).filter(Boolean).length > 0
-                        ? `, ${Object.values(notesDecisions).filter(Boolean).length} decisions`
-                        : ''})
-                    </Button>
-                  )}
-                </div>
-                <div className="space-y-3">
                   {(latestAnalysis?.rewrite_plan || latestNotes?.rewrite_plan) && (
                     <Card>
                       <CardHeader className="py-2 px-3">
@@ -704,6 +680,29 @@ export default function ProjectDevelopmentEngine() {
                   )}
                 </div>
               </div>
+
+              {/* ═══ UNIFIED BIG BUTTON: Apply All Notes & Decisions ═══ */}
+              {allPrioritizedMoves.length > 0 && (
+                <Button
+                  size="lg"
+                  className="w-full h-12 text-sm font-semibold gap-2"
+                  onClick={() => handleRewrite(
+                    Object.keys(notesDecisions).length > 0 ? notesDecisions : undefined,
+                    latestNotes?.global_directions || [],
+                  )}
+                  disabled={isLoading || rewrite.isPending || rewritePipeline.status !== 'idle' || selectedNotes.size === 0}
+                >
+                  {(rewrite.isPending || rewritePipeline.status !== 'idle') ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Sparkles className="h-4 w-4" />
+                  )}
+                  Apply All Notes & Decisions ({selectedNotes.size} notes
+                  {Object.values(notesDecisions).filter(Boolean).length > 0
+                    ? `, ${Object.values(notesDecisions).filter(Boolean).length} decisions`
+                    : ''})
+                </Button>
+              )}
             </TabsContent>
 
             <TabsContent value="convergence" className="mt-3">
