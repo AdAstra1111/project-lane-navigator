@@ -35,7 +35,7 @@ import { NotesPanel } from '@/components/devengine/NotesPanel';
 import { ConvergencePanel } from '@/components/devengine/ConvergencePanel';
 import { DriftBanner } from '@/components/devengine/DriftBanner';
 import { PromotionIntelligenceCard } from '@/components/devengine/PromotionIntelligenceCard';
-import { usePromotionIntelligence } from '@/hooks/usePromotionIntelligence';
+import { usePromotionIntelligence, extractNoteCounts } from '@/hooks/usePromotionIntelligence';
 
 // ── Main Page ──
 export default function ProjectDevelopmentEngine() {
@@ -151,21 +151,20 @@ export default function ProjectDevelopmentEngine() {
     const gp = latestAnalysis?.gp_score ?? latestAnalysis?.scores?.gp ?? 0;
     const gap = latestAnalysis?.gap ?? 0;
     const trajectory = latestAnalysis?.convergence?.trajectory ?? latestAnalysis?.trajectory ?? null;
-    const blockers = latestAnalysis?.blocking_issues || [];
-    const highNotes = latestAnalysis?.high_impact_notes || [];
+    const { blockers, highImpact } = extractNoteCounts(latestAnalysis, latestNotes);
     const iterCount = allDocRuns.filter((r: any) => r.run_type === 'ANALYZE').length;
     promotionIntel.computeLocal({
       ci, gp, gap, trajectory,
       convergenceStatus: convergenceStatus,
       currentDocument: selectedDeliverableType,
       blockersCount: blockers.length,
-      highImpactCount: highNotes.length,
+      highImpactCount: highImpact.length,
       iterationCount: iterCount,
-      blockerTexts: blockers.map((b: any) => typeof b === 'string' ? b : b?.description || b?.note || ''),
-      highImpactTexts: highNotes.map((n: any) => typeof n === 'string' ? n : n?.description || n?.note || ''),
+      blockerTexts: blockers,
+      highImpactTexts: highImpact,
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [latestAnalysis]);
+  }, [latestAnalysis, latestNotes]);
 
   // Handlers
   const handleRunEngine = () => {
