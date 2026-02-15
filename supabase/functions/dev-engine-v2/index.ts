@@ -534,6 +534,20 @@ const docTypeMap: Record<string, string> = {
 };
 
 // ═══════════════════════════════════════════════════════════════
+// FORMAT DEFAULTS (engine-side) — mirrors auto-run for consistency
+// ═══════════════════════════════════════════════════════════════
+
+const FORMAT_DEFAULTS_ENGINE: Record<string, { episode_target_duration_seconds?: number; season_episode_count?: number }> = {
+  "vertical-drama": { episode_target_duration_seconds: 60, season_episode_count: 30 },
+  "limited-series": { episode_target_duration_seconds: 3300, season_episode_count: 8 },
+  "tv-series": { episode_target_duration_seconds: 2700, season_episode_count: 10 },
+  "anim-series": { episode_target_duration_seconds: 1320, season_episode_count: 10 },
+  "documentary-series": { episode_target_duration_seconds: 2700, season_episode_count: 6 },
+  "digital-series": { episode_target_duration_seconds: 600, season_episode_count: 10 },
+  "reality": { episode_target_duration_seconds: 2700, season_episode_count: 10 },
+};
+
+// ═══════════════════════════════════════════════════════════════
 // CRITERIA SNAPSHOT
 // ═══════════════════════════════════════════════════════════════
 
@@ -562,7 +576,7 @@ async function buildCriteriaSnapshot(supabase: any, projectId: string): Promise<
   if (!p) return {};
   const gc = p.guardrails_config || {};
   const quals = gc?.overrides?.qualifications || {};
-  const fmt = (p.format || "film").toLowerCase().replace(/_/g, "-");
+  const fmt = (p.format || "film").toLowerCase().replace(/[_ ]+/g, "-");
   return {
     format_subtype: quals.format_subtype || fmt,
     season_episode_count: quals.season_episode_count || p.season_episode_count || undefined,
@@ -622,7 +636,11 @@ serve(async (req) => {
     // ANALYZE — strict routing: deliverable → format → behavior
     // ══════════════════════════════════════════════
     if (action === "analyze") {
-      const { projectId, documentId, versionId, deliverableType, developmentBehavior, format: reqFormat, episodeTargetDurationSeconds, strategicPriority, developmentStage, analysisMode, previousVersionId, productionType } = body;
+      const { projectId, documentId, versionId, deliverableType, developmentBehavior, format: reqFormat, strategicPriority, developmentStage, analysisMode, previousVersionId, productionType } = body;
+      // Accept both camelCase and snake_case episode qualifications
+      const rawEpisodeDuration = body.episodeTargetDurationSeconds ?? body.episode_target_duration_seconds ?? null;
+      const rawSeasonEpisodeCount = body.seasonEpisodeCount ?? body.season_episode_count ?? null;
+
       if (!projectId || !documentId || !versionId) throw new Error("projectId, documentId, versionId required");
       if (!deliverableType) throw new Error("deliverableType is required — select a deliverable type before analyzing");
 
@@ -635,11 +653,17 @@ serve(async (req) => {
         .eq("id", projectId).single();
 
       const rawFormat = reqFormat || project?.format || "film";
-      const effectiveFormat = rawFormat.toLowerCase().replace(/_/g, "-");
+      const effectiveFormat = rawFormat.toLowerCase().replace(/[_ ]+/g, "-");
       const effectiveBehavior = developmentBehavior || project?.development_behavior || "market";
       const effectiveDeliverable = deliverableType;
-      const effectiveDuration = episodeTargetDurationSeconds || project?.episode_target_duration_seconds;
       const effectiveProductionType = productionType || formatToProductionType[effectiveFormat] || "narrative_feature";
+
+      // Resolve episode qualifications: payload → project column → guardrails → defaults
+      const gc = project?.guardrails_config || {};
+      const gquals = gc?.overrides?.qualifications || {};
+      const fmtDefaults = FORMAT_DEFAULTS_ENGINE[effectiveFormat] || {};
+      const effectiveDuration = rawEpisodeDuration || project?.episode_target_duration_seconds || gquals.episode_target_duration_seconds || fmtDefaults.episode_target_duration_seconds || null;
+      const effectiveSeasonCount = rawSeasonEpisodeCount || (project as any)?.season_episode_count || gquals.season_episode_count || fmtDefaults.season_episode_count || null;
 
       // Vertical drama: require episode duration
       if (effectiveFormat === "vertical-drama" && !effectiveDuration) {
@@ -647,7 +671,7 @@ serve(async (req) => {
       }
 
       // Fetch season config for vertical drama
-      const seasonEpisodeCount = body.seasonEpisodeCount || (project as any)?.season_episode_count;
+      const seasonEpisodeCount = effectiveSeasonCount;
       let seasonArchitecture: any = null;
       if (effectiveFormat === "vertical-drama" && seasonEpisodeCount) {
         // Compute season architecture inline (mirrors dev-os-config.ts logic)

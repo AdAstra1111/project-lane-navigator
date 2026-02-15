@@ -26,6 +26,12 @@ const MODE_CONFIG: Record<string, { max_stage_loops: number; max_total_steps: nu
   premium: { max_stage_loops: 3, max_total_steps: 18, require_readiness: 82 },
 };
 
+// ── Format Normalization (canonical) ──
+
+function normalizeFormat(format: string): string {
+  return (format || "film").toLowerCase().replace(/[_ ]+/g, "-");
+}
+
 // ── Qualification Resolver ──
 
 interface QualificationDefaults {
@@ -48,13 +54,93 @@ const FORMAT_DEFAULTS: Record<string, QualificationDefaults> = {
   "short-film": { target_runtime_min_low: 5, target_runtime_min_high: 20 },
 };
 
+const SERIES_FORMATS = ["vertical-drama", "tv-series", "limited-series", "anim-series", "documentary-series", "digital-series", "reality"];
+
 // Stages where episode qualifications become required
 const SERIES_STAGE_THRESHOLD = LADDER.indexOf("concept_brief"); // concept_brief+
 const FILM_STAGE_THRESHOLD = LADDER.indexOf("draft"); // draft+
 
 function needsEpisodeQuals(format: string, _stageIdx: number): boolean {
-  const seriesFormats = ["vertical-drama", "tv-series", "limited-series", "anim-series", "documentary-series", "digital-series", "reality"];
-  return seriesFormats.includes(format); // always true for series — no stage threshold
+  return SERIES_FORMATS.includes(normalizeFormat(format));
+}
+
+// ── resolveSeriesQualifications — single canonical resolver ──
+
+interface ResolvedQualifications {
+  episode_target_duration_seconds: number | null;
+  season_episode_count: number | null;
+  source: {
+    duration: "project_column" | "guardrails" | "defaults" | null;
+    count: "project_column" | "guardrails" | "defaults" | null;
+  };
+}
+
+async function resolveSeriesQualifications(
+  supabase: any,
+  projectId: string,
+  format: string
+): Promise<ResolvedQualifications> {
+  const fmt = normalizeFormat(format);
+  const { data: project } = await supabase.from("projects")
+    .select("episode_target_duration_seconds, season_episode_count, guardrails_config")
+    .eq("id", projectId).single();
+  if (!project) return { episode_target_duration_seconds: null, season_episode_count: null, source: { duration: null, count: null } };
+
+  const gc = project.guardrails_config || {};
+  const quals = gc?.overrides?.qualifications || {};
+  const defaults = FORMAT_DEFAULTS[fmt] || {};
+
+  // Duration resolution: project column → guardrails → defaults
+  let duration: number | null = null;
+  let durSource: "project_column" | "guardrails" | "defaults" | null = null;
+  if (project.episode_target_duration_seconds) {
+    duration = project.episode_target_duration_seconds;
+    durSource = "project_column";
+  } else if (quals.episode_target_duration_seconds) {
+    duration = quals.episode_target_duration_seconds;
+    durSource = "guardrails";
+  } else if (defaults.episode_target_duration_seconds) {
+    duration = defaults.episode_target_duration_seconds;
+    durSource = "defaults";
+  }
+
+  // Count resolution: project column → guardrails → defaults
+  let count: number | null = null;
+  let countSource: "project_column" | "guardrails" | "defaults" | null = null;
+  if (project.season_episode_count) {
+    count = project.season_episode_count;
+    countSource = "project_column";
+  } else if (quals.season_episode_count) {
+    count = quals.season_episode_count;
+    countSource = "guardrails";
+  } else if (defaults.season_episode_count) {
+    count = defaults.season_episode_count;
+    countSource = "defaults";
+  }
+
+  // Persist-on-resolve: write defaults back so engine never re-asks
+  const needsPersist = (durSource === "defaults" || countSource === "defaults") && SERIES_FORMATS.includes(fmt);
+  if (needsPersist) {
+    const newGc = { ...gc };
+    newGc.overrides = newGc.overrides || {};
+    newGc.overrides.qualifications = { ...(newGc.overrides.qualifications || {}) };
+    if (durSource === "defaults" && duration != null) {
+      newGc.overrides.qualifications.episode_target_duration_seconds = duration;
+    }
+    if (countSource === "defaults" && count != null) {
+      newGc.overrides.qualifications.season_episode_count = count;
+    }
+
+    const updates: Record<string, any> = { guardrails_config: newGc };
+    // Also set the project column for episode_target_duration_seconds if it was missing
+    if (durSource === "defaults" && duration != null) {
+      updates.episode_target_duration_seconds = duration;
+    }
+
+    await supabase.from("projects").update(updates).eq("id", projectId);
+  }
+
+  return { episode_target_duration_seconds: duration, season_episode_count: count, source: { duration: durSource, count: countSource } };
 }
 
 function needsFilmQuals(format: string, stageIdx: number): boolean {
@@ -94,7 +180,7 @@ async function buildCriteriaSnapshot(supabase: any, projectId: string): Promise<
   if (!p) return {};
   const gc = p.guardrails_config || {};
   const quals = gc?.overrides?.qualifications || {};
-  const fmt = (p.format || "film").toLowerCase().replace(/_/g, "-");
+  const fmt = normalizeFormat(p.format);
   return {
     format_subtype: quals.format_subtype || fmt,
     season_episode_count: quals.season_episode_count || p.season_episode_count || undefined,
@@ -226,14 +312,14 @@ async function runPreflight(
 // Patterns that indicate a missing qualification error
 const QUAL_ERROR_PATTERNS = [
   "missing qualification", "episode_target_duration", "episode_target_duration_seconds",
-  "episodetargetdurationseconds", "season_episode_count",
+  "episodetargetdurationseconds", "season_episode_count", "seasonepisodecount",
   "required", "episode duration", "episode count", "target_runtime",
-  "missing episode duration",
+  "missing episode duration", "missing episode count",
 ];
 
 function isQualificationError(msg: string): boolean {
-  const lower = msg.toLowerCase();
-  return QUAL_ERROR_PATTERNS.some(p => lower.includes(p));
+  const lower = msg.toLowerCase().replace(/[\s_-]/g, "");
+  return QUAL_ERROR_PATTERNS.some(p => lower.includes(p.replace(/[\s_-]/g, "")));
 }
 
 // ── Promotion Intel (inline) ──
@@ -1347,17 +1433,10 @@ Deno.serve(async (req) => {
         return respondWithJob(supabase, jobId, "fix-criteria");
       }
 
-      // Re-fetch project after preflight may have updated it
-      const { data: freshProject } = await supabase.from("projects")
-        .select("episode_target_duration_seconds, season_episode_count, guardrails_config")
-        .eq("id", job.project_id).single();
-      let episodeDuration = freshProject?.episode_target_duration_seconds ||
-        freshProject?.guardrails_config?.overrides?.qualifications?.episode_target_duration_seconds;
-
-      // Hard fallback: if still falsy for a series format, use FORMAT_DEFAULTS
-      if (!episodeDuration && FORMAT_DEFAULTS[format]?.episode_target_duration_seconds) {
-        episodeDuration = FORMAT_DEFAULTS[format].episode_target_duration_seconds;
-      }
+      // Re-fetch qualifications using canonical resolver (persist-on-resolve)
+      const resolvedQuals = await resolveSeriesQualifications(supabase, job.project_id, format);
+      const episodeDuration = resolvedQuals.episode_target_duration_seconds;
+      const seasonEpisodeCount = resolvedQuals.season_episode_count;
 
       // ── IDEA auto-upshift: skip thin ideas directly to concept_brief ──
       if (currentDoc === "idea") {
@@ -1611,7 +1690,8 @@ Deno.serve(async (req) => {
             deliverableType: currentDoc,
             developmentBehavior: behavior,
             format,
-            episodeTargetDurationSeconds: episodeDuration,
+            episode_target_duration_seconds: episodeDuration,
+            season_episode_count: seasonEpisodeCount,
           }, token, job.project_id, format, currentDoc, jobId, stepCount
         );
 
@@ -1848,6 +1928,8 @@ Deno.serve(async (req) => {
                 deliverableType: currentDoc,
                 developmentBehavior: behavior,
                 format,
+                episode_target_duration_seconds: episodeDuration,
+                season_episode_count: seasonEpisodeCount,
               }, token, job.project_id, format, currentDoc, jobId, newStep + 2
             );
 
