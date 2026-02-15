@@ -335,7 +335,7 @@ export function NotesPanel({
           </div>
         </div>
       </CardHeader>
-      <CardContent className="px-2 pb-2 space-y-2">
+      <CardContent className="px-2 pb-2 space-y-2 max-h-[600px] overflow-hidden flex flex-col">
         {/* Resolution summary badges */}
         {resolutionSummary && (resolutionSummary.resolved > 0 || resolutionSummary.regressed > 0) && (
           <div className="flex flex-wrap gap-1.5">
@@ -370,6 +370,8 @@ export function NotesPanel({
             onClick={() => setSelectedNotes(new Set())}>None</Button>
         </div>
 
+        <ScrollArea className="flex-1 min-h-0">
+        <div className="space-y-2 pr-2">
         {/* Blockers — always expanded */}
         {tieredNotes.blockers.length > 0 && (
           <div className="space-y-1">
@@ -446,6 +448,8 @@ export function NotesPanel({
             </CollapsibleContent>
           </Collapsible>
         )}
+        </div>
+        </ScrollArea>
 
         {/* Apply Rewrite button — hidden when parent provides unified button */}
         {!hideApplyButton && (
