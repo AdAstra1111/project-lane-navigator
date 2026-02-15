@@ -1248,7 +1248,12 @@ MATERIAL (first 8000 chars):\n${version.plaintext.slice(0, 8000)}`;
 
       if (existingBlockers.length > 0) {
         const coveredNoteIds = new Set((selectedOptions || []).map((so: any) => so.note_id));
-        const uncoveredBlockers = existingBlockers.filter((b: any) => !coveredNoteIds.has(b.id) && !coveredNoteIds.has(b.note_key));
+        // Also count approvedNotes as covering blockers (manual rewrite path)
+        const approvedNoteIds = new Set((approvedNotes || []).map((n: any) => n.id || n.note_key));
+        const uncoveredBlockers = existingBlockers.filter((b: any) => {
+          const bid = b.id || b.note_key;
+          return !coveredNoteIds.has(bid) && !approvedNoteIds.has(bid);
+        });
         if (uncoveredBlockers.length > 0 && (!selectedOptions || selectedOptions.length === 0)) {
           return new Response(JSON.stringify({
             error: "Blockers require decisions before rewrite",
