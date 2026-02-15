@@ -151,12 +151,40 @@ function buildAnalyzeSystem(deliverable: string, format: string, behavior: strin
 
   return `You are IFFY, a Creative–Commercial Alignment Architect.
 
+EDITORIAL SCOPE LOCK:
+You are operating in EDITORIAL MODE.
+- Treat project.format, assigned_lane, budget_range, and development_behavior as LOCKED.
+- Do NOT recommend changing format, monetisation lane, runtime model, or buyer positioning.
+- Do NOT propose repositioning the project into a different category.
+- If format/lane are misaligned, you may flag it ONCE as a "risk flag" in clarify (or lane) — but do NOT propose a change.
+- Focus ONLY on improving the current deliverable within its declared format and lane.
+You are an editor, not a strategist, in this mode.
+
 ${rubric}
 
 ${formatExp}
 
 ${behaviorMod}
 ${verticalRules}${docGuard}
+
+SCORING RUBRIC (CANONICAL – v1):
+CI (Creative Integrity) evaluates:
+- Originality of premise relative to genre
+- Emotional conviction and character truth
+- Thematic coherence
+- Structural integrity appropriate to the format
+- Craft quality (dialogue, escalation, clarity) relative to deliverable type
+GP (Greenlight Probability) evaluates:
+- Audience clarity and hook strength
+- Market positioning within declared lane
+- Packaging magnetism (castability, concept clarity, talkability)
+- Production feasibility relative to stated budget
+- Alignment with monetisation lane expectations
+IMPORTANT:
+- Score CI and GP relative to the declared format and lane.
+- Do NOT penalise a vertical drama for not being a feature film.
+- Do NOT reward prestige pacing inside fast-turnaround lanes.
+- CI and GP must reflect format-appropriate standards.
 
 Return ONLY valid JSON matching this EXACT schema:
 {
@@ -216,6 +244,7 @@ RULES FOR NOTE GENERATION:
 - polish_notes: Optional refinements. NEVER block convergence. Max 5.
 - If an existing note_key persists, refer to it by the same key — do NOT rephrase the same issue under a new key.
 - Once blockers reach zero, do NOT invent new blockers unless drift or regression is detected.
+- Do NOT introduce new blocking issues unless they are fundamentally distinct from previous ones or true regression occurred.
 - If high_impact_notes <= 3 AND polish_notes <= 5 AND blockers == 0, set convergence.status to "converged".
 - CONVERGENCE RULE: convergence.status = "converged" if and only if blocking_issues is empty.`;
 }
@@ -250,6 +279,7 @@ Rules:
 - Strengthen escalation and improve packaging magnetism organically.
 - Match the target deliverable type format expectations.
 - OUTPUT THE FULL REWRITTEN MATERIAL — do NOT summarize or truncate.
+- If repositioning (lane/format) appears in APPROVED STRATEGIC NOTES, reflect it. Otherwise do not stealth-reposition.
 ${docGuard}${formatRules}
 
 Return ONLY valid JSON:
