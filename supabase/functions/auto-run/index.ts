@@ -159,6 +159,21 @@ const WEIGHTS: Record<string, { ci: number; gp: number; gap: number; traj: numbe
 
 function clamp(v: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, v)); }
 
+// ── Helper: robust score extraction ──
+function pickNumber(obj: any, paths: string[], fallback: number, riskFlags?: string[]): number {
+  for (const path of paths) {
+    const parts = path.split(".");
+    let cur = obj;
+    for (const p of parts) {
+      if (cur == null) break;
+      cur = cur[p];
+    }
+    if (cur != null && typeof cur === "number" && isFinite(cur)) return cur;
+  }
+  if (riskFlags) riskFlags.push("score_missing_fallback");
+  return fallback;
+}
+
 function trajectoryScore(t: string | null): number {
   const n = (t || "").toLowerCase().replace(/[_-]/g, "");
   if (n === "converging") return 90;
@@ -757,6 +772,54 @@ Deno.serve(async (req) => {
         episodeDuration = FORMAT_DEFAULTS[format].episode_target_duration_seconds;
       }
 
+      // ── IDEA auto-upshift: skip thin ideas directly to concept_brief ──
+      if (currentDoc === "idea") {
+        const { data: ideaDocs } = await supabase.from("project_documents")
+          .select("id, plaintext, extracted_text")
+          .eq("project_id", job.project_id).eq("doc_type", "idea")
+          .order("created_at", { ascending: false }).limit(1);
+        const ideaDoc = ideaDocs?.[0];
+        const ideaText = ideaDoc?.extracted_text || ideaDoc?.plaintext || "";
+        const wordCount = ideaText.trim().split(/\s+/).filter(Boolean).length;
+
+        if (ideaText.length < 400 || wordCount < 80) {
+          // Thin idea — convert to concept brief directly
+          if (ideaDoc) {
+            const { data: ideaVersions } = await supabase.from("project_document_versions")
+              .select("id").eq("document_id", ideaDoc.id)
+              .order("version_number", { ascending: false }).limit(1);
+            const ideaVersion = ideaVersions?.[0];
+
+            if (ideaVersion) {
+              try {
+                await callEdgeFunctionWithRetry(
+                  supabase, supabaseUrl, "dev-engine-v2", {
+                    action: "convert",
+                    projectId: job.project_id,
+                    documentId: ideaDoc.id,
+                    versionId: ideaVersion.id,
+                    targetOutput: "CONCEPT_BRIEF",
+                  }, token, job.project_id, format, currentDoc, jobId, stepCount + 1
+                );
+              } catch (_e) {
+                // conversion failed — continue anyway at concept_brief
+              }
+            }
+          }
+
+          const upshiftStep = stepCount + 1;
+          await logStep(supabase, jobId, upshiftStep, "idea", "auto_skip_thin_idea",
+            `Idea too thin (${wordCount} words, ${ideaText.length} chars); converting to concept brief`
+          );
+          await updateJob(supabase, jobId, {
+            current_document: "concept_brief",
+            stage_loop_count: 0,
+            step_count: upshiftStep,
+          });
+          return respondWithJob(supabase, jobId, "run-next");
+        }
+      }
+
       // ── Fetch latest document for current stage ──
       const { data: docs } = await supabase.from("project_documents").select("id, doc_type, plaintext, extracted_text").eq("project_id", job.project_id).eq("doc_type", currentDoc).order("created_at", { ascending: false }).limit(1);
       const doc = docs?.[0];
@@ -829,9 +892,10 @@ Deno.serve(async (req) => {
           }, token, job.project_id, format, currentDoc, jobId, stepCount
         );
 
-        const ci = analyzeResult?.ci_score ?? analyzeResult?.scores?.ci_score ?? 0;
-        const gp = analyzeResult?.gp_score ?? analyzeResult?.scores?.gp_score ?? 0;
-        const gap = analyzeResult?.gap ?? analyzeResult?.scores?.gap ?? 0;
+        const scoreRiskFlags: string[] = [];
+        const ci = pickNumber(analyzeResult, ["ci_score", "scores.ci", "scores.ci_score", "ci"], 50, scoreRiskFlags);
+        const gp = pickNumber(analyzeResult, ["gp_score", "scores.gp", "scores.gp_score", "gp"], 50, scoreRiskFlags);
+        const gap = pickNumber(analyzeResult, ["gap", "scores.gap"], Math.abs(ci - gp), scoreRiskFlags);
         const trajectory = analyzeResult?.trajectory ?? null;
         const blockersCount = (analyzeResult?.blocking_issues || []).length;
         const highImpactCount = (analyzeResult?.high_impact_notes || []).length;
@@ -876,90 +940,55 @@ Deno.serve(async (req) => {
           await logStep(supabase, jobId, newStep + 2, currentDoc, "stop", "Thrash detected");
           return respondWithJob(supabase, jobId);
         }
-        if (promo.risk_flags.includes("hard_gate:eroding_trajectory")) {
-          await updateJob(supabase, jobId, { status: "stopped", stop_reason: "Trajectory eroding — run Executive Strategy Loop" });
-          await logStep(supabase, jobId, newStep + 2, currentDoc, "stop", "Trajectory eroding");
-          return respondWithJob(supabase, jobId);
-        }
-        if (promo.recommendation === "escalate") {
-          // ── Executive Strategy via dev-engine-v2 (no session required) ──
-          try {
-            const stratResult = await callEdgeFunctionWithRetry(
-              supabase, supabaseUrl, "dev-engine-v2", {
-                action: "executive-strategy",
-                projectId: job.project_id,
-                documentId: doc.id,
-                versionId: latestVersion.id,
-                deliverableType: currentDoc,
-                format,
-                developmentBehavior: behavior,
-                analysisJson: analyzeResult,
-              }, token, job.project_id, format, currentDoc, jobId, newStep + 2
-            );
+        if (promo.risk_flags.includes("hard_gate:eroding_trajectory") || promo.recommendation === "escalate") {
+          // Pause with actionable decisions — never call session-based engines
+          const escalateDecisions = [
+            {
+              id: "force_promote",
+              question: `Escalation at ${currentDoc} (CI:${ci} GP:${gp}). Force-promote to next stage?`,
+              options: [
+                { value: "yes", why: "Skip remaining loops and advance to the next document stage" },
+                { value: "no", why: "Stay at current stage" },
+              ],
+              recommended: currentDoc === "idea" ? "yes" : undefined,
+              impact: "blocking" as const,
+            },
+            {
+              id: "run_exec_strategy",
+              question: "Run Executive Strategy to diagnose and reposition?",
+              options: [
+                { value: "yes", why: "Recommended — analyses lane, budget, and qualifications" },
+                { value: "no", why: "Skip strategic review" },
+              ],
+              recommended: "yes",
+              impact: "non_blocking" as const,
+            },
+            {
+              id: "raise_step_limit_once",
+              question: "Add 6 more steps and continue?",
+              options: [
+                { value: "yes", why: "Continue the current development cycle with more steps" },
+                { value: "no", why: "Stop the run" },
+              ],
+              impact: "non_blocking" as const,
+            },
+          ];
 
-            const strat = stratResult?.result || stratResult || {};
-            const autoFixes = strat.auto_fixes || {};
-            const mustDecide = Array.isArray(strat.must_decide) ? strat.must_decide : [];
+          const escalateReason = promo.risk_flags.includes("hard_gate:eroding_trajectory")
+            ? "Trajectory eroding"
+            : `Escalation: readiness ${promo.readiness_score}/100`;
 
-            // Apply auto_fixes immediately
-            const projectUpdates: Record<string, any> = {};
-            if (autoFixes.assigned_lane && typeof autoFixes.assigned_lane === "string") {
-              projectUpdates.assigned_lane = autoFixes.assigned_lane;
-            }
-            if (autoFixes.budget_range && typeof autoFixes.budget_range === "string") {
-              projectUpdates.budget_range = autoFixes.budget_range;
-            }
-            // Merge qualification fixes into guardrails_config
-            const qualFixes = autoFixes.qualifications || {};
-            if (Object.keys(qualFixes).length > 0) {
-              const { data: curProj } = await supabase.from("projects").select("guardrails_config").eq("id", job.project_id).single();
-              const gc = curProj?.guardrails_config || {};
-              gc.overrides = gc.overrides || {};
-              gc.overrides.qualifications = { ...(gc.overrides.qualifications || {}), ...qualFixes };
-              projectUpdates.guardrails_config = gc;
-              // Also set top-level episode fields if present
-              if (qualFixes.episode_target_duration_seconds) {
-                projectUpdates.episode_target_duration_seconds = qualFixes.episode_target_duration_seconds;
-              }
-            }
-
-            if (Object.keys(projectUpdates).length > 0) {
-              await supabase.from("projects").update(projectUpdates).eq("id", job.project_id);
-            }
-
-            // Log strategy step
-            await logStep(supabase, jobId, newStep + 2, currentDoc, "executive_strategy",
-              strat.summary || `Auto-fixes: ${Object.keys(projectUpdates).join(", ") || "none"}. Decisions: ${mustDecide.length}`,
-              { ci, gp, gap, readiness: promo.readiness_score, confidence: promo.confidence, risk_flags: [...promo.risk_flags, "executive_strategy"] },
-              undefined,
-              { strategy: strat, updates: projectUpdates }
-            );
-
-            // Re-run preflight after strategy updates
-            await runPreflight(supabase, job.project_id, format, currentDoc);
-
-            // If must_decide has blocking items, PAUSE for user approval
-            const blockingDecisions = mustDecide.filter((d: any) => d.impact === "blocking");
-            if (blockingDecisions.length > 0) {
-              await updateJob(supabase, jobId, {
-                step_count: newStep + 2,
-                stage_loop_count: 0,
-                status: "paused",
-                stop_reason: `Approval required: ${blockingDecisions[0].question}`,
-                pending_decisions: mustDecide,
-              });
-              return respondWithJob(supabase, jobId, "approve-decision");
-            }
-
-            // No blocking decisions — continue at same stage with reset loop count
-            await updateJob(supabase, jobId, { step_count: newStep + 2, stage_loop_count: 0, pending_decisions: null });
-            return respondWithJob(supabase, jobId, "run-next");
-          } catch (stratErr: any) {
-            console.error("[auto-run] Executive strategy failed:", stratErr.message);
-            await updateJob(supabase, jobId, { status: "stopped", stop_reason: `Escalate: strategy failed (${stratErr.message})` });
-            await logStep(supabase, jobId, newStep + 2, currentDoc, "stop", `Executive strategy failed: ${stratErr.message}`);
-            return respondWithJob(supabase, jobId);
-          }
+          await logStep(supabase, jobId, newStep + 2, currentDoc, "pause_for_approval",
+            `${escalateReason} — awaiting user decision`,
+            { ci, gp, gap, readiness: promo.readiness_score, confidence: promo.confidence, risk_flags: promo.risk_flags },
+          );
+          await updateJob(supabase, jobId, {
+            step_count: newStep + 2,
+            status: "paused",
+            stop_reason: `Approval required: ${escalateReason}`,
+            pending_decisions: escalateDecisions,
+          });
+          return respondWithJob(supabase, jobId, "approve-decision");
         }
 
         // ── STABILISE: run rewrite if loops remain ──
