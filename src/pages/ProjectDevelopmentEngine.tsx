@@ -662,35 +662,44 @@ export default function ProjectDevelopmentEngine() {
                 />
               )}
 
-              {/* Notes, full width */}
-              <NotesPanel
-                allNotes={allPrioritizedMoves}
-                tieredNotes={tieredNotes}
-                selectedNotes={selectedNotes}
-                setSelectedNotes={setSelectedNotes}
-                onApplyRewrite={handleRewrite}
-                isRewriting={rewrite.isPending || rewritePipeline.status !== 'idle'}
-                isLoading={isLoading}
-                resolutionSummary={resolutionSummary}
-                stabilityStatus={stabilityStatus}
-                globalDirections={latestNotes?.global_directions || []}
-                hideApplyButton
-                onDecisionsChange={setNotesDecisions}
-                onCustomDirectionsChange={setNotesCustomDirections}
-                externalDecisions={(() => {
-                  const optionsRun = (runs || []).filter((r: any) => r.run_type === 'OPTIONS').pop();
-                  if (optionsRun?.output_json?.decisions) return optionsRun.output_json.decisions;
-                  const noteDecisions = [
-                    ...tieredNotes.blockers.filter((n: any) => n.decisions?.length > 0).map((n: any) => ({
-                      note_id: n.id, options: n.decisions, recommended_option_id: n.recommended_option_id || n.recommended,
-                    })),
-                    ...tieredNotes.high.filter((n: any) => n.decisions?.length > 0).map((n: any) => ({
-                      note_id: n.id, options: n.decisions, recommended_option_id: n.recommended_option_id || n.recommended,
-                    })),
-                  ];
-                  return noteDecisions.length > 0 ? noteDecisions : undefined;
-                })()}
-              />
+              {/* Notes (excluding notes that have decisions — those live in DecisionModePanel above) */}
+              {(() => {
+                // Build set of note IDs that are handled by decisions
+                const decisionNoteIds = new Set<string>();
+                const optionsRun = (runs || []).filter((r: any) => r.run_type === 'OPTIONS').pop();
+                if (optionsRun?.output_json?.decisions) {
+                  for (const d of optionsRun.output_json.decisions) decisionNoteIds.add(d.note_id);
+                }
+                // Also exclude notes with inline decisions
+                for (const n of [...tieredNotes.blockers, ...tieredNotes.high]) {
+                  if (n.decisions?.length > 0) decisionNoteIds.add(n.id || n.note_key);
+                }
+
+                const filteredBlockers = tieredNotes.blockers.filter((n: any) => !decisionNoteIds.has(n.id || n.note_key));
+                const filteredHigh = tieredNotes.high.filter((n: any) => !decisionNoteIds.has(n.id || n.note_key));
+                const filteredTiered = { blockers: filteredBlockers, high: filteredHigh, polish: tieredNotes.polish };
+                const filteredAll = [...filteredBlockers, ...filteredHigh, ...tieredNotes.polish];
+
+                if (filteredAll.length === 0) return null;
+
+                return (
+                  <NotesPanel
+                    allNotes={filteredAll}
+                    tieredNotes={filteredTiered}
+                    selectedNotes={selectedNotes}
+                    setSelectedNotes={setSelectedNotes}
+                    onApplyRewrite={handleRewrite}
+                    isRewriting={rewrite.isPending || rewritePipeline.status !== 'idle'}
+                    isLoading={isLoading}
+                    resolutionSummary={resolutionSummary}
+                    stabilityStatus={stabilityStatus}
+                    globalDirections={latestNotes?.global_directions || []}
+                    hideApplyButton
+                    onDecisionsChange={setNotesDecisions}
+                    onCustomDirectionsChange={setNotesCustomDirections}
+                  />
+                );
+              })()}
 
               {/* Rewrite Plan + Guardrails — below the notes/decisions grid */}
               {(latestAnalysis?.rewrite_plan || latestNotes?.rewrite_plan) && (
