@@ -34,6 +34,8 @@ import { ActionToolbar } from '@/components/devengine/ActionToolbar';
 import { NotesPanel } from '@/components/devengine/NotesPanel';
 import { ConvergencePanel } from '@/components/devengine/ConvergencePanel';
 import { DriftBanner } from '@/components/devengine/DriftBanner';
+import { PromotionIntelligenceCard } from '@/components/devengine/PromotionIntelligenceCard';
+import { usePromotionIntelligence } from '@/hooks/usePromotionIntelligence';
 
 // ── Main Page ──
 export default function ProjectDevelopmentEngine() {
@@ -80,6 +82,7 @@ export default function ProjectDevelopmentEngine() {
   } = useDevEngineV2(projectId);
 
   const pipeline = useScriptPipeline(projectId);
+  const promotionIntel = usePromotionIntelligence();
   const rewritePipeline = useRewritePipeline(projectId);
 
   const [selectedDeliverableType, setSelectedDeliverableType] = useState<DeliverableType>('script');
@@ -140,6 +143,29 @@ export default function ProjectDevelopmentEngine() {
       setSelectedNotes(new Set(allPrioritizedMoves.map((_, i) => i)));
     }
   }, [allPrioritizedMoves]);
+
+  // Trigger Promotion Intelligence after analysis completes
+  useEffect(() => {
+    if (!latestAnalysis) { promotionIntel.clear(); return; }
+    const ci = latestAnalysis?.ci_score ?? latestAnalysis?.scores?.ci ?? 0;
+    const gp = latestAnalysis?.gp_score ?? latestAnalysis?.scores?.gp ?? 0;
+    const gap = latestAnalysis?.gap ?? 0;
+    const trajectory = latestAnalysis?.convergence?.trajectory ?? latestAnalysis?.trajectory ?? null;
+    const blockers = latestAnalysis?.blocking_issues || [];
+    const highNotes = latestAnalysis?.high_impact_notes || [];
+    const iterCount = allDocRuns.filter((r: any) => r.run_type === 'ANALYZE').length;
+    promotionIntel.computeLocal({
+      ci, gp, gap, trajectory,
+      convergenceStatus: convergenceStatus,
+      currentDocument: selectedDeliverableType,
+      blockersCount: blockers.length,
+      highImpactCount: highNotes.length,
+      iterationCount: iterCount,
+      blockerTexts: blockers.map((b: any) => typeof b === 'string' ? b : b?.description || b?.note || ''),
+      highImpactTexts: highNotes.map((n: any) => typeof n === 'string' ? n : n?.description || n?.note || ''),
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [latestAnalysis]);
 
   // Handlers
   const handleRunEngine = () => {
@@ -496,6 +522,14 @@ export default function ProjectDevelopmentEngine() {
                 convergenceHistory={convergenceHistory}
                 convergenceStatus={convergenceStatus}
                 tieredNotes={tieredNotes}
+              />
+
+              {/* Promotion Intelligence */}
+              <PromotionIntelligenceCard
+                data={promotionIntel.data}
+                isLoading={promotionIntel.isLoading}
+                onPromote={handlePromote}
+                onReReview={handleRunEngine}
               />
 
               {/* Notes */}
