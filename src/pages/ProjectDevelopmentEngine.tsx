@@ -619,83 +619,78 @@ export default function ProjectDevelopmentEngine() {
             </TabsList>
 
             <TabsContent value="notes" className="mt-3 space-y-3">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {/* LEFT: Notes */}
-                <NotesPanel
-                  allNotes={allPrioritizedMoves}
-                  tieredNotes={tieredNotes}
-                  selectedNotes={selectedNotes}
-                  setSelectedNotes={setSelectedNotes}
-                  onApplyRewrite={handleRewrite}
-                  isRewriting={rewrite.isPending || rewritePipeline.status !== 'idle'}
-                  isLoading={isLoading}
-                  resolutionSummary={resolutionSummary}
-                  stabilityStatus={stabilityStatus}
-                  globalDirections={latestNotes?.global_directions || []}
-                  hideApplyButton
-                  onDecisionsChange={setNotesDecisions}
-                  onCustomDirectionsChange={setNotesCustomDirections}
-                  externalDecisions={(() => {
+              {/* Decisions first, full width */}
+              {(tieredNotes.blockers.length > 0 || tieredNotes.high.length > 0 ||
+                (autoRun.job?.status === 'paused' && autoRun.job?.stop_reason?.includes('Decisions'))) && (
+                <DecisionModePanel
+                  projectId={projectId!}
+                  documentId={selectedDocId}
+                  versionId={selectedVersionId}
+                  documentText={versionText}
+                  docType={selectedDoc?.doc_type}
+                  versionNumber={selectedVersion?.version_number}
+                  updatedAt={selectedVersion?.created_at}
+                  decisions={(() => {
                     const optionsRun = (runs || []).filter((r: any) => r.run_type === 'OPTIONS').pop();
                     if (optionsRun?.output_json?.decisions) return optionsRun.output_json.decisions;
-                    // Fallback: build from notes with inline decisions
-                    const noteDecisions = [
+                    const noteDecisions: Decision[] = [
                       ...tieredNotes.blockers.filter((n: any) => n.decisions?.length > 0).map((n: any) => ({
-                        note_id: n.id, options: n.decisions, recommended_option_id: n.recommended_option_id || n.recommended,
+                        note_id: n.id, severity: 'blocker' as const, note: n.description || n.note,
+                        options: n.decisions, recommended_option_id: n.recommended_option_id || n.recommended,
                       })),
                       ...tieredNotes.high.filter((n: any) => n.decisions?.length > 0).map((n: any) => ({
-                        note_id: n.id, options: n.decisions, recommended_option_id: n.recommended_option_id || n.recommended,
+                        note_id: n.id, severity: 'high' as const, note: n.description || n.note,
+                        options: n.decisions, recommended_option_id: n.recommended_option_id || n.recommended,
                       })),
                     ];
-                    return noteDecisions.length > 0 ? noteDecisions : undefined;
+                    return noteDecisions;
                   })()}
+                  globalDirections={(() => {
+                    const optionsRun = (runs || []).filter((r: any) => r.run_type === 'OPTIONS').pop();
+                    return optionsRun?.output_json?.global_directions || latestNotes?.global_directions || [];
+                  })()}
+                  jobId={autoRun.job?.id}
+                  isAutoRunPaused={autoRun.job?.status === 'paused'}
+                  onRewriteComplete={() => {
+                    qc.invalidateQueries({ queryKey: ['dev-v2-docs', projectId] });
+                    qc.invalidateQueries({ queryKey: ['dev-v2-versions'] });
+                    qc.invalidateQueries({ queryKey: ['dev-v2-runs'] });
+                  }}
+                  onAutoRunContinue={(opts, gd) => autoRun.applyDecisionsAndContinue?.(opts, gd)}
+                  availableVersions={versions?.map((v: any) => ({ id: v.id, version_number: v.version_number, label: v.label }))}
+                  hideApplyButton
                 />
+              )}
 
-                {/* RIGHT: Decisions */}
-                <div className="space-y-3">
-                  {(tieredNotes.blockers.length > 0 || tieredNotes.high.length > 0 ||
-                    (autoRun.job?.status === 'paused' && autoRun.job?.stop_reason?.includes('Decisions'))) && (
-                    <DecisionModePanel
-                      projectId={projectId!}
-                      documentId={selectedDocId}
-                      versionId={selectedVersionId}
-                      documentText={versionText}
-                      docType={selectedDoc?.doc_type}
-                      versionNumber={selectedVersion?.version_number}
-                      updatedAt={selectedVersion?.created_at}
-                      decisions={(() => {
-                        const optionsRun = (runs || []).filter((r: any) => r.run_type === 'OPTIONS').pop();
-                        if (optionsRun?.output_json?.decisions) return optionsRun.output_json.decisions;
-                        const noteDecisions: Decision[] = [
-                          ...tieredNotes.blockers.filter((n: any) => n.decisions?.length > 0).map((n: any) => ({
-                            note_id: n.id, severity: 'blocker' as const, note: n.description || n.note,
-                            options: n.decisions, recommended_option_id: n.recommended_option_id || n.recommended,
-                          })),
-                          ...tieredNotes.high.filter((n: any) => n.decisions?.length > 0).map((n: any) => ({
-                            note_id: n.id, severity: 'high' as const, note: n.description || n.note,
-                            options: n.decisions, recommended_option_id: n.recommended_option_id || n.recommended,
-                          })),
-                        ];
-                        return noteDecisions;
-                      })()}
-                      globalDirections={(() => {
-                        const optionsRun = (runs || []).filter((r: any) => r.run_type === 'OPTIONS').pop();
-                        return optionsRun?.output_json?.global_directions || latestNotes?.global_directions || [];
-                      })()}
-                      jobId={autoRun.job?.id}
-                      isAutoRunPaused={autoRun.job?.status === 'paused'}
-                      onRewriteComplete={() => {
-                        qc.invalidateQueries({ queryKey: ['dev-v2-docs', projectId] });
-                        qc.invalidateQueries({ queryKey: ['dev-v2-versions'] });
-                        qc.invalidateQueries({ queryKey: ['dev-v2-runs'] });
-                      }}
-                      onAutoRunContinue={(opts, gd) => autoRun.applyDecisionsAndContinue?.(opts, gd)}
-                      availableVersions={versions?.map((v: any) => ({ id: v.id, version_number: v.version_number, label: v.label }))}
-                      hideApplyButton
-                    />
-                  )}
-                </div>
-              </div>
+              {/* Notes, full width */}
+              <NotesPanel
+                allNotes={allPrioritizedMoves}
+                tieredNotes={tieredNotes}
+                selectedNotes={selectedNotes}
+                setSelectedNotes={setSelectedNotes}
+                onApplyRewrite={handleRewrite}
+                isRewriting={rewrite.isPending || rewritePipeline.status !== 'idle'}
+                isLoading={isLoading}
+                resolutionSummary={resolutionSummary}
+                stabilityStatus={stabilityStatus}
+                globalDirections={latestNotes?.global_directions || []}
+                hideApplyButton
+                onDecisionsChange={setNotesDecisions}
+                onCustomDirectionsChange={setNotesCustomDirections}
+                externalDecisions={(() => {
+                  const optionsRun = (runs || []).filter((r: any) => r.run_type === 'OPTIONS').pop();
+                  if (optionsRun?.output_json?.decisions) return optionsRun.output_json.decisions;
+                  const noteDecisions = [
+                    ...tieredNotes.blockers.filter((n: any) => n.decisions?.length > 0).map((n: any) => ({
+                      note_id: n.id, options: n.decisions, recommended_option_id: n.recommended_option_id || n.recommended,
+                    })),
+                    ...tieredNotes.high.filter((n: any) => n.decisions?.length > 0).map((n: any) => ({
+                      note_id: n.id, options: n.decisions, recommended_option_id: n.recommended_option_id || n.recommended,
+                    })),
+                  ];
+                  return noteDecisions.length > 0 ? noteDecisions : undefined;
+                })()}
+              />
 
               {/* Rewrite Plan + Guardrails — below the notes/decisions grid */}
               {(latestAnalysis?.rewrite_plan || latestNotes?.rewrite_plan) && (
