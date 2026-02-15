@@ -16,6 +16,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Progress } from '@/components/ui/progress';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   ArrowRight, Play, Loader2, Target, ClipboardPaste, Upload,
   AlertTriangle, GitBranch, Clock, Film, Pause, Square, RotateCcw, ChevronDown,
@@ -510,89 +511,73 @@ export default function ProjectDevelopmentEngine() {
                 </>
               )}
             </div>
+          </div>
 
-          {/* ═══ INTELLIGENCE PANELS (below workspace) ═══ */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {/* Convergence + Promotion */}
-            <div className="space-y-3">
-              <ConvergencePanel
-                latestAnalysis={latestAnalysis}
-                convergenceHistory={convergenceHistory}
-                convergenceStatus={convergenceStatus}
-                tieredNotes={tieredNotes}
-              />
-              <PromotionIntelligenceCard
-                data={promotionIntel.data}
-                isLoading={promotionIntel.isLoading}
-                onPromote={handlePromote}
-                onReReview={handleRunEngine}
-              />
-              {(latestAnalysis?.rewrite_plan || latestNotes?.rewrite_plan) && (
-                <Card>
-                  <CardHeader className="py-2 px-3">
-                    <CardTitle className="text-xs">Rewrite Plan</CardTitle>
-                  </CardHeader>
-                  <CardContent className="px-3 pb-3">
-                    <div className="space-y-0.5">
-                      {((latestNotes?.rewrite_plan || latestAnalysis?.rewrite_plan) as string[]).slice(0, 5).map((item: string, i: number) => (
-                        <p key={i} className="text-[9px] text-muted-foreground">• {item}</p>
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
+          {/* ═══ INTELLIGENCE PANELS (tabbed, below workspace) ═══ */}
+          <Tabs defaultValue="notes" className="w-full">
+            <TabsList className="w-full justify-start bg-muted/30 border border-border/50 h-9">
+              <TabsTrigger value="notes" className="text-xs">Notes & Feedback</TabsTrigger>
+              <TabsTrigger value="convergence" className="text-xs">Convergence</TabsTrigger>
+              <TabsTrigger value="autorun" className="text-xs">Auto-Run</TabsTrigger>
               {convergenceHistory.length > 0 && (
-                <Collapsible open={timelineOpen} onOpenChange={setTimelineOpen}>
-                  <Card>
-                    <CardHeader className="py-2 px-3">
-                      <CollapsibleTrigger className="flex items-center justify-between w-full">
-                        <CardTitle className="text-xs flex items-center gap-1.5">
-                          <Clock className="h-3 w-3" /> Timeline ({convergenceHistory.length})
-                        </CardTitle>
-                        <ChevronDown className={`h-3 w-3 text-muted-foreground transition-transform ${timelineOpen ? 'rotate-0' : '-rotate-90'}`} />
-                      </CollapsibleTrigger>
-                    </CardHeader>
-                    <CollapsibleContent>
-                      <CardContent className="px-2 pb-2">
-                        <div className="space-y-1 max-h-[150px] overflow-y-auto">
-                          {convergenceHistory.slice().reverse().map((pt) => (
-                            <div key={pt.id} className="p-1.5 rounded bg-muted/30 text-[9px]">
-                              <div className="flex justify-between">
-                                <span>SS: {Number(pt.creative_score)} | FR: {Number(pt.greenlight_score)}</span>
-                                <span className="text-muted-foreground">{new Date(pt.created_at).toLocaleDateString()}</span>
-                              </div>
-                              <Badge variant="outline" className="text-[7px] px-1 py-0 mt-0.5">{pt.convergence_status}</Badge>
-                            </div>
+                <TabsTrigger value="timeline" className="text-xs">Timeline ({convergenceHistory.length})</TabsTrigger>
+              )}
+            </TabsList>
+
+            <TabsContent value="notes" className="mt-3 space-y-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <NotesPanel
+                  allNotes={allPrioritizedMoves}
+                  tieredNotes={tieredNotes}
+                  selectedNotes={selectedNotes}
+                  setSelectedNotes={setSelectedNotes}
+                  onApplyRewrite={handleRewrite}
+                  isRewriting={rewrite.isPending || rewritePipeline.status !== 'idle'}
+                  isLoading={isLoading}
+                  resolutionSummary={resolutionSummary}
+                  stabilityStatus={stabilityStatus}
+                />
+                <div className="space-y-3">
+                  {(latestAnalysis?.rewrite_plan || latestNotes?.rewrite_plan) && (
+                    <Card>
+                      <CardHeader className="py-2 px-3">
+                        <CardTitle className="text-xs">Rewrite Plan</CardTitle>
+                      </CardHeader>
+                      <CardContent className="px-3 pb-3">
+                        <div className="space-y-0.5">
+                          {((latestNotes?.rewrite_plan || latestAnalysis?.rewrite_plan) as string[]).slice(0, 5).map((item: string, i: number) => (
+                            <p key={i} className="text-[9px] text-muted-foreground">• {item}</p>
                           ))}
                         </div>
                       </CardContent>
-                    </CollapsibleContent>
-                  </Card>
-                </Collapsible>
-              )}
-            </div>
+                    </Card>
+                  )}
+                  {versionText && !isVerticalDrama && (selectedDeliverableType === 'script' || selectedDeliverableType === 'production_draft') && (
+                    <FeatureLengthGuardrails projectId={projectId!} versionText={versionText}
+                      selectedDocId={selectedDocId} selectedVersionId={selectedVersionId} />
+                  )}
+                </div>
+              </div>
+            </TabsContent>
 
-            {/* Notes */}
-            <div className="space-y-3">
-              <NotesPanel
-                allNotes={allPrioritizedMoves}
-                tieredNotes={tieredNotes}
-                selectedNotes={selectedNotes}
-                setSelectedNotes={setSelectedNotes}
-                onApplyRewrite={handleRewrite}
-                isRewriting={rewrite.isPending || rewritePipeline.status !== 'idle'}
-                isLoading={isLoading}
-                resolutionSummary={resolutionSummary}
-                stabilityStatus={stabilityStatus}
-              />
-              {versionText && !isVerticalDrama && (selectedDeliverableType === 'script' || selectedDeliverableType === 'production_draft') && (
-                <FeatureLengthGuardrails projectId={projectId!} versionText={versionText}
-                  selectedDocId={selectedDocId} selectedVersionId={selectedVersionId} />
-              )}
-            </div>
+            <TabsContent value="convergence" className="mt-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <ConvergencePanel
+                  latestAnalysis={latestAnalysis}
+                  convergenceHistory={convergenceHistory}
+                  convergenceStatus={convergenceStatus}
+                  tieredNotes={tieredNotes}
+                />
+                <PromotionIntelligenceCard
+                  data={promotionIntel.data}
+                  isLoading={promotionIntel.isLoading}
+                  onPromote={handlePromote}
+                  onReReview={handleRunEngine}
+                />
+              </div>
+            </TabsContent>
 
-            {/* Auto-Run Mission Control */}
-            <div className="space-y-3 md:col-span-2 lg:col-span-1">
+            <TabsContent value="autorun" className="mt-3">
               <AutoRunMissionControl
                 projectId={projectId!}
                 currentDeliverable={selectedDeliverableType}
@@ -618,9 +603,28 @@ export default function ProjectDevelopmentEngine() {
                 onSaveGuardrails={autoRun.saveGuardrails}
                 fetchDocumentText={autoRun.fetchDocumentText}
               />
-            </div>
-          </div>
-          </div>
+            </TabsContent>
+
+            {convergenceHistory.length > 0 && (
+              <TabsContent value="timeline" className="mt-3">
+                <Card>
+                  <CardContent className="p-3">
+                    <div className="space-y-1 max-h-[300px] overflow-y-auto">
+                      {convergenceHistory.slice().reverse().map((pt) => (
+                        <div key={pt.id} className="p-2 rounded bg-muted/30 text-xs flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <span>SS: {Number(pt.creative_score)} | FR: {Number(pt.greenlight_score)}</span>
+                            <Badge variant="outline" className="text-[9px] px-1.5 py-0">{pt.convergence_status}</Badge>
+                          </div>
+                          <span className="text-muted-foreground text-[10px]">{new Date(pt.created_at).toLocaleDateString()}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+            )}
+          </Tabs>
         </div>
       </div>
 
