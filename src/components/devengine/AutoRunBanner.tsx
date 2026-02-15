@@ -51,6 +51,8 @@ export function AutoRunBanner({
   const hasSelectedVersion = !!selectedDocId && !!selectedVersionId;
   const needsApproval = job.awaiting_approval || (job.pending_decisions && (job.pending_decisions as any[]).length > 0);
   const needsCriteria = (job.stop_reason || '').includes('Missing required criteria');
+  const isStaleDoc = (job.stop_reason || '').includes('Document stale vs current criteria');
+  const staleDiffKeys = isStaleDoc ? (job.stop_reason || '').match(/: (.+?)\./)?.[1] || '' : '';
 
   const handleResumeSelected = async () => {
     if (!selectedDocId || !selectedVersionId) return;
@@ -166,6 +168,19 @@ export function AutoRunBanner({
           <Button size="sm" variant="outline" className="h-7 text-[10px] gap-1 border-amber-500/30 text-amber-400" onClick={onScrollToCriteria}>
             <AlertTriangle className="h-3 w-3" /> Fix criteria
           </Button>
+        )}
+
+        {isStaleDoc && (
+          <>
+            <Button size="sm" variant="outline" className="h-7 text-[10px] gap-1 border-amber-500/30 text-amber-400"
+              onClick={onScrollToCriteria}>
+              <AlertTriangle className="h-3 w-3" /> Open Rebase Panel
+            </Button>
+            <Button size="sm" variant="outline" className="h-7 text-[10px] gap-1"
+              onClick={() => onResume(true)}>
+              <Play className="h-3 w-3" /> Continue anyway
+            </Button>
+          </>
         )}
       </div>
 

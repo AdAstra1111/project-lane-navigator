@@ -65,12 +65,60 @@ function needsFilmQuals(format: string, stageIdx: number): boolean {
 interface PreflightResult {
   resolved: Record<string, any>;
   changed: boolean;
+  missing_required: string[];
 }
 
-interface PreflightResult {
-  resolved: Record<string, any>;
-  changed: boolean;
-  missing_required: string[];
+// ── Criteria Snapshot ──
+const CRITERIA_SNAPSHOT_KEYS = [
+  "format_subtype", "season_episode_count", "episode_target_duration_seconds",
+  "target_runtime_min_low", "target_runtime_min_high", "assigned_lane",
+  "budget_range", "development_behavior"
+] as const;
+
+interface CriteriaSnapshot {
+  format_subtype?: string;
+  season_episode_count?: number;
+  episode_target_duration_seconds?: number;
+  target_runtime_min_low?: number;
+  target_runtime_min_high?: number;
+  assigned_lane?: string;
+  budget_range?: string;
+  development_behavior?: string;
+  updated_at?: string;
+}
+
+async function buildCriteriaSnapshot(supabase: any, projectId: string): Promise<CriteriaSnapshot> {
+  const { data: p } = await supabase.from("projects")
+    .select("format, assigned_lane, budget_range, development_behavior, episode_target_duration_seconds, season_episode_count, guardrails_config")
+    .eq("id", projectId).single();
+  if (!p) return {};
+  const gc = p.guardrails_config || {};
+  const quals = gc?.overrides?.qualifications || {};
+  const fmt = (p.format || "film").toLowerCase().replace(/_/g, "-");
+  return {
+    format_subtype: quals.format_subtype || fmt,
+    season_episode_count: quals.season_episode_count || p.season_episode_count || undefined,
+    episode_target_duration_seconds: quals.episode_target_duration_seconds || p.episode_target_duration_seconds || undefined,
+    target_runtime_min_low: quals.target_runtime_min_low || undefined,
+    target_runtime_min_high: quals.target_runtime_min_high || undefined,
+    assigned_lane: p.assigned_lane || quals.assigned_lane || undefined,
+    budget_range: p.budget_range || quals.budget_range || undefined,
+    development_behavior: p.development_behavior || undefined,
+    updated_at: new Date().toISOString(),
+  };
+}
+
+function compareSnapshots(a: CriteriaSnapshot | null, b: CriteriaSnapshot | null): string[] {
+  if (!a || !b) return [];
+  const diffs: string[] = [];
+  for (const key of CRITERIA_SNAPSHOT_KEYS) {
+    const va = a[key as keyof CriteriaSnapshot];
+    const vb = b[key as keyof CriteriaSnapshot];
+    if (va != null && vb != null && String(va) !== String(vb)) {
+      diffs.push(key);
+    }
+  }
+  return diffs;
 }
 
 async function runPreflight(
@@ -1073,6 +1121,9 @@ Deno.serve(async (req) => {
         }
       }
 
+      // ── Staleness check: compare current doc's criteria_snapshot vs latest ──
+      const latestCriteriaSnapshot = await buildCriteriaSnapshot(supabase, job.project_id);
+
       // ── Fetch document for current stage (respecting follow_latest / pinned source) ──
       let doc: any = null;
       let latestVersion: any = null;
@@ -1213,6 +1264,28 @@ Deno.serve(async (req) => {
           `Using pinned source: doc=${doc.id} ver=${latestVersion.id}`,
           {}, undefined, { documentId: doc.id, versionId: latestVersion.id, follow_latest: false }
         );
+      }
+
+      // ── Staleness detection: check if doc's last analysis snapshot differs from current ──
+      const { data: lastAnalyzeRun } = await supabase.from("development_runs")
+        .select("output_json").eq("document_id", doc.id).eq("run_type", "ANALYZE")
+        .order("created_at", { ascending: false }).limit(1).single();
+      const docSnapshot = lastAnalyzeRun?.output_json?.criteria_snapshot || null;
+      const staleDiffKeys = compareSnapshots(docSnapshot, latestCriteriaSnapshot);
+
+      if (staleDiffKeys.length > 0) {
+        const diffStr = staleDiffKeys.join(", ");
+        await logStep(supabase, jobId, stepCount + 1, currentDoc, "stale_document_detected",
+          `Document stale vs current criteria: ${diffStr}`,
+          { risk_flags: ["stale_document"] },
+        );
+        await updateJob(supabase, jobId, {
+          step_count: stepCount + 1,
+          status: "paused",
+          stop_reason: `Document stale vs current criteria: ${diffStr}. Regenerate or approve continuing.`,
+          last_risk_flags: [...(job.last_risk_flags || []), "stale_document"],
+        });
+        return respondWithJob(supabase, jobId, "rebase-required");
       }
 
       // Resolve the actual text being fed into analysis (version plaintext > doc extracted_text > doc plaintext)
