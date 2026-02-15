@@ -328,6 +328,16 @@ export default function ProjectDevelopmentEngine() {
               <Badge variant="outline" className="text-[10px] bg-muted/40 text-muted-foreground">
                 {normalizedFormat}
               </Badge>
+              {isSeriesFormat && (
+                <>
+                  <Badge variant="outline" className="text-[10px] bg-muted/40 text-muted-foreground">
+                    {episodeDuration}s/ep
+                  </Badge>
+                  <Badge variant="outline" className="text-[10px] bg-muted/40 text-muted-foreground">
+                    {seasonEpisodes} eps
+                  </Badge>
+                </>
+              )}
               <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/30">
                 {DELIVERABLE_LABELS[selectedDeliverableType]}
               </Badge>
