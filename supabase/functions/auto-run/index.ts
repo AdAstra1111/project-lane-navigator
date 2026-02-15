@@ -52,9 +52,9 @@ const FORMAT_DEFAULTS: Record<string, QualificationDefaults> = {
 const SERIES_STAGE_THRESHOLD = LADDER.indexOf("concept_brief"); // concept_brief+
 const FILM_STAGE_THRESHOLD = LADDER.indexOf("draft"); // draft+
 
-function needsEpisodeQuals(format: string, stageIdx: number): boolean {
+function needsEpisodeQuals(format: string, _stageIdx: number): boolean {
   const seriesFormats = ["vertical-drama", "tv-series", "limited-series", "anim-series", "documentary-series", "digital-series", "reality"];
-  return seriesFormats.includes(format) && stageIdx >= SERIES_STAGE_THRESHOLD;
+  return seriesFormats.includes(format); // always true for series — no stage threshold
 }
 
 function needsFilmQuals(format: string, stageIdx: number): boolean {
@@ -137,8 +137,10 @@ async function runPreflight(
 
 // Patterns that indicate a missing qualification error
 const QUAL_ERROR_PATTERNS = [
-  "missing qualification", "episode_target_duration", "season_episode_count",
+  "missing qualification", "episode_target_duration", "episode_target_duration_seconds",
+  "episodetargetdurationseconds", "season_episode_count",
   "required", "episode duration", "episode count", "target_runtime",
+  "missing episode duration",
 ];
 
 function isQualificationError(msg: string): boolean {
@@ -455,8 +457,13 @@ Deno.serve(async (req) => {
       const { data: freshProject } = await supabase.from("projects")
         .select("episode_target_duration_seconds, season_episode_count, guardrails_config")
         .eq("id", job.project_id).single();
-      const episodeDuration = freshProject?.episode_target_duration_seconds ||
+      let episodeDuration = freshProject?.episode_target_duration_seconds ||
         freshProject?.guardrails_config?.overrides?.qualifications?.episode_target_duration_seconds;
+
+      // Hard fallback: if still falsy for a series format, use FORMAT_DEFAULTS
+      if (!episodeDuration && FORMAT_DEFAULTS[format]?.episode_target_duration_seconds) {
+        episodeDuration = FORMAT_DEFAULTS[format].episode_target_duration_seconds;
+      }
 
       // ── Fetch latest document for current stage ──
       const { data: docs } = await supabase.from("project_documents").select("id, doc_type, plaintext, extracted_text").eq("project_id", job.project_id).eq("doc_type", currentDoc).order("created_at", { ascending: false }).limit(1);
