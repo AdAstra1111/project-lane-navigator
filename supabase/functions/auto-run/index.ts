@@ -421,9 +421,42 @@ Deno.serve(async (req) => {
     // ═══════════════════════════════════════
     if (action === "resume") {
       if (!jobId) return respond({ error: "jobId required" }, 400);
-      await updateJob(supabase, jobId, { status: "running", stop_reason: null });
+      const resumeUpdates: Record<string, any> = { status: "running", stop_reason: null };
+      if (body.followLatest === true) {
+        resumeUpdates.follow_latest = true;
+        resumeUpdates.resume_document_id = null;
+        resumeUpdates.resume_version_id = null;
+      }
+      await updateJob(supabase, jobId, resumeUpdates);
       const { data: job } = await supabase.from("auto_run_jobs").select("*").eq("id", jobId).single();
       return respond({ job, latest_steps: [], next_action_hint: "run-next" });
+    }
+
+    // ═══════════════════════════════════════
+    // ACTION: set-resume-source
+    // ═══════════════════════════════════════
+    if (action === "set-resume-source") {
+      if (!jobId) return respond({ error: "jobId required" }, 400);
+      const { documentId, versionId } = body;
+      if (!documentId || !versionId) return respond({ error: "documentId and versionId required" }, 400);
+
+      const { data: job, error: jobErr } = await supabase.from("auto_run_jobs").select("*").eq("id", jobId).eq("user_id", userId).single();
+      if (jobErr || !job) return respond({ error: "Job not found" }, 404);
+
+      await updateJob(supabase, jobId, {
+        follow_latest: false,
+        resume_document_id: documentId,
+        resume_version_id: versionId,
+      });
+
+      const stepCount = job.step_count + 1;
+      await logStep(supabase, jobId, stepCount, job.current_document, "resume_source_set",
+        `Pinned resume source: doc=${documentId} ver=${versionId}`,
+        {}, undefined, { documentId, versionId, follow_latest: false }
+      );
+      await updateJob(supabase, jobId, { step_count: stepCount });
+
+      return respondWithJob(supabase, jobId);
     }
 
     // ═══════════════════════════════════════
@@ -985,9 +1018,43 @@ Deno.serve(async (req) => {
         }
       }
 
-      // ── Fetch latest document for current stage ──
-      const { data: docs } = await supabase.from("project_documents").select("id, doc_type, plaintext, extracted_text").eq("project_id", job.project_id).eq("doc_type", currentDoc).order("created_at", { ascending: false }).limit(1);
-      const doc = docs?.[0];
+      // ── Fetch document for current stage (respecting follow_latest / pinned source) ──
+      let doc: any = null;
+      let latestVersion: any = null;
+      let resumeSourceUsed = false;
+      const resumeRiskFlags: string[] = [];
+
+      if (!job.follow_latest && job.resume_document_id && job.resume_version_id) {
+        // Pinned source — validate it
+        const { data: pinnedDoc } = await supabase.from("project_documents")
+          .select("id, doc_type, plaintext, extracted_text")
+          .eq("id", job.resume_document_id)
+          .eq("project_id", job.project_id)
+          .single();
+        const { data: pinnedVer } = await supabase.from("project_document_versions")
+          .select("id, plaintext, version_number")
+          .eq("id", job.resume_version_id)
+          .eq("document_id", job.resume_document_id)
+          .single();
+
+        if (pinnedDoc && pinnedVer && pinnedDoc.doc_type === currentDoc) {
+          doc = pinnedDoc;
+          latestVersion = pinnedVer;
+          resumeSourceUsed = true;
+        } else {
+          // Invalid pinned source — fall back to latest
+          resumeRiskFlags.push("resume_source_invalid_fallback");
+          await updateJob(supabase, jobId, { follow_latest: true, resume_document_id: null, resume_version_id: null });
+        }
+      }
+
+      if (!doc) {
+        const { data: docs } = await supabase.from("project_documents")
+          .select("id, doc_type, plaintext, extracted_text")
+          .eq("project_id", job.project_id).eq("doc_type", currentDoc)
+          .order("created_at", { ascending: false }).limit(1);
+        doc = docs?.[0];
+      }
 
       // If no document exists for current stage, generate one
       if (!doc) {
@@ -1036,7 +1103,6 @@ Deno.serve(async (req) => {
               .order("version_number", { ascending: false }).limit(1);
             convertedVersionId = cvs?.[0]?.id || null;
           }
-          // If we couldn't find the new doc, try the current stage doc
           if (!convertedDocId) {
             const { data: newDocs } = await supabase.from("project_documents")
               .select("id").eq("project_id", job.project_id).eq("doc_type", currentDoc)
@@ -1063,7 +1129,7 @@ Deno.serve(async (req) => {
             pending_doc_id: convertedDocId || prevDoc.id,
             pending_version_id: convertedVersionId,
             pending_doc_type: currentDoc,
-            pending_next_doc_type: currentDoc, // stay at same stage after approval (editorial loop starts)
+            pending_next_doc_type: currentDoc,
           });
           return respondWithJob(supabase, jobId, "awaiting-approval");
         } catch (e: any) {
@@ -1073,15 +1139,25 @@ Deno.serve(async (req) => {
         }
       }
 
-      // ── Document exists — run editorial loop ──
-      const { data: versions } = await supabase.from("project_document_versions")
-        .select("id, plaintext, version_number")
-        .eq("document_id", doc.id)
-        .order("version_number", { ascending: false }).limit(1);
-      const latestVersion = versions?.[0];
+      // ── Document exists — resolve version ──
+      if (!latestVersion) {
+        const { data: versions } = await supabase.from("project_document_versions")
+          .select("id, plaintext, version_number")
+          .eq("document_id", doc.id)
+          .order("version_number", { ascending: false }).limit(1);
+        latestVersion = versions?.[0];
+      }
       if (!latestVersion) {
         await updateJob(supabase, jobId, { status: "failed", error: "No version for current document" });
         return respondWithJob(supabase, jobId);
+      }
+
+      // Log resume source usage
+      if (resumeSourceUsed) {
+        await logStep(supabase, jobId, stepCount, currentDoc, "resume_source_used",
+          `Using pinned source: doc=${doc.id} ver=${latestVersion.id}`,
+          {}, undefined, { documentId: doc.id, versionId: latestVersion.id, follow_latest: false }
+        );
       }
 
       // Resolve the actual text being fed into analysis (version plaintext > doc extracted_text > doc plaintext)
@@ -1116,7 +1192,7 @@ Deno.serve(async (req) => {
         // dev-engine-v2 wraps analysis under { run, analysis }
         const analyzeResult = rawAnalyzeResult?.analysis || rawAnalyzeResult || {};
 
-        const scoreRiskFlags: string[] = [];
+        const scoreRiskFlags: string[] = [...resumeRiskFlags];
         const ci = pickNumber(analyzeResult, ["ci_score", "scores.ci", "scores.ci_score", "ci"], 50, scoreRiskFlags);
         const gp = pickNumber(analyzeResult, ["gp_score", "scores.gp", "scores.gp_score", "gp"], 50, scoreRiskFlags);
         const gap = pickNumber(analyzeResult, ["gap", "scores.gap"], Math.abs(ci - gp), scoreRiskFlags);

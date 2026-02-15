@@ -56,7 +56,8 @@ interface AutoRunMissionControlProps {
   error: string | null;
   onStart: (mode: string, startDoc: string) => void;
   onPause: () => void;
-  onResume: () => void;
+  onResume: (followLatest?: boolean) => void;
+  onSetResumeSource: (documentId: string, versionId: string) => Promise<void>;
   onStop: () => void;
   onRunNext: () => void;
   onClear: () => void;
@@ -168,7 +169,7 @@ function StepTimeline({ steps, onViewOutput }: { steps: AutoRunStep[]; onViewOut
 // ── Main Component ──
 export function AutoRunMissionControl({
   projectId, currentDeliverable, job, steps, isRunning, error,
-  onStart, onPause, onResume, onStop, onRunNext, onClear,
+  onStart, onPause, onResume, onSetResumeSource, onStop, onRunNext, onClear,
   onGetPendingDoc, onApproveNext, onApproveDecision,
   onSetStage, onForcePromote, onRestartFromStage,
   onSaveStorySetup, onSaveQualifications, onSaveLaneBudget, onSaveGuardrails,
@@ -572,7 +573,7 @@ export function AutoRunMissionControl({
                 )}
                 {job.status === 'paused' && !hasDecisions && !job.awaiting_approval && (
                   <>
-                    <Button size="sm" className="h-7 text-[10px] gap-1" onClick={onResume}>
+                    <Button size="sm" className="h-7 text-[10px] gap-1" onClick={() => onResume()}>
                       <Play className="h-3 w-3" /> Resume
                     </Button>
                     <Button variant="destructive" size="sm" className="h-7 text-[10px] gap-1" onClick={onStop}>
@@ -581,8 +582,26 @@ export function AutoRunMissionControl({
                   </>
                 )}
               </div>
-              {/* Safe mode toggle */}
+              {/* Follow Latest toggle */}
               <div className="flex items-center gap-2 mt-2">
+                <Switch
+                  checked={job.follow_latest !== false}
+                  onCheckedChange={(checked) => {
+                    if (checked) {
+                      onResume(true);
+                    }
+                  }}
+                  className="scale-75"
+                />
+                <span className="text-[9px] text-muted-foreground">
+                  Follow Latest Version
+                  {job.follow_latest === false && job.resume_document_id && (
+                    <Badge variant="outline" className="text-[7px] px-1 py-0 ml-1 bg-amber-500/10 text-amber-500 border-amber-500/30">pinned</Badge>
+                  )}
+                </span>
+              </div>
+              {/* Safe mode toggle */}
+              <div className="flex items-center gap-2 mt-1">
                 <Switch checked={safeMode} onCheckedChange={setSafeMode} className="scale-75" />
                 <span className="text-[9px] text-muted-foreground">Safe Mode (require approval for all promotions)</span>
               </div>
