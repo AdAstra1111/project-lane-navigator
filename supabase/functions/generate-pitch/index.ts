@@ -43,6 +43,8 @@ The total_score should be calculated as: (market_heat × 0.30) + (feasibility ×
 
 RANK ideas by total_score descending.
 
+CRITICAL — CHARACTER NAME DIVERSITY: Do NOT reuse generic placeholder names like "Maya", "Kai", "Zara", "Eli", etc. across pitches. Every character in every pitch must have a DISTINCT, specific name that fits the story's cultural and geographic setting. Vary ethnicity, era, and naming conventions across ideas. If you catch yourself defaulting to the same name, change it.
+
 For each idea, you MUST call the submit_pitches function with the structured output.`;
 
     const userPrompt = `Generate ${count || 3} ranked pitch ideas with these filters:
