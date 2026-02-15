@@ -33,11 +33,12 @@ interface Props {
   onSetResumeSource: (docId: string, verId: string) => Promise<void>;
   onStop: () => void;
   onScrollToApproval?: () => void;
+  onScrollToCriteria?: () => void;
 }
 
 export function AutoRunBanner({
   job, steps, isRunning, selectedDocId, selectedVersionId,
-  onPause, onRunNext, onResume, onSetResumeSource, onStop, onScrollToApproval,
+  onPause, onRunNext, onResume, onSetResumeSource, onStop, onScrollToApproval, onScrollToCriteria,
 }: Props) {
   const [stepsOpen, setStepsOpen] = useState(false);
   const [resumingSelected, setResumingSelected] = useState(false);
@@ -49,6 +50,7 @@ export function AutoRunBanner({
   const isFailed = status === 'failed';
   const hasSelectedVersion = !!selectedDocId && !!selectedVersionId;
   const needsApproval = job.awaiting_approval || (job.pending_decisions && (job.pending_decisions as any[]).length > 0);
+  const needsCriteria = (job.stop_reason || '').includes('Missing required criteria');
 
   const handleResumeSelected = async () => {
     if (!selectedDocId || !selectedVersionId) return;
@@ -157,6 +159,12 @@ export function AutoRunBanner({
         {needsApproval && onScrollToApproval && (
           <Button size="sm" variant="outline" className="h-7 text-[10px] gap-1 border-amber-500/30 text-amber-400" onClick={onScrollToApproval}>
             <AlertTriangle className="h-3 w-3" /> Review & approve
+          </Button>
+        )}
+
+        {needsCriteria && onScrollToCriteria && (
+          <Button size="sm" variant="outline" className="h-7 text-[10px] gap-1 border-amber-500/30 text-amber-400" onClick={onScrollToCriteria}>
+            <AlertTriangle className="h-3 w-3" /> Fix criteria
           </Button>
         )}
       </div>

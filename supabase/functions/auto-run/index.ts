@@ -67,72 +67,112 @@ interface PreflightResult {
   changed: boolean;
 }
 
+interface PreflightResult {
+  resolved: Record<string, any>;
+  changed: boolean;
+  missing_required: string[];
+}
+
 async function runPreflight(
-  supabase: any, projectId: string, format: string, currentDoc: DocStage
+  supabase: any, projectId: string, format: string, currentDoc: DocStage, allowDefaults = true
 ): Promise<PreflightResult> {
   const { data: project } = await supabase.from("projects")
     .select("episode_target_duration_seconds, season_episode_count, assigned_lane, budget_range, guardrails_config")
     .eq("id", projectId).single();
 
-  if (!project) return { resolved: {}, changed: false };
+  if (!project) return { resolved: {}, changed: false, missing_required: [] };
 
   const stageIdx = LADDER.indexOf(currentDoc);
   const defaults = FORMAT_DEFAULTS[format] || {};
   const updates: Record<string, any> = {};
   const resolved: Record<string, any> = {};
+  const missing_required: string[] = [];
+
+  // ── PRECEDENCE: 1) derived_from_idea criteria, 2) overrides.qualifications, 3) project columns, 4) FORMAT_DEFAULTS ──
+  const gc = project.guardrails_config || {};
+  const ideaCriteria = gc.derived_from_idea?.criteria || {};
+  const overrideQuals = gc.overrides?.qualifications || {};
+
+  // Helper: resolve a value with precedence
+  function resolveValue(field: string, projectCol?: any): any {
+    return ideaCriteria[field] ?? overrideQuals[field] ?? projectCol ?? null;
+  }
 
   // Episode qualifications for series formats
   if (needsEpisodeQuals(format, stageIdx)) {
-    if (!project.episode_target_duration_seconds && defaults.episode_target_duration_seconds) {
-      updates.episode_target_duration_seconds = defaults.episode_target_duration_seconds;
-      resolved.episode_target_duration_seconds = defaults.episode_target_duration_seconds;
+    const epDuration = resolveValue("episode_target_duration_seconds", project.episode_target_duration_seconds);
+    if (!epDuration) {
+      if (allowDefaults && defaults.episode_target_duration_seconds) {
+        updates.episode_target_duration_seconds = defaults.episode_target_duration_seconds;
+        resolved.episode_target_duration_seconds = defaults.episode_target_duration_seconds;
+      } else {
+        missing_required.push("episode_target_duration_seconds");
+      }
     }
-    // season_episode_count — try guardrails_config overrides
-    const existingOverrides = project.guardrails_config?.overrides?.qualifications || {};
-    if (!existingOverrides.season_episode_count && defaults.season_episode_count) {
-      const gc = project.guardrails_config || {};
-      gc.overrides = gc.overrides || {};
-      gc.overrides.qualifications = { ...(gc.overrides.qualifications || {}), season_episode_count: defaults.season_episode_count };
-      updates.guardrails_config = gc;
-      resolved.season_episode_count = defaults.season_episode_count;
+
+    const epCount = resolveValue("season_episode_count", project.season_episode_count);
+    if (!epCount) {
+      if (allowDefaults && defaults.season_episode_count) {
+        const newGc = updates.guardrails_config || { ...gc };
+        newGc.overrides = newGc.overrides || {};
+        newGc.overrides.qualifications = { ...(newGc.overrides.qualifications || {}), season_episode_count: defaults.season_episode_count };
+        updates.guardrails_config = newGc;
+        resolved.season_episode_count = defaults.season_episode_count;
+      } else {
+        missing_required.push("season_episode_count");
+      }
     }
   }
 
   // Film qualifications
   if (needsFilmQuals(format, stageIdx)) {
-    const existingOverrides = (updates.guardrails_config || project.guardrails_config)?.overrides?.qualifications || {};
-    if (!existingOverrides.target_runtime_min_low && defaults.target_runtime_min_low) {
-      const gc = updates.guardrails_config || project.guardrails_config || {};
-      gc.overrides = gc.overrides || {};
-      gc.overrides.qualifications = {
-        ...(gc.overrides.qualifications || {}),
-        target_runtime_min_low: defaults.target_runtime_min_low,
-        target_runtime_min_high: defaults.target_runtime_min_high,
-      };
-      updates.guardrails_config = gc;
-      resolved.target_runtime_min_low = defaults.target_runtime_min_low;
-      resolved.target_runtime_min_high = defaults.target_runtime_min_high;
+    const rtLow = resolveValue("target_runtime_min_low");
+    if (!rtLow) {
+      if (allowDefaults && defaults.target_runtime_min_low) {
+        const newGc = updates.guardrails_config || { ...gc };
+        newGc.overrides = newGc.overrides || {};
+        newGc.overrides.qualifications = {
+          ...(newGc.overrides.qualifications || {}),
+          target_runtime_min_low: defaults.target_runtime_min_low,
+          target_runtime_min_high: defaults.target_runtime_min_high,
+        };
+        updates.guardrails_config = newGc;
+        resolved.target_runtime_min_low = defaults.target_runtime_min_low;
+        resolved.target_runtime_min_high = defaults.target_runtime_min_high;
+      } else {
+        missing_required.push("target_runtime_min_low");
+      }
     }
   }
 
   // Lane fallback
-  if (!project.assigned_lane) {
-    updates.assigned_lane = "independent-film";
-    resolved.assigned_lane = "independent-film";
+  const lane = resolveValue("assigned_lane", project.assigned_lane);
+  if (!lane) {
+    if (allowDefaults) {
+      updates.assigned_lane = "independent-film";
+      resolved.assigned_lane = "independent-film";
+    } else {
+      missing_required.push("assigned_lane");
+    }
   }
 
   // Budget fallback
-  if (!project.budget_range) {
-    updates.budget_range = "low";
-    resolved.budget_range = "low";
+  const budget = resolveValue("budget_range", project.budget_range);
+  if (!budget) {
+    if (allowDefaults) {
+      updates.budget_range = "low";
+      resolved.budget_range = "low";
+    } else {
+      missing_required.push("budget_range");
+    }
   }
 
   if (Object.keys(updates).length > 0) {
     await supabase.from("projects").update(updates).eq("id", projectId);
-    return { resolved, changed: true };
+    return { resolved, changed: true, missing_required };
   }
 
-  return { resolved, changed: false };
+  return { resolved, changed: false, missing_required };
 }
 
 // Patterns that indicate a missing qualification error
@@ -378,7 +418,7 @@ Deno.serve(async (req) => {
       // ── Preflight qualification resolver at start ──
       const { data: proj } = await supabase.from("projects").select("format").eq("id", projectId).single();
       const fmt = (proj?.format || "film").toLowerCase().replace(/_/g, "-");
-      const preflight = await runPreflight(supabase, projectId, fmt, startDoc as DocStage);
+      const preflight = await runPreflight(supabase, projectId, fmt, startDoc as DocStage, true);
 
       const { data: job, error } = await supabase.from("auto_run_jobs").insert({
         user_id: userId,
@@ -951,11 +991,26 @@ Deno.serve(async (req) => {
       const format = (project?.format || "film").toLowerCase().replace(/_/g, "-");
       const behavior = project?.development_behavior || "market";
 
-      const preflight = await runPreflight(supabase, job.project_id, format, currentDoc);
+      const allowDefaults = job.allow_defaults !== false; // default true for backward compat
+      const preflight = await runPreflight(supabase, job.project_id, format, currentDoc, allowDefaults);
       if (preflight.changed) {
         await logStep(supabase, jobId, stepCount, currentDoc, "preflight_resolve",
           `Resolved: ${Object.keys(preflight.resolved).join(", ")}`,
         );
+      }
+
+      // ── PAUSE if missing required criteria and allow_defaults is false ──
+      if (preflight.missing_required.length > 0 && !allowDefaults) {
+        const missingStr = preflight.missing_required.join(", ");
+        await logStep(supabase, jobId, stepCount + 1, currentDoc, "pause_missing_criteria",
+          `Missing required criteria: ${missingStr}. Please fill in Criteria panel.`,
+        );
+        await updateJob(supabase, jobId, {
+          step_count: stepCount + 1,
+          status: "paused",
+          stop_reason: `Missing required criteria: ${missingStr}. Please approve/fill in Criteria panel.`,
+        });
+        return respondWithJob(supabase, jobId, "fix-criteria");
       }
 
       // Re-fetch project after preflight may have updated it

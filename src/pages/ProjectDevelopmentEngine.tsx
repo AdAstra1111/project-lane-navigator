@@ -39,6 +39,7 @@ import { PromotionIntelligenceCard } from '@/components/devengine/PromotionIntel
 import { usePromotionIntelligence, extractNoteCounts } from '@/hooks/usePromotionIntelligence';
 import { AutoRunMissionControl } from '@/components/devengine/AutoRunMissionControl';
 import { AutoRunBanner } from '@/components/devengine/AutoRunBanner';
+import { CriteriaPanel } from '@/components/devengine/CriteriaPanel';
 import { useAutoRunMissionControl } from '@/hooks/useAutoRunMissionControl';
 
 // ── Main Page ──
@@ -431,6 +432,10 @@ export default function ProjectDevelopmentEngine() {
                     const el = document.getElementById('approval-queue-anchor');
                     el?.scrollIntoView({ behavior: 'smooth' });
                   }}
+                  onScrollToCriteria={() => {
+                    const el = document.getElementById('criteria-panel');
+                    el?.scrollIntoView({ behavior: 'smooth' });
+                  }}
                 />
               )}
               {!selectedDocId ? (
@@ -541,6 +546,7 @@ export default function ProjectDevelopmentEngine() {
               <TabsTrigger value="notes" className="text-xs">Notes & Feedback</TabsTrigger>
               <TabsTrigger value="convergence" className="text-xs">Convergence</TabsTrigger>
               <TabsTrigger value="autorun" className="text-xs">Auto-Run</TabsTrigger>
+              <TabsTrigger value="criteria" className="text-xs">Criteria</TabsTrigger>
               {convergenceHistory.length > 0 && (
                 <TabsTrigger value="timeline" className="text-xs">Timeline ({convergenceHistory.length})</TabsTrigger>
               )}
@@ -635,6 +641,14 @@ export default function ProjectDevelopmentEngine() {
                   char_count: versionText?.length,
                 }}
                 availableDocuments={documents?.map((d: any) => ({ id: d.id, doc_type: d.doc_type, title: d.title })) || []}
+              />
+            </TabsContent>
+
+            <TabsContent value="criteria" className="mt-3">
+              <CriteriaPanel
+                projectId={projectId!}
+                documents={documents?.map((d: any) => ({ id: d.id, doc_type: d.doc_type, title: d.title })) || []}
+                onCriteriaUpdated={() => qc.invalidateQueries({ queryKey: ['dev-engine-project', projectId] })}
               />
             </TabsContent>
 

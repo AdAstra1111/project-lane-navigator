@@ -1,0 +1,341 @@
+import { useState, useEffect } from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Loader2, Sparkles, Save, Pencil, Check, X, Info } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
+
+interface CriteriaData {
+  format_subtype?: string | null;
+  season_episode_count?: number | null;
+  episode_target_duration_seconds?: number | null;
+  target_runtime_min_low?: number | null;
+  target_runtime_min_high?: number | null;
+  assigned_lane?: string | null;
+  budget_range?: string | null;
+  tone_tags?: string[] | null;
+  audience_region?: string | null;
+  language?: string | null;
+}
+
+interface FieldConfidence {
+  [key: string]: 'high' | 'med' | 'low' | null;
+}
+
+interface DerivedFromIdea {
+  extracted_at: string;
+  document_id: string;
+  version_id: string;
+  criteria: CriteriaData;
+  field_confidence: FieldConfidence;
+}
+
+interface Props {
+  projectId: string;
+  documents: Array<{ id: string; doc_type: string; title: string }>;
+  onCriteriaUpdated?: () => void;
+}
+
+const CONFIDENCE_COLORS: Record<string, string> = {
+  high: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
+  med: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
+  low: 'bg-destructive/15 text-destructive border-destructive/30',
+};
+
+const FORMAT_OPTIONS = [
+  'film', 'tv-series', 'limited-series', 'vertical-drama', 'documentary',
+  'documentary-series', 'short', 'animation', 'digital-series',
+];
+const LANE_OPTIONS = ['prestige', 'mainstream', 'independent-film', 'genre', 'micro-budget'];
+const BUDGET_OPTIONS = ['micro', 'low', 'medium', 'high', 'tent-pole'];
+
+export function CriteriaPanel({ projectId, documents, onCriteriaUpdated }: Props) {
+  const [criteria, setCriteria] = useState<CriteriaData>({});
+  const [fieldConfidence, setFieldConfidence] = useState<FieldConfidence>({});
+  const [derivedFrom, setDerivedFrom] = useState<DerivedFromIdea | null>(null);
+  const [missingRequired, setMissingRequired] = useState<string[]>([]);
+  const [notesForUser, setNotesForUser] = useState<string[]>([]);
+  const [isExtracting, setIsExtracting] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editCriteria, setEditCriteria] = useState<CriteriaData>({});
+
+  // Load existing criteria from project
+  useEffect(() => {
+    loadCriteria();
+  }, [projectId]);
+
+  async function loadCriteria() {
+    const { data } = await (supabase as any).from('projects')
+      .select('guardrails_config, assigned_lane, budget_range, format, episode_target_duration_seconds, season_episode_count')
+      .eq('id', projectId).single();
+    if (!data) return;
+
+    const gc = data.guardrails_config || {};
+    const quals = gc?.overrides?.qualifications || {};
+    const derived = gc?.derived_from_idea || null;
+
+    const merged: CriteriaData = {
+      format_subtype: quals.format_subtype || (data.format?.toLowerCase().replace(/_/g, '-')) || null,
+      season_episode_count: quals.season_episode_count || data.season_episode_count || null,
+      episode_target_duration_seconds: quals.episode_target_duration_seconds || data.episode_target_duration_seconds || null,
+      target_runtime_min_low: quals.target_runtime_min_low || null,
+      target_runtime_min_high: quals.target_runtime_min_high || null,
+      assigned_lane: data.assigned_lane || quals.assigned_lane || null,
+      budget_range: data.budget_range || quals.budget_range || null,
+      tone_tags: quals.tone_tags || null,
+      audience_region: quals.audience_region || null,
+      language: quals.language || null,
+    };
+    setCriteria(merged);
+    setEditCriteria(merged);
+    if (derived) {
+      setDerivedFrom(derived);
+      setFieldConfidence(derived.field_confidence || {});
+    }
+  }
+
+  async function handleExtract() {
+    // Find latest idea document
+    const ideaDoc = documents.find(d => d.doc_type === 'idea');
+    if (!ideaDoc) {
+      toast.error('No idea document found to extract criteria from');
+      return;
+    }
+
+    // Get latest version
+    const { data: versions } = await (supabase as any).from('project_document_versions')
+      .select('id').eq('document_id', ideaDoc.id)
+      .order('version_number', { ascending: false }).limit(1);
+    const versionId = versions?.[0]?.id;
+    if (!versionId) {
+      toast.error('No version found for idea document');
+      return;
+    }
+
+    setIsExtracting(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Not authenticated');
+
+      const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/dev-engine-v2`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          action: 'extract-criteria',
+          projectId,
+          documentId: ideaDoc.id,
+          versionId,
+        }),
+      });
+      const result = await resp.json();
+      if (!resp.ok) throw new Error(result.error || 'Extraction failed');
+
+      setCriteria(result.criteria || {});
+      setEditCriteria(result.criteria || {});
+      setFieldConfidence(result.field_confidence || {});
+      setMissingRequired(result.missing_required || []);
+      setNotesForUser(result.notes_for_user || []);
+      setDerivedFrom({
+        extracted_at: new Date().toISOString(),
+        document_id: ideaDoc.id,
+        version_id: versionId,
+        criteria: result.criteria,
+        field_confidence: result.field_confidence,
+      });
+      toast.success('Criteria extracted from idea');
+      onCriteriaUpdated?.();
+      // Reload to get persisted values
+      await loadCriteria();
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setIsExtracting(false);
+    }
+  }
+
+  async function handleSaveEdit() {
+    try {
+      const { data: proj } = await (supabase as any).from('projects')
+        .select('guardrails_config').eq('id', projectId).single();
+      const gc = proj?.guardrails_config || {};
+      gc.overrides = gc.overrides || {};
+      gc.overrides.qualifications = {
+        ...(gc.overrides.qualifications || {}),
+        ...editCriteria,
+      };
+
+      const updates: Record<string, any> = { guardrails_config: gc };
+      if (editCriteria.episode_target_duration_seconds) {
+        updates.episode_target_duration_seconds = editCriteria.episode_target_duration_seconds;
+      }
+      if (editCriteria.season_episode_count) {
+        updates.season_episode_count = editCriteria.season_episode_count;
+      }
+      if (editCriteria.assigned_lane) updates.assigned_lane = editCriteria.assigned_lane;
+      if (editCriteria.budget_range) updates.budget_range = editCriteria.budget_range;
+      if (editCriteria.format_subtype) {
+        const fmtMap: Record<string, string> = {
+          'vertical-drama': 'vertical_drama', 'tv-series': 'tv_series',
+          'limited-series': 'limited_series', 'documentary-series': 'documentary_series',
+        };
+        updates.format = fmtMap[editCriteria.format_subtype] || editCriteria.format_subtype;
+      }
+
+      await (supabase as any).from('projects').update(updates).eq('id', projectId);
+      setCriteria(editCriteria);
+      setIsEditing(false);
+      toast.success('Criteria saved');
+      onCriteriaUpdated?.();
+    } catch (e: any) {
+      toast.error(e.message);
+    }
+  }
+
+  const hasIdeaDoc = documents.some(d => d.doc_type === 'idea');
+
+  function renderField(label: string, field: string, value: any) {
+    const conf = fieldConfidence[field];
+    return (
+      <div key={field} className="flex items-center justify-between gap-2 py-1">
+        <span className="text-[10px] text-muted-foreground">{label}</span>
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] font-medium text-foreground">{value ?? '—'}</span>
+          {conf && (
+            <Badge variant="outline" className={`text-[7px] px-1 py-0 ${CONFIDENCE_COLORS[conf] || ''}`}>
+              {conf}
+            </Badge>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <Card id="criteria-panel">
+      <CardHeader className="py-2 px-3">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-xs flex items-center gap-1.5">
+            <Info className="h-3 w-3" /> Criteria
+          </CardTitle>
+          <div className="flex items-center gap-1">
+            {hasIdeaDoc && (
+              <Button size="sm" variant="outline" className="h-6 text-[9px] gap-1" onClick={handleExtract} disabled={isExtracting}>
+                {isExtracting ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Sparkles className="h-2.5 w-2.5" />}
+                Extract from Idea
+              </Button>
+            )}
+            {!isEditing ? (
+              <Button size="sm" variant="ghost" className="h-6 text-[9px] gap-1" onClick={() => setIsEditing(true)}>
+                <Pencil className="h-2.5 w-2.5" /> Edit
+              </Button>
+            ) : (
+              <div className="flex gap-0.5">
+                <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={handleSaveEdit}>
+                  <Check className="h-3 w-3 text-emerald-400" />
+                </Button>
+                <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => { setIsEditing(false); setEditCriteria(criteria); }}>
+                  <X className="h-3 w-3 text-destructive" />
+                </Button>
+              </div>
+            )}
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="px-3 pb-3 space-y-2">
+        {/* Provenance */}
+        {derivedFrom && (
+          <div className="text-[9px] text-muted-foreground bg-muted/30 rounded px-2 py-1">
+            Derived from idea · {new Date(derivedFrom.extracted_at).toLocaleDateString()}
+          </div>
+        )}
+
+        {isEditing ? (
+          <div className="space-y-2">
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <Label className="text-[9px]">Format</Label>
+                <Select value={editCriteria.format_subtype || ''} onValueChange={(v) => setEditCriteria(prev => ({ ...prev, format_subtype: v }))}>
+                  <SelectTrigger className="h-7 text-[10px]"><SelectValue placeholder="Select" /></SelectTrigger>
+                  <SelectContent>{FORMAT_OPTIONS.map(f => <SelectItem key={f} value={f}>{f}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-[9px]">Lane</Label>
+                <Select value={editCriteria.assigned_lane || ''} onValueChange={(v) => setEditCriteria(prev => ({ ...prev, assigned_lane: v }))}>
+                  <SelectTrigger className="h-7 text-[10px]"><SelectValue placeholder="Select" /></SelectTrigger>
+                  <SelectContent>{LANE_OPTIONS.map(l => <SelectItem key={l} value={l}>{l}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-[9px]">Budget</Label>
+                <Select value={editCriteria.budget_range || ''} onValueChange={(v) => setEditCriteria(prev => ({ ...prev, budget_range: v }))}>
+                  <SelectTrigger className="h-7 text-[10px]"><SelectValue placeholder="Select" /></SelectTrigger>
+                  <SelectContent>{BUDGET_OPTIONS.map(b => <SelectItem key={b} value={b}>{b}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-[9px]">Episode Duration (s)</Label>
+                <Input type="number" className="h-7 text-[10px]"
+                  value={editCriteria.episode_target_duration_seconds || ''}
+                  onChange={(e) => setEditCriteria(prev => ({ ...prev, episode_target_duration_seconds: Number(e.target.value) || null }))} />
+              </div>
+              <div>
+                <Label className="text-[9px]">Episodes/Season</Label>
+                <Input type="number" className="h-7 text-[10px]"
+                  value={editCriteria.season_episode_count || ''}
+                  onChange={(e) => setEditCriteria(prev => ({ ...prev, season_episode_count: Number(e.target.value) || null }))} />
+              </div>
+              <div>
+                <Label className="text-[9px]">Runtime (min)</Label>
+                <div className="flex gap-1">
+                  <Input type="number" className="h-7 text-[10px] w-16" placeholder="Low"
+                    value={editCriteria.target_runtime_min_low || ''}
+                    onChange={(e) => setEditCriteria(prev => ({ ...prev, target_runtime_min_low: Number(e.target.value) || null }))} />
+                  <Input type="number" className="h-7 text-[10px] w-16" placeholder="High"
+                    value={editCriteria.target_runtime_min_high || ''}
+                    onChange={(e) => setEditCriteria(prev => ({ ...prev, target_runtime_min_high: Number(e.target.value) || null }))} />
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-0.5">
+            {renderField('Format', 'format_subtype', criteria.format_subtype)}
+            {renderField('Lane', 'assigned_lane', criteria.assigned_lane)}
+            {renderField('Budget', 'budget_range', criteria.budget_range)}
+            {renderField('Episode Duration', 'episode_target_duration_seconds', criteria.episode_target_duration_seconds ? `${criteria.episode_target_duration_seconds}s` : null)}
+            {renderField('Episodes/Season', 'season_episode_count', criteria.season_episode_count)}
+            {renderField('Runtime', 'target_runtime_min_low', criteria.target_runtime_min_low && criteria.target_runtime_min_high ? `${criteria.target_runtime_min_low}–${criteria.target_runtime_min_high} min` : null)}
+            {criteria.tone_tags?.length ? renderField('Tone', 'tone_tags', criteria.tone_tags.join(', ')) : null}
+          </div>
+        )}
+
+        {/* Missing required */}
+        {missingRequired.length > 0 && (
+          <div className="bg-amber-500/10 border border-amber-500/20 rounded px-2 py-1.5 space-y-0.5">
+            <span className="text-[9px] font-semibold text-amber-400">Missing required fields:</span>
+            {missingRequired.map((f) => (
+              <p key={f} className="text-[9px] text-amber-400/80">• {f.replace(/_/g, ' ')}</p>
+            ))}
+          </div>
+        )}
+
+        {/* Notes for user */}
+        {notesForUser.length > 0 && (
+          <div className="space-y-0.5">
+            {notesForUser.map((n, i) => (
+              <p key={i} className="text-[8px] text-muted-foreground">• {n}</p>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
