@@ -1246,23 +1246,17 @@ MATERIAL (first 8000 chars):\n${version.plaintext.slice(0, 8000)}`;
         .order("created_at", { ascending: false }).limit(1).single();
       const existingBlockers = latestNotesRun?.output_json?.blocking_issues || latestAnalyzeRun?.output_json?.blocking_issues || [];
 
-      if (existingBlockers.length > 0) {
-        const coveredNoteIds = new Set((selectedOptions || []).map((so: any) => so.note_id));
-        // Also count approvedNotes as covering blockers (manual rewrite path)
-        const approvedNoteIds = new Set((approvedNotes || []).map((n: any) => n.id || n.note_key));
-        const uncoveredBlockers = existingBlockers.filter((b: any) => {
-          const bid = b.id || b.note_key;
-          return !coveredNoteIds.has(bid) && !approvedNoteIds.has(bid);
+      // Only enforce blocker gate when NO user input is provided at all (no notes selected, no decisions made)
+      // When approvedNotes or selectedOptions are provided, the user is actively making editorial choices
+      if (existingBlockers.length > 0 && (!approvedNotes || approvedNotes.length === 0) && (!selectedOptions || selectedOptions.length === 0)) {
+        const uncoveredBlockers = existingBlockers.map((b: any) => b.id || b.note_key);
+        return new Response(JSON.stringify({
+          error: "Blockers require decisions before rewrite",
+          uncovered_blockers: uncoveredBlockers,
+          blocker_count: existingBlockers.length,
+        }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
-        if (uncoveredBlockers.length > 0 && (!selectedOptions || selectedOptions.length === 0) && (!approvedNotes || approvedNotes.length === 0)) {
-          return new Response(JSON.stringify({
-            error: "Blockers require decisions before rewrite",
-            uncovered_blockers: uncoveredBlockers.map((b: any) => b.id || b.note_key),
-            blocker_count: existingBlockers.length,
-          }), {
-            status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
-        }
       }
 
       const { data: version } = await supabase.from("project_document_versions")
