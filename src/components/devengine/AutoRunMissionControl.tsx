@@ -191,6 +191,8 @@ export function AutoRunMissionControl({
   const [budget, setBudget] = useState('');
   const [jumpStage, setJumpStage] = useState('');
   const [saving, setSaving] = useState<string | null>(null);
+  const [showPreflight, setShowPreflight] = useState(false);
+  const [preflightErrors, setPreflightErrors] = useState<string[]>([]);
 
   // Auto-fill story setup from analysis data
   useEffect(() => {
@@ -305,6 +307,41 @@ export function AutoRunMissionControl({
   const progressPct = job && job.max_total_steps > 0 ? Math.round((job.step_count / job.max_total_steps) * 100) : 0;
   const statusStyle = STATUS_STYLES[job?.status || 'queued'] || STATUS_STYLES.queued;
 
+  // ── Preflight validation ──
+  const REQUIRED_FIELDS = [
+    { key: 'logline', label: 'Logline' },
+    { key: 'premise', label: 'Premise' },
+    { key: 'tone_genre', label: 'Tone / Genre' },
+  ];
+  const RECOMMENDED_FIELDS = [
+    { key: 'protagonist', label: 'Protagonist' },
+    { key: 'stakes', label: 'Stakes' },
+  ];
+
+  const handleStartClick = () => {
+    const missing = REQUIRED_FIELDS.filter(f => !storySetup[f.key]?.trim());
+    const missingRecommended = RECOMMENDED_FIELDS.filter(f => !storySetup[f.key]?.trim());
+    if (missing.length > 0 || missingRecommended.length > 0) {
+      setPreflightErrors(missing.map(f => f.label));
+      setShowPreflight(true);
+    } else {
+      onStart(mode, currentDeliverable);
+    }
+  };
+
+  const handlePreflightConfirm = () => {
+    const stillMissing = REQUIRED_FIELDS.filter(f => !storySetup[f.key]?.trim());
+    if (stillMissing.length > 0) {
+      toast({ title: 'Missing required fields', description: stillMissing.map(f => f.label).join(', '), variant: 'destructive' });
+      return;
+    }
+    // Save story setup before starting
+    onSaveStorySetup(storySetup).then(() => {
+      setShowPreflight(false);
+      onStart(mode, currentDeliverable);
+    });
+  };
+
   // ── No job or terminal state → Start form ──
   if (!job || ['completed', 'stopped', 'failed'].includes(job.status)) {
     return (
@@ -331,23 +368,76 @@ export function AutoRunMissionControl({
             </div>
           )}
 
-          <div className="flex items-center gap-2">
-            <Select value={mode} onValueChange={setMode}>
-              <SelectTrigger className="h-8 text-xs w-[110px]"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="fast">⚡ Fast (8)</SelectItem>
-                <SelectItem value="balanced">⚖️ Balanced (12)</SelectItem>
-                <SelectItem value="premium">💎 Premium (18)</SelectItem>
-              </SelectContent>
-            </Select>
-            <Button size="sm" className="h-8 text-xs gap-1.5 flex-1" onClick={() => onStart(mode, currentDeliverable)}>
-              <Play className="h-3.5 w-3.5" /> Start Auto-Run
-            </Button>
-          </div>
-
-          <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-            <span>⚡ {mode === 'fast' ? '1 loop/stage, 8 steps' : mode === 'balanced' ? '2 loops/stage, 12 steps' : '3 loops/stage, 18 steps, ≥82 readiness'}</span>
-          </div>
+          {/* Preflight validation form */}
+          {showPreflight ? (
+            <div className="space-y-3 border border-amber-500/30 bg-amber-500/5 rounded-md p-3">
+              <div className="flex items-center gap-2 text-xs font-medium">
+                <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+                <span>Complete setup before launching</span>
+              </div>
+              {preflightErrors.length > 0 && (
+                <p className="text-[10px] text-destructive">Required: {preflightErrors.join(', ')}</p>
+              )}
+              <div className="space-y-2">
+                {[...REQUIRED_FIELDS, ...RECOMMENDED_FIELDS, 
+                  { key: 'antagonist', label: 'Antagonist' },
+                  { key: 'world_rules', label: 'World Rules' },
+                  { key: 'comparables', label: 'Comparables' },
+                ].map(field => (
+                  <div key={field.key}>
+                    <Label className="text-[10px] flex items-center gap-1">
+                      {field.label}
+                      {REQUIRED_FIELDS.some(f => f.key === field.key) && (
+                        <span className="text-destructive">*</span>
+                      )}
+                    </Label>
+                    {field.key === 'premise' ? (
+                      <Textarea
+                        className="h-14 text-xs mt-0.5"
+                        placeholder={`Enter ${field.label.toLowerCase()}…`}
+                        value={storySetup[field.key] || ''}
+                        onChange={e => setStorySetup(prev => ({ ...prev, [field.key]: e.target.value }))}
+                      />
+                    ) : (
+                      <Input
+                        className="h-7 text-xs mt-0.5"
+                        placeholder={`Enter ${field.label.toLowerCase()}…`}
+                        value={storySetup[field.key] || ''}
+                        onChange={e => setStorySetup(prev => ({ ...prev, [field.key]: e.target.value }))}
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" className="h-7 text-xs flex-1" onClick={() => setShowPreflight(false)}>
+                  Cancel
+                </Button>
+                <Button size="sm" className="h-7 text-xs flex-1 gap-1" onClick={handlePreflightConfirm}>
+                  <Play className="h-3 w-3" /> Confirm & Start
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center gap-2">
+                <Select value={mode} onValueChange={setMode}>
+                  <SelectTrigger className="h-8 text-xs w-[110px]"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="fast">⚡ Fast (8)</SelectItem>
+                    <SelectItem value="balanced">⚖️ Balanced (12)</SelectItem>
+                    <SelectItem value="premium">💎 Premium (18)</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Button size="sm" className="h-8 text-xs gap-1.5 flex-1" onClick={handleStartClick}>
+                  <Play className="h-3.5 w-3.5" /> Start Auto-Run
+                </Button>
+              </div>
+              <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                <span>⚡ {mode === 'fast' ? '1 loop/stage, 8 steps' : mode === 'balanced' ? '2 loops/stage, 12 steps' : '3 loops/stage, 18 steps, ≥82 readiness'}</span>
+              </div>
+            </>
+          )}
 
           {job && (
             <Button variant="ghost" size="sm" className="h-7 text-[10px] w-full" onClick={onClear}>
@@ -358,7 +448,6 @@ export function AutoRunMissionControl({
       </Card>
     );
   }
-
   // ── Active job → Full Mission Control ──
   return (
     <div className="space-y-3">
