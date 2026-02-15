@@ -1148,6 +1148,97 @@ Deno.serve(async (req) => {
     }
 
     // ═══════════════════════════════════════
+    // ACTION: apply-decisions-and-continue
+    // ═══════════════════════════════════════
+    if (action === "apply-decisions-and-continue") {
+      if (!jobId) return respond({ error: "jobId required" }, 400);
+      const { selectedOptions, globalDirections } = body;
+      if (!selectedOptions || !Array.isArray(selectedOptions) || selectedOptions.length === 0) {
+        return respond({ error: "selectedOptions array required" }, 400);
+      }
+
+      const { data: job, error: jobErr } = await supabase.from("auto_run_jobs").select("*").eq("id", jobId).eq("user_id", userId).single();
+      if (jobErr || !job) return respond({ error: "Job not found" }, 404);
+
+      const currentDoc = job.current_document as DocStage;
+      const stepCount = job.step_count + 1;
+
+      // Resolve doc and version — use pending or latest
+      const docId = job.pending_doc_id;
+      const versionId = job.pending_version_id;
+      if (!docId || !versionId) return respond({ error: "No pending document/version to apply decisions to" }, 400);
+
+      const { data: project } = await supabase.from("projects")
+        .select("format, development_behavior").eq("id", job.project_id).single();
+      const format = (project?.format || "film").toLowerCase().replace(/_/g, "-");
+      const behavior = project?.development_behavior || "market";
+
+      // Fetch latest notes for protect items
+      const notesResult = await supabase.from("development_runs")
+        .select("output_json").eq("document_id", docId).eq("run_type", "NOTES")
+        .order("created_at", { ascending: false }).limit(1).single();
+      const notes = notesResult.data?.output_json;
+
+      // Build approved notes from selected options
+      const approvedNotes = [
+        ...(notes?.blocking_issues || []),
+        ...(notes?.high_impact_notes || []),
+      ];
+      const protectItems = notes?.protect || [];
+
+      try {
+        await logStep(supabase, jobId, stepCount, currentDoc, "apply_decisions",
+          `Applying ${selectedOptions.length} decisions with rewrite`,
+          {}, undefined, { selectedOptions, globalDirections }
+        );
+
+        const rewriteResult = await callEdgeFunctionWithRetry(
+          supabase, supabaseUrl, "dev-engine-v2", {
+            action: "rewrite",
+            projectId: job.project_id,
+            documentId: docId,
+            versionId: versionId,
+            approvedNotes,
+            protectItems,
+            deliverableType: currentDoc,
+            developmentBehavior: behavior,
+            format,
+            selectedOptions,
+            globalDirections,
+          }, token, job.project_id, format, currentDoc, jobId, stepCount
+        );
+
+        // Re-fetch latest version after rewrite
+        const { data: postRewriteVersions } = await supabase.from("project_document_versions")
+          .select("id, version_number")
+          .eq("document_id", docId)
+          .order("version_number", { ascending: false }).limit(1);
+        const newVersionId = postRewriteVersions?.[0]?.id || "unknown";
+
+        await logStep(supabase, jobId, stepCount + 1, currentDoc, "decisions_applied_rewrite",
+          `Decisions applied, new version: ${newVersionId}`,
+          {}, undefined, { docId, newVersionId, selectedOptions: selectedOptions.length }
+        );
+
+        await updateJob(supabase, jobId, {
+          step_count: stepCount + 1,
+          status: "running",
+          stop_reason: null,
+          follow_latest: true,
+          resume_document_id: docId,
+          resume_version_id: newVersionId !== "unknown" ? newVersionId : null,
+          pending_doc_id: null,
+          pending_version_id: null,
+          pending_decisions: null,
+        });
+        return respondWithJob(supabase, jobId, "run-next");
+      } catch (e: any) {
+        await logStep(supabase, jobId, stepCount, currentDoc, "decisions_rewrite_failed", `Rewrite with decisions failed: ${e.message}`);
+        return respond({ error: `Decisions rewrite failed: ${e.message}` }, 500);
+      }
+    }
+
+    // ═══════════════════════════════════════
     // ACTION: run-next (core state machine step)
     // ═══════════════════════════════════════
     if (action === "run-next") {
@@ -1643,9 +1734,52 @@ Deno.serve(async (req) => {
           return respondWithJob(supabase, jobId, "approve-decision");
         }
 
-        // ── STABILISE: run rewrite if loops remain ──
+        // ── STABILISE: if blockers/high-impact present, generate options and pause for decisions ──
         if (promo.recommendation === "stabilise") {
           const newLoopCount = stageLoopCount + 1;
+
+          // If blockers exist, generate options and pause for user decisions
+          if (blockersCount > 0 || (newLoopCount <= 1 && highImpactCount > 0)) {
+            try {
+              // Call dev-engine-v2 "options" to generate decision options
+              const optionsResult = await callEdgeFunctionWithRetry(
+                supabase, supabaseUrl, "dev-engine-v2", {
+                  action: "options",
+                  projectId: job.project_id,
+                  documentId: doc.id,
+                  versionId: latestVersion.id,
+                  deliverableType: currentDoc,
+                  developmentBehavior: behavior,
+                  format,
+                }, token, job.project_id, format, currentDoc, jobId, newStep + 2
+              );
+
+              const optionsData = optionsResult?.result?.options || optionsResult?.result || {};
+              const optionsRunId = optionsResult?.result?.run?.id || null;
+
+              await logStep(supabase, jobId, newStep + 2, currentDoc, "options_generated",
+                `Generated ${(optionsData.decisions || []).length} decision sets for ${blockersCount} blockers + ${highImpactCount} high-impact notes`,
+                { ci, gp, gap, readiness: promo.readiness_score },
+                undefined, { optionsRunId, decisions: optionsData.decisions?.length || 0, global_directions: optionsData.global_directions?.length || 0 }
+              );
+
+              await updateJob(supabase, jobId, {
+                step_count: newStep + 2,
+                stage_loop_count: newLoopCount,
+                status: "paused",
+                stop_reason: "Decisions required",
+                pending_doc_id: doc.id,
+                pending_version_id: latestVersion.id,
+              });
+              return respondWithJob(supabase, jobId, "decisions-required");
+            } catch (optErr: any) {
+              // If options generation fails, fall through to regular rewrite
+              console.error("Options generation failed, falling back to rewrite:", optErr.message);
+              await logStep(supabase, jobId, newStep + 2, currentDoc, "options_failed",
+                `Options generation failed: ${optErr.message}. Falling back to rewrite.`);
+            }
+          }
+
           if (newLoopCount >= job.max_stage_loops) {
             if (blockersCount > 0) {
               await updateJob(supabase, jobId, { status: "paused", stop_reason: "Blockers persist — manual decision required", stage_loop_count: newLoopCount });
@@ -1670,7 +1804,7 @@ Deno.serve(async (req) => {
             }
           }
 
-          // Apply rewrite with all notes (with retry)
+          // No blockers or options already handled — apply rewrite with all notes (with retry)
           const notesResult = await supabase.from("development_runs").select("output_json").eq("document_id", doc.id).eq("run_type", "NOTES").order("created_at", { ascending: false }).limit(1).single();
           const notes = notesResult.data?.output_json;
           const approvedNotes = [
@@ -1705,7 +1839,6 @@ Deno.serve(async (req) => {
             await updateJob(supabase, jobId, {
               stage_loop_count: newLoopCount,
               step_count: newStep + 2,
-              // Clear pinned source so next run-next picks up the new version
               follow_latest: true,
               resume_document_id: doc.id,
               resume_version_id: newVersionId !== "unknown" ? newVersionId : null,

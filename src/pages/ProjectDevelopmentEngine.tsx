@@ -36,6 +36,7 @@ import { NotesPanel } from '@/components/devengine/NotesPanel';
 import { ConvergencePanel } from '@/components/devengine/ConvergencePanel';
 import { DriftBanner } from '@/components/devengine/DriftBanner';
 import { PromotionIntelligenceCard } from '@/components/devengine/PromotionIntelligenceCard';
+import { DecisionPanel } from '@/components/devengine/DecisionPanel';
 import { usePromotionIntelligence, extractNoteCounts } from '@/hooks/usePromotionIntelligence';
 import { AutoRunMissionControl } from '@/components/devengine/AutoRunMissionControl';
 import { AutoRunBanner } from '@/components/devengine/AutoRunBanner';
@@ -598,18 +599,46 @@ export default function ProjectDevelopmentEngine() {
 
             <TabsContent value="notes" className="mt-3 space-y-3">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <NotesPanel
-                  allNotes={allPrioritizedMoves}
-                  tieredNotes={tieredNotes}
-                  selectedNotes={selectedNotes}
-                  setSelectedNotes={setSelectedNotes}
-                  onApplyRewrite={handleRewrite}
-                  isRewriting={rewrite.isPending || rewritePipeline.status !== 'idle'}
-                  isLoading={isLoading}
-                  resolutionSummary={resolutionSummary}
-                  stabilityStatus={stabilityStatus}
-                  globalDirections={latestNotes?.global_directions || []}
-                />
+                <div className="space-y-3">
+                  <NotesPanel
+                    allNotes={allPrioritizedMoves}
+                    tieredNotes={tieredNotes}
+                    selectedNotes={selectedNotes}
+                    setSelectedNotes={setSelectedNotes}
+                    onApplyRewrite={handleRewrite}
+                    isRewriting={rewrite.isPending || rewritePipeline.status !== 'idle'}
+                    isLoading={isLoading}
+                    resolutionSummary={resolutionSummary}
+                    stabilityStatus={stabilityStatus}
+                    globalDirections={latestNotes?.global_directions || []}
+                  />
+                  {/* Decision Panel — inline under notes when decisions exist */}
+                  {(tieredNotes.blockers.some((n: any) => n.decisions?.length > 0) || tieredNotes.high.some((n: any) => n.decisions?.length > 0)) && (
+                    <div id="decision-panel-anchor">
+                      <DecisionPanel
+                        projectId={projectId!}
+                        documentId={selectedDocId}
+                        versionId={selectedVersionId}
+                        documentText={versionText}
+                        decisions={[
+                          ...tieredNotes.blockers.filter((n: any) => n.decisions?.length > 0).map((n: any) => ({
+                            note_id: n.id, severity: 'blocker', note: n.description || n.note,
+                            options: n.decisions, recommended: n.recommended,
+                          })),
+                          ...tieredNotes.high.filter((n: any) => n.decisions?.length > 0).map((n: any) => ({
+                            note_id: n.id, severity: 'high', note: n.description || n.note,
+                            options: n.decisions, recommended: n.recommended,
+                          })),
+                        ]}
+                        globalDirections={latestNotes?.global_directions || []}
+                        jobId={autoRun.job?.id}
+                        onRewriteComplete={() => qc.invalidateQueries({ queryKey: ['dev-engine-v2'] })}
+                        onAutoRunContinue={() => autoRun.runNext?.()}
+                        availableVersions={versions?.map((v: any) => ({ id: v.id, version_number: v.version_number, label: v.label }))}
+                      />
+                    </div>
+                  )}
+                </div>
                 <div className="space-y-3">
                   {(latestAnalysis?.rewrite_plan || latestNotes?.rewrite_plan) && (
                     <Card>
@@ -647,6 +676,10 @@ export default function ProjectDevelopmentEngine() {
                     isLoading={promotionIntel.isLoading}
                     jobId={autoRun.job?.id}
                     onJobRefresh={() => autoRun.runNext?.()}
+                    onScrollToDecisions={() => {
+                      const el = document.getElementById('decision-panel-anchor');
+                      el?.scrollIntoView({ behavior: 'smooth' });
+                    }}
                     onPromote={handlePromote}
                     onReReview={handleRunEngine}
                   />

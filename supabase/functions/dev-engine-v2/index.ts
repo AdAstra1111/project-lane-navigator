@@ -1084,10 +1084,110 @@ GENERAL RULES:
     }
 
     // ══════════════════════════════════════════════
-    // REWRITE — with doc safety guards
+    // OPTIONS — generate 2-4 decision options per blocker/high-impact note
+    // ══════════════════════════════════════════════
+    if (action === "options") {
+      const { projectId, documentId, versionId, analysisJson, notesJson, deliverableType, developmentBehavior, format: reqFormat } = body;
+      if (!projectId || !documentId || !versionId) throw new Error("projectId, documentId, versionId required");
+
+      const { data: version } = await supabase.from("project_document_versions")
+        .select("plaintext").eq("id", versionId).single();
+      if (!version) throw new Error("Version not found");
+
+      // Fetch latest analysis + notes if not provided
+      let analysis = analysisJson;
+      if (!analysis) {
+        const { data: latestRun } = await supabase.from("development_runs")
+          .select("output_json").eq("version_id", versionId).eq("run_type", "ANALYZE")
+          .order("created_at", { ascending: false }).limit(1).single();
+        analysis = latestRun?.output_json;
+      }
+      let notes = notesJson;
+      if (!notes) {
+        const { data: latestNotes } = await supabase.from("development_runs")
+          .select("output_json").eq("document_id", documentId).eq("run_type", "NOTES")
+          .order("created_at", { ascending: false }).limit(1).single();
+        notes = latestNotes?.output_json;
+      }
+
+      const blockers = notes?.blocking_issues || analysis?.blocking_issues || [];
+      const highImpact = notes?.high_impact_notes || analysis?.high_impact_notes || [];
+      const protect = notes?.protect || analysis?.protect || [];
+
+      const optionsSystem = `You are IFFY. For each blocker and high-impact note, generate 2-3 concrete resolution options.
+
+Return ONLY valid JSON:
+{
+  "decisions": [
+    {
+      "note_id": "matching stable_key from the note",
+      "severity": "blocker" | "high",
+      "note": "original note description",
+      "options": [
+        {
+          "option_id": "B1-A",
+          "title": "short action title (max 8 words)",
+          "what_changes": ["list of 2-4 story elements that change"],
+          "creative_tradeoff": "one sentence on creative cost/benefit",
+          "commercial_lift": 0-20
+        }
+      ],
+      "recommended": "option_id of recommended choice"
+    }
+  ],
+  "global_directions": [
+    {"id": "G1", "direction": "overarching creative direction", "why": "rationale"}
+  ]
+}
+
+RULES:
+- Every blocker MUST have exactly 2-3 options.
+- High-impact notes SHOULD have 2 options.
+- option_id format: B{n}-{letter} for blockers, H{n}-{letter} for high. Letters A, B, C.
+- what_changes: list 2-4 specific story elements affected.
+- creative_tradeoff: honest one-sentence assessment.
+- commercial_lift: integer 0-20 estimating GP improvement.
+- recommended: best balance of creative integrity and commercial viability.
+- global_directions: 1-3 overarching tonal/strategic directions.
+- Keep options genuinely distinct — not minor variations of the same fix.`;
+
+      const notesForPrompt = [
+        ...blockers.map((n: any, i: number) => ({ index: i + 1, id: n.id, severity: "blocker", description: n.description, why_it_matters: n.why_it_matters })),
+        ...highImpact.map((n: any, i: number) => ({ index: blockers.length + i + 1, id: n.id, severity: "high", description: n.description, why_it_matters: n.why_it_matters })),
+      ];
+
+      const userPrompt = `PROTECT ITEMS:\n${JSON.stringify(protect)}
+
+ANALYSIS SUMMARY:\n${analysis?.executive_snapshot || analysis?.verdict || "No analysis available"}
+
+NOTES REQUIRING DECISIONS:\n${JSON.stringify(notesForPrompt)}
+
+MATERIAL (first 8000 chars):\n${version.plaintext.slice(0, 8000)}`;
+
+      const raw = await callAI(LOVABLE_API_KEY, PRO_MODEL, optionsSystem, userPrompt, 0.3, 6000);
+      const parsed = await parseAIJson(LOVABLE_API_KEY, raw);
+
+      // Store as OPTIONS run
+      const { data: run, error: runErr } = await supabase.from("development_runs").insert({
+        project_id: projectId,
+        document_id: documentId,
+        version_id: versionId,
+        user_id: user.id,
+        run_type: "OPTIONS",
+        output_json: parsed,
+      }).select().single();
+      if (runErr) throw runErr;
+
+      return new Response(JSON.stringify({ run, options: parsed }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ══════════════════════════════════════════════
+    // REWRITE — with doc safety guards + decision options
     // ══════════════════════════════════════════════
     if (action === "rewrite") {
-      const { projectId, documentId, versionId, approvedNotes, protectItems, targetDocType, deliverableType, developmentBehavior, format: reqFormat } = body;
+      const { projectId, documentId, versionId, approvedNotes, protectItems, targetDocType, deliverableType, developmentBehavior, format: reqFormat, selectedOptions, globalDirections } = body;
       if (!projectId || !documentId || !versionId) throw new Error("projectId, documentId, versionId required");
 
       const { data: version } = await supabase.from("project_document_versions")
@@ -1110,11 +1210,27 @@ GENERAL RULES:
         });
       }
 
+      // Build decision directives from selectedOptions
+      let decisionDirectives = "";
+      if (selectedOptions && Array.isArray(selectedOptions) && selectedOptions.length > 0) {
+        const directives = selectedOptions.map((so: any) => {
+          const custom = so.custom_direction ? ` Custom: ${so.custom_direction}` : "";
+          return `- Note "${so.note_id}": Apply option "${so.option_id}".${custom}`;
+        }).join("\n");
+        decisionDirectives = `\n\nSELECTED DECISION OPTIONS (apply these specific fixes):\n${directives}`;
+      }
+
+      // Build global directions context
+      let globalDirContext = "";
+      if (globalDirections && Array.isArray(globalDirections) && globalDirections.length > 0) {
+        globalDirContext = `\n\nGLOBAL DIRECTIONS:\n${globalDirections.map((d: string) => `- ${d}`).join("\n")}`;
+      }
+
       const rewriteSystemPrompt = buildRewriteSystem(effectiveDeliverable, effectiveFormat, effectiveBehavior);
 
       const userPrompt = `PROTECT (non-negotiable):\n${JSON.stringify(protectItems || [])}
 
-APPROVED NOTES:\n${JSON.stringify(approvedNotes || [])}
+APPROVED NOTES:\n${JSON.stringify(approvedNotes || [])}${decisionDirectives}${globalDirContext}
 
 TARGET FORMAT: ${targetDocType || "same as source"}
 
