@@ -35,6 +35,9 @@ interface NotesPanelProps {
   resolutionSummary?: { resolved: number; regressed: number } | null;
   stabilityStatus?: string | null;
   globalDirections?: GlobalDirection[];
+  hideApplyButton?: boolean;
+  /** Expose selected decisions to parent */
+  onDecisionsChange?: (decisions: Record<string, string>) => void;
 }
 
 function DecisionCard({
@@ -191,6 +194,7 @@ export function NotesPanel({
   allNotes, tieredNotes, selectedNotes, setSelectedNotes,
   onApplyRewrite, isRewriting, isLoading,
   resolutionSummary, stabilityStatus, globalDirections,
+  hideApplyButton, onDecisionsChange,
 }: NotesPanelProps) {
   const [polishOpen, setPolishOpen] = useState(false);
   // Track selected decision option per note (keyed by note id)
@@ -205,11 +209,15 @@ export function NotesPanel({
   };
 
   const handleSelectOption = useCallback((noteId: string, optionId: string) => {
-    setSelectedDecisions(prev => ({
-      ...prev,
-      [noteId]: prev[noteId] === optionId ? '' : optionId,
-    }));
-  }, []);
+    setSelectedDecisions(prev => {
+      const next = {
+        ...prev,
+        [noteId]: prev[noteId] === optionId ? '' : optionId,
+      };
+      onDecisionsChange?.(next);
+      return next;
+    });
+  }, [onDecisionsChange]);
 
   const handleApplyRewrite = useCallback(() => {
     // Filter to only selected decisions that have a value
@@ -352,13 +360,15 @@ export function NotesPanel({
           </Collapsible>
         )}
 
-        {/* Apply Rewrite button */}
-        <Button size="sm" className="h-7 text-xs gap-1.5 w-full"
-          onClick={handleApplyRewrite}
-          disabled={isLoading || isRewriting || selectedNotes.size === 0}>
-          {isRewriting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-          Apply Rewrite ({selectedNotes.size} notes{decisionsCount > 0 ? `, ${decisionsCount} decisions` : ''})
-        </Button>
+        {/* Apply Rewrite button — hidden when parent provides unified button */}
+        {!hideApplyButton && (
+          <Button size="sm" className="h-7 text-xs gap-1.5 w-full"
+            onClick={handleApplyRewrite}
+            disabled={isLoading || isRewriting || selectedNotes.size === 0}>
+            {isRewriting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+            Apply Rewrite ({selectedNotes.size} notes{decisionsCount > 0 ? `, ${decisionsCount} decisions` : ''})
+          </Button>
+        )}
       </CardContent>
     </Card>
   );
