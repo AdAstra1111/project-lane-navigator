@@ -441,7 +441,7 @@ Deno.serve(async (req) => {
 
       // ── Preflight qualification resolver before every cycle ──
       const { data: project } = await supabase.from("projects")
-        .select("title, format, development_behavior, episode_target_duration_seconds, season_episode_count, guardrails_config")
+        .select("title, format, development_behavior, episode_target_duration_seconds, season_episode_count, guardrails_config, assigned_lane, budget_range, genres")
         .eq("id", job.project_id).single();
       const format = (project?.format || "film").toLowerCase().replace(/_/g, "-");
       const behavior = project?.development_behavior || "market";
@@ -590,9 +590,72 @@ Deno.serve(async (req) => {
           return respondWithJob(supabase, jobId);
         }
         if (promo.recommendation === "escalate") {
-          await updateJob(supabase, jobId, { status: "stopped", stop_reason: "Escalate recommended (Executive Strategy Loop)" });
-          await logStep(supabase, jobId, newStep + 2, currentDoc, "stop", "Escalate recommended");
-          return respondWithJob(supabase, jobId);
+          // ── Executive Strategy: call development-engine for reposition plan ──
+          try {
+            const docText = (doc.plaintext || doc.extracted_text || "").slice(0, 15000);
+            const strategyResult = await callEdgeFunction(supabaseUrl, "development-engine", {
+              action: "review",
+              sessionId: null,
+              projectId: job.project_id,
+              inputText: docText,
+              format,
+              genres: project?.genres || [],
+              lane: project?.assigned_lane || "independent-film",
+              budget: project?.budget_range || "low",
+              title: project?.title || "Untitled",
+            }, token);
+
+            const stratParsed = strategyResult?.parsed || strategyResult?.iteration?.raw_ai_response || strategyResult || {};
+
+            // Apply deterministic project field fixes from strategy result
+            const projectUpdates: Record<string, any> = {};
+            if (stratParsed.recommended_lane && typeof stratParsed.recommended_lane === "string") {
+              projectUpdates.assigned_lane = stratParsed.recommended_lane;
+            }
+            if (stratParsed.recommended_budget && typeof stratParsed.recommended_budget === "string") {
+              projectUpdates.budget_range = stratParsed.recommended_budget;
+            }
+            // Only update format if explicitly recommended and it's a known format
+            const SAFE_FORMATS = ["film","tv-series","limited-series","vertical-drama","anim-series","anim-feature","documentary","documentary-series","short-film","digital-series","reality"];
+            if (stratParsed.recommended_format && SAFE_FORMATS.includes(stratParsed.recommended_format)) {
+              projectUpdates.format = stratParsed.recommended_format;
+            }
+
+            // Apply qualification overrides from strategy
+            if (stratParsed.qualifications && typeof stratParsed.qualifications === "object") {
+              const { data: curProj } = await supabase.from("projects").select("guardrails_config").eq("id", job.project_id).single();
+              const gc = curProj?.guardrails_config || {};
+              gc.overrides = gc.overrides || {};
+              gc.overrides.qualifications = { ...(gc.overrides.qualifications || {}), ...stratParsed.qualifications };
+              projectUpdates.guardrails_config = gc;
+            }
+
+            if (Object.keys(projectUpdates).length > 0) {
+              await supabase.from("projects").update(projectUpdates).eq("id", job.project_id);
+            }
+
+            // Log as executive_strategy_applied
+            await logStep(supabase, jobId, newStep + 2, currentDoc, "executive_strategy_applied",
+              `Strategy applied: ${Object.keys(projectUpdates).join(", ") || "no field changes"}. CI:${stratParsed.ci_score ?? "?"} GP:${stratParsed.gp_score ?? "?"}`,
+              { ci: stratParsed.ci_score, gp: stratParsed.gp_score, gap: stratParsed.gap, readiness: promo.readiness_score, confidence: promo.confidence, risk_flags: [...promo.risk_flags, "executive_strategy_applied"] },
+              stratParsed.summary || stratParsed.primary_creative_risk || undefined,
+              { strategy: stratParsed, updates: projectUpdates }
+            );
+
+            // Re-run preflight after strategy updates (format may have changed)
+            const updatedFormat = (projectUpdates.format || format);
+            await runPreflight(supabase, job.project_id, updatedFormat, currentDoc);
+
+            // Continue auto-run at same stage (reset stage loop to allow fresh pass)
+            await updateJob(supabase, jobId, { step_count: newStep + 2, stage_loop_count: 0 });
+            return respondWithJob(supabase, jobId, "run-next");
+          } catch (stratErr: any) {
+            // If executive strategy fails, fall back to stopping
+            console.error("[auto-run] Executive strategy failed:", stratErr.message);
+            await updateJob(supabase, jobId, { status: "stopped", stop_reason: `Escalate: executive strategy failed (${stratErr.message})` });
+            await logStep(supabase, jobId, newStep + 2, currentDoc, "stop", `Executive strategy failed: ${stratErr.message}`);
+            return respondWithJob(supabase, jobId);
+          }
         }
 
         // ── STABILISE: run rewrite if loops remain ──
