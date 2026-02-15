@@ -72,8 +72,12 @@ export default function ProjectDevelopmentEngine() {
   const isSeriesFormat = checkSeriesFormat(normalizedFormat);
   const projectBehavior = (project?.development_behavior as DevelopmentBehavior) || 'market';
   const projectFormat = normalizedFormat;
-  const [episodeDuration, setEpisodeDuration] = useState(project?.episode_target_duration_seconds || 120);
-  const [seasonEpisodes, setSeasonEpisodes] = useState((project as any)?.season_episode_count || 8);
+  const [episodeDuration, setEpisodeDuration] = useState<number | null>(null);
+  const [seasonEpisodes, setSeasonEpisodes] = useState<number | null>(null);
+
+  // Derive effective values: local override takes priority, then DB, then format defaults
+  const effectiveEpisodeDuration = episodeDuration ?? project?.episode_target_duration_seconds ?? (isVerticalDrama ? 60 : 120);
+  const effectiveSeasonEpisodes = seasonEpisodes ?? (project as any)?.season_episode_count ?? 8;
   const [softGateOpen, setSoftGateOpen] = useState(false);
   const [pendingStageAction, setPendingStageAction] = useState<(() => void) | null>(null);
   const [driftOverrideOpen, setDriftOverrideOpen] = useState(false);
@@ -141,11 +145,7 @@ export default function ProjectDevelopmentEngine() {
     return notes as any[];
   }, [tieredNotes, latestNotes]);
 
-  // Sync episode params
-  useEffect(() => {
-    if (project?.episode_target_duration_seconds) setEpisodeDuration(project.episode_target_duration_seconds);
-    if ((project as any)?.season_episode_count) setSeasonEpisodes((project as any).season_episode_count);
-  }, [project?.episode_target_duration_seconds, (project as any)?.season_episode_count]);
+  // No sync effect needed — effective values derive from project data directly
 
   // Auto-select all notes
   useMemo(() => {
@@ -183,7 +183,7 @@ export default function ProjectDevelopmentEngine() {
       deliverableType: selectedDeliverableType,
       developmentBehavior: projectBehavior,
       format: projectFormat,
-      episodeTargetDurationSeconds: (isVerticalDrama || isSeriesFormat) ? episodeDuration : undefined,
+      episodeTargetDurationSeconds: (isVerticalDrama || isSeriesFormat) ? effectiveEpisodeDuration : undefined,
       previousVersionId: prevVersion?.id,
     }, {
       onSuccess: (analysisResult: any) => {
@@ -358,20 +358,20 @@ export default function ProjectDevelopmentEngine() {
             </Select>
             {(isVerticalDrama || isSeriesFormat) && (
               <div className="flex items-center gap-1">
-                <Input type="number" className="h-7 text-xs w-[60px]" value={episodeDuration}
+                <Input type="number" className="h-7 text-xs w-[60px]" value={effectiveEpisodeDuration}
                   onChange={(e) => setEpisodeDuration(Number(e.target.value))}
                   onBlur={async () => {
-                    if (!projectId || !episodeDuration) return;
-                    await (supabase as any).from('projects').update({ episode_target_duration_seconds: episodeDuration }).eq('id', projectId);
+                    if (!projectId || !effectiveEpisodeDuration) return;
+                    await (supabase as any).from('projects').update({ episode_target_duration_seconds: effectiveEpisodeDuration }).eq('id', projectId);
                     qc.invalidateQueries({ queryKey: ['dev-engine-project', projectId] });
                   }}
                   min={30} max={7200} />
                 <span className="text-[9px] text-muted-foreground">s/ep</span>
-                <Input type="number" className="h-7 text-xs w-[50px]" value={seasonEpisodes}
+                <Input type="number" className="h-7 text-xs w-[50px]" value={effectiveSeasonEpisodes}
                   onChange={(e) => setSeasonEpisodes(Number(e.target.value))}
                   onBlur={async () => {
-                    if (!projectId || !seasonEpisodes) return;
-                    await (supabase as any).from('projects').update({ season_episode_count: seasonEpisodes }).eq('id', projectId);
+                    if (!projectId || !effectiveSeasonEpisodes) return;
+                    await (supabase as any).from('projects').update({ season_episode_count: effectiveSeasonEpisodes }).eq('id', projectId);
                     qc.invalidateQueries({ queryKey: ['dev-engine-project', projectId] });
                   }}
                   min={3} max={100} />
