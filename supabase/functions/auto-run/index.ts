@@ -767,6 +767,71 @@ Deno.serve(async (req) => {
     }
 
     // ═══════════════════════════════════════
+    // ACTION: set-stage
+    // ═══════════════════════════════════════
+    if (action === "set-stage") {
+      if (!jobId) return respond({ error: "jobId required" }, 400);
+      const { stage } = body;
+      if (!stage || !isOnLadder(stage)) return respond({ error: `Invalid stage: ${stage}` }, 400);
+      const { data: job, error: jobErr } = await supabase.from("auto_run_jobs").select("*").eq("id", jobId).eq("user_id", userId).single();
+      if (jobErr || !job) return respond({ error: "Job not found" }, 404);
+      const stepCount = job.step_count + 1;
+      await logStep(supabase, jobId, stepCount, stage, "set_stage", `Manual stage set: ${job.current_document} → ${stage}`);
+      await updateJob(supabase, jobId, {
+        current_document: stage, stage_loop_count: 0, step_count: stepCount,
+      });
+      return respondWithJob(supabase, jobId);
+    }
+
+    // ═══════════════════════════════════════
+    // ACTION: force-promote
+    // ═══════════════════════════════════════
+    if (action === "force-promote") {
+      if (!jobId) return respond({ error: "jobId required" }, 400);
+      const { data: job, error: jobErr } = await supabase.from("auto_run_jobs").select("*").eq("id", jobId).eq("user_id", userId).single();
+      if (jobErr || !job) return respond({ error: "Job not found" }, 404);
+      const current = job.current_document as DocStage;
+      const next = nextDoc(current);
+      if (!next) return respond({ error: `Already at final stage: ${current}` }, 400);
+      const stepCount = job.step_count + 1;
+      await logStep(supabase, jobId, stepCount, current, "force_promote", `Force-promoted: ${current} → ${next}`);
+      const targetIdx = LADDER.indexOf(job.target_document as DocStage);
+      const nextIdx = LADDER.indexOf(next);
+      if (nextIdx > targetIdx) {
+        await updateJob(supabase, jobId, { step_count: stepCount, status: "completed", stop_reason: `Force-promoted past target` });
+      } else {
+        await updateJob(supabase, jobId, {
+          current_document: next, stage_loop_count: 0, step_count: stepCount,
+          status: "running", stop_reason: null,
+          awaiting_approval: false, approval_type: null, pending_doc_id: null, pending_version_id: null,
+          pending_doc_type: null, pending_next_doc_type: null, pending_decisions: null,
+        });
+      }
+      return respondWithJob(supabase, jobId, "run-next");
+    }
+
+    // ═══════════════════════════════════════
+    // ACTION: restart-from-stage
+    // ═══════════════════════════════════════
+    if (action === "restart-from-stage") {
+      if (!jobId) return respond({ error: "jobId required" }, 400);
+      const { stage } = body;
+      if (!stage || !isOnLadder(stage)) return respond({ error: `Invalid stage: ${stage}` }, 400);
+      const { data: job, error: jobErr } = await supabase.from("auto_run_jobs").select("*").eq("id", jobId).eq("user_id", userId).single();
+      if (jobErr || !job) return respond({ error: "Job not found" }, 404);
+      const stepCount = job.step_count + 1;
+      await logStep(supabase, jobId, stepCount, stage, "restart_from_stage", `Restarted from ${stage}`);
+      await updateJob(supabase, jobId, {
+        current_document: stage, stage_loop_count: 0, step_count: stepCount,
+        status: "running", stop_reason: null, error: null,
+        awaiting_approval: false, approval_type: null, approval_payload: null,
+        pending_doc_id: null, pending_version_id: null, pending_doc_type: null, pending_next_doc_type: null,
+        pending_decisions: null,
+      });
+      return respondWithJob(supabase, jobId, "run-next");
+    }
+
+    // ═══════════════════════════════════════
     // ACTION: run-next (core state machine step)
     // ═══════════════════════════════════════
     if (action === "run-next") {

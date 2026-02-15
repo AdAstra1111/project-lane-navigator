@@ -1,0 +1,731 @@
+import { useState, useEffect, useMemo } from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
+import { Switch } from '@/components/ui/switch';
+import { toast } from '@/hooks/use-toast';
+import {
+  Play, Pause, Square, RotateCcw, Zap, AlertTriangle, CheckCircle2, Loader2,
+  Eye, FileText, Copy, Download, ChevronRight, Shield, Rocket, Settings2,
+  HelpCircle, ArrowUpRight, Radio,
+} from 'lucide-react';
+import type { AutoRunJob, AutoRunStep, PendingDecision } from '@/hooks/useAutoRun';
+import type { DocumentTextResult } from '@/hooks/useAutoRunMissionControl';
+import type { DeliverableType } from '@/lib/dev-os-config';
+
+// ── Constants ──
+const LADDER_LABELS: Record<string, string> = {
+  idea: 'Idea', concept_brief: 'Concept Brief', blueprint: 'Blueprint',
+  architecture: 'Architecture', draft: 'Draft', coverage: 'Coverage',
+};
+const LADDER_OPTIONS = ['idea', 'concept_brief', 'blueprint', 'architecture', 'draft'];
+
+const STATUS_STYLES: Record<string, { color: string; label: string }> = {
+  running: { color: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30', label: '● Running' },
+  paused: { color: 'bg-amber-500/15 text-amber-400 border-amber-500/30', label: '⏸ Paused' },
+  stopped: { color: 'bg-destructive/15 text-destructive border-destructive/30', label: '⏹ Stopped' },
+  completed: { color: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30', label: '✓ Completed' },
+  failed: { color: 'bg-destructive/15 text-destructive border-destructive/30', label: '✗ Failed' },
+  queued: { color: 'bg-muted text-muted-foreground', label: 'Queued' },
+};
+
+const LANE_OPTIONS = ['studio', 'indie-studio', 'independent-film', 'micro-budget', 'prestige', 'mainstream', 'genre', 'arthouse'];
+const BUDGET_OPTIONS = ['micro', 'low', 'medium', 'high', 'tentpole'];
+
+// ── Props ──
+interface AutoRunMissionControlProps {
+  projectId: string;
+  currentDeliverable: DeliverableType;
+  job: AutoRunJob | null;
+  steps: AutoRunStep[];
+  isRunning: boolean;
+  error: string | null;
+  onStart: (mode: string, startDoc: string) => void;
+  onPause: () => void;
+  onResume: () => void;
+  onStop: () => void;
+  onRunNext: () => void;
+  onClear: () => void;
+  onGetPendingDoc: () => Promise<any>;
+  onApproveNext: (decision: 'approve' | 'revise' | 'stop') => void;
+  onApproveDecision: (decisionId: string, selectedValue: string) => void;
+  onSetStage: (stage: string) => void;
+  onForcePromote: () => void;
+  onRestartFromStage: (stage: string) => void;
+  onSaveStorySetup: (setup: Record<string, string>) => Promise<void>;
+  onSaveQualifications: (quals: any) => Promise<void>;
+  onSaveLaneBudget: (lane: string, budget: string) => Promise<void>;
+  onSaveGuardrails: (gc: any) => Promise<void>;
+  fetchDocumentText: (documentId?: string, versionId?: string) => Promise<DocumentTextResult | null>;
+}
+
+// ── Sub-components ──
+
+function DecisionCard({ decision, onApprove }: { decision: PendingDecision; onApprove: (id: string, val: string) => void }) {
+  return (
+    <div className="border border-amber-500/30 bg-amber-500/5 rounded-md p-3 space-y-2">
+      <div className="flex items-start gap-2">
+        <HelpCircle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+        <p className="text-xs font-medium">{decision.question}</p>
+      </div>
+      <div className="space-y-1.5">
+        {decision.options.map((opt) => (
+          <button key={opt.value} onClick={() => onApprove(decision.id, opt.value)}
+            className={`w-full text-left text-[11px] p-2 rounded border transition-colors hover:bg-primary/10 hover:border-primary/40 ${
+              decision.recommended === opt.value ? 'border-primary/40 bg-primary/5' : 'border-border/50 bg-background'
+            }`}>
+            <span className="font-medium">{opt.value}</span>
+            {decision.recommended === opt.value && (
+              <Badge variant="outline" className="text-[8px] px-1 py-0 ml-1.5 bg-primary/10 text-primary border-primary/30">recommended</Badge>
+            )}
+            <p className="text-muted-foreground mt-0.5">{opt.why}</p>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function StepTimeline({ steps, onViewOutput }: { steps: AutoRunStep[]; onViewOutput: (step: AutoRunStep) => void }) {
+  const actionColors: Record<string, string> = {
+    review: 'bg-sky-500/15 text-sky-400 border-sky-500/30',
+    rewrite: 'bg-purple-500/15 text-purple-400 border-purple-500/30',
+    generate: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
+    promotion_check: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
+    approval_required: 'bg-orange-500/15 text-orange-400 border-orange-500/30',
+    stop: 'bg-destructive/15 text-destructive border-destructive/30',
+    start: 'bg-muted text-muted-foreground',
+    force_promote: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
+    set_stage: 'bg-sky-500/15 text-sky-400 border-sky-500/30',
+  };
+
+  return (
+    <div className="space-y-1">
+      {steps.map((step) => {
+        const color = actionColors[step.action] || 'bg-muted text-muted-foreground';
+        const hasOutput = step.output_text || (step.output_ref as any)?.docId;
+        return (
+          <div key={step.id} className="flex items-start gap-2 p-2 rounded bg-muted/20 hover:bg-muted/40 transition-colors group">
+            <div className="flex flex-col items-center pt-0.5">
+              <span className="text-[9px] text-muted-foreground font-mono w-5 text-center">{step.step_index}</span>
+              <div className="w-px h-full bg-border/50 mt-1" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <Badge variant="outline" className={`text-[8px] px-1.5 py-0 ${color}`}>{step.action}</Badge>
+                <Badge variant="outline" className="text-[8px] px-1 py-0">{LADDER_LABELS[step.document] || step.document}</Badge>
+                {step.readiness != null && (
+                  <span className="text-[8px] text-muted-foreground">R:{step.readiness}</span>
+                )}
+                {step.confidence != null && (
+                  <span className="text-[8px] text-muted-foreground">C:{step.confidence}</span>
+                )}
+              </div>
+              <p className="text-[10px] text-muted-foreground mt-0.5 line-clamp-2">{step.summary || '—'}</p>
+              {step.risk_flags?.length > 0 && (
+                <div className="flex gap-1 mt-1 flex-wrap">
+                  {step.risk_flags.map((f, i) => (
+                    <Badge key={i} variant="outline" className="text-[7px] px-1 py-0 bg-destructive/10 text-destructive border-destructive/30">{f}</Badge>
+                  ))}
+                </div>
+              )}
+            </div>
+            {hasOutput && (
+              <Button variant="ghost" size="sm" className="h-5 px-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                onClick={() => onViewOutput(step)}>
+                <Eye className="h-3 w-3" />
+              </Button>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Main Component ──
+export function AutoRunMissionControl({
+  projectId, currentDeliverable, job, steps, isRunning, error,
+  onStart, onPause, onResume, onStop, onRunNext, onClear,
+  onGetPendingDoc, onApproveNext, onApproveDecision,
+  onSetStage, onForcePromote, onRestartFromStage,
+  onSaveStorySetup, onSaveQualifications, onSaveLaneBudget, onSaveGuardrails,
+  fetchDocumentText,
+}: AutoRunMissionControlProps) {
+  const [mode, setMode] = useState('balanced');
+  const [safeMode, setSafeMode] = useState(true);
+
+  // Document viewer state
+  const [docViewerTab, setDocViewerTab] = useState('current');
+  const [viewerText, setViewerText] = useState('');
+  const [viewerMeta, setViewerMeta] = useState<{ doc_type?: string; version?: number; char_count?: number }>({});
+  const [viewerLoading, setViewerLoading] = useState(false);
+
+  // Pending doc state
+  const [pendingDoc, setPendingDoc] = useState<any>(null);
+  const [pendingLoading, setPendingLoading] = useState(false);
+
+  // Intervention state
+  const [storySetup, setStorySetup] = useState<Record<string, string>>({
+    logline: '', premise: '', tone_genre: '', protagonist: '', antagonist: '',
+    stakes: '', world_rules: '', comparables: '',
+  });
+  const [quals, setQuals] = useState({ episode_target_duration_seconds: 0, season_episode_count: 0, target_runtime_min_low: 0, target_runtime_min_high: 0 });
+  const [lane, setLane] = useState('');
+  const [budget, setBudget] = useState('');
+  const [jumpStage, setJumpStage] = useState('');
+  const [saving, setSaving] = useState<string | null>(null);
+
+  // Load pending doc when approval gate activates
+  useEffect(() => {
+    if (job?.awaiting_approval && !pendingDoc && !pendingLoading) {
+      setPendingLoading(true);
+      onGetPendingDoc().then(doc => { setPendingDoc(doc); setPendingLoading(false); setDocViewerTab('pending'); })
+        .catch(() => setPendingLoading(false));
+    }
+    if (!job?.awaiting_approval) { setPendingDoc(null); }
+  }, [job?.awaiting_approval, job?.id]);
+
+  // Load current doc text
+  const loadCurrentDoc = async () => {
+    if (!job) return;
+    setViewerLoading(true);
+    const result = await fetchDocumentText(undefined, undefined);
+    // Fetch from current stage
+    if (job.pending_doc_id) {
+      const r = await fetchDocumentText(job.pending_doc_id);
+      if (r) {
+        setViewerText(r.plaintext);
+        setViewerMeta({ doc_type: r.doc_type, version: r.version_number, char_count: r.char_count });
+      }
+    }
+    setViewerLoading(false);
+  };
+
+  const loadStepDoc = async (step: AutoRunStep) => {
+    const ref = step.output_ref as any;
+    setDocViewerTab('step');
+    setViewerLoading(true);
+    if (ref?.docId || ref?.versionId || ref?.newVersionId) {
+      const r = await fetchDocumentText(ref.docId, ref.versionId || ref.newVersionId);
+      if (r) {
+        setViewerText(r.plaintext);
+        setViewerMeta({ doc_type: r.doc_type, version: r.version_number, char_count: r.char_count });
+      }
+    } else if (step.output_text) {
+      setViewerText(step.output_text);
+      setViewerMeta({ char_count: step.output_text.length });
+    }
+    setViewerLoading(false);
+  };
+
+  const copyText = (text: string) => {
+    navigator.clipboard.writeText(text);
+    toast({ title: 'Copied to clipboard' });
+  };
+
+  const downloadTxt = (text: string, filename: string) => {
+    const blob = new Blob([text], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const hasDecisions = job?.pending_decisions && job.pending_decisions.length > 0;
+  const blockingDecision = hasDecisions
+    ? (job!.pending_decisions as PendingDecision[]).find(d => d.impact === 'blocking') || (job!.pending_decisions as PendingDecision[])[0]
+    : null;
+
+  const hasEscalation = job?.last_risk_flags?.some((f: string) => f.startsWith('hard_gate:'))
+    || job?.stop_reason?.includes('Executive Strategy');
+
+  const progressPct = job && job.max_total_steps > 0 ? Math.round((job.step_count / job.max_total_steps) * 100) : 0;
+  const statusStyle = STATUS_STYLES[job?.status || 'queued'] || STATUS_STYLES.queued;
+
+  // ── No job or terminal state → Start form ──
+  if (!job || ['completed', 'stopped', 'failed'].includes(job.status)) {
+    return (
+      <Card className="border-primary/20">
+        <CardHeader className="py-3 px-4">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <Rocket className="h-4 w-4" /> Auto-Run Mission Control
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="px-4 pb-4 space-y-3">
+          {job?.status === 'completed' && (
+            <div className="p-2 rounded bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-400">
+              ✓ {job.stop_reason || 'Target reached'} · {job.step_count} steps
+            </div>
+          )}
+          {job?.status === 'stopped' && (
+            <div className="p-2 rounded bg-destructive/10 border border-destructive/20 text-xs text-destructive">
+              ⏹ {job.stop_reason}
+            </div>
+          )}
+          {job?.status === 'failed' && (
+            <div className="p-2 rounded bg-destructive/10 border border-destructive/20 text-xs text-destructive">
+              ✗ {job.error}
+            </div>
+          )}
+
+          <div className="flex items-center gap-2">
+            <Select value={mode} onValueChange={setMode}>
+              <SelectTrigger className="h-8 text-xs w-[110px]"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="fast">⚡ Fast (8)</SelectItem>
+                <SelectItem value="balanced">⚖️ Balanced (12)</SelectItem>
+                <SelectItem value="premium">💎 Premium (18)</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button size="sm" className="h-8 text-xs gap-1.5 flex-1" onClick={() => onStart(mode, currentDeliverable)}>
+              <Play className="h-3.5 w-3.5" /> Start Auto-Run
+            </Button>
+          </div>
+
+          <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+            <span>⚡ {mode === 'fast' ? '1 loop/stage, 8 steps' : mode === 'balanced' ? '2 loops/stage, 12 steps' : '3 loops/stage, 18 steps, ≥82 readiness'}</span>
+          </div>
+
+          {job && (
+            <Button variant="ghost" size="sm" className="h-7 text-[10px] w-full" onClick={onClear}>
+              <RotateCcw className="h-3 w-3" /> Clear
+            </Button>
+          )}
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // ── Active job → Full Mission Control ──
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        {/* ══════ LEFT COLUMN ══════ */}
+        <div className="space-y-3">
+
+          {/* A) Job Status Card */}
+          <Card className="border-primary/20">
+            <CardHeader className="py-2 px-4">
+              <CardTitle className="text-xs flex items-center gap-2">
+                <Rocket className="h-3.5 w-3.5" /> Mission Control
+                <Badge variant="outline" className={`text-[9px] px-1.5 py-0 ml-auto ${statusStyle.color}`}>
+                  {isRunning && <Loader2 className="h-2.5 w-2.5 animate-spin mr-1" />}
+                  {statusStyle.label}
+                </Badge>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="px-4 pb-3 space-y-2">
+              {/* Progress */}
+              <div className="space-y-1">
+                <div className="flex justify-between text-[10px] text-muted-foreground">
+                  <span>Step {job.step_count}/{job.max_total_steps}</span>
+                  <span>Loop {job.stage_loop_count}/{job.max_stage_loops}</span>
+                  <span className="uppercase text-[9px]">{job.mode}</span>
+                </div>
+                <Progress value={progressPct} className="h-1.5" />
+              </div>
+
+              {/* Stage info */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <Badge variant="outline" className="text-[9px] bg-primary/10 text-primary border-primary/30">
+                  {LADDER_LABELS[job.current_document] || job.current_document}
+                </Badge>
+                <ChevronRight className="h-3 w-3 text-muted-foreground" />
+                <span className="text-[9px] text-muted-foreground">{LADDER_LABELS[job.target_document] || job.target_document}</span>
+              </div>
+
+              {/* Scores */}
+              {job.last_readiness != null && (
+                <div className="grid grid-cols-5 gap-1 text-[9px]">
+                  {[
+                    { label: 'Readiness', value: job.last_readiness },
+                    { label: 'CI', value: job.last_ci },
+                    { label: 'GP', value: job.last_gp },
+                    { label: 'Gap', value: job.last_gap },
+                    { label: 'Conf', value: job.last_confidence },
+                  ].map(({ label, value }) => (
+                    <div key={label} className="text-center p-1 rounded bg-muted/30">
+                      <div className="text-muted-foreground text-[8px]">{label}</div>
+                      <div className="font-semibold">{value ?? '—'}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Risk flags */}
+              {job.last_risk_flags?.length > 0 && (
+                <div className="flex gap-1 flex-wrap">
+                  {job.last_risk_flags.map((f: string, i: number) => (
+                    <Badge key={i} variant="outline" className="text-[8px] px-1 py-0 bg-destructive/10 text-destructive border-destructive/30">{f}</Badge>
+                  ))}
+                </div>
+              )}
+
+              {/* Stop reason / error (when not related to approval) */}
+              {job.stop_reason && !job.awaiting_approval && !hasDecisions && (
+                <div className="text-[10px] text-amber-400 bg-amber-500/5 border border-amber-500/20 rounded p-2">
+                  {job.stop_reason}
+                </div>
+              )}
+              {error && (
+                <div className="text-[10px] text-destructive bg-destructive/5 border border-destructive/20 rounded p-2">
+                  {error}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* B) Primary Controls */}
+          <Card>
+            <CardContent className="p-3">
+              <div className="flex gap-1.5 flex-wrap">
+                {job.status === 'running' && !job.awaiting_approval && (
+                  <>
+                    <Button variant="outline" size="sm" className="h-7 text-[10px] gap-1" onClick={onPause}>
+                      <Pause className="h-3 w-3" /> Pause
+                    </Button>
+                    <Button variant="destructive" size="sm" className="h-7 text-[10px] gap-1" onClick={onStop}>
+                      <Square className="h-3 w-3" /> Stop
+                    </Button>
+                  </>
+                )}
+                {job.status === 'paused' && !hasDecisions && !job.awaiting_approval && (
+                  <>
+                    <Button size="sm" className="h-7 text-[10px] gap-1" onClick={onResume}>
+                      <Play className="h-3 w-3" /> Resume
+                    </Button>
+                    <Button variant="destructive" size="sm" className="h-7 text-[10px] gap-1" onClick={onStop}>
+                      <Square className="h-3 w-3" /> Stop
+                    </Button>
+                  </>
+                )}
+              </div>
+              {/* Safe mode toggle */}
+              <div className="flex items-center gap-2 mt-2">
+                <Switch checked={safeMode} onCheckedChange={setSafeMode} className="scale-75" />
+                <span className="text-[9px] text-muted-foreground">Safe Mode (require approval for all promotions)</span>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* C) Approval Gate */}
+          {job.awaiting_approval && (
+            <Card className="border-primary/30 bg-primary/5">
+              <CardContent className="p-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <Shield className="h-5 w-5 text-primary" />
+                  <div>
+                    <h3 className="text-sm font-semibold">Approval Required</h3>
+                    <p className="text-[11px] text-muted-foreground">
+                      {job.approval_type === 'convert'
+                        ? `Review the newly generated ${LADDER_LABELS[job.pending_doc_type || ''] || job.pending_doc_type} before continuing.`
+                        : `Review ${LADDER_LABELS[job.pending_doc_type || ''] || job.pending_doc_type} before promoting to ${LADDER_LABELS[job.pending_next_doc_type || ''] || job.pending_next_doc_type}.`
+                      }
+                    </p>
+                  </div>
+                </div>
+
+                {pendingLoading && (
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Loader2 className="h-3 w-3 animate-spin" /> Loading document…
+                  </div>
+                )}
+
+                {pendingDoc && (
+                  <div className="text-[10px] text-muted-foreground flex items-center gap-2">
+                    <FileText className="h-3 w-3" />
+                    {pendingDoc.char_count?.toLocaleString()} chars
+                    <Badge variant="outline" className="text-[8px] px-1 py-0">{pendingDoc.approval_type}</Badge>
+                  </div>
+                )}
+
+                <div className="flex gap-2">
+                  <Button size="sm" className="h-8 text-xs gap-1.5 flex-1" onClick={() => onApproveNext('approve')}>
+                    <CheckCircle2 className="h-3.5 w-3.5" /> Approve & Continue
+                  </Button>
+                  <Button variant="destructive" size="sm" className="h-8 text-xs gap-1.5" onClick={() => onApproveNext('stop')}>
+                    <Square className="h-3.5 w-3.5" /> Stop
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Pending decision cards */}
+          {hasDecisions && blockingDecision && (
+            <DecisionCard decision={blockingDecision} onApprove={onApproveDecision} />
+          )}
+
+          {/* D) Interventions Accordion */}
+          <Accordion type="multiple" className="space-y-1">
+            {/* D1: Story Setup */}
+            <AccordionItem value="story" className="border rounded-lg px-3">
+              <AccordionTrigger className="text-xs py-2">
+                <span className="flex items-center gap-1.5"><FileText className="h-3 w-3" /> Story Setup</span>
+              </AccordionTrigger>
+              <AccordionContent className="space-y-2 pb-3">
+                {['logline', 'premise', 'tone_genre', 'protagonist', 'antagonist', 'stakes', 'world_rules', 'comparables'].map(field => (
+                  <div key={field}>
+                    <Label className="text-[10px] capitalize">{field.replace(/_/g, ' ')}</Label>
+                    <Textarea className="text-xs min-h-[40px] mt-0.5" value={storySetup[field] || ''}
+                      onChange={e => setStorySetup(prev => ({ ...prev, [field]: e.target.value }))}
+                      placeholder={field === 'comparables' ? 'Title 1, Title 2, …' : `Enter ${field.replace(/_/g, ' ')}…`} />
+                  </div>
+                ))}
+                <Button size="sm" className="h-7 text-[10px] w-full" disabled={saving === 'story'}
+                  onClick={async () => { setSaving('story'); await onSaveStorySetup(storySetup); toast({ title: 'Story setup saved' }); setSaving(null); }}>
+                  {saving === 'story' ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Save to Project'}
+                </Button>
+              </AccordionContent>
+            </AccordionItem>
+
+            {/* D2: Qualifications */}
+            <AccordionItem value="quals" className="border rounded-lg px-3">
+              <AccordionTrigger className="text-xs py-2">
+                <span className="flex items-center gap-1.5"><Settings2 className="h-3 w-3" /> Format & Qualifications</span>
+              </AccordionTrigger>
+              <AccordionContent className="space-y-2 pb-3">
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <Label className="text-[10px]">Episode Duration (s)</Label>
+                    <Input type="number" className="h-7 text-xs mt-0.5" value={quals.episode_target_duration_seconds || ''}
+                      onChange={e => setQuals(p => ({ ...p, episode_target_duration_seconds: Number(e.target.value) }))} />
+                  </div>
+                  <div>
+                    <Label className="text-[10px]">Season Episodes</Label>
+                    <Input type="number" className="h-7 text-xs mt-0.5" value={quals.season_episode_count || ''}
+                      onChange={e => setQuals(p => ({ ...p, season_episode_count: Number(e.target.value) }))} />
+                  </div>
+                  <div>
+                    <Label className="text-[10px]">Runtime Min (low)</Label>
+                    <Input type="number" className="h-7 text-xs mt-0.5" value={quals.target_runtime_min_low || ''}
+                      onChange={e => setQuals(p => ({ ...p, target_runtime_min_low: Number(e.target.value) }))} />
+                  </div>
+                  <div>
+                    <Label className="text-[10px]">Runtime Min (high)</Label>
+                    <Input type="number" className="h-7 text-xs mt-0.5" value={quals.target_runtime_min_high || ''}
+                      onChange={e => setQuals(p => ({ ...p, target_runtime_min_high: Number(e.target.value) }))} />
+                  </div>
+                </div>
+                <Button size="sm" className="h-7 text-[10px] w-full" disabled={saving === 'quals'}
+                  onClick={async () => { setSaving('quals'); await onSaveQualifications(quals); toast({ title: 'Qualifications saved' }); setSaving(null); }}>
+                  {saving === 'quals' ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Save Qualifications'}
+                </Button>
+              </AccordionContent>
+            </AccordionItem>
+
+            {/* D3: Lane/Budget */}
+            <AccordionItem value="lane" className="border rounded-lg px-3">
+              <AccordionTrigger className="text-xs py-2">
+                <span className="flex items-center gap-1.5"><ArrowUpRight className="h-3 w-3" /> Lane & Budget</span>
+              </AccordionTrigger>
+              <AccordionContent className="space-y-2 pb-3">
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <Label className="text-[10px]">Lane</Label>
+                    <Select value={lane} onValueChange={setLane}>
+                      <SelectTrigger className="h-7 text-xs mt-0.5"><SelectValue placeholder="Select…" /></SelectTrigger>
+                      <SelectContent>
+                        {LANE_OPTIONS.map(l => <SelectItem key={l} value={l}>{l}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="text-[10px]">Budget</Label>
+                    <Select value={budget} onValueChange={setBudget}>
+                      <SelectTrigger className="h-7 text-xs mt-0.5"><SelectValue placeholder="Select…" /></SelectTrigger>
+                      <SelectContent>
+                        {BUDGET_OPTIONS.map(b => <SelectItem key={b} value={b}>{b}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <Button size="sm" className="h-7 text-[10px] w-full" disabled={saving === 'lane' || !lane || !budget}
+                  onClick={async () => { setSaving('lane'); await onSaveLaneBudget(lane, budget); toast({ title: 'Lane & budget saved' }); setSaving(null); }}>
+                  {saving === 'lane' ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Save Lane/Budget'}
+                </Button>
+              </AccordionContent>
+            </AccordionItem>
+
+            {/* D5: Stage Control */}
+            <AccordionItem value="stage" className="border rounded-lg px-3">
+              <AccordionTrigger className="text-xs py-2">
+                <span className="flex items-center gap-1.5"><Radio className="h-3 w-3" /> Stage Control</span>
+              </AccordionTrigger>
+              <AccordionContent className="space-y-2 pb-3">
+                <div>
+                  <Label className="text-[10px]">Jump to stage</Label>
+                  <Select value={jumpStage} onValueChange={setJumpStage}>
+                    <SelectTrigger className="h-7 text-xs mt-0.5"><SelectValue placeholder="Select stage…" /></SelectTrigger>
+                    <SelectContent>
+                      {LADDER_OPTIONS.map(s => <SelectItem key={s} value={s}>{LADDER_LABELS[s]}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex gap-1.5 flex-wrap">
+                  <Button variant="outline" size="sm" className="h-7 text-[10px] gap-1" disabled={!jumpStage}
+                    onClick={() => { onSetStage(jumpStage); toast({ title: `Stage set to ${LADDER_LABELS[jumpStage]}` }); }}>
+                    Set Stage
+                  </Button>
+                  <Button variant="outline" size="sm" className="h-7 text-[10px] gap-1" onClick={onForcePromote}>
+                    <ArrowUpRight className="h-3 w-3" /> Force Promote
+                  </Button>
+                  <Button variant="outline" size="sm" className="h-7 text-[10px] gap-1" disabled={!jumpStage}
+                    onClick={() => { onRestartFromStage(jumpStage); toast({ title: `Restarted from ${LADDER_LABELS[jumpStage]}` }); }}>
+                    <RotateCcw className="h-3 w-3" /> Restart From Stage
+                  </Button>
+                </div>
+              </AccordionContent>
+            </AccordionItem>
+
+            {/* D6: Escalation */}
+            {hasEscalation && (
+              <AccordionItem value="escalation" className="border border-destructive/30 rounded-lg px-3">
+                <AccordionTrigger className="text-xs py-2">
+                  <span className="flex items-center gap-1.5 text-destructive"><AlertTriangle className="h-3 w-3" /> Escalation Required</span>
+                </AccordionTrigger>
+                <AccordionContent className="space-y-2 pb-3">
+                  <p className="text-[10px] text-muted-foreground">Auto-run cannot proceed without a strategic decision.</p>
+                  <div className="flex gap-1.5 flex-wrap">
+                    <Button variant="outline" size="sm" className="h-7 text-[10px] gap-1" onClick={onForcePromote}>
+                      <ArrowUpRight className="h-3 w-3" /> Force Promote
+                    </Button>
+                    <Button variant="outline" size="sm" className="h-7 text-[10px] gap-1" onClick={onPause}>
+                      <Pause className="h-3 w-3" /> Pause for Manual Editing
+                    </Button>
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+            )}
+          </Accordion>
+        </div>
+
+        {/* ══════ RIGHT COLUMN ══════ */}
+        <div className="space-y-3">
+          {/* Timeline */}
+          <Card>
+            <CardHeader className="py-2 px-4">
+              <CardTitle className="text-xs flex items-center gap-2">
+                <Zap className="h-3.5 w-3.5" /> Timeline ({steps.length} steps)
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="px-3 pb-3">
+              <ScrollArea className="max-h-[300px]">
+                <StepTimeline steps={steps} onViewOutput={loadStepDoc} />
+              </ScrollArea>
+            </CardContent>
+          </Card>
+
+          {/* Document Viewer */}
+          <Card>
+            <CardHeader className="py-2 px-4">
+              <CardTitle className="text-xs flex items-center gap-2">
+                <Eye className="h-3.5 w-3.5" /> Document Viewer
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="px-3 pb-3">
+              <Tabs value={docViewerTab} onValueChange={setDocViewerTab}>
+                <TabsList className="h-7">
+                  <TabsTrigger value="current" className="text-[10px] px-2 h-6">Current Doc</TabsTrigger>
+                  {job.awaiting_approval && (
+                    <TabsTrigger value="pending" className="text-[10px] px-2 h-6">Pending Doc</TabsTrigger>
+                  )}
+                  <TabsTrigger value="step" className="text-[10px] px-2 h-6">From Step</TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="pending" className="mt-2">
+                  {pendingLoading && <div className="flex items-center gap-2 text-xs text-muted-foreground py-4"><Loader2 className="h-3 w-3 animate-spin" /> Loading…</div>}
+                  {pendingDoc && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                        <Badge variant="outline" className="text-[8px]">{pendingDoc.doc_type}</Badge>
+                        <span>{pendingDoc.char_count?.toLocaleString()} chars</span>
+                      </div>
+                      <ScrollArea className="max-h-[400px] border rounded p-2 bg-muted/20">
+                        <pre className="text-[10px] whitespace-pre-wrap font-mono leading-relaxed text-foreground">
+                          {pendingDoc.text || pendingDoc.preview || '(empty)'}
+                        </pre>
+                      </ScrollArea>
+                      <div className="flex gap-1.5">
+                        <Button variant="ghost" size="sm" className="h-6 text-[9px] gap-1" onClick={() => copyText(pendingDoc.text)}>
+                          <Copy className="h-3 w-3" /> Copy
+                        </Button>
+                        <Button variant="ghost" size="sm" className="h-6 text-[9px] gap-1" onClick={() => downloadTxt(pendingDoc.text, `${pendingDoc.doc_type}.txt`)}>
+                          <Download className="h-3 w-3" /> Download
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </TabsContent>
+
+                <TabsContent value="current" className="mt-2">
+                  {!viewerText && !viewerLoading && (
+                    <div className="text-center py-6">
+                      <p className="text-[10px] text-muted-foreground">Click a step to view its output, or load current doc</p>
+                      <Button variant="outline" size="sm" className="h-7 text-[10px] mt-2" onClick={loadCurrentDoc}>
+                        <Eye className="h-3 w-3 mr-1" /> Load Current Document
+                      </Button>
+                    </div>
+                  )}
+                  {viewerLoading && <div className="flex items-center gap-2 text-xs text-muted-foreground py-4"><Loader2 className="h-3 w-3 animate-spin" /> Loading…</div>}
+                  {viewerText && docViewerTab === 'current' && (
+                    <DocViewer text={viewerText} meta={viewerMeta} onCopy={copyText} onDownload={downloadTxt} />
+                  )}
+                </TabsContent>
+
+                <TabsContent value="step" className="mt-2">
+                  {viewerLoading && <div className="flex items-center gap-2 text-xs text-muted-foreground py-4"><Loader2 className="h-3 w-3 animate-spin" /> Loading…</div>}
+                  {!viewerText && !viewerLoading && docViewerTab === 'step' && (
+                    <p className="text-[10px] text-muted-foreground text-center py-6">Click a step's 👁 icon to view its output</p>
+                  )}
+                  {viewerText && docViewerTab === 'step' && (
+                    <DocViewer text={viewerText} meta={viewerMeta} onCopy={copyText} onDownload={downloadTxt} />
+                  )}
+                </TabsContent>
+              </Tabs>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DocViewer({ text, meta, onCopy, onDownload }: {
+  text: string;
+  meta: { doc_type?: string; version?: number; char_count?: number };
+  onCopy: (t: string) => void;
+  onDownload: (t: string, f: string) => void;
+}) {
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+        {meta.doc_type && <Badge variant="outline" className="text-[8px]">{meta.doc_type}</Badge>}
+        {meta.version != null && <span>v{meta.version}</span>}
+        {meta.char_count != null && <span>{meta.char_count.toLocaleString()} chars</span>}
+      </div>
+      <ScrollArea className="max-h-[400px] border rounded p-2 bg-muted/20">
+        <pre className="text-[10px] whitespace-pre-wrap font-mono leading-relaxed text-foreground">
+          {text || '(empty)'}
+        </pre>
+      </ScrollArea>
+      <div className="flex gap-1.5">
+        <Button variant="ghost" size="sm" className="h-6 text-[9px] gap-1" onClick={() => onCopy(text)}>
+          <Copy className="h-3 w-3" /> Copy
+        </Button>
+        <Button variant="ghost" size="sm" className="h-6 text-[9px] gap-1" onClick={() => onDownload(text, `${meta.doc_type || 'document'}.txt`)}>
+          <Download className="h-3 w-3" /> Download
+        </Button>
+      </div>
+    </div>
+  );
+}
