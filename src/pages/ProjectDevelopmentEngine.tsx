@@ -36,8 +36,8 @@ import { ConvergencePanel } from '@/components/devengine/ConvergencePanel';
 import { DriftBanner } from '@/components/devengine/DriftBanner';
 import { PromotionIntelligenceCard } from '@/components/devengine/PromotionIntelligenceCard';
 import { usePromotionIntelligence, extractNoteCounts } from '@/hooks/usePromotionIntelligence';
-import { AutoRunPanel } from '@/components/devengine/AutoRunPanel';
-import { useAutoRun } from '@/hooks/useAutoRun';
+import { AutoRunMissionControl } from '@/components/devengine/AutoRunMissionControl';
+import { useAutoRunMissionControl } from '@/hooks/useAutoRunMissionControl';
 
 // ── Main Page ──
 export default function ProjectDevelopmentEngine() {
@@ -86,7 +86,7 @@ export default function ProjectDevelopmentEngine() {
   const pipeline = useScriptPipeline(projectId);
   const promotionIntel = usePromotionIntelligence();
   const rewritePipeline = useRewritePipeline(projectId);
-  const autoRun = useAutoRun(projectId);
+  const autoRun = useAutoRunMissionControl(projectId);
 
   const [selectedDeliverableType, setSelectedDeliverableType] = useState<DeliverableType>('script');
   const [selectedNotes, setSelectedNotes] = useState<Set<number>>(new Set());
@@ -530,12 +530,13 @@ export default function ProjectDevelopmentEngine() {
               />
 
               {/* Auto-Run Panel */}
-              <AutoRunPanel
+              <AutoRunMissionControl
+                projectId={projectId!}
+                currentDeliverable={selectedDeliverableType}
                 job={autoRun.job}
                 steps={autoRun.steps}
                 isRunning={autoRun.isRunning}
                 error={autoRun.error}
-                currentDeliverable={selectedDeliverableType}
                 onStart={autoRun.start}
                 onRunNext={autoRun.runNext}
                 onResume={autoRun.resume}
@@ -545,6 +546,14 @@ export default function ProjectDevelopmentEngine() {
                 onApproveDecision={autoRun.approveDecision}
                 onGetPendingDoc={autoRun.getPendingDoc}
                 onApproveNext={autoRun.approveNext}
+                onSetStage={autoRun.setStage}
+                onForcePromote={autoRun.forcePromote}
+                onRestartFromStage={autoRun.restartFromStage}
+                onSaveStorySetup={autoRun.saveStorySetup}
+                onSaveQualifications={autoRun.saveQualifications}
+                onSaveLaneBudget={autoRun.saveLaneBudget}
+                onSaveGuardrails={autoRun.saveGuardrails}
+                fetchDocumentText={autoRun.fetchDocumentText}
               />
               {versionText && !isVerticalDrama && (selectedDeliverableType === 'script' || selectedDeliverableType === 'production_draft') && (
                 <FeatureLengthGuardrails projectId={projectId!} versionText={versionText}
