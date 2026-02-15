@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { buildGuardrailBlock } from "../_shared/guardrails.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -73,7 +74,12 @@ serve(async (req) => {
 
     const totalPages = scenes.reduce((sum: number, s: any) => sum + (s.page_count || 0), 0);
 
+    const guardrails = buildGuardrailBlock({ productionType: format });
+    console.log(`[auto-schedule] guardrails: profile=${guardrails.profileName}, hash=${guardrails.hash}`);
+
     const systemPrompt = `You are an expert 1st Assistant Director creating an optimised production schedule. Given a list of scenes with locations, cast, page counts, and time of day, create an efficient shooting schedule.
+
+${guardrails.textBlock}
 
 Scheduling principles:
 1. Group scenes by LOCATION first — minimise company moves

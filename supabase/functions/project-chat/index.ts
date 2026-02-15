@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { buildGuardrailBlock } from "../_shared/guardrails.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -77,6 +78,9 @@ ${(docsRes.data || []).filter((d: any) => d.extracted_text).map((d: any) => `---
     const lovableApiKey = Deno.env.get("LOVABLE_API_KEY");
     if (!lovableApiKey) throw new Error("AI not configured");
 
+    const guardrails = buildGuardrailBlock({ productionType: project.format });
+    console.log(`[project-chat] guardrails: profile=${guardrails.profileName}, hash=${guardrails.hash}`);
+
     const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -89,6 +93,8 @@ ${(docsRes.data || []).filter((d: any) => d.extracted_text).map((d: any) => `---
           {
             role: "system",
             content: `You are a senior film & TV producer's strategic advisor embedded inside a project management tool called IFFY. You have full access to the project dossier below. Answer questions conversationally but with strategic depth. Be specific, reference actual data from the project. Keep responses concise but insightful — aim for 2-4 paragraphs max. If you don't have enough data, say so and suggest what the user should add.
+
+${guardrails.textBlock}
 
 PROJECT DOSSIER:
 ${context}`,

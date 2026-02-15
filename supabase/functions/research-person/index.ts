@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { buildGuardrailBlock } from "../_shared/guardrails.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -184,7 +185,11 @@ Deno.serve(async (req) => {
         ? `\nIMPORTANT: The user has specified this person is known for: ${known_for}.`
         : "";
 
+    const guardrails = buildGuardrailBlock({ productionType: project_context?.format });
+    console.log(`[research-person] guardrails: profile=${guardrails.profileName}, hash=${guardrails.hash}`);
+
     const systemPrompt = `You are IFFY, a film finance intelligence tool. A producer is considering attaching a person to their project. Assess this person's current market value and how they affect the project's finance readiness.${identityHint}
+${guardrails.textBlock}
 ${groundedResearch ? "\nIMPORTANT: Use the REAL-TIME RESEARCH data below as your primary factual source. It contains current, cited information. Base your assessment on these facts rather than potentially outdated training data." : ""}
 
 Be specific about:

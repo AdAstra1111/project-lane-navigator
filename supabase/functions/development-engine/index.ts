@@ -48,7 +48,7 @@ async function callAI(apiKey: string, model: string, system: string, user: strin
 // PHASE 1 — REVIEW
 // ═══════════════════════════════════════════════════════════════
 
-const REVIEW_SYSTEM = `You are IFFY, a Creative–Commercial Alignment Architect operating in iterative loop mode.
+const REVIEW_SYSTEM_BASE = `You are IFFY, a Creative–Commercial Alignment Architect operating in iterative loop mode.
 Your goal is convergence: High Creative Integrity AND High Greenlight Probability.
 You produce strategic evolution, not random notes.
 
@@ -151,6 +151,11 @@ serve(async (req) => {
 
     const body = await req.json();
     const { action, sessionId, inputText, approvedNotes, format, genres, lane, budget, title, projectId } = body;
+
+    // Build guardrails for this session
+    const guardrails = buildGuardrailBlock({ productionType: format });
+    console.log(`[development-engine] guardrails: profile=${guardrails.profileName}, hash=${guardrails.hash}`);
+    const REVIEW_SYSTEM = REVIEW_SYSTEM_BASE + "\n" + guardrails.textBlock;
 
     // ── CREATE SESSION ──
     if (action === "create-session") {

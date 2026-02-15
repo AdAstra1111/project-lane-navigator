@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { buildGuardrailBlock } from "../_shared/guardrails.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -69,10 +70,14 @@ Deno.serve(async (req) => {
       });
     }
 
+    const guardrails = buildGuardrailBlock({ productionType: format });
+    console.log(`[research-copro] guardrails: profile=${guardrails.profileName}, hash=${guardrails.hash}`);
+
     const systemPrompt = `You are an expert in international film co-production treaties, conventions, and funds.
 You provide accurate, current information about bilateral and multilateral co-production agreements.
 Always cite the official source. If uncertain, mark confidence as "low".
-Today's date is ${new Date().toISOString().split("T")[0]}.`;
+Today's date is ${new Date().toISOString().split("T")[0]}.
+${guardrails.textBlock}`;
 
     const userPrompt = `Research ALL co-production treaties, conventions, and funds that could apply to a co-production between these countries: ${countries.join(", ")}
 

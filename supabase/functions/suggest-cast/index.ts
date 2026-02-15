@@ -63,6 +63,9 @@ For each suggestion provide:
 - market_trajectory: "rising", "peak", "steady" - their current career trajectory
 - territory_value: Which key territories their attachment would unlock for pre-sales`;
 
+    const guardrails = buildGuardrailBlock({ productionType: format });
+    console.log(`[suggest-cast] guardrails: profile=${guardrails.profileName}, hash=${guardrails.hash}`);
+
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -72,7 +75,7 @@ For each suggestion provide:
       body: JSON.stringify({
         model: "google/gemini-3-flash-preview",
         messages: [
-          { role: "system", content: "You are a film industry casting strategist who understands the relationship between talent, budget, genre, tone, and market value. You give realistic, actionable suggestions — not aspirational fantasy casting." },
+          { role: "system", content: "You are a film industry casting strategist who understands the relationship between talent, budget, genre, tone, and market value. You give realistic, actionable suggestions — not aspirational fantasy casting.\n" + guardrails.textBlock },
           { role: "user", content: prompt },
         ],
         tools: [{

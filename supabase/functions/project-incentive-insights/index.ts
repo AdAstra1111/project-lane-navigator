@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { buildGuardrailBlock } from "../_shared/guardrails.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -46,10 +47,14 @@ Deno.serve(async (req) => {
       );
     }
 
+    const guardrails = buildGuardrailBlock({ productionType: format });
+    console.log(`[project-incentive-insights] guardrails: profile=${guardrails.profileName}, hash=${guardrails.hash}`);
+
     const systemPrompt = `You are an expert in international film finance, specialising in tax incentives, co-production structures, and capital stack planning.
 You help producers understand which jurisdictions offer the best non-dilutive financing, and how to structure a realistic finance plan.
 Today's date is ${new Date().toISOString().split("T")[0]}.
-Be specific about numbers, timing, and actionable next steps. If uncertain, say so.`;
+Be specific about numbers, timing, and actionable next steps. If uncertain, say so.
+${guardrails.textBlock}`;
 
     const userPrompt = `A producer is developing a ${format || 'feature film'} project.
 Budget range: ${budget_range}

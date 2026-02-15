@@ -115,7 +115,12 @@ serve(async (req) => {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
 
+    const guardrails = buildGuardrailBlock({ productionType: format });
+    console.log(`[finance-predict] guardrails: profile=${guardrails.profileName}, hash=${guardrails.hash}`);
+
     const systemPrompt = `You are IFFY — a Greenlight Architect operating as a senior independent film financier and equity evaluator.
+
+${guardrails.textBlock}
 
 You think like: Equity Financier + Sales Agent + Aggressive Independent Producer.
 

@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { buildGuardrailBlock } from "../_shared/guardrails.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -94,7 +95,12 @@ serve(async (req) => {
       ? financeScenarios.map((f: any) => `${f.scenario_name}: ${f.category} - $${f.amount || 0}`).join("; ")
       : "Finance structure pending";
 
+    const guardrails = buildGuardrailBlock({ productionType: project.format });
+    console.log(`[generate-pitch-deck] guardrails: profile=${guardrails.profileName}, hash=${guardrails.hash}`);
+
     const prompt = `You are a world-class film/TV pitch deck writer. Generate compelling, strategic slide content for a pitch deck.
+
+${guardrails.textBlock}
 
 PROJECT DATA:
 - Title: ${project.title}

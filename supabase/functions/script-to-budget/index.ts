@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { buildGuardrailBlock } from "../_shared/guardrails.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -30,7 +31,12 @@ serve(async (req) => {
       });
     }
 
+    const guardrails = buildGuardrailBlock({ productionType: format });
+    console.log(`[script-to-budget] guardrails: profile=${guardrails.profileName}, hash=${guardrails.hash}`);
+
     const systemPrompt = `You are an expert film & TV line producer and budget estimator. Given script text and project metadata, generate a realistic budget breakdown.
+
+${guardrails.textBlock}
 
 You must return a JSON object with:
 - "estimated_total": number — your best estimate of total production budget in the project's currency
