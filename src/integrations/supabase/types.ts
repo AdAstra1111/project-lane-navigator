@@ -108,6 +108,7 @@ export type Database = {
       }
       auto_run_jobs: {
         Row: {
+          allow_defaults: boolean
           approval_payload: Json | null
           approval_type: string | null
           awaiting_approval: boolean
@@ -143,6 +144,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          allow_defaults?: boolean
           approval_payload?: Json | null
           approval_type?: string | null
           awaiting_approval?: boolean
@@ -178,6 +180,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          allow_defaults?: boolean
           approval_payload?: Json | null
           approval_type?: string | null
           awaiting_approval?: boolean

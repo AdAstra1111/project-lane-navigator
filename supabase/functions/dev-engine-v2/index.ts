@@ -1989,6 +1989,141 @@ Rules:
       });
     }
 
+    // ══════════════════════════════════════════════
+    // EXTRACT-CRITERIA — extract qualifications from idea document
+    // ══════════════════════════════════════════════
+    if (action === "extract-criteria") {
+      const { projectId, documentId, versionId } = body;
+      if (!projectId || !documentId || !versionId) throw new Error("projectId, documentId, versionId required");
+
+      // Fetch text
+      const { data: version } = await supabase.from("project_document_versions")
+        .select("plaintext").eq("id", versionId).single();
+      let text = version?.plaintext || "";
+      if (!text || text.length < 50) {
+        const { data: docRow } = await supabase.from("project_documents")
+          .select("extracted_text, plaintext").eq("id", documentId).single();
+        text = docRow?.extracted_text || docRow?.plaintext || text;
+      }
+      if (!text || text.length < 20) throw new Error("No text found in document to extract criteria from");
+
+      const EXTRACT_CRITERIA_SYSTEM = `You are a script and format analyst. Extract production criteria from this creative document.
+
+RULES:
+- Only extract values EXPLICITLY stated or STRONGLY implied in the text.
+- If a value is not stated or clearly implied, return null for that field.
+- Do NOT invent numbers. Do NOT guess episode counts or durations.
+- If you detect a vertical drama but no episode duration is stated, return null and list it in missing_required.
+- format_subtype must be one of: film, tv-series, limited-series, vertical-drama, documentary, documentary-series, hybrid-documentary, short, animation, digital-series, anim-series, anim-feature, reality, short-film
+- assigned_lane must be one of: prestige, mainstream, independent-film, genre, micro-budget
+- budget_range must be one of: micro, low, medium, high, tent-pole
+
+Return ONLY valid JSON matching this schema:
+{
+  "criteria": {
+    "format_subtype": string | null,
+    "season_episode_count": number | null,
+    "episode_target_duration_seconds": number | null,
+    "target_runtime_min_low": number | null,
+    "target_runtime_min_high": number | null,
+    "assigned_lane": string | null,
+    "budget_range": string | null,
+    "tone_tags": string[] | null,
+    "audience_region": string | null,
+    "language": string | null
+  },
+  "field_confidence": {
+    "format_subtype": "high" | "med" | "low" | null,
+    "season_episode_count": "high" | "med" | "low" | null,
+    "episode_target_duration_seconds": "high" | "med" | "low" | null,
+    "target_runtime_min_low": "high" | "med" | "low" | null,
+    "target_runtime_min_high": "high" | "med" | "low" | null,
+    "assigned_lane": "high" | "med" | "low" | null,
+    "budget_range": "high" | "med" | "low" | null
+  },
+  "missing_required": ["list of field names that could not be extracted but may be needed"],
+  "notes_for_user": ["short bullets explaining extraction decisions"]
+}`;
+
+      const raw = await callAI(LOVABLE_API_KEY, FAST_MODEL, EXTRACT_CRITERIA_SYSTEM, `DOCUMENT:\n${text.slice(0, 12000)}`, 0.1, 2000);
+      let parsed: any;
+      try {
+        parsed = JSON.parse(extractJSON(raw));
+      } catch {
+        const repair = await callAI(LOVABLE_API_KEY, FAST_MODEL, "Fix this malformed JSON. Return JSON ONLY.", raw.slice(0, 3000), 0, 1500);
+        parsed = JSON.parse(extractJSON(repair));
+      }
+
+      if (!parsed.criteria) parsed.criteria = {};
+      if (!parsed.field_confidence) parsed.field_confidence = {};
+      if (!parsed.missing_required) parsed.missing_required = [];
+      if (!parsed.notes_for_user) parsed.notes_for_user = [];
+
+      // Persist to project
+      const criteria = parsed.criteria;
+      const projectUpdates: Record<string, any> = {};
+
+      if (criteria.episode_target_duration_seconds) {
+        projectUpdates.episode_target_duration_seconds = criteria.episode_target_duration_seconds;
+      }
+      if (criteria.assigned_lane) {
+        projectUpdates.assigned_lane = criteria.assigned_lane;
+      }
+      if (criteria.budget_range) {
+        projectUpdates.budget_range = criteria.budget_range;
+      }
+      if (criteria.format_subtype) {
+        // Map to DB format
+        const fmtMap: Record<string, string> = {
+          "vertical-drama": "vertical_drama", "tv-series": "tv_series",
+          "limited-series": "limited_series", "documentary-series": "documentary_series",
+          "hybrid-documentary": "hybrid_documentary", "digital-series": "digital_series",
+          "anim-series": "anim_series", "anim-feature": "anim_feature",
+          "short-film": "short_film",
+        };
+        projectUpdates.format = fmtMap[criteria.format_subtype] || criteria.format_subtype;
+      }
+
+      // Write to guardrails_config
+      const { data: curProj } = await supabase.from("projects")
+        .select("guardrails_config, season_episode_count")
+        .eq("id", projectId).single();
+      const gc = curProj?.guardrails_config || {};
+      gc.overrides = gc.overrides || {};
+
+      // Build qualifications
+      const quals: Record<string, any> = { ...(gc.overrides.qualifications || {}) };
+      if (criteria.season_episode_count) quals.season_episode_count = criteria.season_episode_count;
+      if (criteria.episode_target_duration_seconds) quals.episode_target_duration_seconds = criteria.episode_target_duration_seconds;
+      if (criteria.target_runtime_min_low) quals.target_runtime_min_low = criteria.target_runtime_min_low;
+      if (criteria.target_runtime_min_high) quals.target_runtime_min_high = criteria.target_runtime_min_high;
+      if (criteria.format_subtype) quals.format_subtype = criteria.format_subtype;
+      gc.overrides.qualifications = quals;
+
+      // Store provenance
+      gc.derived_from_idea = {
+        extracted_at: new Date().toISOString(),
+        document_id: documentId,
+        version_id: versionId,
+        criteria: parsed.criteria,
+        field_confidence: parsed.field_confidence,
+      };
+      projectUpdates.guardrails_config = gc;
+
+      // Update season_episode_count column if available
+      if (criteria.season_episode_count) {
+        projectUpdates.season_episode_count = criteria.season_episode_count;
+      }
+
+      await supabase.from("projects").update(projectUpdates).eq("id", projectId);
+
+      console.log(`[dev-engine-v2] extract-criteria: extracted ${Object.keys(criteria).filter(k => criteria[k] != null).length} fields, missing: ${parsed.missing_required.join(", ") || "none"}`);
+
+      return new Response(JSON.stringify(parsed), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     throw new Error(`Unknown action: ${action}`);
   } catch (err: any) {
     console.error("dev-engine-v2 error:", err);
