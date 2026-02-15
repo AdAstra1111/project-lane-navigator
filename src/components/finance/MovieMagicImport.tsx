@@ -4,7 +4,7 @@ import { Upload, FileSpreadsheet, Loader2, Check, AlertTriangle } from 'lucide-r
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { read, utils } from 'xlsx';
+import { read, utils } from '@e965/xlsx';
 import { BUDGET_CATEGORIES, type ProjectBudgetLine } from '@/hooks/useBudgets';
 
 interface MMLine {
