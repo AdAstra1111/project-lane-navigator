@@ -106,6 +106,151 @@ export type Database = {
           },
         ]
       }
+      auto_run_jobs: {
+        Row: {
+          created_at: string | null
+          current_document: string
+          error: string | null
+          id: string
+          last_ci: number | null
+          last_confidence: number | null
+          last_gap: number | null
+          last_gp: number | null
+          last_readiness: number | null
+          last_risk_flags: Json | null
+          max_stage_loops: number
+          max_total_steps: number
+          mode: string
+          project_id: string
+          stage_loop_count: number
+          start_document: string
+          status: string
+          step_count: number
+          stop_reason: string | null
+          target_document: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          current_document: string
+          error?: string | null
+          id?: string
+          last_ci?: number | null
+          last_confidence?: number | null
+          last_gap?: number | null
+          last_gp?: number | null
+          last_readiness?: number | null
+          last_risk_flags?: Json | null
+          max_stage_loops?: number
+          max_total_steps?: number
+          mode?: string
+          project_id: string
+          stage_loop_count?: number
+          start_document: string
+          status?: string
+          step_count?: number
+          stop_reason?: string | null
+          target_document?: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          current_document?: string
+          error?: string | null
+          id?: string
+          last_ci?: number | null
+          last_confidence?: number | null
+          last_gap?: number | null
+          last_gp?: number | null
+          last_readiness?: number | null
+          last_risk_flags?: Json | null
+          max_stage_loops?: number
+          max_total_steps?: number
+          mode?: string
+          project_id?: string
+          stage_loop_count?: number
+          start_document?: string
+          status?: string
+          step_count?: number
+          stop_reason?: string | null
+          target_document?: string
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "auto_run_jobs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      auto_run_steps: {
+        Row: {
+          action: string
+          ci: number | null
+          confidence: number | null
+          created_at: string | null
+          document: string
+          gap: number | null
+          gp: number | null
+          id: string
+          job_id: string
+          output_ref: Json | null
+          output_text: string | null
+          readiness: number | null
+          risk_flags: Json | null
+          step_index: number
+          summary: string | null
+        }
+        Insert: {
+          action: string
+          ci?: number | null
+          confidence?: number | null
+          created_at?: string | null
+          document: string
+          gap?: number | null
+          gp?: number | null
+          id?: string
+          job_id: string
+          output_ref?: Json | null
+          output_text?: string | null
+          readiness?: number | null
+          risk_flags?: Json | null
+          step_index: number
+          summary?: string | null
+        }
+        Update: {
+          action?: string
+          ci?: number | null
+          confidence?: number | null
+          created_at?: string | null
+          document?: string
+          gap?: number | null
+          gp?: number | null
+          id?: string
+          job_id?: string
+          output_ref?: Json | null
+          output_text?: string | null
+          readiness?: number | null
+          risk_flags?: Json | null
+          step_index?: number
+          summary?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "auto_run_steps_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "auto_run_jobs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       broadcaster_fit_scores: {
         Row: {
           broadcaster_name: string
