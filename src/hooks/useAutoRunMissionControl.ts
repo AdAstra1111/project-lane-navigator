@@ -62,20 +62,22 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
     if (existingJob?.job) {
       setJob(existingJob.job);
       setSteps(existingJob.latest_steps || []);
+      // Only set isRunning if job is actually running and not awaiting anything
       if (existingJob.job.status === 'running' && !existingJob.job.awaiting_approval) {
         setIsRunning(true);
+      } else {
+        setIsRunning(false);
       }
     }
   }, [existingJob]);
 
   // ── Polling ──
   useEffect(() => {
-    if (!job || !isRunning) {
-      if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
-      return;
-    }
-    if (job.awaiting_approval || job.status !== 'running') {
-      setIsRunning(false);
+    // Stop polling if no job, not running, or job is paused/awaiting
+    if (!job || !isRunning || job.status !== 'running' || job.awaiting_approval) {
+      if (isRunning && (job?.status !== 'running' || job?.awaiting_approval)) {
+        setIsRunning(false);
+      }
       if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
       return;
     }
@@ -86,10 +88,7 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
         const result = await callAutoRun('run-next', { jobId: job.id });
         setJob(result.job);
         setSteps(result.latest_steps || []);
-        if (!result.job || !['running'].includes(result.job.status)) {
-          setIsRunning(false);
-        }
-        if (result.job?.awaiting_approval || result.next_action_hint === 'awaiting-approval') {
+        if (!result.job || result.job.status !== 'running' || result.job.awaiting_approval) {
           setIsRunning(false);
         }
       } catch (e: any) {
