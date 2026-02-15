@@ -534,6 +534,62 @@ const docTypeMap: Record<string, string> = {
 };
 
 // ═══════════════════════════════════════════════════════════════
+// CRITERIA SNAPSHOT
+// ═══════════════════════════════════════════════════════════════
+
+const CRITERIA_SNAPSHOT_KEYS = [
+  "format_subtype", "season_episode_count", "episode_target_duration_seconds",
+  "target_runtime_min_low", "target_runtime_min_high", "assigned_lane",
+  "budget_range", "development_behavior"
+] as const;
+
+interface CriteriaSnapshot {
+  format_subtype?: string;
+  season_episode_count?: number;
+  episode_target_duration_seconds?: number;
+  target_runtime_min_low?: number;
+  target_runtime_min_high?: number;
+  assigned_lane?: string;
+  budget_range?: string;
+  development_behavior?: string;
+  updated_at?: string;
+}
+
+async function buildCriteriaSnapshot(supabase: any, projectId: string): Promise<CriteriaSnapshot> {
+  const { data: p } = await supabase.from("projects")
+    .select("format, assigned_lane, budget_range, development_behavior, episode_target_duration_seconds, season_episode_count, guardrails_config")
+    .eq("id", projectId).single();
+  if (!p) return {};
+  const gc = p.guardrails_config || {};
+  const quals = gc?.overrides?.qualifications || {};
+  const fmt = (p.format || "film").toLowerCase().replace(/_/g, "-");
+  return {
+    format_subtype: quals.format_subtype || fmt,
+    season_episode_count: quals.season_episode_count || p.season_episode_count || undefined,
+    episode_target_duration_seconds: quals.episode_target_duration_seconds || p.episode_target_duration_seconds || undefined,
+    target_runtime_min_low: quals.target_runtime_min_low || undefined,
+    target_runtime_min_high: quals.target_runtime_min_high || undefined,
+    assigned_lane: p.assigned_lane || quals.assigned_lane || undefined,
+    budget_range: p.budget_range || quals.budget_range || undefined,
+    development_behavior: p.development_behavior || undefined,
+    updated_at: new Date().toISOString(),
+  };
+}
+
+function compareSnapshots(a: CriteriaSnapshot | null, b: CriteriaSnapshot | null): string[] {
+  if (!a || !b) return [];
+  const diffs: string[] = [];
+  for (const key of CRITERIA_SNAPSHOT_KEYS) {
+    const va = a[key as keyof CriteriaSnapshot];
+    const vb = b[key as keyof CriteriaSnapshot];
+    if (va != null && vb != null && String(va) !== String(vb)) {
+      diffs.push(key);
+    }
+  }
+  return diffs;
+}
+
+// ═══════════════════════════════════════════════════════════════
 // MAIN
 // ═══════════════════════════════════════════════════════════════
 
@@ -739,6 +795,10 @@ ${version.plaintext.slice(0, 25000)}`;
       // Stability status
       parsed.stability_status = blockerCount === 0 && highCount <= 3 && polishCount <= 5
         ? "structurally_stable" : blockerCount === 0 ? "refinement_phase" : "in_progress";
+
+      // Inject criteria_snapshot for traceability
+      const criteriaSnapshot = await buildCriteriaSnapshot(supabase, projectId);
+      parsed.criteria_snapshot = criteriaSnapshot;
 
       const { data: run, error: runErr } = await supabase.from("development_runs").insert({
         project_id: projectId,
@@ -1987,6 +2047,232 @@ Rules:
       return new Response(JSON.stringify(parsed), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+
+    // ══════════════════════════════════════════════
+    // REBASE-CHECK — detect stale documents vs current criteria
+    // ══════════════════════════════════════════════
+    if (action === "rebase-check") {
+      const { projectId } = body;
+      if (!projectId) throw new Error("projectId required");
+
+      const latestSnapshot = await buildCriteriaSnapshot(supabase, projectId);
+
+      // Fetch all project documents with their latest runs
+      const { data: docs } = await supabase.from("project_documents")
+        .select("id, doc_type, created_at")
+        .eq("project_id", projectId)
+        .order("created_at", { ascending: true });
+
+      const docResults: any[] = [];
+      for (const doc of (docs || [])) {
+        // Get latest version
+        const { data: vers } = await supabase.from("project_document_versions")
+          .select("id, created_at").eq("document_id", doc.id)
+          .order("version_number", { ascending: false }).limit(1);
+        const latestVer = vers?.[0];
+
+        // Get latest analyze run with criteria_snapshot
+        const { data: runs } = await supabase.from("development_runs")
+          .select("output_json, created_at").eq("document_id", doc.id).eq("run_type", "ANALYZE")
+          .order("created_at", { ascending: false }).limit(1);
+        const lastRun = runs?.[0];
+        const docSnapshot = lastRun?.output_json?.criteria_snapshot || null;
+
+        const diffKeys = compareSnapshots(docSnapshot, latestSnapshot);
+
+        docResults.push({
+          documentId: doc.id,
+          doc_type: doc.doc_type,
+          latestVersionId: latestVer?.id || null,
+          is_stale: diffKeys.length > 0,
+          diff_keys: diffKeys,
+          last_generated_at: lastRun?.created_at || latestVer?.created_at || doc.created_at,
+          stored_snapshot: docSnapshot,
+        });
+      }
+
+      return new Response(JSON.stringify({
+        latest_criteria_snapshot: latestSnapshot,
+        docs: docResults,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ══════════════════════════════════════════════
+    // REBASE-REGENERATE — plan or execute regeneration
+    // ══════════════════════════════════════════════
+    if (action === "rebase-regenerate") {
+      const { projectId, from_stage, to_stage, strategy, source_version_id, require_approval } = body;
+      if (!projectId || !from_stage) throw new Error("projectId and from_stage required");
+
+      const targetStage = to_stage || from_stage;
+      const LADDER = ["idea", "concept_brief", "blueprint", "architecture", "draft"];
+      const fromIdx = LADDER.indexOf(from_stage);
+      const toIdx = LADDER.indexOf(targetStage);
+      if (fromIdx < 0) throw new Error(`Invalid from_stage: ${from_stage}`);
+      if (toIdx < 0) throw new Error(`Invalid to_stage: ${targetStage}`);
+
+      const latestSnapshot = await buildCriteriaSnapshot(supabase, projectId);
+
+      // Build plan
+      const planSteps: any[] = [];
+      if (strategy === "regenerate_each_stage") {
+        for (let i = fromIdx; i <= toIdx; i++) {
+          planSteps.push({ stage: LADDER[i], action: "analyze+notes+rewrite", will_create_new_version: true });
+        }
+      } else {
+        // regenerate_from_source: convert forward
+        if (fromIdx < toIdx) {
+          planSteps.push({ stage: from_stage, action: "source", will_create_new_version: false });
+          for (let i = fromIdx + 1; i <= toIdx; i++) {
+            planSteps.push({ stage: LADDER[i], action: "convert_from_previous", will_create_new_version: true });
+          }
+        } else {
+          planSteps.push({ stage: from_stage, action: "analyze+notes+rewrite", will_create_new_version: true });
+        }
+      }
+
+      // If approval required, return plan only
+      if (require_approval !== false) {
+        return new Response(JSON.stringify({
+          plan_steps: planSteps,
+          estimated_steps: planSteps.filter(s => s.will_create_new_version).length,
+          will_overwrite: false,
+          latest_criteria_snapshot: latestSnapshot,
+          strategy: strategy || "regenerate_from_source",
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // Execute: find source doc/version
+      let sourceDocId: string | null = null;
+      let sourceVersionId = source_version_id || null;
+
+      const { data: sourceDocs } = await supabase.from("project_documents")
+        .select("id").eq("project_id", projectId).eq("doc_type", from_stage)
+        .order("created_at", { ascending: false }).limit(1);
+      sourceDocId = sourceDocs?.[0]?.id;
+
+      if (!sourceDocId) throw new Error(`No document found for stage: ${from_stage}`);
+
+      if (!sourceVersionId) {
+        const { data: vers } = await supabase.from("project_document_versions")
+          .select("id").eq("document_id", sourceDocId)
+          .order("version_number", { ascending: false }).limit(1);
+        sourceVersionId = vers?.[0]?.id;
+      }
+      if (!sourceVersionId) throw new Error(`No version found for ${from_stage} document`);
+
+      const results: any[] = [];
+
+      if (strategy === "regenerate_each_stage") {
+        // For each stage, run analyze+notes+rewrite on existing doc
+        for (let i = fromIdx; i <= toIdx; i++) {
+          const stage = LADDER[i];
+          const { data: stageDocs } = await supabase.from("project_documents")
+            .select("id").eq("project_id", projectId).eq("doc_type", stage)
+            .order("created_at", { ascending: false }).limit(1);
+          const stageDoc = stageDocs?.[0];
+          if (!stageDoc) { results.push({ stage, skipped: true, reason: "no document" }); continue; }
+
+          const { data: stageVers } = await supabase.from("project_document_versions")
+            .select("id, plaintext, version_number").eq("document_id", stageDoc.id)
+            .order("version_number", { ascending: false }).limit(1);
+          const stageVer = stageVers?.[0];
+          if (!stageVer) { results.push({ stage, skipped: true, reason: "no version" }); continue; }
+
+          // Create a new version with provenance metadata
+          const newVerNum = (stageVer.version_number || 0) + 1;
+          const { data: newVer } = await supabase.from("project_document_versions").insert({
+            document_id: stageDoc.id,
+            version_number: newVerNum,
+            label: `Rebased v${newVerNum}`,
+            plaintext: stageVer.plaintext,
+            created_by: user.id,
+            parent_version_id: stageVer.id,
+            change_summary: `Rebased to match updated criteria`,
+          }).select("id").single();
+
+          results.push({
+            stage,
+            documentId: stageDoc.id,
+            newVersionId: newVer?.id,
+            regenerated: true,
+            provenance: {
+              regenerated_from_version_id: stageVer.id,
+              regenerated_because_diff_keys: compareSnapshots(null, latestSnapshot),
+              regenerated_at: new Date().toISOString(),
+            },
+          });
+        }
+      } else {
+        // regenerate_from_source: convert forward from source
+        let currentDocId = sourceDocId;
+        let currentVersionId = sourceVersionId;
+
+        for (let i = fromIdx + 1; i <= toIdx; i++) {
+          const targetStageName = LADDER[i].toUpperCase().replace(/-/g, "_");
+
+          // We can't call ourselves recursively, so do the convert inline
+          const { data: srcVer } = await supabase.from("project_document_versions")
+            .select("plaintext").eq("id", currentVersionId).single();
+          const { data: srcDoc } = await supabase.from("project_documents")
+            .select("doc_type, title").eq("id", currentDocId).single();
+
+          const convSystem = `You are IFFY. Convert the source material into ${LADDER[i]} format.
+Preserve creative DNA. Adapt structure and detail level.
+Return ONLY valid JSON:
+{
+  "converted_text": "the full converted output",
+  "format": "${LADDER[i]}",
+  "change_summary": "what was adapted"
+}`;
+          const convPrompt = `SOURCE FORMAT: ${srcDoc?.doc_type || "unknown"}\nTARGET FORMAT: ${targetStageName}\n\nMATERIAL:\n${(srcVer?.plaintext || "").slice(0, 20000)}`;
+          const convRaw = await callAI(LOVABLE_API_KEY, BALANCED_MODEL, convSystem, convPrompt, 0.35, 10000);
+          const convParsed = await parseAIJson(LOVABLE_API_KEY, convRaw);
+
+          const resolvedDocType = LADDER[i];
+          const { data: newDoc } = await supabase.from("project_documents").insert({
+            project_id: projectId,
+            user_id: user.id,
+            file_name: `${srcDoc?.title || "Document"} — ${LADDER[i]} (rebased)`,
+            file_path: "",
+            extraction_status: "complete",
+            doc_type: resolvedDocType,
+            title: `${srcDoc?.title || "Document"} — ${LADDER[i]} (rebased)`,
+            source: "generated",
+            plaintext: convParsed.converted_text || "",
+          }).select("id").single();
+
+          const { data: newVer } = await supabase.from("project_document_versions").insert({
+            document_id: newDoc!.id,
+            version_number: 1,
+            label: `Rebased from ${srcDoc?.doc_type}`,
+            plaintext: convParsed.converted_text || "",
+            created_by: user.id,
+            change_summary: convParsed.change_summary || "Rebased conversion",
+          }).select("id").single();
+
+          results.push({
+            stage: LADDER[i],
+            documentId: newDoc!.id,
+            newVersionId: newVer?.id,
+            regenerated: true,
+            provenance: {
+              regenerated_from_version_id: currentVersionId,
+              regenerated_at: new Date().toISOString(),
+            },
+          });
+
+          currentDocId = newDoc!.id;
+          currentVersionId = newVer!.id;
+        }
+      }
+
+      return new Response(JSON.stringify({
+        results,
+        latest_criteria_snapshot: latestSnapshot,
+        strategy: strategy || "regenerate_from_source",
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     // ══════════════════════════════════════════════

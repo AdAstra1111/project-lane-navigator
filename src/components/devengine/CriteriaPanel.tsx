@@ -1,11 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, Sparkles, Save, Pencil, Check, X, Info } from 'lucide-react';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Loader2, Sparkles, Pencil, Check, X, Info, RefreshCw, ChevronDown, AlertTriangle } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
@@ -34,6 +35,14 @@ interface DerivedFromIdea {
   field_confidence: FieldConfidence;
 }
 
+interface StaleDoc {
+  documentId: string;
+  doc_type: string;
+  is_stale: boolean;
+  diff_keys: string[];
+  last_generated_at: string;
+}
+
 interface Props {
   projectId: string;
   documents: Array<{ id: string; doc_type: string; title: string }>;
@@ -53,6 +62,19 @@ const FORMAT_OPTIONS = [
 const LANE_OPTIONS = ['prestige', 'mainstream', 'independent-film', 'genre', 'micro-budget'];
 const BUDGET_OPTIONS = ['micro', 'low', 'medium', 'high', 'tent-pole'];
 
+async function callDevEngine(action: string, body: Record<string, any>) {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('Not authenticated');
+  const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/dev-engine-v2`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+    body: JSON.stringify({ action, ...body }),
+  });
+  const result = await resp.json();
+  if (!resp.ok) throw new Error(result.error || 'Engine error');
+  return result;
+}
+
 export function CriteriaPanel({ projectId, documents, onCriteriaUpdated }: Props) {
   const [criteria, setCriteria] = useState<CriteriaData>({});
   const [fieldConfidence, setFieldConfidence] = useState<FieldConfidence>({});
@@ -63,14 +85,18 @@ export function CriteriaPanel({ projectId, documents, onCriteriaUpdated }: Props
   const [isEditing, setIsEditing] = useState(false);
   const [editCriteria, setEditCriteria] = useState<CriteriaData>({});
 
-  // Load existing criteria from project
-  useEffect(() => {
-    loadCriteria();
-  }, [projectId]);
+  // Rebase state
+  const [staleDocs, setStaleDocs] = useState<StaleDoc[]>([]);
+  const [isCheckingRebase, setIsCheckingRebase] = useState(false);
+  const [isRegenerating, setIsRegenerating] = useState(false);
+  const [rebasePlan, setRebasePlan] = useState<any>(null);
+  const [rebaseOpen, setRebaseOpen] = useState(false);
+
+  useEffect(() => { loadCriteria(); }, [projectId]);
 
   async function loadCriteria() {
     const { data } = await (supabase as any).from('projects')
-      .select('guardrails_config, assigned_lane, budget_range, format, episode_target_duration_seconds, season_episode_count')
+      .select('guardrails_config, assigned_lane, budget_range, format, episode_target_duration_seconds, season_episode_count, development_behavior')
       .eq('id', projectId).single();
     if (!data) return;
 
@@ -99,44 +125,18 @@ export function CriteriaPanel({ projectId, documents, onCriteriaUpdated }: Props
   }
 
   async function handleExtract() {
-    // Find latest idea document
     const ideaDoc = documents.find(d => d.doc_type === 'idea');
-    if (!ideaDoc) {
-      toast.error('No idea document found to extract criteria from');
-      return;
-    }
+    if (!ideaDoc) { toast.error('No idea document found'); return; }
 
-    // Get latest version
     const { data: versions } = await (supabase as any).from('project_document_versions')
       .select('id').eq('document_id', ideaDoc.id)
       .order('version_number', { ascending: false }).limit(1);
     const versionId = versions?.[0]?.id;
-    if (!versionId) {
-      toast.error('No version found for idea document');
-      return;
-    }
+    if (!versionId) { toast.error('No version found for idea document'); return; }
 
     setIsExtracting(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) throw new Error('Not authenticated');
-
-      const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/dev-engine-v2`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({
-          action: 'extract-criteria',
-          projectId,
-          documentId: ideaDoc.id,
-          versionId,
-        }),
-      });
-      const result = await resp.json();
-      if (!resp.ok) throw new Error(result.error || 'Extraction failed');
-
+      const result = await callDevEngine('extract-criteria', { projectId, documentId: ideaDoc.id, versionId });
       setCriteria(result.criteria || {});
       setEditCriteria(result.criteria || {});
       setFieldConfidence(result.field_confidence || {});
@@ -151,8 +151,9 @@ export function CriteriaPanel({ projectId, documents, onCriteriaUpdated }: Props
       });
       toast.success('Criteria extracted from idea');
       onCriteriaUpdated?.();
-      // Reload to get persisted values
       await loadCriteria();
+      // Auto-run rebase check after criteria change
+      handleRebaseCheck();
     } catch (e: any) {
       toast.error(e.message);
     } finally {
@@ -166,18 +167,11 @@ export function CriteriaPanel({ projectId, documents, onCriteriaUpdated }: Props
         .select('guardrails_config').eq('id', projectId).single();
       const gc = proj?.guardrails_config || {};
       gc.overrides = gc.overrides || {};
-      gc.overrides.qualifications = {
-        ...(gc.overrides.qualifications || {}),
-        ...editCriteria,
-      };
+      gc.overrides.qualifications = { ...(gc.overrides.qualifications || {}), ...editCriteria };
 
       const updates: Record<string, any> = { guardrails_config: gc };
-      if (editCriteria.episode_target_duration_seconds) {
-        updates.episode_target_duration_seconds = editCriteria.episode_target_duration_seconds;
-      }
-      if (editCriteria.season_episode_count) {
-        updates.season_episode_count = editCriteria.season_episode_count;
-      }
+      if (editCriteria.episode_target_duration_seconds) updates.episode_target_duration_seconds = editCriteria.episode_target_duration_seconds;
+      if (editCriteria.season_episode_count) updates.season_episode_count = editCriteria.season_episode_count;
       if (editCriteria.assigned_lane) updates.assigned_lane = editCriteria.assigned_lane;
       if (editCriteria.budget_range) updates.budget_range = editCriteria.budget_range;
       if (editCriteria.format_subtype) {
@@ -193,10 +187,50 @@ export function CriteriaPanel({ projectId, documents, onCriteriaUpdated }: Props
       setIsEditing(false);
       toast.success('Criteria saved');
       onCriteriaUpdated?.();
+      // Auto-run rebase check after save
+      handleRebaseCheck();
     } catch (e: any) {
       toast.error(e.message);
     }
   }
+
+  const handleRebaseCheck = useCallback(async () => {
+    setIsCheckingRebase(true);
+    try {
+      const result = await callDevEngine('rebase-check', { projectId });
+      const stale = (result.docs || []).filter((d: any) => d.is_stale);
+      setStaleDocs(stale);
+      if (stale.length > 0) setRebaseOpen(true);
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setIsCheckingRebase(false);
+    }
+  }, [projectId]);
+
+  const handleRebaseRegenerate = async (fromStage: string, toStage: string, strategy: string) => {
+    setIsRegenerating(true);
+    try {
+      // First get plan
+      const plan = await callDevEngine('rebase-regenerate', {
+        projectId, from_stage: fromStage, to_stage: toStage, strategy, require_approval: true,
+      });
+      setRebasePlan(plan);
+
+      // Auto-execute if user confirms
+      const result = await callDevEngine('rebase-regenerate', {
+        projectId, from_stage: fromStage, to_stage: toStage, strategy, require_approval: false,
+      });
+      toast.success(`Regenerated ${(result.results || []).filter((r: any) => r.regenerated).length} stages`);
+      onCriteriaUpdated?.();
+      setStaleDocs([]);
+      setRebasePlan(null);
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setIsRegenerating(false);
+    }
+  };
 
   const hasIdeaDoc = documents.some(d => d.doc_type === 'idea');
 
@@ -218,46 +252,49 @@ export function CriteriaPanel({ projectId, documents, onCriteriaUpdated }: Props
   }
 
   return (
-    <Card id="criteria-panel">
-      <CardHeader className="py-2 px-3">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-xs flex items-center gap-1.5">
-            <Info className="h-3 w-3" /> Criteria
-          </CardTitle>
-          <div className="flex items-center gap-1">
-            {hasIdeaDoc && (
-              <Button size="sm" variant="outline" className="h-6 text-[9px] gap-1" onClick={handleExtract} disabled={isExtracting}>
-                {isExtracting ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Sparkles className="h-2.5 w-2.5" />}
-                Extract from Idea
-              </Button>
-            )}
-            {!isEditing ? (
-              <Button size="sm" variant="ghost" className="h-6 text-[9px] gap-1" onClick={() => setIsEditing(true)}>
-                <Pencil className="h-2.5 w-2.5" /> Edit
-              </Button>
-            ) : (
-              <div className="flex gap-0.5">
-                <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={handleSaveEdit}>
-                  <Check className="h-3 w-3 text-emerald-400" />
+    <div className="space-y-3" id="criteria-panel">
+      <Card>
+        <CardHeader className="py-2 px-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-xs flex items-center gap-1.5">
+              <Info className="h-3 w-3" /> Variables / Criteria
+            </CardTitle>
+            <div className="flex items-center gap-1">
+              {hasIdeaDoc && (
+                <Button size="sm" variant="outline" className="h-6 text-[9px] gap-1" onClick={handleExtract} disabled={isExtracting}>
+                  {isExtracting ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Sparkles className="h-2.5 w-2.5" />}
+                  Extract from Idea
                 </Button>
-                <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => { setIsEditing(false); setEditCriteria(criteria); }}>
-                  <X className="h-3 w-3 text-destructive" />
+              )}
+              <Button size="sm" variant="outline" className="h-6 text-[9px] gap-1" onClick={handleRebaseCheck} disabled={isCheckingRebase}>
+                {isCheckingRebase ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <RefreshCw className="h-2.5 w-2.5" />}
+                Check Staleness
+              </Button>
+              {!isEditing ? (
+                <Button size="sm" variant="ghost" className="h-6 text-[9px] gap-1" onClick={() => setIsEditing(true)}>
+                  <Pencil className="h-2.5 w-2.5" /> Edit
                 </Button>
-              </div>
-            )}
+              ) : (
+                <div className="flex gap-0.5">
+                  <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={handleSaveEdit}>
+                    <Check className="h-3 w-3 text-emerald-400" />
+                  </Button>
+                  <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => { setIsEditing(false); setEditCriteria(criteria); }}>
+                    <X className="h-3 w-3 text-destructive" />
+                  </Button>
+                </div>
+              )}
+            </div>
           </div>
-        </div>
-      </CardHeader>
-      <CardContent className="px-3 pb-3 space-y-2">
-        {/* Provenance */}
-        {derivedFrom && (
-          <div className="text-[9px] text-muted-foreground bg-muted/30 rounded px-2 py-1">
-            Derived from idea · {new Date(derivedFrom.extracted_at).toLocaleDateString()}
-          </div>
-        )}
+        </CardHeader>
+        <CardContent className="px-3 pb-3 space-y-2">
+          {derivedFrom && (
+            <div className="text-[9px] text-muted-foreground bg-muted/30 rounded px-2 py-1">
+              Derived from idea · {new Date(derivedFrom.extracted_at).toLocaleDateString()}
+            </div>
+          )}
 
-        {isEditing ? (
-          <div className="space-y-2">
+          {isEditing ? (
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <Label className="text-[9px]">Format</Label>
@@ -304,38 +341,102 @@ export function CriteriaPanel({ projectId, documents, onCriteriaUpdated }: Props
                 </div>
               </div>
             </div>
-          </div>
-        ) : (
-          <div className="space-y-0.5">
-            {renderField('Format', 'format_subtype', criteria.format_subtype)}
-            {renderField('Lane', 'assigned_lane', criteria.assigned_lane)}
-            {renderField('Budget', 'budget_range', criteria.budget_range)}
-            {renderField('Episode Duration', 'episode_target_duration_seconds', criteria.episode_target_duration_seconds ? `${criteria.episode_target_duration_seconds}s` : null)}
-            {renderField('Episodes/Season', 'season_episode_count', criteria.season_episode_count)}
-            {renderField('Runtime', 'target_runtime_min_low', criteria.target_runtime_min_low && criteria.target_runtime_min_high ? `${criteria.target_runtime_min_low}–${criteria.target_runtime_min_high} min` : null)}
-            {criteria.tone_tags?.length ? renderField('Tone', 'tone_tags', criteria.tone_tags.join(', ')) : null}
-          </div>
-        )}
+          ) : (
+            <div className="space-y-0.5">
+              {renderField('Format', 'format_subtype', criteria.format_subtype)}
+              {renderField('Lane', 'assigned_lane', criteria.assigned_lane)}
+              {renderField('Budget', 'budget_range', criteria.budget_range)}
+              {renderField('Episode Duration', 'episode_target_duration_seconds', criteria.episode_target_duration_seconds ? `${criteria.episode_target_duration_seconds}s` : null)}
+              {renderField('Episodes/Season', 'season_episode_count', criteria.season_episode_count)}
+              {renderField('Runtime', 'target_runtime_min_low', criteria.target_runtime_min_low && criteria.target_runtime_min_high ? `${criteria.target_runtime_min_low}–${criteria.target_runtime_min_high} min` : null)}
+              {criteria.tone_tags?.length ? renderField('Tone', 'tone_tags', criteria.tone_tags.join(', ')) : null}
+            </div>
+          )}
 
-        {/* Missing required */}
-        {missingRequired.length > 0 && (
-          <div className="bg-amber-500/10 border border-amber-500/20 rounded px-2 py-1.5 space-y-0.5">
-            <span className="text-[9px] font-semibold text-amber-400">Missing required fields:</span>
-            {missingRequired.map((f) => (
-              <p key={f} className="text-[9px] text-amber-400/80">• {f.replace(/_/g, ' ')}</p>
-            ))}
-          </div>
-        )}
+          {missingRequired.length > 0 && (
+            <div className="bg-amber-500/10 border border-amber-500/20 rounded px-2 py-1.5 space-y-0.5">
+              <span className="text-[9px] font-semibold text-amber-400">Missing required fields:</span>
+              {missingRequired.map((f) => (
+                <p key={f} className="text-[9px] text-amber-400/80">• {f.replace(/_/g, ' ')}</p>
+              ))}
+            </div>
+          )}
 
-        {/* Notes for user */}
-        {notesForUser.length > 0 && (
-          <div className="space-y-0.5">
-            {notesForUser.map((n, i) => (
-              <p key={i} className="text-[8px] text-muted-foreground">• {n}</p>
-            ))}
-          </div>
-        )}
-      </CardContent>
-    </Card>
+          {notesForUser.length > 0 && (
+            <div className="space-y-0.5">
+              {notesForUser.map((n, i) => (
+                <p key={i} className="text-[8px] text-muted-foreground">• {n}</p>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ═══ REBASE / STALENESS PANEL ═══ */}
+      {staleDocs.length > 0 && (
+        <Card className="border-amber-500/30">
+          <Collapsible open={rebaseOpen} onOpenChange={setRebaseOpen}>
+            <CollapsibleTrigger className="w-full">
+              <CardHeader className="py-2 px-3">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-xs flex items-center gap-1.5 text-amber-400">
+                    <AlertTriangle className="h-3 w-3" /> Stale Documents ({staleDocs.length})
+                  </CardTitle>
+                  <ChevronDown className={`h-3 w-3 text-muted-foreground transition-transform ${rebaseOpen ? 'rotate-180' : ''}`} />
+                </div>
+              </CardHeader>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <CardContent className="px-3 pb-3 space-y-2">
+                <p className="text-[9px] text-muted-foreground">
+                  These documents were generated with different criteria and may need regeneration.
+                </p>
+                <div className="space-y-1">
+                  {staleDocs.map((sd) => (
+                    <div key={sd.documentId} className="flex items-center justify-between py-1 px-2 rounded bg-muted/30">
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline" className="text-[8px] px-1 py-0">{sd.doc_type}</Badge>
+                        <span className="text-[9px] text-muted-foreground">
+                          Differs: {sd.diff_keys.map(k => k.replace(/_/g, ' ')).join(', ')}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  <Button size="sm" className="h-7 text-[10px] gap-1" disabled={isRegenerating}
+                    onClick={() => {
+                      const stages = staleDocs.map(d => d.doc_type);
+                      const first = stages[0];
+                      const last = stages[stages.length - 1];
+                      handleRebaseRegenerate(first, last, 'regenerate_from_source');
+                    }}>
+                    {isRegenerating ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                    Regenerate chain
+                  </Button>
+                  <Button size="sm" variant="outline" className="h-7 text-[10px] gap-1" disabled={isRegenerating}
+                    onClick={() => {
+                      const stages = staleDocs.map(d => d.doc_type);
+                      const first = stages[0];
+                      const last = stages[stages.length - 1];
+                      handleRebaseRegenerate(first, last, 'regenerate_each_stage');
+                    }}>
+                    {isRegenerating ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                    Regenerate each stage
+                  </Button>
+                </div>
+
+                {rebasePlan && (
+                  <div className="text-[9px] text-muted-foreground bg-muted/30 rounded px-2 py-1.5 mt-1">
+                    Plan: {rebasePlan.estimated_steps} stage(s) · Strategy: {rebasePlan.strategy} · No overwrites
+                  </div>
+                )}
+              </CardContent>
+            </CollapsibleContent>
+          </Collapsible>
+        </Card>
+      )}
+    </div>
   );
 }
