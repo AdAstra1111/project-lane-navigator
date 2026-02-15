@@ -450,7 +450,7 @@ function DevelopmentStage() {
 
       <DataCard delay={1.1}>
         <div className="flex items-center justify-between mb-3">
-          <h4 className="text-xs font-display uppercase tracking-wider text-primary/60">Finance Readiness</h4>
+          <h4 className="text-xs font-display uppercase tracking-wider text-primary/60">Greenlight Probability</h4>
           <div className="flex items-center gap-2">
             <Gauge className="h-3.5 w-3.5 text-amber-400" />
             <span className="text-xl font-display font-bold text-amber-400"><AnimatedCounter value={61} suffix="%" duration={2.5} /></span>
@@ -653,7 +653,7 @@ function FinancingStage() {
           </div>
           <div className="mt-3 flex items-center gap-2">
             <Gauge className="h-3.5 w-3.5 text-emerald-400" />
-            <span className="text-sm text-white/50">Finance Readiness</span>
+            <span className="text-sm text-white/50">Greenlight Probability</span>
             <span className="text-lg font-display font-bold text-emerald-400 ml-auto"><AnimatedCounter value={97} suffix="%" duration={2.5} /></span>
           </div>
           <Affirmation text="Structure complete. Risk absorbed." delay={2.0} />

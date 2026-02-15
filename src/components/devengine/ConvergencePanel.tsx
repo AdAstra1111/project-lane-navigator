@@ -65,11 +65,11 @@ export function ConvergencePanel({ latestAnalysis, convergenceHistory, convergen
         {latestAnalysis && (
           <div className="grid grid-cols-3 gap-2 text-center">
             <div>
-              <p className="text-[9px] text-muted-foreground uppercase tracking-wider">Script</p>
+              <p className="text-[9px] text-muted-foreground uppercase tracking-wider">Creative Integrity</p>
               <p className="text-lg font-display font-bold text-foreground">{ci}</p>
             </div>
             <div>
-              <p className="text-[9px] text-muted-foreground uppercase tracking-wider">Finance</p>
+              <p className="text-[9px] text-muted-foreground uppercase tracking-wider">Greenlight Prob.</p>
               <p className="text-lg font-display font-bold text-foreground">{gp}</p>
             </div>
             <div>

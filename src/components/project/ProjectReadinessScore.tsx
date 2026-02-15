@@ -116,7 +116,7 @@ export function ProjectReadinessScore({ readiness }: Props) {
       <div className="flex items-center gap-2 bg-primary/10 rounded-lg px-3 py-2.5">
         <ArrowRight className="h-3.5 w-3.5 text-primary shrink-0" />
         <p className="text-xs text-foreground font-medium">{readiness.bestNextStep}</p>
-        <InfoTooltip text="This is the fastest way to improve your finance readiness right now." className="ml-auto" />
+        <InfoTooltip text="This is the fastest way to improve your greenlight probability right now." className="ml-auto" />
       </div>
     </motion.div>
   );

@@ -72,16 +72,14 @@ export function DailyBriefing({ projects, projectScores }: DailyBriefingProps) {
       });
     }
 
-    // Low finance readiness warning
+    // Low greenlight probability warning
     const lowFinance = projects
       .map(p => ({ project: p, score: projectScores[p.id]?.financeReadiness ?? 0 }))
-      .filter(s => s.score > 0 && s.score < 40)
-      .sort((a, b) => a.score - b.score);
-
+      .filter(x => x.score < 40 && x.score > 0);
     if (lowFinance.length > 0) {
       results.push({
         icon: AlertCircle,
-        text: `${lowFinance[0].project.title} has low finance readiness (${lowFinance[0].score}%) — consider strengthening the package`,
+        text: `${lowFinance[0].project.title} has low greenlight probability (${lowFinance[0].score}%) — consider strengthening the package`,
         link: `/projects/${lowFinance[0].project.id}`,
         tone: 'warning',
       });

@@ -85,7 +85,7 @@ const chapters: Chapter[] = [
         features: [
           { icon: DollarSign, label: 'Capital Stack', desc: 'Build and compare finance scenarios with gap analysis' },
           { icon: Landmark, label: 'Incentive Finder', desc: 'Auto-match to tax credits, rebates, and soft money globally' },
-          { icon: Shield, label: 'Finance Readiness', desc: '0–100 score grading how closeable your finance plan is' },
+          { icon: Shield, label: 'Greenlight Probability', desc: '0–100 score grading how closeable your finance plan is' },
           { icon: Target, label: 'Budget Tracking', desc: 'Line-item budgets with cost tracking and variance alerts' },
         ],
       },

@@ -187,11 +187,11 @@ function ProjectColumn({ projectId }: { projectId: string }) {
         </div>
       )}
 
-      {/* Finance Readiness */}
+      {/* Greenlight Probability */}
       {financeReadiness && (
         <div className="glass-card rounded-lg p-4 space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-foreground">Finance Readiness</span>
+            <span className="text-sm font-medium text-foreground">Greenlight Probability</span>
             <div className="flex items-center gap-2">
               <span className={cn(
                 'text-2xl font-bold',

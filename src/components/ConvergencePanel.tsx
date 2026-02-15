@@ -12,8 +12,8 @@ import { useAuth } from '@/hooks/useAuth';
 
 const CONVERGENCE_STAGES = [
   { at: 10, label: 'Initializing convergence engine…' },
-  { at: 25, label: 'Evaluating script strength…' },
-  { at: 50, label: 'Assessing finance readiness…' },
+   { at: 25, label: 'Evaluating creative integrity…' },
+   { at: 50, label: 'Assessing greenlight probability…' },
   { at: 70, label: 'Calculating convergence metrics…' },
   { at: 85, label: 'Evaluating format advisory…' },
   { at: 95, label: 'Finalizing executive guidance…' },
@@ -170,8 +170,8 @@ export function ConvergencePanel({
           <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="DUAL">Dual Analysis</SelectItem>
-            <SelectItem value="CREATIVE_INTEGRITY">Script Strength Focus</SelectItem>
-            <SelectItem value="GREENLIGHT_ARCHITECT">Finance Readiness Focus</SelectItem>
+            <SelectItem value="CREATIVE_INTEGRITY">Creative Integrity Focus</SelectItem>
+            <SelectItem value="GREENLIGHT_ARCHITECT">Greenlight Probability Focus</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -180,7 +180,7 @@ export function ConvergencePanel({
 
       {!result && !loading && (
         <p className="text-sm text-muted-foreground">
-          Dual-engine analysis tracking the convergence between script strength and finance readiness.
+          Dual-engine analysis tracking the convergence between creative integrity and greenlight probability.
         </p>
       )}
 
@@ -199,13 +199,13 @@ export function ConvergencePanel({
             <div className="glass-card rounded-lg p-4 text-center">
               <Brain className="h-5 w-5 text-purple-400 mx-auto mb-2" />
               <p className="text-3xl font-display font-bold text-purple-400">{result.creative_integrity_score}</p>
-              <p className="text-xs text-muted-foreground mt-1">Script Strength</p>
+              <p className="text-xs text-muted-foreground mt-1">Creative Integrity</p>
               <Progress value={result.creative_integrity_score} className="h-1.5 mt-2" />
             </div>
             <div className="glass-card rounded-lg p-4 text-center">
               <Target className="h-5 w-5 text-emerald-400 mx-auto mb-2" />
               <p className="text-3xl font-display font-bold text-emerald-400">{result.greenlight_probability}</p>
-              <p className="text-xs text-muted-foreground mt-1">Finance Readiness</p>
+              <p className="text-xs text-muted-foreground mt-1">Greenlight Probability</p>
               <Progress value={result.greenlight_probability} className="h-1.5 mt-2" />
             </div>
           </div>
@@ -293,10 +293,10 @@ export function ConvergencePanel({
               )}
               <div className="grid grid-cols-3 gap-2 mb-2 text-xs">
                 {result.format_advisory.predicted_ci_impact && (
-                  <div><span className="text-muted-foreground">Script Strength Impact:</span> <span className="font-medium">{result.format_advisory.predicted_ci_impact}</span></div>
+                  <div><span className="text-muted-foreground">Creative Integrity Impact:</span> <span className="font-medium">{result.format_advisory.predicted_ci_impact}</span></div>
                 )}
                 {result.format_advisory.predicted_gp_impact && (
-                  <div><span className="text-muted-foreground">Finance Readiness Impact:</span> <span className="font-medium">{result.format_advisory.predicted_gp_impact}</span></div>
+                  <div><span className="text-muted-foreground">Greenlight Probability Impact:</span> <span className="font-medium">{result.format_advisory.predicted_gp_impact}</span></div>
                 )}
                 {result.format_advisory.repositioning_risk && (
                   <div><span className="text-muted-foreground">Risk:</span> <span className="font-medium">{result.format_advisory.repositioning_risk}</span></div>
@@ -326,8 +326,8 @@ export function ConvergencePanel({
                 ))}
               </div>
               <div className="flex gap-3 mt-1 text-[10px] text-muted-foreground">
-                <span className="flex items-center gap-1"><span className="w-2 h-2 bg-purple-400/40 rounded-sm" /> Script Strength</span>
-                <span className="flex items-center gap-1"><span className="w-2 h-2 bg-emerald-400/40 rounded-sm" /> Finance Readiness</span>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 bg-purple-400/40 rounded-sm" /> Creative Integrity</span>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 bg-emerald-400/40 rounded-sm" /> Greenlight Probability</span>
               </div>
             </div>
           )}

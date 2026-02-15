@@ -275,7 +275,7 @@ export function DocumentaryCoveragePanel({ projectId, projectTitle, format: fmt,
         <>
           {/* Score Cards — always visible */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <ScoreCard label="Finance Readiness" score={result.greenlight_score} icon={BarChart3} color="text-emerald-400" />
+            <ScoreCard label="Greenlight Probability" score={result.greenlight_score} icon={BarChart3} color="text-emerald-400" />
             <ScoreCard label="Grant Probability" score={result.grant_probability} icon={Landmark} color="text-sky-400" />
             <ScoreCard label="Festival Probability" score={result.festival_probability} icon={Trophy} color="text-amber-400" />
             <ScoreCard label="Impact Score" score={result.impact_score} icon={Globe} color="text-purple-400" />

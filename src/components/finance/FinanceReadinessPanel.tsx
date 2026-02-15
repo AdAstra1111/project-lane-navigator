@@ -149,7 +149,7 @@ export function FinanceReadinessPanel({ result }: FinanceReadinessPanelProps) {
       <div className="glass-card rounded-xl p-5">
         <div className="flex items-center gap-2 mb-4">
           <Gauge className="h-4 w-4 text-primary" />
-          <h4 className="font-display font-semibold text-foreground">Finance Readiness</h4>
+          <h4 className="font-display font-semibold text-foreground">Greenlight Probability</h4>
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger>

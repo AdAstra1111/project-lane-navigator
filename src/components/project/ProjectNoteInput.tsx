@@ -83,7 +83,7 @@ export function ProjectNoteInput({ projectId }: ProjectNoteInputProps) {
           <h3 className="font-display font-semibold text-foreground text-sm">Project Notes</h3>
         </div>
         <p className="text-xs text-muted-foreground">
-          Add a thought, consideration, or question — IFFY will assess how it might affect finance readiness.
+          Add a thought, consideration, or question — IFFY will assess how it might affect greenlight probability.
         </p>
         <Textarea
           placeholder="e.g. Considering moving the shoot to Spain, or We may be able to attach Renate Reinsve…"

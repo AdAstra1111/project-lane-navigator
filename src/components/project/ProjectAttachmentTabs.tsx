@@ -734,7 +734,7 @@ export function FinanceTab({ projectId }: { projectId: string }) {
                 A finance scenario maps where your money is coming from — equity, pre-sales, incentives, gap, and other sources — against your total budget. Create multiple scenarios to stress-test your project: "What if we lose the tax credit?" or "What if pre-sales come in 30% higher?"
               </p>
               <p className="text-[11px] text-muted-foreground/70 max-w-xs mx-auto">
-                This feeds into your Finance Readiness score and the waterfall chart — helping you see gaps before financiers do.
+                This feeds into your Greenlight Probability score and the waterfall chart — helping you see gaps before financiers do.
               </p>
             </div>
           )}
