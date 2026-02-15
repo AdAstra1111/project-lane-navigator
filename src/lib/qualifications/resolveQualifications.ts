@@ -69,6 +69,9 @@ export interface QualificationInput {
   overrides?: {
     qualifications?: Record<string, any>;
   };
+
+  /** Locked fields from decision commit pipeline */
+  locked_fields?: Record<string, boolean> | null;
 }
 
 export interface ResolvedQualifications {
@@ -148,7 +151,10 @@ export function resolveQualifications(input: QualificationInput): ResolveResult 
   const gcBase = input.guardrails_config || {};
   const gcOverrides = gcBase?.overrides?.qualifications || {};
 
+  const lockedFields = input.locked_fields || {};
+
   // Resolve helper: project → overrides → guardrails → defaults
+  // Locked fields only use project value
   function resolve<T>(
     field: string,
     projectVal: T | null | undefined,
@@ -156,11 +162,24 @@ export function resolveQualifications(input: QualificationInput): ResolveResult 
     guardrailVal: T | null | undefined,
     defaultVal: T | null | undefined,
   ): { value: T | null; source: SourceTag | null } {
+    if (lockedFields[field] || lockedFields[`qualifications.${field}`]) {
+      if (projectVal != null && projectVal !== 0) return { value: projectVal as T, source: "project" };
+      warnings.push({ field, message: "Locked field has no project value — falling through" });
+    }
     if (projectVal != null && projectVal !== 0) return { value: projectVal as T, source: "project" };
     if (overrideVal != null && overrideVal !== 0) return { value: overrideVal as T, source: "overrides" };
     if (guardrailVal != null && guardrailVal !== 0) return { value: guardrailVal as T, source: "guardrails" };
     if (defaultVal != null) return { value: defaultVal as T, source: "defaults" };
     return { value: null, source: null };
+  }
+
+  // Warn about override attempts on locked fields
+  for (const [key, locked] of Object.entries(lockedFields)) {
+    if (!locked) continue;
+    const cleanKey = key.replace('qualifications.', '');
+    if (overrideQuals[cleanKey] != null || gcOverrides[cleanKey] != null) {
+      warnings.push({ field: cleanKey, message: "Override attempted on locked field — ignored" });
+    }
   }
 
   // Episode duration

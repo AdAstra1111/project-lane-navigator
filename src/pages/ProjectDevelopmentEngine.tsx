@@ -43,6 +43,7 @@ import { AutoRunMissionControl } from '@/components/devengine/AutoRunMissionCont
 import { AutoRunBanner } from '@/components/devengine/AutoRunBanner';
 import { CriteriaPanel } from '@/components/devengine/CriteriaPanel';
 import { useAutoRunMissionControl } from '@/hooks/useAutoRunMissionControl';
+import { CanonicalQualificationsPanel } from '@/components/devengine/CanonicalQualificationsPanel';
 
 // ── Main Page ──
 export default function ProjectDevelopmentEngine() {
@@ -589,9 +590,10 @@ export default function ProjectDevelopmentEngine() {
 
           {/* ═══ INTELLIGENCE PANELS (tabbed, below workspace) ═══ */}
           <Tabs defaultValue="notes" className="w-full">
-            <TabsList className="w-full justify-start bg-muted/30 border border-border/50 h-9">
+             <TabsList className="w-full justify-start bg-muted/30 border border-border/50 h-9">
               <TabsTrigger value="notes" className="text-xs">Notes & Feedback</TabsTrigger>
               <TabsTrigger value="convergence" className="text-xs">Convergence</TabsTrigger>
+              <TabsTrigger value="qualifications" className="text-xs">Qualifications</TabsTrigger>
               <TabsTrigger value="autorun" className="text-xs">Auto-Run</TabsTrigger>
               <TabsTrigger value="criteria" className="text-xs">Criteria</TabsTrigger>
               {convergenceHistory.length > 0 && (
@@ -742,6 +744,10 @@ export default function ProjectDevelopmentEngine() {
                   />
                 </div>
               </div>
+            </TabsContent>
+
+            <TabsContent value="qualifications" className="mt-3">
+              <CanonicalQualificationsPanel projectId={projectId!} />
             </TabsContent>
 
             <TabsContent value="autorun" className="mt-3">

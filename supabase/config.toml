@@ -122,3 +122,6 @@ verify_jwt = false
 
 [functions.resolve-qualifications]
 verify_jwt = false
+
+[functions.confirm-decision]
+verify_jwt = false
