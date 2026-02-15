@@ -142,12 +142,53 @@ Deno.serve(async (req) => {
     // HARD GATES
     // ══════════════════════════════════
 
-    // Gate A — Blockers
+    // Gate A — Blockers (always stops promotion)
     if (blockersCount > 0) {
       reasons.push("Blocking issues remain (" + blockersCount + " active)");
       mustFixNext.push(...latestCounts.blockerTexts.slice(0, 3));
       if (mustFixNext.length === 0) mustFixNext.push("Resolve blocking issues");
 
+      return respond({
+        recommendation: "stabilise",
+        next_document: null,
+        readiness_score: 0,
+        confidence: computeConfidence(currentIteration, highImpactCount, latestGap, sessionTrajectory),
+        reasons,
+        must_fix_next: mustFixNext,
+        risk_flags: riskFlags,
+      });
+    }
+
+    // Gate B — Trajectory crash (eroding 2 consecutive)
+    if (iters.length >= 2) {
+      const lastTwo = iters.slice(-2);
+      const bothEroding = lastTwo.every(
+        (it) => (it.trajectory || "").toLowerCase() === "eroding"
+      );
+      if (bothEroding) {
+        reasons.push("Trajectory eroding across iterations");
+        mustFixNext.push("Run Executive Strategy Loop");
+        return respond({
+          recommendation: "escalate",
+          next_document: null,
+          readiness_score: 0,
+          confidence: computeConfidence(currentIteration, highImpactCount, latestGap, sessionTrajectory),
+          reasons,
+          must_fix_next: mustFixNext,
+          risk_flags: riskFlags,
+        });
+      }
+    }
+
+    // Gate D — Early-stage high-impact hard gate
+    if ((currentDocument === "idea" || currentDocument === "concept_brief") && highImpactCount > 0) {
+      reasons.push("High-impact issues remain at early stage (" + highImpactCount + " active)");
+      const hiNotes = (latestIter?.raw_ai_response?.high_impact_notes || latestIter?.raw_ai_response?.high_impact || []).slice(0, 3);
+      for (const n of hiNotes) {
+        mustFixNext.push(typeof n === "string" ? n : n?.description || n?.note || "Resolve high-impact notes");
+      }
+      if (mustFixNext.length === 0) mustFixNext.push("Resolve high-impact notes");
+      mustFixNext.push("Run another editorial pass");
       return respond({
         recommendation: "stabilise",
         next_document: null,

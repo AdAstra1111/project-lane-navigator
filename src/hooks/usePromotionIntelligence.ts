@@ -33,6 +33,55 @@ function trajectoryScore(t: string | null): number {
   return 55;
 }
 
+// ── Robust note extraction from any analysis shape ──
+function noteToText(n: any): string {
+  if (typeof n === 'string') return n;
+  return n?.description || n?.note || '';
+}
+
+function asArray(v: any): any[] {
+  return Array.isArray(v) ? v : [];
+}
+
+export function extractNoteCounts(latestAnalysis: any, latestNotes?: any): {
+  blockers: string[];
+  highImpact: string[];
+} {
+  if (!latestAnalysis && !latestNotes) return { blockers: [], highImpact: [] };
+
+  // Collect from all known field paths across analysis + notes objects
+  const sources = [latestAnalysis, latestNotes].filter(Boolean);
+
+  const rawBlockers: any[] = [];
+  const rawHigh: any[] = [];
+
+  for (const src of sources) {
+    rawBlockers.push(...asArray(src?.blocking_issues));
+    rawBlockers.push(...asArray(src?.blockers));
+    rawHigh.push(...asArray(src?.high_impact_notes));
+    rawHigh.push(...asArray(src?.high_impact));
+  }
+
+  // Deduplicate by description text
+  const dedup = (items: any[]): string[] => {
+    const seen = new Set<string>();
+    const result: string[] = [];
+    for (const item of items) {
+      const text = noteToText(item);
+      if (text && !seen.has(text)) {
+        seen.add(text);
+        result.push(text);
+      }
+    }
+    return result;
+  };
+
+  return {
+    blockers: dedup(rawBlockers),
+    highImpact: dedup(rawHigh),
+  };
+}
+
 export interface PromotionInput {
   ci: number;
   gp: number;
@@ -63,7 +112,11 @@ function computeLocally(input: PromotionInput): PromotionRecommendation {
 
   const confidence = computeConfidence(iterationCount, highImpactCount, gap, trajectory);
 
-  // Gate A — Blockers
+  if (import.meta.env.DEV) {
+    console.debug('Promotion Intel Input:', { ci, gp, gap, blockersCount, highImpactCount, trajectory, currentDocument: doc, iterationCount });
+  }
+
+  // Gate A — Blockers (hard gate, always stops promotion)
   if (blockersCount > 0) {
     reasons.push(`Blocking issues remain (${blockersCount} active)`);
     mustFixNext.push(...blockerTexts.slice(0, 3));
@@ -71,14 +124,23 @@ function computeLocally(input: PromotionInput): PromotionRecommendation {
     return { recommendation: 'stabilise', next_document: null, readiness_score: 0, confidence, reasons, must_fix_next: mustFixNext, risk_flags: riskFlags };
   }
 
-  // Gate B — Eroding trajectory (simplified: check current)
+  // Gate B — Eroding trajectory
   if ((trajectory || '').toLowerCase() === 'eroding') {
     reasons.push('Trajectory is eroding');
     mustFixNext.push('Run Executive Strategy Loop');
     return { recommendation: 'escalate', next_document: null, readiness_score: 0, confidence, reasons, must_fix_next: mustFixNext, risk_flags: riskFlags };
   }
 
-  // Weighted score
+  // Gate D — Early-stage high-impact hard gate
+  if ((doc === 'idea' || doc === 'concept_brief') && highImpactCount > 0) {
+    reasons.push(`High-impact issues remain at early stage (${highImpactCount} active)`);
+    mustFixNext.push(...highImpactTexts.slice(0, 3));
+    if (mustFixNext.length === 0) mustFixNext.push('Resolve high-impact notes');
+    mustFixNext.push('Run another editorial pass');
+    return { recommendation: 'stabilise', next_document: null, readiness_score: 0, confidence, reasons, must_fix_next: mustFixNext, risk_flags: riskFlags };
+  }
+
+  // Weighted score (only runs when all hard gates pass)
   const w = WEIGHTS[doc] || WEIGHTS.concept_brief;
   const gapScore = 100 - clamp(gap * 2, 0, 100);
   const trajScore = trajectoryScore(trajectory);
