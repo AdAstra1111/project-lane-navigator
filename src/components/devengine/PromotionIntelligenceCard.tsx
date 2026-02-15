@@ -50,6 +50,19 @@ export function PromotionIntelligenceCard({ data, isLoading, onPromote, onReRevi
   const Icon = meta.icon;
   const hasHardGate = risk_flags.some(f => f.startsWith('hard_gate:'));
 
+  const HARD_GATE_LABELS: Record<string, string> = {
+    "hard_gate:blockers": "Blockers Active",
+    "hard_gate:early_stage_high_impact": "High-impact (Early Stage)",
+    "hard_gate:eroding_trajectory": "Trajectory Eroding",
+    "hard_gate:thrash": "Note Thrash Detected",
+  };
+
+  const hardGateChips = [...new Set(
+    risk_flags
+      .filter(f => f.startsWith("hard_gate:"))
+      .map(f => HARD_GATE_LABELS[f] || f.replace("hard_gate:", "").replace(/_/g, " "))
+  )];
+
   return (
     <Card className="border-primary/20">
       <CardHeader className="py-2 px-3">
@@ -60,9 +73,23 @@ export function PromotionIntelligenceCard({ data, isLoading, onPromote, onReRevi
       <CardContent className="px-3 pb-3 space-y-2">
         {/* Hard Gate indicator */}
         {hasHardGate && (
-          <Badge variant="outline" className="text-[9px] px-1.5 py-0.5 text-destructive border-destructive/40 bg-destructive/10 gap-1">
-            <ShieldAlert className="h-3 w-3" /> Hard Gate Active
-          </Badge>
+          <>
+            <Badge variant="outline" className="text-[9px] px-1.5 py-0.5 text-destructive border-destructive/40 bg-destructive/10 gap-1">
+              <ShieldAlert className="h-3 w-3" /> Hard Gate Active
+            </Badge>
+            {hardGateChips.length > 0 && (
+              <div className="flex flex-wrap gap-1">
+                {hardGateChips.map((label) => (
+                  <span
+                    key={label}
+                    className="px-1.5 py-0.5 text-[8px] rounded-full border border-destructive/30 bg-destructive/10 text-destructive"
+                  >
+                    {label}
+                  </span>
+                ))}
+              </div>
+            )}
+          </>
         )}
 
         {/* Recommendation badge */}
