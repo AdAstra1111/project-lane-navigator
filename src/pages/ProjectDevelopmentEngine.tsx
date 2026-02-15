@@ -459,6 +459,21 @@ export default function ProjectDevelopmentEngine() {
                     generateNotesPending={generateNotes.isPending}
                   />
 
+                  {/* Resume auto-run from selected version */}
+                  {autoRun.job && ['paused', 'stopped'].includes(autoRun.job.status) && selectedDocId && selectedVersionId && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-[10px] gap-1.5 border-primary/30"
+                      onClick={async () => {
+                        await autoRun.setResumeSource(selectedDocId, selectedVersionId);
+                        await autoRun.resume();
+                      }}
+                    >
+                      <Play className="h-3 w-3" /> Continue auto-run from this version
+                    </Button>
+                  )}
+
                   {/* Progress indicators */}
                   <OperationProgress isActive={analyze.isPending} stages={DEV_ANALYZE_STAGES} />
                   <OperationProgress isActive={generateNotes.isPending} stages={DEV_NOTES_STAGES} />
@@ -588,6 +603,7 @@ export default function ProjectDevelopmentEngine() {
                 onStart={autoRun.start}
                 onRunNext={autoRun.runNext}
                 onResume={autoRun.resume}
+                onSetResumeSource={autoRun.setResumeSource}
                 onPause={autoRun.pause}
                 onStop={autoRun.stop}
                 onClear={autoRun.clear}

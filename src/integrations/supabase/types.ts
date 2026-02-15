@@ -114,6 +114,7 @@ export type Database = {
           created_at: string | null
           current_document: string
           error: string | null
+          follow_latest: boolean
           id: string
           last_ci: number | null
           last_confidence: number | null
@@ -130,6 +131,8 @@ export type Database = {
           pending_next_doc_type: string | null
           pending_version_id: string | null
           project_id: string
+          resume_document_id: string | null
+          resume_version_id: string | null
           stage_loop_count: number
           start_document: string
           status: string
@@ -146,6 +149,7 @@ export type Database = {
           created_at?: string | null
           current_document: string
           error?: string | null
+          follow_latest?: boolean
           id?: string
           last_ci?: number | null
           last_confidence?: number | null
@@ -162,6 +166,8 @@ export type Database = {
           pending_next_doc_type?: string | null
           pending_version_id?: string | null
           project_id: string
+          resume_document_id?: string | null
+          resume_version_id?: string | null
           stage_loop_count?: number
           start_document: string
           status?: string
@@ -178,6 +184,7 @@ export type Database = {
           created_at?: string | null
           current_document?: string
           error?: string | null
+          follow_latest?: boolean
           id?: string
           last_ci?: number | null
           last_confidence?: number | null
@@ -194,6 +201,8 @@ export type Database = {
           pending_next_doc_type?: string | null
           pending_version_id?: string | null
           project_id?: string
+          resume_document_id?: string | null
+          resume_version_id?: string | null
           stage_loop_count?: number
           start_document?: string
           status?: string

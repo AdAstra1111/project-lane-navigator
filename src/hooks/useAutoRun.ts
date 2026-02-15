@@ -39,6 +39,9 @@ export interface AutoRunJob {
   pending_version_id: string | null;
   pending_doc_type: string | null;
   pending_next_doc_type: string | null;
+  follow_latest: boolean;
+  resume_document_id: string | null;
+  resume_version_id: string | null;
   created_at: string;
   updated_at: string;
 }

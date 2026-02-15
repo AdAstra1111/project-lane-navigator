@@ -150,16 +150,26 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
     } catch (e: any) { setError(e.message); }
   }, [job]);
 
-  const resume = useCallback(async () => {
+  const resume = useCallback(async (followLatest?: boolean) => {
     if (!job) return;
     abortRef.current = false;
     setError(null);
     try {
-      await callAutoRun('resume', { jobId: job.id });
+      await callAutoRun('resume', { jobId: job.id, ...(followLatest !== undefined ? { followLatest } : {}) });
       setIsRunning(true);
       refreshStatus();
     } catch (e: any) { setError(e.message); }
   }, [job, refreshStatus]);
+
+  const setResumeSource = useCallback(async (documentId: string, versionId: string) => {
+    if (!job) return;
+    setError(null);
+    try {
+      const result = await callAutoRun('set-resume-source', { jobId: job.id, documentId, versionId });
+      setJob(result.job);
+      setSteps(result.latest_steps || []);
+    } catch (e: any) { setError(e.message); }
+  }, [job]);
 
   const stop = useCallback(async () => {
     if (!job) return;
@@ -316,6 +326,8 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
     getPendingDoc, approveNext, approveDecision,
     // Stage control
     setStage, forcePromote, restartFromStage,
+    // Resume source
+    setResumeSource,
     // Interventions
     saveStorySetup, saveQualifications, saveLaneBudget, saveGuardrails,
     // Document text
