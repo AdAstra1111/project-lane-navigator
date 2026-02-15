@@ -38,6 +38,7 @@ import { DriftBanner } from '@/components/devengine/DriftBanner';
 import { PromotionIntelligenceCard } from '@/components/devengine/PromotionIntelligenceCard';
 import { usePromotionIntelligence, extractNoteCounts } from '@/hooks/usePromotionIntelligence';
 import { AutoRunMissionControl } from '@/components/devengine/AutoRunMissionControl';
+import { AutoRunBanner } from '@/components/devengine/AutoRunBanner';
 import { useAutoRunMissionControl } from '@/hooks/useAutoRunMissionControl';
 
 // ── Main Page ──
@@ -413,6 +414,25 @@ export default function ProjectDevelopmentEngine() {
 
             {/* ── CENTER: Workspace ── */}
             <div className="md:col-span-10 space-y-3" style={{ minHeight: 'calc(100vh - 280px)' }}>
+              {/* Auto-Run Banner */}
+              {autoRun.job && !['completed'].includes(autoRun.job.status) && (
+                <AutoRunBanner
+                  job={autoRun.job}
+                  steps={autoRun.steps}
+                  isRunning={autoRun.isRunning}
+                  selectedDocId={selectedDocId}
+                  selectedVersionId={selectedVersionId}
+                  onPause={autoRun.pause}
+                  onRunNext={autoRun.runNext}
+                  onResume={autoRun.resume}
+                  onSetResumeSource={autoRun.setResumeSource}
+                  onStop={autoRun.stop}
+                  onScrollToApproval={() => {
+                    const el = document.getElementById('approval-queue-anchor');
+                    el?.scrollIntoView({ behavior: 'smooth' });
+                  }}
+                />
+              )}
               {!selectedDocId ? (
                 <Card className="h-full flex items-center justify-center min-h-[400px]">
                   <div className="text-center space-y-3 p-8">
@@ -459,20 +479,7 @@ export default function ProjectDevelopmentEngine() {
                     generateNotesPending={generateNotes.isPending}
                   />
 
-                  {/* Resume auto-run from selected version */}
-                  {autoRun.job && ['paused', 'stopped'].includes(autoRun.job.status) && selectedDocId && selectedVersionId && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-7 text-[10px] gap-1.5 border-primary/30"
-                      onClick={async () => {
-                        await autoRun.setResumeSource(selectedDocId, selectedVersionId);
-                        await autoRun.resume();
-                      }}
-                    >
-                      <Play className="h-3 w-3" /> Continue auto-run from this version
-                    </Button>
-                  )}
+                  {/* Resume auto-run handled by banner above */}
 
                   {/* Progress indicators */}
                   <OperationProgress isActive={analyze.isPending} stages={DEV_ANALYZE_STAGES} />
@@ -583,12 +590,14 @@ export default function ProjectDevelopmentEngine() {
                   convergenceStatus={convergenceStatus}
                   tieredNotes={tieredNotes}
                 />
-                <PromotionIntelligenceCard
-                  data={promotionIntel.data}
-                  isLoading={promotionIntel.isLoading}
-                  onPromote={handlePromote}
-                  onReReview={handleRunEngine}
-                />
+                <div id="approval-queue-anchor">
+                  <PromotionIntelligenceCard
+                    data={promotionIntel.data}
+                    isLoading={promotionIntel.isLoading}
+                    onPromote={handlePromote}
+                    onReReview={handleRunEngine}
+                  />
+                </div>
               </div>
             </TabsContent>
 
