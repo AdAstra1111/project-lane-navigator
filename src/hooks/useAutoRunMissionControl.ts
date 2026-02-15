@@ -322,7 +322,7 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
     globalDirections?: string[]
   ) => {
     if (!job) return;
-    if (isRunning) return;
+    // Remove isRunning guard — job may show "running" while awaiting_approval
     setError(null);
     abortRef.current = false;
     try {
@@ -331,13 +331,13 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
       });
       setJob(result.job);
       setSteps(result.latest_steps || []);
-      if (result.job?.status === 'running') {
+      if (result.job?.status === 'running' && !result.job?.awaiting_approval) {
         setIsRunning(true);
       }
     } catch (e: any) {
       setError(e.message);
     }
-  }, [job, isRunning]);
+  }, [job]);
 
   return {
     job, steps, isRunning, error,
