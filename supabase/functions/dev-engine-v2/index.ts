@@ -1318,24 +1318,29 @@ MATERIAL TO REWRITE:\n${fullText}`;
         });
       }
 
-      const { data: maxRow } = await supabase.from("project_document_versions")
-        .select("version_number")
-        .eq("document_id", documentId)
-        .order("version_number", { ascending: false })
-        .limit(1)
-        .single();
-      const nextVersion = (maxRow?.version_number ?? 0) + 1;
-
-      const { data: newVersion, error: vErr } = await supabase.from("project_document_versions").insert({
-        document_id: documentId,
-        version_number: nextVersion,
-        label: `Rewrite pass ${nextVersion}`,
-        plaintext: rewrittenText,
-        created_by: user.id,
-        parent_version_id: versionId,
-        change_summary: parsed.changes_summary || "",
-      }).select().single();
-      if (vErr) throw vErr;
+      let newVersion: any = null;
+      for (let _retry = 0; _retry < 3; _retry++) {
+        const { data: maxRow } = await supabase.from("project_document_versions")
+          .select("version_number")
+          .eq("document_id", documentId)
+          .order("version_number", { ascending: false })
+          .limit(1)
+          .single();
+        const nextVersion = (maxRow?.version_number ?? 0) + 1;
+        const { data: nv, error: vErr } = await supabase.from("project_document_versions").insert({
+          document_id: documentId,
+          version_number: nextVersion,
+          label: `Rewrite pass ${nextVersion}`,
+          plaintext: rewrittenText,
+          created_by: user.id,
+          parent_version_id: versionId,
+          change_summary: parsed.changes_summary || "",
+        }).select().single();
+        if (!vErr) { newVersion = nv; break; }
+        if (vErr.code !== "23505") throw vErr;
+        console.warn(`Version ${nextVersion} conflict, retrying...`);
+      }
+      if (!newVersion) throw new Error("Failed to create version after retries");
 
       // Store rewrite run with schema_version and deliverable metadata
       const { data: run } = await supabase.from("development_runs").insert({
@@ -1475,24 +1480,29 @@ MATERIAL TO REWRITE:\n${fullText}`;
         runtimeWarning = `This draft estimates ~${Math.round(newMins)} mins (below preferred minimum ${softMin} mins).`;
       }
 
-      const { data: maxRow } = await supabase.from("project_document_versions")
-        .select("version_number")
-        .eq("document_id", documentId)
-        .order("version_number", { ascending: false })
-        .limit(1)
-        .single();
-      const nextVersion = (maxRow?.version_number ?? 0) + 1;
-
-      const { data: newVersion, error: vErr } = await supabase.from("project_document_versions").insert({
-        document_id: documentId,
-        version_number: nextVersion,
-        label: `Rewrite pass ${nextVersion}`,
-        plaintext: assembledText,
-        created_by: user.id,
-        parent_version_id: versionId,
-        change_summary: `Chunked rewrite across ${nextVersion - 1} iterations.`,
-      }).select().single();
-      if (vErr) throw vErr;
+      let newVersion: any = null;
+      for (let _retry = 0; _retry < 3; _retry++) {
+        const { data: maxRow } = await supabase.from("project_document_versions")
+          .select("version_number")
+          .eq("document_id", documentId)
+          .order("version_number", { ascending: false })
+          .limit(1)
+          .single();
+        const nextVersion = (maxRow?.version_number ?? 0) + 1;
+        const { data: nv, error: vErr } = await supabase.from("project_document_versions").insert({
+          document_id: documentId,
+          version_number: nextVersion,
+          label: `Rewrite pass ${nextVersion}`,
+          plaintext: assembledText,
+          created_by: user.id,
+          parent_version_id: versionId,
+          change_summary: `Chunked rewrite across ${nextVersion - 1} iterations.`,
+        }).select().single();
+        if (!vErr) { newVersion = nv; break; }
+        if (vErr.code !== "23505") throw vErr;
+        console.warn(`Version ${nextVersion} conflict, retrying...`);
+      }
+      if (!newVersion) throw new Error("Failed to create version after retries");
 
       let notesCount = 0;
       if (planRunId) {
@@ -1878,24 +1888,29 @@ Output ONLY the expanded screenplay text. No JSON, no commentary, no markdown.`;
       const expanded = await callAI(LOVABLE_API_KEY, PRO_MODEL, expandSystem, currentText, 0.4, 16000);
       const cleanExpanded = expanded.replace(/^```[\s\S]*?\n/, "").replace(/\n?```\s*$/, "").trim();
 
-      const { data: maxRow } = await supabase.from("project_document_versions")
-        .select("version_number").eq("document_id", documentId)
-        .order("version_number", { ascending: false }).limit(1).single();
-      const nextVer = (maxRow?.version_number ?? 0) + 1;
-
       const expandedWords = cleanExpanded.split(/\s+/).filter(Boolean).length;
       const expandedMins = expandedWords / divisor;
 
-      const { data: newVersion, error: vErr } = await supabase.from("project_document_versions").insert({
-        document_id: documentId,
-        version_number: nextVer,
-        label: `Expanded to ~${Math.round(expandedMins)} mins`,
-        plaintext: cleanExpanded,
-        created_by: user.id,
-        parent_version_id: versionId,
-        change_summary: `Auto-expanded from ~${Math.round(currentMins)} to ~${Math.round(expandedMins)} mins.`,
-      }).select().single();
-      if (vErr) throw vErr;
+      let newVersion: any = null;
+      for (let _retry = 0; _retry < 3; _retry++) {
+        const { data: maxRow } = await supabase.from("project_document_versions")
+          .select("version_number").eq("document_id", documentId)
+          .order("version_number", { ascending: false }).limit(1).single();
+        const nextVer = (maxRow?.version_number ?? 0) + 1;
+        const { data: nv, error: vErr } = await supabase.from("project_document_versions").insert({
+          document_id: documentId,
+          version_number: nextVer,
+          label: `Expanded to ~${Math.round(expandedMins)} mins`,
+          plaintext: cleanExpanded,
+          created_by: user.id,
+          parent_version_id: versionId,
+          change_summary: `Auto-expanded from ~${Math.round(currentMins)} to ~${Math.round(expandedMins)} mins.`,
+        }).select().single();
+        if (!vErr) { newVersion = nv; break; }
+        if (vErr.code !== "23505") throw vErr;
+        console.warn(`Version ${nextVer} conflict, retrying...`);
+      }
+      if (!newVersion) throw new Error("Failed to create version after retries");
 
       await supabase.from("development_runs").insert({
         project_id: projectId,
