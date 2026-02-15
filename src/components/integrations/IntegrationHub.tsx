@@ -15,7 +15,7 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { toast } from 'sonner';
-import { read, utils } from 'xlsx';
+import { read, utils } from '@e965/xlsx';
 import { supabase } from '@/integrations/supabase/client';
 import {
   useIntegrationProviders,

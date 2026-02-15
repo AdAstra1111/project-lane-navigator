@@ -3,7 +3,7 @@
  * Generates .xlsx files structured like an industry-standard Top Sheet.
  */
 
-import * as XLSX from 'xlsx';
+import * as XLSX from '@e965/xlsx';
 import type { ProjectBudgetLine } from '@/hooks/useBudgets';
 import { BUDGET_CATEGORIES } from '@/hooks/useBudgets';
 
