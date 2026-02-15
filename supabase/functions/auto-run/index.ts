@@ -1068,13 +1068,25 @@ Deno.serve(async (req) => {
       const currentDoc = job.current_document as DocStage;
       const stepCount = job.step_count + 1;
 
-      // Fetch latest doc + version for current stage
+      // Fetch latest doc + version for current stage (fallback to previous stage)
+      let doc: any = null;
       const { data: docs } = await supabase.from("project_documents")
         .select("id, doc_type, plaintext, extracted_text")
         .eq("project_id", job.project_id).eq("doc_type", currentDoc)
         .order("created_at", { ascending: false }).limit(1);
-      const doc = docs?.[0];
-      if (!doc) return respond({ error: `No document found for stage ${currentDoc}` }, 400);
+      doc = docs?.[0];
+      if (!doc) {
+        // Fallback: find the closest previous stage document
+        const ladderIdx = LADDER.indexOf(currentDoc);
+        for (let i = ladderIdx - 1; i >= 0; i--) {
+          const { data: fallbackDocs } = await supabase.from("project_documents")
+            .select("id, doc_type, plaintext, extracted_text")
+            .eq("project_id", job.project_id).eq("doc_type", LADDER[i])
+            .order("created_at", { ascending: false }).limit(1);
+          if (fallbackDocs?.[0]) { doc = fallbackDocs[0]; break; }
+        }
+        if (!doc) return respond({ error: `No document found for stage ${currentDoc} or any prior stage` }, 400);
+      }
 
       const { data: versions } = await supabase.from("project_document_versions")
         .select("id, plaintext, version_number")
@@ -1158,11 +1170,21 @@ Deno.serve(async (req) => {
       const format = (project?.format || "film").toLowerCase().replace(/_/g, "-");
       const behavior = project?.development_behavior || "market";
 
+      let doc: any = null;
       const { data: docs } = await supabase.from("project_documents")
         .select("id").eq("project_id", job.project_id).eq("doc_type", currentDoc)
         .order("created_at", { ascending: false }).limit(1);
-      const doc = docs?.[0];
-      if (!doc) return respond({ error: `No document found for stage ${currentDoc}` }, 400);
+      doc = docs?.[0];
+      if (!doc) {
+        const ladderIdx = LADDER.indexOf(currentDoc);
+        for (let i = ladderIdx - 1; i >= 0; i--) {
+          const { data: fallbackDocs } = await supabase.from("project_documents")
+            .select("id").eq("project_id", job.project_id).eq("doc_type", LADDER[i])
+            .order("created_at", { ascending: false }).limit(1);
+          if (fallbackDocs?.[0]) { doc = fallbackDocs[0]; break; }
+        }
+        if (!doc) return respond({ error: `No document found for stage ${currentDoc} or any prior stage` }, 400);
+      }
 
       const { data: vers } = await supabase.from("project_document_versions")
         .select("id").eq("document_id", doc.id)
