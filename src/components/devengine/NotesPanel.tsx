@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Textarea } from '@/components/ui/textarea';
-import { ScrollArea } from '@/components/ui/scroll-area';
+
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Zap, ChevronDown, Sparkles, Loader2, CheckCircle2, ArrowRight, Lightbulb, Pencil } from 'lucide-react';
 import { useState, useCallback, useMemo } from 'react';
@@ -335,7 +335,7 @@ export function NotesPanel({
           </div>
         </div>
       </CardHeader>
-      <CardContent className="px-2 pb-2 space-y-2 flex flex-col">
+      <CardContent className="px-2 pb-2 space-y-2">
         {/* Resolution summary badges */}
         {resolutionSummary && (resolutionSummary.resolved > 0 || resolutionSummary.regressed > 0) && (
           <div className="flex flex-wrap gap-1.5">
@@ -370,8 +370,7 @@ export function NotesPanel({
             onClick={() => setSelectedNotes(new Set())}>None</Button>
         </div>
 
-        <ScrollArea className="max-h-[500px]">
-        <div className="space-y-2 pr-2">
+        <div className="space-y-2">
         {/* Blockers — always expanded */}
         {tieredNotes.blockers.length > 0 && (
           <div className="space-y-1">
@@ -449,7 +448,6 @@ export function NotesPanel({
           </Collapsible>
         )}
         </div>
-        </ScrollArea>
 
         {/* Apply Rewrite button — hidden when parent provides unified button */}
         {!hideApplyButton && (
