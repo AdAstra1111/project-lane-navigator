@@ -1114,25 +1114,26 @@ GENERAL RULES:
       const highImpact = notes?.high_impact_notes || analysis?.high_impact_notes || [];
       const protect = notes?.protect || analysis?.protect || [];
 
-      const optionsSystem = `You are IFFY. For each blocker and high-impact note, generate 2-3 concrete resolution options.
+      const optionsSystem = `You are IFFY. For each blocker and high-impact note, generate 2-4 concrete resolution options.
 
 Return ONLY valid JSON:
 {
   "decisions": [
     {
       "note_id": "matching stable_key from the note",
-      "severity": "blocker" | "high",
+      "severity": "blocker" | "high" | "medium" | "low",
       "note": "original note description",
       "options": [
         {
           "option_id": "B1-A",
           "title": "short action title (max 8 words)",
           "what_changes": ["list of 2-4 story elements that change"],
-          "creative_tradeoff": "one sentence on creative cost/benefit",
+          "tradeoffs": "one sentence on creative cost/benefit",
+          "creative_risk": "low" | "med" | "high",
           "commercial_lift": 0-20
         }
       ],
-      "recommended": "option_id of recommended choice"
+      "recommended_option_id": "option_id of recommended choice"
     }
   ],
   "global_directions": [
@@ -1141,15 +1142,17 @@ Return ONLY valid JSON:
 }
 
 RULES:
-- Every blocker MUST have exactly 2-3 options.
-- High-impact notes SHOULD have 2 options.
-- option_id format: B{n}-{letter} for blockers, H{n}-{letter} for high. Letters A, B, C.
+- Every blocker MUST have exactly 2-4 options.
+- High-impact notes SHOULD have 2-3 options.
+- option_id format: B{n}-{letter} for blockers, H{n}-{letter} for high. Letters A, B, C, D.
 - what_changes: list 2-4 specific story elements affected.
-- creative_tradeoff: honest one-sentence assessment.
+- tradeoffs: honest one-sentence assessment of creative cost/benefit.
+- creative_risk: "low", "med", or "high" — how much creative DNA changes.
 - commercial_lift: integer 0-20 estimating GP improvement.
-- recommended: best balance of creative integrity and commercial viability.
+- recommended_option_id: best balance of creative integrity and commercial viability.
 - global_directions: 1-3 overarching tonal/strategic directions.
-- Keep options genuinely distinct — not minor variations of the same fix.`;
+- Keep options genuinely distinct — not minor variations of the same fix.
+- EVERY blocker in the input MUST appear as a decision with severity="blocker".`;
 
       const notesForPrompt = [
         ...blockers.map((n: any, i: number) => ({ index: i + 1, id: n.id, severity: "blocker", description: n.description, why_it_matters: n.why_it_matters })),
@@ -1189,6 +1192,29 @@ MATERIAL (first 8000 chars):\n${version.plaintext.slice(0, 8000)}`;
     if (action === "rewrite") {
       const { projectId, documentId, versionId, approvedNotes, protectItems, targetDocType, deliverableType, developmentBehavior, format: reqFormat, selectedOptions, globalDirections } = body;
       if (!projectId || !documentId || !versionId) throw new Error("projectId, documentId, versionId required");
+
+      // ── BLOCKER GATE: if blockers exist, selectedOptions must cover all of them ──
+      const { data: latestNotesRun } = await supabase.from("development_runs")
+        .select("output_json").eq("document_id", documentId).eq("run_type", "NOTES")
+        .order("created_at", { ascending: false }).limit(1).single();
+      const { data: latestAnalyzeRun } = await supabase.from("development_runs")
+        .select("output_json").eq("document_id", documentId).eq("run_type", "ANALYZE")
+        .order("created_at", { ascending: false }).limit(1).single();
+      const existingBlockers = latestNotesRun?.output_json?.blocking_issues || latestAnalyzeRun?.output_json?.blocking_issues || [];
+
+      if (existingBlockers.length > 0) {
+        const coveredNoteIds = new Set((selectedOptions || []).map((so: any) => so.note_id));
+        const uncoveredBlockers = existingBlockers.filter((b: any) => !coveredNoteIds.has(b.id) && !coveredNoteIds.has(b.note_key));
+        if (uncoveredBlockers.length > 0 && (!selectedOptions || selectedOptions.length === 0)) {
+          return new Response(JSON.stringify({
+            error: "Blockers require decisions before rewrite",
+            uncovered_blockers: uncoveredBlockers.map((b: any) => b.id || b.note_key),
+            blocker_count: existingBlockers.length,
+          }), {
+            status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+      }
 
       const { data: version } = await supabase.from("project_document_versions")
         .select("plaintext, version_number").eq("id", versionId).single();

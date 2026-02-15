@@ -258,7 +258,7 @@ export function useAutoRun(projectId: string | undefined) {
 
   const approveNext = useCallback(async (decision: 'approve' | 'revise' | 'stop') => {
     if (!job) return;
-    if (isRunning) return; // prevent duplicate calls while loop is active
+    if (isRunning) return;
     setError(null);
     abortRef.current = false;
     try {
@@ -266,16 +266,39 @@ export function useAutoRun(projectId: string | undefined) {
       setJob(result.job);
       setSteps(result.latest_steps || []);
       if (result.job?.status === 'running') {
-        // Small delay to avoid race with any lingering poll
         await new Promise(r => setTimeout(r, 300));
         runLoop(result.job.id);
       }
     } catch (e: any) {
-      // Ignore "not awaiting approval" if already processed
       if (e.message?.includes('not awaiting approval')) return;
       setError(e.message);
     }
   }, [job, runLoop, isRunning]);
 
-  return { job, steps, isRunning, error, start, runNext, resume, pause, stop, clear, approveDecision, getPendingDoc, approveNext };
+  const applyDecisionsAndContinue = useCallback(async (
+    selectedOptions: Array<{ note_id: string; option_id: string; custom_direction?: string }>,
+    globalDirections?: string[]
+  ) => {
+    if (!job) return;
+    if (isRunning) return;
+    setError(null);
+    abortRef.current = false;
+    try {
+      const result = await callAutoRun('apply-decisions-and-continue', {
+        jobId: job.id,
+        selectedOptions,
+        globalDirections,
+      });
+      setJob(result.job);
+      setSteps(result.latest_steps || []);
+      if (result.job?.status === 'running') {
+        await new Promise(r => setTimeout(r, 300));
+        runLoop(result.job.id);
+      }
+    } catch (e: any) {
+      setError(e.message);
+    }
+  }, [job, runLoop, isRunning]);
+
+  return { job, steps, isRunning, error, start, runNext, resume, pause, stop, clear, approveDecision, getPendingDoc, approveNext, applyDecisionsAndContinue };
 }

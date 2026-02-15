@@ -318,12 +318,36 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
     abortRef.current = true;
   }, []);
 
+  const applyDecisionsAndContinue = useCallback(async (
+    selectedOptions: Array<{ note_id: string; option_id: string; custom_direction?: string }>,
+    globalDirections?: string[]
+  ) => {
+    if (!job) return;
+    if (isRunning) return;
+    setError(null);
+    abortRef.current = false;
+    try {
+      const result = await callAutoRun('apply-decisions-and-continue', {
+        jobId: job.id, selectedOptions, globalDirections,
+      });
+      setJob(result.job);
+      setSteps(result.latest_steps || []);
+      if (result.job?.status === 'running') {
+        setIsRunning(true);
+      }
+    } catch (e: any) {
+      setError(e.message);
+    }
+  }, [job, isRunning]);
+
   return {
     job, steps, isRunning, error,
     // Core actions
     start, pause, resume, stop, runNext, clear, refreshStatus,
     // Approval
     getPendingDoc, approveNext, approveDecision,
+    // Decisions
+    applyDecisionsAndContinue,
     // Stage control
     setStage, forcePromote, restartFromStage,
     // Resume source

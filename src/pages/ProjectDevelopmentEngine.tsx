@@ -36,7 +36,8 @@ import { NotesPanel } from '@/components/devengine/NotesPanel';
 import { ConvergencePanel } from '@/components/devengine/ConvergencePanel';
 import { DriftBanner } from '@/components/devengine/DriftBanner';
 import { PromotionIntelligenceCard } from '@/components/devengine/PromotionIntelligenceCard';
-import { DecisionPanel } from '@/components/devengine/DecisionPanel';
+import { DecisionModePanel } from '@/components/devengine/DecisionModePanel';
+import type { Decision } from '@/components/devengine/DecisionCard';
 import { usePromotionIntelligence, extractNoteCounts } from '@/hooks/usePromotionIntelligence';
 import { AutoRunMissionControl } from '@/components/devengine/AutoRunMissionControl';
 import { AutoRunBanner } from '@/components/devengine/AutoRunBanner';
@@ -612,31 +613,49 @@ export default function ProjectDevelopmentEngine() {
                     stabilityStatus={stabilityStatus}
                     globalDirections={latestNotes?.global_directions || []}
                   />
-                  {/* Decision Panel — inline under notes when decisions exist */}
-                  {(tieredNotes.blockers.some((n: any) => n.decisions?.length > 0) || tieredNotes.high.some((n: any) => n.decisions?.length > 0)) && (
-                    <div id="decision-panel-anchor">
-                      <DecisionPanel
-                        projectId={projectId!}
-                        documentId={selectedDocId}
-                        versionId={selectedVersionId}
-                        documentText={versionText}
-                        decisions={[
+
+                  {/* Decision Mode Panel — shows when blockers/high-impact or auto-run paused for decisions */}
+                  {(tieredNotes.blockers.length > 0 || tieredNotes.high.length > 0 ||
+                    (autoRun.job?.status === 'paused' && autoRun.job?.stop_reason?.includes('Decisions'))) && (
+                    <DecisionModePanel
+                      projectId={projectId!}
+                      documentId={selectedDocId}
+                      versionId={selectedVersionId}
+                      documentText={versionText}
+                      docType={selectedDoc?.doc_type}
+                      versionNumber={selectedVersion?.version_number}
+                      updatedAt={selectedVersion?.created_at}
+                      decisions={(() => {
+                        // Try to get decisions from latest OPTIONS run
+                        const optionsRun = (runs || []).filter((r: any) => r.run_type === 'OPTIONS').pop();
+                        if (optionsRun?.output_json?.decisions) return optionsRun.output_json.decisions;
+                        // Fallback: build from notes with inline decisions
+                        const noteDecisions: Decision[] = [
                           ...tieredNotes.blockers.filter((n: any) => n.decisions?.length > 0).map((n: any) => ({
-                            note_id: n.id, severity: 'blocker', note: n.description || n.note,
-                            options: n.decisions, recommended: n.recommended,
+                            note_id: n.id, severity: 'blocker' as const, note: n.description || n.note,
+                            options: n.decisions, recommended_option_id: n.recommended_option_id || n.recommended,
                           })),
                           ...tieredNotes.high.filter((n: any) => n.decisions?.length > 0).map((n: any) => ({
-                            note_id: n.id, severity: 'high', note: n.description || n.note,
-                            options: n.decisions, recommended: n.recommended,
+                            note_id: n.id, severity: 'high' as const, note: n.description || n.note,
+                            options: n.decisions, recommended_option_id: n.recommended_option_id || n.recommended,
                           })),
-                        ]}
-                        globalDirections={latestNotes?.global_directions || []}
-                        jobId={autoRun.job?.id}
-                        onRewriteComplete={() => qc.invalidateQueries({ queryKey: ['dev-engine-v2'] })}
-                        onAutoRunContinue={() => autoRun.runNext?.()}
-                        availableVersions={versions?.map((v: any) => ({ id: v.id, version_number: v.version_number, label: v.label }))}
-                      />
-                    </div>
+                        ];
+                        return noteDecisions;
+                      })()}
+                      globalDirections={(() => {
+                        const optionsRun = (runs || []).filter((r: any) => r.run_type === 'OPTIONS').pop();
+                        return optionsRun?.output_json?.global_directions || latestNotes?.global_directions || [];
+                      })()}
+                      jobId={autoRun.job?.id}
+                      isAutoRunPaused={autoRun.job?.status === 'paused'}
+                      onRewriteComplete={() => {
+                        qc.invalidateQueries({ queryKey: ['dev-v2-docs', projectId] });
+                        qc.invalidateQueries({ queryKey: ['dev-v2-versions'] });
+                        qc.invalidateQueries({ queryKey: ['dev-v2-runs'] });
+                      }}
+                      onAutoRunContinue={(opts, gd) => autoRun.applyDecisionsAndContinue?.(opts, gd)}
+                      availableVersions={versions?.map((v: any) => ({ id: v.id, version_number: v.version_number, label: v.label }))}
+                    />
                   )}
                 </div>
                 <div className="space-y-3">

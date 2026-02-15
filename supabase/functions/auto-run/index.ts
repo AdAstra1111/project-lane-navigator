@@ -1684,54 +1684,77 @@ Deno.serve(async (req) => {
           return respondWithJob(supabase, jobId);
         }
         if (promo.risk_flags.includes("hard_gate:eroding_trajectory") || promo.recommendation === "escalate") {
-          // Pause with actionable decisions — never call session-based engines
-          const escalateDecisions = [
-            {
-              id: "force_promote",
-              question: `Escalation at ${currentDoc} (CI:${ci} GP:${gp}). Force-promote to next stage?`,
-              options: [
-                { value: "yes", why: "Skip remaining loops and advance to the next document stage" },
-                { value: "no", why: "Stay at current stage" },
-              ],
-              recommended: currentDoc === "idea" ? "yes" : undefined,
-              impact: "blocking" as const,
-            },
-            {
-              id: "run_exec_strategy",
-              question: "Run Executive Strategy to diagnose and reposition?",
-              options: [
-                { value: "yes", why: "Recommended — analyses lane, budget, and qualifications" },
-                { value: "no", why: "Skip strategic review" },
-              ],
-              recommended: "yes",
-              impact: "non_blocking" as const,
-            },
-            {
-              id: "raise_step_limit_once",
-              question: "Add 6 more steps and continue?",
-              options: [
-                { value: "yes", why: "Continue the current development cycle with more steps" },
-                { value: "no", why: "Stop the run" },
-              ],
-              impact: "non_blocking" as const,
-            },
-          ];
-
+          // Generate options for escalation — no session-based strategy needed
           const escalateReason = promo.risk_flags.includes("hard_gate:eroding_trajectory")
             ? "Trajectory eroding"
             : `Escalation: readiness ${promo.readiness_score}/100`;
 
-          await logStep(supabase, jobId, newStep + 2, currentDoc, "pause_for_approval",
-            `${escalateReason} — awaiting user decision`,
-            { ci, gp, gap, readiness: promo.readiness_score, confidence: promo.confidence, risk_flags: promo.risk_flags },
-          );
-          await updateJob(supabase, jobId, {
-            step_count: newStep + 2,
-            status: "paused",
-            stop_reason: `Approval required: ${escalateReason}`,
-            pending_decisions: escalateDecisions,
-          });
-          return respondWithJob(supabase, jobId, "approve-decision");
+          try {
+            // Call dev-engine-v2 "options" to generate decision options for escalation
+            const optionsResult = await callEdgeFunctionWithRetry(
+              supabase, supabaseUrl, "dev-engine-v2", {
+                action: "options",
+                projectId: job.project_id,
+                documentId: doc.id,
+                versionId: latestVersion.id,
+                deliverableType: currentDoc,
+                developmentBehavior: behavior,
+                format,
+              }, token, job.project_id, format, currentDoc, jobId, newStep + 2
+            );
+
+            const optionsData = optionsResult?.result?.options || optionsResult?.result || {};
+
+            await logStep(supabase, jobId, newStep + 2, currentDoc, "escalate_options_generated",
+              `${escalateReason}. Generated ${(optionsData.decisions || []).length} decision sets.`,
+              { ci, gp, gap, readiness: promo.readiness_score, confidence: promo.confidence, risk_flags: promo.risk_flags },
+            );
+
+            await updateJob(supabase, jobId, {
+              step_count: newStep + 2,
+              status: "paused",
+              stop_reason: `Decisions required: ${escalateReason}`,
+              pending_doc_id: doc.id,
+              pending_version_id: latestVersion.id,
+            });
+            return respondWithJob(supabase, jobId, "decisions-required");
+          } catch (optErr: any) {
+            // Fallback: pause with simple decisions if options generation fails
+            console.error("Escalate options failed:", optErr.message);
+            const escalateDecisions = [
+              {
+                id: "force_promote",
+                question: `Escalation at ${currentDoc} (CI:${ci} GP:${gp}). Force-promote to next stage?`,
+                options: [
+                  { value: "yes", why: "Skip remaining loops and advance to the next document stage" },
+                  { value: "no", why: "Stay at current stage" },
+                ],
+                recommended: currentDoc === "idea" ? "yes" : undefined,
+                impact: "blocking" as const,
+              },
+              {
+                id: "raise_step_limit_once",
+                question: "Add 6 more steps and continue?",
+                options: [
+                  { value: "yes", why: "Continue the current development cycle with more steps" },
+                  { value: "no", why: "Stop the run" },
+                ],
+                impact: "non_blocking" as const,
+              },
+            ];
+
+            await logStep(supabase, jobId, newStep + 2, currentDoc, "pause_for_approval",
+              `${escalateReason} — options generation failed, awaiting user decision`,
+              { ci, gp, gap, readiness: promo.readiness_score, confidence: promo.confidence, risk_flags: promo.risk_flags },
+            );
+            await updateJob(supabase, jobId, {
+              step_count: newStep + 2,
+              status: "paused",
+              stop_reason: `Approval required: ${escalateReason}`,
+              pending_decisions: escalateDecisions,
+            });
+            return respondWithJob(supabase, jobId, "approve-decision");
+          }
         }
 
         // ── STABILISE: if blockers/high-impact present, generate options and pause for decisions ──
