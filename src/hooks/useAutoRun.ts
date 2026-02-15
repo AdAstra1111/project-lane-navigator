@@ -92,11 +92,28 @@ export function useAutoRun(projectId: string | undefined) {
     if (!projectId) return;
     setError(null);
     abortRef.current = false;
+
+    // Map rich deliverable types to the auto-run ladder positions
+    const LADDER_MAP: Record<string, string> = {
+      idea: 'idea',
+      concept_brief: 'concept_brief',
+      market_sheet: 'concept_brief',
+      blueprint: 'blueprint',
+      architecture: 'architecture',
+      character_bible: 'blueprint',
+      beat_sheet: 'architecture',
+      script: 'draft',
+      production_draft: 'draft',
+      deck: 'concept_brief',
+      documentary_outline: 'blueprint',
+    };
+    const mappedStart = LADDER_MAP[startDocument] || 'idea';
+
     try {
       const result = await callAutoRun('start', {
         projectId,
         mode,
-        start_document: startDocument,
+        start_document: mappedStart,
         target_document: 'draft',
       });
       setJob(result.job);
