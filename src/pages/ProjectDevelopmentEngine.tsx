@@ -188,16 +188,60 @@ export default function ProjectDevelopmentEngine() {
     });
   };
 
-  const handleRewrite = () => {
+  const handleRewrite = (decisions?: Record<string, string>, globalDirections?: any[]) => {
     const approved = allPrioritizedMoves.filter((_, i) => selectedNotes.has(i));
     const protectItems = latestNotes?.protect || latestAnalysis?.protect || [];
     const textLength = (selectedVersion?.plaintext || selectedDoc?.plaintext || '').length;
 
+    // Build decision directives: resolve option details from notes
+    let decisionDirectives: any[] = [];
+    if (decisions && Object.keys(decisions).length > 0) {
+      for (const [noteId, optionId] of Object.entries(decisions)) {
+        if (!optionId) continue;
+        // Find the note and its selected option
+        const note = [...(tieredNotes.blockers || []), ...(tieredNotes.high || [])].find((n: any) => n.id === noteId);
+        if (note?.decisions) {
+          const option = note.decisions.find((d: any) => d.option_id === optionId);
+          if (option) {
+            decisionDirectives.push({
+              note_id: noteId,
+              note_description: note.description,
+              selected_option: option.title,
+              what_changes: option.what_changes,
+            });
+          }
+        }
+      }
+    }
+
+    // Combine approved notes with decision directives
+    const enrichedNotes = approved.map((note: any) => {
+      const directive = decisionDirectives.find(d => d.note_id === note.id);
+      if (directive) {
+        return {
+          ...note,
+          resolution_directive: `Apply: "${directive.selected_option}". Changes: ${directive.what_changes.join(', ')}.`,
+        };
+      }
+      return note;
+    });
+
+    // Add global directions as additional context
+    if (globalDirections && globalDirections.length > 0) {
+      const directionNotes = globalDirections.map((d: any) => ({
+        category: 'direction',
+        note: `GLOBAL DIRECTION: ${d.direction} — ${d.why}`,
+        impact: 'high',
+        severity: 'direction',
+      }));
+      enrichedNotes.push(...directionNotes);
+    }
+
     if (textLength > 30000 && selectedDocId && selectedVersionId) {
-      rewritePipeline.startRewrite(selectedDocId, selectedVersionId, approved, protectItems);
+      rewritePipeline.startRewrite(selectedDocId, selectedVersionId, enrichedNotes, protectItems);
     } else {
       rewrite.mutate({
-        approvedNotes: approved,
+        approvedNotes: enrichedNotes,
         protectItems,
         deliverableType: selectedDeliverableType,
         developmentBehavior: projectBehavior,
@@ -564,6 +608,7 @@ export default function ProjectDevelopmentEngine() {
                   isLoading={isLoading}
                   resolutionSummary={resolutionSummary}
                   stabilityStatus={stabilityStatus}
+                  globalDirections={latestNotes?.global_directions || []}
                 />
                 <div className="space-y-3">
                   {(latestAnalysis?.rewrite_plan || latestNotes?.rewrite_plan) && (

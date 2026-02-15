@@ -922,23 +922,62 @@ ${version.plaintext.slice(0, 25000)}`;
         antiRepeatRule += `\nPREVIOUS ROUND HAD ZERO BLOCKERS. Do NOT invent new blockers unless drift/regression occurred. Only generate high/polish notes.`;
       }
 
-      const notesSystem = `You are IFFY. Generate structured development notes in three tiers.
+      const notesSystem = `You are IFFY. Generate structured development notes in three tiers, with DECISION OPTIONS for blockers and high-impact notes.
 Return ONLY valid JSON:
 {
   "protect": ["non-negotiable items to preserve"],
   "blocking_issues": [
-    {"id": "stable_key", "category": "structural|character|escalation|lane|packaging|risk|pacing|hook|cliffhanger", "description": "...", "why_it_matters": "...", "severity": "blocker"}
+    {
+      "id": "stable_key", "category": "structural|character|escalation|lane|packaging|risk|pacing|hook|cliffhanger",
+      "description": "...", "why_it_matters": "...", "severity": "blocker",
+      "decisions": [
+        {
+          "option_id": "B1-A",
+          "title": "short action title (max 8 words)",
+          "what_changes": ["list of story elements that change"],
+          "creative_tradeoff": "one sentence on creative cost/benefit",
+          "commercial_lift": 0-20
+        }
+      ],
+      "recommended": "option_id of recommended choice"
+    }
   ],
   "high_impact_notes": [
-    {"id": "stable_key", "category": "...", "description": "...", "why_it_matters": "...", "severity": "high"}
+    {
+      "id": "stable_key", "category": "...", "description": "...", "why_it_matters": "...", "severity": "high",
+      "decisions": [
+        {
+          "option_id": "H1-A",
+          "title": "short action title",
+          "what_changes": ["list of story elements that change"],
+          "creative_tradeoff": "one sentence",
+          "commercial_lift": 0-15
+        }
+      ],
+      "recommended": "option_id of recommended choice"
+    }
   ],
   "polish_notes": [
     {"id": "stable_key", "category": "...", "description": "...", "why_it_matters": "...", "severity": "polish"}
   ],
+  "global_directions": [
+    {"id": "G1", "direction": "overarching creative direction", "why": "rationale"}
+  ],
   "rewrite_plan": ["what will change in next rewrite — max 5 items"]
 }
 
-RULES:
+DECISION RULES:
+- Every blocker MUST have exactly 2-3 decisions (resolution options). Each option represents a different creative strategy.
+- High-impact notes SHOULD have 2 decisions where meaningful. If only one path exists, provide 1 decision.
+- Polish notes do NOT need decisions.
+- option_id format: B{n}-{letter} for blockers, H{n}-{letter} for high. Letters are A, B, C.
+- what_changes: list 2-4 specific story elements affected.
+- creative_tradeoff: honest one-sentence assessment of the creative cost or benefit.
+- commercial_lift: integer 0-20 estimating approximate GP improvement if applied.
+- recommended: pick the option that best balances creative integrity with commercial viability.
+- global_directions: 1-3 overarching tonal/strategic directions that apply across all notes.
+
+GENERAL RULES:
 - Each id and note_key must be identical, stable, descriptive snake_case keys (e.g. "weak_act2_midpoint").
 - blocking_issues: ONLY items fundamentally preventing the document from working. Max 5.
 - high_impact_notes: Significant but non-blocking improvements. Max 5.
