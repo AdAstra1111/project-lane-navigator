@@ -31,7 +31,7 @@ serve(async (req) => {
       });
     }
 
-    const guardrails = buildGuardrailBlock({ productionType: format });
+    const guardrails = buildGuardrailBlock({ productionType: format, engineName: "script-to-budget" });
     console.log(`[script-to-budget] guardrails: profile=${guardrails.profileName}, hash=${guardrails.hash}`);
 
     const systemPrompt = `You are an expert film & TV line producer and budget estimator. Given script text and project metadata, generate a realistic budget breakdown.

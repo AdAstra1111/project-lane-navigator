@@ -63,7 +63,7 @@ For each suggestion provide:
 - market_trajectory: "rising", "peak", "steady" - their current career trajectory
 - territory_value: Which key territories their attachment would unlock for pre-sales`;
 
-    const guardrails = buildGuardrailBlock({ productionType: format });
+    const guardrails = buildGuardrailBlock({ productionType: format, engineName: "suggest-cast" });
     console.log(`[suggest-cast] guardrails: profile=${guardrails.profileName}, hash=${guardrails.hash}`);
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {

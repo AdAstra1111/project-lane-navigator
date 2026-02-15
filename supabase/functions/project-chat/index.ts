@@ -78,7 +78,7 @@ ${(docsRes.data || []).filter((d: any) => d.extracted_text).map((d: any) => `---
     const lovableApiKey = Deno.env.get("LOVABLE_API_KEY");
     if (!lovableApiKey) throw new Error("AI not configured");
 
-    const guardrails = buildGuardrailBlock({ productionType: project.format });
+    const guardrails = buildGuardrailBlock({ productionType: project.format, engineName: "project-chat" });
     console.log(`[project-chat] guardrails: profile=${guardrails.profileName}, hash=${guardrails.hash}`);
 
     const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {

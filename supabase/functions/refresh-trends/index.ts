@@ -128,7 +128,7 @@ Categories for vertical-drama: Platform Algorithm, Scroll Retention, Cast Social
       : "";
 
     // --- REFRESH STORY TREND SIGNALS ---
-    const guardrails = buildGuardrailBlock({ productionType: productionType || "film" });
+    const guardrails = buildGuardrailBlock({ productionType: productionType || "film", engineName: "refresh-trends" });
     console.log(`[refresh-trends] guardrails: profile=${guardrails.profileName}, hash=${guardrails.hash}`);
 
     const signalPrompt = `You are an international film, television, and commercial content market intelligence analyst. Your job is to identify emerging, building, peaking, and declining signals across the entertainment and content industry.

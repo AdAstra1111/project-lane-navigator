@@ -2,8 +2,8 @@
  * IFFY Production Guardrail Framework
  * 
  * Provides a unified guardrail injection layer for all LLM-calling edge functions.
- * Supports production-type profiles, project-level overrides, hard-lock vs soft-bias modes,
- * and post-output validation.
+ * Supports production-type profiles, project-level overrides, per-engine engineMode,
+ * hard-lock vs soft-bias modes, and post-output validation.
  */
 
 import { getProductionTypeContext, getConditioningBlock, checkDisallowedConcepts } from "./productionTypeRules.ts";
@@ -37,24 +37,32 @@ export interface ValidationResult {
   }>;
 }
 
+export interface GuardrailsConfig {
+  enabled?: boolean;
+  profile?: string;
+  engineModes?: Record<string, EngineMode>;
+  overrides?: {
+    engineMode?: EngineMode;
+    additionalDisallowed?: string[];
+    customText?: string;
+    absurdityRange?: [number, number];
+    forbidden?: string[];
+    mustInclude?: string[];
+  };
+  customText?: string;
+}
+
 export interface GuardrailInput {
   project?: {
     format?: string;
     production_type?: string;
     assigned_lane?: string;
     budget_range?: string;
-    guardrails?: {
-      enabled?: boolean;
-      profile?: string;
-      overrides?: {
-        engineMode?: EngineMode;
-        additionalDisallowed?: string[];
-        customText?: string;
-      };
-      customText?: string;
-    };
+    guardrails?: GuardrailsConfig;
+    guardrails_config?: GuardrailsConfig;
   };
   productionType?: string;
+  engineName?: string;
   engineMode?: EngineMode;
   laneWeights?: Record<string, number>;
   corpusEnabled?: boolean;
@@ -64,11 +72,9 @@ export interface GuardrailInput {
 // ─── Engine Mode Profiles ───
 
 const ENGINE_MODE_DEFAULTS: Record<string, EngineMode> = {
-  // Documentary engines get hard-lock by default
   documentary: "hard-lock",
   "documentary-series": "hard-lock",
   "hybrid-documentary": "hard-lock",
-  // Most engines get soft-bias
   film: "soft-bias",
   "tv-series": "soft-bias",
   "limited-series": "soft-bias",
@@ -98,6 +104,36 @@ function simpleHash(str: string): string {
   return Math.abs(hash).toString(36).slice(0, 8);
 }
 
+// ─── Resolve guardrails config ───
+
+function resolveGuardrailsConfig(project?: GuardrailInput["project"]): GuardrailsConfig | null {
+  if (!project) return null;
+  // Prefer guardrails_config (new JSONB column), fall back to guardrails (legacy)
+  const cfg = project.guardrails_config || project.guardrails;
+  if (!cfg || cfg.enabled === false) return null;
+  return cfg;
+}
+
+// ─── Resolve engine mode ───
+
+function resolveEngineMode(
+  pt: string,
+  engineName: string | undefined,
+  explicitMode: EngineMode | undefined,
+  config: GuardrailsConfig | null,
+): EngineMode {
+  // 1. Explicit override in function call
+  if (explicitMode) return explicitMode;
+  // 2. Per-engine override in project guardrails_config
+  if (config?.engineModes && engineName && config.engineModes[engineName]) {
+    return config.engineModes[engineName];
+  }
+  // 3. Override in config.overrides.engineMode
+  if (config?.overrides?.engineMode) return config.overrides.engineMode;
+  // 4. Default for production type
+  return ENGINE_MODE_DEFAULTS[pt] || "soft-bias";
+}
+
 // ─── Core Builder ───
 
 /**
@@ -106,13 +142,10 @@ function simpleHash(str: string): string {
  */
 export function buildGuardrailBlock(input: GuardrailInput): GuardrailBlock {
   const pt = input.productionType || input.project?.format || input.project?.production_type || "film";
-  const projectGuardrails = input.project?.guardrails;
-  
-  // Determine engine mode
-  let engineMode: EngineMode = input.engineMode || ENGINE_MODE_DEFAULTS[pt] || "soft-bias";
-  if (projectGuardrails?.overrides?.engineMode) {
-    engineMode = projectGuardrails.overrides.engineMode;
-  }
+  const config = resolveGuardrailsConfig(input.project);
+
+  // Determine engine mode with per-engine support
+  const engineMode = resolveEngineMode(pt, input.engineName, input.engineMode, config);
 
   // Get production type context
   const ctx = getProductionTypeContext(pt);
@@ -120,18 +153,27 @@ export function buildGuardrailBlock(input: GuardrailInput): GuardrailBlock {
 
   // Build disallowed list (base + overrides)
   const disallowed = [...ctx.disallowedConcepts];
-  if (projectGuardrails?.overrides?.additionalDisallowed) {
-    disallowed.push(...projectGuardrails.overrides.additionalDisallowed);
+  if (config?.overrides?.additionalDisallowed) {
+    disallowed.push(...config.overrides.additionalDisallowed);
+  }
+  if (config?.overrides?.forbidden) {
+    disallowed.push(...config.overrides.forbidden);
   }
 
   // Documentary fabrication check
   const isDoc = ["documentary", "documentary-series", "hybrid-documentary"].includes(pt);
 
   // Build profile name
-  const profileName = projectGuardrails?.profile || `${ctx.label} (${engineMode})`;
+  const profileName = config?.profile || `${ctx.label} (${engineMode})`;
 
   // Custom text
-  const customText = projectGuardrails?.overrides?.customText || projectGuardrails?.customText || null;
+  const customText = config?.overrides?.customText || config?.customText || null;
+
+  // mustInclude block
+  let mustIncludeBlock = "";
+  if (config?.overrides?.mustInclude?.length) {
+    mustIncludeBlock = `\nMUST INCLUDE THEMES/CONCEPTS: ${config.overrides.mustInclude.join(", ")}`;
+  }
 
   // Build enforcement phrasing based on engine mode
   let enforcementBlock: string;
@@ -141,19 +183,18 @@ The following rules are NON-NEGOTIABLE. Violation will cause output rejection:
 - NEVER reference or recommend: ${disallowed.join(', ')}
 - All output must be strictly within the production type's domain
 ${isDoc ? '- DOCUMENTARY REALITY LOCK: Do NOT invent characters, fabricate scenes, create fictional dialogue, or generate INT./EXT. sluglines that don\'t exist in source material. Use [PLACEHOLDER] for unconfirmed information.' : ''}
-${customText ? `- PROJECT-SPECIFIC RULE: ${customText}` : ''}
+${customText ? `- PROJECT-SPECIFIC RULE: ${customText}` : ''}${mustIncludeBlock}
 ═══ END HARD LOCK ═══`;
   } else if (engineMode === "soft-bias") {
     enforcementBlock = `\n═══ GUARDRAIL GUIDANCE: SOFT BIAS ═══
 Prefer outputs that align with the production type's domain. Avoid these concepts unless specifically relevant:
 ${disallowed.join(', ')}
-${customText ? `\nPROJECT-SPECIFIC GUIDANCE: ${customText}` : ''}
+${customText ? `\nPROJECT-SPECIFIC GUIDANCE: ${customText}` : ''}${mustIncludeBlock}
 ═══ END SOFT BIAS ═══`;
   } else {
-    // advisory
     enforcementBlock = `\n═══ GUARDRAIL ADVISORY ═══
 Consider the production type's typical domain when generating output. The following concepts are unusual for this type: ${disallowed.slice(0, 5).join(', ')}
-${customText ? `\nNote: ${customText}` : ''}
+${customText ? `\nNote: ${customText}` : ''}${mustIncludeBlock}
 ═══ END ADVISORY ═══`;
   }
 
@@ -252,4 +293,69 @@ ${hardViolations.map((v, i) => `${i + 1}. ${v.detail}`).join('\n')}
 
 Fix ALL violations in this regeneration. Do NOT repeat the same errors.
 ═══ END VIOLATION NOTICE ═══`;
+}
+
+// ─── Corpus Getter (unified) ───
+
+/**
+ * Fetch corpus calibration data for a project's production type.
+ * Returns null if unavailable. Used by engines that need corpus influence.
+ */
+export async function getCorpusCalibration(
+  db: any,
+  productionType: string,
+  genre?: string,
+): Promise<any | null> {
+  try {
+    const pt = (productionType || "film").toLowerCase();
+    const g = (genre || "").toLowerCase();
+
+    // 1. Try genre baseline
+    if (g) {
+      const { data: baselines } = await db
+        .from("corpus_insights")
+        .select("pattern, production_type, lane")
+        .eq("insight_type", "baseline_profile");
+      if (baselines?.length) {
+        const match = baselines.find((d: any) => {
+          const cpt = (d.production_type || "").toLowerCase();
+          return (cpt === pt || pt.includes(cpt) || cpt.includes(pt)) &&
+            (d.lane || "").toLowerCase() === g;
+        });
+        if (match?.pattern && (match.pattern.sample_size || 0) >= 3) {
+          return match.pattern;
+        }
+      }
+    }
+
+    // 2. Try production type calibration
+    const { data } = await db
+      .from("corpus_insights")
+      .select("pattern, production_type")
+      .eq("insight_type", "calibration");
+    if (data?.length) {
+      const match = data.find((d: any) => {
+        const cpt = (d.production_type || "").toLowerCase();
+        return cpt === pt || pt.includes(cpt) || cpt.includes(pt);
+      });
+      if (match?.pattern && (match.pattern.sample_size || 0) >= 3) {
+        return match.pattern;
+      }
+    }
+
+    // 3. Try gold baseline
+    const { data: goldData } = await db
+      .from("corpus_insights")
+      .select("pattern, production_type")
+      .eq("insight_type", "gold_baseline");
+    if (goldData?.length) {
+      const match = goldData.find((d: any) => {
+        const cpt = (d.production_type || "").toLowerCase();
+        return cpt === pt || pt.includes(cpt) || cpt.includes(pt);
+      }) || goldData.find((d: any) => d.production_type === "all");
+      if (match?.pattern) return match.pattern;
+    }
+  } catch { /* non-critical */ }
+
+  return null;
 }

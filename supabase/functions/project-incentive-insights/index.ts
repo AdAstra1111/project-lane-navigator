@@ -47,7 +47,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    const guardrails = buildGuardrailBlock({ productionType: format });
+    const guardrails = buildGuardrailBlock({ productionType: format, engineName: "project-incentive-insights" });
     console.log(`[project-incentive-insights] guardrails: profile=${guardrails.profileName}, hash=${guardrails.hash}`);
 
     const systemPrompt = `You are an expert in international film finance, specialising in tax incentives, co-production structures, and capital stack planning.

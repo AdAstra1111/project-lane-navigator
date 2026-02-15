@@ -76,7 +76,7 @@ serve(async (req) => {
     }
 
     // ── STEP 2: Gemini strategic analysis ──
-    const guardrails = buildGuardrailBlock({ productionType: format });
+    const guardrails = buildGuardrailBlock({ productionType: format, engineName: "comp-analysis" });
     console.log(`[comp-analysis] guardrails: profile=${guardrails.profileName}, hash=${guardrails.hash}`);
 
     const prompt = `You are a film industry market analyst. Given a project, identify 4-6 comparable titles that have been produced and released. For each, provide real market performance data.

@@ -143,7 +143,7 @@ serve(async (req) => {
     const typeKey = productionType || 'film';
     const typePrompt = PRODUCTION_TYPE_PROMPTS[typeKey] || PRODUCTION_TYPE_PROMPTS.film;
 
-    const guardrails = buildGuardrailBlock({ productionType: typeKey });
+    const guardrails = buildGuardrailBlock({ productionType: typeKey, engineName: "expand-concept" });
     console.log(`[expand-concept] guardrails: profile=${guardrails.profileName}, hash=${guardrails.hash}`);
 
     const systemPrompt = `You are an elite development executive and creative producer. You expand pitch concepts into production-ready development packages.

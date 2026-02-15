@@ -6678,6 +6678,7 @@ export type Database = {
           episode_target_duration_seconds: number | null
           format: string
           genres: string[]
+          guardrails_config: Json | null
           hero_image_url: string | null
           id: string
           incentive_insights: Json | null
@@ -6722,6 +6723,7 @@ export type Database = {
           episode_target_duration_seconds?: number | null
           format?: string
           genres?: string[]
+          guardrails_config?: Json | null
           hero_image_url?: string | null
           id?: string
           incentive_insights?: Json | null
@@ -6766,6 +6768,7 @@ export type Database = {
           episode_target_duration_seconds?: number | null
           format?: string
           genres?: string[]
+          guardrails_config?: Json | null
           hero_image_url?: string | null
           id?: string
           incentive_insights?: Json | null

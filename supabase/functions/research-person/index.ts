@@ -185,7 +185,7 @@ Deno.serve(async (req) => {
         ? `\nIMPORTANT: The user has specified this person is known for: ${known_for}.`
         : "";
 
-    const guardrails = buildGuardrailBlock({ productionType: project_context?.format });
+    const guardrails = buildGuardrailBlock({ productionType: project_context?.format, engineName: "research-person" });
     console.log(`[research-person] guardrails: profile=${guardrails.profileName}, hash=${guardrails.hash}`);
 
     const systemPrompt = `You are IFFY, a film finance intelligence tool. A producer is considering attaching a person to their project. Assess this person's current market value and how they affect the project's finance readiness.${identityHint}

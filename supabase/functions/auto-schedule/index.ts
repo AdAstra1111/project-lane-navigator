@@ -74,7 +74,7 @@ serve(async (req) => {
 
     const totalPages = scenes.reduce((sum: number, s: any) => sum + (s.page_count || 0), 0);
 
-    const guardrails = buildGuardrailBlock({ productionType: format });
+    const guardrails = buildGuardrailBlock({ productionType: format, engineName: "auto-schedule" });
     console.log(`[auto-schedule] guardrails: profile=${guardrails.profileName}, hash=${guardrails.hash}`);
 
     const systemPrompt = `You are an expert 1st Assistant Director creating an optimised production schedule. Given a list of scenes with locations, cast, page counts, and time of day, create an efficient shooting schedule.

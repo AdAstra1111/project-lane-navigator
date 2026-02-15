@@ -26,7 +26,7 @@ serve(async (req) => {
 
     const notesSection = briefNotes ? `\n\nADDITIONAL BRIEF NOTES FROM PRODUCER:\n${briefNotes}` : "";
     // Inject guardrails
-    const guardrails = buildGuardrailBlock({ productionType: typeLabel });
+    const guardrails = buildGuardrailBlock({ productionType: typeLabel, engineName: "generate-pitch" });
     console.log(`[generate-pitch] guardrails: profile=${guardrails.profileName}, hash=${guardrails.hash}`);
 
     const systemPrompt = `You are IFFY's Development Pitch Engine — an expert development executive who generates production-ready concept pitches for the entertainment industry.

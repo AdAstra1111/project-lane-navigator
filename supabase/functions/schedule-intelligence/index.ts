@@ -31,7 +31,7 @@ serve(async (req) => {
       });
     }
 
-    const guardrails = buildGuardrailBlock({ productionType: format });
+    const guardrails = buildGuardrailBlock({ productionType: format, engineName: "schedule-intelligence" });
     console.log(`[schedule-intelligence] guardrails: profile=${guardrails.profileName}, hash=${guardrails.hash}`);
 
     const systemPrompt = `You are an expert 1st Assistant Director and production scheduling analyst. Given scene data and optional existing schedule, provide scheduling intelligence.
