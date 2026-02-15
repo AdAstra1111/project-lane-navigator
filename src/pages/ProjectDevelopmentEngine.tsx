@@ -576,7 +576,7 @@ export default function ProjectDevelopmentEngine() {
                   {/* Document content */}
                   <Card>
                     <CardContent className="p-4">
-                      <ScrollArea className="h-[calc(100vh-440px)]">
+                      <ScrollArea className="h-[300px]">
                         <pre className="text-sm text-foreground whitespace-pre-wrap font-body leading-relaxed">
                           {versionText || 'No content available.'}
                         </pre>
