@@ -615,6 +615,20 @@ export default function ProjectDevelopmentEngine() {
                   globalDirections={latestNotes?.global_directions || []}
                   hideApplyButton
                   onDecisionsChange={setNotesDecisions}
+                  externalDecisions={(() => {
+                    const optionsRun = (runs || []).filter((r: any) => r.run_type === 'OPTIONS').pop();
+                    if (optionsRun?.output_json?.decisions) return optionsRun.output_json.decisions;
+                    // Fallback: build from notes with inline decisions
+                    const noteDecisions = [
+                      ...tieredNotes.blockers.filter((n: any) => n.decisions?.length > 0).map((n: any) => ({
+                        note_id: n.id, options: n.decisions, recommended_option_id: n.recommended_option_id || n.recommended,
+                      })),
+                      ...tieredNotes.high.filter((n: any) => n.decisions?.length > 0).map((n: any) => ({
+                        note_id: n.id, options: n.decisions, recommended_option_id: n.recommended_option_id || n.recommended,
+                      })),
+                    ];
+                    return noteDecisions.length > 0 ? noteDecisions : undefined;
+                  })()}
                 />
 
                 {/* RIGHT: Decisions */}

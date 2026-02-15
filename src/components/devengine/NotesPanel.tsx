@@ -8,7 +8,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Zap, ChevronDown, Sparkles, Loader2, CheckCircle2, ArrowRight, Lightbulb } from 'lucide-react';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 
 export interface NoteDecisionOption {
   option_id: string;
@@ -38,6 +38,8 @@ interface NotesPanelProps {
   hideApplyButton?: boolean;
   /** Expose selected decisions to parent */
   onDecisionsChange?: (decisions: Record<string, string>) => void;
+  /** External decisions (from OPTIONS run) to merge onto notes by note_id */
+  externalDecisions?: Array<{ note_id: string; options: NoteDecisionOption[]; recommended_option_id?: string; recommended?: string }>;
 }
 
 function DecisionCard({
@@ -194,11 +196,25 @@ export function NotesPanel({
   allNotes, tieredNotes, selectedNotes, setSelectedNotes,
   onApplyRewrite, isRewriting, isLoading,
   resolutionSummary, stabilityStatus, globalDirections,
-  hideApplyButton, onDecisionsChange,
+  hideApplyButton, onDecisionsChange, externalDecisions,
 }: NotesPanelProps) {
   const [polishOpen, setPolishOpen] = useState(false);
   // Track selected decision option per note (keyed by note id)
   const [selectedDecisions, setSelectedDecisions] = useState<Record<string, string>>({});
+
+  // Build a lookup map from external decisions (OPTIONS run) keyed by note_id
+  const externalDecisionMap = useMemo(() => {
+    const map: Record<string, { options: NoteDecisionOption[]; recommended?: string }> = {};
+    if (externalDecisions) {
+      for (const d of externalDecisions) {
+        map[d.note_id] = {
+          options: d.options,
+          recommended: d.recommended_option_id || d.recommended,
+        };
+      }
+    }
+    return map;
+  }, [externalDecisions]);
 
   const toggle = (i: number) => {
     setSelectedNotes(prev => {
@@ -302,17 +318,24 @@ export function NotesPanel({
         {/* Blockers — always expanded */}
         {tieredNotes.blockers.length > 0 && (
           <div className="space-y-1">
-            {tieredNotes.blockers.map((note: any, i: number) => (
-              <NoteItem
-                key={`b-${i}`}
-                note={{ ...note, severity: 'blocker' }}
-                index={i}
-                checked={selectedNotes.has(i)}
-                onToggle={() => toggle(i)}
-                selectedOptionId={selectedDecisions[note.id]}
-                onSelectOption={(optionId) => handleSelectOption(note.id, optionId)}
-              />
-            ))}
+            {tieredNotes.blockers.map((note: any, i: number) => {
+              const noteId = note.id || note.note_key;
+              const ext = externalDecisionMap[noteId];
+              const enrichedNote = ext && !note.decisions?.length
+                ? { ...note, severity: 'blocker', decisions: ext.options, recommended: ext.recommended }
+                : { ...note, severity: 'blocker' };
+              return (
+                <NoteItem
+                  key={`b-${i}`}
+                  note={enrichedNote}
+                  index={i}
+                  checked={selectedNotes.has(i)}
+                  onToggle={() => toggle(i)}
+                  selectedOptionId={selectedDecisions[noteId]}
+                  onSelectOption={(optionId) => handleSelectOption(noteId, optionId)}
+                />
+              );
+            })}
           </div>
         )}
 
@@ -321,15 +344,20 @@ export function NotesPanel({
           <div className="space-y-1">
             {tieredNotes.high.map((note: any, i: number) => {
               const idx = blockerCount + i;
+              const noteId = note.id || note.note_key;
+              const ext = externalDecisionMap[noteId];
+              const enrichedNote = ext && !note.decisions?.length
+                ? { ...note, severity: 'high', decisions: ext.options, recommended: ext.recommended }
+                : { ...note, severity: 'high' };
               return (
                 <NoteItem
                   key={`h-${i}`}
-                  note={{ ...note, severity: 'high' }}
+                  note={enrichedNote}
                   index={idx}
                   checked={selectedNotes.has(idx)}
                   onToggle={() => toggle(idx)}
-                  selectedOptionId={selectedDecisions[note.id]}
-                  onSelectOption={(optionId) => handleSelectOption(note.id, optionId)}
+                  selectedOptionId={selectedDecisions[noteId]}
+                  onSelectOption={(optionId) => handleSelectOption(noteId, optionId)}
                 />
               );
             })}
