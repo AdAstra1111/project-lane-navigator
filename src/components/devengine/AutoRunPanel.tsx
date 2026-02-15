@@ -5,9 +5,9 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Play, Pause, Square, RotateCcw, Zap, AlertTriangle, CheckCircle2, Loader2, ChevronDown } from 'lucide-react';
+import { Play, Pause, Square, RotateCcw, Zap, AlertTriangle, CheckCircle2, Loader2, ChevronDown, HelpCircle } from 'lucide-react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import type { AutoRunJob, AutoRunStep } from '@/hooks/useAutoRun';
+import type { AutoRunJob, AutoRunStep, PendingDecision } from '@/hooks/useAutoRun';
 import type { DeliverableType } from '@/lib/dev-os-config';
 import { DELIVERABLE_LABELS } from '@/lib/dev-os-config';
 
@@ -40,14 +40,52 @@ interface AutoRunPanelProps {
   onPause: () => void;
   onStop: () => void;
   onClear: () => void;
+  onApproveDecision?: (decisionId: string, selectedValue: string) => void;
+}
+
+function DecisionApprovalCard({ decision, onApprove }: { decision: PendingDecision; onApprove: (decisionId: string, value: string) => void }) {
+  return (
+    <div className="border border-amber-500/30 bg-amber-500/5 rounded-md p-2 space-y-1.5">
+      <div className="flex items-start gap-1.5">
+        <HelpCircle className="h-3.5 w-3.5 text-amber-500 shrink-0 mt-0.5" />
+        <p className="text-[10px] font-medium text-foreground leading-snug">{decision.question}</p>
+      </div>
+      <div className="space-y-1">
+        {decision.options.map((opt) => (
+          <button
+            key={opt.value}
+            onClick={() => onApprove(decision.id, opt.value)}
+            className={`w-full text-left text-[9px] p-1.5 rounded border transition-colors hover:bg-primary/10 hover:border-primary/40 ${
+              decision.recommended === opt.value
+                ? 'border-primary/40 bg-primary/5'
+                : 'border-border/50 bg-background'
+            }`}
+          >
+            <span className="font-medium">{opt.value}</span>
+            {decision.recommended === opt.value && (
+              <Badge variant="outline" className="text-[7px] px-1 py-0 ml-1 bg-primary/10 text-primary border-primary/30">
+                recommended
+              </Badge>
+            )}
+            <p className="text-muted-foreground mt-0.5">{opt.why}</p>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 export function AutoRunPanel({
   job, steps, isRunning, error, currentDeliverable,
-  onStart, onRunNext, onResume, onPause, onStop, onClear,
+  onStart, onRunNext, onResume, onPause, onStop, onClear, onApproveDecision,
 }: AutoRunPanelProps) {
   const [mode, setMode] = useState<string>('balanced');
   const [timelineOpen, setTimelineOpen] = useState(false);
+
+  const hasPendingDecisions = job?.pending_decisions && job.pending_decisions.length > 0;
+  const blockingDecision = hasPendingDecisions
+    ? job!.pending_decisions!.find(d => d.impact === 'blocking') || job!.pending_decisions![0]
+    : null;
 
   // No active job — show start form
   if (!job || ['completed', 'stopped', 'failed'].includes(job.status)) {
@@ -157,8 +195,13 @@ export function AutoRunPanel({
           </div>
         )}
 
-        {/* Stop reason */}
-        {job.stop_reason && (
+        {/* Pending Decision Approval */}
+        {hasPendingDecisions && blockingDecision && onApproveDecision && (
+          <DecisionApprovalCard decision={blockingDecision} onApprove={onApproveDecision} />
+        )}
+
+        {/* Stop reason (only show if no pending decisions) */}
+        {job.stop_reason && !hasPendingDecisions && (
           <div className="text-[9px] text-amber-500 bg-amber-500/5 border border-amber-500/20 rounded p-1.5">
             {job.stop_reason}
           </div>
@@ -177,7 +220,7 @@ export function AutoRunPanel({
               <Pause className="h-3 w-3" /> Pause
             </Button>
           )}
-          {job.status === 'paused' && (
+          {job.status === 'paused' && !hasPendingDecisions && (
             <Button size="sm" className="h-6 text-[9px] flex-1 gap-1" onClick={onResume}>
               <Play className="h-3 w-3" /> Resume
             </Button>
