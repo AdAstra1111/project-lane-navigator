@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { buildGuardrailBlock } from "../_shared/guardrails.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -271,7 +272,12 @@ serve(async (req) => {
       coverageSummary, scoringGrid, riskFlags,
     });
 
-    const raw = await callAI(LOVABLE_API_KEY, model, CONVERGENCE_SYSTEM, userPrompt);
+    // Inject guardrails
+    const guardrails = buildGuardrailBlock({ productionType: format || "film" });
+    const guardrailedSystem = `${CONVERGENCE_SYSTEM}\n${guardrails.textBlock}`;
+    console.log(`[convergence-engine] guardrails: profile=${guardrails.profileName}, hash=${guardrails.hash}`);
+
+    const raw = await callAI(LOVABLE_API_KEY, model, guardrailedSystem, userPrompt);
     let parsed: any;
 
     try {
