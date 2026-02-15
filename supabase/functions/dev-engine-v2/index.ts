@@ -637,9 +637,6 @@ serve(async (req) => {
     // ══════════════════════════════════════════════
     if (action === "analyze") {
       const { projectId, documentId, versionId, deliverableType, developmentBehavior, format: reqFormat, strategicPriority, developmentStage, analysisMode, previousVersionId, productionType } = body;
-      // Accept both camelCase and snake_case episode qualifications
-      const rawEpisodeDuration = body.episodeTargetDurationSeconds ?? body.episode_target_duration_seconds ?? null;
-      const rawSeasonEpisodeCount = body.seasonEpisodeCount ?? body.season_episode_count ?? null;
 
       if (!projectId || !documentId || !versionId) throw new Error("projectId, documentId, versionId required");
       if (!deliverableType) throw new Error("deliverableType is required — select a deliverable type before analyzing");
@@ -658,12 +655,35 @@ serve(async (req) => {
       const effectiveDeliverable = deliverableType;
       const effectiveProductionType = productionType || formatToProductionType[effectiveFormat] || "narrative_feature";
 
-      // Resolve episode qualifications: payload → project column → guardrails → defaults
+      // ── Canonical Qualification Resolver ──
+      // Call resolve-qualifications edge function for canonical resolution + persist
+      let resolvedQuals: any = null;
+      try {
+        const resolverResp = await fetch(`${supabaseUrl}/functions/v1/resolve-qualifications`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: authHeader },
+          body: JSON.stringify({ projectId }),
+        });
+        if (resolverResp.ok) {
+          resolvedQuals = await resolverResp.json();
+        } else {
+          console.warn("[dev-engine-v2] resolve-qualifications failed, falling back to local resolution");
+        }
+      } catch (e) {
+        console.warn("[dev-engine-v2] resolve-qualifications call failed:", e);
+      }
+
+      // Fallback: use local resolution if edge function call failed
+      const rq = resolvedQuals?.resolvedQualifications || {};
+      // Accept both camelCase and snake_case from payload as final override
+      const payloadDuration = body.episodeTargetDurationSeconds ?? body.episode_target_duration_seconds ?? null;
+      const payloadCount = body.seasonEpisodeCount ?? body.season_episode_count ?? null;
+
       const gc = project?.guardrails_config || {};
       const gquals = gc?.overrides?.qualifications || {};
       const fmtDefaults = FORMAT_DEFAULTS_ENGINE[effectiveFormat] || {};
-      const effectiveDuration = rawEpisodeDuration || project?.episode_target_duration_seconds || gquals.episode_target_duration_seconds || fmtDefaults.episode_target_duration_seconds || null;
-      const effectiveSeasonCount = rawSeasonEpisodeCount || (project as any)?.season_episode_count || gquals.season_episode_count || fmtDefaults.season_episode_count || null;
+      const effectiveDuration = payloadDuration || rq.episode_target_duration_seconds || project?.episode_target_duration_seconds || gquals.episode_target_duration_seconds || fmtDefaults.episode_target_duration_seconds || null;
+      const effectiveSeasonCount = payloadCount || rq.season_episode_count || (project as any)?.season_episode_count || gquals.season_episode_count || fmtDefaults.season_episode_count || null;
 
       // Vertical drama: require episode duration
       if (effectiveFormat === "vertical-drama" && !effectiveDuration) {
