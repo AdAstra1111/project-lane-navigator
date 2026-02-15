@@ -67,6 +67,17 @@ export function AutoRunBanner({
 
   const last10 = steps.slice(-10).reverse();
 
+  // E) Extract trace info from latest review step
+  const latestReviewStep = steps.find(s => s.action === 'review' || s.action === 'review_input');
+  const traceRef = latestReviewStep?.output_ref as any;
+  const traceDocId = traceRef?.input_doc_id || traceRef?.docId || null;
+  const traceVersionId = traceRef?.input_version_id || traceRef?.versionId || null;
+  const traceTextLen = traceRef?.input_text_len ?? traceRef?.char_count ?? null;
+  const traceFallback = traceRef?.used_fallback_scores === true;
+  const traceCI = traceRef?.analyze_output_ci;
+  const traceGP = traceRef?.analyze_output_gp;
+  const traceGap = traceRef?.analyze_output_gap;
+
   return (
     <div className="rounded-lg border border-border bg-card p-3 space-y-2">
       {/* Row 1: Title + Status */}
@@ -106,14 +117,32 @@ export function AutoRunBanner({
         )}
       </div>
 
-      {/* Row 3: Metrics */}
-      {(job.last_ci != null || job.last_gp != null) && (
+      {/* Row 3: Review context (trace) */}
+      {traceDocId && (
+        <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-muted-foreground">
+          <span>Reviewing: <span className="text-foreground font-medium">{DOC_LABELS[job.current_document] || job.current_document}</span></span>
+          <span className="font-mono text-[9px]">{traceDocId?.slice(0, 8)}…</span>
+          {traceVersionId && <span className="font-mono text-[9px]">v:{traceVersionId.slice(0, 8)}…</span>}
+          {traceTextLen != null && <span>{traceTextLen.toLocaleString()} chars</span>}
+        </div>
+      )}
+
+      {/* Row 4: Extracted scores */}
+      {(traceCI != null || job.last_ci != null) && (
         <div className="flex flex-wrap gap-3 text-[10px]">
-          {job.last_ci != null && <span>CI <span className="font-semibold text-foreground">{job.last_ci}</span></span>}
-          {job.last_gp != null && <span>GP <span className="font-semibold text-foreground">{job.last_gp}</span></span>}
-          {job.last_gap != null && <span>Gap <span className="font-semibold text-foreground">{job.last_gap}</span></span>}
+          <span>CI <span className="font-semibold text-foreground">{traceCI ?? job.last_ci}</span></span>
+          <span>GP <span className="font-semibold text-foreground">{traceGP ?? job.last_gp}</span></span>
+          {(traceGap ?? job.last_gap) != null && <span>Gap <span className="font-semibold text-foreground">{traceGap ?? job.last_gap}</span></span>}
           {job.last_readiness != null && <span>Readiness <span className="font-semibold text-foreground">{job.last_readiness}</span></span>}
           {job.last_confidence != null && <span>Confidence <span className="font-semibold text-foreground">{job.last_confidence}%</span></span>}
+        </div>
+      )}
+
+      {/* Fallback scores warning */}
+      {traceFallback && (
+        <div className="flex items-center gap-1 text-[10px] text-amber-400">
+          <AlertTriangle className="h-3 w-3" />
+          <span>Fallback scores used — CI/GP could not be extracted from analysis output</span>
         </div>
       )}
 
