@@ -1330,6 +1330,10 @@ Deno.serve(async (req) => {
           pending_doc_id: null,
           pending_version_id: null,
           pending_decisions: null,
+          awaiting_approval: false,
+          approval_type: null,
+          approval_payload: null,
+          error: null,
         });
         return respondWithJob(supabase, jobId, "run-next");
       } catch (e: any) {
