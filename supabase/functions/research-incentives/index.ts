@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { buildGuardrailBlock } from "../_shared/guardrails.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -96,12 +97,16 @@ Deno.serve(async (req) => {
       }
     }
 
+    const guardrails = buildGuardrailBlock({ productionType: format });
+    console.log(`[research-incentives] guardrails: profile=${guardrails.profileName}, hash=${guardrails.hash}`);
+
     // Research via AI
     const systemPrompt = `You are an expert in international film finance, tax incentives, and co-production frameworks. 
 You provide accurate, current information about film and TV production incentives worldwide.
 Always cite the official source (government or film commission website).
 If you are uncertain about specific numbers or rules, say so and mark confidence as "low".
 Today's date is ${new Date().toISOString().split("T")[0]}.
+${guardrails.textBlock}
 ${groundedIncentiveData ? "\nIMPORTANT: Use the REAL-TIME INCENTIVE DATA below as your primary source. It contains current, cited information about incentive rates and rules. Cross-reference your knowledge against this data and prefer cited numbers." : ""}`;
 
     const userPrompt = `Research ALL current film and TV production tax incentives, rebates, grants, and funds available in: ${jurisdiction}

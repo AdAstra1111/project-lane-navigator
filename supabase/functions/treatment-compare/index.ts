@@ -38,7 +38,12 @@ serve(async (req) => {
       ctx.comparable_titles ? `Comparables: ${ctx.comparable_titles}` : null,
     ].filter(Boolean).join("\n");
 
+    const guardrails = buildGuardrailBlock({ productionType: ctx.format });
+    console.log(`[treatment-compare] guardrails: profile=${guardrails.profileName}, hash=${guardrails.hash}`);
+
     const systemPrompt = `You are IFFY — an elite film industry intelligence engine used by producers, sales agents, and development executives. You provide rigorous, commercially-grounded analysis.
+
+${guardrails.textBlock}
 
 CRITICAL FRAMING: The TREATMENT is NOT a standalone document to be rated as if it were a script. The treatment represents a PROPOSED ADAPTATION DIRECTION — a vision for how the story COULD be reshaped, restructured, or evolved. The SCREENPLAY is the current working draft.
 

@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { buildGuardrailBlock } from "../_shared/guardrails.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -92,11 +93,15 @@ Deno.serve(async (req) => {
       }
     }
 
+    const guardrails = buildGuardrailBlock({ productionType: format });
+    console.log(`[research-buyers] guardrails: profile=${guardrails.profileName}, hash=${guardrails.hash}`);
+
     // Research via AI
     const systemPrompt = `You are an expert in international film and TV sales, distribution, and financing markets. 
 You have deep knowledge of which distributors, sales agents, streamers, and financiers are actively acquiring content.
 Today's date is ${new Date().toISOString().split("T")[0]}.
 Provide REAL companies only — no made-up entities. If uncertain, mark confidence as "low".
+${guardrails.textBlock}
 ${groundedBuyerData ? "\nIMPORTANT: Use the REAL-TIME BUYER INTELLIGENCE below as your primary source. It contains current, cited acquisition activity. Base your recommendations on these facts." : ""}`;
 
     const userPrompt = `Research and identify active buyers (distributors, sales agents, streamers, broadcasters, financiers) that are currently acquiring content matching these characteristics:

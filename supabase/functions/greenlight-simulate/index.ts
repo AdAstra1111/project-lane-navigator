@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { buildGuardrailBlock } from "../_shared/guardrails.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -298,6 +299,8 @@ BUDGET CAPS:
   return prompts[engineType] + "\n\n" + base;
 }
 
+// Guardrails are injected at call-time via buildGuardrailBlock in the main handler
+
 // ═══════════════════════════════════════════════════════════════
 // SECTION D: CALIBRATOR PROMPT
 // ═══════════════════════════════════════════════════════════════
@@ -438,8 +441,12 @@ serve(async (req) => {
     const routerOutput = route(format);
     const model = tierToModel(routerOutput.model_tier);
 
+    // ── GUARDRAILS ──
+    const guardrails = buildGuardrailBlock({ productionType: format });
+    console.log(`[greenlight-simulate] guardrails: profile=${guardrails.profileName}, hash=${guardrails.hash}`);
+
     // ── STEP 2: SPECIALIST CALL ──
-    const specialistSystem = getSpecialistPrompt(routerOutput.production_type, routerOutput);
+    const specialistSystem = getSpecialistPrompt(routerOutput.production_type, routerOutput) + "\n" + guardrails.textBlock;
 
     const userPrompt = `PROJECT: ${projectTitle}
 FORMAT: ${format || "Unknown"}

@@ -31,7 +31,12 @@ serve(async (req) => {
       });
     }
 
+    const guardrails = buildGuardrailBlock({ productionType: format });
+    console.log(`[schedule-intelligence] guardrails: profile=${guardrails.profileName}, hash=${guardrails.hash}`);
+
     const systemPrompt = `You are an expert 1st Assistant Director and production scheduling analyst. Given scene data and optional existing schedule, provide scheduling intelligence.
+
+${guardrails.textBlock}
 
 Return a JSON object with:
 - "estimated_shoot_days": number — estimated total shoot days needed

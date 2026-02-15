@@ -78,7 +78,12 @@ serve(async (req) => {
     // Build AI prompt
     const engineList = engines.map((e: any) => `- ${e.engine_name} (${e.engine_type}): ${e.description}`).join("\n");
 
+    const guardrails = buildGuardrailBlock({ productionType: project.format });
+    console.log(`[score-engines] guardrails: profile=${guardrails.profileName}, hash=${guardrails.hash}`);
+
     const prompt = `You are a film/TV market intelligence analyst. Score each trend engine for a specific project on a scale of 0-10 (one decimal place).
+
+${guardrails.textBlock}
 
 PROJECT:
 - Title: ${project.title}
