@@ -1100,7 +1100,7 @@ Deno.serve(async (req) => {
 
       // Step A: Run review (analyze + notes) with retry
       try {
-        const { result: analyzeResult } = await callEdgeFunctionWithRetry(
+        const { result: rawAnalyzeResult } = await callEdgeFunctionWithRetry(
           supabase, supabaseUrl, "dev-engine-v2", {
             action: "analyze",
             projectId: job.project_id,
@@ -1113,18 +1113,21 @@ Deno.serve(async (req) => {
           }, token, job.project_id, format, currentDoc, jobId, stepCount
         );
 
+        // dev-engine-v2 wraps analysis under { run, analysis }
+        const analyzeResult = rawAnalyzeResult?.analysis || rawAnalyzeResult || {};
+
         const scoreRiskFlags: string[] = [];
         const ci = pickNumber(analyzeResult, ["ci_score", "scores.ci", "scores.ci_score", "ci"], 50, scoreRiskFlags);
         const gp = pickNumber(analyzeResult, ["gp_score", "scores.gp", "scores.gp_score", "gp"], 50, scoreRiskFlags);
         const gap = pickNumber(analyzeResult, ["gap", "scores.gap"], Math.abs(ci - gp), scoreRiskFlags);
-        const trajectory = analyzeResult?.trajectory ?? null;
+        const trajectory = analyzeResult?.trajectory ?? analyzeResult?.convergence?.trajectory ?? null;
         const blockersCount = (analyzeResult?.blocking_issues || []).length;
         const highImpactCount = (analyzeResult?.high_impact_notes || []).length;
 
         const newStep = stepCount + 1;
         await logStep(supabase, jobId, newStep, currentDoc, "review",
           `CI:${ci} GP:${gp} Gap:${gap} Traj:${trajectory || "?"} B:${blockersCount} HI:${highImpactCount}`,
-          { ci, gp, gap, readiness: 0, confidence: 0, risk_flags: [] },
+          { ci, gp, gap, readiness: 0, confidence: 0, risk_flags: scoreRiskFlags },
           analyzeResult?.executive_snapshot || analyzeResult?.verdict || undefined
         );
 
