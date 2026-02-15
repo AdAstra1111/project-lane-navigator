@@ -237,10 +237,15 @@ export function AutoRunPanel({
           <div className="border border-primary/30 bg-primary/5 rounded-md p-2 space-y-2">
             <div className="flex items-center gap-1.5">
               <Eye className="h-3.5 w-3.5 text-primary shrink-0" />
-              <p className="text-[10px] font-semibold text-foreground">
-                Approval Required: Review {LADDER_LABELS[job.pending_doc_type || ''] || job.pending_doc_type}
-                {job.pending_next_doc_type && ` → ${LADDER_LABELS[job.pending_next_doc_type] || job.pending_next_doc_type}`}
-              </p>
+              <div>
+                <p className="text-[10px] font-semibold text-foreground">Approval Required</p>
+                <p className="text-[9px] text-muted-foreground">
+                  {job.approval_type === 'convert'
+                    ? `Review the newly generated ${LADDER_LABELS[job.pending_doc_type || ''] || job.pending_doc_type} before continuing.`
+                    : `Review the current ${LADDER_LABELS[job.pending_doc_type || ''] || job.pending_doc_type} before promoting to ${LADDER_LABELS[job.pending_next_doc_type || ''] || job.pending_next_doc_type}.`
+                  }
+                </p>
+              </div>
             </div>
 
             {loadingDoc && (
@@ -276,11 +281,8 @@ export function AutoRunPanel({
               <Button size="sm" className="h-6 text-[9px] flex-1 gap-1" onClick={() => onApproveNext('approve')}>
                 <CheckCircle2 className="h-3 w-3" /> Approve & Continue
               </Button>
-              <Button variant="outline" size="sm" className="h-6 text-[9px] gap-1" onClick={() => onApproveNext('revise')}>
-                🔁 Revise
-              </Button>
               <Button variant="destructive" size="sm" className="h-6 text-[9px] gap-1" onClick={() => onApproveNext('stop')}>
-                ⛔ Stop
+                <Square className="h-3 w-3" /> Stop
               </Button>
             </div>
           </div>
