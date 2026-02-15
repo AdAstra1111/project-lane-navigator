@@ -1254,7 +1254,7 @@ MATERIAL (first 8000 chars):\n${version.plaintext.slice(0, 8000)}`;
           const bid = b.id || b.note_key;
           return !coveredNoteIds.has(bid) && !approvedNoteIds.has(bid);
         });
-        if (uncoveredBlockers.length > 0 && (!selectedOptions || selectedOptions.length === 0)) {
+        if (uncoveredBlockers.length > 0 && (!selectedOptions || selectedOptions.length === 0) && (!approvedNotes || approvedNotes.length === 0)) {
           return new Response(JSON.stringify({
             error: "Blockers require decisions before rewrite",
             uncovered_blockers: uncoveredBlockers.map((b: any) => b.id || b.note_key),
