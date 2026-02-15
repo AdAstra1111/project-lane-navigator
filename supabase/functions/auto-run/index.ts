@@ -345,7 +345,7 @@ Deno.serve(async (req) => {
     const userId = user.id;
 
     const body = await req.json();
-    const { action, projectId, jobId, mode, start_document, target_document, max_stage_loops, max_total_steps } = body;
+    const { action, projectId, jobId, mode, start_document, target_document, max_stage_loops, max_total_steps, decision } = body;
 
     // ═══════════════════════════════════════
     // ACTION: status
@@ -668,6 +668,105 @@ Deno.serve(async (req) => {
     }
 
     // ═══════════════════════════════════════
+    // ACTION: get-pending-doc
+    // ═══════════════════════════════════════
+    if (action === "get-pending-doc") {
+      if (!jobId) return respond({ error: "jobId required" }, 400);
+      const { data: job, error: jobErr } = await supabase.from("auto_run_jobs").select("*").eq("id", jobId).eq("user_id", userId).single();
+      if (jobErr || !job) return respond({ error: "Job not found" }, 404);
+      if (!job.awaiting_approval || !job.pending_doc_id) return respond({ error: "No pending document" }, 400);
+
+      // Fetch version plaintext
+      let docText = "";
+      if (job.pending_version_id) {
+        const { data: ver } = await supabase.from("project_document_versions")
+          .select("plaintext").eq("id", job.pending_version_id).single();
+        docText = ver?.plaintext || "";
+      }
+      if (!docText && job.pending_doc_id) {
+        const { data: docRow } = await supabase.from("project_documents")
+          .select("extracted_text, plaintext").eq("id", job.pending_doc_id).single();
+        docText = docRow?.extracted_text || docRow?.plaintext || "";
+      }
+
+      return respond({
+        job,
+        pending_doc: {
+          doc_id: job.pending_doc_id,
+          version_id: job.pending_version_id,
+          doc_type: job.pending_doc_type,
+          next_doc_type: job.pending_next_doc_type,
+          approval_type: job.approval_type,
+          char_count: docText.length,
+          text: docText.slice(0, 50000),
+          preview: docText.slice(0, 500),
+        },
+      });
+    }
+
+    // ═══════════════════════════════════════
+    // ACTION: approve-next
+    // ═══════════════════════════════════════
+    if (action === "approve-next") {
+      if (!jobId) return respond({ error: "jobId required" }, 400);
+      const approvalDecision = decision || body.approvalDecision;
+      if (!approvalDecision || !["approve", "revise", "stop"].includes(approvalDecision)) {
+        return respond({ error: "decision required: approve | revise | stop" }, 400);
+      }
+
+      const { data: job, error: jobErr } = await supabase.from("auto_run_jobs").select("*").eq("id", jobId).eq("user_id", userId).single();
+      if (jobErr || !job) return respond({ error: "Job not found" }, 404);
+      if (!job.awaiting_approval) return respond({ error: "Job is not awaiting approval" }, 400);
+
+      const stepCount = job.step_count + 1;
+      const currentDoc = job.current_document as DocStage;
+
+      if (approvalDecision === "stop") {
+        await logStep(supabase, jobId, stepCount, currentDoc, "approval_stop", "User stopped at approval gate");
+        await updateJob(supabase, jobId, {
+          step_count: stepCount, status: "stopped", stop_reason: "User stopped at approval gate",
+          awaiting_approval: false, approval_type: null, approval_payload: null,
+          pending_doc_id: null, pending_version_id: null, pending_doc_type: null, pending_next_doc_type: null,
+        });
+        return respondWithJob(supabase, jobId, "none");
+      }
+
+      if (approvalDecision === "revise") {
+        await logStep(supabase, jobId, stepCount, currentDoc, "approval_revise", "User requested another rewrite pass");
+        await updateJob(supabase, jobId, {
+          step_count: stepCount, status: "running", stop_reason: null,
+          awaiting_approval: false, approval_type: null, approval_payload: null,
+          pending_doc_id: null, pending_version_id: null, pending_doc_type: null, pending_next_doc_type: null,
+          stage_loop_count: Math.max(0, job.stage_loop_count - 1), // allow one more loop
+        });
+        return respondWithJob(supabase, jobId, "run-next");
+      }
+
+      // approve — advance stage
+      const nextStage = job.pending_next_doc_type as DocStage | null;
+      await logStep(supabase, jobId, stepCount, currentDoc, "approval_approved",
+        `User approved ${job.approval_type}: ${currentDoc} → ${nextStage || "continue"}`
+      );
+
+      if (nextStage && isOnLadder(nextStage) && LADDER.indexOf(nextStage) <= LADDER.indexOf(job.target_document as DocStage)) {
+        await updateJob(supabase, jobId, {
+          step_count: stepCount, current_document: nextStage, stage_loop_count: 0,
+          status: "running", stop_reason: null,
+          awaiting_approval: false, approval_type: null, approval_payload: null,
+          pending_doc_id: null, pending_version_id: null, pending_doc_type: null, pending_next_doc_type: null,
+        });
+      } else {
+        // Target reached
+        await updateJob(supabase, jobId, {
+          step_count: stepCount, status: "completed", stop_reason: "Reached target document (approved)",
+          awaiting_approval: false, approval_type: null, approval_payload: null,
+          pending_doc_id: null, pending_version_id: null, pending_doc_type: null, pending_next_doc_type: null,
+        });
+      }
+      return respondWithJob(supabase, jobId, "run-next");
+    }
+
+    // ═══════════════════════════════════════
     // ACTION: run-next (core state machine step)
     // ═══════════════════════════════════════
     if (action === "run-next") {
@@ -675,6 +774,7 @@ Deno.serve(async (req) => {
 
       const { data: job, error: jobErr } = await supabase.from("auto_run_jobs").select("*").eq("id", jobId).eq("user_id", userId).single();
       if (jobErr || !job) return respond({ error: "Job not found" }, 404);
+      if (job.awaiting_approval) return respond({ job, latest_steps: [], next_action_hint: "awaiting-approval" });
       if (job.status !== "running") return respond({ job, latest_steps: [], next_action_hint: getHint(job) });
 
       const currentDoc = job.current_document as DocStage;
@@ -861,7 +961,46 @@ Deno.serve(async (req) => {
           const newStep = stepCount + 1;
           await logStep(supabase, jobId, newStep, currentDoc, "generate", `Generated ${currentDoc} from ${prevStage}`, {}, convertResult?.newDoc?.id ? `Created doc ${convertResult.newDoc.id}` : undefined, convertResult?.newDoc ? { docId: convertResult.newDoc.id } : undefined);
           await updateJob(supabase, jobId, { step_count: newStep, stage_loop_count: 0 });
-          return respondWithJob(supabase, jobId, "run-next");
+
+          // ── APPROVAL GATE: after convert, pause for user to review ──
+          const convertedDocId = convertResult?.newDoc?.id || convertResult?.documentId || null;
+          let convertedVersionId: string | null = null;
+          if (convertedDocId) {
+            const { data: cvs } = await supabase.from("project_document_versions")
+              .select("id").eq("document_id", convertedDocId)
+              .order("version_number", { ascending: false }).limit(1);
+            convertedVersionId = cvs?.[0]?.id || null;
+          }
+          // If we couldn't find the new doc, try the current stage doc
+          if (!convertedDocId) {
+            const { data: newDocs } = await supabase.from("project_documents")
+              .select("id").eq("project_id", job.project_id).eq("doc_type", currentDoc)
+              .order("created_at", { ascending: false }).limit(1);
+            const newDocRow = newDocs?.[0];
+            if (newDocRow) {
+              const { data: newVers } = await supabase.from("project_document_versions")
+                .select("id").eq("document_id", newDocRow.id)
+                .order("version_number", { ascending: false }).limit(1);
+              convertedVersionId = newVers?.[0]?.id || null;
+            }
+          }
+
+          await logStep(supabase, jobId, newStep + 1, currentDoc, "approval_required",
+            `Review generated ${currentDoc} before continuing`,
+            {}, undefined, { docId: convertedDocId, versionId: convertedVersionId, doc_type: currentDoc, from_stage: prevStage }
+          );
+          await updateJob(supabase, jobId, {
+            step_count: newStep + 1,
+            status: "paused",
+            stop_reason: `Approval required: review generated ${currentDoc}`,
+            awaiting_approval: true,
+            approval_type: "convert",
+            pending_doc_id: convertedDocId || prevDoc.id,
+            pending_version_id: convertedVersionId,
+            pending_doc_type: currentDoc,
+            pending_next_doc_type: currentDoc, // stay at same stage after approval (editorial loop starts)
+          });
+          return respondWithJob(supabase, jobId, "awaiting-approval");
         } catch (e: any) {
           await updateJob(supabase, jobId, { status: "failed", error: `Generate failed: ${e.message}` });
           await logStep(supabase, jobId, stepCount + 1, currentDoc, "stop", `Generate failed: ${e.message}`);
@@ -1019,9 +1158,19 @@ Deno.serve(async (req) => {
             }
             const next = nextDoc(currentDoc);
             if (next && LADDER.indexOf(next) <= LADDER.indexOf(job.target_document as DocStage)) {
-              await updateJob(supabase, jobId, { current_document: next, stage_loop_count: 0 });
-              await logStep(supabase, jobId, newStep + 2, currentDoc, "promote", `Force-promoting to ${next} after max loops`);
-              return respondWithJob(supabase, jobId, "run-next");
+              // ── APPROVAL GATE: pause before force-promoting after max loops ──
+              await logStep(supabase, jobId, newStep + 2, currentDoc, "approval_required",
+                `Max loops reached. Review ${currentDoc} before promoting to ${next}`,
+                {}, undefined, { docId: doc.id, versionId: latestVersion.id, doc_type: currentDoc, next_doc_type: next }
+              );
+              await updateJob(supabase, jobId, {
+                stage_loop_count: newLoopCount, step_count: newStep + 2,
+                status: "paused", stop_reason: `Approval required: review ${currentDoc} before promoting to ${next}`,
+                awaiting_approval: true, approval_type: "promote",
+                pending_doc_id: doc.id, pending_version_id: latestVersion.id,
+                pending_doc_type: currentDoc, pending_next_doc_type: next,
+              });
+              return respondWithJob(supabase, jobId, "awaiting-approval");
             }
           }
 
@@ -1080,9 +1229,20 @@ Deno.serve(async (req) => {
 
           const next = nextDoc(currentDoc);
           if (next && LADDER.indexOf(next) <= LADDER.indexOf(job.target_document as DocStage)) {
-            await updateJob(supabase, jobId, { current_document: next, stage_loop_count: 0, step_count: newStep + 1 });
-            await logStep(supabase, jobId, newStep + 2, currentDoc, "promote", `Promoted: ${currentDoc} → ${next}`);
-            return respondWithJob(supabase, jobId, "run-next");
+            // ── APPROVAL GATE: pause before promoting to next stage ──
+            await logStep(supabase, jobId, newStep + 2, currentDoc, "approval_required",
+              `Promote recommended: ${currentDoc} → ${next}. Review before advancing.`,
+              { ci, gp, gap, readiness: promo.readiness_score, confidence: promo.confidence },
+              undefined, { docId: doc.id, versionId: latestVersion.id, doc_type: currentDoc, next_doc_type: next }
+            );
+            await updateJob(supabase, jobId, {
+              step_count: newStep + 2, status: "paused",
+              stop_reason: `Approval required: review ${currentDoc} before promoting to ${next}`,
+              awaiting_approval: true, approval_type: "promote",
+              pending_doc_id: doc.id, pending_version_id: latestVersion.id,
+              pending_doc_type: currentDoc, pending_next_doc_type: next,
+            });
+            return respondWithJob(supabase, jobId, "awaiting-approval");
           } else {
             await updateJob(supabase, jobId, { status: "completed", stop_reason: "Reached target document" });
             await logStep(supabase, jobId, newStep + 2, currentDoc, "stop", "Target reached");
@@ -1125,6 +1285,7 @@ async function respondWithJob(supabase: any, jobId: string, hint?: string): Prom
 
 function getHint(job: any): string {
   if (!job) return "none";
+  if (job.awaiting_approval) return "awaiting-approval";
   if (job.status === "running") return "run-next";
   if (job.status === "paused") {
     if (job.pending_decisions && Array.isArray(job.pending_decisions) && job.pending_decisions.length > 0) {
