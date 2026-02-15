@@ -694,26 +694,28 @@ export default function ProjectDevelopmentEngine() {
                       hideApplyButton
                     />
                   )}
-                  {(latestAnalysis?.rewrite_plan || latestNotes?.rewrite_plan) && (
-                    <Card>
-                      <CardHeader className="py-2 px-3">
-                        <CardTitle className="text-xs">Rewrite Plan</CardTitle>
-                      </CardHeader>
-                      <CardContent className="px-3 pb-3">
-                        <div className="space-y-0.5">
-                          {((latestNotes?.rewrite_plan || latestAnalysis?.rewrite_plan) as string[]).slice(0, 5).map((item: string, i: number) => (
-                            <p key={i} className="text-[9px] text-muted-foreground">• {item}</p>
-                          ))}
-                        </div>
-                      </CardContent>
-                    </Card>
-                  )}
-                  {versionText && !isVerticalDrama && (selectedDeliverableType === 'script' || selectedDeliverableType === 'production_draft') && (
-                    <FeatureLengthGuardrails projectId={projectId!} versionText={versionText}
-                      selectedDocId={selectedDocId} selectedVersionId={selectedVersionId} />
-                  )}
                 </div>
               </div>
+
+              {/* Rewrite Plan + Guardrails — below the notes/decisions grid */}
+              {(latestAnalysis?.rewrite_plan || latestNotes?.rewrite_plan) && (
+                <Card>
+                  <CardHeader className="py-2 px-3">
+                    <CardTitle className="text-xs">Rewrite Plan</CardTitle>
+                  </CardHeader>
+                  <CardContent className="px-3 pb-3">
+                    <div className="space-y-0.5">
+                      {((latestNotes?.rewrite_plan || latestAnalysis?.rewrite_plan) as string[]).slice(0, 5).map((item: string, i: number) => (
+                        <p key={i} className="text-[9px] text-muted-foreground">• {item}</p>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+              {versionText && !isVerticalDrama && (selectedDeliverableType === 'script' || selectedDeliverableType === 'production_draft') && (
+                <FeatureLengthGuardrails projectId={projectId!} versionText={versionText}
+                  selectedDocId={selectedDocId} selectedVersionId={selectedVersionId} />
+              )}
 
               {/* ═══ UNIFIED BIG BUTTON: Apply All Notes & Decisions ═══ */}
               {allPrioritizedMoves.length > 0 && (
