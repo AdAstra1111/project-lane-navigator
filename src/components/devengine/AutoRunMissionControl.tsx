@@ -41,6 +41,12 @@ const LANE_OPTIONS = ['studio', 'indie-studio', 'independent-film', 'micro-budge
 const BUDGET_OPTIONS = ['micro', 'low', 'medium', 'high', 'tentpole'];
 
 // ── Props ──
+interface ProjectDocument {
+  id: string;
+  doc_type: string;
+  title: string;
+}
+
 interface AutoRunMissionControlProps {
   projectId: string;
   currentDeliverable: DeliverableType;
@@ -71,6 +77,8 @@ interface AutoRunMissionControlProps {
   currentDocText?: string;
   /** Current document metadata */
   currentDocMeta?: { doc_type?: string; version?: number; char_count?: number };
+  /** All documents in the project for start-from picker */
+  availableDocuments?: ProjectDocument[];
 }
 
 // ── Sub-components ──
@@ -166,9 +174,11 @@ export function AutoRunMissionControl({
   onSaveStorySetup, onSaveQualifications, onSaveLaneBudget, onSaveGuardrails,
   fetchDocumentText,
   latestAnalysis, currentDocText, currentDocMeta,
+  availableDocuments,
 }: AutoRunMissionControlProps) {
   const [mode, setMode] = useState('balanced');
   const [safeMode, setSafeMode] = useState(true);
+  const [startDocument, setStartDocument] = useState(currentDeliverable as string);
 
   // Document viewer state
   const [docViewerTab, setDocViewerTab] = useState('current');
@@ -325,7 +335,7 @@ export function AutoRunMissionControl({
       setPreflightErrors(missing.map(f => f.label));
       setShowPreflight(true);
     } else {
-      onStart(mode, currentDeliverable);
+      onStart(mode, startDocument);
     }
   };
 
@@ -335,10 +345,9 @@ export function AutoRunMissionControl({
       toast({ title: 'Missing required fields', description: stillMissing.map(f => f.label).join(', '), variant: 'destructive' });
       return;
     }
-    // Save story setup before starting
     onSaveStorySetup(storySetup).then(() => {
       setShowPreflight(false);
-      onStart(mode, currentDeliverable);
+      onStart(mode, startDocument);
     });
   };
 
@@ -420,6 +429,26 @@ export function AutoRunMissionControl({
             </div>
           ) : (
             <>
+              {/* Document selector */}
+              {availableDocuments && availableDocuments.length > 0 && (
+                <div>
+                  <Label className="text-[10px] text-muted-foreground">Start from document</Label>
+                  <Select value={startDocument} onValueChange={setStartDocument}>
+                    <SelectTrigger className="h-8 text-xs mt-0.5"><SelectValue placeholder="Select document…" /></SelectTrigger>
+                    <SelectContent>
+                      {availableDocuments.map(doc => (
+                        <SelectItem key={doc.id} value={doc.doc_type}>
+                          <span className="flex items-center gap-1.5">
+                            <FileText className="h-3 w-3 shrink-0" />
+                            {doc.title || LADDER_LABELS[doc.doc_type] || doc.doc_type}
+                            <Badge variant="outline" className="text-[8px] px-1 py-0 ml-1">{LADDER_LABELS[doc.doc_type] || doc.doc_type}</Badge>
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               <div className="flex items-center gap-2">
                 <Select value={mode} onValueChange={setMode}>
                   <SelectTrigger className="h-8 text-xs w-[110px]"><SelectValue /></SelectTrigger>

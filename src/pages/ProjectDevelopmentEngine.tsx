@@ -609,6 +609,7 @@ export default function ProjectDevelopmentEngine() {
                   version: selectedVersion ? versions.indexOf(selectedVersion) + 1 : undefined,
                   char_count: versionText?.length,
                 }}
+                availableDocuments={documents?.map((d: any) => ({ id: d.id, doc_type: d.doc_type, title: d.title })) || []}
               />
             </TabsContent>
 
