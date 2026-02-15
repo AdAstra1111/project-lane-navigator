@@ -2,7 +2,7 @@
  * DecisionPanel — Shows decisions for blockers/high-impact notes, allows selection, triggers rewrite.
  * Used both in manual dev-engine flow and auto-run decision gates.
  */
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -266,8 +266,11 @@ export function DecisionPanel({
   const allBlockersCovered = uncoveredBlockers.length === 0;
   const selectedCount = Object.values(selectedOptions).filter(Boolean).length;
 
+  const applyingRef = useRef(false);
   const handleApplyDecisions = useCallback(async () => {
     if (!allBlockersCovered) return;
+    if (applyingRef.current) return; // prevent duplicate calls
+    applyingRef.current = true;
     setIsApplying(true);
     try {
       const opts = Object.entries(selectedOptions)
@@ -305,6 +308,7 @@ export function DecisionPanel({
       console.error('Apply decisions failed:', e.message);
     } finally {
       setIsApplying(false);
+      applyingRef.current = false;
     }
   }, [allBlockersCovered, selectedOptions, customDirections, globalDirections, jobId, documentId, versionId, continueVersionId, projectId, onAutoRunContinue, onRewriteComplete]);
 
