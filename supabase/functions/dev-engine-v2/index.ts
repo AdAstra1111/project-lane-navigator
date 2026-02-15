@@ -1899,6 +1899,71 @@ Return ONLY valid JSON:
       return new Response(JSON.stringify({ branches: branches || [] }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
+    // ══════════════════════════════════════════════
+    // EXECUTIVE-STRATEGY — lightweight reposition advisor (no session, no rewrite)
+    // ══════════════════════════════════════════════
+    if (action === "executive-strategy") {
+      const { projectId, documentId, versionId, deliverableType, format: reqFormat, developmentBehavior, analysisJson } = body;
+      if (!projectId || !documentId || !versionId) throw new Error("projectId, documentId, versionId required");
+
+      const { data: version } = await supabase.from("project_document_versions")
+        .select("plaintext").eq("id", versionId).single();
+      if (!version) throw new Error("Version not found");
+
+      const { data: project } = await supabase.from("projects")
+        .select("title, budget_range, assigned_lane, format, episode_target_duration_seconds, season_episode_count, guardrails_config")
+        .eq("id", projectId).single();
+
+      const format = reqFormat || project?.format || "film";
+      const lane = project?.assigned_lane || "independent-film";
+      const budget = project?.budget_range || "low";
+      const materialText = (version.plaintext || "").slice(0, 12000);
+      const analysisSnippet = analysisJson ? JSON.stringify(analysisJson).slice(0, 4000) : "No prior analysis";
+
+      const EXEC_STRATEGY_SYSTEM = `You are IFFY Executive Strategist. You are NOT an editorial engine — do NOT rewrite or give editorial notes.
+Your job: diagnose why this project is failing to converge and propose minimal strategic repositioning.
+
+CONTEXT:
+- Current format: ${format}
+- Current lane: ${lane}
+- Current budget band: ${budget}
+- Deliverable stage: ${deliverableType || "unknown"}
+- Development behavior: ${developmentBehavior || "market"}
+
+Evaluate the material and latest analysis. Return ONLY valid JSON:
+{
+  "lane_suggestion": "<suggested lane or null if current is fine>",
+  "budget_suggestion": "<suggested budget band or null if current is fine>",
+  "qualification_fixes": {<key-value pairs to merge into qualifications, e.g. "episode_target_duration_seconds": 2700, or empty {}>},
+  "positioning_moves": ["<concrete strategic action 1>", "<action 2>", ...],
+  "must_decide": ["<decision the producer must make manually>", ...]
+}
+
+Rules:
+- Only suggest lane/budget changes if the current positioning is clearly misaligned with the material.
+- qualification_fixes should include any missing technical metadata (episode duration, episode count, runtime).
+- positioning_moves are concrete, actionable (e.g. "Reframe as contained thriller to reduce budget requirements").
+- must_decide captures things you cannot resolve automatically (e.g. "Decide whether to keep ensemble or focus on single protagonist").
+- Do NOT recommend format changes — leave that for manual decision.
+- Keep positioning_moves to 3-5 max. Keep must_decide to 2-3 max.`;
+
+      const userPrompt = `LATEST ANALYSIS:\n${analysisSnippet}\n\nMATERIAL:\n${materialText}`;
+      const raw = await callAI(LOVABLE_API_KEY, FAST_MODEL, EXEC_STRATEGY_SYSTEM, userPrompt, 0.3, 2000);
+      let parsed: any;
+      try {
+        parsed = JSON.parse(extractJSON(raw));
+      } catch {
+        const repair = await callAI(LOVABLE_API_KEY, FAST_MODEL, "Fix this malformed JSON. Return JSON ONLY.", raw.slice(0, 3000), 0, 1500);
+        parsed = JSON.parse(extractJSON(repair));
+      }
+
+      console.log(`[dev-engine-v2] executive-strategy: lane=${parsed.lane_suggestion}, budget=${parsed.budget_suggestion}, moves=${(parsed.positioning_moves||[]).length}`);
+
+      return new Response(JSON.stringify(parsed), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     throw new Error(`Unknown action: ${action}`);
   } catch (err: any) {
     console.error("dev-engine-v2 error:", err);
