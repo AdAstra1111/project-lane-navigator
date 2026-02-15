@@ -5,10 +5,13 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { Zap, ChevronDown, Sparkles, Loader2, CheckCircle2, ArrowRight, Lightbulb } from 'lucide-react';
+import { Zap, ChevronDown, Sparkles, Loader2, CheckCircle2, ArrowRight, Lightbulb, Pencil } from 'lucide-react';
 import { useState, useCallback, useMemo } from 'react';
+
+const OTHER_OPTION_ID = '__other__';
 
 export interface NoteDecisionOption {
   option_id: string;
@@ -38,22 +41,29 @@ interface NotesPanelProps {
   hideApplyButton?: boolean;
   /** Expose selected decisions to parent */
   onDecisionsChange?: (decisions: Record<string, string>) => void;
+  /** Expose custom directions to parent */
+  onCustomDirectionsChange?: (customDirections: Record<string, string>) => void;
   /** External decisions (from OPTIONS run) to merge onto notes by note_id */
   externalDecisions?: Array<{ note_id: string; options: NoteDecisionOption[]; recommended_option_id?: string; recommended?: string }>;
 }
 
-function DecisionCard({
+function InlineDecisionCard({
   decisions,
   recommended,
   selectedOptionId,
   onSelect,
+  customDirection,
+  onCustomDirection,
 }: {
   decisions: NoteDecisionOption[];
   recommended?: string;
   selectedOptionId?: string;
   onSelect: (optionId: string) => void;
+  customDirection?: string;
+  onCustomDirection?: (text: string) => void;
 }) {
   if (!decisions || decisions.length === 0) return null;
+  const isOtherSelected = selectedOptionId === OTHER_OPTION_ID;
 
   return (
     <div className="mt-1.5 space-y-1">
@@ -101,6 +111,35 @@ function DecisionCard({
           </button>
         );
       })}
+
+      {/* Other — user-proposed solution */}
+      <button
+        onClick={(e) => { e.stopPropagation(); onSelect(OTHER_OPTION_ID); }}
+        className={`w-full text-left rounded px-2 py-1.5 border transition-all ${
+          isOtherSelected
+            ? 'border-primary/60 bg-primary/10'
+            : 'border-border/30 bg-muted/20 hover:border-border/60'
+        }`}
+      >
+        <div className="flex items-center gap-1.5">
+          <div className={`h-3 w-3 rounded-full border-2 flex items-center justify-center shrink-0 ${
+            isOtherSelected ? 'border-primary bg-primary' : 'border-muted-foreground/40'
+          }`}>
+            {isOtherSelected && <CheckCircle2 className="h-2 w-2 text-primary-foreground" />}
+          </div>
+          <Pencil className="h-2.5 w-2.5 text-muted-foreground" />
+          <span className="text-[10px] font-medium text-foreground">Other — suggest your own</span>
+        </div>
+      </button>
+      {isOtherSelected && onCustomDirection && (
+        <Textarea
+          placeholder="Describe your proposed solution…"
+          value={customDirection || ''}
+          onChange={(e) => onCustomDirection(e.target.value)}
+          onClick={(e) => e.stopPropagation()}
+          className="text-[9px] min-h-[50px] h-12 mt-0.5"
+        />
+      )}
     </div>
   );
 }
@@ -112,6 +151,8 @@ function NoteItem({
   onToggle,
   selectedOptionId,
   onSelectOption,
+  customDirection,
+  onCustomDirection,
 }: {
   note: any;
   index: number;
@@ -119,6 +160,8 @@ function NoteItem({
   onToggle: () => void;
   selectedOptionId?: string;
   onSelectOption?: (optionId: string) => void;
+  customDirection?: string;
+  onCustomDirection?: (text: string) => void;
 }) {
   const severityColor = note.severity === 'blocker'
     ? 'border-destructive/40 bg-destructive/5'
@@ -146,7 +189,7 @@ function NoteItem({
             {note.category && <Badge variant="outline" className="text-[8px] px-1 py-0">{note.category}</Badge>}
             {hasDecisions && (
               <Badge variant="outline" className="text-[7px] px-1 py-0 border-primary/30 text-primary bg-primary/5">
-                {note.decisions.length} options
+                {note.decisions.length + 1} options
               </Badge>
             )}
           </div>
@@ -156,14 +199,16 @@ function NoteItem({
           )}
         </div>
       </div>
-      {/* Inline decision cards */}
+      {/* Inline decision cards with Other option */}
       {hasDecisions && checked && onSelectOption && (
         <div className="px-2 pb-2">
-          <DecisionCard
+          <InlineDecisionCard
             decisions={note.decisions}
             recommended={note.recommended}
             selectedOptionId={selectedOptionId}
             onSelect={onSelectOption}
+            customDirection={customDirection}
+            onCustomDirection={onCustomDirection}
           />
         </div>
       )}
@@ -196,11 +241,13 @@ export function NotesPanel({
   allNotes, tieredNotes, selectedNotes, setSelectedNotes,
   onApplyRewrite, isRewriting, isLoading,
   resolutionSummary, stabilityStatus, globalDirections,
-  hideApplyButton, onDecisionsChange, externalDecisions,
+  hideApplyButton, onDecisionsChange, onCustomDirectionsChange, externalDecisions,
 }: NotesPanelProps) {
   const [polishOpen, setPolishOpen] = useState(false);
   // Track selected decision option per note (keyed by note id)
   const [selectedDecisions, setSelectedDecisions] = useState<Record<string, string>>({});
+  // Track custom direction text per note (for "Other" selections)
+  const [customDirections, setCustomDirections] = useState<Record<string, string>>({});
 
   // Build a lookup map from external decisions (OPTIONS run) keyed by note_id
   const externalDecisionMap = useMemo(() => {
@@ -234,6 +281,14 @@ export function NotesPanel({
       return next;
     });
   }, [onDecisionsChange]);
+
+  const handleCustomDirection = useCallback((noteId: string, text: string) => {
+    setCustomDirections(prev => {
+      const next = { ...prev, [noteId]: text };
+      onCustomDirectionsChange?.(next);
+      return next;
+    });
+  }, [onCustomDirectionsChange]);
 
   const handleApplyRewrite = useCallback(() => {
     // Filter to only selected decisions that have a value
@@ -333,6 +388,8 @@ export function NotesPanel({
                   onToggle={() => toggle(i)}
                   selectedOptionId={selectedDecisions[noteId]}
                   onSelectOption={(optionId) => handleSelectOption(noteId, optionId)}
+                  customDirection={customDirections[noteId]}
+                  onCustomDirection={(text) => handleCustomDirection(noteId, text)}
                 />
               );
             })}
@@ -358,6 +415,8 @@ export function NotesPanel({
                   onToggle={() => toggle(idx)}
                   selectedOptionId={selectedDecisions[noteId]}
                   onSelectOption={(optionId) => handleSelectOption(noteId, optionId)}
+                  customDirection={customDirections[noteId]}
+                  onCustomDirection={(text) => handleCustomDirection(noteId, text)}
                 />
               );
             })}

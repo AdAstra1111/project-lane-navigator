@@ -102,6 +102,7 @@ export default function ProjectDevelopmentEngine() {
   const [selectedNotes, setSelectedNotes] = useState<Set<number>>(new Set());
   const [targetPages, setTargetPages] = useState(100);
   const [notesDecisions, setNotesDecisions] = useState<Record<string, string>>({});
+  const [notesCustomDirections, setNotesCustomDirections] = useState<Record<string, string>>({});
 
   const hasUnresolvedMajorDrift = latestDrift?.drift_level === 'major' && !latestDrift?.resolved;
 
@@ -202,6 +203,22 @@ export default function ProjectDevelopmentEngine() {
     if (decisions && Object.keys(decisions).length > 0) {
       for (const [noteId, optionId] of Object.entries(decisions)) {
         if (!optionId) continue;
+
+        // Handle "Other" — user-proposed custom solution
+        if (optionId === '__other__') {
+          const customText = notesCustomDirections[noteId];
+          if (customText) {
+            const note = [...(tieredNotes.blockers || []), ...(tieredNotes.high || [])].find((n: any) => (n.id || n.note_key) === noteId);
+            decisionDirectives.push({
+              note_id: noteId,
+              note_description: note?.description || note?.note || '',
+              selected_option: 'User-proposed solution',
+              what_changes: [customText],
+            });
+          }
+          continue;
+        }
+
         // Find the note and its selected option
         const note = [...(tieredNotes.blockers || []), ...(tieredNotes.high || [])].find((n: any) => n.id === noteId);
         if (note?.decisions) {
@@ -617,6 +634,7 @@ export default function ProjectDevelopmentEngine() {
                   globalDirections={latestNotes?.global_directions || []}
                   hideApplyButton
                   onDecisionsChange={setNotesDecisions}
+                  onCustomDirectionsChange={setNotesCustomDirections}
                   externalDecisions={(() => {
                     const optionsRun = (runs || []).filter((r: any) => r.run_type === 'OPTIONS').pop();
                     if (optionsRun?.output_json?.decisions) return optionsRun.output_json.decisions;

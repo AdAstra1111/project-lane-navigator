@@ -1,11 +1,12 @@
 /**
- * DecisionCard — Single decision item with selectable options + custom direction.
+ * DecisionCard — Single decision item with selectable options + "Other" custom solution.
  */
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { CheckCircle2, ChevronDown, ShieldAlert, AlertTriangle } from 'lucide-react';
+import { CheckCircle2, ShieldAlert, AlertTriangle, Pencil } from 'lucide-react';
+
+export const OTHER_OPTION_ID = '__other__';
 
 export interface DecisionOption {
   option_id: string;
@@ -99,8 +100,14 @@ function OptionRow({
 }
 
 export function DecisionCard({ decision, selectedOptionId, customDirection, onSelectOption, onCustomDirection }: DecisionCardProps) {
-  const [showCustom, setShowCustom] = useState(false);
   const recommendedId = decision.recommended_option_id || decision.recommended;
+  const isOtherSelected = selectedOptionId === OTHER_OPTION_ID;
+
+  // Auto-focus textarea when "Other" is selected
+  const [textareaRef, setTextareaRef] = useState<HTMLTextAreaElement | null>(null);
+  useEffect(() => {
+    if (isOtherSelected && textareaRef) textareaRef.focus();
+  }, [isOtherSelected, textareaRef]);
 
   const isBlocker = decision.severity === 'blocker';
   const severityColor = isBlocker
@@ -141,22 +148,37 @@ export function DecisionCard({ decision, selectedOptionId, customDirection, onSe
             onSelect={() => onSelectOption(opt.option_id)}
           />
         ))}
-      </div>
 
-      <Collapsible open={showCustom} onOpenChange={setShowCustom}>
-        <CollapsibleTrigger className="text-[9px] text-primary hover:underline flex items-center gap-0.5">
-          <ChevronDown className={`h-2.5 w-2.5 transition-transform ${showCustom ? 'rotate-180' : ''}`} />
-          Custom direction
-        </CollapsibleTrigger>
-        <CollapsibleContent className="mt-1">
+        {/* Other — user-proposed solution */}
+        <button
+          onClick={() => onSelectOption(OTHER_OPTION_ID)}
+          className={`w-full text-left rounded px-2.5 py-2 border transition-all ${
+            isOtherSelected
+              ? 'border-primary/60 bg-primary/10 ring-1 ring-primary/30'
+              : 'border-border/30 bg-muted/20 hover:border-border/60'
+          }`}
+        >
+          <div className="flex items-center gap-1.5">
+            <div className={`h-3.5 w-3.5 rounded-full border-2 flex items-center justify-center shrink-0 ${
+              isOtherSelected ? 'border-primary bg-primary' : 'border-muted-foreground/40'
+            }`}>
+              {isOtherSelected && <CheckCircle2 className="h-2.5 w-2.5 text-primary-foreground" />}
+            </div>
+            <Pencil className="h-3 w-3 text-muted-foreground" />
+            <span className="text-[11px] font-medium text-foreground">Other — suggest your own solution</span>
+          </div>
+        </button>
+
+        {isOtherSelected && (
           <Textarea
-            placeholder="Add your own direction for this note..."
+            ref={setTextareaRef}
+            placeholder="Describe your proposed solution… This will be assessed and applied during rewrite."
             value={customDirection || ''}
             onChange={(e) => onCustomDirection(e.target.value)}
-            className="text-[10px] min-h-[50px] h-12"
+            className="text-[10px] min-h-[60px] h-14 mt-1"
           />
-        </CollapsibleContent>
-      </Collapsible>
+        )}
+      </div>
     </div>
   );
 }
