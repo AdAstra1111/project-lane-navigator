@@ -40,18 +40,18 @@ export function ActionToolbar({
     <div className="flex flex-wrap items-center gap-2 p-2 rounded-lg bg-muted/30 border border-border/50">
       {/* Primary: Run Review */}
       {!hasAnalysis ? (
-        <Button size="sm" className="h-8 text-xs gap-1.5" onClick={onRunReview} disabled={isLoading}>
+        <Button size="sm" className="h-8 text-xs gap-1.5" onClick={onRunReview} disabled={anyPending}>
           {analyzePending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
           Run Review
         </Button>
       ) : !isConverged ? (
         <>
           <Button size="sm" className="h-8 text-xs gap-1.5" onClick={onApplyRewrite}
-            disabled={isLoading || rewritePending || selectedNoteCount === 0}>
+            disabled={anyPending || selectedNoteCount === 0}>
             {rewritePending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
             Apply Rewrite
           </Button>
-          <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5" onClick={onRunReview} disabled={isLoading}>
+          <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5" onClick={onRunReview} disabled={anyPending}>
             {analyzePending ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
             Re-review
           </Button>
@@ -60,12 +60,12 @@ export function ActionToolbar({
         <>
           {/* Converged — promote */}
           <Button size="sm" className="h-8 text-xs gap-1.5 bg-emerald-600 hover:bg-emerald-700"
-            onClick={onPromote} disabled={isLoading || !nextBestDocument}>
-            <ArrowRight className="h-3 w-3" />
+            onClick={onPromote} disabled={anyPending || !nextBestDocument}>
+            {convertPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <ArrowRight className="h-3 w-3" />}
             Promote{nextBestDocument ? `: ${DELIVERABLE_LABELS[nextBestDocument as DeliverableType] || nextBestDocument}` : ''}
             {hasUnresolvedDrift && <AlertTriangle className="h-3 w-3 text-amber-400" />}
           </Button>
-          <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5" onClick={onRunReview} disabled={isLoading}>
+          <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5" onClick={onRunReview} disabled={anyPending}>
             <RefreshCw className="h-3 w-3" />
             Re-review
           </Button>
@@ -75,14 +75,14 @@ export function ActionToolbar({
       {/* Skip stage — only when not converged but promote target exists */}
       {hasAnalysis && !isConverged && nextBestDocument && (
         <Button size="sm" variant="ghost" className="h-8 text-xs gap-1 text-amber-500"
-          onClick={onSkipStage} disabled={isLoading}>
+          onClick={onSkipStage} disabled={anyPending}>
           <AlertTriangle className="h-3 w-3" /> Skip
         </Button>
       )}
 
       {/* Convert — secondary */}
       <Button size="sm" variant="ghost" className="h-8 text-xs gap-1 ml-auto"
-        onClick={onConvert} disabled={isLoading || anyPending}>
+        onClick={onConvert} disabled={anyPending}>
         {convertPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <ArrowRight className="h-3 w-3" />}
         Convert → {DELIVERABLE_LABELS[selectedDeliverableType]}
       </Button>
