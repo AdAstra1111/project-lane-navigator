@@ -442,7 +442,7 @@ serve(async (req) => {
     const model = tierToModel(routerOutput.model_tier);
 
     // ── GUARDRAILS ──
-    const guardrails = buildGuardrailBlock({ productionType: format });
+    const guardrails = buildGuardrailBlock({ productionType: format, engineName: "greenlight-simulate" });
     console.log(`[greenlight-simulate] guardrails: profile=${guardrails.profileName}, hash=${guardrails.hash}`);
 
     // ── STEP 2: SPECIALIST CALL ──

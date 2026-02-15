@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { buildGuardrailBlock, validateOutput, buildRegenerationPrompt } from "../_shared/guardrails.ts";
+import { composeSystem } from "../_shared/llm.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -544,7 +545,7 @@ serve(async (req) => {
       if (!version) throw new Error("Version not found");
 
       const { data: project } = await supabase.from("projects")
-        .select("title, budget_range, assigned_lane, format, development_behavior, episode_target_duration_seconds, season_episode_count")
+        .select("title, budget_range, assigned_lane, format, development_behavior, episode_target_duration_seconds, season_episode_count, guardrails_config")
         .eq("id", projectId).single();
 
       const rawFormat = reqFormat || project?.format || "film";
@@ -597,15 +598,15 @@ serve(async (req) => {
       // Build deliverable-aware system prompt (routing order: deliverable → format → behavior)
       const baseSystemPrompt = buildAnalyzeSystem(effectiveDeliverable, effectiveFormat, effectiveBehavior, effectiveDuration);
 
-      // Inject guardrails
+      // Inject guardrails with per-engine mode support
       const guardrails = buildGuardrailBlock({
-        project: project ? { ...project, production_type: effectiveProductionType } : undefined,
+        project: project ? { ...project, production_type: effectiveProductionType, guardrails_config: (project as any).guardrails_config } : undefined,
         productionType: effectiveFormat,
-        engineMode: ["documentary", "documentary-series", "hybrid-documentary"].includes(effectiveFormat) ? "hard-lock" : "soft-bias",
+        engineName: "dev-engine-v2",
         corpusEnabled: !!body.corpusEnabled,
         corpusCalibration: body.corpusCalibration,
       });
-      const systemPrompt = `${baseSystemPrompt}\n${guardrails.textBlock}`;
+      const systemPrompt = composeSystem({ baseSystem: baseSystemPrompt, guardrailsBlock: guardrails.textBlock });
       console.log(`[dev-engine-v2] guardrails: profile=${guardrails.profileName}, hash=${guardrails.hash}, mode=${guardrails.policy.engineMode}`);
 
       let prevContext = "";

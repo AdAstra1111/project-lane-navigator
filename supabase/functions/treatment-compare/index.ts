@@ -38,7 +38,7 @@ serve(async (req) => {
       ctx.comparable_titles ? `Comparables: ${ctx.comparable_titles}` : null,
     ].filter(Boolean).join("\n");
 
-    const guardrails = buildGuardrailBlock({ productionType: ctx.format });
+    const guardrails = buildGuardrailBlock({ productionType: ctx.format, engineName: "treatment-compare" });
     console.log(`[treatment-compare] guardrails: profile=${guardrails.profileName}, hash=${guardrails.hash}`);
 
     const systemPrompt = `You are IFFY — an elite film industry intelligence engine used by producers, sales agents, and development executives. You provide rigorous, commercially-grounded analysis.

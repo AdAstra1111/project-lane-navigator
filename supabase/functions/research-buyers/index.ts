@@ -93,7 +93,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    const guardrails = buildGuardrailBlock({ productionType: format });
+    const guardrails = buildGuardrailBlock({ productionType: format, engineName: "research-buyers" });
     console.log(`[research-buyers] guardrails: profile=${guardrails.profileName}, hash=${guardrails.hash}`);
 
     // Research via AI

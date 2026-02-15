@@ -70,7 +70,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    const guardrails = buildGuardrailBlock({ productionType: format });
+    const guardrails = buildGuardrailBlock({ productionType: format, engineName: "research-copro" });
     console.log(`[research-copro] guardrails: profile=${guardrails.profileName}, hash=${guardrails.hash}`);
 
     const systemPrompt = `You are an expert in international film co-production treaties, conventions, and funds.

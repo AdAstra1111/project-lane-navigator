@@ -95,7 +95,7 @@ serve(async (req) => {
       ? financeScenarios.map((f: any) => `${f.scenario_name}: ${f.category} - $${f.amount || 0}`).join("; ")
       : "Finance structure pending";
 
-    const guardrails = buildGuardrailBlock({ productionType: project.format });
+    const guardrails = buildGuardrailBlock({ productionType: project.format, engineName: "generate-pitch-deck" });
     console.log(`[generate-pitch-deck] guardrails: profile=${guardrails.profileName}, hash=${guardrails.hash}`);
 
     const prompt = `You are a world-class film/TV pitch deck writer. Generate compelling, strategic slide content for a pitch deck.

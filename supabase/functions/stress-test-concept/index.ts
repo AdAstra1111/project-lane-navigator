@@ -14,7 +14,7 @@ serve(async (req) => {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
 
-    const guardrails = buildGuardrailBlock({ productionType: productionType || 'film' });
+    const guardrails = buildGuardrailBlock({ productionType: productionType || 'film', engineName: "stress-test-concept" });
     console.log(`[stress-test-concept] guardrails: profile=${guardrails.profileName}, hash=${guardrails.hash}`);
 
     const systemPrompt = `You are a ruthless concept stress-testing engine for ${productionType || 'film'} production. You evaluate expanded concepts across three dimensions, scoring each 0-100:

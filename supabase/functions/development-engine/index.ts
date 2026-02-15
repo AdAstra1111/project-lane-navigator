@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
-import { buildGuardrailBlock } from "../_shared/guardrails.ts";
+import { buildGuardrailBlock, validateOutput, buildRegenerationPrompt, getCorpusCalibration } from "../_shared/guardrails.ts";
+import { composeSystem } from "../_shared/llm.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -152,10 +153,21 @@ serve(async (req) => {
     const body = await req.json();
     const { action, sessionId, inputText, approvedNotes, format, genres, lane, budget, title, projectId } = body;
 
-    // Build guardrails for this session
-    const guardrails = buildGuardrailBlock({ productionType: format });
+    // Build guardrails for this session with per-engine mode + corpus support
+    let corpusCalibration: any = null;
+    try {
+      const { getCorpusCalibration: getCorpusCal } = await import("../_shared/guardrails.ts");
+      corpusCalibration = await getCorpusCal(supabase, format || "film", (body.genres || [])[0]);
+    } catch { /* non-critical */ }
+
+    const guardrails = buildGuardrailBlock({
+      productionType: format,
+      engineName: "development-engine",
+      corpusEnabled: !!corpusCalibration,
+      corpusCalibration,
+    });
     console.log(`[development-engine] guardrails: profile=${guardrails.profileName}, hash=${guardrails.hash}`);
-    const REVIEW_SYSTEM = REVIEW_SYSTEM_BASE + "\n" + guardrails.textBlock;
+    const REVIEW_SYSTEM = composeSystem({ baseSystem: REVIEW_SYSTEM_BASE, guardrailsBlock: guardrails.textBlock });
 
     // ── CREATE SESSION ──
     if (action === "create-session") {
