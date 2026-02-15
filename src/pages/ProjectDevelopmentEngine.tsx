@@ -602,6 +602,13 @@ export default function ProjectDevelopmentEngine() {
                 onSaveLaneBudget={autoRun.saveLaneBudget}
                 onSaveGuardrails={autoRun.saveGuardrails}
                 fetchDocumentText={autoRun.fetchDocumentText}
+                latestAnalysis={latestAnalysis}
+                currentDocText={versionText}
+                currentDocMeta={{
+                  doc_type: selectedDoc?.doc_type,
+                  version: selectedVersion ? versions.indexOf(selectedVersion) + 1 : undefined,
+                  char_count: versionText?.length,
+                }}
               />
             </TabsContent>
 

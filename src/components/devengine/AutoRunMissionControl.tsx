@@ -65,6 +65,12 @@ interface AutoRunMissionControlProps {
   onSaveLaneBudget: (lane: string, budget: string) => Promise<void>;
   onSaveGuardrails: (gc: any) => Promise<void>;
   fetchDocumentText: (documentId?: string, versionId?: string) => Promise<DocumentTextResult | null>;
+  /** Analysis data for auto-filling story setup */
+  latestAnalysis?: any;
+  /** Current document text to show in viewer */
+  currentDocText?: string;
+  /** Current document metadata */
+  currentDocMeta?: { doc_type?: string; version?: number; char_count?: number };
 }
 
 // ── Sub-components ──
@@ -159,6 +165,7 @@ export function AutoRunMissionControl({
   onSetStage, onForcePromote, onRestartFromStage,
   onSaveStorySetup, onSaveQualifications, onSaveLaneBudget, onSaveGuardrails,
   fetchDocumentText,
+  latestAnalysis, currentDocText, currentDocMeta,
 }: AutoRunMissionControlProps) {
   const [mode, setMode] = useState('balanced');
   const [safeMode, setSafeMode] = useState(true);
@@ -178,11 +185,58 @@ export function AutoRunMissionControl({
     logline: '', premise: '', tone_genre: '', protagonist: '', antagonist: '',
     stakes: '', world_rules: '', comparables: '',
   });
+  const [storyAutoFilled, setStoryAutoFilled] = useState(false);
   const [quals, setQuals] = useState({ episode_target_duration_seconds: 0, season_episode_count: 0, target_runtime_min_low: 0, target_runtime_min_high: 0 });
   const [lane, setLane] = useState('');
   const [budget, setBudget] = useState('');
   const [jumpStage, setJumpStage] = useState('');
   const [saving, setSaving] = useState<string | null>(null);
+
+  // Auto-fill story setup from analysis data
+  useEffect(() => {
+    if (storyAutoFilled || !latestAnalysis) return;
+    const a = latestAnalysis;
+    const extracted: Record<string, string> = {};
+    if (a.logline) extracted.logline = a.logline;
+    if (a.premise) extracted.premise = a.premise;
+    if (a.tone || a.genre) extracted.tone_genre = [a.tone, a.genre].filter(Boolean).join(' / ');
+    if (a.protagonist) extracted.protagonist = typeof a.protagonist === 'string' ? a.protagonist : a.protagonist?.name || '';
+    if (a.antagonist) extracted.antagonist = typeof a.antagonist === 'string' ? a.antagonist : a.antagonist?.name || '';
+    if (a.stakes) extracted.stakes = a.stakes;
+    if (a.world_rules) extracted.world_rules = a.world_rules;
+    if (a.comparables) extracted.comparables = Array.isArray(a.comparables) ? a.comparables.join(', ') : a.comparables;
+    // Also check nested structures
+    if (!extracted.logline && a.concept?.logline) extracted.logline = a.concept.logline;
+    if (!extracted.premise && a.concept?.premise) extracted.premise = a.concept.premise;
+    if (!extracted.tone_genre && a.concept?.tone) extracted.tone_genre = a.concept.tone;
+    if (!extracted.comparables && a.concept?.comparables) extracted.comparables = Array.isArray(a.concept.comparables) ? a.concept.comparables.join(', ') : a.concept.comparables;
+    if (!extracted.protagonist && a.characters?.length > 0) {
+      const protag = a.characters.find((c: any) => c.role === 'protagonist' || c.is_protagonist);
+      if (protag) extracted.protagonist = protag.name || '';
+    }
+    if (!extracted.antagonist && a.characters?.length > 0) {
+      const antag = a.characters.find((c: any) => c.role === 'antagonist' || c.is_antagonist);
+      if (antag) extracted.antagonist = antag.name || '';
+    }
+    if (Object.keys(extracted).length > 0) {
+      setStorySetup(prev => {
+        const merged = { ...prev };
+        for (const [key, val] of Object.entries(extracted)) {
+          if (val && !merged[key]) merged[key] = val;
+        }
+        return merged;
+      });
+      setStoryAutoFilled(true);
+    }
+  }, [latestAnalysis, storyAutoFilled]);
+
+  // Auto-load current document text into viewer
+  useEffect(() => {
+    if (currentDocText && !viewerText) {
+      setViewerText(currentDocText);
+      setViewerMeta(currentDocMeta || {});
+    }
+  }, [currentDocText, currentDocMeta]);
 
   // Load pending doc when approval gate activates
   useEffect(() => {
