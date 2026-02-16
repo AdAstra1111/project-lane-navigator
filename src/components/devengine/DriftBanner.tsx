@@ -102,17 +102,16 @@ export function DriftBanner({ drift, onAcknowledge, onResolve, resolvePending }:
             </DialogDescription>
           </DialogHeader>
 
-          {/* Drift breakdown */}
           {drift.drift_items?.length > 0 && (
-            <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-2">
+            <div className="rounded-lg border border-border bg-card p-3 space-y-2">
               <p className="text-xs font-semibold text-foreground">What changed</p>
               <div className="space-y-1.5">
                 {drift.drift_items.map((item: any, i: number) => (
                   <div key={i} className="text-[11px] space-y-0.5">
                     <div className="flex items-center justify-between">
                       <span className="font-medium text-foreground capitalize">{item.field?.replace(/_/g, ' ')}</span>
-                      <span className={`font-mono px-1.5 py-0.5 rounded text-[10px] ${
-                        item.similarity < 60 ? 'bg-destructive/15 text-destructive' : 'bg-amber-500/15 text-amber-600'
+                      <span className={`font-mono px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                        item.similarity < 60 ? 'bg-destructive/15 text-destructive' : 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
                       }`}>
                         {item.similarity}% match
                       </span>
@@ -120,15 +119,15 @@ export function DriftBanner({ drift, onAcknowledge, onResolve, resolvePending }:
                     {(item.inherited || item.current) && (
                       <div className="grid grid-cols-2 gap-2 mt-1">
                         {item.inherited && (
-                          <div className="rounded bg-muted/50 p-1.5">
-                            <span className="text-[9px] text-muted-foreground block mb-0.5">Original</span>
-                            <span className="text-[10px] text-muted-foreground line-clamp-2">{item.inherited}</span>
+                          <div className="rounded bg-muted p-1.5">
+                            <span className="text-[9px] font-semibold text-muted-foreground block mb-0.5">Original</span>
+                            <span className="text-[10px] text-foreground line-clamp-3">{item.inherited}</span>
                           </div>
                         )}
                         {item.current && (
-                          <div className="rounded bg-primary/5 p-1.5 border border-primary/10">
-                            <span className="text-[9px] text-primary block mb-0.5">Current</span>
-                            <span className="text-[10px] text-foreground line-clamp-2">{item.current}</span>
+                          <div className="rounded bg-accent p-1.5 border border-primary/20">
+                            <span className="text-[9px] font-semibold text-primary block mb-0.5">Current</span>
+                            <span className="text-[10px] text-foreground line-clamp-3">{item.current}</span>
                           </div>
                         )}
                       </div>
