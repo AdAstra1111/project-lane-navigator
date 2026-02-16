@@ -1061,7 +1061,7 @@ export default function SeriesWriter() {
 
       {/* Script Reader Dialog */}
       <Dialog open={readerOpen} onOpenChange={setReaderOpen}>
-        <DialogContent className="max-w-3xl max-h-[80vh] flex flex-col">
+        <DialogContent className="max-w-3xl h-[85vh] flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-base">
               <BookOpen className="h-4 w-4 text-primary" />
@@ -1075,11 +1075,11 @@ export default function SeriesWriter() {
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
             </div>
           ) : (
-            <ScrollArea className="flex-1 max-h-[60vh]">
+            <div className="flex-1 overflow-y-auto min-h-0">
               <pre className="whitespace-pre-wrap text-xs leading-relaxed font-mono text-foreground p-4">
                 {readerContent}
               </pre>
-            </ScrollArea>
+            </div>
           )}
         </DialogContent>
       </Dialog>
