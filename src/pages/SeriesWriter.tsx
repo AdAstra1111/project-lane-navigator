@@ -40,6 +40,8 @@ import { EpisodePackagePanel } from '@/components/series/EpisodePackagePanel';
 import { EscalateToDevEngineModal } from '@/components/series/EscalateToDevEngineModal';
 import { HardDeleteEpisodeDialog } from '@/components/series/HardDeleteEpisodeDialog';
 import { PatchReadyBanner, type PatchRun } from '@/components/series/PatchReadyBanner';
+import { CanonAuditPanel } from '@/components/series/CanonAuditPanel';
+import { useCanonAudit } from '@/hooks/useCanonAudit';
 
 // ── Working Set doc types for vertical drama ──
 const WORKING_SET_DOC_TYPES = [
@@ -146,6 +148,9 @@ export default function SeriesWriter() {
     retconEvents, createRetconEvent, analyzeRetcon, proposeRetconPatches,
     exportEpisodePackage, exportSeasonBinder,
   } = useSeriesWriterV2(projectId!);
+
+  // ── Canon Audit ──
+  const canonAudit = useCanonAudit(projectId!, selectedEpisode?.episode_number ?? null);
 
   // ── Patch runs for episodes ──
   const { data: patchRuns = [] } = useQuery({
@@ -953,12 +958,24 @@ export default function SeriesWriter() {
                                 </Button>
                               )}
 
-                              {/* Lock */}
+                              {/* Lock — gated by canon audit blockers */}
                               {state.canLock && (
-                                <Button variant="outline" size="sm" className="h-7 px-2.5 text-xs gap-1 border-primary/30 text-primary"
-                                  onClick={() => setLockConfirmEp(ep)} disabled={lockEpisode.isPending}>
-                                  <Lock className="h-3 w-3" /> Lock
-                                </Button>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <span>
+                                      <Button variant="outline" size="sm" className="h-7 px-2.5 text-xs gap-1 border-primary/30 text-primary"
+                                        onClick={() => setLockConfirmEp(ep)}
+                                        disabled={lockEpisode.isPending || (selectedEpisode?.id === ep.id && canonAudit.hasBlockers)}>
+                                        <Lock className="h-3 w-3" /> Lock
+                                      </Button>
+                                    </span>
+                                  </TooltipTrigger>
+                                  {selectedEpisode?.id === ep.id && canonAudit.hasBlockers && (
+                                    <TooltipContent side="top" className="text-xs max-w-[220px]">
+                                      Resolve BLOCKERS in Canon Audit first.
+                                    </TooltipContent>
+                                  )}
+                                </Tooltip>
                               )}
 
                               {/* Set as template (only for locked eps without template set) */}
@@ -1075,6 +1092,18 @@ export default function SeriesWriter() {
                     report={selectedEpisode ? complianceReports.find(r => r.episode_number === selectedEpisode.episode_number) || null : null}
                     onRunCompliance={() => selectedEpisode && runCompliance.mutate(selectedEpisode.episode_number)}
                     isRunning={runCompliance.isPending}
+                    hasScript={!!selectedEpisode?.script_id}
+                  />
+
+                  {/* Canon Audit Panel */}
+                  <CanonAuditPanel
+                    latestRun={canonAudit.latestRun || null}
+                    issues={canonAudit.issues}
+                    isRunning={canonAudit.isRunning}
+                    isApplyingFix={canonAudit.isApplyingFix}
+                    onStartAudit={() => canonAudit.startAudit.mutate({ episodeVersionId: selectedEpisode?.script_id || undefined })}
+                    onApplyFix={(issueId) => canonAudit.applyFix.mutate(issueId)}
+                    onDismiss={(issueId) => canonAudit.dismissIssue.mutate(issueId)}
                     hasScript={!!selectedEpisode?.script_id}
                   />
 

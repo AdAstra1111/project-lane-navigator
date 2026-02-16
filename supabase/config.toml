@@ -143,3 +143,9 @@ verify_jwt = false
 
 [functions.document-assistant-run]
 verify_jwt = false
+
+[functions.series-continuity-audit]
+verify_jwt = false
+
+[functions.series-apply-continuity-fix]
+verify_jwt = false

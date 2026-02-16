@@ -8462,6 +8462,160 @@ export type Database = {
           },
         ]
       }
+      series_continuity_issues: {
+        Row: {
+          claim_in_episode: string | null
+          conflicts_with: Json
+          created_at: string
+          episode_number: number
+          fix_options: Json
+          id: string
+          issue_type: string
+          project_id: string
+          proposed_patch: Json
+          run_id: string
+          severity: string
+          status: string
+          title: string
+          why_it_conflicts: string | null
+        }
+        Insert: {
+          claim_in_episode?: string | null
+          conflicts_with?: Json
+          created_at?: string
+          episode_number: number
+          fix_options?: Json
+          id?: string
+          issue_type: string
+          project_id: string
+          proposed_patch?: Json
+          run_id: string
+          severity: string
+          status?: string
+          title: string
+          why_it_conflicts?: string | null
+        }
+        Update: {
+          claim_in_episode?: string | null
+          conflicts_with?: Json
+          created_at?: string
+          episode_number?: number
+          fix_options?: Json
+          id?: string
+          issue_type?: string
+          project_id?: string
+          proposed_patch?: Json
+          run_id?: string
+          severity?: string
+          status?: string
+          title?: string
+          why_it_conflicts?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "series_continuity_issues_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "series_continuity_issues_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "series_continuity_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      series_continuity_runs: {
+        Row: {
+          created_at: string
+          episode_number: number
+          episode_version_id: string
+          finished_at: string | null
+          id: string
+          logs: string | null
+          project_id: string
+          results_json: Json
+          started_by: string
+          status: string
+          summary: string | null
+        }
+        Insert: {
+          created_at?: string
+          episode_number: number
+          episode_version_id: string
+          finished_at?: string | null
+          id?: string
+          logs?: string | null
+          project_id: string
+          results_json?: Json
+          started_by: string
+          status?: string
+          summary?: string | null
+        }
+        Update: {
+          created_at?: string
+          episode_number?: number
+          episode_version_id?: string
+          finished_at?: string | null
+          id?: string
+          logs?: string | null
+          project_id?: string
+          results_json?: Json
+          started_by?: string
+          status?: string
+          summary?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "series_continuity_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      series_episode_canon_facts: {
+        Row: {
+          created_at: string
+          episode_number: number
+          episode_version_id: string | null
+          facts_json: Json
+          id: string
+          project_id: string
+          recap: string | null
+        }
+        Insert: {
+          created_at?: string
+          episode_number: number
+          episode_version_id?: string | null
+          facts_json?: Json
+          id?: string
+          project_id: string
+          recap?: string | null
+        }
+        Update: {
+          created_at?: string
+          episode_number?: number
+          episode_version_id?: string | null
+          facts_json?: Json
+          id?: string
+          project_id?: string
+          recap?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "series_episode_canon_facts_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       series_episodes: {
         Row: {
           canon_snapshot_id: string | null
