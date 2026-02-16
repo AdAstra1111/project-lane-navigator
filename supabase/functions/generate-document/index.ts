@@ -99,7 +99,7 @@ Deno.serve(async (req) => {
     }
 
     const body = await req.json();
-    const { projectId, docType, mode = "draft", generatorId = "generate-document", generatorRunId } = body;
+    const { projectId, docType, mode = "draft", generatorId = "generate-document", generatorRunId, additionalContext } = body;
 
     if (!projectId || !docType) {
       return new Response(JSON.stringify({ error: "projectId and docType required" }), {
@@ -194,6 +194,7 @@ Deno.serve(async (req) => {
       `Production type: ${project.format || project.production_type || "film"}`,
       qualBlock,
       styleBlock,
+      additionalContext ? `## CREATIVE DIRECTION (MUST INCORPORATE)\n${additionalContext}` : "",
       mode === "final" ? "This is a FINAL version — ensure completeness and polish." : "This is a DRAFT — focus on substance over polish.",
     ].filter(Boolean).join("\n\n");
 
