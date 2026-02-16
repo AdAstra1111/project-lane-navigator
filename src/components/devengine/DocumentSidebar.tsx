@@ -22,6 +22,7 @@ const DOC_TYPE_LABELS: Record<string, string> = {
   production_draft: 'Production Draft', deck: 'Deck', documentary_outline: 'Doc Outline',
   format_rules: 'Format Rules', season_arc: 'Season Arc',
   episode_grid: 'Episode Grid', vertical_episode_beats: 'Episode Beats',
+  vertical_market_sheet: 'Market Sheet (VD)',
 };
 
 interface DocumentSidebarProps {

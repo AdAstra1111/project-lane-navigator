@@ -96,6 +96,7 @@ const DELIVERABLE_RUBRICS: Record<string, string> = {
   idea: `Evaluate as an IDEA/LOGLINE. Score clarity, originality, market hook, audience identification. Do NOT evaluate dialogue, pacing, or scene structure.`,
   concept_brief: `Evaluate as a CONCEPT BRIEF. Score premise strength, theme clarity, genre positioning, tonal consistency. Do NOT evaluate scene-level craft or dialogue.`,
   market_sheet: `Evaluate as a MARKET SHEET. Score market positioning, comparable titles, audience targeting, budget alignment. Do NOT evaluate narrative craft.`,
+  vertical_market_sheet: `Evaluate as a VERTICAL MARKET SHEET for mobile-first drama. Score platform targeting, audience demographics, comparable vertical titles, and revenue/monetization model. Do NOT evaluate narrative craft.`,
   blueprint: `Evaluate as a BLUEPRINT. Score structural architecture, act breaks, key beats, escalation logic, thematic spine. Do NOT evaluate dialogue quality or specific prose.`,
   architecture: `Evaluate as an ARCHITECTURE document. Score scene-by-scene planning, page allocation, structural balance, pacing blueprint. Do NOT evaluate dialogue.`,
   character_bible: `Evaluate as a CHARACTER BIBLE. Score character depth, arc design, relationship dynamics, thematic integration. Do NOT evaluate scene structure or pacing.`,
@@ -545,6 +546,9 @@ const docTypeMap: Record<string, string> = {
   "VERTICAL EPISODE GRID": "episode_grid",
   VERTICAL_EPISODE_BEATS: "vertical_episode_beats",
   "VERTICAL EPISODE BEATS": "vertical_episode_beats",
+  VERTICAL_MARKET_SHEET: "vertical_market_sheet",
+  "VERTICAL MARKET SHEET": "vertical_market_sheet",
+  "MARKET SHEET (VD)": "vertical_market_sheet",
 };
 
 // ── Vertical Drama Document Pipeline ──
@@ -552,6 +556,7 @@ const docTypeMap: Record<string, string> = {
 const VERTICAL_DRAMA_PIPELINE: Array<{ type: string; prerequisites: string[] }> = [
   { type: "idea", prerequisites: [] },
   { type: "concept_brief", prerequisites: ["idea"] },
+  { type: "vertical_market_sheet", prerequisites: ["concept_brief"] },
   { type: "format_rules", prerequisites: ["concept_brief"] },
   { type: "character_bible", prerequisites: ["concept_brief"] },
   { type: "season_arc", prerequisites: ["concept_brief", "character_bible"] },

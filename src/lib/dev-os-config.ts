@@ -9,6 +9,7 @@ export type DeliverableType =
   | 'idea'
   | 'concept_brief'
   | 'market_sheet'
+  | 'vertical_market_sheet'
   | 'blueprint'
   | 'architecture'
   | 'character_bible'
@@ -26,6 +27,7 @@ export const DELIVERABLE_LABELS: Record<DeliverableType, string> = {
   idea: 'Idea',
   concept_brief: 'Concept Brief',
   market_sheet: 'Market Sheet',
+  vertical_market_sheet: 'Market Sheet (VD)',
   blueprint: 'Season Blueprint',
   architecture: 'Series Architecture',
   character_bible: 'Character Bible',
@@ -55,6 +57,7 @@ export const DELIVERABLE_PIPELINE_ORDER: DeliverableType[] = [
 export const VERTICAL_DRAMA_PIPELINE_ORDER: DeliverableType[] = [
   'idea',
   'concept_brief',
+  'vertical_market_sheet',
   'format_rules',
   'character_bible',
   'season_arc',
@@ -70,6 +73,7 @@ export const VERTICAL_DRAMA_PIPELINE_ORDER: DeliverableType[] = [
 export const VERTICAL_DRAMA_DOC_ORDER: Array<{ type: DeliverableType; label: string; prerequisites: DeliverableType[] }> = [
   { type: 'idea', label: 'Idea Brief', prerequisites: [] },
   { type: 'concept_brief', label: 'Concept Brief', prerequisites: ['idea'] },
+  { type: 'vertical_market_sheet', label: 'Market Sheet (VD)', prerequisites: ['concept_brief'] },
   { type: 'format_rules', label: 'Format Rules', prerequisites: ['concept_brief'] },
   { type: 'character_bible', label: 'Character Bible', prerequisites: ['concept_brief'] },
   { type: 'season_arc', label: 'Season Arc', prerequisites: ['concept_brief', 'character_bible'] },
@@ -437,6 +441,7 @@ export function defaultDeliverableForDocType(docType: string): DeliverableType {
     concept_brief: 'concept_brief',
     logline: 'concept_brief',
     market_sheet: 'market_sheet',
+    vertical_market_sheet: 'vertical_market_sheet',
     treatment: 'blueprint',
     script: 'script',
     pilot_script: 'script',
