@@ -2672,6 +2672,50 @@ export type Database = {
           },
         ]
       }
+      doc_fact_ledger_items: {
+        Row: {
+          claim: string
+          created_at: string
+          evidence_link: string | null
+          evidence_type: string
+          id: string
+          notes: string
+          project_id: string
+          status: string
+          user_id: string | null
+        }
+        Insert: {
+          claim: string
+          created_at?: string
+          evidence_link?: string | null
+          evidence_type?: string
+          id?: string
+          notes?: string
+          project_id: string
+          status?: string
+          user_id?: string | null
+        }
+        Update: {
+          claim?: string
+          created_at?: string
+          evidence_link?: string | null
+          evidence_type?: string
+          id?: string
+          notes?: string
+          project_id?: string
+          status?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "doc_fact_ledger_items_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       doc_queries: {
         Row: {
           created_at: string
@@ -7344,6 +7388,57 @@ export type Database = {
           },
         ]
       }
+      project_signal_matches: {
+        Row: {
+          applied_to: Json
+          cluster_id: string
+          created_at: string
+          id: string
+          impact_score: number
+          last_applied_at: string | null
+          project_id: string
+          rationale: Json
+          relevance_score: number
+        }
+        Insert: {
+          applied_to?: Json
+          cluster_id: string
+          created_at?: string
+          id?: string
+          impact_score?: number
+          last_applied_at?: string | null
+          project_id: string
+          rationale?: Json
+          relevance_score?: number
+        }
+        Update: {
+          applied_to?: Json
+          cluster_id?: string
+          created_at?: string
+          id?: string
+          impact_score?: number
+          last_applied_at?: string | null
+          project_id?: string
+          rationale?: Json
+          relevance_score?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_signal_matches_cluster_id_fkey"
+            columns: ["cluster_id"]
+            isOneToOne: false
+            referencedRelation: "trend_signals"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_signal_matches_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       project_talent_triage: {
         Row: {
           commercial_case: string
@@ -7561,6 +7656,7 @@ export type Database = {
           pinned: boolean
           pipeline_stage: string
           primary_territory: string
+          project_features: Json
           qualifications: Json | null
           reasoning: string | null
           recommendations: Json | null
@@ -7575,6 +7671,8 @@ export type Database = {
           season_style_template_doc_type: string | null
           season_style_template_version_id: string | null
           secondary_territories: string[]
+          signals_apply: Json
+          signals_influence: number
           source_pitch_idea_id: string | null
           target_audience: string
           target_runtime_minutes: number
@@ -7614,6 +7712,7 @@ export type Database = {
           pinned?: boolean
           pipeline_stage?: string
           primary_territory?: string
+          project_features?: Json
           qualifications?: Json | null
           reasoning?: string | null
           recommendations?: Json | null
@@ -7628,6 +7727,8 @@ export type Database = {
           season_style_template_doc_type?: string | null
           season_style_template_version_id?: string | null
           secondary_territories?: string[]
+          signals_apply?: Json
+          signals_influence?: number
           source_pitch_idea_id?: string | null
           target_audience?: string
           target_runtime_minutes?: number
@@ -7667,6 +7768,7 @@ export type Database = {
           pinned?: boolean
           pipeline_stage?: string
           primary_territory?: string
+          project_features?: Json
           qualifications?: Json | null
           reasoning?: string | null
           recommendations?: Json | null
@@ -7681,6 +7783,8 @@ export type Database = {
           season_style_template_doc_type?: string | null
           season_style_template_version_id?: string | null
           secondary_territories?: string[]
+          signals_apply?: Json
+          signals_influence?: number
           source_pitch_idea_id?: string | null
           target_audience?: string
           target_runtime_minutes?: number
@@ -8720,16 +8824,71 @@ export type Database = {
         }
         Relationships: []
       }
+      trend_observations: {
+        Row: {
+          cluster_id: string | null
+          created_at: string
+          extraction_confidence: number
+          format_hint: string | null
+          id: string
+          ingested_by: string
+          observed_at: string | null
+          raw_metrics: Json
+          raw_text: string | null
+          source_name: string
+          source_type: string
+          source_url: string | null
+          tags: Json
+          user_id: string | null
+        }
+        Insert: {
+          cluster_id?: string | null
+          created_at?: string
+          extraction_confidence?: number
+          format_hint?: string | null
+          id?: string
+          ingested_by?: string
+          observed_at?: string | null
+          raw_metrics?: Json
+          raw_text?: string | null
+          source_name?: string
+          source_type?: string
+          source_url?: string | null
+          tags?: Json
+          user_id?: string | null
+        }
+        Update: {
+          cluster_id?: string | null
+          created_at?: string
+          extraction_confidence?: number
+          format_hint?: string | null
+          id?: string
+          ingested_by?: string
+          observed_at?: string | null
+          raw_metrics?: Json
+          raw_text?: string | null
+          source_name?: string
+          source_type?: string
+          source_url?: string | null
+          tags?: Json
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       trend_signals: {
         Row: {
           archived_at: string | null
           budget_tier: string
           category: string
+          cluster_scoring: Json
           created_at: string
           cycle_phase: string
+          description: string
+          example_titles: Json
           explanation: string
           first_detected_at: string
           forecast: string
+          format_applicability: Json
           format_tags: string[]
           genre_tags: string[]
           id: string
@@ -8740,6 +8899,7 @@ export type Database = {
           region: string
           saturation_risk: string
           sources_count: number
+          sources_used: Json
           status: string
           strength: number
           target_buyer: string
@@ -8750,11 +8910,15 @@ export type Database = {
           archived_at?: string | null
           budget_tier?: string
           category: string
+          cluster_scoring?: Json
           created_at?: string
           cycle_phase: string
+          description?: string
+          example_titles?: Json
           explanation: string
           first_detected_at?: string
           forecast?: string
+          format_applicability?: Json
           format_tags?: string[]
           genre_tags?: string[]
           id?: string
@@ -8765,6 +8929,7 @@ export type Database = {
           region?: string
           saturation_risk?: string
           sources_count?: number
+          sources_used?: Json
           status?: string
           strength?: number
           target_buyer?: string
@@ -8775,11 +8940,15 @@ export type Database = {
           archived_at?: string | null
           budget_tier?: string
           category?: string
+          cluster_scoring?: Json
           created_at?: string
           cycle_phase?: string
+          description?: string
+          example_titles?: Json
           explanation?: string
           first_detected_at?: string
           forecast?: string
+          format_applicability?: Json
           format_tags?: string[]
           genre_tags?: string[]
           id?: string
@@ -8790,6 +8959,7 @@ export type Database = {
           region?: string
           saturation_risk?: string
           sources_count?: number
+          sources_used?: Json
           status?: string
           strength?: number
           target_buyer?: string

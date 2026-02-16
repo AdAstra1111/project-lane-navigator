@@ -829,12 +829,44 @@ Format: ${rq.format}.
 Resolver hash: ${resolvedQuals?.resolver_hash || "unknown"}.`;
       }
 
+      // ── Signal Context Injection ──
+      let signalContext = "";
+      try {
+        const { data: projSettings } = await supabase.from("projects")
+          .select("signals_influence, signals_apply")
+          .eq("id", projectId).single();
+        const influence = (projSettings as any)?.signals_influence ?? 0.5;
+        const applyConfig = (projSettings as any)?.signals_apply ?? { pitch: true, dev: true, grid: true, doc: true };
+        if (applyConfig.dev) {
+          const { data: matches } = await supabase
+            .from("project_signal_matches")
+            .select("relevance_score, impact_score, rationale, cluster:cluster_id(name, category, strength, velocity, saturation_risk, explanation)")
+            .eq("project_id", projectId)
+            .order("impact_score", { ascending: false })
+            .limit(3);
+          if (matches && matches.length > 0) {
+            const fmt = effectiveFormat === "vertical-drama" ? "vertical_drama" : effectiveFormat === "documentary" ? "documentary" : "film";
+            const influenceLabel = influence >= 0.65 ? "HIGH" : influence >= 0.35 ? "MODERATE" : "LOW";
+            const fmtNote = fmt === "vertical_drama" ? "Apply retention mechanics — cliff cadence, reveal pacing, twist density."
+              : fmt === "documentary" ? "Apply truth constraints — access/evidence plan. Signals inform subject positioning only."
+              : "Apply budget realism, lane liquidity, and saturation warnings.";
+            const lines = matches.map((m: any, i: number) => {
+              const c = m.cluster;
+              return `${i+1}. ${c?.name || "Signal"} [${c?.category || ""}] — strength ${c?.strength || 0}/10, ${c?.velocity || "Stable"}, saturation ${c?.saturation_risk || "Low"}\n   ${c?.explanation || ""}`;
+            }).join("\n");
+            signalContext = `\n=== MARKET & FORMAT SIGNALS (influence: ${influenceLabel}) ===\n${fmtNote}\n${lines}\n=== END SIGNALS ===`;
+          }
+        }
+      } catch (e) {
+        console.warn("[dev-engine-v2] Signal context fetch failed (non-fatal):", e);
+      }
+
       const userPrompt = `PRODUCTION TYPE: ${effectiveProductionType}
 STRATEGIC PRIORITY: ${strategicPriority || "BALANCED"}
 DEVELOPMENT STAGE: ${developmentStage || "IDEA"}
 PROJECT: ${project?.title || "Unknown"}
 LANE: ${project?.assigned_lane || "Unknown"} | BUDGET: ${project?.budget_range || "Unknown"}
-${prevContext}${seasonContext}${qualBinding}
+${prevContext}${seasonContext}${qualBinding}${signalContext}
 
 MATERIAL (${version.plaintext.length} chars):
 ${version.plaintext.slice(0, 25000)}`;
