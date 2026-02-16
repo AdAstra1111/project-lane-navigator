@@ -99,7 +99,7 @@ export default function ProjectDevelopmentEngine() {
     selectDocument, setSelectedVersionId,
     runs, allDocRuns, convergenceHistory,
     latestAnalysis, latestNotes, isConverged, convergenceStatus, isLoading,
-    analyze, generateNotes, rewrite, convert, createPaste, deleteDocument, deleteVersion,
+    analyze, generateNotes, rewrite, convert, createPaste, deleteDocument, deleteVersion, beatSheetToScript,
     driftEvents, latestDrift, acknowledgeDrift, resolveDrift,
   } = useDevEngineV2(projectId);
 
@@ -631,6 +631,11 @@ export default function ProjectDevelopmentEngine() {
                     convertPending={convert.isPending}
                     generateNotesPending={generateNotes.isPending}
                     verticalDramaGating={verticalDramaGating}
+                    isVerticalDrama={isVerticalDrama}
+                    currentDocType={selectedDoc?.doc_type}
+                    seasonEpisodeCount={effectiveSeasonEpisodes}
+                    onBeatSheetToScript={(epNum) => beatSheetToScript.mutate({ episodeNumber: epNum, seasonEpisodeCount: effectiveSeasonEpisodes })}
+                    beatSheetToScriptPending={beatSheetToScript.isPending}
                   />
 
                   {/* Resume auto-run handled by banner above */}

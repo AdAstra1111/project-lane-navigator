@@ -3094,6 +3094,308 @@ RULES:
     }
 
     // ══════════════════════════════════════════════
+    // BEAT SHEET → EPISODE SCREENPLAY (vertical_drama only)
+    // ══════════════════════════════════════════════
+    if (action === "beat-sheet-to-script") {
+      const { projectId, documentId, versionId, episodeNumber, seasonEpisodeCount: reqSeasonCount } = body;
+      if (!projectId || !documentId || !versionId) throw new Error("projectId, documentId, versionId required");
+
+      // Fetch project
+      const { data: project } = await supabase.from("projects")
+        .select("format, season_episode_count, guardrails_config")
+        .eq("id", projectId).single();
+      const fmt = (project?.format || "").toLowerCase().replace(/[_ ]+/g, "-");
+      if (fmt !== "vertical-drama") throw new Error("beat-sheet-to-script is only available for vertical_drama projects");
+
+      const gc = project?.guardrails_config || {};
+      const gquals = gc?.overrides?.qualifications || {};
+      const seasonCount = reqSeasonCount || gquals.season_episode_count || (project as any)?.season_episode_count || 10;
+      const epNum = episodeNumber || 1;
+      if (epNum > seasonCount) throw new Error(`Episode ${epNum} exceeds season_episode_count (${seasonCount})`);
+
+      // Fetch beat sheet text
+      const { data: version } = await supabase.from("project_document_versions")
+        .select("plaintext").eq("id", versionId).single();
+      if (!version?.plaintext) throw new Error("Version not found or empty");
+      const beatSheetText = version.plaintext;
+
+      // ── SCOPE DETECTION ──
+      const SCOPE_DETECT_SYSTEM = `Analyze this beat sheet and determine if it covers a FULL SEASON or a SINGLE EPISODE.
+
+Return ONLY valid JSON:
+{
+  "scope": "season" | "episode" | "unknown",
+  "confidence": 0-100,
+  "signals": ["reason1", "reason2"],
+  "episode_count_detected": number | null
+}
+
+Season signals: mentions multiple episodes, "Episode X:" headings, "season arc", "mid-season", episode ranges.
+Episode signals: single episode focus, 8-20 beats, cold open/hook/cliffhanger for one arc, sequential present-tense flow.`;
+
+      const scopeRaw = await callAI(LOVABLE_API_KEY, FAST_MODEL, SCOPE_DETECT_SYSTEM, beatSheetText.slice(0, 6000), 0.1, 1000);
+      let scopeResult: any;
+      try { scopeResult = JSON.parse(extractJSON(scopeRaw)); } catch { scopeResult = { scope: "unknown", confidence: 50, signals: [] }; }
+
+      // ── AUTO-SLICE if season-level ──
+      let episodeBeatSheet = beatSheetText;
+      let sliceMethod = "none";
+
+      if (scopeResult.scope === "season") {
+        // Fetch episode grid row for this episode
+        let gridContext = "";
+        const { data: gridDocs } = await supabase.from("project_documents")
+          .select("id").eq("project_id", projectId).eq("doc_type", "episode_grid").limit(1);
+        if (gridDocs && gridDocs.length > 0) {
+          const { data: gridVer } = await supabase.from("project_document_versions")
+            .select("plaintext").eq("document_id", gridDocs[0].id)
+            .order("version_number", { ascending: false }).limit(1).single();
+          if (gridVer?.plaintext) gridContext = gridVer.plaintext.slice(0, 3000);
+        }
+
+        // Fetch previous episode for carryover
+        let prevEpContext = "";
+        if (epNum > 1) {
+          const { data: prevDocs } = await supabase.from("project_documents")
+            .select("id").eq("project_id", projectId).eq("doc_type", "script")
+            .order("created_at", { ascending: false }).limit(5);
+          // Find one matching ep N-1 by title
+          for (const pd of (prevDocs || [])) {
+            const { data: pv } = await supabase.from("project_document_versions")
+              .select("plaintext").eq("document_id", pd.id)
+              .order("version_number", { ascending: false }).limit(1).single();
+            if (pv?.plaintext && pv.plaintext.length > 200) {
+              prevEpContext = pv.plaintext.slice(-2000);
+              break;
+            }
+          }
+        }
+
+        const SLICE_SYSTEM = `You are extracting Episode ${epNum} beats from a SEASON-level beat sheet.
+
+RULES:
+- Extract ONLY beats relevant to Episode ${epNum}.
+- If "Episode ${epNum}" block exists, extract that section.
+- If no explicit block, use the Episode Grid row as skeleton and attach max 5 relevant beats.
+- Include carryover state from previous episode (emotional state, unresolved questions, relationship shifts).
+- Output a focused EPISODE BEAT SHEET, NOT a season summary.
+
+Output format (plain text, no JSON):
+EPISODE ${epNum} BEAT SHEET
+Hook: [opening hook beat]
+[6-14 sequential beats]
+Cliffhanger: [ending cliffhanger beat]
+Continuity Notes: [carryover from previous episode]`;
+
+        const slicePrompt = `SEASON BEAT SHEET:\n${beatSheetText.slice(0, 12000)}\n\n${gridContext ? `EPISODE GRID:\n${gridContext}\n\n` : ""}${prevEpContext ? `PREVIOUS EPISODE ENDING:\n${prevEpContext}\n\n` : ""}Extract Episode ${epNum} of ${seasonCount}.`;
+
+        const sliced = await callAI(LOVABLE_API_KEY, FAST_MODEL, SLICE_SYSTEM, slicePrompt, 0.2, 3000);
+        episodeBeatSheet = sliced.trim();
+        sliceMethod = "ai_slice";
+      }
+
+      // ── FETCH CANON CONTEXT ──
+      let canonContext = "";
+      // Character Bible
+      const { data: cbDocs } = await supabase.from("project_documents")
+        .select("id").eq("project_id", projectId).eq("doc_type", "character_bible").limit(1);
+      if (cbDocs && cbDocs.length > 0) {
+        const { data: cbVer } = await supabase.from("project_document_versions")
+          .select("plaintext").eq("document_id", cbDocs[0].id)
+          .order("version_number", { ascending: false }).limit(1).single();
+        if (cbVer?.plaintext) canonContext += `CHARACTER BIBLE:\n${cbVer.plaintext.slice(0, 3000)}\n\n`;
+      }
+      // Blueprint
+      const { data: bpDocs } = await supabase.from("project_documents")
+        .select("id").eq("project_id", projectId).eq("doc_type", "blueprint").limit(1);
+      if (bpDocs && bpDocs.length > 0) {
+        const { data: bpVer } = await supabase.from("project_document_versions")
+          .select("plaintext").eq("document_id", bpDocs[0].id)
+          .order("version_number", { ascending: false }).limit(1).single();
+        if (bpVer?.plaintext) canonContext += `SEASON BLUEPRINT:\n${bpVer.plaintext.slice(0, 2000)}\n\n`;
+      }
+
+      // Previous episode script for continuity
+      let prevScript = "";
+      if (epNum > 1) {
+        const { data: prevScripts } = await supabase.from("project_documents")
+          .select("id, title").eq("project_id", projectId).eq("doc_type", "script")
+          .order("created_at", { ascending: false }).limit(10);
+        for (const ps of (prevScripts || [])) {
+          if (ps.title?.toLowerCase().includes(`episode ${epNum - 1}`) || ps.title?.toLowerCase().includes(`ep ${epNum - 1}`)) {
+            const { data: psVer } = await supabase.from("project_document_versions")
+              .select("plaintext").eq("document_id", ps.id)
+              .order("version_number", { ascending: false }).limit(1).single();
+            if (psVer?.plaintext) { prevScript = psVer.plaintext.slice(-3000); break; }
+          }
+        }
+      }
+
+      // Fetch Episode 1 for length reference
+      let ep1Length = 0;
+      const { data: ep1Docs } = await supabase.from("project_documents")
+        .select("id, title").eq("project_id", projectId).eq("doc_type", "script").limit(10);
+      for (const d of (ep1Docs || [])) {
+        if (d.title?.toLowerCase().includes("episode 1") || d.title?.toLowerCase().includes("ep 1") || d.title?.toLowerCase().includes("ep 01")) {
+          const { data: v } = await supabase.from("project_document_versions")
+            .select("plaintext").eq("document_id", d.id)
+            .order("version_number", { ascending: false }).limit(1).single();
+          if (v?.plaintext) { ep1Length = v.plaintext.length; break; }
+        }
+      }
+      const lengthGuide = ep1Length > 0 ? `Target length: approximately ${Math.round(ep1Length * 0.85)} to ${Math.round(ep1Length * 1.15)} characters (matching Episode 1 ±15%).` : "";
+
+      // ── STRICT SCREENPLAY GENERATION ──
+      const SCREENPLAY_SYSTEM = `WRITE A SCREENPLAY, NOT A SUMMARY.
+Output ONLY formatted screenplay text.
+No explanations. No outlines. No JSON. No markdown.
+Start immediately with the first scene heading.
+
+You are writing EPISODE ${epNum} of a ${seasonCount}-episode vertical drama season.
+
+FORMATTING RULES:
+- Use INT./EXT. scene headings
+- Action lines in present tense
+- Character names in CAPS
+- Dialogue blocks properly formatted
+- Minimum 6 scene headings
+- Minimum 12 dialogue blocks
+- 1-3 primary locations maximum
+- Hook within the first 10 lines — grab attention immediately
+- Cliffhanger in the final 10 lines — unresolved question or shocking reveal
+- Natural vertical pacing — fast, punchy, no feature-film drag
+${lengthGuide}
+
+FORBIDDEN:
+- "In this episode…"
+- "Season overview"
+- "Synopsis"
+- "Across the season…"
+- Numbered beat lists
+- Outline format
+- Act breakdown headings (unless written as actual scenes)
+- Paragraph synopsis format
+
+${canonContext}
+${prevScript ? `PREVIOUS EPISODE ENDING (for continuity):\n${prevScript}\n\n` : ""}`;
+
+      const scriptPrompt = `EPISODE ${epNum} BEAT SHEET:\n${episodeBeatSheet.slice(0, 8000)}`;
+
+      const scriptRaw = await callAI(LOVABLE_API_KEY, PRO_MODEL, SCREENPLAY_SYSTEM, scriptPrompt, 0.4, 16000);
+      const scriptText = scriptRaw.replace(/^```[\s\S]*?\n/, "").replace(/\n?```\s*$/, "").trim();
+
+      // ── SCREENPLAY FORMAT VALIDATION ──
+      const scriptLines = scriptText.split("\n");
+      const sceneHeadingPattern = /^(INT\.|EXT\.|INT\.\/?EXT\.)\s+/;
+      const sceneHeadingCount = scriptLines.filter((l: string) => sceneHeadingPattern.test(l.trim())).length;
+
+      let dialogueBlockCount = 0;
+      for (let i = 0; i < scriptLines.length - 1; i++) {
+        const line = scriptLines[i].trim();
+        if (/^[A-Z][A-Z\s.']{1,29}(\s*\(.*\))?\s*$/.test(line) && scriptLines[i + 1]?.trim().length > 0) {
+          dialogueBlockCount++;
+        }
+      }
+
+      const outlineLines = scriptLines.filter((l: string) => /^\s*[-•*]\s/.test(l) || /^\s*\d+[\.\)]\s/.test(l));
+      const outlinePercent = scriptLines.length > 0 ? Math.round((outlineLines.length / scriptLines.length) * 100) : 0;
+
+      const lowerScript = scriptText.toLowerCase();
+      const bannedPhrases = ["overview", "synopsis", "in this episode", "across the season", "season overview"]
+        .filter(p => lowerScript.includes(p));
+
+      const formatPassed = sceneHeadingCount >= 6 && dialogueBlockCount >= 12 && outlinePercent <= 8 && bannedPhrases.length === 0;
+
+      const validationReasons: string[] = [];
+      if (sceneHeadingCount < 6) validationReasons.push(`Only ${sceneHeadingCount} scene headings (min 6)`);
+      if (dialogueBlockCount < 12) validationReasons.push(`Only ${dialogueBlockCount} dialogue blocks (min 12)`);
+      if (outlinePercent > 8) validationReasons.push(`${outlinePercent}% outline-style lines (max 8%)`);
+      if (bannedPhrases.length > 0) validationReasons.push(`Banned: ${bannedPhrases.join(", ")}`);
+
+      // Check cliffhanger presence
+      const lastLines = scriptLines.slice(-15).join("\n").toLowerCase();
+      const hasCliffhanger = /\?|reveal|shock|gasp|scream|freeze|black|cut to|smash/i.test(lastLines);
+
+      // ── SAVE AS DOCUMENT ──
+      const title = `Episode ${epNum} Script`;
+      const { data: srcDoc } = await supabase.from("project_documents")
+        .select("title").eq("id", documentId).single();
+
+      const { data: newDoc, error: dErr } = await supabase.from("project_documents").insert({
+        project_id: projectId,
+        user_id: user.id,
+        file_name: `${srcDoc?.title || "Beat Sheet"} → ${title}`,
+        file_path: "",
+        extraction_status: "complete",
+        doc_type: "script",
+        title,
+        source: "generated",
+        plaintext: scriptText,
+      }).select().single();
+      if (dErr) throw dErr;
+
+      const { data: newVersion } = await supabase.from("project_document_versions").insert({
+        document_id: newDoc.id,
+        version_number: 1,
+        label: `Episode ${epNum} screenplay`,
+        plaintext: scriptText,
+        created_by: user.id,
+        change_summary: `Generated from beat sheet (scope: ${scopeResult.scope}, slice: ${sliceMethod})`,
+        source_document_ids: [documentId],
+      }).select().single();
+
+      // Store run
+      await supabase.from("development_runs").insert({
+        project_id: projectId,
+        document_id: newDoc.id,
+        version_id: newVersion!.id,
+        user_id: user.id,
+        run_type: "CONVERT",
+        output_json: {
+          source_document_id: documentId,
+          source_version_id: versionId,
+          episode_number: epNum,
+          season_episode_count: seasonCount,
+          beat_sheet_scope: scopeResult,
+          slice_method: sliceMethod,
+          script_format_validation: {
+            passed: formatPassed,
+            scene_heading_count: sceneHeadingCount,
+            dialogue_block_count: dialogueBlockCount,
+            outline_percent: outlinePercent,
+            banned_phrases: bannedPhrases,
+            has_cliffhanger: hasCliffhanger,
+            reasons: validationReasons,
+          },
+        },
+        deliverable_type: "script",
+        format: "vertical-drama",
+        schema_version: SCHEMA_VERSION,
+      });
+
+      console.log(`[dev-engine-v2] beat-sheet-to-script: EP${epNum} scope=${scopeResult.scope} slice=${sliceMethod} format_passed=${formatPassed} scenes=${sceneHeadingCount} dialogue=${dialogueBlockCount}`);
+
+      return new Response(JSON.stringify({
+        newDoc, newVersion,
+        episode_number: epNum,
+        beat_sheet_scope: scopeResult,
+        slice_method: sliceMethod,
+        script_format_validation: {
+          passed: formatPassed,
+          status: formatPassed ? "SCREENPLAY_VALID" : "SCRIPT_FORMAT_INVALID",
+          scene_heading_count: sceneHeadingCount,
+          dialogue_block_count: dialogueBlockCount,
+          outline_percent: outlinePercent,
+          banned_phrases: bannedPhrases,
+          has_cliffhanger: hasCliffhanger,
+          reasons: validationReasons,
+        },
+      }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ══════════════════════════════════════════════
     // CANON SNAPSHOT CHECK
     // ══════════════════════════════════════════════
     if (action === "canon-check") {

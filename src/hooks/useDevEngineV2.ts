@@ -304,6 +304,28 @@ export function useDevEngineV2(projectId: string | undefined) {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  const beatSheetToScript = useMutation({
+    mutationFn: async (params: { episodeNumber: number; seasonEpisodeCount?: number }) => {
+      const vid = await resolveVersionId();
+      if (!vid) throw new Error('No version found — select a document first');
+      return callEngineV2('beat-sheet-to-script', { projectId, documentId: selectedDocId, versionId: vid, ...params });
+    },
+    onSuccess: (data) => {
+      const status = data.script_format_validation?.status;
+      if (status === 'SCRIPT_FORMAT_INVALID') {
+        toast.warning(`Episode ${data.episode_number} generated but needs rewrite — format validation failed`);
+      } else {
+        toast.success(`Episode ${data.episode_number} screenplay created`);
+      }
+      if (data.newDoc) {
+        selectDocument(data.newDoc.id);
+        if (data.newVersion) setSelectedVersionId(data.newVersion.id);
+      }
+      invalidateAll();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   const createPaste = useMutation({
     mutationFn: (params: { title: string; docType: string; text: string }) =>
       callEngineV2('create-paste', { projectId, ...params }),
@@ -379,7 +401,7 @@ export function useDevEngineV2(projectId: string | undefined) {
   const latestAnalysis = runs.filter(r => r.run_type === 'ANALYZE').pop()?.output_json || null;
   const latestNotes = runs.filter(r => r.run_type === 'NOTES').pop()?.output_json || null;
 
-  const isLoading = analyze.isPending || generateNotes.isPending || rewrite.isPending || convert.isPending || createPaste.isPending;
+  const isLoading = analyze.isPending || generateNotes.isPending || rewrite.isPending || convert.isPending || createPaste.isPending || beatSheetToScript.isPending;
 
   // Behavior-aware convergence
   const rewriteCount = allDocRuns.filter(r => r.run_type === 'REWRITE').length;
@@ -405,7 +427,7 @@ export function useDevEngineV2(projectId: string | undefined) {
     selectDocument, setSelectedVersionId,
     runs, allDocRuns, convergenceHistory,
     latestAnalysis, latestNotes, isConverged, convergenceStatus, isLoading,
-    analyze, generateNotes, rewrite, convert, createPaste, deleteDocument, deleteVersion,
+    analyze, generateNotes, rewrite, convert, createPaste, deleteDocument, deleteVersion, beatSheetToScript,
     // Drift
     driftEvents, latestDrift, acknowledgeDrift, resolveDrift,
   };
