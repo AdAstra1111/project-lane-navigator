@@ -241,6 +241,7 @@ export type Database = {
           readiness: number | null
           risk_flags: Json | null
           step_index: number
+          step_resolver_hash: string | null
           summary: string | null
         }
         Insert: {
@@ -258,6 +259,7 @@ export type Database = {
           readiness?: number | null
           risk_flags?: Json | null
           step_index: number
+          step_resolver_hash?: string | null
           summary?: string | null
         }
         Update: {
@@ -275,6 +277,7 @@ export type Database = {
           readiness?: number | null
           risk_flags?: Json | null
           step_index?: number
+          step_resolver_hash?: string | null
           summary?: string | null
         }
         Relationships: [
