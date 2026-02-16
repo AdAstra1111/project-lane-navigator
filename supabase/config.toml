@@ -149,3 +149,6 @@ verify_jwt = false
 
 [functions.series-apply-continuity-fix]
 verify_jwt = false
+
+[functions.series-dev-notes]
+verify_jwt = false
