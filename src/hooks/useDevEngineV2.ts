@@ -333,6 +333,11 @@ export function useDevEngineV2(projectId: string | undefined) {
 
   const deleteDocument = useMutation({
     mutationFn: async (docId: string) => {
+      // Clear selection BEFORE the async delete to prevent stale refetches
+      if (selectedDocId === docId) {
+        setSelectedDocId(null);
+        setSelectedVersionId(null);
+      }
       await (supabase as any).from('development_runs').delete().eq('document_id', docId);
       await (supabase as any).from('dev_engine_convergence_history').delete().eq('document_id', docId);
       await (supabase as any).from('project_document_versions').delete().eq('document_id', docId);
@@ -341,10 +346,6 @@ export function useDevEngineV2(projectId: string | undefined) {
     },
     onSuccess: () => {
       toast.success('Document deleted');
-      if (selectedDocId) {
-        setSelectedDocId(null);
-        setSelectedVersionId(null);
-      }
       invalidateAll();
     },
     onError: (e: Error) => toast.error(e.message),
