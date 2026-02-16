@@ -693,6 +693,7 @@ export default function ProjectDevelopmentEngine() {
                     seasonEpisodeCount={effectiveSeasonEpisodes}
                     onBeatSheetToScript={(epNum) => beatSheetToScript.mutate({ episodeNumber: epNum, seasonEpisodeCount: effectiveSeasonEpisodes })}
                     beatSheetToScriptPending={beatSheetToScript.isPending}
+                    nextAction={promotionIntel.data?.next_action}
                   />
 
                   {/* Resume auto-run handled by banner above */}
