@@ -1,19 +1,19 @@
 import { useState, useRef } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Building2, LinkIcon, Unlink, ArrowLeft, Upload, Palette, MapPin, Pencil, Check, X, UserPlus, Trash2, Users } from 'lucide-react';
+import { Building2, LinkIcon, Upload, Palette, MapPin, Pencil, Check, X, UserPlus, Trash2, Users, FolderOpen, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Header } from '@/components/Header';
 import { PageTransition } from '@/components/PageTransition';
-import { ProjectCard } from '@/components/project/ProjectCard';
+import {
+  Breadcrumb, BreadcrumbList, BreadcrumbItem, BreadcrumbLink, BreadcrumbPage, BreadcrumbSeparator,
+} from '@/components/ui/breadcrumb';
 import { useCompany, useCompanyProjects, useProjectCompanies, useCompanies } from '@/hooks/useCompanies';
 import { useCompanyMembers } from '@/hooks/useCompanyMembers';
 import { useProjects } from '@/hooks/useProjects';
-import { useDashboardScores } from '@/hooks/useDashboardScores';
-import { Project } from '@/lib/types';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { ROLE_LABELS, type ProjectRole } from '@/hooks/useCollaboration';
@@ -103,14 +103,13 @@ function CompanyBrandingSection({ companyId, logoUrl, colorAccent, jurisdiction 
     <div className="glass-card rounded-lg p-5 mb-8">
       <h3 className="text-sm font-semibold text-foreground mb-4">Company Branding</h3>
       <div className="flex flex-wrap gap-6">
-        {/* Logo */}
         <div className="flex flex-col items-center gap-2">
-            <div
-              className="h-16 max-w-[200px] min-w-[64px] rounded-lg border-2 border-dashed border-border overflow-hidden flex items-center justify-center cursor-pointer hover:border-primary/50 transition-colors bg-muted-foreground/10 dark:bg-muted-foreground/20"
-              onClick={() => fileInputRef.current?.click()}
-            >
-              {logoUrl ? (
-                <img src={logoUrl} alt="Logo" className="h-full w-auto object-contain p-1" />
+          <div
+            className="h-16 max-w-[200px] min-w-[64px] rounded-lg border-2 border-dashed border-border overflow-hidden flex items-center justify-center cursor-pointer hover:border-primary/50 transition-colors bg-muted-foreground/10 dark:bg-muted-foreground/20"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            {logoUrl ? (
+              <img src={logoUrl} alt="Logo" className="h-full w-auto object-contain p-1" />
             ) : (
               <Upload className="h-5 w-5 text-muted-foreground" />
             )}
@@ -119,7 +118,6 @@ function CompanyBrandingSection({ companyId, logoUrl, colorAccent, jurisdiction 
           <span className="text-[10px] text-muted-foreground">{uploading ? 'Uploading...' : 'Logo'}</span>
         </div>
 
-        {/* Accent colour */}
         <div>
           <div className="flex items-center gap-1.5 mb-2">
             <Palette className="h-3.5 w-3.5 text-muted-foreground" />
@@ -137,15 +135,11 @@ function CompanyBrandingSection({ companyId, logoUrl, colorAccent, jurisdiction 
               />
             ))}
             {colorAccent && !ACCENT_PRESETS.includes(colorAccent) && (
-              <div
-                className="h-6 w-6 rounded-full border-2 border-foreground"
-                style={{ backgroundColor: colorAccent }}
-              />
+              <div className="h-6 w-6 rounded-full border-2 border-foreground" style={{ backgroundColor: colorAccent }} />
             )}
           </div>
         </div>
 
-        {/* Jurisdiction */}
         <div>
           <div className="flex items-center gap-1.5 mb-2">
             <MapPin className="h-3.5 w-3.5 text-muted-foreground" />
@@ -223,23 +217,10 @@ function CompanyMembersSection({ companyId }: { companyId: string }) {
           className="border border-border/50 rounded-lg p-4 mb-4 space-y-3"
         >
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <Input
-              value={name}
-              onChange={e => setName(e.target.value)}
-              placeholder="Name"
-              className="text-sm"
-            />
-            <Input
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              placeholder="Email"
-              className="text-sm"
-              type="email"
-            />
+            <Input value={name} onChange={e => setName(e.target.value)} placeholder="Name" className="text-sm" />
+            <Input value={email} onChange={e => setEmail(e.target.value)} placeholder="Email" className="text-sm" type="email" />
             <Select value={role} onValueChange={setRole}>
-              <SelectTrigger className="text-sm">
-                <SelectValue />
-              </SelectTrigger>
+              <SelectTrigger className="text-sm"><SelectValue /></SelectTrigger>
               <SelectContent>
                 {(Object.keys(ROLE_LABELS) as ProjectRole[]).map(r => (
                   <SelectItem key={r} value={r}>{ROLE_LABELS[r]}</SelectItem>
@@ -285,23 +266,15 @@ function CompanyMembersSection({ companyId }: { companyId: string }) {
                 </div>
               </div>
               <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                <Select
-                  value={member.default_role}
-                  onValueChange={v => updateMember.mutate({ id: member.id, default_role: v })}
-                >
-                  <SelectTrigger className="h-7 w-[120px] text-xs border-border/50">
-                    <SelectValue />
-                  </SelectTrigger>
+                <Select value={member.default_role} onValueChange={v => updateMember.mutate({ id: member.id, default_role: v })}>
+                  <SelectTrigger className="h-7 w-[120px] text-xs border-border/50"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {(Object.keys(ROLE_LABELS) as ProjectRole[]).map(r => (
                       <SelectItem key={r} value={r} className="text-xs">{ROLE_LABELS[r]}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-                <Button
-                  variant="ghost" size="icon" className="h-7 w-7"
-                  onClick={() => removeMember.mutate(member.id)}
-                >
+                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => removeMember.mutate(member.id)}>
                   <Trash2 className="h-3 w-3 text-muted-foreground" />
                 </Button>
               </div>
@@ -315,28 +288,29 @@ function CompanyMembersSection({ companyId }: { companyId: string }) {
 
 export default function CompanyDetail() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const { data: company, isLoading: companyLoading } = useCompany(id);
   const { data: companyProjects = [], isLoading: projectsLoading } = useCompanyProjects(id);
-  const { unlinkProject } = useProjectCompanies(undefined);
-  const { data: projectScores = {} } = useDashboardScores(companyProjects as Project[]);
-  const { togglePin } = useProjects();
 
   const isLoading = companyLoading || projectsLoading;
-
-  const handleUnlink = (projectId: string) => {
-    if (!id) return;
-    unlinkProject.mutate({ projectId, companyId: id });
-  };
 
   return (
     <PageTransition>
       <div className="min-h-screen bg-background">
         <Header />
         <main className="container py-10">
-          <Link to="/companies" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground mb-6 transition-colors">
-            <ArrowLeft className="h-3.5 w-3.5" />
-            All Companies
-          </Link>
+          {/* Breadcrumb */}
+          <Breadcrumb className="mb-6">
+            <BreadcrumbList>
+              <BreadcrumbItem>
+                <BreadcrumbLink asChild><Link to="/companies">Companies</Link></BreadcrumbLink>
+              </BreadcrumbItem>
+              <BreadcrumbSeparator />
+              <BreadcrumbItem>
+                <BreadcrumbPage>{company?.name || '…'}</BreadcrumbPage>
+              </BreadcrumbItem>
+            </BreadcrumbList>
+          </Breadcrumb>
 
           {isLoading ? (
             <div className="animate-pulse space-y-4">
@@ -344,14 +318,10 @@ export default function CompanyDetail() {
               <div className="h-4 w-32 bg-muted rounded" />
             </div>
           ) : company ? (
-            <motion.div
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.3 }}
-            >
+            <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}>
               <div className="flex items-start justify-between mb-6">
                 <div className="flex items-center gap-4">
-                    {company.logo_url ? (
+                  {company.logo_url ? (
                     <div
                       className="h-14 max-w-[180px] min-w-[56px] rounded-lg overflow-hidden border border-border/50 bg-muted-foreground/10 dark:bg-muted-foreground/20 p-1"
                       style={company.color_accent ? { borderColor: company.color_accent + '40' } : undefined}
@@ -372,7 +342,7 @@ export default function CompanyDetail() {
                     </h1>
                     <div className="flex items-center gap-3 mt-1">
                       <p className="text-muted-foreground">
-                        {companyProjects.length} project{companyProjects.length !== 1 ? 's' : ''} linked
+                        {companyProjects.length} project{companyProjects.length !== 1 ? 's' : ''}
                       </p>
                       {company.jurisdiction && (
                         <span className="text-xs text-muted-foreground flex items-center gap-1">
@@ -398,38 +368,27 @@ export default function CompanyDetail() {
 
               <CompanyMembersSection companyId={company.id} />
 
-              {companyProjects.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-24 text-center">
-                  <div className="h-14 w-14 rounded-xl bg-primary/10 flex items-center justify-center mb-4">
-                    <LinkIcon className="h-7 w-7 text-primary" />
+              {/* Projects folder tile */}
+              <h3 className="text-sm font-semibold text-foreground mb-3">Contents</h3>
+              <button
+                onClick={() => navigate(`/companies/${id}/projects`)}
+                className="glass-card rounded-lg p-6 w-full text-left transition-all duration-300 hover:border-primary/30 hover:shadow-[0_0_30px_hsl(var(--glow-primary))] group"
+              >
+                <div className="flex items-center gap-4">
+                  <div className="h-12 w-12 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                    <FolderOpen className="h-6 w-6 text-primary" />
                   </div>
-                  <h3 className="font-display font-semibold text-foreground mb-2">No projects linked yet</h3>
-                  <p className="text-sm text-muted-foreground max-w-sm">
-                    Use the dropdown above to link existing projects to this company, or create a new project and link it here.
-                  </p>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="text-lg font-display font-semibold text-foreground group-hover:text-primary transition-colors">
+                      Projects
+                    </h3>
+                    <p className="text-sm text-muted-foreground">
+                      {companyProjects.length} project{companyProjects.length !== 1 ? 's' : ''} linked
+                    </p>
+                  </div>
+                  <ChevronRight className="h-5 w-5 text-muted-foreground group-hover:text-primary transition-colors" />
                 </div>
-              ) : (
-                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                  {companyProjects.map((project: any, i: number) => (
-                    <div key={project.id} className="relative">
-                      <ProjectCard
-                        project={project}
-                        index={i}
-                        readinessScore={projectScores[project.id]?.readiness ?? null}
-                        financeReadinessScore={projectScores[project.id]?.financeReadiness ?? null}
-                        onTogglePin={(pid, pinned) => togglePin.mutate({ projectId: pid, pinned })}
-                      />
-                      <button
-                        onClick={() => handleUnlink(project.id)}
-                        className="absolute bottom-3 right-3 z-10 p-1.5 rounded-md bg-background/80 border border-border text-muted-foreground hover:text-destructive hover:border-destructive/30 transition-colors"
-                        title="Unlink from company"
-                      >
-                        <Unlink className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
+              </button>
             </motion.div>
           ) : (
             <p className="text-muted-foreground">Company not found.</p>
