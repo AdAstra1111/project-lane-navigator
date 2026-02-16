@@ -47,6 +47,8 @@ import { CanonicalQualificationsPanel } from '@/components/devengine/CanonicalQu
 import { QualificationConflictBanner } from '@/components/devengine/QualificationConflictBanner';
 import { useStageResolve } from '@/hooks/useStageResolve';
 import { useDecisionCommit } from '@/hooks/useDecisionCommit';
+import { isDocStale } from '@/lib/stale-detection';
+import { StaleDocBanner } from '@/components/devengine/StaleDocBanner';
 
 // ── Main Page ──
 export default function ProjectDevelopmentEngine() {
@@ -100,7 +102,7 @@ export default function ProjectDevelopmentEngine() {
   const promotionIntel = usePromotionIntelligence();
   const rewritePipeline = useRewritePipeline(projectId);
   const autoRun = useAutoRunMissionControl(projectId);
-  const { resolveOnEntry } = useStageResolve(projectId);
+  const { resolveOnEntry, currentResolverHash, resolvedQuals } = useStageResolve(projectId);
   const { propose } = useDecisionCommit(projectId);
 
   // Stage-entry re-resolve: call resolve-qualifications when the page loads
@@ -577,6 +579,18 @@ export default function ProjectDevelopmentEngine() {
                           decisionType: 'qualifications_update',
                         });
                       }}
+                      isRegenerating={analyze.isPending}
+                    />
+                  )}
+
+                  {/* Stale document banner */}
+                  {selectedVersion && currentResolverHash && isDocStale(selectedVersion as any, currentResolverHash) && (
+                    <StaleDocBanner
+                      docType={selectedDoc?.doc_type || 'document'}
+                      oldHash={(selectedVersion as any).depends_on_resolver_hash || ''}
+                      currentHash={currentResolverHash}
+                      seasonEpisodeCount={resolvedQuals?.season_episode_count || effectiveSeasonEpisodes}
+                      onRegenerate={handleRunEngine}
                       isRegenerating={analyze.isPending}
                     />
                   )}

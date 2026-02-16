@@ -5678,6 +5678,8 @@ export type Database = {
           created_at: string
           created_by: string
           deliverable_type: string | null
+          depends_on: Json | null
+          depends_on_resolver_hash: string | null
           document_id: string
           drift_snapshot: Json | null
           id: string
@@ -5695,6 +5697,8 @@ export type Database = {
           created_at?: string
           created_by: string
           deliverable_type?: string | null
+          depends_on?: Json | null
+          depends_on_resolver_hash?: string | null
           document_id: string
           drift_snapshot?: Json | null
           id?: string
@@ -5712,6 +5716,8 @@ export type Database = {
           created_at?: string
           created_by?: string
           deliverable_type?: string | null
+          depends_on?: Json | null
+          depends_on_resolver_hash?: string | null
           document_id?: string
           drift_snapshot?: Json | null
           id?: string

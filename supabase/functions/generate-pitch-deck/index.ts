@@ -42,6 +42,28 @@ serve(async (req) => {
       .single();
     if (projErr || !project) throw new Error("Project not found");
 
+    // ── Canonical Qualification Resolver ──
+    let canonicalQualBlock = "";
+    let pitchResolverHash: string | null = null;
+    try {
+      const resolverResp = await fetch(`${supabaseUrl}/functions/v1/resolve-qualifications`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: authHeader },
+        body: JSON.stringify({ projectId: project_id }),
+      });
+      if (resolverResp.ok) {
+        const rr = await resolverResp.json();
+        const rq = rr.resolvedQualifications || {};
+        pitchResolverHash = rr.resolver_hash || null;
+        if (rq.is_series && rq.season_episode_count) {
+          canonicalQualBlock = `\nCANONICAL QUALIFICATIONS (authoritative — replace any other episode count references with these):
+Canonical season length: ${rq.season_episode_count} episodes.
+Canonical episode duration target: ${rq.episode_target_duration_seconds} seconds.
+Replace any other episode count references with the canonical value.`;
+        }
+      }
+    } catch (_e) { /* non-fatal */ }
+
     // Fetch attachments in parallel
     const [castRes, partnersRes, financeRes, dealsRes, hodsRes] = await Promise.all([
       supabase.from("project_cast").select("*").eq("project_id", project_id),
@@ -103,6 +125,7 @@ serve(async (req) => {
 ${guardrails.textBlock}
 
 PROJECT DATA:
+${canonicalQualBlock}
 - Title: ${project.title}
 - Format: ${formatLabel}
 - Genres: ${genreList || "Not specified"}

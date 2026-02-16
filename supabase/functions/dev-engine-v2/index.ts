@@ -1347,6 +1347,21 @@ MATERIAL TO REWRITE:\n${fullText}`;
           .limit(1)
           .single();
         const nextVersion = (maxRow?.version_number ?? 0) + 1;
+        // Determine dependency tracking for this version
+        const DEP_DOC_TYPES = new Set(["deck", "character_bible", "beat_sheet", "script", "blueprint", "architecture"]);
+        const depFields = DEP_DOC_TYPES.has(effectiveDeliverable)
+          ? ["qualifications.season_episode_count", "qualifications.episode_target_duration_seconds"]
+          : [];
+        let rewriteResolverHash: string | null = null;
+        try {
+          const rrResp = await fetch(`${supabaseUrl}/functions/v1/resolve-qualifications`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: authHeader },
+            body: JSON.stringify({ projectId }),
+          });
+          if (rrResp.ok) { const rr = await rrResp.json(); rewriteResolverHash = rr.resolver_hash || null; }
+        } catch (_) { /* non-fatal */ }
+
         const { data: nv, error: vErr } = await supabase.from("project_document_versions").insert({
           document_id: documentId,
           version_number: nextVersion,
@@ -1355,6 +1370,8 @@ MATERIAL TO REWRITE:\n${fullText}`;
           created_by: user.id,
           parent_version_id: versionId,
           change_summary: parsed.changes_summary || "",
+          depends_on: depFields,
+          depends_on_resolver_hash: rewriteResolverHash,
         }).select().single();
         if (!vErr) { newVersion = nv; break; }
         if (vErr.code !== "23505") throw vErr;
@@ -1650,6 +1667,15 @@ MATERIAL:\n${version.plaintext.slice(0, 20000)}`;
       const upstreamCore = (upstreamVersion?.drift_snapshot as any)?.extracted_core || {};
 
       const resolvedDeliverable = resolvedDocType === "other" ? "script" : resolvedDocType;
+      // Dependency tracking for converted version
+      const CONVERT_DEP_TYPES = new Set(["deck", "character_bible", "beat_sheet", "script", "blueprint", "architecture"]);
+      const convertDepFields = CONVERT_DEP_TYPES.has(resolvedDeliverable)
+        ? ["qualifications.season_episode_count", "qualifications.episode_target_duration_seconds"]
+        : [];
+      // qualBindingBlock already resolved above — extract hash from it
+      const convertHashMatch = qualBindingBlock.match(/Resolver hash: (\S+)/);
+      const convertResolverHash = convertHashMatch?.[1] || null;
+
       const { data: newVersion } = await supabase.from("project_document_versions").insert({
         document_id: newDoc.id,
         version_number: 1,
@@ -1660,6 +1686,8 @@ MATERIAL:\n${version.plaintext.slice(0, 20000)}`;
         deliverable_type: resolvedDeliverable,
         inherited_core: upstreamCore,
         source_document_ids: [documentId],
+        depends_on: convertDepFields,
+        depends_on_resolver_hash: convertResolverHash,
       }).select().single();
 
       await supabase.from("development_runs").insert({
