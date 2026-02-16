@@ -79,7 +79,9 @@ export function useSeasonTemplate(projectId: string | undefined) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['dev-engine-project', projectId] });
       queryClient.invalidateQueries({ queryKey: ['project', projectId] });
-      toast.success('Season template set. Future episodes will match tone/pacing/quality.');
+      // Explicit: season_template_set event — no promotion events emitted
+      console.log('[SeasonTemplate] event_type=season_template_set — no promotion_suggested emitted');
+      toast.success('Season template set (style benchmark). No publishing changes made.');
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to set season template');
