@@ -1,11 +1,44 @@
 import { useState, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import type { PromotionRecommendation } from '@/components/devengine/PromotionIntelligenceCard';
+import { isScriptDocType, normalizeDocTypeKey } from '@/lib/can-promote-to-script';
 
 // ── Local computation (same algorithm as edge function) for when no sessionId exists ──
 
 const LADDER = ['idea', 'concept_brief', 'blueprint', 'architecture', 'draft', 'coverage'] as const;
 type DocStage = (typeof LADDER)[number];
+
+/**
+ * Map any doc_type to its position in the promotion ladder.
+ * Script doc_types map to 'draft' (not 'concept_brief') to prevent backward suggestions.
+ */
+function resolveDocStage(rawDocType: string): DocStage {
+  const normalized = normalizeDocTypeKey(rawDocType);
+  // Direct ladder match
+  if ((LADDER as readonly string[]).includes(normalized)) return normalized as DocStage;
+  // Script types → draft (terminal creative stage)
+  if (isScriptDocType(normalized)) return 'draft';
+  // Common mappings
+  const map: Record<string, DocStage> = {
+    treatment: 'blueprint',
+    season_arc: 'blueprint',
+    episode_grid: 'architecture',
+    character_bible: 'architecture',
+    beat_sheet: 'architecture',
+    vertical_episode_beats: 'architecture',
+    format_rules: 'architecture',
+    concept_brief: 'concept_brief',
+    market_sheet: 'concept_brief',
+    vertical_market_sheet: 'concept_brief',
+    logline: 'idea',
+    one_pager: 'concept_brief',
+    writers_room: 'draft',
+    notes: 'concept_brief',
+    production_draft: 'coverage',
+    series_writer: 'coverage',
+  };
+  return map[normalized] || 'concept_brief';
+}
 
 function nextDoc(current: DocStage): string | null {
   const idx = LADDER.indexOf(current);
@@ -131,12 +164,12 @@ function computeLocally(input: PromotionInput): PromotionRecommendation {
     blockerTexts = [], highImpactTexts = [],
   } = input;
 
-  const doc = (LADDER.includes(currentDocument as DocStage) ? currentDocument : 'concept_brief') as DocStage;
+  const doc = resolveDocStage(currentDocument);
   const reasons: string[] = [];
   const mustFixNext: string[] = [];
   const riskFlags: string[] = [];
 
-  if (doc !== currentDocument) riskFlags.push('document_type_assumed');
+  if (doc !== currentDocument) riskFlags.push('document_type_mapped');
 
   const confidence = computeConfidence(iterationCount, highImpactCount, gap, trajectory);
 
