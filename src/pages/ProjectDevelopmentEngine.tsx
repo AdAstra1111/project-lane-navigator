@@ -893,7 +893,7 @@ export default function ProjectDevelopmentEngine() {
             <TabsContent value="notes" className="mt-3 space-y-3">
               {/* Decisions first, full width */}
               {(() => {
-                const optionsRun = (runs || []).filter((r: any) => r.run_type === 'OPTIONS').pop();
+                const optionsRun = (runs || []).filter((r: any) => r.run_type === 'OPTIONS').sort((a: any, b: any) => (a.created_at || '').localeCompare(b.created_at || '')).pop();
                 const optionsRunHasDecisions = (optionsRun?.output_json?.decisions?.length > 0);
                 const jobHasDecisions = Array.isArray(autoRun.job?.pending_decisions) && (autoRun.job!.pending_decisions as any[]).length > 0;
                 const hasNoteDecisions = tieredNotes.blockers.some((n: any) => n.decisions?.length > 0) || tieredNotes.high.some((n: any) => n.decisions?.length > 0);
