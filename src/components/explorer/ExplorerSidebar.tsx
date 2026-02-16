@@ -1,12 +1,14 @@
 import { useState, useMemo } from 'react';
 import { Link, useParams, useSearchParams, useLocation } from 'react-router-dom';
-import { Building2, FolderOpen, Layers, Clock, Star, ChevronRight, ChevronDown, Plus } from 'lucide-react';
+import { Building2, FolderOpen, Layers, Clock, Star, ChevronRight, ChevronDown, Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useCompanies, useCompanyProjects } from '@/hooks/useCompanies';
 import { useAllCompanyLinks } from '@/hooks/useAllCompanyLinks';
+import { useProjects } from '@/hooks/useProjects';
 import { FORMAT_META } from '@/lib/mode-engine';
 import { normalizeFormat } from '@/lib/format-helpers';
 import { cn } from '@/lib/utils';
+import { DeleteProjectDialog } from '@/components/DeleteProjectDialog';
 
 interface TreeItemProps {
   icon: React.ReactNode;
@@ -18,14 +20,15 @@ interface TreeItemProps {
   expanded?: boolean;
   onToggle?: () => void;
   children?: React.ReactNode;
+  onDelete?: (e: React.MouseEvent) => void;
 }
 
-function TreeItem({ icon, label, to, active, depth = 0, count, expanded, onToggle, children }: TreeItemProps) {
+function TreeItem({ icon, label, to, active, depth = 0, count, expanded, onToggle, children, onDelete }: TreeItemProps) {
   const hasChildren = !!children;
   const content = (
     <div
       className={cn(
-        'flex items-center gap-2 py-1.5 px-2 rounded-md text-sm cursor-pointer transition-colors group',
+        'flex items-center gap-2 py-1.5 px-2 rounded-md text-sm cursor-pointer transition-colors group/tree-item',
         active ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium' : 'text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground',
       )}
       style={{ paddingLeft: `${depth * 16 + 8}px` }}
@@ -43,6 +46,15 @@ function TreeItem({ icon, label, to, active, depth = 0, count, expanded, onToggl
       {count !== undefined && (
         <span className="text-[10px] text-sidebar-foreground/40 tabular-nums">{count}</span>
       )}
+      {onDelete && (
+        <button
+          onClick={onDelete}
+          className="opacity-0 group-hover/tree-item:opacity-100 p-0.5 rounded text-sidebar-foreground/30 hover:text-destructive transition-all shrink-0"
+          title="Delete project"
+        >
+          <Trash2 className="h-3 w-3" />
+        </button>
+      )}
     </div>
   );
 
@@ -54,7 +66,7 @@ function TreeItem({ icon, label, to, active, depth = 0, count, expanded, onToggl
   );
 }
 
-function CompanyTree({ companyId, companyName }: { companyId: string; companyName: string }) {
+function CompanyTree({ companyId, companyName, onDeleteProject }: { companyId: string; companyName: string; onDeleteProject: (id: string, title: string) => void }) {
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const { data: projects = [] } = useCompanyProjects(companyId);
@@ -163,6 +175,7 @@ function CompanyTree({ companyId, companyName }: { companyId: string; companyNam
                 to={`/projects/${p.id}`}
                 depth={4}
                 active={currentPath === `/projects/${p.id}`}
+                onDelete={(e) => { e.preventDefault(); e.stopPropagation(); onDeleteProject(p.id, p.title); }}
               />
             ))}
           </TreeItem>
@@ -183,6 +196,7 @@ function CompanyTree({ companyId, companyName }: { companyId: string; companyNam
                 to={`/projects/${p.id}`}
                 depth={4}
                 active={currentPath === `/projects/${p.id}`}
+                onDelete={(e) => { e.preventDefault(); e.stopPropagation(); onDeleteProject(p.id, p.title); }}
               />
             ))}
           </TreeItem>
@@ -195,9 +209,11 @@ function CompanyTree({ companyId, companyName }: { companyId: string; companyNam
 export function ExplorerSidebar() {
   const { companies, isLoading } = useCompanies();
   const { linkMap } = useAllCompanyLinks();
+  const { deleteProject } = useProjects();
   const location = useLocation();
   const { id: paramId } = useParams<{ id: string }>();
   const [companiesExpanded, setCompaniesExpanded] = useState(true);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string } | null>(null);
 
   // Determine selected company from URL
   const selectedCompanyId = useMemo(() => {
@@ -233,7 +249,7 @@ export function ExplorerSidebar() {
             companies.map(c => {
               const isSelected = selectedCompanyId === c.id;
               if (isSelected) {
-                return <CompanyTree key={c.id} companyId={c.id} companyName={c.name} />;
+                return <CompanyTree key={c.id} companyId={c.id} companyName={c.name} onDeleteProject={(id, title) => setDeleteTarget({ id, title })} />;
               }
               const count = linkMap[c.id]?.size || 0;
               return (
@@ -259,6 +275,18 @@ export function ExplorerSidebar() {
           </Button>
         </Link>
       </div>
+      <DeleteProjectDialog
+        open={!!deleteTarget}
+        onOpenChange={(v) => { if (!v) setDeleteTarget(null); }}
+        projectTitle={deleteTarget?.title || ''}
+        onConfirm={() => {
+          if (deleteTarget) {
+            deleteProject.mutate(deleteTarget.id);
+            setDeleteTarget(null);
+          }
+        }}
+        isPending={deleteProject.isPending}
+      />
     </div>
   );
 }
