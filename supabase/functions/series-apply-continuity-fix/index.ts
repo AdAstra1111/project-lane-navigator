@@ -155,10 +155,10 @@ ${editInstructions}`,
     // ── Create new script version ──
     const { data: newScript, error: scriptErr } = await sbAdmin.from("scripts").insert({
       project_id: projectId,
-      user_id: user.id,
-      title: `EP${episodeNumber} (patched: ${issue.title})`,
+      owner_id: user.id,
+      created_by: user.id,
+      version_label: `EP${episodeNumber} (patched: ${issue.title})`,
       text_content: patchedText,
-      word_count: patchedText.split(/\s+/).length,
       latest_page_count_est: Math.round(patchedText.split(/\s+/).length / 250),
     }).select("id").single();
 
