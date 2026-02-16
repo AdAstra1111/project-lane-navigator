@@ -16,7 +16,11 @@ export type DeliverableType =
   | 'script'
   | 'production_draft'
   | 'deck'
-  | 'documentary_outline';
+  | 'documentary_outline'
+  | 'format_rules'
+  | 'season_arc'
+  | 'episode_grid'
+  | 'vertical_episode_beats';
 
 export const DELIVERABLE_LABELS: Record<DeliverableType, string> = {
   idea: 'Idea',
@@ -30,6 +34,10 @@ export const DELIVERABLE_LABELS: Record<DeliverableType, string> = {
   production_draft: 'Production Draft',
   deck: 'Deck',
   documentary_outline: 'Documentary Outline',
+  format_rules: 'Format Rules',
+  season_arc: 'Season Arc',
+  episode_grid: 'Episode Grid',
+  vertical_episode_beats: 'Episode Beats',
 };
 
 export const DELIVERABLE_PIPELINE_ORDER: DeliverableType[] = [
@@ -43,6 +51,70 @@ export const DELIVERABLE_PIPELINE_ORDER: DeliverableType[] = [
   'script',
   'production_draft',
 ];
+
+/**
+ * Vertical Drama document ordering — enforces prerequisite chain.
+ * Each entry lists its required prerequisites.
+ */
+export const VERTICAL_DRAMA_DOC_ORDER: Array<{ type: DeliverableType; label: string; prerequisites: DeliverableType[] }> = [
+  { type: 'idea', label: 'Idea Brief', prerequisites: [] },
+  { type: 'concept_brief', label: 'Concept Brief', prerequisites: ['idea'] },
+  { type: 'format_rules', label: 'Format Rules', prerequisites: ['concept_brief'] },
+  { type: 'character_bible', label: 'Character Bible', prerequisites: ['concept_brief'] },
+  { type: 'season_arc', label: 'Season Arc', prerequisites: ['concept_brief', 'character_bible'] },
+  { type: 'episode_grid', label: 'Episode Grid', prerequisites: ['season_arc'] },
+  { type: 'vertical_episode_beats', label: 'Episode Beats (Ep 1–3)', prerequisites: ['season_arc', 'episode_grid'] },
+  { type: 'script', label: 'Scripts (Ep 1–3)', prerequisites: ['vertical_episode_beats'] },
+];
+
+/**
+ * Given existing non-stale docs, find the next vertical drama step and any missing prerequisites.
+ */
+export function getVerticalDramaNextStep(
+  existingDocTypes: string[],
+  seasonEpisodeCount?: number | null,
+  episodeGridRowCount?: number | null,
+): { nextStep: DeliverableType | null; missingPrerequisites: DeliverableType[]; reason: string } {
+  const existing = new Set(existingDocTypes.map(d => d.toLowerCase().replace(/[\s\-]+/g, '_')));
+
+  for (const step of VERTICAL_DRAMA_DOC_ORDER) {
+    if (existing.has(step.type)) continue;
+
+    // Check prerequisites
+    const missing = step.prerequisites.filter(p => !existing.has(p));
+    if (missing.length > 0) {
+      // Suggest the first missing prerequisite instead
+      const firstMissing = VERTICAL_DRAMA_DOC_ORDER.find(s => s.type === missing[0]);
+      return {
+        nextStep: missing[0],
+        missingPrerequisites: missing,
+        reason: `Cannot create ${step.label} yet — missing ${missing.map(m => DELIVERABLE_LABELS[m] || m).join(', ')}`,
+      };
+    }
+
+    // Special gating for episode_beats
+    if (step.type === 'vertical_episode_beats') {
+      if (seasonEpisodeCount && episodeGridRowCount != null && episodeGridRowCount !== seasonEpisodeCount) {
+        return {
+          nextStep: 'episode_grid',
+          missingPrerequisites: ['episode_grid'],
+          reason: `Episode grid has ${episodeGridRowCount} rows but canonical season length is ${seasonEpisodeCount}. Regenerate episode grid first.`,
+        };
+      }
+      if (!seasonEpisodeCount) {
+        return {
+          nextStep: 'episode_grid',
+          missingPrerequisites: ['episode_grid'],
+          reason: 'season_episode_count not set in qualifications. Set it before generating episode beats.',
+        };
+      }
+    }
+
+    return { nextStep: step.type, missingPrerequisites: [], reason: `Next in vertical drama pipeline: ${step.label}` };
+  }
+
+  return { nextStep: null, missingPrerequisites: [], reason: 'All vertical drama documents created' };
+}
 
 // ── Development Behavior ──
 
@@ -348,42 +420,35 @@ export function isNonScriptDeliverable(deliverableType: DeliverableType): boolea
 }
 
 export function defaultDeliverableForDocType(docType: string): DeliverableType {
-  const normalized = (docType || '').toLowerCase().trim();
+  const normalized = (docType || '').toLowerCase().trim().replace(/[\s\-]+/g, '_');
   const map: Record<string, DeliverableType> = {
     idea: 'idea',
     concept_brief: 'concept_brief',
-    'concept brief': 'concept_brief',
     logline: 'concept_brief',
     market_sheet: 'market_sheet',
-    'market sheet': 'market_sheet',
     treatment: 'blueprint',
     script: 'script',
     pilot_script: 'script',
-    'pilot script': 'script',
     one_pager: 'market_sheet',
     outline: 'blueprint',
     beat_sheet: 'beat_sheet',
-    'beat sheet': 'beat_sheet',
     episode_outline: 'beat_sheet',
-    'episode outline': 'beat_sheet',
-    'episode_beat_sheet': 'beat_sheet',
-    'episode beat sheet': 'beat_sheet',
+    episode_beat_sheet: 'vertical_episode_beats',
     season_outline: 'blueprint',
-    'season outline': 'blueprint',
-    season_arc: 'blueprint',
-    'season arc': 'blueprint',
+    season_arc: 'season_arc',
     blueprint: 'blueprint',
     architecture: 'architecture',
     character_bible: 'character_bible',
-    'character bible': 'character_bible',
     production_draft: 'production_draft',
-    'production draft': 'production_draft',
     deck_text: 'deck',
     deck: 'deck',
     documentary_outline: 'documentary_outline',
-    'documentary outline': 'documentary_outline',
     notes: 'concept_brief',
     other: 'concept_brief',
+    format_rules: 'format_rules',
+    episode_grid: 'episode_grid',
+    vertical_episode_grid: 'episode_grid',
+    vertical_episode_beats: 'vertical_episode_beats',
   };
   return map[normalized] || 'script';
 }

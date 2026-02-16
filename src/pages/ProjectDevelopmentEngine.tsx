@@ -349,6 +349,7 @@ export default function ProjectDevelopmentEngine() {
   const analysisConvergence = latestAnalysis?.convergence;
   const isAnalysisConverged = analysisConvergence?.status === 'converged' || convergenceStatus === 'Converged';
   const nextBestDocument = analysisConvergence?.next_best_document;
+  const verticalDramaGating = analysisConvergence?.vertical_drama_gating || null;
 
   // Pipeline statuses
   const pipelineStatuses = useMemo(() => {
@@ -628,6 +629,7 @@ export default function ProjectDevelopmentEngine() {
                     rewritePending={rewrite.isPending || rewritePipeline.status !== 'idle'}
                     convertPending={convert.isPending}
                     generateNotesPending={generateNotes.isPending}
+                    verticalDramaGating={verticalDramaGating}
                   />
 
                   {/* Resume auto-run handled by banner above */}
