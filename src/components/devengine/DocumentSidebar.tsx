@@ -28,6 +28,7 @@ interface DocumentSidebarProps {
   selectedDocId: string | null;
   selectDocument: (id: string) => void;
   deleteDocument: { mutate: (id: string) => void };
+  deleteVersion?: { mutate: (id: string) => void };
   versions: any[];
   selectedVersionId: string | null;
   setSelectedVersionId: (id: string) => void;
@@ -35,7 +36,7 @@ interface DocumentSidebarProps {
 }
 
 export function DocumentSidebar({
-  documents, docsLoading, selectedDocId, selectDocument, deleteDocument,
+  documents, docsLoading, selectedDocId, selectDocument, deleteDocument, deleteVersion,
   versions, selectedVersionId, setSelectedVersionId, createPaste,
 }: DocumentSidebarProps) {
   const [pasteOpen, setPasteOpen] = useState(false);
@@ -150,10 +151,10 @@ export function DocumentSidebar({
           <CardContent className="px-2 pb-2">
             <div className="space-y-0.5 max-h-[160px] overflow-y-auto">
               {versions.map(v => (
-                <button
+                <div
                   key={v.id}
                   onClick={() => setSelectedVersionId(v.id)}
-                  className={`w-full text-left px-2 py-1.5 rounded text-[10px] transition-colors ${
+                  className={`w-full text-left px-2 py-1.5 rounded text-[10px] transition-colors cursor-pointer ${
                     selectedVersionId === v.id
                       ? 'bg-primary/10 text-foreground'
                       : 'text-muted-foreground hover:bg-muted/50'
@@ -161,10 +162,27 @@ export function DocumentSidebar({
                 >
                   <div className="flex items-center justify-between">
                     <span className="font-medium">v{v.version_number}</span>
-                    <span className="text-[8px]">{new Date(v.created_at).toLocaleDateString()}</span>
+                    <div className="flex items-center gap-1">
+                      <span className="text-[8px]">{new Date(v.created_at).toLocaleDateString()}</span>
+                      {deleteVersion && versions.length > 1 && (
+                        <div onClick={e => e.stopPropagation()}>
+                          <ConfirmDialog
+                            title="Delete Version"
+                            description={`Delete v${v.version_number}? This cannot be undone.`}
+                            confirmLabel="Delete"
+                            variant="destructive"
+                            onConfirm={() => deleteVersion.mutate(v.id)}
+                          >
+                            <button className="p-0.5 rounded text-muted-foreground hover:text-destructive transition-colors">
+                              <Trash2 className="h-2.5 w-2.5" />
+                            </button>
+                          </ConfirmDialog>
+                        </div>
+                      )}
+                    </div>
                   </div>
                   {v.change_summary && <span className="text-[8px] block mt-0.5 truncate opacity-70">{v.change_summary}</span>}
-                </button>
+                </div>
               ))}
             </div>
           </CardContent>
