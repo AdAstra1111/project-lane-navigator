@@ -238,6 +238,9 @@ export function useProjects() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['projects'] });
+      queryClient.invalidateQueries({ queryKey: ['company-projects'] });
+      queryClient.invalidateQueries({ queryKey: ['all-company-links'] });
+      queryClient.invalidateQueries({ queryKey: ['project-company-links'] });
       toast.success('Project deleted');
     },
     onError: (error: Error) => {
