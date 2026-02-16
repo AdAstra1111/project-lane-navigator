@@ -67,7 +67,6 @@ function ActionCard({ action, projectId }: { action: DAAction; projectId?: strin
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error('Not authenticated');
 
-      // Call apply-project-change with the action's patch
       const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/apply-project-change`, {
         method: 'POST',
         headers: {
@@ -76,22 +75,30 @@ function ActionCard({ action, projectId }: { action: DAAction; projectId?: strin
         },
         body: JSON.stringify({
           projectId,
+          actionId: action.id,
           patch: action.patch || {},
           changeType: action.action_type,
         }),
       });
 
-      if (!resp.ok) {
-        const err = await resp.json().catch(() => ({ error: 'Unknown error' }));
-        throw new Error(err.error || 'Apply failed');
+      const result = await resp.json();
+      if (!resp.ok) throw new Error(result.error || 'Apply failed');
+
+      // Action status is now updated server-side
+      const regenCount = result.docs_regenerated_count || 0;
+      const errCount = result.regeneration_errors?.length || 0;
+
+      if (regenCount > 0) {
+        toast.success(`Applied! ${regenCount} document${regenCount > 1 ? 's' : ''} regenerated.`);
+      } else if (result.affected_doc_types?.length > 0 && regenCount === 0) {
+        toast.success('Applied! Affected documents have no versions yet — generate them first.');
+      } else {
+        toast.success('Change applied successfully');
       }
 
-      // Update action status to 'applied'
-      await (supabase as any).from('document_assistant_actions')
-        .update({ status: 'applied', updated_at: new Date().toISOString() })
-        .eq('id', action.id);
-
-      toast.success('Change applied successfully');
+      if (errCount > 0) {
+        toast.warning(`${errCount} document${errCount > 1 ? 's' : ''} failed to regenerate.`);
+      }
     } catch (e: any) {
       console.error('[DocAssistant] Apply error:', e);
       toast.error(e.message || 'Failed to apply change');
