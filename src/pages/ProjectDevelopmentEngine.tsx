@@ -450,7 +450,7 @@ export default function ProjectDevelopmentEngine() {
 
           {/* ═══ PIPELINE ═══ */}
           <DeliverablePipeline stageStatuses={pipelineStatuses} activeDeliverable={selectedDeliverableType}
-            onStageClick={(dt) => setSelectedDeliverableType(dt)} />
+            onStageClick={(dt) => setSelectedDeliverableType(dt)} isVerticalDrama={isVerticalDrama} />
 
           {/* ═══ 3-COLUMN LAYOUT ═══ */}
           <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
