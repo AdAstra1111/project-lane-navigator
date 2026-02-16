@@ -838,13 +838,17 @@ Resolver hash: ${resolvedQuals?.resolver_hash || "unknown"}.`;
 
       // ── Signal Context Injection ──
       let signalContext = "";
-      try {
+      if (body.skipSignals) {
+        console.log("[dev-engine-v2] Signals disabled for this run (skipSignals=true)");
+      } else try {
         const { data: projSettings } = await supabase.from("projects")
           .select("signals_influence, signals_apply")
           .eq("id", projectId).single();
         const influence = (projSettings as any)?.signals_influence ?? 0.5;
         const applyConfig = (projSettings as any)?.signals_apply ?? { pitch: true, dev: true, grid: true, doc: true };
-        if (applyConfig.dev) {
+        if (!applyConfig.dev) {
+          console.log("[dev-engine-v2] Signals disabled via signals_apply.dev=false");
+        } else if (applyConfig.dev) {
           const { data: matches } = await supabase
             .from("project_signal_matches")
             .select("relevance_score, impact_score, rationale, cluster:cluster_id(name, category, strength, velocity, saturation_risk, explanation)")
@@ -2296,10 +2300,14 @@ Return ONLY valid JSON:
       // ── Signal trope injection for episode grid ──
       let signalTropes: string[] = [];
       let signalConstraints = "";
-      try {
+      if (body.skipSignals) {
+        console.log("[dev-engine-v2] Grid signals disabled (skipSignals=true)");
+      } else try {
         const applyConfig = (project as any).signals_apply ?? { grid: true };
         const influence = (project as any).signals_influence ?? 0.5;
-        if (applyConfig.grid) {
+        if (!applyConfig.grid) {
+          console.log("[dev-engine-v2] Grid signals disabled via signals_apply.grid=false");
+        } else if (applyConfig.grid) {
           const { data: matches } = await supabase
             .from("project_signal_matches")
             .select("cluster:cluster_id(name, genre_tags, tone_tags, cluster_scoring)")
