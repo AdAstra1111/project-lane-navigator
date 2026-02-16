@@ -3094,6 +3094,51 @@ export type Database = {
         }
         Relationships: []
       }
+      episode_activity_log: {
+        Row: {
+          action: string
+          created_at: string
+          details: Json | null
+          episode_id: string | null
+          id: string
+          project_id: string
+          user_id: string
+        }
+        Insert: {
+          action: string
+          created_at?: string
+          details?: Json | null
+          episode_id?: string | null
+          id?: string
+          project_id: string
+          user_id: string
+        }
+        Update: {
+          action?: string
+          created_at?: string
+          details?: Json | null
+          episode_id?: string | null
+          id?: string
+          project_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "episode_activity_log_episode_id_fkey"
+            columns: ["episode_id"]
+            isOneToOne: false
+            referencedRelation: "series_episodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "episode_activity_log_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       episode_comments: {
         Row: {
           anchor: Json | null
@@ -3266,6 +3311,96 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "episode_continuity_notes_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      episode_patch_runs: {
+        Row: {
+          applied_at: string | null
+          applied_by: string | null
+          applied_version_id: string | null
+          context_doc_ids: string[] | null
+          created_at: string
+          desired_outcome: string
+          episode_id: string
+          episode_script_text: string | null
+          id: string
+          issue_description: string
+          issue_title: string
+          patch_summary: string | null
+          project_id: string
+          proposed_changes: Json | null
+          references_used: Json | null
+          reject_reason: string | null
+          rejected_at: string | null
+          rejected_by: string | null
+          source_notes: Json | null
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          applied_at?: string | null
+          applied_by?: string | null
+          applied_version_id?: string | null
+          context_doc_ids?: string[] | null
+          created_at?: string
+          desired_outcome?: string
+          episode_id: string
+          episode_script_text?: string | null
+          id?: string
+          issue_description?: string
+          issue_title?: string
+          patch_summary?: string | null
+          project_id: string
+          proposed_changes?: Json | null
+          references_used?: Json | null
+          reject_reason?: string | null
+          rejected_at?: string | null
+          rejected_by?: string | null
+          source_notes?: Json | null
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          applied_at?: string | null
+          applied_by?: string | null
+          applied_version_id?: string | null
+          context_doc_ids?: string[] | null
+          created_at?: string
+          desired_outcome?: string
+          episode_id?: string
+          episode_script_text?: string | null
+          id?: string
+          issue_description?: string
+          issue_title?: string
+          patch_summary?: string | null
+          project_id?: string
+          proposed_changes?: Json | null
+          references_used?: Json | null
+          reject_reason?: string | null
+          rejected_at?: string | null
+          rejected_by?: string | null
+          source_notes?: Json | null
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "episode_patch_runs_episode_id_fkey"
+            columns: ["episode_id"]
+            isOneToOne: false
+            referencedRelation: "series_episodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "episode_patch_runs_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"

@@ -37,6 +37,9 @@ import { ComplianceReportPanel } from '@/components/series/ComplianceReportPanel
 import { EpisodeHeatmap } from '@/components/series/EpisodeHeatmap';
 import { RetconPanel } from '@/components/series/RetconPanel';
 import { EpisodePackagePanel } from '@/components/series/EpisodePackagePanel';
+import { EscalateToDevEngineModal } from '@/components/series/EscalateToDevEngineModal';
+import { HardDeleteEpisodeDialog } from '@/components/series/HardDeleteEpisodeDialog';
+import { PatchReadyBanner, type PatchRun } from '@/components/series/PatchReadyBanner';
 
 // ── Working Set doc types for vertical drama ──
 const WORKING_SET_DOC_TYPES = [
@@ -95,6 +98,9 @@ export default function SeriesWriter() {
   const [autoRunConfirmOpen, setAutoRunConfirmOpen] = useState(false);
   const [deleteConfirmEp, setDeleteConfirmEp] = useState<SeriesEpisode | null>(null);
   const [deleteReason, setDeleteReason] = useState('');
+  const [hardDeleteEp, setHardDeleteEp] = useState<SeriesEpisode | null>(null);
+  const [escalateEp, setEscalateEp] = useState<SeriesEpisode | null>(null);
+  const [escalatePrefill, setEscalatePrefill] = useState({ title: '', description: '' });
 
   // ── In-page doc viewer state ──
   const [viewerDoc, setViewerDoc] = useState<WorkingSetDoc | null>(null);
@@ -132,6 +138,7 @@ export default function SeriesWriter() {
     isSeasonComplete, nextEpisode, hasFailedValidation, hasMetricsBlock, isCanonValid,
     createCanonSnapshot, createEpisodes, generateOne, generateAll, stopGeneration,
     fetchScriptContent, runEpisodeMetrics, deleteEpisode, restoreEpisode,
+    hardDeleteEpisode, escalateToDevEngine, applyPatch, rejectPatch,
   } = useSeriesWriter(projectId!);
 
   const {
@@ -139,6 +146,22 @@ export default function SeriesWriter() {
     retconEvents, createRetconEvent, analyzeRetcon, proposeRetconPatches,
     exportEpisodePackage, exportSeasonBinder,
   } = useSeriesWriterV2(projectId!);
+
+  // ── Patch runs for episodes ──
+  const { data: patchRuns = [] } = useQuery({
+    queryKey: ['episode-patch-runs', projectId],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from('episode_patch_runs')
+        .select('id, episode_id, status, issue_title, patch_summary, proposed_changes, created_at')
+        .eq('project_id', projectId!)
+        .in('status', ['complete', 'pending', 'running'])
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      return (data || []) as PatchRun[];
+    },
+    enabled: !!projectId,
+  });
 
   const { data: project } = useQuery({
     queryKey: ['sw-project', projectId],
@@ -892,15 +915,18 @@ export default function SeriesWriter() {
                                 </Button>
                               )}
 
-                              {/* Send to Dev Engine */}
+                              {/* Send to Dev Engine (escalation modal) */}
                               {ep.script_id && (ep.status === 'complete' || state.isLocked) && (
                                 <Button
                                   variant="ghost"
                                   size="sm"
                                   className="h-7 px-2 text-[10px] gap-1 text-muted-foreground hover:text-foreground"
-                                  onClick={() => navigate(`/projects/${projectId}/development?source=series-writer&ep=${ep.episode_number}&returnTo=series-writer`)}
+                                  onClick={() => {
+                                    setEscalatePrefill({ title: '', description: '' });
+                                    setEscalateEp(ep);
+                                  }}
                                 >
-                                  <FlaskConical className="h-3 w-3" /> Test
+                                  <FlaskConical className="h-3 w-3" /> Send Issue
                                 </Button>
                               )}
 
@@ -935,6 +961,31 @@ export default function SeriesWriter() {
                               </Badge>
                             </div>
                           </div>
+                          {/* Patch Ready Banner */}
+                          {(() => {
+                            const epPatch = patchRuns.find(p => p.episode_id === ep.id && p.status === 'complete');
+                            if (!epPatch) return null;
+                            return (
+                              <div className="px-3 pb-2">
+                                <PatchReadyBanner
+                                  patchRun={epPatch}
+                                  onReview={() => {
+                                    setSelectedEpisode(ep);
+                                    setReaderContent(
+                                      epPatch.proposed_changes?.replacement_script ||
+                                      epPatch.proposed_changes?.patched_text ||
+                                      JSON.stringify(epPatch.proposed_changes, null, 2) || 'No patch content'
+                                    );
+                                    setReaderOpen(true);
+                                  }}
+                                  onApply={() => applyPatch.mutate(epPatch.id)}
+                                  onReject={() => rejectPatch.mutate({ patchRunId: epPatch.id })}
+                                  isApplying={applyPatch.isPending}
+                                  isRejecting={rejectPatch.isPending}
+                                />
+                              </div>
+                            );
+                          })()}
                         </div>
                       );
                     })}
@@ -963,15 +1014,25 @@ export default function SeriesWriter() {
                                   <p className="text-[10px] text-muted-foreground mt-0.5">Reason: {ep.delete_reason}</p>
                                 )}
                               </div>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="h-7 px-2.5 text-xs gap-1"
-                                onClick={() => restoreEpisode.mutate(ep.id)}
-                                disabled={restoreEpisode.isPending}
-                              >
-                                <Undo2 className="h-3 w-3" /> Restore
-                              </Button>
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 px-2.5 text-xs gap-1"
+                                  onClick={() => restoreEpisode.mutate(ep.id)}
+                                  disabled={restoreEpisode.isPending}
+                                >
+                                  <Undo2 className="h-3 w-3" /> Restore
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 px-2 text-[10px] gap-1 text-destructive"
+                                  onClick={() => setHardDeleteEp(ep)}
+                                >
+                                  <Trash2 className="h-3 w-3" /> Permanent
+                                </Button>
+                              </div>
                             </div>
                           </div>
                         ))}
@@ -1229,6 +1290,46 @@ export default function SeriesWriter() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Escalate to Dev Engine Modal */}
+      {escalateEp && (
+        <EscalateToDevEngineModal
+          open={!!escalateEp}
+          onOpenChange={open => { if (!open) setEscalateEp(null); }}
+          episodeNumber={escalateEp.episode_number}
+          episodeTitle={escalateEp.title || `Episode ${escalateEp.episode_number}`}
+          prefillTitle={escalatePrefill.title}
+          prefillDescription={escalatePrefill.description}
+          isSubmitting={escalateToDevEngine.isPending}
+          onSubmit={(data) => {
+            escalateToDevEngine.mutate({
+              episodeId: escalateEp.id,
+              issueTitle: data.issueTitle,
+              issueDescription: data.issueDescription,
+              desiredOutcome: data.desiredOutcome,
+              contextDocKeys: data.contextDocKeys,
+            }, {
+              onSuccess: () => setEscalateEp(null),
+            });
+          }}
+        />
+      )}
+
+      {/* Hard Delete Confirmation */}
+      {hardDeleteEp && (
+        <HardDeleteEpisodeDialog
+          open={!!hardDeleteEp}
+          onOpenChange={open => { if (!open) setHardDeleteEp(null); }}
+          episodeNumber={hardDeleteEp.episode_number}
+          episodeTitle={hardDeleteEp.title || `Episode ${hardDeleteEp.episode_number}`}
+          isPending={hardDeleteEpisode.isPending}
+          onConfirm={() => {
+            hardDeleteEpisode.mutate(hardDeleteEp.id, {
+              onSuccess: () => setHardDeleteEp(null),
+            });
+          }}
+        />
+      )}
     </div>
   );
 }
