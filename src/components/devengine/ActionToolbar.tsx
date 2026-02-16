@@ -10,6 +10,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Play, ArrowRight, RefreshCw, Loader2, AlertTriangle, Info, Film } from 'lucide-react';
 import { DELIVERABLE_LABELS, type DeliverableType } from '@/lib/dev-os-config';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import type { NextAction } from '@/lib/next-action';
+import { renderActionPillText } from '@/lib/next-action';
 
 interface VerticalDramaGating {
   missing_prerequisites: string[];
@@ -49,6 +51,8 @@ interface ActionToolbarProps {
   onBeatSheetToScript?: (episodeNumber: number) => void;
   beatSheetToScriptPending?: boolean;
   beatSheetScope?: BeatSheetScopeInfo | null;
+  /** Structured next action from promotion intelligence */
+  nextAction?: NextAction | null;
 }
 
 export function ActionToolbar({
@@ -62,6 +66,7 @@ export function ActionToolbar({
   isVerticalDrama, currentDocType, seasonEpisodeCount,
   onBeatSheetToScript, beatSheetToScriptPending,
   beatSheetScope,
+  nextAction,
 }: ActionToolbarProps) {
   const anyPending = analyzePending || rewritePending || convertPending || generateNotesPending || beatSheetToScriptPending;
   const hasMissingPrereqs = verticalDramaGating && verticalDramaGating.missing_prerequisites.length > 0;
@@ -84,12 +89,16 @@ export function ActionToolbar({
           {hasAnalysis ? 'Re-review' : 'Run Review'}
         </Button>
 
-        {/* Converged — promote */}
+        {/* Converged — promote or enter mode */}
         {isConverged && (
           <Button size="sm" className="h-8 text-xs gap-1.5 bg-emerald-600 hover:bg-emerald-700"
             onClick={onPromote} disabled={anyPending || !nextBestDocument}>
             {convertPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <ArrowRight className="h-3 w-3" />}
-            Promote{nextBestDocument ? `: ${DELIVERABLE_LABELS[nextBestDocument as DeliverableType] || nextBestDocument}` : ''}
+            {nextAction && nextAction.kind !== 'none'
+              ? renderActionPillText(nextAction)
+              : isVerticalDrama && nextBestDocument === 'script'
+                ? 'Enter Series Writer'
+                : nextBestDocument ? `Promote: ${DELIVERABLE_LABELS[nextBestDocument as DeliverableType] || nextBestDocument}` : 'Promote'}
             {hasUnresolvedDrift && <AlertTriangle className="h-3 w-3 text-amber-400" />}
           </Button>
         )}
