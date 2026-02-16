@@ -1,51 +1,26 @@
 import { useState, useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Plus, Building2, Trash2, MapPin, FolderOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Header } from '@/components/Header';
-import { PageTransition } from '@/components/PageTransition';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
-import {
-  Breadcrumb, BreadcrumbList, BreadcrumbItem, BreadcrumbPage,
-} from '@/components/ui/breadcrumb';
+import { ExplorerLayout } from '@/components/explorer/ExplorerLayout';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useCompanies, ProductionCompany } from '@/hooks/useCompanies';
 import { useAllCompanyLinks } from '@/hooks/useAllCompanyLinks';
-
-function CompanyAvatar({ company }: { company: ProductionCompany }) {
-  const accent = company.color_accent || undefined;
-  if (company.logo_url) {
-    return (
-      <div
-        className="h-10 max-w-[120px] min-w-[40px] rounded-lg overflow-hidden shrink-0 border border-border/50 bg-muted-foreground/10 dark:bg-muted-foreground/20 p-0.5"
-        style={accent ? { borderColor: accent + '40' } : undefined}
-      >
-        <img src={company.logo_url} alt={company.name} className="h-full w-full object-contain" />
-      </div>
-    );
-  }
-  return (
-    <div
-      className="h-10 w-10 rounded-lg flex items-center justify-center shrink-0"
-      style={{ backgroundColor: accent ? accent + '20' : 'hsl(var(--primary) / 0.1)' }}
-    >
-      <Building2 className="h-5 w-5" style={{ color: accent || 'hsl(var(--primary))' }} />
-    </div>
-  );
-}
 
 export default function Companies() {
   const { companies, isLoading, createCompany, deleteCompany } = useCompanies();
   const { linkMap } = useAllCompanyLinks();
+  const navigate = useNavigate();
   const [newName, setNewName] = useState('');
   const [showForm, setShowForm] = useState(false);
 
   const companyCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const c of companies) {
-      const links = linkMap[c.id];
-      counts[c.id] = links ? links.size : 0;
+      counts[c.id] = linkMap[c.id]?.size || 0;
     }
     return counts;
   }, [companies, linkMap]);
@@ -58,153 +33,110 @@ export default function Companies() {
   };
 
   return (
-    <PageTransition>
-      <div className="min-h-screen bg-background">
-        <Header />
-        <main className="container py-10">
-          {/* Breadcrumb */}
-          <Breadcrumb className="mb-6">
-            <BreadcrumbList>
-              <BreadcrumbItem>
-                <BreadcrumbPage>Companies</BreadcrumbPage>
-              </BreadcrumbItem>
-            </BreadcrumbList>
-          </Breadcrumb>
+    <ExplorerLayout
+      breadcrumbs={[{ label: 'Companies' }]}
+      title="Companies"
+      subtitle={`${companies.length} compan${companies.length !== 1 ? 'ies' : 'y'}`}
+      actions={
+        <Button size="sm" onClick={() => setShowForm(true)}>
+          <Plus className="h-3.5 w-3.5 mr-1" />
+          New Company
+        </Button>
+      }
+    >
+      {showForm && (
+        <motion.div
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="glass-card rounded-lg p-4 mb-4 flex items-center gap-3"
+        >
+          <Input
+            placeholder="Company name..."
+            value={newName}
+            onChange={e => setNewName(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && handleCreate()}
+            autoFocus
+            className="max-w-sm"
+          />
+          <Button onClick={handleCreate} disabled={!newName.trim() || createCompany.isPending} size="sm">Create</Button>
+          <Button variant="ghost" size="sm" onClick={() => { setShowForm(false); setNewName(''); }}>Cancel</Button>
+        </motion.div>
+      )}
 
-          <motion.div
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3 }}
-          >
-            <div className="flex items-end justify-between mb-8">
-              <div>
-                <h1 className="text-3xl font-display font-bold text-foreground tracking-tight">
-                  Production Companies
-                </h1>
-                <p className="text-muted-foreground mt-1">
-                  {companies.length} compan{companies.length !== 1 ? 'ies' : 'y'}
-                </p>
-              </div>
-              <Button onClick={() => setShowForm(true)}>
-                <Plus className="h-4 w-4 mr-1.5" />
-                New Company
-              </Button>
-            </div>
-
-            {showForm && (
-              <motion.div
-                initial={{ opacity: 0, y: -8 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="glass-card rounded-lg p-4 mb-6 flex items-center gap-3"
-              >
-                <Input
-                  placeholder="Company name..."
-                  value={newName}
-                  onChange={e => setNewName(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && handleCreate()}
-                  autoFocus
-                  className="max-w-sm"
-                />
-                <Button onClick={handleCreate} disabled={!newName.trim() || createCompany.isPending}>
-                  Create
-                </Button>
-                <Button variant="ghost" onClick={() => { setShowForm(false); setNewName(''); }}>
-                  Cancel
-                </Button>
-              </motion.div>
-            )}
-
-            {isLoading ? (
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {[...Array(3)].map((_, i) => (
-                  <div key={i} className="glass-card rounded-lg p-6 animate-pulse">
-                    <div className="h-5 w-40 bg-muted rounded mb-2" />
-                    <div className="h-3 w-24 bg-muted rounded" />
-                  </div>
-                ))}
-              </div>
-            ) : companies.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-24 text-center">
-                <div className="h-16 w-16 rounded-xl bg-primary/10 flex items-center justify-center mb-6">
-                  <Building2 className="h-8 w-8 text-primary" />
-                </div>
-                <h2 className="text-xl font-display font-semibold text-foreground mb-2">
-                  Create your first production company
-                </h2>
-                <p className="text-muted-foreground mb-6 max-w-sm">
-                  Group your projects under different production entities. Each company acts as its own dossier with a dedicated view of its slate.
-                </p>
-                <Button onClick={() => setShowForm(true)}>
-                  <Plus className="h-4 w-4 mr-1.5" />
-                  New Company
-                </Button>
-              </div>
-            ) : (
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {companies.map((company, i) => {
-                  const count = companyCounts[company.id] || 0;
-                  return (
-                    <motion.div
-                      key={company.id}
-                      initial={{ opacity: 0, y: 12 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: i * 0.05, duration: 0.3 }}
-                      className="relative group"
-                    >
-                      <Link
-                        to={`/companies/${company.id}`}
-                        className="block glass-card rounded-lg p-6 transition-all duration-300 hover:border-primary/30 hover:shadow-[0_0_30px_hsl(var(--glow-primary))]"
-                        style={company.color_accent ? { borderColor: company.color_accent + '30' } : undefined}
-                      >
-                        <div className="flex items-start gap-3">
-                          <CompanyAvatar company={company} />
-                          <div className="flex-1 min-w-0">
-                            <h3 className="text-lg font-display font-semibold text-foreground truncate group-hover:text-primary transition-colors">
-                              {company.name}
-                            </h3>
-                            {company.jurisdiction && (
-                              <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">
-                                <MapPin className="h-3 w-3" />
-                                {company.jurisdiction}
-                              </p>
-                            )}
-                            <div className="flex items-center gap-2 mt-1">
-                              <FolderOpen className="h-3 w-3 text-muted-foreground" />
-                              <p className="text-xs text-muted-foreground">
-                                {count} project{count !== 1 ? 's' : ''}
-                              </p>
-                            </div>
-                            <p className="text-xs text-muted-foreground/70 mt-0.5">
-                              Updated {new Date(company.updated_at || company.created_at).toLocaleDateString()}
-                            </p>
-                          </div>
-                          {company.color_accent && (
-                            <div
-                              className="h-3 w-3 rounded-full shrink-0 mt-1"
-                              style={{ backgroundColor: company.color_accent }}
-                            />
-                          )}
+      {isLoading ? (
+        <div className="space-y-2">
+          {[...Array(3)].map((_, i) => <div key={i} className="h-12 bg-muted/30 rounded animate-pulse" />)}
+        </div>
+      ) : companies.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-24 text-center">
+          <div className="h-14 w-14 rounded-xl bg-primary/10 flex items-center justify-center mb-4">
+            <Building2 className="h-7 w-7 text-primary" />
+          </div>
+          <h2 className="text-lg font-display font-semibold text-foreground mb-2">No companies yet</h2>
+          <p className="text-sm text-muted-foreground mb-4 max-w-sm">Create your first company to begin.</p>
+          <Button size="sm" onClick={() => setShowForm(true)}>
+            <Plus className="h-3.5 w-3.5 mr-1" /> New Company
+          </Button>
+        </div>
+      ) : (
+        <div className="glass-card rounded-lg overflow-hidden">
+          <Table>
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                <TableHead className="w-[40%]">Name</TableHead>
+                <TableHead className="text-right">Projects</TableHead>
+                <TableHead>Jurisdiction</TableHead>
+                <TableHead>Updated</TableHead>
+                <TableHead className="w-10" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {companies.map(company => (
+                <TableRow key={company.id} className="cursor-pointer group" onClick={() => navigate(`/companies/${company.id}`)}>
+                  <TableCell>
+                    <div className="flex items-center gap-3">
+                      {company.logo_url ? (
+                        <div className="h-8 max-w-[80px] min-w-[32px] rounded overflow-hidden shrink-0 border border-border/50 bg-muted/30 p-0.5"
+                          style={company.color_accent ? { borderColor: company.color_accent + '40' } : undefined}>
+                          <img src={company.logo_url} alt={company.name} className="h-full w-full object-contain" />
                         </div>
-                      </Link>
-                      <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <ConfirmDialog
-                          title={`Delete ${company.name}?`}
-                          description="This will remove the company and unlink all its projects. Projects themselves won't be deleted."
-                          onConfirm={() => deleteCompany.mutate(company.id)}
-                        >
-                          <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive">
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </ConfirmDialog>
-                      </div>
-                    </motion.div>
-                  );
-                })}
-              </div>
-            )}
-          </motion.div>
-        </main>
-      </div>
-    </PageTransition>
+                      ) : (
+                        <div className="h-8 w-8 rounded flex items-center justify-center shrink-0"
+                          style={{ backgroundColor: company.color_accent ? company.color_accent + '20' : 'hsl(var(--primary) / 0.1)' }}>
+                          <Building2 className="h-4 w-4" style={{ color: company.color_accent || 'hsl(var(--primary))' }} />
+                        </div>
+                      )}
+                      <span className="font-medium text-foreground group-hover:text-primary transition-colors truncate">{company.name}</span>
+                      {company.color_accent && <div className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: company.color_accent }} />}
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    <div className="flex items-center justify-end gap-1.5">
+                      <FolderOpen className="h-3 w-3 text-muted-foreground" />
+                      <span>{companyCounts[company.id] || 0}</span>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    {company.jurisdiction ? (
+                      <span className="text-sm text-muted-foreground flex items-center gap-1"><MapPin className="h-3 w-3" />{company.jurisdiction}</span>
+                    ) : <span className="text-muted-foreground/40">—</span>}
+                  </TableCell>
+                  <TableCell>
+                    <span className="text-sm text-muted-foreground">{new Date(company.updated_at || company.created_at).toLocaleDateString()}</span>
+                  </TableCell>
+                  <TableCell>
+                    <div className="opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
+                      <ConfirmDialog title={`Delete ${company.name}?`} description="This will remove the company and unlink all its projects." onConfirm={() => deleteCompany.mutate(company.id)}>
+                        <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></Button>
+                      </ConfirmDialog>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+    </ExplorerLayout>
   );
 }
