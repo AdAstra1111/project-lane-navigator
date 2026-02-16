@@ -1422,6 +1422,7 @@ Deno.serve(async (req) => {
     // ═══════════════════════════════════════
     if (action === "run-next") {
       if (!jobId) return respond({ error: "jobId required" }, 400);
+      let optionsGeneratedThisStep = false;
 
       const { data: job, error: jobErr } = await supabase.from("auto_run_jobs").select("*").eq("id", jobId).eq("user_id", userId).single();
       if (jobErr || !job) return respond({ error: "Job not found" }, 404);
@@ -1939,6 +1940,7 @@ Deno.serve(async (req) => {
               { ci, gp, gap, readiness: promo.readiness_score, confidence: promo.confidence, risk_flags: promo.risk_flags },
             );
 
+            optionsGeneratedThisStep = true;
             await updateJob(supabase, jobId, {
               step_count: newStep + 2,
               status: "paused",
@@ -2022,6 +2024,7 @@ Deno.serve(async (req) => {
                 undefined, { optionsRunId, decisions: stabiliseDecisions.length, global_directions: optionsData.global_directions?.length || 0 }
               );
 
+              optionsGeneratedThisStep = true;
               await updateJob(supabase, jobId, {
                 step_count: newStep + 2,
                 stage_loop_count: newLoopCount,
@@ -2046,7 +2049,7 @@ Deno.serve(async (req) => {
           const jobAfterOptions = await getJob(supabase, jobId);
           const hasActiveDecisions = Array.isArray(jobAfterOptions?.pending_decisions) && (jobAfterOptions.pending_decisions as any[]).length > 0;
 
-          if (!hasActiveDecisions && newLoopCount >= job.max_stage_loops) {
+          if (!optionsGeneratedThisStep && !hasActiveDecisions && newLoopCount >= job.max_stage_loops) {
             if (blockersCount > 0) {
               const fallback = createFallbackDecisions(currentDoc, ci, gp, "Blockers persist after max loops");
               await updateJob(supabase, jobId, { status: "paused", stop_reason: "Blockers persist — manual decision required", stage_loop_count: newLoopCount, pending_decisions: fallback });

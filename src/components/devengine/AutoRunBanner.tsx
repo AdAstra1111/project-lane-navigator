@@ -50,9 +50,9 @@ export function AutoRunBanner({
   const hasStepError = !!job.error && status === 'running';
   const isFailed = status === 'failed' || hasStepError;
   const hasSelectedVersion = !!selectedDocId && !!selectedVersionId;
-  const hasPendingDecisions = Array.isArray(job.pending_decisions) && (job.pending_decisions as any[]).length > 0;
-  const needsApproval = !isFailed && !hasPendingDecisions && (job.awaiting_approval || (job.pending_decisions && (job.pending_decisions as any[]).length > 0));
+  const hasPendingDecisions = Array.isArray(job.pending_decisions) && job.pending_decisions.length > 0;
   const needsDecisions = !isFailed && hasPendingDecisions;
+  const needsApproval = !isFailed && !hasPendingDecisions && !!job.awaiting_approval;
   const needsCriteria = (job.stop_reason || '').includes('Missing required criteria');
   const isStaleDoc = (job.stop_reason || '').includes('Document stale vs current criteria');
   const staleDiffKeys = isStaleDoc ? (job.stop_reason || '').match(/: (.+?)\./)?.[1] || '' : '';
