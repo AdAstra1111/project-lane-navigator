@@ -72,6 +72,8 @@ function CompanyTree({ companyId, companyName, onDeleteProject }: { companyId: s
   const { data: projects = [] } = useCompanyProjects(companyId);
   const [projectsExpanded, setProjectsExpanded] = useState(true);
   const [byTypeExpanded, setByTypeExpanded] = useState(false);
+  const [recentExpanded, setRecentExpanded] = useState(false);
+  const [starredExpanded, setStarredExpanded] = useState(false);
 
   const currentPath = location.pathname;
   const currentView = searchParams.get('view');
@@ -164,8 +166,8 @@ function CompanyTree({ companyId, companyName, onDeleteProject }: { companyId: s
             icon={<Clock className="h-3.5 w-3.5 text-sidebar-foreground/50" />}
             label="Recent"
             depth={3}
-            expanded={false}
-            onToggle={() => {}}
+            expanded={recentExpanded}
+            onToggle={() => setRecentExpanded(!recentExpanded)}
           >
             {recentProjects.map((p: any) => (
               <TreeItem
@@ -185,8 +187,8 @@ function CompanyTree({ companyId, companyName, onDeleteProject }: { companyId: s
             icon={<Star className="h-3.5 w-3.5 text-sidebar-foreground/50" />}
             label="Starred"
             depth={3}
-            expanded={false}
-            onToggle={() => {}}
+            expanded={starredExpanded}
+            onToggle={() => setStarredExpanded(!starredExpanded)}
           >
             {starredProjects.map((p: any) => (
               <TreeItem
