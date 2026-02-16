@@ -7,6 +7,7 @@
  */
 
 import type { ProjectFormat } from '@/lib/types';
+import { normalizeFormat } from '@/lib/format-helpers';
 
 // ─── Governance Rule ───
 
@@ -437,8 +438,9 @@ export interface ValidationResult {
 /**
  * Validates that AI output text does not contain disallowed concepts for a production type.
  */
-export function validateAgainstRules(productionType: ProjectFormat, text: string): ValidationResult {
-  const rules = PRODUCTION_TYPE_RULES[productionType];
+export function validateAgainstRules(productionType: string, text: string): ValidationResult {
+  const normalized = normalizeFormat(productionType) as ProjectFormat;
+  const rules = PRODUCTION_TYPE_RULES[normalized];
   if (!rules) return { valid: true, violations: [] };
 
   const lower = text.toLowerCase();
@@ -461,49 +463,50 @@ export function validateAgainstRules(productionType: ProjectFormat, text: string
 /**
  * Returns the AI conditioning context for a production type.
  */
-export function getAIContext(productionType: ProjectFormat): string {
-  return PRODUCTION_TYPE_RULES[productionType]?.aiConditioningContext || PRODUCTION_TYPE_RULES.film.aiConditioningContext;
+export function getAIContext(productionType: string): string {
+  return PRODUCTION_TYPE_RULES[normalizeFormat(productionType) as ProjectFormat]?.aiConditioningContext || PRODUCTION_TYPE_RULES.film.aiConditioningContext;
 }
 
 /**
  * Returns the financing model template for a production type.
  */
-export function getFinancingTemplate(productionType: ProjectFormat): string[] {
-  return PRODUCTION_TYPE_RULES[productionType]?.financingModel || PRODUCTION_TYPE_RULES.film.financingModel;
+export function getFinancingTemplate(productionType: string): string[] {
+  return PRODUCTION_TYPE_RULES[normalizeFormat(productionType) as ProjectFormat]?.financingModel || PRODUCTION_TYPE_RULES.film.financingModel;
 }
 
 /**
  * Returns the stakeholder template for a production type.
  */
-export function getStakeholderTemplate(productionType: ProjectFormat): string[] {
-  return PRODUCTION_TYPE_RULES[productionType]?.stakeholderTemplate || PRODUCTION_TYPE_RULES.film.stakeholderTemplate;
+export function getStakeholderTemplate(productionType: string): string[] {
+  return PRODUCTION_TYPE_RULES[normalizeFormat(productionType) as ProjectFormat]?.stakeholderTemplate || PRODUCTION_TYPE_RULES.film.stakeholderTemplate;
 }
 
 /**
  * Returns the deliverables template for a production type.
  */
-export function getDeliverablesTemplate(productionType: ProjectFormat): string[] {
-  return PRODUCTION_TYPE_RULES[productionType]?.deliverablesTemplate || PRODUCTION_TYPE_RULES.film.deliverablesTemplate;
+export function getDeliverablesTemplate(productionType: string): string[] {
+  return PRODUCTION_TYPE_RULES[normalizeFormat(productionType) as ProjectFormat]?.deliverablesTemplate || PRODUCTION_TYPE_RULES.film.deliverablesTemplate;
 }
 
 /**
  * Returns the dashboard summary label for a production type.
  */
-export function getDashboardLabel(productionType: ProjectFormat): string {
-  return PRODUCTION_TYPE_RULES[productionType]?.dashboardSummaryLabel || 'Project Intelligence';
+export function getDashboardLabel(productionType: string): string {
+  return PRODUCTION_TYPE_RULES[normalizeFormat(productionType) as ProjectFormat]?.dashboardSummaryLabel || 'Project Intelligence';
 }
 
 /**
  * Returns market strategy focus areas for a production type.
  */
-export function getMarketStrategy(productionType: ProjectFormat): string[] {
-  return PRODUCTION_TYPE_RULES[productionType]?.marketStrategyFocus || [];
+export function getMarketStrategy(productionType: string): string[] {
+  return PRODUCTION_TYPE_RULES[normalizeFormat(productionType) as ProjectFormat]?.marketStrategyFocus || [];
 }
 
 /**
  * Returns the display label and emoji for a production type.
  */
-export function getProductionTypeDisplay(productionType: ProjectFormat): { label: string; emoji: string } {
-  const rule = PRODUCTION_TYPE_RULES[productionType];
+export function getProductionTypeDisplay(productionType: string): { label: string; emoji: string } {
+  const normalized = normalizeFormat(productionType) as ProjectFormat;
+  const rule = PRODUCTION_TYPE_RULES[normalized];
   return rule ? { label: rule.label, emoji: rule.emoji } : { label: 'Film', emoji: '🎬' };
 }
