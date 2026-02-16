@@ -553,6 +553,22 @@ export function ScriptStudio({
   // Script engine data
   const { scenes, versions, activeScript } = useScriptEngine(projectId);
 
+  // Series episodes (for reading in Script Studio)
+  const [seriesEpisodes, setSeriesEpisodes] = useState<Array<{ id: string; episode_number: number; title: string; script_id: string }>>([]);
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await (supabase as any)
+        .from('series_episodes')
+        .select('id, episode_number, title, script_id')
+        .eq('project_id', projectId)
+        .not('script_id', 'is', null)
+        .in('status', ['complete', 'needs_revision'])
+        .order('episode_number', { ascending: true });
+      if (data?.length) setSeriesEpisodes(data);
+    })();
+  }, [projectId]);
+
   // Coverage runs
   const [runs, setRuns] = useState<CoverageRunData[]>([]);
   const [selectedRunId, setSelectedRunId] = useState('');
@@ -601,6 +617,21 @@ export function ScriptStudio({
   // When user selects a different document, load its text
   useEffect(() => {
     if (!selectedDocId) return;
+
+    // Check if it's a series episode (prefixed with "ep:")
+    if (selectedDocId.startsWith('ep:')) {
+      const scriptId = selectedDocId.replace('ep:', '');
+      (async () => {
+        const { data } = await supabase
+          .from('scripts')
+          .select('text_content')
+          .eq('id', scriptId)
+          .single();
+        setDisplayText((data as any)?.text_content || 'No script content available.');
+      })();
+      return;
+    }
+
     const doc = documents.find((d: any) => d.id === selectedDocId);
     if (!doc) return;
     const directText = doc.extracted_text || doc.version_plaintext || null;
@@ -828,8 +859,8 @@ export function ScriptStudio({
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
-            {/* Document selector */}
-            {documents.length > 0 && (
+            {/* Document + Episode selector */}
+            {(documents.length > 0 || seriesEpisodes.length > 0) && (
               <Select
                 value={selectedDocId || currentScript?.id || documents[0]?.id || 'none'}
                 onValueChange={(docId) => {
@@ -838,7 +869,7 @@ export function ScriptStudio({
                   if (idx >= 0) setSelectedVersionIdx(idx);
                 }}
               >
-                <SelectTrigger className="h-8 max-w-[240px] text-xs bg-background border-border">
+                <SelectTrigger className="h-8 max-w-[260px] text-xs bg-background border-border">
                   <SelectValue placeholder="Select document…" />
                 </SelectTrigger>
                 <SelectContent className="bg-popover border-border z-50 max-h-[400px] min-w-[350px] w-auto">
@@ -860,6 +891,27 @@ export function ScriptStudio({
                               v{latestV}{vCount > 1 ? ` · ${vCount} drafts` : ''}
                             </Badge>
                           )}
+                        </span>
+                      </SelectItem>
+                    );
+                  })}
+                  {seriesEpisodes.length > 0 && documents.length > 0 && (
+                    <div className="px-2 py-1.5 border-t border-border/50">
+                      <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">Series Episodes</span>
+                    </div>
+                  )}
+                  {seriesEpisodes.map((ep) => {
+                    const epValue = `ep:${ep.script_id}`;
+                    return (
+                      <SelectItem
+                        key={epValue}
+                        value={epValue}
+                        className={`text-xs py-2 ${selectedDocId === epValue ? 'font-semibold text-primary' : ''}`}
+                      >
+                        <span className="flex items-center gap-1.5">
+                          <Layers className="h-3 w-3 shrink-0" />
+                          <span className="font-mono text-muted-foreground">EP {String(ep.episode_number).padStart(2, '0')}</span>
+                          <span className="whitespace-normal break-words">{ep.title || `Episode ${ep.episode_number}`}</span>
                         </span>
                       </SelectItem>
                     );
