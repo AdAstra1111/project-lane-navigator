@@ -13,17 +13,7 @@ import { Plus, ClipboardPaste, GitBranch, Loader2, Trash2 } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { DELIVERABLE_LABELS } from '@/lib/dev-os-config';
 
-const DOC_TYPE_LABELS: Record<string, string> = {
-  idea: 'Idea', logline: 'Logline', one_pager: 'One-Pager', treatment: 'Treatment',
-  script: 'Script', blueprint: 'Blueprint', architecture: 'Architecture',
-  notes: 'Notes', outline: 'Outline', deck_text: 'Deck', other: 'Other',
-  concept_brief: 'Concept Brief', market_sheet: 'Market Sheet',
-  character_bible: 'Character Bible', beat_sheet: 'Beat Sheet',
-  production_draft: 'Production Draft', deck: 'Deck', documentary_outline: 'Doc Outline',
-  format_rules: 'Format Rules', season_arc: 'Season Arc',
-  episode_grid: 'Episode Grid', vertical_episode_beats: 'Episode Beats',
-  vertical_market_sheet: 'Market Sheet (VD)',
-};
+import { getDocTypeLabel } from '@/lib/can-promote-to-script';
 
 interface DocumentSidebarProps {
   documents: any[];
@@ -116,7 +106,7 @@ export function DocumentSidebar({
                 <div className="flex items-center justify-between mt-1">
                   <div className="flex items-center gap-1">
                     <Badge variant="outline" className="text-[8px] px-1 py-0">
-                      {DOC_TYPE_LABELS[doc.doc_type] || doc.doc_type}
+                      {getDocTypeLabel(doc.doc_type)}
                     </Badge>
                     <span className="text-[9px] text-muted-foreground">
                       {doc.source === 'generated' ? '✨' : doc.source === 'paste' ? '📋' : '📄'}

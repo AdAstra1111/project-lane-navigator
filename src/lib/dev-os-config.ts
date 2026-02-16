@@ -479,5 +479,5 @@ export function defaultDeliverableForDocType(docType: string): DeliverableType {
     vertical_episode_beats: 'vertical_episode_beats',
     series_writer: 'series_writer',
   };
-  return map[normalized] || 'script';
+  return map[normalized] || 'concept_brief';
 }
