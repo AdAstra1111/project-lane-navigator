@@ -577,7 +577,8 @@ export default function ProjectDevelopmentEngine() {
                   {/* Drift banner */}
                   <DriftBanner drift={latestDrift}
                     onAcknowledge={() => latestDrift && acknowledgeDrift.mutate(latestDrift.id)}
-                    onResolve={() => latestDrift && resolveDrift.mutate({ driftEventId: latestDrift.id, resolutionType: 'accept_drift' })} />
+                    onResolve={(resolutionType) => latestDrift && resolveDrift.mutate({ driftEventId: latestDrift.id, resolutionType })}
+                    resolvePending={resolveDrift.isPending} />
 
                   {/* Qualification conflict banner */}
                   {artifactConflicts.length > 0 && (
