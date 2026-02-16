@@ -332,8 +332,11 @@ export function ExplorerSidebar() {
         projectTitle={deleteTarget?.title || ''}
         onConfirm={() => {
           if (deleteTarget) {
-            deleteProject.mutate(deleteTarget.id);
-            setDeleteTarget(null);
+            deleteProject.mutate(deleteTarget.id, {
+              onSuccess: () => {
+                setDeleteTarget(null);
+              },
+            });
           }
         }}
         isPending={deleteProject.isPending}
