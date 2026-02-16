@@ -44,6 +44,8 @@ import { AutoRunBanner } from '@/components/devengine/AutoRunBanner';
 import { CriteriaPanel } from '@/components/devengine/CriteriaPanel';
 import { useAutoRunMissionControl } from '@/hooks/useAutoRunMissionControl';
 import { CanonicalQualificationsPanel } from '@/components/devengine/CanonicalQualificationsPanel';
+import { QualificationConflictBanner } from '@/components/devengine/QualificationConflictBanner';
+import { useStageResolve } from '@/hooks/useStageResolve';
 
 // ── Main Page ──
 export default function ProjectDevelopmentEngine() {
@@ -97,6 +99,33 @@ export default function ProjectDevelopmentEngine() {
   const promotionIntel = usePromotionIntelligence();
   const rewritePipeline = useRewritePipeline(projectId);
   const autoRun = useAutoRunMissionControl(projectId);
+  const { resolveOnEntry } = useStageResolve(projectId);
+
+  // Stage-entry re-resolve: call resolve-qualifications when the page loads
+  useEffect(() => {
+    resolveOnEntry();
+  }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Detect episode count conflicts in upstream artifacts
+  const artifactConflicts = useMemo(() => {
+    if (!isSeriesFormat || !project) return [];
+    const canonicalCount = effectiveSeasonEpisodes;
+    const conflicts: Array<{ artifactName: string; artifactEpisodeCount: number; canonicalEpisodeCount: number }> = [];
+
+    // Check latest analysis for stale episode references
+    if (latestAnalysis) {
+      const snapshot = latestAnalysis.criteria_snapshot;
+      if (snapshot?.season_episode_count && snapshot.season_episode_count !== canonicalCount) {
+        conflicts.push({
+          artifactName: 'Latest Analysis',
+          artifactEpisodeCount: snapshot.season_episode_count,
+          canonicalEpisodeCount: canonicalCount,
+        });
+      }
+    }
+
+    return conflicts;
+  }, [isSeriesFormat, project, effectiveSeasonEpisodes, latestAnalysis]);
 
   const [selectedDeliverableType, setSelectedDeliverableType] = useState<DeliverableType>('script');
   const [selectedNotes, setSelectedNotes] = useState<Set<number>>(new Set());
@@ -530,6 +559,17 @@ export default function ProjectDevelopmentEngine() {
                   <DriftBanner drift={latestDrift}
                     onAcknowledge={() => latestDrift && acknowledgeDrift.mutate(latestDrift.id)}
                     onResolve={() => latestDrift && resolveDrift.mutate({ driftEventId: latestDrift.id, resolutionType: 'accept_drift' })} />
+
+                  {/* Qualification conflict banner */}
+                  {artifactConflicts.length > 0 && (
+                    <QualificationConflictBanner
+                      conflicts={artifactConflicts}
+                      onRegenerate={() => handleRunEngine()}
+                      onKeep={() => {}}
+                      onCreateDecision={() => {}}
+                      isRegenerating={analyze.isPending}
+                    />
+                  )}
 
                   {/* Action toolbar — simplified: only Run Review, Promote, Convert */}
                   <ActionToolbar

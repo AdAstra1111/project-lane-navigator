@@ -1487,15 +1487,25 @@ Deno.serve(async (req) => {
           resolvedQuals = resolverResult.resolvedQualifications || {};
           resolverHash = resolverResult.resolver_hash || null;
 
-          // Check hash change mid-run — if the resolver hash changed since last step, log it
-          if (job.last_risk_flags && Array.isArray(job.last_risk_flags)) {
-            const prevHash = (job as any).resolved_qualifications_hash || null;
-            if (prevHash && resolverHash && prevHash !== resolverHash) {
-              await logStep(supabase, jobId, stepCount, currentDoc, "qualification_hash_changed",
-                `Qualification hash changed: ${prevHash} → ${resolverHash}. Re-analyzing with new values.`,
-                { risk_flags: ["qualification_hash_changed"] }
-              );
-            }
+          // Check hash change mid-run — detect stale episode count
+          // Look at last review step's stored resolver hash
+          const { data: lastStepWithHash } = await supabase.from("auto_run_steps")
+            .select("step_resolver_hash")
+            .eq("job_id", jobId)
+            .not("step_resolver_hash", "is", null)
+            .order("step_index", { ascending: false })
+            .limit(1)
+            .single();
+
+          const prevStepHash = lastStepWithHash?.step_resolver_hash || null;
+          if (prevStepHash && resolverHash && prevStepHash !== resolverHash) {
+            // Invalidate cached context fields that depend on episode count
+            await logStep(supabase, jobId, stepCount, currentDoc, "qualification_hash_changed",
+              `Resolver hash changed: ${prevStepHash} → ${resolverHash}. Episode count/duration may have changed. Invalidating cached context and re-analyzing with canonical values.`,
+              { risk_flags: ["qualification_hash_changed", "episode_count_invalidated"] }
+            );
+            // Reset stage loop count so a fresh analysis cycle starts
+            await updateJob(supabase, jobId, { stage_loop_count: 0 });
           }
         } else {
           const errText = await resolverResp.text();
@@ -1790,11 +1800,18 @@ Deno.serve(async (req) => {
 
         const newStep = stepCount + 1;
         const analyzeShapeKeys = Object.keys(analyzeResult || {});
-        await logStep(supabase, jobId, newStep, currentDoc, "review",
-          `CI:${ci} GP:${gp} Gap:${gap} Traj:${trajectory || "?"} B:${blockersCount} HI:${highImpactCount}`,
-          { ci, gp, gap, readiness: 0, confidence: 0, risk_flags: scoreRiskFlags },
-          analyzeResult?.executive_snapshot || analyzeResult?.verdict || undefined,
-          {
+
+        // Store step_resolver_hash for hash-based invalidation
+        const stepInsertResult = await supabase.from("auto_run_steps").insert({
+          job_id: jobId,
+          step_index: newStep,
+          document: currentDoc,
+          action: "review",
+          summary: `CI:${ci} GP:${gp} Gap:${gap} Traj:${trajectory || "?"} B:${blockersCount} HI:${highImpactCount}`,
+          ci, gp, gap, readiness: 0, confidence: 0,
+          risk_flags: scoreRiskFlags,
+          output_text: (analyzeResult?.executive_snapshot || analyzeResult?.verdict || "").slice(0, 4000) || null,
+          output_ref: {
             input_doc_id: doc.id,
             input_version_id: latestVersion.id,
             input_text_len: reviewCharCount,
@@ -1803,8 +1820,9 @@ Deno.serve(async (req) => {
             analyze_output_gap: gap,
             analyze_output_shape_keys: analyzeShapeKeys,
             used_fallback_scores,
-          }
-        );
+          },
+          step_resolver_hash: resolverHash,
+        });
 
         // Step B: Generate notes with retry
         await callEdgeFunctionWithRetry(

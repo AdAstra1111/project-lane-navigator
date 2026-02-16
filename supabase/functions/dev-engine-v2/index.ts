@@ -767,12 +767,22 @@ serve(async (req) => {
         seasonContext = `\nSEASON ARCHITECTURE: ${seasonArchitecture.episode_count} episodes, ${seasonArchitecture.model} model. Anchors: reveal=${seasonArchitecture.anchors.reveal_index}, midpoint=${seasonArchitecture.anchors.mid_index}${seasonArchitecture.anchors.pre_finale_index ? `, pre-finale=${seasonArchitecture.anchors.pre_finale_index}` : ""}, finale=${seasonArchitecture.anchors.finale_index}.`;
       }
 
+      // Build canonical qualification binding for prompt
+      let qualBinding = "";
+      if (rq.is_series && rq.season_episode_count) {
+        qualBinding = `\nCANONICAL QUALIFICATIONS (authoritative — ignore older references to different values):
+Target season length: ${rq.season_episode_count} episodes.
+Episode target duration: ${rq.episode_target_duration_seconds} seconds.
+Format: ${rq.format}.
+Resolver hash: ${resolvedQuals?.resolver_hash || "unknown"}.`;
+      }
+
       const userPrompt = `PRODUCTION TYPE: ${effectiveProductionType}
 STRATEGIC PRIORITY: ${strategicPriority || "BALANCED"}
 DEVELOPMENT STAGE: ${developmentStage || "IDEA"}
 PROJECT: ${project?.title || "Unknown"}
 LANE: ${project?.assigned_lane || "Unknown"} | BUDGET: ${project?.budget_range || "Unknown"}
-${prevContext}${seasonContext}
+${prevContext}${seasonContext}${qualBinding}
 
 MATERIAL (${version.plaintext.length} chars):
 ${version.plaintext.slice(0, 25000)}`;
@@ -1557,10 +1567,40 @@ MATERIAL TO REWRITE:\n${fullText}`;
       const { data: srcDoc } = await supabase.from("project_documents")
         .select("doc_type, title").eq("id", documentId).single();
 
+      // ── Canonical Qualification Resolver for convert (esp. character_bible) ──
+      let qualBindingBlock = "";
+      try {
+        const resolverResp = await fetch(`${supabaseUrl}/functions/v1/resolve-qualifications`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: authHeader },
+          body: JSON.stringify({ projectId }),
+        });
+        if (resolverResp.ok) {
+          const resolverResult = await resolverResp.json();
+          const rq = resolverResult.resolvedQualifications || {};
+          if (rq.is_series) {
+            qualBindingBlock = `\nCANONICAL QUALIFICATIONS (use ONLY these values — ignore any older references):
+Target season length: ${rq.season_episode_count} episodes.
+Episode target duration: ${rq.episode_target_duration_seconds} seconds.
+Season target runtime: ${rq.season_target_runtime_seconds || "N/A"} seconds.
+Format: ${rq.format}.
+Ignore any older references to different episode counts; they are deprecated.
+Resolver hash: ${resolverResult.resolver_hash}`;
+          } else if (rq.target_runtime_min_low) {
+            qualBindingBlock = `\nCANONICAL QUALIFICATIONS (use ONLY these values):
+Target runtime: ${rq.target_runtime_min_low}-${rq.target_runtime_min_high} minutes.
+Format: ${rq.format}.
+Resolver hash: ${resolverResult.resolver_hash}`;
+          }
+        }
+      } catch (e) {
+        console.warn("[dev-engine-v2] convert: resolve-qualifications failed:", e);
+      }
+
       const userPrompt = `SOURCE FORMAT: ${srcDoc?.doc_type || "unknown"}
 TARGET FORMAT: ${targetOutput}
 PROTECT (non-negotiable creative DNA):\n${JSON.stringify(protectItems || [])}
-
+${qualBindingBlock}
 MATERIAL:\n${version.plaintext.slice(0, 20000)}`;
 
       const isDraftScript = targetOutput === "DRAFT_SCRIPT";
