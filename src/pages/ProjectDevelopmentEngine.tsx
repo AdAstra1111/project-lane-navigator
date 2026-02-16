@@ -106,17 +106,20 @@ export default function ProjectDevelopmentEngine() {
 
   const hasUnresolvedMajorDrift = latestDrift?.drift_level === 'major' && !latestDrift?.resolved;
 
-  // Import landing
+  // Import landing — auto-select from URL params or fall back to latest document
   const [importHandled, setImportHandled] = useState(false);
   useEffect(() => {
-    if (importHandled || docsLoading) return;
+    if (importHandled || docsLoading || documents.length === 0) return;
     const docParam = searchParams.get('doc');
     const versionParam = searchParams.get('version');
     if (docParam && documents.some(d => d.id === docParam)) {
       selectDocument(docParam);
       if (versionParam) setSelectedVersionId(versionParam);
-      setImportHandled(true);
+    } else {
+      // No URL param — select the most recent document (already sorted desc by created_at)
+      selectDocument(documents[0].id);
     }
+    setImportHandled(true);
   }, [documents, docsLoading, searchParams, importHandled, selectDocument, setSelectedVersionId]);
 
   // Auto-set deliverable type from selected doc
