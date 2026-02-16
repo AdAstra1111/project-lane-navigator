@@ -32,43 +32,58 @@ serve(async (req) => {
     // ── Signal context injection ──
     let signalBlock = "";
     let signalsUsedIds: string[] = [];
-    let signalInfluence = 0.5;
-    if (projectId && !skipSignals) {
-      try {
-        const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2");
-        const supa = createClient(supabaseUrl, supabaseKey);
-        const { data: projSettings } = await supa.from("projects")
-          .select("signals_influence, signals_apply")
-          .eq("id", projectId).single();
-        signalInfluence = (projSettings as any)?.signals_influence ?? 0.5;
-        const applyConfig = (projSettings as any)?.signals_apply ?? { pitch: true };
-        if (applyConfig.pitch) {
-          const { data: matches } = await supa
-            .from("project_signal_matches")
-            .select("cluster_id, relevance_score, impact_score, rationale, cluster:cluster_id(name, category, strength, velocity, saturation_risk, explanation, cluster_scoring)")
-            .eq("project_id", projectId)
-            .order("impact_score", { ascending: false })
-            .limit(3);
-          if (matches && matches.length > 0) {
-            signalsUsedIds = matches.map((m: any) => m.cluster_id);
-            const influenceLabel = signalInfluence >= 0.65 ? "HIGH" : signalInfluence >= 0.35 ? "MODERATE" : "LOW";
-            let influenceRule = "";
-            if (signalInfluence >= 0.65) {
-              influenceRule = "Signals may shape logline framing, comps, buyer angle, AND format mechanics.";
-            } else if (signalInfluence >= 0.35) {
-              influenceRule = "Signals should shape comps and buyer positioning ONLY. Do not alter logline or format.";
+    let signalInfluence: number | null = null;
+    let signalsApplied = false;
+    let signalsRationale = "no projectId";
+
+    if (projectId) {
+      if (skipSignals) {
+        signalsRationale = "skipSignals";
+      } else {
+        try {
+          const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2");
+          const supa = createClient(supabaseUrl, supabaseKey);
+          const { data: projSettings } = await supa.from("projects")
+            .select("signals_influence, signals_apply")
+            .eq("id", projectId).single();
+          signalInfluence = (projSettings as any)?.signals_influence ?? 0.5;
+          const applyConfig = (projSettings as any)?.signals_apply ?? { pitch: true };
+          if (!applyConfig.pitch) {
+            signalsRationale = "signals_apply.pitch=false";
+          } else {
+            const { data: matches } = await supa
+              .from("project_signal_matches")
+              .select("cluster_id, relevance_score, impact_score, rationale, cluster:cluster_id(name, category, strength, velocity, saturation_risk, explanation, cluster_scoring)")
+              .eq("project_id", projectId)
+              .order("impact_score", { ascending: false })
+              .limit(3);
+            if (matches && matches.length > 0) {
+              signalsUsedIds = matches.map((m: any) => m.cluster_id);
+              signalsApplied = true;
+              signalsRationale = "applied";
+              const inf = signalInfluence ?? 0.5;
+              const influenceLabel = inf >= 0.65 ? "HIGH" : inf >= 0.35 ? "MODERATE" : "LOW";
+              let influenceRule = "";
+              if (inf >= 0.65) {
+                influenceRule = "Signals may shape logline framing, comps, buyer angle, AND format mechanics.";
+              } else if (inf >= 0.35) {
+                influenceRule = "Signals should shape comps and buyer positioning ONLY. Do not alter logline or format.";
+              } else {
+                influenceRule = "Signals add risk flags and optional comps ONLY. Do not alter core pitch.";
+              }
+              const lines = matches.map((m: any, i: number) => {
+                const c = m.cluster;
+                return `${i+1}. ${c?.name || "Signal"} [${c?.category || ""}] — strength ${c?.strength || 0}/10, ${c?.velocity || "Stable"}, saturation ${c?.saturation_risk || "Low"}\n   ${c?.explanation || ""}`;
+              }).join("\n");
+              signalBlock = `\n=== MARKET & FORMAT SIGNALS (influence: ${influenceLabel}) ===\n${influenceRule}\n\n${lines}\n=== END SIGNALS ===\n`;
             } else {
-              influenceRule = "Signals add risk flags and optional comps ONLY. Do not alter core pitch.";
+              signalsRationale = "no matches";
             }
-            const lines = matches.map((m: any, i: number) => {
-              const c = m.cluster;
-              return `${i+1}. ${c?.name || "Signal"} [${c?.category || ""}] — strength ${c?.strength || 0}/10, ${c?.velocity || "Stable"}, saturation ${c?.saturation_risk || "Low"}\n   ${c?.explanation || ""}`;
-            }).join("\n");
-            signalBlock = `\n=== MARKET & FORMAT SIGNALS (influence: ${influenceLabel}) ===\n${influenceRule}\n\n${lines}\n=== END SIGNALS ===\n`;
           }
+        } catch (e) {
+          console.warn("[generate-pitch] Signal fetch failed (non-fatal):", e);
+          signalsRationale = "fetch error";
         }
-      } catch (e) {
-        console.warn("[generate-pitch] Signal fetch failed (non-fatal):", e);
       }
     }
 
@@ -249,16 +264,13 @@ ${coverageContext ? "\nMode: Coverage Transformer — pivot the existing coverag
     if (Array.isArray(ideas)) ideas = { ideas };
     if (!ideas.ideas) ideas = { ideas: [ideas] };
 
-    // Attach signal metadata to response
-    if (signalsUsedIds.length > 0) {
-      ideas.signals_metadata = {
-        signals_used: signalsUsedIds,
-        influence_value: signalInfluence,
-        rationale: signalInfluence >= 0.65 ? "High influence — signals shaped framing, comps, buyer angle" :
-                   signalInfluence >= 0.35 ? "Moderate influence — signals shaped comps and positioning" :
-                   "Low influence — signals added risk flags only",
-      };
-    }
+    // Always attach signal metadata for verification
+    ideas.signals_metadata = {
+      signals_used: signalsUsedIds,
+      influence_value: signalInfluence,
+      applied: signalsApplied,
+      rationale: signalsRationale,
+    };
 
     return new Response(JSON.stringify(ideas), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
