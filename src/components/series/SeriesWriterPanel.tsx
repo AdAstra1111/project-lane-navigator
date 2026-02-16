@@ -24,6 +24,8 @@ import { Card, CardContent } from '@/components/ui/card';
 import { InfoTooltip } from '@/components/InfoTooltip';
 import { useSeriesWriter, type SeriesEpisode, type SeriesProgress } from '@/hooks/useSeriesWriter';
 import { SeasonHealthDashboard } from '@/components/series/SeasonHealthDashboard';
+import { Trash2, Undo2 } from 'lucide-react';
+import { Input } from '@/components/ui/input';
 
 interface Props {
   projectId: string;
@@ -195,9 +197,10 @@ interface EpisodeCardProps {
   validation?: any;
   onGenerate: () => void;
   onRead: () => void;
+  onDelete: () => void;
 }
 
-function EpisodeCard({ episode, isActive, isGenerating, disabled, validation, onGenerate, onRead }: EpisodeCardProps) {
+function EpisodeCard({ episode, isActive, isGenerating, disabled, validation, onGenerate, onRead, onDelete }: EpisodeCardProps) {
   const style = STATUS_STYLES[episode.status] || STATUS_STYLES.pending;
   const Icon = style.icon;
   const phase = (episode.generation_progress as any)?.phase;
@@ -270,6 +273,18 @@ function EpisodeCard({ episode, isActive, isGenerating, disabled, validation, on
               disabled={isGenerating}
             >
               <RotateCcw className="h-3 w-3" /> {episode.status === 'needs_revision' ? 'Revise' : 'Retry'}
+            </Button>
+          )}
+
+          {!isGenerating && episode.status !== 'generating' && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 w-7 p-0 text-muted-foreground hover:text-red-400"
+              onClick={onDelete}
+              title="Delete episode"
+            >
+              <Trash2 className="h-3 w-3" />
             </Button>
           )}
 
@@ -348,18 +363,22 @@ function ScriptReaderDialog({
 
 export function SeriesWriterPanel({ projectId }: Props) {
   const {
-    episodes, isLoading, canonSnapshot, canonLoading,
+    episodes, deletedEpisodes, showDeleted, setShowDeleted,
+    isLoading, canonSnapshot, canonLoading,
     validations, episodeMetrics, metricsRunning, metricsRunningEp,
     progress, isGenerating, completedCount,
     isSeasonComplete, nextEpisode, hasFailedValidation, hasMetricsBlock, isCanonValid,
     createCanonSnapshot, createEpisodes, generateOne, generateAll,
     fetchScriptContent, runEpisodeMetrics,
+    deleteEpisode, restoreEpisode, hardDeleteEpisode,
   } = useSeriesWriter(projectId);
 
   const [episodeCount, setEpisodeCount] = useState('10');
   const [readerEpisode, setReaderEpisode] = useState<SeriesEpisode | null>(null);
   const [readerOpen, setReaderOpen] = useState(false);
   const [autoRunConfirmOpen, setAutoRunConfirmOpen] = useState(false);
+  const [deleteConfirmEp, setDeleteConfirmEp] = useState<SeriesEpisode | null>(null);
+  const [hardDeleteConfirmText, setHardDeleteConfirmText] = useState('');
 
   const hasEpisodes = episodes.length > 0;
   const canGenerate = isCanonValid && !isGenerating;
@@ -523,11 +542,39 @@ export function SeriesWriterPanel({ projectId }: Props) {
                   validation={epValidation}
                   onGenerate={() => generateOne(ep)}
                   onRead={() => { setReaderEpisode(ep); setReaderOpen(true); }}
+                  onDelete={() => setDeleteConfirmEp(ep)}
                 />
               );
             })}
           </div>
         </ScrollArea>
+      )}
+
+      {/* Deleted Episodes */}
+      {deletedEpisodes.length > 0 && (
+        <div className="space-y-1.5">
+          <button
+            onClick={() => setShowDeleted(!showDeleted)}
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <ChevronDown className={`h-3 w-3 transition-transform ${showDeleted ? 'rotate-0' : '-rotate-90'}`} />
+            {deletedEpisodes.length} deleted episode{deletedEpisodes.length > 1 ? 's' : ''}
+          </button>
+          {showDeleted && (
+            <div className="space-y-1 pl-2 border-l border-border/30">
+              {deletedEpisodes.map(ep => (
+                <div key={ep.id} className="flex items-center justify-between px-3 py-1.5 rounded bg-muted/20 text-xs text-muted-foreground">
+                  <span>EP {String(ep.episode_number).padStart(2, '0')} — {ep.title}</span>
+                  <div className="flex items-center gap-1">
+                    <Button variant="ghost" size="sm" className="h-6 px-2 text-[10px] gap-1" onClick={() => restoreEpisode.mutate(ep.id)}>
+                      <Undo2 className="h-3 w-3" /> Restore
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       )}
 
       {/* Season Health Dashboard */}
@@ -564,6 +611,44 @@ export function SeriesWriterPanel({ projectId }: Props) {
             <AlertDialogAction onClick={() => generateAll()}>
               Start AutoRun
             </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete Episode Confirm */}
+      <AlertDialog open={!!deleteConfirmEp} onOpenChange={(open) => { if (!open) { setDeleteConfirmEp(null); setHardDeleteConfirmText(''); } }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Episode {deleteConfirmEp?.episode_number}?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <p>This will soft-delete the episode. You can restore it later.</p>
+                <p className="text-[11px] text-muted-foreground">
+                  To permanently delete, type <span className="font-mono font-bold">DELETE</span> below:
+                </p>
+                <Input
+                  value={hardDeleteConfirmText}
+                  onChange={e => setHardDeleteConfirmText(e.target.value)}
+                  placeholder="Type DELETE for permanent removal"
+                  className="h-8 text-xs"
+                />
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            {hardDeleteConfirmText === 'DELETE' ? (
+              <AlertDialogAction
+                className="bg-red-600 hover:bg-red-700"
+                onClick={() => { if (deleteConfirmEp) hardDeleteEpisode.mutate(deleteConfirmEp.id); }}
+              >
+                Permanently Delete
+              </AlertDialogAction>
+            ) : (
+              <AlertDialogAction onClick={() => { if (deleteConfirmEp) deleteEpisode.mutate({ episodeId: deleteConfirmEp.id }); }}>
+                Soft Delete
+              </AlertDialogAction>
+            )}
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
