@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { Users, FileSignature, PieChart, Layers, Plus, Trash2, X, Check, ChevronDown, ChevronUp, GripVertical, Play, DollarSign } from 'lucide-react';
+import { Users, FileSignature, PieChart, Layers, Plus, Trash2, X, Check, ChevronDown, ChevronUp, GripVertical, Play, DollarSign, Pencil } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -229,9 +229,10 @@ function ContractsTab({ projectId }: { projectId: string }) {
 
 // ---- Ownership Tab ----
 function OwnershipTab({ projectId }: { projectId: string }) {
-  const { stakes, addStake, deleteStake } = useProjectOwnership(projectId);
+  const { stakes, addStake, updateStake, deleteStake } = useProjectOwnership(projectId);
   const { participants } = useProjectParticipants(projectId);
   const [adding, setAdding] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({ participant_id: '', stake_type: 'equity', percentage: '', territory: 'worldwide', rights_type: 'all' });
 
   const totalPct = useMemo(() => stakes.reduce((sum, s) => sum + Number(s.percentage), 0), [stakes]);
@@ -241,6 +242,36 @@ function OwnershipTab({ projectId }: { projectId: string }) {
     addStake.mutate({ ...form, participant_id: form.participant_id, percentage: parseFloat(form.percentage) } as any);
     setForm({ participant_id: '', stake_type: 'equity', percentage: '', territory: 'worldwide', rights_type: 'all' });
     setAdding(false);
+  };
+
+  const startEdit = (s: ProjectOwnershipStake) => {
+    setEditingId(s.id);
+    setForm({
+      participant_id: s.participant_id || '',
+      stake_type: s.stake_type,
+      percentage: String(s.percentage),
+      territory: s.territory,
+      rights_type: s.rights_type,
+    });
+  };
+
+  const handleSaveEdit = () => {
+    if (!editingId || !form.percentage) return;
+    updateStake.mutate({
+      id: editingId,
+      participant_id: form.participant_id || null,
+      stake_type: form.stake_type,
+      percentage: parseFloat(form.percentage),
+      territory: form.territory,
+      rights_type: form.rights_type,
+    });
+    setEditingId(null);
+    setForm({ participant_id: '', stake_type: 'equity', percentage: '', territory: 'worldwide', rights_type: 'all' });
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setForm({ participant_id: '', stake_type: 'equity', percentage: '', territory: 'worldwide', rights_type: 'all' });
   };
 
   return (
@@ -271,6 +302,41 @@ function OwnershipTab({ projectId }: { projectId: string }) {
 
       {stakes.map(s => {
         const participant = participants.find(p => p.id === s.participant_id);
+        if (editingId === s.id) {
+          return (
+            <div key={s.id} className="space-y-2 bg-muted/20 rounded-lg px-3 py-2">
+              <div className="flex items-center gap-2">
+                <Select value={form.participant_id || undefined} onValueChange={v => setForm(f => ({ ...f, participant_id: v }))}>
+                  <SelectTrigger className="flex-1 h-8 text-xs"><SelectValue placeholder="Select participant" /></SelectTrigger>
+                  <SelectContent>
+                    {participants.map(p => <SelectItem key={p.id} value={p.id}>{p.participant_name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <Input placeholder="%" value={form.percentage} onChange={e => setForm(f => ({ ...f, percentage: e.target.value }))} className="h-8 text-sm w-20" type="number" step="0.1" />
+              </div>
+              <div className="flex items-center gap-2">
+                <Select value={form.stake_type} onValueChange={v => setForm(f => ({ ...f, stake_type: v }))}>
+                  <SelectTrigger className="w-32 h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {STAKE_TYPES.map(t => <SelectItem key={t} value={t}>{t.replace('-', ' ')}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <Select value={form.rights_type} onValueChange={v => setForm(f => ({ ...f, rights_type: v }))}>
+                  <SelectTrigger className="w-28 h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {RIGHTS_TYPES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <Button size="icon" className="h-7 w-7" onClick={handleSaveEdit}>
+                  <Check className="h-3.5 w-3.5" />
+                </Button>
+                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={cancelEdit}>
+                  <X className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            </div>
+          );
+        }
         return (
           <div key={s.id} className="flex items-center gap-3 bg-muted/30 rounded-lg px-3 py-2.5">
             <div className="flex-1 min-w-0">
@@ -283,6 +349,9 @@ function OwnershipTab({ projectId }: { projectId: string }) {
                 {s.territory} · {s.rights_type} rights
               </div>
             </div>
+            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground" onClick={() => startEdit(s)}>
+              <Pencil className="h-3.5 w-3.5" />
+            </Button>
             <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => deleteStake.mutate(s.id)}>
               <Trash2 className="h-3.5 w-3.5" />
             </Button>
