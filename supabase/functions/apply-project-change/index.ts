@@ -89,7 +89,7 @@ Deno.serve(async (req) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const token = authHeader.replace("Bearer ", "");
+    const token = authHeader.replace("Bearer ", "").trim();
 
     // ANON client — used ONLY for user validation
     const sbAnon = createClient(supabaseUrl, anonKey);
@@ -130,16 +130,26 @@ Deno.serve(async (req) => {
     logs.push("authz: granted");
 
     // ════════════════════════════════════════════════
-    // Look up the action record
+    // Look up the action record + verify it belongs to this project
     // ════════════════════════════════════════════════
     let actionRecord: any = null;
     if (actionId) {
       const { data } = await sbAdmin
         .from("document_assistant_actions")
-        .select("*")
+        .select("*, document_assistant_threads!inner(project_id)")
         .eq("id", actionId)
         .single();
-      actionRecord = data;
+
+      if (data) {
+        const threadProjectId = (data as any).document_assistant_threads?.project_id;
+        if (threadProjectId && threadProjectId !== projectId) {
+          return new Response(
+            JSON.stringify({ error: "actionId does not belong to project" }),
+            { status: 400, headers: JSON_HEADERS },
+          );
+        }
+        actionRecord = data;
+      }
     }
 
     // ════════════════════════════════════════════════
