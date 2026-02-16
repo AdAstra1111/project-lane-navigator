@@ -10,6 +10,8 @@ import {
   ChevronDown, Pencil, SkipForward, CheckCircle2, Pause, Zap,
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
+import type { NextAction } from '@/lib/next-action';
+import { renderActionPillText, buildNoAction } from '@/lib/next-action';
 
 export interface PromotionRecommendation {
   recommendation: 'promote' | 'stabilise' | 'escalate';
@@ -19,6 +21,8 @@ export interface PromotionRecommendation {
   reasons: string[];
   must_fix_next: string[];
   risk_flags: string[];
+  /** Structured next action — replaces raw next_document rendering */
+  next_action?: NextAction;
 }
 
 interface QueueItem {
@@ -48,11 +52,7 @@ const LABELS: Record<string, { label: string; color: string; icon: typeof ArrowR
   escalate: { label: 'Escalate', color: 'bg-destructive/15 text-destructive border-destructive/30', icon: AlertTriangle },
 };
 
-const DOC_LABELS: Record<string, string> = {
-  idea: 'Idea', concept_brief: 'Concept Brief', blueprint: 'Blueprint',
-  architecture: 'Architecture', draft: 'Draft', coverage: 'Coverage',
-  series_writer: 'Series Writer',
-};
+// DOC_LABELS removed — rendering now uses NextAction model from next-action.ts
 
 async function callAutoRun(action: string, extra: Record<string, any> = {}) {
   const { data: { session } } = await supabase.auth.getSession();
@@ -213,10 +213,12 @@ export function PromotionIntelligenceCard({ data, isLoading, jobId, onJobRefresh
         <div className="flex items-center gap-2">
           <Badge className={`text-[10px] ${meta.color}`}>
             <Icon className="h-3 w-3 mr-1" />
-            {meta.label}
-            {next_document === 'series_writer'
-              ? ' → Enter Series Writer'
-              : next_document ? ` → ${DOC_LABELS[next_document] || next_document}` : ''}
+            {(() => {
+              const action = data.next_action || buildNoAction();
+              const pillText = renderActionPillText(action);
+              if (pillText) return `${meta.label} — ${pillText}`;
+              return meta.label;
+            })()}
           </Badge>
         </div>
 

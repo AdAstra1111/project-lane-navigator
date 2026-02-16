@@ -2,6 +2,9 @@ import { useState, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import type { PromotionRecommendation } from '@/components/devengine/PromotionIntelligenceCard';
 import { isScriptDocType, normalizeDocTypeKey } from '@/lib/can-promote-to-script';
+import { isSeriesFormat } from '@/lib/format-helpers';
+import type { NextAction } from '@/lib/next-action';
+import { buildSeriesWriterAction, buildPromoteAction, buildNoAction } from '@/lib/next-action';
 
 // ── Local computation (same algorithm as edge function) for when no sessionId exists ──
 
@@ -201,7 +204,7 @@ function computeLocally(input: PromotionInput): PromotionRecommendation {
     reasons.push(`Readiness score: ${readinessScore}/100`);
     mustFixNext.push(...blockerTexts.slice(0, 3));
     if (mustFixNext.length === 0) mustFixNext.push('Resolve blocking issues');
-    return { recommendation: 'stabilise', next_document: null, readiness_score: readinessScore, confidence, reasons, must_fix_next: mustFixNext, risk_flags: riskFlags };
+    return { recommendation: 'stabilise', next_document: null, readiness_score: readinessScore, confidence, reasons, must_fix_next: mustFixNext, risk_flags: riskFlags, next_action: buildNoAction() };
   }
 
   // Gate B — Eroding trajectory
@@ -210,7 +213,7 @@ function computeLocally(input: PromotionInput): PromotionRecommendation {
     reasons.push('Trajectory is eroding');
     reasons.push(`Readiness score: ${readinessScore}/100`);
     mustFixNext.push('Run Executive Strategy Loop');
-    return { recommendation: 'escalate', next_document: null, readiness_score: readinessScore, confidence, reasons, must_fix_next: mustFixNext, risk_flags: riskFlags };
+    return { recommendation: 'escalate', next_document: null, readiness_score: readinessScore, confidence, reasons, must_fix_next: mustFixNext, risk_flags: riskFlags, next_action: buildNoAction() };
   }
 
   // Gate D — Early-stage high-impact
@@ -221,19 +224,25 @@ function computeLocally(input: PromotionInput): PromotionRecommendation {
     mustFixNext.push(...highImpactTexts.slice(0, 3));
     if (mustFixNext.length === 0) mustFixNext.push('Resolve high-impact notes');
     mustFixNext.push('Run another editorial pass');
-    return { recommendation: 'stabilise', next_document: null, readiness_score: readinessScore, confidence, reasons, must_fix_next: mustFixNext, risk_flags: riskFlags };
+    return { recommendation: 'stabilise', next_document: null, readiness_score: readinessScore, confidence, reasons, must_fix_next: mustFixNext, risk_flags: riskFlags, next_action: buildNoAction() };
   }
 
   // ── Determine next document (format-aware) ──
-  const SERIES_FORMATS = new Set([
-    'tv-series', 'tv_series', 'limited-series', 'limited_series',
-    'digital-series', 'digital_series', 'vertical-drama', 'vertical_drama',
-    'documentary-series', 'documentary_series', 'anim-series', 'anim_series',
-  ]);
-  const normFormat = normalizeDocTypeKey(projectFormat);
-  const isSeries = SERIES_FORMATS.has(normFormat);
-  // For series at the draft (script) stage, next step is series_writer, not coverage
-  const next = (isSeries && doc === 'draft') ? 'series_writer' : nextDoc(doc);
+  const isSeries = isSeriesFormat(projectFormat || '');
+  // For series at the draft (script) stage, next step is series_writer (enter_mode), not coverage
+  const rawNext = nextDoc(doc);
+  const isSeriesWriterTarget = isSeries && doc === 'draft';
+  const next = isSeriesWriterTarget ? 'series_writer' : rawNext;
+
+  // ── Build NextAction ──
+  let nextAction: NextAction;
+  if (isSeriesWriterTarget) {
+    nextAction = buildSeriesWriterAction();
+  } else if (rawNext) {
+    nextAction = buildPromoteAction(rawNext);
+  } else {
+    nextAction = buildNoAction();
+  }
 
   // ── Decision bands (only reached when no hard gate fires) ──
   let recommendation: 'promote' | 'stabilise' | 'escalate';
@@ -255,9 +264,8 @@ function computeLocally(input: PromotionInput): PromotionRecommendation {
   if (highImpactCount > 0) reasons.push(`${highImpactCount} high-impact note(s) remaining`);
   if (iterationCount > 3) reasons.push(`${iterationCount} iterations completed — diminishing returns possible`);
 
-  const nextLabel = next === 'series_writer' ? 'Enter Series Writer' : `Promote to ${next}`;
   if (recommendation === 'promote' && next) {
-    mustFixNext.push(nextLabel);
+    mustFixNext.push(nextAction.ctaLabel === 'Enter Series Writer' ? 'Enter Series Writer' : `Promote to ${nextAction.ctaLabel}`);
   } else if (recommendation === 'stabilise') {
     mustFixNext.push(...highImpactTexts.slice(0, 2));
     if (mustFixNext.length === 0) mustFixNext.push('Resolve high-impact notes');
@@ -267,7 +275,19 @@ function computeLocally(input: PromotionInput): PromotionRecommendation {
     mustFixNext.push('Consider repositioning format or lane');
   }
 
-  return { recommendation, next_document: recommendation === 'promote' ? next : null, readiness_score: readinessScore, confidence, reasons, must_fix_next: mustFixNext, risk_flags: riskFlags };
+  // If not promoting, clear the next action
+  const finalNextAction = recommendation === 'promote' ? nextAction : buildNoAction();
+
+  return {
+    recommendation,
+    next_document: recommendation === 'promote' ? next : null,
+    readiness_score: readinessScore,
+    confidence,
+    reasons,
+    must_fix_next: mustFixNext,
+    risk_flags: riskFlags,
+    next_action: finalNextAction,
+  };
 }
 
 function computeConfidence(iter: number, hi: number, gap: number, traj: string | null): number {

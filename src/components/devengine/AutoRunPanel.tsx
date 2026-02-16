@@ -17,6 +17,9 @@ const LADDER_LABELS: Record<string, string> = {
   blueprint: 'Blueprint',
   architecture: 'Architecture',
   draft: 'Draft',
+  coverage: 'Coverage',
+  series_writer: 'Series Writer',
+  writers_room: "Writer's Room",
 };
 
 const STATUS_STYLES: Record<string, { color: string; icon: typeof Play }> = {
@@ -241,8 +244,10 @@ export function AutoRunPanel({
                 <p className="text-[10px] font-semibold text-foreground">Approval Required</p>
                 <p className="text-[9px] text-muted-foreground">
                   {job.approval_type === 'convert'
-                    ? `Review the newly generated ${LADDER_LABELS[job.pending_doc_type || ''] || job.pending_doc_type} before continuing.`
-                    : `Review the current ${LADDER_LABELS[job.pending_doc_type || ''] || job.pending_doc_type} before promoting to ${LADDER_LABELS[job.pending_next_doc_type || ''] || job.pending_next_doc_type}.`
+                    ? `Review the newly generated ${LADDER_LABELS[job.pending_doc_type || ''] || job.pending_doc_type || 'Document'} before continuing.`
+                    : job.pending_next_doc_type === 'series_writer'
+                      ? `Review the current ${LADDER_LABELS[job.pending_doc_type || ''] || job.pending_doc_type || 'Document'} before entering Series Writer.`
+                      : `Review the current ${LADDER_LABELS[job.pending_doc_type || ''] || job.pending_doc_type || 'Document'} before promoting to ${LADDER_LABELS[job.pending_next_doc_type || ''] || job.pending_next_doc_type || 'Next Step'}.`
                   }
                 </p>
               </div>
