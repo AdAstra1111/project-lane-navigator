@@ -41,7 +41,8 @@ import { EscalateToDevEngineModal } from '@/components/series/EscalateToDevEngin
 import { HardDeleteEpisodeDialog } from '@/components/series/HardDeleteEpisodeDialog';
 import { PatchReadyBanner, type PatchRun } from '@/components/series/PatchReadyBanner';
 import { CanonAuditPanel } from '@/components/series/CanonAuditPanel';
-import { useCanonAudit } from '@/hooks/useCanonAudit';
+import { EpisodeDevNotesPanel } from '@/components/series/EpisodeDevNotesPanel';
+import { useEpisodeDevValidation } from '@/hooks/useEpisodeDevValidation';
 
 // ── Working Set doc types for vertical drama ──
 const WORKING_SET_DOC_TYPES = [
@@ -149,8 +150,9 @@ export default function SeriesWriter() {
     exportEpisodePackage, exportSeasonBinder,
   } = useSeriesWriterV2(projectId!);
 
-  // ── Canon Audit ──
-  const canonAudit = useCanonAudit(projectId!, selectedEpisode?.episode_number ?? null);
+  // ── Canon Audit + Dev Notes ──
+  const devValidation = useEpisodeDevValidation(projectId!, selectedEpisode?.episode_number ?? null);
+  const canonAudit = devValidation.canonAudit;
 
   // ── Patch runs for episodes ──
   const { data: patchRuns = [] } = useQuery({
@@ -1095,17 +1097,44 @@ export default function SeriesWriter() {
                     hasScript={!!selectedEpisode?.script_id}
                   />
 
-                  {/* Canon Audit Panel */}
-                  <CanonAuditPanel
-                    latestRun={canonAudit.latestRun || null}
-                    issues={canonAudit.issues}
-                    isRunning={canonAudit.isRunning}
-                    isApplyingFix={canonAudit.isApplyingFix}
-                    onStartAudit={() => canonAudit.startAudit.mutate({ episodeVersionId: selectedEpisode?.script_id || undefined })}
-                    onApplyFix={(issueId) => canonAudit.applyFix.mutate(issueId)}
-                    onDismiss={(issueId) => canonAudit.dismissIssue.mutate(issueId)}
-                    hasScript={!!selectedEpisode?.script_id}
-                  />
+                  {/* ── Dev Engine: Canon + Notes ── */}
+                  <Card className="border-border/50">
+                    <CardHeader className="pb-2">
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="text-sm font-medium flex items-center gap-2">
+                          <Zap className="h-4 w-4 text-primary" />
+                          Dev Engine
+                        </CardTitle>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-xs gap-1.5"
+                          onClick={() => devValidation.runAllChecks.mutate({ episodeScriptId: selectedEpisode?.script_id || undefined })}
+                          disabled={devValidation.isAnyRunning || !selectedEpisode?.script_id}
+                        >
+                          {devValidation.isAnyRunning ? <Loader2 className="h-3 w-3 animate-spin" /> : <Zap className="h-3 w-3" />}
+                          {devValidation.isAnyRunning ? 'Running...' : 'Send to Dev Engine'}
+                        </Button>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="pt-0 space-y-3">
+                      <CanonAuditPanel
+                        latestRun={canonAudit.latestRun || null}
+                        issues={canonAudit.issues}
+                        isRunning={canonAudit.isRunning}
+                        isApplyingFix={canonAudit.isApplyingFix}
+                        onStartAudit={() => canonAudit.startAudit.mutate({ episodeVersionId: selectedEpisode?.script_id || undefined })}
+                        onApplyFix={(issueId) => canonAudit.applyFix.mutate(issueId)}
+                        onDismiss={(issueId) => canonAudit.dismissIssue.mutate(issueId)}
+                        hasScript={!!selectedEpisode?.script_id}
+                      />
+                      <EpisodeDevNotesPanel
+                        run={devValidation.devNotesRun || null}
+                        notes={devValidation.devNotes}
+                        isRunning={devValidation.isDevNotesRunning}
+                      />
+                    </CardContent>
+                  </Card>
 
                   {/* Retcon Assistant */}
                   <RetconPanel

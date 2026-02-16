@@ -8578,6 +8578,56 @@ export type Database = {
           },
         ]
       }
+      series_dev_notes_runs: {
+        Row: {
+          created_at: string
+          episode_number: number
+          finished_at: string | null
+          id: string
+          logs: string | null
+          project_id: string
+          results_json: Json
+          script_id: string | null
+          started_by: string
+          status: string
+          summary: string | null
+        }
+        Insert: {
+          created_at?: string
+          episode_number: number
+          finished_at?: string | null
+          id?: string
+          logs?: string | null
+          project_id: string
+          results_json?: Json
+          script_id?: string | null
+          started_by: string
+          status?: string
+          summary?: string | null
+        }
+        Update: {
+          created_at?: string
+          episode_number?: number
+          finished_at?: string | null
+          id?: string
+          logs?: string | null
+          project_id?: string
+          results_json?: Json
+          script_id?: string | null
+          started_by?: string
+          status?: string
+          summary?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "series_dev_notes_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       series_episode_canon_facts: {
         Row: {
           created_at: string
