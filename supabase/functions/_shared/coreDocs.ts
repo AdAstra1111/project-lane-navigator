@@ -76,7 +76,7 @@ export async function fetchCoreDocs(
       // Use specific version
       const { data } = await supabase
         .from('project_document_versions')
-        .select('id, content, plaintext')
+        .select('id, plaintext')
         .eq('id', overrideVersionId)
         .maybeSingle();
       versionData = data;
@@ -84,7 +84,7 @@ export async function fetchCoreDocs(
       // Use latest version
       const { data } = await supabase
         .from('project_document_versions')
-        .select('id, content, plaintext')
+        .select('id, plaintext')
         .eq('document_id', docId)
         .order('version_number', { ascending: false })
         .limit(1)
@@ -94,7 +94,7 @@ export async function fetchCoreDocs(
 
     if (!versionData) return;
 
-    const content = versionData.content || versionData.plaintext || '';
+    const content = versionData.plaintext || '';
     const versionId = versionData.id;
 
     switch (docType) {
