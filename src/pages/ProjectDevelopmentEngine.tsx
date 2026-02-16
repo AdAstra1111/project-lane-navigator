@@ -733,7 +733,7 @@ export default function ProjectDevelopmentEngine() {
                     Object.keys(notesDecisions).length > 0 ? notesDecisions : undefined,
                     latestNotes?.global_directions || [],
                   )}
-                  disabled={isLoading || rewrite.isPending || rewritePipeline.status !== 'idle' || selectedNotes.size === 0}
+                  disabled={isLoading || rewrite.isPending || rewritePipeline.status !== 'idle' || (selectedNotes.size === 0 && Object.values(notesDecisions).filter(Boolean).length === 0)}
                 >
                   {(rewrite.isPending || rewritePipeline.status !== 'idle') ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
