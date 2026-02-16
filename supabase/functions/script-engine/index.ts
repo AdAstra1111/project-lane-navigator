@@ -372,13 +372,18 @@ Return as JSON: { scenes: [...], structural_check: { redundant_scenes, escalatio
 }
 
 // ─── Batched Draft Prompt ───
-function getDraftPrompt(scenes: any[], batchStart: number, batchEnd: number, project: any, blueprint: any) {
+function getDraftPrompt(scenes: any[], batchStart: number, batchEnd: number, project: any, blueprint: any, characterBible?: string) {
   const batchScenes = scenes.filter(s => s.scene_number >= batchStart && s.scene_number <= batchEnd);
+
+  const charBlock = characterBible
+    ? `\nCHARACTER BIBLE (AUTHORITATIVE — use ONLY these characters):\n${characterBible.substring(0, 4000)}\n\nCRITICAL: Do NOT invent new named characters. Every named character in the script MUST appear in the Character Bible above. If a scene requires an unnamed extra (waiter, passerby), use a generic descriptor, never a proper name.\n`
+    : "";
+
   return `You are IFFY, writing script pages for "${project.title}".
 
 BLUEPRINT CONTEXT:
 ${JSON.stringify(blueprint, null, 2).substring(0, 2000)}
-
+${charBlock}
 SCENES TO DRAFT (scenes ${batchStart}-${batchEnd}):
 ${JSON.stringify(batchScenes, null, 2)}
 
@@ -389,6 +394,7 @@ Write these scenes in proper screenplay format. Rules:
 - Action lines: visual, present tense, lean
 - Budget awareness: respect production weight flags
 - Lane: ${project.assigned_lane || "general"} — match tone expectations
+- ONLY use characters from the Character Bible. No invented characters.
 
 Return the screenplay pages as plain text in standard format.`;
 }
@@ -816,7 +822,28 @@ Do NOT generate architecture for the entire series. Keep it focused and compact.
         .limit(1);
       const blueprint = bpVersions?.[0]?.blueprint_json || {};
 
-      const prompt = getDraftPrompt(scenes, batchStart, batchEnd, project, blueprint);
+      // Fetch character bible for this project
+      let characterBible = "";
+      const { data: charBibleDoc } = await supabase
+        .from("project_documents")
+        .select("id")
+        .eq("project_id", projectId)
+        .eq("doc_type", "character_bible")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (charBibleDoc) {
+        const { data: charVersion } = await supabase
+          .from("project_document_versions")
+          .select("content")
+          .eq("document_id", charBibleDoc.id)
+          .order("version_number", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        characterBible = charVersion?.content || "";
+      }
+
+      const prompt = getDraftPrompt(scenes, batchStart, batchEnd, project, blueprint, characterBible);
       console.log(`[draft] Generating batch ${batchStart}-${batchEnd} for script ${scriptId}`);
       const draftText = await callAI(prompt, false);
       console.log(`[draft] AI returned ${typeof draftText === 'string' ? draftText.length : 0} chars`);
