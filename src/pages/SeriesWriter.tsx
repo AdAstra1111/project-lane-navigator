@@ -1082,61 +1082,59 @@ export default function SeriesWriter() {
               )}
 
               {/* ── V2 Panels: Continuity, Compliance, Retcon, Packaging ── */}
-              {episodes.length > 0 && (
+              {episodes.length > 0 && (<>
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  {/* Continuity Ledger for selected episode */}
                   <ContinuityLedgerPanel
                     ledger={selectedEpisode ? ledgers.find(l => l.episode_number === selectedEpisode.episode_number) || null : null}
                   />
-
-                  {/* Compliance Report for selected episode */}
                   <ComplianceReportPanel
                     report={selectedEpisode ? complianceReports.find(r => r.episode_number === selectedEpisode.episode_number) || null : null}
                     onRunCompliance={() => selectedEpisode && runCompliance.mutate(selectedEpisode.episode_number)}
                     isRunning={runCompliance.isPending}
                     hasScript={!!selectedEpisode?.script_id}
                   />
+                </div>
 
-                  {/* ── Dev Engine: Canon + Notes ── */}
-                  <Card className="border-border/50">
-                    <CardHeader className="pb-2">
-                      <div className="flex items-center justify-between">
-                        <CardTitle className="text-sm font-medium flex items-center gap-2">
-                          <Zap className="h-4 w-4 text-primary" />
-                          Dev Engine
-                        </CardTitle>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-7 text-xs gap-1.5"
-                          onClick={() => devValidation.runAllChecks.mutate({ episodeScriptId: selectedEpisode?.script_id || undefined })}
-                          disabled={devValidation.isAnyRunning || !selectedEpisode?.script_id}
-                        >
-                          {devValidation.isAnyRunning ? <Loader2 className="h-3 w-3 animate-spin" /> : <Zap className="h-3 w-3" />}
-                          {devValidation.isAnyRunning ? 'Running...' : 'Send to Dev Engine'}
-                        </Button>
-                      </div>
-                    </CardHeader>
-                    <CardContent className="pt-0 space-y-3">
-                      <CanonAuditPanel
-                        latestRun={canonAudit.latestRun || null}
-                        issues={canonAudit.issues}
-                        isRunning={canonAudit.isRunning}
-                        isApplyingFix={canonAudit.isApplyingFix}
-                        onStartAudit={() => canonAudit.startAudit.mutate({ episodeVersionId: selectedEpisode?.script_id || undefined })}
-                        onApplyFix={(issueId) => canonAudit.applyFix.mutate(issueId)}
-                        onDismiss={(issueId) => canonAudit.dismissIssue.mutate(issueId)}
-                        hasScript={!!selectedEpisode?.script_id}
-                      />
-                      <EpisodeDevNotesPanel
-                        run={devValidation.devNotesRun || null}
-                        notes={devValidation.devNotes}
-                        isRunning={devValidation.isDevNotesRunning}
-                      />
-                    </CardContent>
-                  </Card>
+                {/* ── Dev Engine: Canon + Notes — full width ── */}
+                <Card className="border-border/50">
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-sm font-medium flex items-center gap-2">
+                        <Zap className="h-4 w-4 text-primary" />
+                        Dev Engine
+                      </CardTitle>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs gap-1.5"
+                        onClick={() => devValidation.runAllChecks.mutate({ episodeScriptId: selectedEpisode?.script_id || undefined })}
+                        disabled={devValidation.isAnyRunning || !selectedEpisode?.script_id}
+                      >
+                        {devValidation.isAnyRunning ? <Loader2 className="h-3 w-3 animate-spin" /> : <Zap className="h-3 w-3" />}
+                        {devValidation.isAnyRunning ? 'Running...' : 'Send to Dev Engine'}
+                      </Button>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="pt-0 space-y-3">
+                    <CanonAuditPanel
+                      latestRun={canonAudit.latestRun || null}
+                      issues={canonAudit.issues}
+                      isRunning={canonAudit.isRunning}
+                      isApplyingFix={canonAudit.isApplyingFix}
+                      onStartAudit={() => canonAudit.startAudit.mutate({ episodeVersionId: selectedEpisode?.script_id || undefined })}
+                      onApplyFix={(issueId) => canonAudit.applyFix.mutate(issueId)}
+                      onDismiss={(issueId) => canonAudit.dismissIssue.mutate(issueId)}
+                      hasScript={!!selectedEpisode?.script_id}
+                    />
+                    <EpisodeDevNotesPanel
+                      run={devValidation.devNotesRun || null}
+                      notes={devValidation.devNotes}
+                      isRunning={devValidation.isDevNotesRunning}
+                    />
+                  </CardContent>
+                </Card>
 
-                  {/* Retcon Assistant */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                   <RetconPanel
                     events={retconEvents}
                     onCreateEvent={(summary) => createRetconEvent.mutate({ changeSummary: summary })}
@@ -1145,8 +1143,6 @@ export default function SeriesWriter() {
                     isAnalyzing={analyzeRetcon.isPending}
                     isProposing={proposeRetconPatches.isPending}
                   />
-
-                  {/* Episode Packaging */}
                   <EpisodePackagePanel
                     lockedEpisodeCount={episodes.filter(e => !!e.locked_at).length}
                     totalEpisodes={episodes.length}
@@ -1158,7 +1154,7 @@ export default function SeriesWriter() {
                     )}
                   />
                 </div>
-              )}
+              </>)}
             </div>
 
             {/* ── Right Panel: In-Page Core Doc Viewer ── */}
