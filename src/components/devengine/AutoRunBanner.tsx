@@ -32,13 +32,14 @@ interface Props {
   onResume: (followLatest?: boolean) => void;
   onSetResumeSource: (docId: string, verId: string) => Promise<void>;
   onStop: () => void;
+  onClear?: () => void;
   onScrollToApproval?: () => void;
   onScrollToCriteria?: () => void;
 }
 
 export function AutoRunBanner({
   job, steps, isRunning, selectedDocId, selectedVersionId,
-  onPause, onRunNext, onResume, onSetResumeSource, onStop, onScrollToApproval, onScrollToCriteria,
+  onPause, onRunNext, onResume, onSetResumeSource, onStop, onClear, onScrollToApproval, onScrollToCriteria,
 }: Props) {
   const [stepsOpen, setStepsOpen] = useState(false);
   const [resumingSelected, setResumingSelected] = useState(false);
@@ -182,7 +183,7 @@ export function AutoRunBanner({
               {resumingSelected ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
               Continue from selected
             </Button>
-            <Button size="sm" variant="destructive" className="h-7 text-[10px] gap-1" onClick={onStop}>
+            <Button size="sm" variant="destructive" className="h-7 text-[10px] gap-1" onClick={status === 'stopped' ? onClear : onStop}>
               <Square className="h-3 w-3" /> End job
             </Button>
           </>
@@ -193,7 +194,7 @@ export function AutoRunBanner({
             <Button size="sm" className="h-7 text-[10px] gap-1" onClick={() => onResume(true)}>
               <RotateCcw className="h-3 w-3" /> Reset & retry
             </Button>
-            <Button size="sm" variant="destructive" className="h-7 text-[10px] gap-1" onClick={onStop}>
+            <Button size="sm" variant="destructive" className="h-7 text-[10px] gap-1" onClick={() => { onStop(); onClear?.(); }}>
               <Square className="h-3 w-3" /> End job
             </Button>
           </>

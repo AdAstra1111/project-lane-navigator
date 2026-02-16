@@ -664,6 +664,7 @@ export default function ProjectDevelopmentEngine() {
                   onResume={autoRun.resume}
                   onSetResumeSource={autoRun.setResumeSource}
                   onStop={autoRun.stop}
+                  onClear={autoRun.clear}
                    onScrollToApproval={() => {
                      const jobHasDecisions = Array.isArray(autoRun.job?.pending_decisions) && (autoRun.job!.pending_decisions as any[]).length > 0;
                      if (jobHasDecisions) {
