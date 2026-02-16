@@ -92,16 +92,44 @@ Deno.serve(async (req) => {
       if (!scriptText) throw new Error(`No script text found for episode ${episodeNumber}`);
       log(`Script: ${scriptText.length} chars`);
 
-      // ── Fetch canon facts for context ──
+      // ── Fetch canon facts for context (enriched) ──
       const { data: canonFacts } = await sbAdmin.from("series_episode_canon_facts")
         .select("episode_number, recap, facts_json")
         .eq("project_id", projectId)
         .lt("episode_number", episodeNumber)
         .order("episode_number");
 
-      const canonContext = (canonFacts || []).map((f: any) =>
-        `EP${f.episode_number}: ${f.recap}`
-      ).join("\n");
+      // Build enriched canon context with facts_json, not just recaps
+      let canonContext = "";
+      let canonLen = 0;
+      const MAX_CANON_CHARS = 8000;
+      for (const f of (canonFacts || []) as any[]) {
+        let block = `EP${f.episode_number}: ${f.recap || ""}`;
+        // Include structured facts if available
+        if (f.facts_json && typeof f.facts_json === 'object') {
+          const fj = f.facts_json;
+          const parts: string[] = [];
+          if (fj.characters?.length) parts.push(`Characters: ${JSON.stringify(fj.characters).slice(0, 600)}`);
+          if (fj.timeline_events?.length) parts.push(`Timeline: ${JSON.stringify(fj.timeline_events).slice(0, 400)}`);
+          if (fj.world_rules?.length) parts.push(`Rules: ${JSON.stringify(fj.world_rules).slice(0, 300)}`);
+          if (fj.relationships?.length) parts.push(`Relationships: ${JSON.stringify(fj.relationships).slice(0, 300)}`);
+          if (fj.unresolved_threads?.length) parts.push(`Unresolved: ${JSON.stringify(fj.unresolved_threads).slice(0, 300)}`);
+          if (fj.revealed_secrets?.length) parts.push(`Secrets: ${JSON.stringify(fj.revealed_secrets).slice(0, 200)}`);
+          if (fj.injuries?.length || fj.status_changes?.length) {
+            parts.push(`Status: ${JSON.stringify(fj.injuries || fj.status_changes || []).slice(0, 200)}`);
+          }
+          if (parts.length) block += `\n  ${parts.join("\n  ")}`;
+        }
+        block += "\n";
+        if (canonLen + block.length > MAX_CANON_CHARS) {
+          // Truncate this block to fit
+          const remaining = MAX_CANON_CHARS - canonLen;
+          if (remaining > 100) canonContext += block.slice(0, remaining) + "...\n";
+          break;
+        }
+        canonContext += block;
+        canonLen += block.length;
+      }
 
       // ── Build dev notes prompt ──
       const bibleBlock = coreDocs.characterBible ? `\n## CHARACTER BIBLE\n${coreDocs.characterBible.slice(0, 5000)}` : "";
@@ -121,6 +149,12 @@ Analyze the episode for:
 4. PACING — Scene length distribution, tension management, breathing room vs momentum
 5. ENGAGEMENT — Hook strength, retention drivers, curiosity gaps, emotional peaks
 6. CLARITY — Plot logic, unclear references, confusing transitions
+
+For EACH note, you MUST set the "canon_safe" field:
+- canon_safe=true: the suggestion does NOT conflict with any established canon facts, character bible, or prior episodes
+- canon_safe=false: the suggestion MIGHT conflict with established canon (explain why in the detail field)
+
+If you are unsure whether a suggestion is canon-safe, set canon_safe=false and explain your uncertainty.
 
 Return ONLY valid JSON:
 {
@@ -148,9 +182,10 @@ RULES:
 - "polish" = optional refinements
 - Set canon_safe=false if a suggestion might conflict with established canon (and explain why)
 - Be specific: reference scenes, characters, lines where possible
-- Do NOT hallucinate plot points or characters not in the script`,
-        guardrailsBlock: "Never suggest changes that contradict established canon facts or the character bible.",
-        conditioningBlock: canonContext ? `PRIOR EPISODE CANON (for reference only — do not suggest contradicting these):\n${canonContext.slice(0, 4000)}` : undefined,
+- Do NOT hallucinate plot points or characters not in the script
+- Do NOT suggest introducing new characters, locations, or lore that contradicts canon`,
+        guardrailsBlock: "Never suggest changes that contradict established canon facts or the character bible. If uncertain, mark canon_safe=false.",
+        conditioningBlock: canonContext ? `PRIOR EPISODE CANON (for reference only — do not suggest contradicting these):\n${canonContext}` : undefined,
       });
 
       const userPrompt = `${bibleBlock}${arcBlock}${gridBlock}${formatBlock}\n\n## EPISODE ${episodeNumber} SCRIPT\n${scriptText.slice(0, 12000)}`;
@@ -164,7 +199,27 @@ RULES:
       });
 
       const parsed = await parseJsonSafe(result.content, apiKey);
-      log(`Dev notes complete: ${parsed.notes?.length || 0} notes`);
+
+      // ── Canon safety validation pass ──
+      const allNotes = parsed.notes || [];
+      const canonSafeNotes: any[] = [];
+      const canonRiskNotes: any[] = [];
+
+      for (const note of allNotes) {
+        if (note.canon_safe === true) {
+          canonSafeNotes.push(note);
+        } else {
+          // Missing or false — treat as canon risk
+          note.canon_safe = false;
+          canonRiskNotes.push(note);
+        }
+      }
+
+      parsed.notes = canonSafeNotes;
+      parsed.canon_risk_notes = canonRiskNotes;
+      parsed.canon_risk_count = canonRiskNotes.length;
+
+      log(`Dev notes complete: ${canonSafeNotes.length} safe, ${canonRiskNotes.length} canon-risk`);
 
       // ── Update run ──
       await sbAdmin.from("series_dev_notes_runs").update({

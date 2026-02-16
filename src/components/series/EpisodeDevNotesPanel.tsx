@@ -1,12 +1,13 @@
 /**
  * EpisodeDevNotesPanel — Displays Dev Engine development notes for an episode.
+ * Separates canon-safe notes from canon-risk notes.
  */
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Loader2, AlertOctagon, AlertTriangle, Sparkles,
-  ChevronDown, ChevronRight, CheckCircle2,
+  ChevronDown, ChevronRight, CheckCircle2, ShieldAlert,
 } from 'lucide-react';
 import { useState } from 'react';
 import type { DevNote, DevNotesRun } from '@/hooks/useEpisodeDevValidation';
@@ -24,7 +25,7 @@ const TIER_CONFIG = {
 } as const;
 
 export function EpisodeDevNotesPanel({ run, notes, isRunning }: Props) {
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({ blocking: true, high_impact: true });
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({ blocking: true, high_impact: true, canon_risk: true });
 
   const grouped: Record<string, DevNote[]> = { blocking: [], high_impact: [], polish: [] };
   for (const note of notes) {
@@ -33,6 +34,8 @@ export function EpisodeDevNotesPanel({ run, notes, isRunning }: Props) {
 
   const grade = run?.results_json?.overall_grade;
   const strengths = run?.results_json?.strengths || [];
+  const canonRiskNotes = (run?.results_json?.canon_risk_notes || []) as DevNote[];
+  const canonRiskCount = run?.results_json?.canon_risk_count || 0;
 
   return (
     <Card className="border-border/50">
@@ -42,7 +45,15 @@ export function EpisodeDevNotesPanel({ run, notes, isRunning }: Props) {
             <Sparkles className="h-4 w-4 text-primary" />
             Dev Engine Notes
           </CardTitle>
-          {isRunning && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+          <div className="flex items-center gap-2">
+            {canonRiskCount > 0 && !isRunning && (
+              <Badge variant="outline" className="text-[9px] border-amber-500/30 text-amber-400 flex items-center gap-1">
+                <ShieldAlert className="h-3 w-3" />
+                Canon Risk: {canonRiskCount}
+              </Badge>
+            )}
+            {isRunning && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+          </div>
         </div>
 
         {run && !isRunning && (
@@ -72,10 +83,11 @@ export function EpisodeDevNotesPanel({ run, notes, isRunning }: Props) {
         )}
       </CardHeader>
 
-      {run && run.status === 'completed' && notes.length > 0 && (
+      {run && run.status === 'completed' && (notes.length > 0 || canonRiskCount > 0) && (
         <CardContent className="pt-0">
           <ScrollArea className="max-h-[350px]">
             <div className="space-y-3">
+              {/* Canon-safe notes grouped by tier */}
               {(['blocking', 'high_impact', 'polish'] as const).map(tier => {
                 const items = grouped[tier];
                 if (items.length === 0) return null;
@@ -99,33 +111,38 @@ export function EpisodeDevNotesPanel({ run, notes, isRunning }: Props) {
                     {isOpen && (
                       <div className="px-3 pb-2 space-y-2">
                         {items.map((note, i) => (
-                          <div key={i} className="bg-background/50 rounded p-2 space-y-1">
-                            <div className="flex items-start gap-2">
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-1.5">
-                                  <p className="text-xs font-medium text-foreground">{note.title}</p>
-                                  <Badge variant="outline" className="text-[8px] px-1 py-0">{note.category}</Badge>
-                                  {!note.canon_safe && (
-                                    <Badge variant="outline" className="text-[8px] px-1 py-0 border-amber-500/30 text-amber-400">
-                                      ⚠ canon risk
-                                    </Badge>
-                                  )}
-                                </div>
-                                <p className="text-[10px] text-muted-foreground mt-0.5">{note.detail}</p>
-                                {note.suggestion && (
-                                  <p className="text-[10px] text-primary/80 mt-1">
-                                    💡 {note.suggestion}
-                                  </p>
-                                )}
-                              </div>
-                            </div>
-                          </div>
+                          <NoteItem key={i} note={note} />
                         ))}
                       </div>
                     )}
                   </div>
                 );
               })}
+
+              {/* Canon Risk notes — separate group */}
+              {canonRiskNotes.length > 0 && (
+                <div className="rounded-lg border border-amber-500/40 bg-amber-500/5">
+                  <button
+                    className="w-full flex items-center gap-2 px-3 py-2 text-left"
+                    onClick={() => setExpanded(prev => ({ ...prev, canon_risk: !prev.canon_risk }))}
+                  >
+                    {expanded.canon_risk ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                    <ShieldAlert className="h-3.5 w-3.5 text-amber-400" />
+                    <span className="text-xs font-medium text-amber-400">
+                      Canon Risk Notes ({canonRiskNotes.length})
+                    </span>
+                    <span className="text-[9px] text-amber-400/70 ml-auto">may conflict with canon</span>
+                  </button>
+
+                  {expanded.canon_risk && (
+                    <div className="px-3 pb-2 space-y-2">
+                      {canonRiskNotes.map((note, i) => (
+                        <NoteItem key={i} note={note} showCanonWarning />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Strengths */}
               {strengths.length > 0 && (
@@ -141,7 +158,7 @@ export function EpisodeDevNotesPanel({ run, notes, isRunning }: Props) {
         </CardContent>
       )}
 
-      {run && run.status === 'completed' && notes.length === 0 && (
+      {run && run.status === 'completed' && notes.length === 0 && canonRiskCount === 0 && (
         <CardContent className="pt-0">
           <div className="flex items-center gap-2 py-2">
             <CheckCircle2 className="h-4 w-4 text-emerald-400" />
@@ -158,5 +175,31 @@ export function EpisodeDevNotesPanel({ run, notes, isRunning }: Props) {
         </CardContent>
       )}
     </Card>
+  );
+}
+
+function NoteItem({ note, showCanonWarning }: { note: DevNote; showCanonWarning?: boolean }) {
+  return (
+    <div className="bg-background/50 rounded p-2 space-y-1">
+      <div className="flex items-start gap-2">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <p className="text-xs font-medium text-foreground">{note.title}</p>
+            <Badge variant="outline" className="text-[8px] px-1 py-0">{note.category}</Badge>
+            {showCanonWarning && (
+              <Badge variant="outline" className="text-[8px] px-1 py-0 border-amber-500/30 text-amber-400">
+                ⚠ canon risk
+              </Badge>
+            )}
+          </div>
+          <p className="text-[10px] text-muted-foreground mt-0.5">{note.detail}</p>
+          {note.suggestion && (
+            <p className="text-[10px] text-primary/80 mt-1">
+              💡 {note.suggestion}
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
