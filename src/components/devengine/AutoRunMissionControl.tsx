@@ -48,6 +48,18 @@ interface ProjectDocument {
   title: string;
 }
 
+interface ProjectData {
+  assigned_lane?: string | null;
+  budget_range?: string | null;
+  genres?: string[] | null;
+  comparable_titles?: string | null;
+  tone?: string | null;
+  target_audience?: string | null;
+  episode_target_duration_seconds?: number | null;
+  season_episode_count?: number | null;
+  guardrails_config?: any;
+}
+
 interface AutoRunMissionControlProps {
   projectId: string;
   currentDeliverable: DeliverableType;
@@ -81,6 +93,8 @@ interface AutoRunMissionControlProps {
   currentDocMeta?: { doc_type?: string; version?: number; char_count?: number };
   /** All documents in the project for start-from picker */
   availableDocuments?: ProjectDocument[];
+  /** Project data for pre-filling fields */
+  project?: ProjectData | null;
 }
 
 // ── Sub-components ──
@@ -176,7 +190,7 @@ export function AutoRunMissionControl({
   onSaveStorySetup, onSaveQualifications, onSaveLaneBudget, onSaveGuardrails,
   fetchDocumentText,
   latestAnalysis, currentDocText, currentDocMeta,
-  availableDocuments,
+  availableDocuments, project,
 }: AutoRunMissionControlProps) {
   const [mode, setMode] = useState('balanced');
   const [safeMode, setSafeMode] = useState(true);
@@ -206,7 +220,47 @@ export function AutoRunMissionControl({
   const [showPreflight, setShowPreflight] = useState(false);
   const [preflightErrors, setPreflightErrors] = useState<string[]>([]);
 
-  // Auto-fill story setup from analysis data
+  // Pre-fill from project data (runs once on mount or when project loads)
+  const [projectPreFilled, setProjectPreFilled] = useState(false);
+  useEffect(() => {
+    if (projectPreFilled || !project) return;
+    // Lane & budget
+    if (project.assigned_lane) setLane(project.assigned_lane);
+    if (project.budget_range) setBudget(project.budget_range);
+    // Qualifications
+    const gc = project.guardrails_config;
+    const gcQuals = gc?.overrides?.qualifications || {};
+    setQuals(prev => ({
+      episode_target_duration_seconds: gcQuals.episode_target_duration_seconds || project.episode_target_duration_seconds || prev.episode_target_duration_seconds,
+      season_episode_count: gcQuals.season_episode_count || project.season_episode_count || prev.season_episode_count,
+      target_runtime_min_low: gcQuals.target_runtime_min_low || prev.target_runtime_min_low,
+      target_runtime_min_high: gcQuals.target_runtime_min_high || prev.target_runtime_min_high,
+    }));
+    // Story setup from project-level fields
+    const storyFromProject: Record<string, string> = {};
+    if (project.tone) storyFromProject.tone_genre = project.genres?.length ? `${project.tone} / ${project.genres.join(', ')}` : project.tone;
+    else if (project.genres?.length) storyFromProject.tone_genre = project.genres.join(', ');
+    if (project.comparable_titles) storyFromProject.comparables = project.comparable_titles;
+    // Story setup from guardrails
+    const gcStory = gc?.overrides?.story_setup;
+    if (gcStory) {
+      for (const [key, val] of Object.entries(gcStory)) {
+        if (val && typeof val === 'string') storyFromProject[key] = val;
+      }
+    }
+    if (Object.keys(storyFromProject).length > 0) {
+      setStorySetup(prev => {
+        const merged = { ...prev };
+        for (const [key, val] of Object.entries(storyFromProject)) {
+          if (val && !merged[key]) merged[key] = val;
+        }
+        return merged;
+      });
+    }
+    setProjectPreFilled(true);
+  }, [project, projectPreFilled]);
+
+  // Auto-fill story setup from analysis data (deeper extraction, runs after project pre-fill)
   useEffect(() => {
     if (storyAutoFilled || !latestAnalysis) return;
     const a = latestAnalysis;
