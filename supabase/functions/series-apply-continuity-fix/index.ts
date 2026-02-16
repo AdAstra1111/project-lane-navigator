@@ -159,7 +159,7 @@ ${editInstructions}`,
       title: `EP${episodeNumber} (patched: ${issue.title})`,
       text_content: patchedText,
       word_count: patchedText.split(/\s+/).length,
-      page_count_estimate: Math.round(patchedText.split(/\s+/).length / 250),
+      latest_page_count_est: Math.round(patchedText.split(/\s+/).length / 250),
     }).select("id").single();
 
     if (scriptErr) throw new Error(`Failed to create script: ${scriptErr.message}`);
