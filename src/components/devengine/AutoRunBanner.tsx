@@ -89,7 +89,11 @@ export function AutoRunBanner({
             {status}
           </Badge>
           {hasHardGate && (
-            <Badge variant="outline" className="text-[9px] px-1.5 py-0 text-destructive border-destructive/40 bg-destructive/10 gap-0.5">
+            <Badge
+              variant="outline"
+              className="text-[9px] px-1.5 py-0 text-destructive border-destructive/40 bg-destructive/10 gap-0.5 cursor-pointer hover:bg-destructive/20 transition-colors"
+              onClick={onScrollToApproval}
+            >
               <ShieldAlert className="h-2.5 w-2.5" /> Hard Gate
             </Badge>
           )}
