@@ -15,23 +15,26 @@ interface DriftBannerProps {
   resolvePending?: boolean;
 }
 
-const RESOLUTION_OPTIONS: { type: ResolutionType; label: string; description: string; icon: typeof Check }[] = [
+const RESOLUTION_OPTIONS: { type: ResolutionType; label: string; description: string; plotImpact: string; icon: typeof Check }[] = [
   {
     type: 'accept_drift',
     label: 'Accept Current Direction',
     description: 'Keep the current document as-is and update the baseline. Future drift checks will measure from this version.',
+    plotImpact: 'All downstream documents (character arcs, episode beats, scripts) will inherit the new direction. Previous narrative threads may become orphaned.',
     icon: Check,
   },
   {
     type: 'intentional_pivot',
     label: 'Mark as Intentional Pivot',
     description: 'Acknowledge this is a deliberate creative choice. The narrative chain will be updated to reflect the new direction.',
+    plotImpact: 'The pivot is recorded in the narrative chain. Downstream docs will be flagged for review but not auto-regenerated — you control what changes.',
     icon: ArrowRight,
   },
   {
     type: 'reseed',
     label: 'Re-seed from Upstream',
     description: 'Regenerate this document using the original upstream core elements (protagonist, stakes, tone, etc.) to realign with the source material.',
+    plotImpact: 'This version will be replaced with a new draft aligned to the original core. Any unique additions in this version will be lost.',
     icon: RotateCcw,
   },
 ];
@@ -88,7 +91,7 @@ export function DriftBanner({ drift, onAcknowledge, onResolve, resolvePending }:
       </div>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <GitBranch className="h-4 w-4 text-primary" />
@@ -98,7 +101,46 @@ export function DriftBanner({ drift, onAcknowledge, onResolve, resolvePending }:
               Choose how to handle the detected {isMajor ? 'major pivot' : 'structural drift'} in this document.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-2 mt-2">
+
+          {/* Drift breakdown */}
+          {drift.drift_items?.length > 0 && (
+            <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-2">
+              <p className="text-xs font-semibold text-foreground">What changed</p>
+              <div className="space-y-1.5">
+                {drift.drift_items.map((item: any, i: number) => (
+                  <div key={i} className="text-[11px] space-y-0.5">
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium text-foreground capitalize">{item.field?.replace(/_/g, ' ')}</span>
+                      <span className={`font-mono px-1.5 py-0.5 rounded text-[10px] ${
+                        item.similarity < 60 ? 'bg-destructive/15 text-destructive' : 'bg-amber-500/15 text-amber-600'
+                      }`}>
+                        {item.similarity}% match
+                      </span>
+                    </div>
+                    {(item.inherited || item.current) && (
+                      <div className="grid grid-cols-2 gap-2 mt-1">
+                        {item.inherited && (
+                          <div className="rounded bg-muted/50 p-1.5">
+                            <span className="text-[9px] text-muted-foreground block mb-0.5">Original</span>
+                            <span className="text-[10px] text-muted-foreground line-clamp-2">{item.inherited}</span>
+                          </div>
+                        )}
+                        {item.current && (
+                          <div className="rounded bg-primary/5 p-1.5 border border-primary/10">
+                            <span className="text-[9px] text-primary block mb-0.5">Current</span>
+                            <span className="text-[10px] text-foreground line-clamp-2">{item.current}</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="space-y-2 mt-1">
+            <p className="text-xs font-semibold text-foreground">Resolution options</p>
             {RESOLUTION_OPTIONS.map(opt => (
               <button
                 key={opt.type}
@@ -111,6 +153,7 @@ export function DriftBanner({ drift, onAcknowledge, onResolve, resolvePending }:
                   <span className="text-sm font-medium">{opt.label}</span>
                 </div>
                 <p className="text-[11px] text-muted-foreground mt-1 ml-6">{opt.description}</p>
+                <p className="text-[10px] text-primary/70 mt-1 ml-6 italic">Plot impact: {opt.plotImpact}</p>
               </button>
             ))}
           </div>
