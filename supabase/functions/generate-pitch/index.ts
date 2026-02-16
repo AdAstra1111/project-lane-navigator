@@ -10,10 +10,13 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const { productionType, genre, subgenre, budgetBand, region, platformTarget, audienceDemo, riskLevel, count, coverageContext, feedbackContext, briefNotes } = await req.json();
+    const { productionType, genre, subgenre, budgetBand, region, platformTarget, audienceDemo, riskLevel, count, coverageContext, feedbackContext, briefNotes, projectId, skipSignals } = await req.json();
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
+
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
     const typeLabel = productionType || "film";
     const coverageSection = coverageContext
@@ -25,6 +28,50 @@ serve(async (req) => {
       : "";
 
     const notesSection = briefNotes ? `\n\nADDITIONAL BRIEF NOTES FROM PRODUCER:\n${briefNotes}` : "";
+
+    // ── Signal context injection ──
+    let signalBlock = "";
+    let signalsUsedIds: string[] = [];
+    let signalInfluence = 0.5;
+    if (projectId && !skipSignals) {
+      try {
+        const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2");
+        const supa = createClient(supabaseUrl, supabaseKey);
+        const { data: projSettings } = await supa.from("projects")
+          .select("signals_influence, signals_apply")
+          .eq("id", projectId).single();
+        signalInfluence = (projSettings as any)?.signals_influence ?? 0.5;
+        const applyConfig = (projSettings as any)?.signals_apply ?? { pitch: true };
+        if (applyConfig.pitch) {
+          const { data: matches } = await supa
+            .from("project_signal_matches")
+            .select("cluster_id, relevance_score, impact_score, rationale, cluster:cluster_id(name, category, strength, velocity, saturation_risk, explanation, cluster_scoring)")
+            .eq("project_id", projectId)
+            .order("impact_score", { ascending: false })
+            .limit(3);
+          if (matches && matches.length > 0) {
+            signalsUsedIds = matches.map((m: any) => m.cluster_id);
+            const influenceLabel = signalInfluence >= 0.65 ? "HIGH" : signalInfluence >= 0.35 ? "MODERATE" : "LOW";
+            let influenceRule = "";
+            if (signalInfluence >= 0.65) {
+              influenceRule = "Signals may shape logline framing, comps, buyer angle, AND format mechanics.";
+            } else if (signalInfluence >= 0.35) {
+              influenceRule = "Signals should shape comps and buyer positioning ONLY. Do not alter logline or format.";
+            } else {
+              influenceRule = "Signals add risk flags and optional comps ONLY. Do not alter core pitch.";
+            }
+            const lines = matches.map((m: any, i: number) => {
+              const c = m.cluster;
+              return `${i+1}. ${c?.name || "Signal"} [${c?.category || ""}] — strength ${c?.strength || 0}/10, ${c?.velocity || "Stable"}, saturation ${c?.saturation_risk || "Low"}\n   ${c?.explanation || ""}`;
+            }).join("\n");
+            signalBlock = `\n=== MARKET & FORMAT SIGNALS (influence: ${influenceLabel}) ===\n${influenceRule}\n\n${lines}\n=== END SIGNALS ===\n`;
+          }
+        }
+      } catch (e) {
+        console.warn("[generate-pitch] Signal fetch failed (non-fatal):", e);
+      }
+    }
+
     // Inject guardrails
     const guardrails = buildGuardrailBlock({ productionType: typeLabel, engineName: "generate-pitch" });
     console.log(`[generate-pitch] guardrails: profile=${guardrails.profileName}, hash=${guardrails.hash}`);
@@ -36,7 +83,7 @@ ${guardrails.textBlock}
 PRODUCTION TYPE: ${typeLabel}
 ALL outputs MUST be strictly constrained to this production type. Do not suggest formats, budgets, distribution, or packaging strategies that don't apply to ${typeLabel}.
 
-Generate exactly ${count || 3} ranked development concepts.${coverageSection}${feedbackSection}${notesSection}
+Generate exactly ${count || 3} ranked development concepts.${coverageSection}${feedbackSection}${notesSection}${signalBlock}
 
 For each idea, you MUST also provide weighted scores (0-100 each) for:
 - market_heat: How hot is this genre/concept in the current market
@@ -201,6 +248,17 @@ ${coverageContext ? "\nMode: Coverage Transformer — pivot the existing coverag
     // Normalize: ensure { ideas: [...] } shape
     if (Array.isArray(ideas)) ideas = { ideas };
     if (!ideas.ideas) ideas = { ideas: [ideas] };
+
+    // Attach signal metadata to response
+    if (signalsUsedIds.length > 0) {
+      ideas.signals_metadata = {
+        signals_used: signalsUsedIds,
+        influence_value: signalInfluence,
+        rationale: signalInfluence >= 0.65 ? "High influence — signals shaped framing, comps, buyer angle" :
+                   signalInfluence >= 0.35 ? "Moderate influence — signals shaped comps and positioning" :
+                   "Low influence — signals added risk flags only",
+      };
+    }
 
     return new Response(JSON.stringify(ideas), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },

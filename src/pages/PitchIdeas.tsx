@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { PitchIdeaCard } from '@/components/PitchIdeaCard';
 import { DevelopmentBriefBuilder } from '@/components/DevelopmentBriefBuilder';
+import { PitchSignalDiff } from '@/components/PitchSignalDiff';
 import { usePitchIdeas, type PitchIdea } from '@/hooks/usePitchIdeas';
 import { useProjects } from '@/hooks/useProjects';
 import { useAuth } from '@/hooks/useAuth';
@@ -213,6 +214,14 @@ export default function PitchIdeas() {
         />
 
         <OperationProgress isActive={generating} stages={GENERATE_PITCH_STAGES} />
+
+        {/* Signal ON/OFF Diff */}
+        {selectedProject && (
+          <PitchSignalDiff
+            brief={{ production_type: mode === 'greenlight' ? 'film' : 'film', genre: '', budget_band: '', region: '', platform_target: '', audience_demo: '', risk_appetite: 'medium' } as any}
+            projectId={selectedProject}
+          />
+        )}
 
         {/* Status filter */}
         <div className="flex gap-2 flex-wrap">
