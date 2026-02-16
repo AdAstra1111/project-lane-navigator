@@ -197,18 +197,26 @@ serve(async (req) => {
 
       // 2) Extract features
       const features: string[] = [];
-      for (const g of (project.genres || [])) features.push(g.toLowerCase());
-      if (project.tone) features.push(...project.tone.toLowerCase().split(/[\s,]+/).filter(Boolean));
+      for (const g of (project.genres || [])) {
+        // Split compound genre strings like "Romance / Contemporary / Culinary"
+        const parts = g.split(/\s*[\/,;]+\s*/).map((p: string) => p.trim().toLowerCase()).filter(Boolean);
+        features.push(...parts);
+      }
+      if (project.tone) {
+        const toneParts = project.tone.split(/[\s,\/;]+/).map((t: string) => t.trim().toLowerCase()).filter(Boolean);
+        features.push(...toneParts);
+      }
       if (project.format) features.push(project.format.toLowerCase().replace(/_/g, '-'));
       if (project.budget_range) features.push(project.budget_range.toLowerCase());
       if (project.target_audience) features.push(...project.target_audience.toLowerCase().split(/[\s,]+/).filter(Boolean).slice(0, 3));
       if (project.comparable_titles) {
         const comps = project.comparable_titles.split(/[,;]+/).map((s: string) => s.trim().toLowerCase()).filter(Boolean);
-        features.push(...comps.slice(0, 5));
+        features.push(...comps);
       }
       if (project.assigned_lane) features.push(project.assigned_lane.toLowerCase());
 
       // Try to get latest doc text for additional features
+      const STOP_WORDS = new Set(["the","and","that","this","with","from","their","they","have","been","were","will","would","could","should","into","about","than","them","then","when","what","which","your","each","make","like","just","over","such","some","only","also","more","very","most","much","many","well","here","there","both","still"]);
       try {
         const { data: docs } = await supabase.from("project_documents")
           .select("id, doc_type").eq("project_id", projectId).in("doc_type", ["concept_brief", "idea", "blueprint"]).limit(3);
@@ -216,8 +224,7 @@ serve(async (req) => {
           const { data: ver } = await supabase.from("project_document_versions")
             .select("plaintext").eq("document_id", doc.id).order("version_number", { ascending: false }).limit(1).single();
           if (ver?.plaintext) {
-            const words = ver.plaintext.toLowerCase().split(/\W+/).filter((w: string) => w.length > 3);
-            // Simple TF: take top 10 most frequent
+            const words = ver.plaintext.toLowerCase().split(/\W+/).filter((w: string) => w.length > 3 && !STOP_WORDS.has(w));
             const freq: Record<string, number> = {};
             for (const w of words) freq[w] = (freq[w] || 0) + 1;
             const sorted = Object.entries(freq).sort((a, b) => b[1] - a[1]).slice(0, 10);
@@ -226,7 +233,8 @@ serve(async (req) => {
         }
       } catch { /* non-fatal */ }
 
-      const uniqueFeatures = [...new Set(features)];
+      // Remove stop words from all features
+      const uniqueFeatures = [...new Set(features)].filter(f => !STOP_WORDS.has(f));
 
       // Save features
       await supabase.from("projects").update({ project_features: uniqueFeatures as any }).eq("id", projectId);
@@ -252,14 +260,21 @@ serve(async (req) => {
           signal.category,
         ].map((t: string) => t.toLowerCase());
 
+        // Use hybrid: Jaccard + tag recall (% of signal tags found in features)
+        const featureSet = new Set(uniqueFeatures);
+        const matchedSignalTags = signalTags.filter((t: string) => featureSet.has(t));
+        const tagRecall = signalTags.length > 0 ? matchedSignalTags.length / signalTags.length : 0;
         const jaccard = jaccardSimilarity(uniqueFeatures, signalTags);
+        // Weighted: 60% recall, 40% jaccard — recall is more meaningful when feature sets differ in size
+        const similarity = tagRecall * 0.6 + jaccard * 0.4;
+
         const exampleTitles = ((signal.example_titles || []) as string[]);
         const compBoost = exampleTitles.some((t: string) =>
           uniqueFeatures.some(f => f.includes(t.toLowerCase()) || t.toLowerCase().includes(f))
         ) ? 0.1 : 0;
 
-        const relevanceScore = Math.min(1, jaccard + compBoost);
-        if (relevanceScore < 0.05) continue;
+        const relevanceScore = Math.min(1, similarity + compBoost);
+        if (relevanceScore < 0.03) continue;
 
         const clusterScoring = signal.cluster_scoring as any;
         const total = clusterScoring?.total ?? (signal.strength / 10);
