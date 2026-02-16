@@ -780,7 +780,6 @@ export function useSeriesWriter(projectId: string) {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
 
-      // Check safety: cannot delete if it's the current season template
       const ep = episodes.find(e => e.id === params.episodeId);
       if (ep?.is_season_template) {
         throw new Error('Cannot delete the Season Template episode. Assign a new template first.');
@@ -793,8 +792,13 @@ export function useSeriesWriter(projectId: string) {
         delete_reason: params.reason || null,
       }).eq('id', params.episodeId);
       if (error) throw error;
+
+      await (supabase as any).from('episode_activity_log').insert({
+        project_id: projectId, episode_id: params.episodeId, user_id: user.id,
+        action: 'soft_delete', details: { reason: params.reason || null },
+      });
     },
-    onSuccess: (_, params) => {
+    onSuccess: () => {
       toast.success('Episode deleted');
       invalidateAll();
     },
@@ -804,6 +808,8 @@ export function useSeriesWriter(projectId: string) {
   // ── Restore episode ──
   const restoreEpisode = useMutation({
     mutationFn: async (episodeId: string) => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
       const { error } = await supabase.from('series_episodes').update({
         is_deleted: false,
         deleted_at: null,
@@ -811,10 +817,188 @@ export function useSeriesWriter(projectId: string) {
         delete_reason: null,
       }).eq('id', episodeId);
       if (error) throw error;
+      await (supabase as any).from('episode_activity_log').insert({
+        project_id: projectId, episode_id: episodeId, user_id: user.id,
+        action: 'restore', details: {},
+      });
     },
     onSuccess: () => {
       toast.success('Episode restored');
       invalidateAll();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  // ── Hard delete episode (permanent) ──
+  const hardDeleteEpisode = useMutation({
+    mutationFn: async (episodeId: string) => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+      const ep = allEpisodes.find(e => e.id === episodeId);
+      if (!ep) throw new Error('Episode not found');
+
+      // Log before deleting
+      await (supabase as any).from('episode_activity_log').insert({
+        project_id: projectId, episode_id: episodeId, user_id: user.id,
+        action: 'hard_delete', details: { episode_number: ep.episode_number, title: ep.title },
+      });
+
+      // Delete linked artifacts
+      const epNum = ep.episode_number;
+      await (supabase as any).from('episode_validations').delete().eq('episode_id', episodeId);
+      await (supabase as any).from('episode_comments').delete().eq('project_id', projectId).eq('episode_number', epNum);
+      await (supabase as any).from('episode_compliance_reports').delete().eq('project_id', projectId).eq('episode_number', epNum);
+      await (supabase as any).from('episode_continuity_ledgers').delete().eq('project_id', projectId).eq('episode_number', epNum);
+      await (supabase as any).from('episode_continuity_notes').delete().eq('project_id', projectId).eq('episode_number', epNum);
+      await (supabase as any).from('vertical_episode_metrics').delete().eq('project_id', projectId).eq('episode_number', epNum);
+
+      const { error } = await supabase.from('series_episodes').delete().eq('id', episodeId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success('Episode permanently deleted');
+      invalidateAll();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  // ── Escalate to Dev Engine ──
+  const escalateToDevEngine = useMutation({
+    mutationFn: async (params: {
+      episodeId: string;
+      issueTitle: string;
+      issueDescription: string;
+      desiredOutcome: string;
+      contextDocKeys: string[];
+      sourceNotes?: any[];
+    }) => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+      const ep = episodes.find(e => e.id === params.episodeId);
+      if (!ep) throw new Error('Episode not found');
+
+      let scriptText = '';
+      if (ep.script_id) {
+        const { data: s } = await supabase.from('scripts').select('text_content').eq('id', ep.script_id).single();
+        scriptText = (s as any)?.text_content || '';
+      }
+
+      const { data: docs } = await supabase
+        .from('project_documents')
+        .select('id, doc_type')
+        .eq('project_id', projectId)
+        .in('doc_type', params.contextDocKeys);
+      const docIds = (docs || []).map(d => d.id);
+
+      const { data: patchRun, error } = await (supabase as any)
+        .from('episode_patch_runs')
+        .insert({
+          project_id: projectId,
+          episode_id: params.episodeId,
+          user_id: user.id,
+          issue_title: params.issueTitle,
+          issue_description: params.issueDescription,
+          desired_outcome: params.desiredOutcome,
+          context_doc_ids: docIds,
+          source_notes: params.sourceNotes || [],
+          episode_script_text: scriptText.slice(0, 50000),
+          status: 'pending',
+        })
+        .select()
+        .single();
+      if (error) throw error;
+
+      // Trigger dev-engine-v2 episode_patch action
+      try {
+        await callDevEngineV2('episode-patch', {
+          projectId,
+          patchRunId: patchRun.id,
+          episodeId: params.episodeId,
+          episodeNumber: ep.episode_number,
+          issueTitle: params.issueTitle,
+          issueDescription: params.issueDescription,
+          desiredOutcome: params.desiredOutcome,
+          contextDocIds: docIds,
+          episodeScriptText: scriptText.slice(0, 30000),
+        });
+      } catch {
+        await (supabase as any).from('episode_patch_runs').update({ status: 'failed' }).eq('id', patchRun.id);
+        throw new Error('Dev Engine patch request failed');
+      }
+
+      return patchRun;
+    },
+    onSuccess: () => {
+      toast.success('Issue sent to Dev Engine');
+      qc.invalidateQueries({ queryKey: ['episode-patch-runs', projectId] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  // ── Apply patch ──
+  const applyPatch = useMutation({
+    mutationFn: async (patchRunId: string) => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+
+      const { data: patch } = await (supabase as any)
+        .from('episode_patch_runs').select('*').eq('id', patchRunId).single();
+      if (!patch || patch.status !== 'complete') throw new Error('Patch not ready');
+
+      const ep = episodes.find(e => e.id === patch.episode_id);
+      if (!ep?.script_id) throw new Error('Episode has no script');
+
+      const newText = patch.proposed_changes?.replacement_script || patch.proposed_changes?.patched_text || '';
+      if (!newText) throw new Error('No replacement content in patch');
+
+      const { data: newScript, error: sErr } = await supabase
+        .from('scripts').insert({
+          project_id: projectId, created_by: user.id,
+          text_content: newText, version_label: `${ep.title} (patched)`,
+        }).select('id').single();
+      if (sErr) throw sErr;
+
+      await supabase.from('series_episodes').update({
+        script_id: (newScript as any).id,
+        status: 'complete',
+        validation_status: 'pending',
+      }).eq('id', patch.episode_id);
+
+      await (supabase as any).from('episode_patch_runs').update({
+        status: 'applied', applied_at: new Date().toISOString(),
+        applied_by: user.id, applied_version_id: (newScript as any).id,
+      }).eq('id', patchRunId);
+
+      await (supabase as any).from('episode_activity_log').insert({
+        project_id: projectId, episode_id: patch.episode_id, user_id: user.id,
+        action: 'patch_applied', details: { patch_run_id: patchRunId, new_script_id: (newScript as any).id },
+      });
+    },
+    onSuccess: () => {
+      toast.success('Patch applied — new version created');
+      invalidateAll();
+      qc.invalidateQueries({ queryKey: ['episode-patch-runs', projectId] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  // ── Reject patch ──
+  const rejectPatch = useMutation({
+    mutationFn: async (params: { patchRunId: string; reason?: string }) => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+      await (supabase as any).from('episode_patch_runs').update({
+        status: 'rejected', rejected_at: new Date().toISOString(),
+        rejected_by: user.id, reject_reason: params.reason || null,
+      }).eq('id', params.patchRunId);
+      await (supabase as any).from('episode_activity_log').insert({
+        project_id: projectId, episode_id: null, user_id: user.id,
+        action: 'patch_rejected', details: { patch_run_id: params.patchRunId },
+      });
+    },
+    onSuccess: () => {
+      toast.success('Patch rejected');
+      qc.invalidateQueries({ queryKey: ['episode-patch-runs', projectId] });
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -850,5 +1034,9 @@ export function useSeriesWriter(projectId: string) {
     runEpisodeMetrics,
     deleteEpisode,
     restoreEpisode,
+    hardDeleteEpisode,
+    escalateToDevEngine,
+    applyPatch,
+    rejectPatch,
   };
 }
