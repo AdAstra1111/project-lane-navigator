@@ -50,7 +50,9 @@ export function AutoRunBanner({
   const hasStepError = !!job.error && status === 'running';
   const isFailed = status === 'failed' || hasStepError;
   const hasSelectedVersion = !!selectedDocId && !!selectedVersionId;
-  const needsApproval = !isFailed && (job.awaiting_approval || (job.pending_decisions && (job.pending_decisions as any[]).length > 0));
+  const hasPendingDecisions = Array.isArray(job.pending_decisions) && (job.pending_decisions as any[]).length > 0;
+  const needsApproval = !isFailed && !hasPendingDecisions && (job.awaiting_approval || (job.pending_decisions && (job.pending_decisions as any[]).length > 0));
+  const needsDecisions = !isFailed && hasPendingDecisions;
   const needsCriteria = (job.stop_reason || '').includes('Missing required criteria');
   const isStaleDoc = (job.stop_reason || '').includes('Document stale vs current criteria');
   const staleDiffKeys = isStaleDoc ? (job.stop_reason || '').match(/: (.+?)\./)?.[1] || '' : '';
@@ -95,6 +97,11 @@ export function AutoRunBanner({
               onClick={onScrollToApproval}
             >
               <ShieldAlert className="h-2.5 w-2.5" /> Hard Gate
+            </Badge>
+          )}
+          {needsDecisions && (
+            <Badge variant="outline" className="text-[9px] px-1.5 py-0 text-destructive border-destructive/30 bg-destructive/10">
+              Decisions Required
             </Badge>
           )}
           {needsApproval && (
@@ -190,6 +197,13 @@ export function AutoRunBanner({
               <Square className="h-3 w-3" /> End job
             </Button>
           </>
+        )}
+
+        {/* Decision CTA takes priority over approval CTA */}
+        {needsDecisions && onScrollToApproval && (
+          <Button size="sm" variant="outline" className="h-7 text-[10px] gap-1 border-destructive/30 text-destructive" onClick={onScrollToApproval}>
+            <AlertTriangle className="h-3 w-3" /> Review decisions ({(job.pending_decisions as any[]).length})
+          </Button>
         )}
 
         {needsApproval && onScrollToApproval && (

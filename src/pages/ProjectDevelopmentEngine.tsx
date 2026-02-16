@@ -664,11 +664,20 @@ export default function ProjectDevelopmentEngine() {
                   onSetResumeSource={autoRun.setResumeSource}
                   onStop={autoRun.stop}
                    onScrollToApproval={() => {
-                     setIntelligenceTab('convergence');
-                     setTimeout(() => {
-                       const el = document.getElementById('approval-queue-anchor');
-                       el?.scrollIntoView({ behavior: 'smooth' });
-                     }, 100);
+                     const jobHasDecisions = Array.isArray(autoRun.job?.pending_decisions) && (autoRun.job!.pending_decisions as any[]).length > 0;
+                     if (jobHasDecisions) {
+                       setIntelligenceTab('notes');
+                       setTimeout(() => {
+                         const el = document.getElementById('decision-panel-anchor');
+                         el?.scrollIntoView({ behavior: 'smooth' });
+                       }, 100);
+                     } else {
+                       setIntelligenceTab('convergence');
+                       setTimeout(() => {
+                         const el = document.getElementById('approval-queue-anchor');
+                         el?.scrollIntoView({ behavior: 'smooth' });
+                       }, 100);
+                     }
                    }}
                    onScrollToCriteria={() => {
                      setIntelligenceTab('criteria');
@@ -883,47 +892,74 @@ export default function ProjectDevelopmentEngine() {
 
             <TabsContent value="notes" className="mt-3 space-y-3">
               {/* Decisions first, full width */}
-              {(tieredNotes.blockers.length > 0 || tieredNotes.high.length > 0 ||
-                (autoRun.job?.status === 'paused' && autoRun.job?.stop_reason?.includes('Decisions'))) && (
-                <DecisionModePanel
-                  projectId={projectId!}
-                  documentId={selectedDocId}
-                  versionId={selectedVersionId}
-                  documentText={versionText}
-                  docType={selectedDoc?.doc_type}
-                  versionNumber={selectedVersion?.version_number}
-                  updatedAt={selectedVersion?.created_at}
-                  decisions={(() => {
-                    const optionsRun = (runs || []).filter((r: any) => r.run_type === 'OPTIONS').pop();
-                    if (optionsRun?.output_json?.decisions) return optionsRun.output_json.decisions;
-                    const noteDecisions: Decision[] = [
-                      ...tieredNotes.blockers.filter((n: any) => n.decisions?.length > 0).map((n: any) => ({
-                        note_id: n.id, severity: 'blocker' as const, note: n.description || n.note,
-                        options: n.decisions, recommended_option_id: n.recommended_option_id || n.recommended,
+              {(() => {
+                const optionsRun = (runs || []).filter((r: any) => r.run_type === 'OPTIONS').pop();
+                const optionsRunHasDecisions = (optionsRun?.output_json?.decisions?.length > 0);
+                const jobHasDecisions = Array.isArray(autoRun.job?.pending_decisions) && (autoRun.job!.pending_decisions as any[]).length > 0;
+                const hasNoteDecisions = tieredNotes.blockers.some((n: any) => n.decisions?.length > 0) || tieredNotes.high.some((n: any) => n.decisions?.length > 0);
+                const showPanel = optionsRunHasDecisions || jobHasDecisions || hasNoteDecisions
+                  || tieredNotes.blockers.length > 0 || tieredNotes.high.length > 0
+                  || (autoRun.job?.status === 'paused' && autoRun.job?.stop_reason?.includes('Decisions'));
+
+                if (!showPanel) return null;
+
+                // Build decisions: prefer job.pending_decisions, then OPTIONS run, then inline note decisions
+                const decisions = (() => {
+                  if (jobHasDecisions) {
+                    // Convert PendingDecision[] from job to Decision[] shape for panel
+                    return (autoRun.job!.pending_decisions as any[]).map((d: any) => ({
+                      note_id: d.id,
+                      severity: d.impact === 'blocking' ? 'blocker' as const : 'high' as const,
+                      note: d.question,
+                      options: d.options?.map((o: any) => ({
+                        option_id: o.value,
+                        title: o.value,
+                        what_changes: [o.why],
                       })),
-                      ...tieredNotes.high.filter((n: any) => n.decisions?.length > 0).map((n: any) => ({
-                        note_id: n.id, severity: 'high' as const, note: n.description || n.note,
-                        options: n.decisions, recommended_option_id: n.recommended_option_id || n.recommended,
-                      })),
-                    ];
-                    return noteDecisions;
-                  })()}
-                  globalDirections={(() => {
-                    const optionsRun = (runs || []).filter((r: any) => r.run_type === 'OPTIONS').pop();
-                    return optionsRun?.output_json?.global_directions || latestNotes?.global_directions || [];
-                  })()}
-                  jobId={autoRun.job?.id}
-                  isAutoRunPaused={autoRun.job?.status === 'paused'}
-                  onRewriteComplete={() => {
-                    qc.invalidateQueries({ queryKey: ['dev-v2-docs', projectId] });
-                    qc.invalidateQueries({ queryKey: ['dev-v2-versions'] });
-                    qc.invalidateQueries({ queryKey: ['dev-v2-runs'] });
-                  }}
-                  onAutoRunContinue={(opts, gd) => autoRun.applyDecisionsAndContinue?.(opts, gd)}
-                  availableVersions={versions?.map((v: any) => ({ id: v.id, version_number: v.version_number, label: v.label }))}
-                  hideApplyButton
-                />
-              )}
+                      recommended_option_id: d.recommended,
+                    }));
+                  }
+                  if (optionsRunHasDecisions) return optionsRun.output_json.decisions;
+                  const noteDecisions: Decision[] = [
+                    ...tieredNotes.blockers.filter((n: any) => n.decisions?.length > 0).map((n: any) => ({
+                      note_id: n.id, severity: 'blocker' as const, note: n.description || n.note,
+                      options: n.decisions, recommended_option_id: n.recommended_option_id || n.recommended,
+                    })),
+                    ...tieredNotes.high.filter((n: any) => n.decisions?.length > 0).map((n: any) => ({
+                      note_id: n.id, severity: 'high' as const, note: n.description || n.note,
+                      options: n.decisions, recommended_option_id: n.recommended_option_id || n.recommended,
+                    })),
+                  ];
+                  return noteDecisions;
+                })();
+
+                return (
+                  <DecisionModePanel
+                    projectId={projectId!}
+                    documentId={selectedDocId}
+                    versionId={selectedVersionId}
+                    documentText={versionText}
+                    docType={selectedDoc?.doc_type}
+                    versionNumber={selectedVersion?.version_number}
+                    updatedAt={selectedVersion?.created_at}
+                    decisions={decisions}
+                    globalDirections={(() => {
+                      const oRun = (runs || []).filter((r: any) => r.run_type === 'OPTIONS').pop();
+                      return oRun?.output_json?.global_directions || latestNotes?.global_directions || [];
+                    })()}
+                    jobId={autoRun.job?.id}
+                    isAutoRunPaused={autoRun.job?.status === 'paused'}
+                    onRewriteComplete={() => {
+                      qc.invalidateQueries({ queryKey: ['dev-v2-docs', projectId] });
+                      qc.invalidateQueries({ queryKey: ['dev-v2-versions'] });
+                      qc.invalidateQueries({ queryKey: ['dev-v2-runs'] });
+                    }}
+                    onAutoRunContinue={(opts, gd) => autoRun.applyDecisionsAndContinue?.(opts, gd)}
+                    availableVersions={versions?.map((v: any) => ({ id: v.id, version_number: v.version_number, label: v.label }))}
+                    hideApplyButton
+                  />
+                );
+              })()}
 
               {/* Notes (excluding notes that have decisions — those live in DecisionModePanel above) */}
               {(() => {
