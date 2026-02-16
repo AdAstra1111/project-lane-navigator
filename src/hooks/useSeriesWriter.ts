@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useMemo } from 'react';
 import type { VerticalEpisodeMetricRow, EpisodeMetrics } from '@/lib/vertical-metrics-config';
 import { metricsPassGate } from '@/lib/vertical-metrics-config';
 
@@ -22,6 +22,10 @@ export interface SeriesEpisode {
   resolver_hash_used: string | null;
   style_template_version_id: string | null;
   is_season_template: boolean;
+  is_deleted: boolean;
+  deleted_at: string | null;
+  deleted_by: string | null;
+  delete_reason: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -85,8 +89,10 @@ export function useSeriesWriter(projectId: string) {
   const validationKey = ['episode-validations', projectId];
   const metricsKey = ['vertical-episode-metrics', projectId];
 
-  // ── Episodes ──
-  const { data: episodes = [], isLoading } = useQuery({
+  const [showDeleted, setShowDeleted] = useState(false);
+
+  // ── Episodes (all, including deleted) ──
+  const { data: allEpisodes = [], isLoading } = useQuery({
     queryKey,
     queryFn: async () => {
       const { data, error } = await supabase
@@ -99,6 +105,10 @@ export function useSeriesWriter(projectId: string) {
     },
     enabled: !!projectId,
   });
+
+  // Active episodes (non-deleted) for all logic
+  const episodes = useMemo(() => allEpisodes.filter(e => !e.is_deleted), [allEpisodes]);
+  const deletedEpisodes = useMemo(() => allEpisodes.filter(e => e.is_deleted), [allEpisodes]);
 
   // ── Canon Snapshot ──
   const { data: canonSnapshot, isLoading: canonLoading } = useQuery({
@@ -764,8 +774,56 @@ export function useSeriesWriter(projectId: string) {
     return !gate.passed;
   });
 
+  // ── Soft delete episode ──
+  const deleteEpisode = useMutation({
+    mutationFn: async (params: { episodeId: string; reason?: string }) => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+
+      // Check safety: cannot delete if it's the current season template
+      const ep = episodes.find(e => e.id === params.episodeId);
+      if (ep?.is_season_template) {
+        throw new Error('Cannot delete the Season Template episode. Assign a new template first.');
+      }
+
+      const { error } = await supabase.from('series_episodes').update({
+        is_deleted: true,
+        deleted_at: new Date().toISOString(),
+        deleted_by: user.id,
+        delete_reason: params.reason || null,
+      }).eq('id', params.episodeId);
+      if (error) throw error;
+    },
+    onSuccess: (_, params) => {
+      toast.success('Episode deleted');
+      invalidateAll();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  // ── Restore episode ──
+  const restoreEpisode = useMutation({
+    mutationFn: async (episodeId: string) => {
+      const { error } = await supabase.from('series_episodes').update({
+        is_deleted: false,
+        deleted_at: null,
+        deleted_by: null,
+        delete_reason: null,
+      }).eq('id', episodeId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success('Episode restored');
+      invalidateAll();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   return {
     episodes,
+    deletedEpisodes,
+    showDeleted,
+    setShowDeleted,
     isLoading,
     canonSnapshot,
     canonLoading,
@@ -790,5 +848,7 @@ export function useSeriesWriter(projectId: string) {
     invalidateCanon,
     fetchScriptContent,
     runEpisodeMetrics,
+    deleteEpisode,
+    restoreEpisode,
   };
 }

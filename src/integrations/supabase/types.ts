@@ -8001,10 +8001,14 @@ export type Database = {
           canon_snapshot_id: string | null
           compliance_score: number | null
           created_at: string
+          delete_reason: string | null
+          deleted_at: string | null
+          deleted_by: string | null
           depends_on_hash: string | null
           episode_number: number
           generation_progress: Json | null
           id: string
+          is_deleted: boolean
           is_season_template: boolean
           lock_override_reason: string | null
           locked_at: string | null
@@ -8024,10 +8028,14 @@ export type Database = {
           canon_snapshot_id?: string | null
           compliance_score?: number | null
           created_at?: string
+          delete_reason?: string | null
+          deleted_at?: string | null
+          deleted_by?: string | null
           depends_on_hash?: string | null
           episode_number: number
           generation_progress?: Json | null
           id?: string
+          is_deleted?: boolean
           is_season_template?: boolean
           lock_override_reason?: string | null
           locked_at?: string | null
@@ -8047,10 +8055,14 @@ export type Database = {
           canon_snapshot_id?: string | null
           compliance_score?: number | null
           created_at?: string
+          delete_reason?: string | null
+          deleted_at?: string | null
+          deleted_by?: string | null
           depends_on_hash?: string | null
           episode_number?: number
           generation_progress?: Json | null
           id?: string
+          is_deleted?: boolean
           is_season_template?: boolean
           lock_override_reason?: string | null
           locked_at?: string | null
