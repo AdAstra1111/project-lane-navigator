@@ -670,6 +670,7 @@ export default function ProjectDevelopmentEngine() {
 
                   {/* Action toolbar — simplified: only Run Review, Promote, Convert */}
                   <ActionToolbar
+                    projectId={projectId}
                     hasAnalysis={!!latestAnalysis}
                     isConverged={isAnalysisConverged}
                     isLoading={isLoading}
