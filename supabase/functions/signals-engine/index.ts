@@ -340,7 +340,6 @@ serve(async (req) => {
         const claimText = typeof claim === "string" ? claim : claim.claim;
         if (!claimText) continue;
 
-        // Dedupe by claim text per project
         const { data: existing } = await supabase
           .from("doc_fact_ledger_items")
           .select("id")
@@ -349,7 +348,6 @@ serve(async (req) => {
           .limit(1);
 
         if (existing && existing.length > 0) {
-          // Update if new evidence provided
           if (claim.evidence_type || claim.evidence_link) {
             await supabase.from("doc_fact_ledger_items").update({
               ...(claim.evidence_type ? { evidence_type: claim.evidence_type } : {}),
@@ -371,6 +369,112 @@ serve(async (req) => {
       }
 
       return new Response(JSON.stringify({ success: true, claims_processed: claims.length, ledger_items_created: created }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ══════════════════════════════════════════════
+    // ACTION: self-test
+    // Automated verification harness for signals system
+    // ══════════════════════════════════════════════
+    if (action === "self-test") {
+      const { projectId } = body;
+      const results: { test: string; status: "PASS" | "FAIL" | "SKIP"; detail: string }[] = [];
+
+      // E1) Schema presence
+      try {
+        const { data: ts, error: tsErr } = await supabase.from("trend_signals").select("id").limit(1);
+        const { data: to, error: toErr } = await supabase.from("trend_observations").select("id").limit(1);
+        const { data: psm, error: psmErr } = await supabase.from("project_signal_matches").select("id").limit(1);
+        results.push({
+          test: "E1-schema",
+          status: (!tsErr && !toErr && !psmErr) ? "PASS" : "FAIL",
+          detail: `trend_signals: ${tsErr ? "MISSING" : "OK"}, trend_observations: ${toErr ? "MISSING" : "OK"}, project_signal_matches: ${psmErr ? "MISSING" : "OK"}`,
+        });
+      } catch (e) {
+        results.push({ test: "E1-schema", status: "FAIL", detail: String(e) });
+      }
+
+      // E2) Matching check
+      if (projectId) {
+        try {
+          const { data: matches, error: mErr } = await supabase
+            .from("project_signal_matches")
+            .select("id, cluster_id, impact_score, relevance_score")
+            .eq("project_id", projectId);
+          const count = matches?.length || 0;
+          results.push({
+            test: "E2-matching",
+            status: count > 0 ? "PASS" : "FAIL",
+            detail: `${count} matches for project ${projectId}. ${count === 0 ? "Remediation: run match-project action first, or ensure trend_signals has data and project has features." : `Top score: ${matches?.[0]?.impact_score}`}`,
+          });
+        } catch (e) {
+          results.push({ test: "E2-matching", status: "FAIL", detail: String(e) });
+        }
+
+        // E3) Project signals_apply columns
+        try {
+          const { data: proj } = await supabase.from("projects")
+            .select("signals_apply, signals_influence, project_features")
+            .eq("id", projectId).single();
+          const apply = (proj as any)?.signals_apply;
+          const influence = (proj as any)?.signals_influence;
+          const features = (proj as any)?.project_features;
+          results.push({
+            test: "E3-project-config",
+            status: apply && influence != null ? "PASS" : "FAIL",
+            detail: `signals_apply=${JSON.stringify(apply)}, signals_influence=${influence}, features_count=${Array.isArray(features) ? features.length : 0}`,
+          });
+        } catch (e) {
+          results.push({ test: "E3-project-config", status: "FAIL", detail: String(e) });
+        }
+      } else {
+        results.push({ test: "E2-matching", status: "SKIP", detail: "No projectId provided" });
+        results.push({ test: "E3-project-config", status: "SKIP", detail: "No projectId provided" });
+      }
+
+      // E4) Trend signals exist
+      try {
+        const { data: signals, error } = await supabase.from("trend_signals")
+          .select("id, name, cluster_scoring")
+          .order("created_at", { ascending: false })
+          .limit(5);
+        const withScoring = (signals || []).filter((s: any) => s.cluster_scoring?.total != null);
+        results.push({
+          test: "E4-signals-scored",
+          status: (signals?.length || 0) > 0 ? "PASS" : "FAIL",
+          detail: `${signals?.length || 0} signals total, ${withScoring.length} with cluster_scoring.total`,
+        });
+      } catch (e) {
+        results.push({ test: "E4-signals-scored", status: "FAIL", detail: String(e) });
+      }
+
+      // E5) Observations exist
+      try {
+        const { count } = await supabase.from("trend_observations").select("id", { count: "exact", head: true });
+        results.push({
+          test: "E5-observations",
+          status: (count || 0) > 0 ? "PASS" : "FAIL",
+          detail: `${count || 0} observations in DB`,
+        });
+      } catch (e) {
+        results.push({ test: "E5-observations", status: "FAIL", detail: String(e) });
+      }
+
+      // E6) Doc fact ledger table exists
+      try {
+        const { error } = await supabase.from("doc_fact_ledger_items").select("id").limit(1);
+        results.push({
+          test: "E6-doc-fact-ledger",
+          status: !error ? "PASS" : "FAIL",
+          detail: error ? `Table error: ${error.message}` : "OK",
+        });
+      } catch (e) {
+        results.push({ test: "E6-doc-fact-ledger", status: "FAIL", detail: String(e) });
+      }
+
+      const allPassed = results.every(r => r.status !== "FAIL");
+      return new Response(JSON.stringify({ overall: allPassed ? "PASS" : "FAIL", results }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
