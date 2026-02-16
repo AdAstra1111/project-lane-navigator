@@ -932,11 +932,24 @@ export default function SeriesWriter() {
                                 </Button>
                               )}
 
-                              {/* Retry / Revise — error episodes can always retry */}
-                              {(ep.status === 'error' || (state.canWrite && ep.status === 'needs_revision')) && (
+                              {/* Retry / Revise — error or stuck-generating episodes can always retry */}
+                              {(ep.status === 'error' || ep.status === 'needs_revision' || (ep.status === 'generating' && !isGenerating)) && (
                                 <Button variant="outline" size="sm" className="h-7 px-2.5 text-xs gap-1 border-orange-500/30 text-orange-400"
-                                  onClick={() => generateOne(ep)} disabled={isGenerating}>
-                                  <RotateCcw className="h-3 w-3" /> {ep.status === 'needs_revision' ? 'Revise' : 'Retry'}
+                                  onClick={async () => {
+                                    if (ep.status === 'generating') {
+                                      // Reset stuck episode to error first, then retry
+                                      await supabase.from('series_episodes').update({ 
+                                        status: 'error', 
+                                        generation_progress: { phase: 'error', updatedAt: new Date().toISOString() } 
+                                      }).eq('id', ep.id);
+                                      qc.invalidateQueries({ queryKey: ['series-episodes', projectId] });
+                                      toast.info(`Episode ${ep.episode_number} reset — click Retry to regenerate`);
+                                      return;
+                                    }
+                                    generateOne(ep);
+                                  }} disabled={isGenerating}>
+                                  <RotateCcw className="h-3 w-3" /> 
+                                  {ep.status === 'generating' ? 'Reset' : ep.status === 'needs_revision' ? 'Revise' : 'Retry'}
                                 </Button>
                               )}
 
