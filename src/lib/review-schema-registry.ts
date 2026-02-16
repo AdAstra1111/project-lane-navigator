@@ -159,6 +159,54 @@ const registry: Record<DeliverableType, ReviewSchema> = {
     convergenceRules: { minCI: 65, minGP: 60 },
     forbiddenCritique: ['dialogue quality', 'scene construction as fiction', 'character invention', 'fabricated scenes'],
   },
+  format_rules: {
+    rubricSections: [
+      { dimension: 'Rule Clarity', weight: 35, description: 'Are format rules clearly defined and unambiguous?' },
+      { dimension: 'Duration Alignment', weight: 30, description: 'Do rules align with canonical episode duration?' },
+      { dimension: 'Platform Fit', weight: 20, description: 'Are rules appropriate for the target platform?' },
+      { dimension: 'Completeness', weight: 15, description: 'Are all key format dimensions covered?' },
+    ],
+    analysisPromptModifier: 'This is a FORMAT RULES document — evaluate rule clarity, duration alignment, platform fit, and completeness. Do NOT evaluate narrative craft.',
+    rewritePromptModifier: 'Sharpen rule definitions and ensure duration alignment. Do NOT add narrative content.',
+    convergenceRules: { minCI: 60, minGP: 55 },
+    forbiddenCritique: ['dialogue quality', 'scene construction', 'character depth'],
+  },
+  season_arc: {
+    rubricSections: [
+      { dimension: 'Arc Architecture', weight: 30, description: 'Is the season arc structurally sound?' },
+      { dimension: 'Escalation Logic', weight: 25, description: 'Does tension build across the season?' },
+      { dimension: 'Episode Count Alignment', weight: 25, description: 'Does arc match canonical episode count?' },
+      { dimension: 'Thematic Spine', weight: 20, description: 'Is the thematic throughline clear?' },
+    ],
+    analysisPromptModifier: 'This is a SEASON ARC — evaluate arc architecture, escalation logic, episode count alignment, and thematic spine. Do NOT evaluate individual dialogue or scene-level craft.',
+    rewritePromptModifier: 'Strengthen arc structure and escalation. Ensure episode count matches canonical qualifications.',
+    convergenceRules: { minCI: 65, minGP: 60 },
+    forbiddenCritique: ['dialogue quality', 'prose style', 'individual scene blocking'],
+  },
+  episode_grid: {
+    rubricSections: [
+      { dimension: 'Grid Completeness', weight: 30, description: 'Does grid cover all canonical episodes?' },
+      { dimension: 'Hook Design', weight: 25, description: 'Does each episode have a clear hook and cliffhanger?' },
+      { dimension: 'Escalation Curve', weight: 25, description: 'Does intensity build across episodes?' },
+      { dimension: 'Engine Distribution', weight: 20, description: 'Are emotional engines distributed proportionally?' },
+    ],
+    analysisPromptModifier: 'This is an EPISODE GRID — evaluate grid completeness (must match canonical episode count), hook design, escalation curve, and engine distribution. Do NOT evaluate dialogue or prose.',
+    rewritePromptModifier: 'Ensure grid covers exactly the canonical episode count. Strengthen hooks and escalation.',
+    convergenceRules: { minCI: 60, minGP: 55 },
+    forbiddenCritique: ['dialogue quality', 'prose style', 'scene blocking'],
+  },
+  vertical_episode_beats: {
+    rubricSections: [
+      { dimension: 'Beat Density', weight: 30, description: 'Does beat count meet duration-based minimum?' },
+      { dimension: 'Hook & Cliffhanger', weight: 25, description: 'Are scroll-stop hooks and micro-cliffhangers present?' },
+      { dimension: 'Escalation', weight: 25, description: 'Does each episode escalate tension?' },
+      { dimension: 'Character Agency', weight: 20, description: 'Do characters drive the action?' },
+    ],
+    analysisPromptModifier: 'This is EPISODE BEATS for a vertical drama — evaluate beat density per episode duration, hook design (3-10 second window), cliffhanger endings, escalation, and character agency. Do NOT evaluate prose style.',
+    rewritePromptModifier: 'Sharpen beat density, hooks, and cliffhangers. Ensure beats-per-minute meets format requirements.',
+    convergenceRules: { minCI: 65, minGP: 60 },
+    forbiddenCritique: ['prose style', 'literary quality', 'feature-film pacing'],
+  },
 };
 
 // ── Public API ──

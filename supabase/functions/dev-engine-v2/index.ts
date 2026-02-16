@@ -104,6 +104,10 @@ const DELIVERABLE_RUBRICS: Record<string, string> = {
   production_draft: `Evaluate as a PRODUCTION DRAFT. Score production readiness, clarity for department heads, scene feasibility, schedule implications. Also evaluate script quality.`,
   deck: `Evaluate as a DECK/PITCH DOCUMENT. Score clarity of vision, market positioning, visual storytelling strategy, talent strategy. Do NOT invent characters or scenes. Do NOT use INT./EXT. scene headings.`,
   documentary_outline: `Evaluate as a DOCUMENTARY OUTLINE. Score narrative structure, subject access, thematic coherence, editorial approach. Do NOT invent characters, fabricate scenes, or generate INT./EXT. sluglines. Use [PLACEHOLDER] for missing information.`,
+  format_rules: `Evaluate as FORMAT RULES. Score rule clarity, duration alignment with canonical qualifications, platform fit, and completeness.`,
+  season_arc: `Evaluate as a SEASON ARC. Score arc architecture, escalation logic, episode count alignment with canonical qualifications, and thematic spine.`,
+  episode_grid: `Evaluate as an EPISODE GRID. Score grid completeness (must match canonical episode count), hook design per episode, escalation curve, and emotional engine distribution.`,
+  vertical_episode_beats: `Evaluate as EPISODE BEATS for vertical drama. Score beat density per episode duration, scroll-stop hook design (3-10 second window), micro-cliffhanger endings, escalation intensity, and character agency.`,
 };
 
 const BEHAVIOR_MODIFIERS: Record<string, string> = {
@@ -217,7 +221,7 @@ Return ONLY valid JSON matching this EXACT schema:
     "blockers_remaining": number,
     "high_impact_remaining": number,
     "polish_remaining": number,
-    "next_best_document": "MUST be one of: idea, concept_brief, market_sheet, blueprint, architecture, character_bible, beat_sheet, script, production_draft, deck, documentary_outline"
+    "next_best_document": "MUST be one of: idea, concept_brief, market_sheet, blueprint, architecture, character_bible, beat_sheet, script, production_draft, deck, documentary_outline, format_rules, season_arc, episode_grid, vertical_episode_beats"
   },
   "protect": ["non-negotiable creative strengths, 1-10 items"],
   "verdict": "Invest" | "Develop Further" | "Major Rethink" | "Pass",
@@ -528,10 +532,52 @@ const docTypeMap: Record<string, string> = {
   OUTLINE: "blueprint",
   EPISODE_OUTLINE: "blueprint",
   "EPISODE OUTLINE": "blueprint",
-  "EPISODE_BEAT_SHEET": "beat_sheet",
-  "EPISODE BEAT SHEET": "beat_sheet",
+  "EPISODE_BEAT_SHEET": "vertical_episode_beats",
+  "EPISODE BEAT SHEET": "vertical_episode_beats",
   DRAFT_SCRIPT: "script",
+  FORMAT_RULES: "format_rules",
+  "FORMAT RULES": "format_rules",
+  SEASON_ARC: "season_arc",
+  "SEASON ARC": "season_arc",
+  EPISODE_GRID: "episode_grid",
+  "EPISODE GRID": "episode_grid",
+  VERTICAL_EPISODE_GRID: "episode_grid",
+  "VERTICAL EPISODE GRID": "episode_grid",
+  VERTICAL_EPISODE_BEATS: "vertical_episode_beats",
+  "VERTICAL EPISODE BEATS": "vertical_episode_beats",
 };
+
+// ── Vertical Drama Document Pipeline ──
+// Ordered steps with prerequisites for gating
+const VERTICAL_DRAMA_PIPELINE: Array<{ type: string; prerequisites: string[] }> = [
+  { type: "idea", prerequisites: [] },
+  { type: "concept_brief", prerequisites: ["idea"] },
+  { type: "format_rules", prerequisites: ["concept_brief"] },
+  { type: "character_bible", prerequisites: ["concept_brief"] },
+  { type: "season_arc", prerequisites: ["concept_brief", "character_bible"] },
+  { type: "episode_grid", prerequisites: ["season_arc"] },
+  { type: "vertical_episode_beats", prerequisites: ["season_arc", "episode_grid"] },
+  { type: "script", prerequisites: ["vertical_episode_beats"] },
+];
+
+function resolveVerticalDramaNextStep(
+  existingDocTypes: string[],
+  seasonEpisodeCount?: number | null,
+): { nextStep: string; missingPrerequisites: string[]; reason: string } {
+  const existing = new Set(existingDocTypes.map(d => d.toLowerCase().replace(/[\s\-]+/g, "_")));
+  for (const step of VERTICAL_DRAMA_PIPELINE) {
+    if (existing.has(step.type)) continue;
+    const missing = step.prerequisites.filter(p => !existing.has(p));
+    if (missing.length > 0) {
+      return { nextStep: missing[0], missingPrerequisites: missing, reason: `Missing prerequisites: ${missing.join(", ")}` };
+    }
+    if (step.type === "vertical_episode_beats" && !seasonEpisodeCount) {
+      return { nextStep: "episode_grid", missingPrerequisites: ["episode_grid"], reason: "season_episode_count not set" };
+    }
+    return { nextStep: step.type, missingPrerequisites: [], reason: `Next in vertical drama pipeline` };
+  }
+  return { nextStep: "script", missingPrerequisites: [], reason: "All vertical drama docs created" };
+}
 
 // ═══════════════════════════════════════════════════════════════
 // FORMAT DEFAULTS (engine-side) — mirrors auto-run for consistency
@@ -806,7 +852,7 @@ ${version.plaintext.slice(0, 25000)}`;
       parsed.development_behavior = effectiveBehavior;
 
       // Validate next_best_document — must be a valid deliverable type key
-      const VALID_DELIVERABLES = new Set(["idea","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","script","production_draft","deck","documentary_outline"]);
+      const VALID_DELIVERABLES = new Set(["idea","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","script","production_draft","deck","documentary_outline","format_rules","season_arc","episode_grid","vertical_episode_beats"]);
       if (parsed.convergence?.next_best_document) {
         const raw_nbd = parsed.convergence.next_best_document;
         const normalized_nbd = raw_nbd.toLowerCase().replace(/[\s\-]+/g, "_").replace(/[^a-z_]/g, "");
@@ -820,6 +866,23 @@ ${version.plaintext.slice(0, 25000)}`;
           const fuzzyMatch = [...VALID_DELIVERABLES].find(d => normalized_nbd.includes(d) || d.includes(normalized_nbd));
           parsed.convergence.next_best_document = fuzzyMatch || "script";
         }
+      }
+
+      // ── Vertical Drama: override next_best_document with gated pipeline ──
+      if (effectiveFormat === "vertical-drama" && parsed.convergence) {
+        // Fetch existing doc types for this project
+        const { data: existingDocs } = await supabase.from("project_documents")
+          .select("doc_type").eq("project_id", projectId);
+        const existingDocTypes = (existingDocs || []).map((d: any) => d.doc_type).filter(Boolean);
+
+        const vdNext = resolveVerticalDramaNextStep(existingDocTypes, effectiveSeasonCount);
+        parsed.convergence.next_best_document = vdNext.nextStep;
+        parsed.convergence.vertical_drama_gating = {
+          missing_prerequisites: vdNext.missingPrerequisites,
+          reason: vdNext.reason,
+          canonical_episode_count: effectiveSeasonCount || null,
+          production_type: "vertical_drama",
+        };
       }
 
       // Enforce caps: max 5 per tier
@@ -1640,7 +1703,7 @@ MATERIAL:\n${version.plaintext.slice(0, 20000)}`;
       const normalizedTarget = (targetOutput || "").toUpperCase().replace(/\s+/g, "_");
       let resolvedDocType = docTypeMap[targetOutput] || docTypeMap[normalizedTarget] || docTypeMap[(targetOutput || "").toUpperCase()] || "other";
 
-      const VALID_DELIVERABLES_SET = new Set(["idea","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","script","production_draft","deck","documentary_outline"]);
+      const VALID_DELIVERABLES_SET = new Set(["idea","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","script","production_draft","deck","documentary_outline","format_rules","season_arc","episode_grid","vertical_episode_beats"]);
       if (resolvedDocType === "other") {
         // Fuzzy match: strip numbers, parens, normalize
         const aggressive = (targetOutput || "").toLowerCase().replace(/[\s\-()0-9]+/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "");
