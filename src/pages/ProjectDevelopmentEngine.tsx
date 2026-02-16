@@ -70,11 +70,50 @@ export default function ProjectDevelopmentEngine() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('projects')
-        .select('format, development_behavior, episode_target_duration_seconds, season_episode_count, assigned_lane, budget_range, genres, comparable_titles, tone, target_audience, guardrails_config')
+        .select('format, development_behavior, episode_target_duration_seconds, season_episode_count, assigned_lane, budget_range, genres, comparable_titles, tone, target_audience, guardrails_config, source_pitch_idea_id')
         .eq('id', projectId!)
         .single();
       if (error) throw error;
-      return data;
+
+      // Try to extract logline & premise from pitch idea or idea document
+      let pitchLogline: string | null = null;
+      let pitchPremise: string | null = null;
+
+      // 1) From linked pitch_idea
+      if (data.source_pitch_idea_id) {
+        const { data: pitch } = await supabase
+          .from('pitch_ideas')
+          .select('logline, one_page_pitch')
+          .eq('id', data.source_pitch_idea_id)
+          .single();
+        if (pitch?.logline) pitchLogline = pitch.logline;
+        if (pitch?.one_page_pitch) pitchPremise = pitch.one_page_pitch;
+      }
+
+      // 2) Fallback: parse from latest idea document plaintext
+      if (!pitchLogline || !pitchPremise) {
+        const { data: ideaDoc } = await supabase
+          .from('project_documents')
+          .select('plaintext')
+          .eq('project_id', projectId!)
+          .eq('doc_type', 'idea')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .single();
+        if (ideaDoc?.plaintext) {
+          const text = ideaDoc.plaintext;
+          if (!pitchLogline) {
+            const loglineMatch = text.match(/\*\*Logline:\*\*\s*(.+?)(?:\n|$)/i) || text.match(/Logline:\s*(.+?)(?:\n|$)/i);
+            if (loglineMatch) pitchLogline = loglineMatch[1].trim();
+          }
+          if (!pitchPremise) {
+            const premiseMatch = text.match(/## One-Page Pitch\s*\n([\s\S]+?)(?:\n##|\n\*\*|$)/i);
+            if (premiseMatch) pitchPremise = premiseMatch[1].trim();
+          }
+        }
+      }
+
+      return { ...data, pitchLogline, pitchPremise };
     },
     enabled: !!projectId,
   });

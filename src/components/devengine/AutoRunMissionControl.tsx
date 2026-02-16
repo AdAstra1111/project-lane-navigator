@@ -58,6 +58,8 @@ interface ProjectData {
   episode_target_duration_seconds?: number | null;
   season_episode_count?: number | null;
   guardrails_config?: any;
+  pitchLogline?: string | null;
+  pitchPremise?: string | null;
 }
 
 interface AutoRunMissionControlProps {
@@ -241,6 +243,8 @@ export function AutoRunMissionControl({
     if (project.tone) storyFromProject.tone_genre = project.genres?.length ? `${project.tone} / ${project.genres.join(', ')}` : project.tone;
     else if (project.genres?.length) storyFromProject.tone_genre = project.genres.join(', ');
     if (project.comparable_titles) storyFromProject.comparables = project.comparable_titles;
+    if (project.pitchLogline) storyFromProject.logline = project.pitchLogline;
+    if (project.pitchPremise) storyFromProject.premise = project.pitchPremise;
     // Story setup from guardrails
     const gcStory = gc?.overrides?.story_setup;
     if (gcStory) {
