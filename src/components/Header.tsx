@@ -41,7 +41,7 @@ export function Header() {
   return (
     <header className="sticky top-0 z-50 border-b border-border/20 bg-background/70 backdrop-blur-2xl">
       <div className="container flex h-14 items-center justify-between gap-4">
-        <Link to="/dashboard" className="flex items-center gap-2.5 shrink-0 group">
+        <Link to="/companies" className="flex items-center gap-2.5 shrink-0 group">
           <img src={iffyLogo} alt="IFFY logo" className="h-9 w-9 rounded-lg ring-1 ring-border/30 group-hover:ring-primary/40 transition-all" />
           <div className="flex flex-col leading-none">
             <span className="font-display font-semibold text-base tracking-tight text-foreground">IFFY</span>

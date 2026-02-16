@@ -1,13 +1,17 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Plus, Building2, Trash2, MapPin } from 'lucide-react';
+import { Plus, Building2, Trash2, MapPin, FolderOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Header } from '@/components/Header';
 import { PageTransition } from '@/components/PageTransition';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import {
+  Breadcrumb, BreadcrumbList, BreadcrumbItem, BreadcrumbPage,
+} from '@/components/ui/breadcrumb';
 import { useCompanies, ProductionCompany } from '@/hooks/useCompanies';
+import { useAllCompanyLinks } from '@/hooks/useAllCompanyLinks';
 
 function CompanyAvatar({ company }: { company: ProductionCompany }) {
   const accent = company.color_accent || undefined;
@@ -33,8 +37,18 @@ function CompanyAvatar({ company }: { company: ProductionCompany }) {
 
 export default function Companies() {
   const { companies, isLoading, createCompany, deleteCompany } = useCompanies();
+  const { linkMap } = useAllCompanyLinks();
   const [newName, setNewName] = useState('');
   const [showForm, setShowForm] = useState(false);
+
+  const companyCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const c of companies) {
+      const links = linkMap[c.id];
+      counts[c.id] = links ? links.size : 0;
+    }
+    return counts;
+  }, [companies, linkMap]);
 
   const handleCreate = () => {
     if (!newName.trim()) return;
@@ -48,6 +62,15 @@ export default function Companies() {
       <div className="min-h-screen bg-background">
         <Header />
         <main className="container py-10">
+          {/* Breadcrumb */}
+          <Breadcrumb className="mb-6">
+            <BreadcrumbList>
+              <BreadcrumbItem>
+                <BreadcrumbPage>Companies</BreadcrumbPage>
+              </BreadcrumbItem>
+            </BreadcrumbList>
+          </Breadcrumb>
+
           <motion.div
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
@@ -118,56 +141,65 @@ export default function Companies() {
               </div>
             ) : (
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {companies.map((company, i) => (
-                  <motion.div
-                    key={company.id}
-                    initial={{ opacity: 0, y: 12 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: i * 0.05, duration: 0.3 }}
-                    className="relative group"
-                  >
-                    <Link
-                      to={`/companies/${company.id}`}
-                      className="block glass-card rounded-lg p-6 transition-all duration-300 hover:border-primary/30 hover:shadow-[0_0_30px_hsl(var(--glow-primary))]"
-                      style={company.color_accent ? { borderColor: company.color_accent + '30' } : undefined}
+                {companies.map((company, i) => {
+                  const count = companyCounts[company.id] || 0;
+                  return (
+                    <motion.div
+                      key={company.id}
+                      initial={{ opacity: 0, y: 12 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: i * 0.05, duration: 0.3 }}
+                      className="relative group"
                     >
-                      <div className="flex items-start gap-3">
-                        <CompanyAvatar company={company} />
-                        <div className="flex-1 min-w-0">
-                          <h3 className="text-lg font-display font-semibold text-foreground truncate group-hover:text-primary transition-colors">
-                            {company.name}
-                          </h3>
-                          {company.jurisdiction && (
-                            <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">
-                              <MapPin className="h-3 w-3" />
-                              {company.jurisdiction}
-                            </p>
-                          )}
-                          <p className="text-xs text-muted-foreground mt-1">
-                            Created {new Date(company.created_at).toLocaleDateString()}
-                          </p>
-                        </div>
-                        {company.color_accent && (
-                          <div
-                            className="h-3 w-3 rounded-full shrink-0 mt-1"
-                            style={{ backgroundColor: company.color_accent }}
-                          />
-                        )}
-                      </div>
-                    </Link>
-                    <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <ConfirmDialog
-                        title={`Delete ${company.name}?`}
-                        description="This will remove the company and unlink all its projects. Projects themselves won't be deleted."
-                        onConfirm={() => deleteCompany.mutate(company.id)}
+                      <Link
+                        to={`/companies/${company.id}`}
+                        className="block glass-card rounded-lg p-6 transition-all duration-300 hover:border-primary/30 hover:shadow-[0_0_30px_hsl(var(--glow-primary))]"
+                        style={company.color_accent ? { borderColor: company.color_accent + '30' } : undefined}
                       >
-                        <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive">
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </ConfirmDialog>
-                    </div>
-                  </motion.div>
-                ))}
+                        <div className="flex items-start gap-3">
+                          <CompanyAvatar company={company} />
+                          <div className="flex-1 min-w-0">
+                            <h3 className="text-lg font-display font-semibold text-foreground truncate group-hover:text-primary transition-colors">
+                              {company.name}
+                            </h3>
+                            {company.jurisdiction && (
+                              <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">
+                                <MapPin className="h-3 w-3" />
+                                {company.jurisdiction}
+                              </p>
+                            )}
+                            <div className="flex items-center gap-2 mt-1">
+                              <FolderOpen className="h-3 w-3 text-muted-foreground" />
+                              <p className="text-xs text-muted-foreground">
+                                {count} project{count !== 1 ? 's' : ''}
+                              </p>
+                            </div>
+                            <p className="text-xs text-muted-foreground/70 mt-0.5">
+                              Updated {new Date(company.updated_at || company.created_at).toLocaleDateString()}
+                            </p>
+                          </div>
+                          {company.color_accent && (
+                            <div
+                              className="h-3 w-3 rounded-full shrink-0 mt-1"
+                              style={{ backgroundColor: company.color_accent }}
+                            />
+                          )}
+                        </div>
+                      </Link>
+                      <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <ConfirmDialog
+                          title={`Delete ${company.name}?`}
+                          description="This will remove the company and unlink all its projects. Projects themselves won't be deleted."
+                          onConfirm={() => deleteCompany.mutate(company.id)}
+                        >
+                          <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive">
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </ConfirmDialog>
+                      </div>
+                    </motion.div>
+                  );
+                })}
               </div>
             )}
           </motion.div>

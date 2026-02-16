@@ -42,6 +42,7 @@ const Settings = lazy(() => import("./pages/Settings"));
 const Reports = lazy(() => import("./pages/Reports"));
 const Companies = lazy(() => import("./pages/Companies"));
 const CompanyDetail = lazy(() => import("./pages/CompanyDetail"));
+const CompanyProjects = lazy(() => import("./pages/CompanyProjects"));
 const PresentationMode = lazy(() => import("./pages/PresentationMode"));
 const TrendGovernance = lazy(() => import("./pages/TrendGovernance"));
 const CinematicDemo = lazy(() => import("./pages/CinematicDemo"));
@@ -108,6 +109,7 @@ const AnimatedRoutes = () => {
           <Route path="/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
           <Route path="/companies" element={<ProtectedRoute><Companies /></ProtectedRoute>} />
           <Route path="/companies/:id" element={<ProtectedRoute><CompanyDetail /></ProtectedRoute>} />
+          <Route path="/companies/:id/projects" element={<ProtectedRoute><CompanyProjects /></ProtectedRoute>} />
           <Route path="/projects/:id/present" element={<ProtectedRoute><PresentationMode /></ProtectedRoute>} />
           <Route path="/projects/:id/pitch-deck" element={<ProtectedRoute><PitchDeckViewer /></ProtectedRoute>} />
           <Route path="/pricing" element={<ProtectedRoute><Pricing /></ProtectedRoute>} />
