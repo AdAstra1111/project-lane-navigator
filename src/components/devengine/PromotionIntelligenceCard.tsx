@@ -51,6 +51,7 @@ const LABELS: Record<string, { label: string; color: string; icon: typeof ArrowR
 const DOC_LABELS: Record<string, string> = {
   idea: 'Idea', concept_brief: 'Concept Brief', blueprint: 'Blueprint',
   architecture: 'Architecture', draft: 'Draft', coverage: 'Coverage',
+  series_writer: 'Series Writer',
 };
 
 async function callAutoRun(action: string, extra: Record<string, any> = {}) {
@@ -213,7 +214,9 @@ export function PromotionIntelligenceCard({ data, isLoading, jobId, onJobRefresh
           <Badge className={`text-[10px] ${meta.color}`}>
             <Icon className="h-3 w-3 mr-1" />
             {meta.label}
-            {next_document ? ` → ${DOC_LABELS[next_document] || next_document}` : ''}
+            {next_document === 'series_writer'
+              ? ' → Enter Series Writer'
+              : next_document ? ` → ${DOC_LABELS[next_document] || next_document}` : ''}
           </Badge>
         </div>
 
