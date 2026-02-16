@@ -4,7 +4,7 @@
  */
 
 import { useState, useMemo, useCallback, useEffect } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
@@ -24,8 +24,10 @@ import {
 import {
   ArrowLeft, Layers, Lock, Unlock, Play, CheckCircle2, Circle, Loader2,
   AlertTriangle, BookOpen, Zap, RotateCcw, FileText, Shield, ChevronRight,
-  ExternalLink, XCircle, Sparkles, Eye, EyeOff,
+  ExternalLink, XCircle, Sparkles, Eye, EyeOff, X, Pin, PinOff,
 } from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import { useSeriesWriter, type SeriesEpisode } from '@/hooks/useSeriesWriter';
 import { SeasonHealthDashboard } from '@/components/series/SeasonHealthDashboard';
 
@@ -83,6 +85,34 @@ export default function SeriesWriter() {
   const [lockConfirmEp, setLockConfirmEp] = useState<SeriesEpisode | null>(null);
   const [templatePromptEp, setTemplatePromptEp] = useState<SeriesEpisode | null>(null);
   const [autoRunConfirmOpen, setAutoRunConfirmOpen] = useState(false);
+
+  // ── In-page doc viewer state ──
+  const [viewerDoc, setViewerDoc] = useState<WorkingSetDoc | null>(null);
+  const [viewerContent, setViewerContent] = useState('');
+  const [viewerLoading, setViewerLoading] = useState(false);
+  const [viewerPinned, setViewerPinned] = useState(false);
+
+  // ── Open doc in-page (no navigation) ──
+  const openDocViewer = useCallback(async (doc: WorkingSetDoc) => {
+    setViewerDoc(doc);
+    setViewerLoading(true);
+    try {
+      if (!doc.latest_version_id) {
+        setViewerContent('No version available for this document.');
+        setViewerLoading(false);
+        return;
+      }
+      const { data: ver } = await supabase
+        .from('project_document_versions')
+        .select('plaintext')
+        .eq('id', doc.latest_version_id)
+        .single();
+      setViewerContent((ver?.plaintext as string) || 'No content available.');
+    } catch {
+      setViewerContent('Failed to load document content.');
+    }
+    setViewerLoading(false);
+  }, []);
 
   const {
     episodes, isLoading, canonSnapshot, canonLoading,
@@ -403,21 +433,34 @@ export default function SeriesWriter() {
               {/* Required docs */}
               <div className="space-y-1">
                 {requiredDocs.map(doc => (
-                  <Link
-                    key={doc.id}
-                    to={`/projects/${projectId}/development?doc=${doc.id}`}
-                    className="flex items-center gap-2 px-2.5 py-1.5 rounded-md hover:bg-muted/50 transition-colors group"
-                  >
-                    <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                    <span className="text-xs text-foreground truncate flex-1">{doc.title}</span>
-                    <div className="flex items-center gap-1 shrink-0">
-                      {doc.is_stale ? (
-                        <Badge variant="destructive" className="text-[8px] px-1 py-0">STALE</Badge>
-                      ) : (
-                        <Badge variant="outline" className="text-[8px] px-1 py-0 border-emerald-500/30 text-emerald-400">LATEST</Badge>
-                      )}
-                    </div>
-                  </Link>
+                  <TooltipProvider key={doc.id}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          onClick={() => openDocViewer(doc)}
+                          className={`w-full text-left flex items-start gap-2 px-2.5 py-2 rounded-md hover:bg-muted/50 transition-colors group ${
+                            viewerDoc?.id === doc.id ? 'bg-primary/10 border border-primary/20' : ''
+                          }`}
+                        >
+                          <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0 mt-0.5" />
+                          <span className="text-xs text-foreground flex-1 leading-relaxed">{doc.title}</span>
+                          <div className="flex items-center gap-1 shrink-0">
+                            {doc.is_stale ? (
+                              <Badge variant="destructive" className="text-[8px] px-1 py-0">STALE</Badge>
+                            ) : (
+                              <Badge variant="outline" className="text-[8px] px-1 py-0 border-emerald-500/30 text-emerald-400">LATEST</Badge>
+                            )}
+                          </div>
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="right" className="text-xs max-w-xs">
+                        <p className="font-medium">{DOC_TYPE_LABELS[doc.doc_type] || doc.doc_type}</p>
+                        <p className="text-muted-foreground text-[10px] mt-0.5">
+                          Version: {doc.latest_version_id?.slice(0, 8) || 'none'} • Updated: {new Date(doc.updated_at).toLocaleDateString()}
+                        </p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                 ))}
               </div>
 
@@ -428,14 +471,16 @@ export default function SeriesWriter() {
                   <span className="text-[10px] text-muted-foreground uppercase">Optional</span>
                   <div className="space-y-1">
                     {optionalDocs.map(doc => (
-                      <Link
+                      <button
                         key={doc.id}
-                        to={`/projects/${projectId}/development?doc=${doc.id}`}
-                        className="flex items-center gap-2 px-2.5 py-1.5 rounded-md hover:bg-muted/50 transition-colors"
+                        onClick={() => openDocViewer(doc)}
+                        className={`w-full text-left flex items-start gap-2 px-2.5 py-2 rounded-md hover:bg-muted/50 transition-colors ${
+                          viewerDoc?.id === doc.id ? 'bg-primary/10 border border-primary/20' : ''
+                        }`}
                       >
-                        <FileText className="h-3 w-3 text-muted-foreground/60 shrink-0" />
-                        <span className="text-[11px] text-muted-foreground truncate">{doc.title}</span>
-                      </Link>
+                        <FileText className="h-3 w-3 text-muted-foreground/60 shrink-0 mt-0.5" />
+                        <span className="text-[11px] text-muted-foreground leading-relaxed">{doc.title}</span>
+                      </button>
                     ))}
                   </div>
                 </>
@@ -444,12 +489,12 @@ export default function SeriesWriter() {
               {showAllDocs && (
                 <>
                   <Separator />
-                  <Link
-                    to={`/projects/${projectId}/development`}
+                  <button
+                    onClick={() => navigate(`/projects/${projectId}/development`)}
                     className="flex items-center gap-1.5 text-xs text-primary hover:underline"
                   >
                     <ExternalLink className="h-3 w-3" /> Open full Dev Engine
-                  </Link>
+                  </button>
                 </>
               )}
 
@@ -690,6 +735,72 @@ export default function SeriesWriter() {
                 />
               )}
             </div>
+
+            {/* ── Right Panel: In-Page Core Doc Viewer ── */}
+            {viewerDoc && (
+              <div className="w-[420px] shrink-0 border border-border/50 rounded-lg bg-card/50 flex flex-col max-h-[calc(100vh-140px)]">
+                {/* Viewer Header */}
+                <div className="flex items-center gap-2 px-3 py-2 border-b border-border/50">
+                  <FileText className="h-3.5 w-3.5 text-primary shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <span className="text-xs font-medium text-foreground leading-relaxed">
+                      {DOC_TYPE_LABELS[viewerDoc.doc_type] || viewerDoc.title}
+                    </span>
+                    <span className="text-[10px] text-muted-foreground ml-2">
+                      {viewerDoc.is_stale ? '(stale)' : '(latest)'}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-6 p-0"
+                      onClick={() => setViewerPinned(!viewerPinned)}
+                      title={viewerPinned ? 'Unpin' : 'Pin open'}
+                    >
+                      {viewerPinned ? <PinOff className="h-3 w-3" /> : <Pin className="h-3 w-3" />}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-6 p-0"
+                      onClick={() => { if (!viewerPinned) { setViewerDoc(null); setViewerContent(''); } }}
+                      title="Close viewer"
+                    >
+                      <X className="h-3 w-3" />
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Viewer Content */}
+                {viewerLoading ? (
+                  <div className="flex items-center justify-center py-12 flex-1">
+                    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                  </div>
+                ) : (
+                  <ScrollArea className="flex-1">
+                    <pre className="whitespace-pre-wrap text-xs leading-relaxed font-mono text-foreground p-4">
+                      {viewerContent}
+                    </pre>
+                  </ScrollArea>
+                )}
+
+                {/* Viewer Footer */}
+                <div className="border-t border-border/50 px-3 py-2 flex items-center justify-between">
+                  <span className="text-[10px] text-muted-foreground">
+                    v{viewerDoc.latest_version_id?.slice(0, 8) || '—'}
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 text-[10px] gap-1 text-muted-foreground hover:text-foreground"
+                    onClick={() => navigate(`/projects/${projectId}/development?doc=${viewerDoc.id}`)}
+                  >
+                    <ExternalLink className="h-3 w-3" /> Open in Dev Engine
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </PageTransition>

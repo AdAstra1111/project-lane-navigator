@@ -3094,6 +3094,150 @@ export type Database = {
         }
         Relationships: []
       }
+      episode_comments: {
+        Row: {
+          anchor: Json | null
+          comment_text: string
+          created_at: string
+          created_by: string
+          episode_number: number
+          id: string
+          project_id: string
+          status: string
+          thread_id: string | null
+          version_id: string | null
+        }
+        Insert: {
+          anchor?: Json | null
+          comment_text?: string
+          created_at?: string
+          created_by: string
+          episode_number: number
+          id?: string
+          project_id: string
+          status?: string
+          thread_id?: string | null
+          version_id?: string | null
+        }
+        Update: {
+          anchor?: Json | null
+          comment_text?: string
+          created_at?: string
+          created_by?: string
+          episode_number?: number
+          id?: string
+          project_id?: string
+          status?: string
+          thread_id?: string | null
+          version_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "episode_comments_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      episode_compliance_reports: {
+        Row: {
+          created_at: string
+          episode_number: number
+          flags: Json
+          id: string
+          override_reason: string | null
+          project_id: string
+          resolver_hash: string | null
+          scores: Json
+          suggestions: string | null
+          template_version_id: string | null
+          user_id: string
+          version_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          episode_number: number
+          flags?: Json
+          id?: string
+          override_reason?: string | null
+          project_id: string
+          resolver_hash?: string | null
+          scores?: Json
+          suggestions?: string | null
+          template_version_id?: string | null
+          user_id: string
+          version_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          episode_number?: number
+          flags?: Json
+          id?: string
+          override_reason?: string | null
+          project_id?: string
+          resolver_hash?: string | null
+          scores?: Json
+          suggestions?: string | null
+          template_version_id?: string | null
+          user_id?: string
+          version_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "episode_compliance_reports_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      episode_continuity_ledgers: {
+        Row: {
+          created_at: string
+          episode_number: number
+          id: string
+          project_id: string
+          resolver_hash: string | null
+          status: string
+          summary: Json
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          episode_number: number
+          id?: string
+          project_id: string
+          resolver_hash?: string | null
+          status?: string
+          summary?: Json
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          episode_number?: number
+          id?: string
+          project_id?: string
+          resolver_hash?: string | null
+          status?: string
+          summary?: Json
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "episode_continuity_ledgers_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       episode_continuity_notes: {
         Row: {
           created_at: string
@@ -7459,6 +7603,56 @@ export type Database = {
           },
         ]
       }
+      retcon_events: {
+        Row: {
+          change_summary: string
+          changed_doc_type: string | null
+          changed_version_id: string | null
+          created_at: string
+          id: string
+          impact_analysis: Json | null
+          patch_suggestions: Json | null
+          project_id: string
+          resolver_hash: string | null
+          status: string
+          user_id: string
+        }
+        Insert: {
+          change_summary?: string
+          changed_doc_type?: string | null
+          changed_version_id?: string | null
+          created_at?: string
+          id?: string
+          impact_analysis?: Json | null
+          patch_suggestions?: Json | null
+          project_id: string
+          resolver_hash?: string | null
+          status?: string
+          user_id: string
+        }
+        Update: {
+          change_summary?: string
+          changed_doc_type?: string | null
+          changed_version_id?: string | null
+          created_at?: string
+          id?: string
+          impact_analysis?: Json | null
+          patch_suggestions?: Json | null
+          project_id?: string
+          resolver_hash?: string | null
+          status?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "retcon_events_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       rewrite_playbooks: {
         Row: {
           created_at: string
@@ -7805,11 +7999,14 @@ export type Database = {
       series_episodes: {
         Row: {
           canon_snapshot_id: string | null
+          compliance_score: number | null
           created_at: string
+          depends_on_hash: string | null
           episode_number: number
           generation_progress: Json | null
           id: string
           is_season_template: boolean
+          lock_override_reason: string | null
           locked_at: string | null
           logline: string | null
           project_id: string
@@ -7825,11 +8022,14 @@ export type Database = {
         }
         Insert: {
           canon_snapshot_id?: string | null
+          compliance_score?: number | null
           created_at?: string
+          depends_on_hash?: string | null
           episode_number: number
           generation_progress?: Json | null
           id?: string
           is_season_template?: boolean
+          lock_override_reason?: string | null
           locked_at?: string | null
           logline?: string | null
           project_id: string
@@ -7845,11 +8045,14 @@ export type Database = {
         }
         Update: {
           canon_snapshot_id?: string | null
+          compliance_score?: number | null
           created_at?: string
+          depends_on_hash?: string | null
           episode_number?: number
           generation_progress?: Json | null
           id?: string
           is_season_template?: boolean
+          lock_override_reason?: string | null
           locked_at?: string | null
           logline?: string | null
           project_id?: string
