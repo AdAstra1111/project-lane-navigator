@@ -2,11 +2,22 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
+interface SetAsDraftParams {
+  title: string;
+  text: string;
+  /** Dev-engine document ID — used to update the package system */
+  documentId?: string;
+  /** Dev-engine version ID — set as latest_version_id in package */
+  versionId?: string;
+  /** Doc type (e.g. "treatment", "character_bible") */
+  docType?: string;
+}
+
 export function useSetAsLatestDraft(projectId: string | undefined) {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ title, text }: { title: string; text: string }) => {
+    mutationFn: async ({ title, text, documentId, versionId, docType }: SetAsDraftParams) => {
       if (!projectId) throw new Error('No project ID');
       if (!text || text.trim().length < 100) throw new Error('Document text is too short to register as a script draft');
 
@@ -31,7 +42,16 @@ export function useSetAsLatestDraft(projectId: string | undefined) {
       });
       if (scriptErr) throw new Error(scriptErr.message);
 
-      // 3. Trigger project re-analysis with this text
+      // 3. Update the document package — set latest_version_id so Package tab reflects this
+      if (documentId && versionId) {
+        await (supabase as any)
+          .from('project_documents')
+          .update({ latest_version_id: versionId, updated_at: new Date().toISOString() })
+          .eq('id', documentId)
+          .eq('project_id', projectId);
+      }
+
+      // 4. Trigger project re-analysis with this text
       try {
         const { data: project } = await supabase
           .from('projects')
@@ -71,6 +91,7 @@ export function useSetAsLatestDraft(projectId: string | undefined) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['project-scripts', projectId] });
       queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['package-status', projectId] });
       toast.success('Script set as latest draft — re-analysing project…');
     },
     onError: (error: Error) => {

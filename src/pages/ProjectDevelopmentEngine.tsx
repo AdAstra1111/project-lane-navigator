@@ -667,7 +667,7 @@ export default function ProjectDevelopmentEngine() {
                         title="Set as Latest Draft?"
                         description={`Register "${selectedDoc?.title || 'this document'}" as the project's current script draft.`}
                         confirmLabel="Set as Latest Draft"
-                        onConfirm={() => setAsDraft.mutate({ title: selectedDoc?.title || 'Dev Engine Draft', text: versionText })}
+                        onConfirm={() => setAsDraft.mutate({ title: selectedDoc?.title || 'Dev Engine Draft', text: versionText, documentId: selectedDocId || undefined, versionId: selectedVersionId || undefined, docType: selectedDoc?.doc_type || undefined })}
                       >
                         <Button variant="outline" size="sm" className="h-7 text-[10px] gap-1"
                           disabled={setAsDraft.isPending}>
