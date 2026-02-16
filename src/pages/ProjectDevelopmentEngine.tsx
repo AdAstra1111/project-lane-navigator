@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { toast } from 'sonner';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useParams, Link, useSearchParams } from 'react-router-dom';
@@ -166,9 +166,19 @@ export default function ProjectDevelopmentEngine() {
     return map;
   }, [packageStatusData]);
   // Stage-entry re-resolve: call resolve-qualifications when the page loads
+  // and re-resolve after rewrite/convert to clear stale indicators
   useEffect(() => {
     resolveOnEntry();
   }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Re-resolve after version changes (e.g. rewrite creates new version with fresh hash)
+  const prevVersionId = useRef(selectedVersionId);
+  useEffect(() => {
+    if (selectedVersionId && selectedVersionId !== prevVersionId.current) {
+      prevVersionId.current = selectedVersionId;
+      resolveOnEntry();
+    }
+  }, [selectedVersionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Detect episode count conflicts in upstream artifacts
   const artifactConflicts = useMemo(() => {
