@@ -46,6 +46,7 @@ import { useAutoRunMissionControl } from '@/hooks/useAutoRunMissionControl';
 import { CanonicalQualificationsPanel } from '@/components/devengine/CanonicalQualificationsPanel';
 import { QualificationConflictBanner } from '@/components/devengine/QualificationConflictBanner';
 import { useStageResolve } from '@/hooks/useStageResolve';
+import { useDecisionCommit } from '@/hooks/useDecisionCommit';
 
 // ── Main Page ──
 export default function ProjectDevelopmentEngine() {
@@ -100,6 +101,7 @@ export default function ProjectDevelopmentEngine() {
   const rewritePipeline = useRewritePipeline(projectId);
   const autoRun = useAutoRunMissionControl(projectId);
   const { resolveOnEntry } = useStageResolve(projectId);
+  const { propose } = useDecisionCommit(projectId);
 
   // Stage-entry re-resolve: call resolve-qualifications when the page loads
   useEffect(() => {
@@ -566,7 +568,15 @@ export default function ProjectDevelopmentEngine() {
                       conflicts={artifactConflicts}
                       onRegenerate={() => handleRunEngine()}
                       onKeep={() => {}}
-                      onCreateDecision={() => {}}
+                      onCreateDecision={(artifactName) => {
+                        const canon = effectiveSeasonEpisodes;
+                        const conflict = artifactConflicts.find(c => c.artifactName === artifactName);
+                        propose.mutate({
+                          fieldPath: 'qualifications.season_episode_count',
+                          newValue: canon,
+                          decisionType: 'qualifications_update',
+                        });
+                      }}
                       isRegenerating={analyze.isPending}
                     />
                   )}
