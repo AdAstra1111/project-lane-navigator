@@ -4,6 +4,7 @@
  */
 
 import type { ProjectFormat } from '@/lib/types';
+import { normalizeFormat } from '@/lib/format-helpers';
 import { Film, Tv, Clapperboard, FileVideo, Monitor, Megaphone, Sparkles, Music, FlaskConical, Shuffle, Video, Smartphone } from 'lucide-react';
 
 // ─── Workflow Stages per Format ───
@@ -492,7 +493,8 @@ export const FORMAT_META: FormatMeta[] = [
 ];
 
 export function getFormatMeta(format: string): FormatMeta {
-  return FORMAT_META.find(f => f.value === format) || FORMAT_META[0];
+  const normalized = normalizeFormat(format);
+  return FORMAT_META.find(f => f.value === normalized) || FORMAT_META[0];
 }
 
 // ─── Strategic Role Definitions ───
