@@ -152,7 +152,14 @@ function buildAnalyzeSystem(deliverable: string, format: string, behavior: strin
   const isDocSafe = ["deck", "documentary_outline"].includes(deliverable) ||
     ["documentary", "documentary-series", "hybrid-documentary"].includes(format);
   const docGuard = isDocSafe
-    ? "\nDOCUMENTARY/DECK GUARD: Do NOT invent characters, fabricate scenes, or generate INT./EXT. sluglines. Use [PLACEHOLDER] for missing information."
+    ? `\nDOCUMENTARY/DECK GUARD: Do NOT invent characters, fabricate scenes, or generate INT./EXT. sluglines. Use [PLACEHOLDER] for missing information.
+NON-FABRICATION RULE: You MUST NOT present invented people, events, or statistics as facts. Every factual claim must reference existing evidence or be marked as [UNVERIFIED] or [HYPOTHESIS].
+REQUIRED OUTPUTS for documentary:
+- access_plan: How will the production access subjects, locations, and archives?
+- evidence_plan: What evidence types support each major claim? (archive, interview, document, recording, public_record, expert)
+- unknowns_list: What key information is missing or unverified?
+- ethical_legal_flags: Any ethical or legal risks (consent, defamation, sub judice, minors, trauma)?
+- claims_list: Array of {claim, evidence_type, status} for every factual claim made. Status: verified|needs_check|unknown.`
     : "";
 
   return `You are IFFY, a Creative–Commercial Alignment Architect.
@@ -1046,6 +1053,41 @@ ${version.plaintext.slice(0, 25000)}`;
 
       parsed.drift_report = driftReport;
       if (seasonArchitecture) parsed.season_architecture = seasonArchitecture;
+
+      // ── Documentary Fact Ledger Auto-population ──
+      const isDocFormat = ["documentary", "documentary-series", "hybrid-documentary"].includes(effectiveFormat) ||
+        effectiveDeliverable === "documentary_outline";
+      if (isDocFormat && parsed.claims_list && Array.isArray(parsed.claims_list)) {
+        try {
+          let ledgerCreated = 0;
+          for (const claim of parsed.claims_list) {
+            const claimText = typeof claim === "string" ? claim : claim.claim;
+            if (!claimText) continue;
+            const { data: existing } = await supabase
+              .from("doc_fact_ledger_items")
+              .select("id")
+              .eq("project_id", projectId)
+              .eq("claim", claimText)
+              .limit(1);
+            if (!existing || existing.length === 0) {
+              await supabase.from("doc_fact_ledger_items").insert({
+                project_id: projectId,
+                user_id: user.id,
+                claim: claimText,
+                evidence_type: claim.evidence_type || "unknown",
+                status: claim.status || "needs_check",
+              });
+              ledgerCreated++;
+            }
+          }
+          parsed.fact_ledger_metadata = {
+            claims_count: parsed.claims_list.length,
+            ledger_items_created: ledgerCreated,
+          };
+        } catch (e) {
+          console.warn("[dev-engine-v2] Fact ledger upsert failed (non-fatal):", e);
+        }
+      }
 
       return new Response(JSON.stringify({ run, analysis: parsed }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -2241,7 +2283,7 @@ Return ONLY valid JSON:
       if (!projectId) throw new Error("projectId required");
 
       const { data: project } = await supabase.from("projects")
-        .select("season_episode_count, episode_target_duration_seconds, vertical_engine_weights, development_behavior")
+        .select("season_episode_count, episode_target_duration_seconds, vertical_engine_weights, development_behavior, signals_influence, signals_apply, format")
         .eq("id", projectId).single();
       if (!project) throw new Error("Project not found");
 
@@ -2250,6 +2292,34 @@ Return ONLY valid JSON:
       const weights = (project as any).vertical_engine_weights || { power_conflict: 20, romantic_tension: 20, thriller_mystery: 20, revenge_arc: 20, social_exposure: 20 };
 
       if (!E || !duration) throw new Error("season_episode_count and episode_target_duration_seconds required");
+
+      // ── Signal trope injection for episode grid ──
+      let signalTropes: string[] = [];
+      let signalConstraints = "";
+      try {
+        const applyConfig = (project as any).signals_apply ?? { grid: true };
+        const influence = (project as any).signals_influence ?? 0.5;
+        if (applyConfig.grid) {
+          const { data: matches } = await supabase
+            .from("project_signal_matches")
+            .select("cluster:cluster_id(name, genre_tags, tone_tags, cluster_scoring)")
+            .eq("project_id", projectId)
+            .order("impact_score", { ascending: false })
+            .limit(3);
+          if (matches && matches.length > 0) {
+            for (const m of matches) {
+              const c = m.cluster as any;
+              if (c) {
+                signalTropes.push(...(c.genre_tags || []).slice(0, 3), ...(c.tone_tags || []).slice(0, 2));
+              }
+            }
+            signalTropes = [...new Set(signalTropes)].slice(0, 8);
+            if (influence >= 0.5) {
+              signalConstraints = `Signal-driven constraints: cliff frequency should emphasize ${signalTropes.slice(0, 3).join(", ")} tropes. Twist density should be high for trending hooks.`;
+            }
+          }
+        }
+      } catch { /* non-fatal */ }
 
       // Compute season architecture
       let arch: any;
@@ -2318,12 +2388,15 @@ Return ONLY valid JSON:
           cliff_type: cliffPool[ep - 1], cliff_tier,
           anchor_flags: anchor_type ? [anchor_type] : [],
           beat_minimum: beatMin,
+          signal_tropes: signalTropes.length > 0 ? signalTropes : undefined,
         });
       }
 
       return new Response(JSON.stringify({
         architecture: arch, grid, engine_weights: weights, beat_minimum: beatMin,
         short_season_warning: E < 10 ? `Short season (${E} episodes): using 3-act model` : null,
+        signal_tropes: signalTropes.length > 0 ? signalTropes : undefined,
+        signal_constraints: signalConstraints || undefined,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 

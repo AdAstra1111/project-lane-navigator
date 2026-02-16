@@ -9,9 +9,6 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
 import type { ProjectSignalMatch, DocFactLedgerItem, SignalsApplyConfig } from '@/lib/signals-types';
-import { getFormatBucket } from '@/lib/signals-types';
-import { extractProjectFeaturesFromFields, matchSignalsToFeatures } from '@/lib/signal-scoring';
-import type { TrendSignal } from '@/hooks/useTrends';
 
 // ── Project Signal Matches ──
 
@@ -37,80 +34,18 @@ export function useProjectSignalMatches(projectId: string | undefined) {
 
 export function useRefreshProjectSignals(projectId: string | undefined) {
   const queryClient = useQueryClient();
-  const { user } = useAuth();
 
   return useMutation({
-    mutationFn: async (project: {
-      genres?: string[];
-      tone?: string;
-      format?: string;
-      budget_range?: string;
-      target_audience?: string;
-      comparable_titles?: string;
-      assigned_lane?: string | null;
-      title?: string;
-    }) => {
-      if (!projectId || !user) throw new Error('Missing context');
+    mutationFn: async () => {
+      if (!projectId) throw new Error('Missing project');
 
-      // 1) Extract project features
-      const features = extractProjectFeaturesFromFields(project);
+      const { data, error } = await supabase.functions.invoke('signals-engine', {
+        body: { action: 'match-project', projectId },
+      });
 
-      // 2) Save features to project
-      await supabase
-        .from('projects')
-        .update({ project_features: features as any })
-        .eq('id', projectId);
-
-      // 3) Fetch active signals
-      const formatBucket = getFormatBucket(project.format);
-      const { data: signals, error: sigErr } = await supabase
-        .from('trend_signals')
-        .select('*')
-        .eq('status', 'active');
-      if (sigErr) throw sigErr;
-
-      // 4) Match
-      const matches = matchSignalsToFeatures(
-        features,
-        (signals ?? []) as unknown as TrendSignal[],
-        formatBucket,
-      );
-
-      // 5) Upsert matches
-      for (const m of matches) {
-        await supabase
-          .from('project_signal_matches')
-          .upsert({
-            project_id: projectId,
-            cluster_id: m.clusterId,
-            relevance_score: m.relevanceScore,
-            impact_score: m.impactScore,
-            rationale: {
-              project_features: features,
-              matched_tags: m.matchedTags,
-              explanation: m.explanation,
-              sources_used: [],
-            } as any,
-          }, { onConflict: 'project_id,cluster_id' });
-      }
-
-      // 6) Remove stale matches not in current results
-      const matchedIds = matches.map(m => m.clusterId);
-      if (matchedIds.length > 0) {
-        const { data: existing } = await supabase
-          .from('project_signal_matches')
-          .select('id, cluster_id')
-          .eq('project_id', projectId);
-        const stale = (existing ?? []).filter(e => !matchedIds.includes(e.cluster_id));
-        if (stale.length > 0) {
-          await supabase
-            .from('project_signal_matches')
-            .delete()
-            .in('id', stale.map(s => s.id));
-        }
-      }
-
-      return { matchCount: matches.length, features };
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      return { matchCount: data.matchCount ?? 0, features: data.features ?? [] };
     },
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['project-signal-matches', projectId] });

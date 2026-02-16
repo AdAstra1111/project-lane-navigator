@@ -8,6 +8,13 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+function getFormatBucketFromProdType(pt: string): string {
+  const p = (pt || "").toLowerCase().replace(/_/g, "-");
+  if (p === "vertical-drama") return "vertical_drama";
+  if (["documentary", "documentary-series", "hybrid-documentary"].includes(p)) return "documentary";
+  return "film";
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -371,7 +378,7 @@ Return ONLY a JSON array of objects. No markdown, no explanation outside the JSO
       last_updated_at: now,
     }));
 
-    const { error: signalInsertErr } = await supabase.from("trend_signals").insert(signalRows);
+    const { data: insertedSignals, error: signalInsertErr } = await supabase.from("trend_signals").insert(signalRows).select("id, name, genre_tags, tone_tags, format_tags, production_type, strength, velocity");
     if (signalInsertErr) {
       console.error("Signal insert error:", signalInsertErr);
       throw new Error("Failed to save trend signals");
@@ -381,6 +388,43 @@ Return ONLY a JSON array of objects. No markdown, no explanation outside the JSO
     if (castInsertErr) {
       console.error("Cast insert error:", castInsertErr);
       throw new Error("Failed to save cast trends");
+    }
+
+    // ── Write trend_observations from generated signals ──
+    try {
+      const observationRows = (insertedSignals || []).map((sig: any, idx: number) => {
+        const raw = newSignals[idx] || {};
+        const allTags = [
+          ...(sig.genre_tags || []),
+          ...(sig.tone_tags || []),
+          ...(sig.format_tags || []),
+        ].map((t: string) => String(t));
+        return {
+          observed_at: now,
+          source_type: "ai_generation",
+          source_name: "refresh-trends",
+          source_url: null,
+          raw_text: raw.explanation || sig.name || "",
+          raw_metrics: {
+            strength: sig.strength,
+            velocity: sig.velocity === "Rising" ? 0.8 : sig.velocity === "Declining" ? 0.2 : 0.5,
+            sources_count: raw.sources_count || 3,
+          },
+          extraction_confidence: 0.7,
+          format_hint: getFormatBucketFromProdType(sig.production_type || "film"),
+          tags: allTags,
+          cluster_id: sig.id,
+          ingested_by: "refresh-trends",
+          user_id: null,
+        };
+      });
+      if (observationRows.length > 0) {
+        const { error: obsErr } = await supabase.from("trend_observations").insert(observationRows);
+        if (obsErr) console.error("Observation insert error (non-fatal):", obsErr);
+        else console.log(`[refresh-trends] Wrote ${observationRows.length} trend_observations`);
+      }
+    } catch (obsE) {
+      console.warn("[refresh-trends] trend_observations write failed (non-fatal):", obsE);
     }
 
     // --- GENERATE WEEKLY BRIEF ---

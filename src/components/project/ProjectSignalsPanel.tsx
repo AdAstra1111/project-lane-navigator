@@ -29,16 +29,7 @@ export function ProjectSignalsPanel({ project }: Props) {
   const { influence, apply, isLoading: settingsLoading, updateSettings } = useProjectSignalsSettings(project.id);
 
   const handleRefresh = () => {
-    refreshMutation.mutate({
-      genres: project.genres,
-      tone: project.tone,
-      format: project.format,
-      budget_range: project.budget_range,
-      target_audience: project.target_audience,
-      comparable_titles: project.comparable_titles,
-      assigned_lane: project.assigned_lane,
-      title: project.title,
-    });
+    refreshMutation.mutate();
   };
 
   const handleInfluenceChange = (val: number[]) => {
