@@ -234,6 +234,115 @@ export default function SeriesWriter() {
     enabled: !!projectId,
   });
 
+  // ── Auto-bootstrap: create canon + episodes if core docs exist but tables are empty ──
+  const anyLoading = isLoading || canonLoading;
+  const [bootstrapping, setBootstrapping] = useState(false);
+  const [bootstrapped, setBootstrapped] = useState(false);
+
+  useEffect(() => {
+    if (!projectId || anyLoading || bootstrapping || bootstrapped) return;
+    if (canonSnapshot || episodes.length > 0) {
+      setBootstrapped(true);
+      return;
+    }
+    // Only bootstrap if we have at least episode_grid + one other core doc
+    const hasGrid = workingSetDocs.some(d => d.doc_type === 'episode_grid');
+    const hasCoreDoc = workingSetDocs.some(d => ['character_bible', 'season_arc', 'format_rules'].includes(d.doc_type));
+    if (!hasGrid || !hasCoreDoc || workingSetDocs.length === 0) return;
+
+    const doBootstrap = async () => {
+      setBootstrapping(true);
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+
+        // 1. Create canon snapshot
+        const { data: docs } = await supabase
+          .from('project_documents')
+          .select('id, doc_type')
+          .eq('project_id', projectId)
+          .in('doc_type', ['blueprint', 'season_arc', 'character_bible', 'episode_grid', 'script']);
+
+        if (!docs?.length) return;
+
+        const findDoc = (type: string) => docs.find(d => d.doc_type === type);
+        const blueprintDoc = findDoc('blueprint') || findDoc('season_arc');
+        const charBibleDoc = findDoc('character_bible');
+        const gridDoc = findDoc('episode_grid');
+        const scriptDoc = findDoc('script');
+
+        if (!gridDoc) return;
+
+        const getLatestVersion = async (docId: string) => {
+          const { data } = await supabase
+            .from('project_document_versions')
+            .select('id')
+            .eq('document_id', docId)
+            .order('version_number', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          return data?.id || null;
+        };
+
+        const [bpVer, cbVer, gridVer, scriptVer] = await Promise.all([
+          blueprintDoc ? getLatestVersion(blueprintDoc.id) : null,
+          charBibleDoc ? getLatestVersion(charBibleDoc.id) : null,
+          getLatestVersion(gridDoc.id),
+          scriptDoc ? getLatestVersion(scriptDoc.id) : null,
+        ]);
+
+        const epCount = seasonEpisodeCount || 30;
+
+        await supabase
+          .from('canon_snapshots')
+          .update({ status: 'superseded' })
+          .eq('project_id', projectId)
+          .eq('status', 'active');
+
+        const { data: snapshot, error: snapErr } = await supabase
+          .from('canon_snapshots')
+          .insert({
+            project_id: projectId,
+            user_id: user.id,
+            blueprint_version_id: bpVer,
+            character_bible_version_id: cbVer,
+            episode_grid_version_id: gridVer,
+            episode_1_version_id: scriptVer,
+            season_episode_count: epCount,
+            status: 'active',
+          })
+          .select()
+          .single();
+
+        if (snapErr) throw snapErr;
+
+        // 2. Create episode slots
+        const rows = Array.from({ length: epCount }, (_, i) => ({
+          project_id: projectId,
+          user_id: user.id,
+          episode_number: i + 1,
+          title: i === 0 && scriptDoc ? 'Episode 1' : `Episode ${i + 1}`,
+          status: i === 0 && scriptDoc ? 'complete' : 'pending',
+          canon_snapshot_id: snapshot.id,
+        }));
+
+        const { error: epErr } = await supabase.from('series_episodes').insert(rows);
+        if (epErr) throw epErr;
+
+        toast.success(`Series Writer initialized: ${epCount} episodes, canon locked`);
+        qc.invalidateQueries({ queryKey: ['series-episodes', projectId] });
+        qc.invalidateQueries({ queryKey: ['canon-snapshot', projectId] });
+      } catch (err) {
+        console.error('Bootstrap failed:', err);
+      } finally {
+        setBootstrapping(false);
+        setBootstrapped(true);
+      }
+    };
+
+    doBootstrap();
+  }, [projectId, anyLoading, bootstrapping, bootstrapped, canonSnapshot, episodes.length, workingSetDocs, seasonEpisodeCount, qc]);
+
   // ── Lock episode ──
   const lockEpisode = useMutation({
     mutationFn: async (episode: SeriesEpisode) => {
@@ -354,8 +463,6 @@ export default function SeriesWriter() {
 
   if (!projectId) return null;
 
-  const anyLoading = isLoading || canonLoading;
-
   return (
     <div className="min-h-screen bg-background flex flex-col">
       <Header />
@@ -398,9 +505,12 @@ export default function SeriesWriter() {
           </div>
         </div>
 
-        {anyLoading ? (
-          <div className="flex items-center justify-center py-24">
+        {anyLoading || bootstrapping ? (
+          <div className="flex flex-col items-center justify-center py-24 gap-3">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            {bootstrapping && (
+              <p className="text-xs text-muted-foreground">Initializing Series Writer…</p>
+            )}
           </div>
         ) : (
           <div className="max-w-[1800px] mx-auto px-4 py-4 flex gap-4 flex-1">
