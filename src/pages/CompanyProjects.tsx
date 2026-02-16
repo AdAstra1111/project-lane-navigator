@@ -1,7 +1,8 @@
 import { useState, useMemo } from 'react';
 import { useParams, Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { FolderOpen, Layers, Plus, Unlink } from 'lucide-react';
+import { FolderOpen, Layers, Plus, Unlink, Trash2 } from 'lucide-react';
+import { DeleteProjectDialog } from '@/components/DeleteProjectDialog';
 import { Button } from '@/components/ui/button';
 import { ExplorerLayout } from '@/components/explorer/ExplorerLayout';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -24,7 +25,8 @@ export default function CompanyProjects() {
   const { data: companyProjects = [], isLoading } = useCompanyProjects(id);
   const { unlinkProject } = useProjectCompanies(undefined);
   const { data: projectScores = {} } = useDashboardScores(companyProjects as Project[]);
-  const { togglePin } = useProjects();
+  const { togglePin, deleteProject } = useProjects();
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string } | null>(null);
 
   const setView = (v: string) => {
     const p = new URLSearchParams(searchParams);
@@ -250,13 +252,20 @@ export default function CompanyProjects() {
                       </span>
                     </TableCell>
                     <TableCell>
-                      <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
                         <button
                           onClick={(e) => handleUnlink(e, project.id)}
                           className="p-1 rounded text-muted-foreground hover:text-destructive transition-colors"
                           title="Unlink from company"
                         >
                           <Unlink className="h-3 w-3" />
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setDeleteTarget({ id: project.id, title: project.title }); }}
+                          className="p-1 rounded text-muted-foreground hover:text-destructive transition-colors"
+                          title="Delete project"
+                        >
+                          <Trash2 className="h-3 w-3" />
                         </button>
                       </div>
                     </TableCell>
@@ -267,6 +276,18 @@ export default function CompanyProjects() {
           </Table>
         </div>
       )}
+      <DeleteProjectDialog
+        open={!!deleteTarget}
+        onOpenChange={(v) => { if (!v) setDeleteTarget(null); }}
+        projectTitle={deleteTarget?.title || ''}
+        onConfirm={() => {
+          if (deleteTarget) {
+            deleteProject.mutate(deleteTarget.id);
+            setDeleteTarget(null);
+          }
+        }}
+        isPending={deleteProject.isPending}
+      />
     </ExplorerLayout>
   );
 }
