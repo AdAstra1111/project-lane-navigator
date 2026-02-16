@@ -802,7 +802,12 @@ export default function SeriesWriter() {
                           <div className="flex items-center gap-3 px-3 py-2">
                             <Icon className={`h-4 w-4 shrink-0 ${cfg.color} ${ep.status === 'generating' ? 'animate-spin' : ''}`} />
 
-                            <div className="flex-1 min-w-0 cursor-pointer" onClick={() => setSelectedEpisode(ep)}>
+                            <div className="flex-1 min-w-0 cursor-pointer" onClick={() => {
+                              setSelectedEpisode(ep);
+                              if (ep.script_id && (ep.status === 'complete' || ep.status === 'needs_revision' || !!ep.locked_at)) {
+                                openReader(ep);
+                              }
+                            }}>
                               <div className="flex items-center gap-2">
                                 <span className="text-xs font-mono text-muted-foreground">
                                   EP {String(ep.episode_number).padStart(2, '0')}
