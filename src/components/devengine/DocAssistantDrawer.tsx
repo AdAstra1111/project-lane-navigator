@@ -13,6 +13,8 @@ import {
 import { useDocAssistantPersistent, type DAAction, type DATestRun } from '@/hooks/useDocAssistantPersistent';
 import ReactMarkdown from 'react-markdown';
 import { cn } from '@/lib/utils';
+import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
 
 interface DocAssistantDrawerProps {
   projectId: string | undefined;
@@ -38,8 +40,9 @@ function ScoreDelta({ label, baseline, after }: { label: string; baseline: numbe
 }
 
 // Action card component
-function ActionCard({ action }: { action: DAAction }) {
+function ActionCard({ action, projectId }: { action: DAAction; projectId?: string }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [applying, setApplying] = useState(false);
   const latestTest = action.document_assistant_test_runs?.sort(
     (a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime()
   )?.[0] as DATestRun | undefined;
@@ -56,6 +59,57 @@ function ActionCard({ action }: { action: DAAction }) {
   const scores = latestTest?.details?.scores;
   const recommendation = latestTest?.details?.recommendation;
   const financing = latestTest?.details?.financing_notes;
+
+  const handleApply = async () => {
+    if (!projectId || applying) return;
+    setApplying(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Not authenticated');
+
+      // Call apply-project-change with the action's patch
+      const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/apply-project-change`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          projectId,
+          patch: action.patch || {},
+          changeType: action.action_type,
+        }),
+      });
+
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(err.error || 'Apply failed');
+      }
+
+      // Update action status to 'applied'
+      await (supabase as any).from('document_assistant_actions')
+        .update({ status: 'applied', updated_at: new Date().toISOString() })
+        .eq('id', action.id);
+
+      toast.success('Change applied successfully');
+    } catch (e: any) {
+      console.error('[DocAssistant] Apply error:', e);
+      toast.error(e.message || 'Failed to apply change');
+    } finally {
+      setApplying(false);
+    }
+  };
+
+  const handleReject = async () => {
+    try {
+      await (supabase as any).from('document_assistant_actions')
+        .update({ status: 'rejected', updated_at: new Date().toISOString() })
+        .eq('id', action.id);
+      toast.info('Action rejected');
+    } catch (e: any) {
+      toast.error('Failed to reject action');
+    }
+  };
 
   return (
     <Card className="text-xs">
@@ -89,6 +143,19 @@ function ActionCard({ action }: { action: DAAction }) {
             return <ScoreDelta key={k} label={k} baseline={s.baseline} after={s.after} />;
           })}
         </CardContent>
+      )}
+
+      {/* Apply / Reject buttons — only when ready */}
+      {action.status === 'ready_to_apply' && (
+        <div className="px-3 pb-2 flex gap-1.5">
+          <Button size="sm" className="flex-1 h-7 text-[10px] gap-1" onClick={handleApply} disabled={applying}>
+            {applying ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <CheckCircle className="h-2.5 w-2.5" />}
+            Apply
+          </Button>
+          <Button size="sm" variant="outline" className="h-7 text-[10px] gap-1" onClick={handleReject}>
+            <XCircle className="h-2.5 w-2.5" /> Reject
+          </Button>
+        </div>
       )}
 
       <Collapsible open={detailsOpen} onOpenChange={setDetailsOpen}>
@@ -253,7 +320,7 @@ export function DocAssistantDrawer({
               </p>
               <div className="space-y-2">
                 {assistant.actions.map(action => (
-                  <ActionCard key={action.id} action={action} />
+                  <ActionCard key={action.id} action={action} projectId={projectId} />
                 ))}
               </div>
             </div>
