@@ -110,8 +110,20 @@ export default function ProjectDevelopmentEngine() {
   const autoRun = useAutoRunMissionControl(projectId);
   const { resolveOnEntry, currentResolverHash, resolvedQuals } = useStageResolve(projectId);
   const { propose } = useDecisionCommit(projectId);
-  const { packageStatus: packageStatusData } = useDocumentPackage(projectId);
+  const { packageStatus: packageStatusData, currentResolverHash: pkgResolverHash } = useDocumentPackage(projectId);
 
+  // Build a map of doc_type -> latest_version_id for LATEST badges
+  const latestVersionMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    if (packageStatusData) {
+      for (const pkg of packageStatusData) {
+        if (pkg.latestVersionId) {
+          map[pkg.docType] = pkg.latestVersionId;
+        }
+      }
+    }
+    return map;
+  }, [packageStatusData]);
   // Stage-entry re-resolve: call resolve-qualifications when the page loads
   useEffect(() => {
     resolveOnEntry();
@@ -146,7 +158,7 @@ export default function ProjectDevelopmentEngine() {
 
   const hasUnresolvedMajorDrift = latestDrift?.drift_level === 'major' && !latestDrift?.resolved;
 
-  // Import landing — auto-select from URL params or fall back to latest document
+  // Import landing — auto-select from URL params, or stage-appropriate doc, or latest
   const [importHandled, setImportHandled] = useState(false);
   useEffect(() => {
     if (importHandled || docsLoading || documents.length === 0) return;
@@ -156,11 +168,25 @@ export default function ProjectDevelopmentEngine() {
       selectDocument(docParam);
       if (versionParam) setSelectedVersionId(versionParam);
     } else {
-      // No URL param — select the most recent document (already sorted desc by created_at)
-      selectDocument(documents[0].id);
+      // Prefer document with latest_version_id set (i.e., actively tracked by package system)
+      // Then prefer documents that match the current pipeline stage's required doc types
+      const pkgData = packageStatusData;
+      let bestDoc = documents[0]; // fallback: most recent
+      if (pkgData && pkgData.length > 0) {
+        // Find the first required doc that exists and has content
+        const requiredWithDocs = pkgData
+          .filter((p: any) => p.required && p.documentId)
+          .sort((a: any, b: any) => b.order - a.order); // highest-order = furthest in pipeline
+        const furthest = requiredWithDocs[0];
+        if (furthest) {
+          const match = documents.find(d => d.id === furthest.documentId);
+          if (match) bestDoc = match;
+        }
+      }
+      selectDocument(bestDoc.id);
     }
     setImportHandled(true);
-  }, [documents, docsLoading, searchParams, importHandled, selectDocument, setSelectedVersionId]);
+  }, [documents, docsLoading, searchParams, importHandled, selectDocument, setSelectedVersionId, packageStatusData]);
 
   // Auto-set deliverable type from selected doc
   useEffect(() => {
@@ -456,6 +482,24 @@ export default function ProjectDevelopmentEngine() {
             )}
           </div>
 
+          {/* ═══ CONNECTIVITY STATUS ═══ */}
+          {projectId && (() => {
+            const pkgData = packageStatusData;
+            if (!pkgData) return null;
+            const staleTypes = pkgData.filter((d: any) => d.status === 'stale').map((d: any) => d.docType);
+            const connectedCount = pkgData.filter((d: any) => d.resolverHash).length;
+            return (
+              <ConnectivityBanner
+                projectId={projectId}
+                currentResolverHash={currentResolverHash}
+                staleDocCount={staleTypes.length}
+                staleDocTypes={staleTypes}
+                totalDocs={pkgData.length}
+                connectedDocs={connectedCount}
+              />
+            );
+          })()}
+
           {/* ═══ PIPELINE ═══ */}
           <DeliverablePipeline stageStatuses={pipelineStatuses} activeDeliverable={selectedDeliverableType}
             onStageClick={(dt) => setSelectedDeliverableType(dt)} isVerticalDrama={isVerticalDrama} />
@@ -471,6 +515,7 @@ export default function ProjectDevelopmentEngine() {
                 deleteDocument={deleteDocument} deleteVersion={deleteVersion} versions={versions}
                 selectedVersionId={selectedVersionId} setSelectedVersionId={setSelectedVersionId}
                 createPaste={createPaste}
+                latestVersionMap={latestVersionMap}
               />
 
               {/* Feature Script Pipeline — only for features */}
@@ -703,23 +748,6 @@ export default function ProjectDevelopmentEngine() {
           </div>
 
           {/* ═══ INTELLIGENCE PANELS (tabbed, below workspace) ═══ */}
-          {/* Connectivity banner */}
-          {projectId && (() => {
-            const pkgData = packageStatusData;
-            if (!pkgData) return null;
-            const staleTypes = pkgData.filter((d: any) => d.status === 'stale').map((d: any) => d.docType);
-            const connectedCount = pkgData.filter((d: any) => d.resolverHash).length;
-            return staleTypes.length > 0 || connectedCount < pkgData.length ? (
-              <ConnectivityBanner
-                projectId={projectId}
-                currentResolverHash={currentResolverHash}
-                staleDocCount={staleTypes.length}
-                staleDocTypes={staleTypes}
-                totalDocs={pkgData.length}
-                connectedDocs={connectedCount}
-              />
-            ) : null;
-          })()}
 
           <Tabs defaultValue="notes" className="w-full">
              <TabsList className="w-full justify-start bg-muted/30 border border-border/50 h-9 flex-wrap">

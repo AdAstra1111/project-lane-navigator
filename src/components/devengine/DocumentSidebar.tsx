@@ -36,11 +36,13 @@ interface DocumentSidebarProps {
   selectedVersionId: string | null;
   setSelectedVersionId: (id: string) => void;
   createPaste: { mutate: (data: any) => void; isPending: boolean };
+  /** Map of doc_type -> latest_version_id from project_documents */
+  latestVersionMap?: Record<string, string>;
 }
 
 export function DocumentSidebar({
   documents, docsLoading, selectedDocId, selectDocument, deleteDocument, deleteVersion,
-  versions, selectedVersionId, setSelectedVersionId, createPaste,
+  versions, selectedVersionId, setSelectedVersionId, createPaste, latestVersionMap = {},
 }: DocumentSidebarProps) {
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteTitle, setPasteTitle] = useState('');
@@ -153,7 +155,11 @@ export function DocumentSidebar({
           </CardHeader>
           <CardContent className="px-2 pb-2">
             <div className="space-y-0.5 max-h-[160px] overflow-y-auto">
-              {versions.map(v => (
+              {versions.map(v => {
+                // Check if this version is the project's latest for this doc type
+                const selectedDocObj = documents.find(d => d.id === selectedDocId);
+                const isLatestForDoc = selectedDocObj && latestVersionMap[selectedDocObj.doc_type] === v.id;
+                return (
                 <div
                   key={v.id}
                   onClick={() => setSelectedVersionId(v.id)}
@@ -161,10 +167,15 @@ export function DocumentSidebar({
                     selectedVersionId === v.id
                       ? 'bg-primary/10 text-foreground'
                       : 'text-muted-foreground hover:bg-muted/50'
-                  }`}
+                  } ${isLatestForDoc ? 'ring-1 ring-primary/40' : ''}`}
                 >
                   <div className="flex items-center justify-between">
-                    <span className="font-medium">v{v.version_number}</span>
+                    <span className="font-medium flex items-center gap-1">
+                      v{v.version_number}
+                      {isLatestForDoc && (
+                        <Badge variant="default" className="text-[7px] px-1 py-0 h-3 bg-primary/80">LATEST</Badge>
+                      )}
+                    </span>
                     <div className="flex items-center gap-1">
                       <span className="text-[8px]">{new Date(v.created_at).toLocaleDateString()}</span>
                       {deleteVersion && versions.length > 1 && (
@@ -186,7 +197,8 @@ export function DocumentSidebar({
                   </div>
                   {v.change_summary && <span className="text-[8px] block mt-0.5 truncate opacity-70">{v.change_summary}</span>}
                 </div>
-              ))}
+              );
+              })}
             </div>
           </CardContent>
         </Card>
