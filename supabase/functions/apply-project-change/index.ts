@@ -43,9 +43,43 @@ Deno.serve(async (req) => {
       });
     }
 
-    // 1) Apply patch to project
+    // Valid columns on the projects table that can be patched
+    const PATCHABLE_COLUMNS = new Set([
+      'title', 'format', 'genres', 'budget_range', 'target_audience', 'tone',
+      'comparable_titles', 'assigned_lane', 'confidence', 'reasoning', 'recommendations',
+      'pipeline_stage', 'primary_territory', 'secondary_territories', 'lifecycle_stage',
+      'packaging_mode', 'packaging_stage', 'target_runtime_minutes', 'runtime_tolerance_pct',
+      'min_runtime_minutes', 'min_runtime_hard_floor', 'runtime_estimation_mode',
+      'development_behavior', 'episode_target_duration_seconds', 'season_episode_count',
+      'current_stage', 'vertical_engine_weights', 'guardrails_config',
+      'qualifications', 'locked_fields', 'season_style_profile', 'project_features',
+      'signals_influence', 'signals_apply', 'hero_image_url', 'active_company_profile_id',
+    ]);
+
+    // Filter patch to only valid project columns
+    const safePatch: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(patch)) {
+      if (PATCHABLE_COLUMNS.has(key)) {
+        safePatch[key] = value;
+      }
+    }
+
+    if (Object.keys(safePatch).length === 0) {
+      // Nothing to patch on projects table — that's OK, the action was descriptive
+      return new Response(JSON.stringify({
+        success: true,
+        skipped_patch: true,
+        note: "No patchable project columns in payload — action recorded as advisory only.",
+        stale_doc_types: [],
+        stale_count: 0,
+      }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // 1) Apply safe patch to project
     const { error: patchErr } = await supabase.from("projects")
-      .update(patch)
+      .update(safePatch)
       .eq("id", projectId);
 
     if (patchErr) throw new Error(`Patch failed: ${patchErr.message}`);
