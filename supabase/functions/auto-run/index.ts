@@ -614,7 +614,12 @@ Deno.serve(async (req) => {
     // ═══════════════════════════════════════
     if (action === "resume") {
       if (!jobId) return respond({ error: "jobId required" }, 400);
-      const resumeUpdates: Record<string, any> = { status: "running", stop_reason: null };
+      const resumeUpdates: Record<string, any> = {
+        status: "running", stop_reason: null, error: null,
+        awaiting_approval: false, approval_type: null, approval_payload: null,
+        pending_doc_id: null, pending_version_id: null,
+        pending_doc_type: null, pending_next_doc_type: null,
+      };
       if (body.followLatest === true) {
         resumeUpdates.follow_latest = true;
         resumeUpdates.resume_document_id = null;
