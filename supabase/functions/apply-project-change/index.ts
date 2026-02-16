@@ -6,6 +6,9 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+const JSON_HEADERS = { ...corsHeaders, "Content-Type": "application/json" };
+const LOG_TRIM_MAX = 20_000;
+
 // ─── Action type → affected doc types mapping ───
 const ACTION_TYPE_TO_DOC_TYPES: Record<string, string[]> = {
   rewrite_character_arc: ["character_bible"],
@@ -22,40 +25,50 @@ const ACTION_TYPE_TO_DOC_TYPES: Record<string, string[]> = {
   format_change: ["format_rules"],
 };
 
-// ─── Keyword-based heuristic fallback for doc type ───
-function inferDocTypeFromKeywords(actionType: string): string {
+// ─── Keyword heuristic fallback ───
+function inferDocTypeFromKeywords(actionType: string): string[] {
   const lower = actionType.toLowerCase();
-  if (lower.includes("character")) return "character_bible";
-  if (lower.includes("plot") || lower.includes("blueprint")) return "concept_brief";
-  if (lower.includes("beat") || lower.includes("scene")) return "beat_sheet";
-  if (lower.includes("budget") || lower.includes("market")) return "vertical_market_sheet";
-  return "concept_brief";
+  if (lower.includes("character")) return ["character_bible"];
+  if (lower.includes("plot") || lower.includes("blueprint")) return ["concept_brief", "blueprint"];
+  if (lower.includes("beat") || lower.includes("scene")) return ["beat_sheet"];
+  if (lower.includes("budget") || lower.includes("market")) return ["vertical_market_sheet", "market_sheet"];
+  return ["concept_brief"];
 }
 
-// ─── Build composed creative direction ───
-function buildCreativeDirection(action: {
-  action_type?: string;
-  human_summary?: string;
-  patch?: Record<string, unknown>;
-}): string {
-  const parts: string[] = [];
-  if (action.action_type) parts.push(`Action: ${action.action_type}`);
-  if (action.human_summary) parts.push(`Summary: ${action.human_summary}`);
-  if (action.patch?.description) parts.push(`Description: ${action.patch.description}`);
+// ─── Patchable project columns whitelist ───
+const PATCHABLE_COLUMNS = new Set([
+  "title", "format", "genres", "budget_range", "target_audience", "tone",
+  "comparable_titles", "assigned_lane", "confidence", "reasoning", "recommendations",
+  "pipeline_stage", "primary_territory", "secondary_territories", "lifecycle_stage",
+  "packaging_mode", "packaging_stage", "target_runtime_minutes", "runtime_tolerance_pct",
+  "min_runtime_minutes", "min_runtime_hard_floor", "runtime_estimation_mode",
+  "development_behavior", "episode_target_duration_seconds", "season_episode_count",
+  "current_stage", "vertical_engine_weights", "guardrails_config",
+  "qualifications", "locked_fields", "season_style_profile", "project_features",
+  "signals_influence", "signals_apply", "hero_image_url", "active_company_profile_id",
+]);
 
-  // Add truncated patch JSON for context
-  if (action.patch && Object.keys(action.patch).length > 0) {
+// ─── Build composed creative direction ───
+function buildCreativeDirection(
+  actionType: string,
+  humanSummary: string,
+  patchObj: Record<string, unknown>,
+): string {
+  const parts: string[] = [];
+  if (actionType) parts.push(`Action: ${actionType}`);
+  if (humanSummary) parts.push(`Summary: ${humanSummary}`);
+  if (patchObj?.description) parts.push(`Description: ${String(patchObj.description)}`);
+
+  if (patchObj && Object.keys(patchObj).length > 0) {
     try {
-      const patchJson = JSON.stringify(action.patch, null, 2);
-      const truncated = patchJson.length > 500 ? patchJson.slice(0, 500) + "\n…(truncated)" : patchJson;
+      const json = JSON.stringify(patchObj, null, 2);
+      const truncated = json.length > 800 ? json.slice(0, 800) + "\n…(truncated)" : json;
       parts.push(`Patch details:\n${truncated}`);
-    } catch { /* ignore stringify errors */ }
+    } catch { /* ignore */ }
   }
 
   return parts.join("\n\n");
 }
-
-const JSON_HEADERS = { ...corsHeaders, "Content-Type": "application/json" };
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -65,9 +78,9 @@ Deno.serve(async (req) => {
   let sbAdmin: ReturnType<typeof createClient> | null = null;
 
   try {
-    // ──────────────────────────────────────────────
-    // GOAL 1: Correct AUTH — validate JWT via anon client
-    // ──────────────────────────────────────────────
+    // ════════════════════════════════════════════════
+    // REQ 1 — AUTH: validate JWT via ANON client
+    // ════════════════════════════════════════════════
     const authHeader = req.headers.get("Authorization");
     if (!authHeader?.startsWith("Bearer ")) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: JSON_HEADERS });
@@ -78,23 +91,23 @@ Deno.serve(async (req) => {
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const token = authHeader.replace("Bearer ", "");
 
-    const sbAnon = createClient(supabaseUrl, anonKey, {
-      global: { headers: { Authorization: authHeader } },
-    });
+    // ANON client — used ONLY for user validation
+    const sbAnon = createClient(supabaseUrl, anonKey);
+    const { data: { user }, error: authError } = await sbAnon.auth.getUser(token);
+
+    if (authError || !user) {
+      return new Response(JSON.stringify({ error: "Invalid or expired token" }), { status: 401, headers: JSON_HEADERS });
+    }
+    logs.push(`auth: user=${user.id}`);
+
+    // ADMIN client — used for all DB writes (bypasses RLS, so we enforce authz manually)
     sbAdmin = createClient(supabaseUrl, serviceKey, {
       auth: { autoRefreshToken: false, persistSession: false },
     });
 
-    const { data: claimsData, error: claimsError } = await sbAnon.auth.getClaims(token);
-    if (claimsError || !claimsData?.claims) {
-      return new Response(JSON.stringify({ error: "Invalid token" }), { status: 401, headers: JSON_HEADERS });
-    }
-    const userId = claimsData.claims.sub as string;
-    logs.push(`auth: user ${userId}`);
-
-    // ──────────────────────────────────────────────
+    // ════════════════════════════════════════════════
     // Parse body
-    // ──────────────────────────────────────────────
+    // ════════════════════════════════════════════════
     const body = await req.json();
     const { projectId, patch, changeType, actionId } = body;
 
@@ -102,22 +115,23 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ error: "projectId required" }), { status: 400, headers: JSON_HEADERS });
     }
 
-    // ──────────────────────────────────────────────
-    // GOAL 2: Correct AUTHZ — enforce project access
-    // ──────────────────────────────────────────────
+    // ════════════════════════════════════════════════
+    // REQ 2 — AUTHZ: enforce project access BEFORE any writes
+    // ════════════════════════════════════════════════
     const { data: hasAccess, error: accessErr } = await sbAdmin.rpc("has_project_access", {
-      _user_id: userId,
+      _user_id: user.id,
       _project_id: projectId,
     });
+
     if (accessErr || !hasAccess) {
       logs.push(`authz: denied — ${accessErr?.message || "no access"}`);
       return new Response(JSON.stringify({ error: "Forbidden" }), { status: 403, headers: JSON_HEADERS });
     }
     logs.push("authz: granted");
 
-    // ──────────────────────────────────────────────
-    // Look up the action record if actionId provided
-    // ──────────────────────────────────────────────
+    // ════════════════════════════════════════════════
+    // Look up the action record
+    // ════════════════════════════════════════════════
     let actionRecord: any = null;
     if (actionId) {
       const { data } = await sbAdmin
@@ -128,19 +142,20 @@ Deno.serve(async (req) => {
       actionRecord = data;
     }
 
-    // ──────────────────────────────────────────────
-    // GOAL 3: Audit trail — insert apply_run
-    // ──────────────────────────────────────────────
+    // ════════════════════════════════════════════════
+    // REQ 3 — AUDIT TRAIL: insert apply_run with status='running'
+    // ════════════════════════════════════════════════
     if (actionId) {
       const { data: runRow, error: runErr } = await sbAdmin
         .from("document_assistant_apply_runs")
         .insert({
           action_id: actionId,
-          started_by: userId,
+          started_by: user.id,
           status: "running",
         })
         .select("id")
         .single();
+
       if (!runErr && runRow) {
         applyRunId = runRow.id;
         logs.push(`apply_run: ${applyRunId}`);
@@ -149,34 +164,25 @@ Deno.serve(async (req) => {
       }
     }
 
+    // ════════════════════════════════════════════════
+    // Effective values
+    // ════════════════════════════════════════════════
     const effectivePatch = patch || actionRecord?.patch || {};
     const effectiveChangeType = changeType || actionRecord?.action_type || "project_change";
 
-    // ──────────────────────────────────────────────
-    // GOAL 4: Build composed creative direction
-    // ──────────────────────────────────────────────
-    const creativeDirection = buildCreativeDirection({
-      action_type: effectiveChangeType,
-      human_summary: actionRecord?.human_summary || "",
-      patch: effectivePatch,
-    });
+    // ════════════════════════════════════════════════
+    // REQ 4 — CREATIVE DIRECTION: composed block
+    // ════════════════════════════════════════════════
+    const creativeDirection = buildCreativeDirection(
+      effectiveChangeType,
+      actionRecord?.human_summary || "",
+      effectivePatch,
+    );
     logs.push(`direction: ${creativeDirection.length} chars`);
 
-    // ──────────────────────────────────────────────
-    // 1) Patch project metadata (if applicable)
-    // ──────────────────────────────────────────────
-    const PATCHABLE_COLUMNS = new Set([
-      "title", "format", "genres", "budget_range", "target_audience", "tone",
-      "comparable_titles", "assigned_lane", "confidence", "reasoning", "recommendations",
-      "pipeline_stage", "primary_territory", "secondary_territories", "lifecycle_stage",
-      "packaging_mode", "packaging_stage", "target_runtime_minutes", "runtime_tolerance_pct",
-      "min_runtime_minutes", "min_runtime_hard_floor", "runtime_estimation_mode",
-      "development_behavior", "episode_target_duration_seconds", "season_episode_count",
-      "current_stage", "vertical_engine_weights", "guardrails_config",
-      "qualifications", "locked_fields", "season_style_profile", "project_features",
-      "signals_influence", "signals_apply", "hero_image_url", "active_company_profile_id",
-    ]);
-
+    // ════════════════════════════════════════════════
+    // REQ 7a — Patch project metadata (safe columns)
+    // ════════════════════════════════════════════════
     const safePatch: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(effectivePatch)) {
       if (PATCHABLE_COLUMNS.has(key)) safePatch[key] = value;
@@ -190,19 +196,21 @@ Deno.serve(async (req) => {
         .from("projects")
         .update(safePatch)
         .eq("id", projectId);
+
       if (patchErr) {
         logs.push(`patch failed: ${patchErr.message}`);
-        throw new Error(`Patch failed: ${patchErr.message}`);
+        // non-fatal — continue to doc regen
+      } else {
+        patchApplied = true;
+        logs.push(`patched: ${patchedKeys.join(", ")}`);
       }
-      patchApplied = true;
-      logs.push(`patched: ${patchedKeys.join(", ")}`);
     } else {
       logs.push("patch: skipped (no patchable keys)");
     }
 
-    // ──────────────────────────────────────────────
-    // 2) Re-resolve qualifications (non-fatal)
-    // ──────────────────────────────────────────────
+    // ════════════════════════════════════════════════
+    // REQ 7b — Re-resolve qualifications (non-fatal)
+    // ════════════════════════════════════════════════
     let newHash: string | null = null;
     const staleDocs: string[] = [];
 
@@ -244,7 +252,7 @@ Deno.serve(async (req) => {
               .in("id", staleVersionIds);
 
             const staleDocIds = new Set(
-              (versions || []).filter((v: any) => staleVersionIds.includes(v.id)).map((v: any) => v.document_id)
+              (versions || []).filter((v: any) => staleVersionIds.includes(v.id)).map((v: any) => v.document_id),
             );
             for (const doc of docs || []) {
               if (staleDocIds.has(doc.id)) staleDocs.push(doc.doc_type);
@@ -259,40 +267,58 @@ Deno.serve(async (req) => {
       logs.push(`resolver: failed (non-fatal) ${e.message}`);
     }
 
-    // ──────────────────────────────────────────────
-    // GOAL 5: Determine affected doc types & regenerate
-    // ──────────────────────────────────────────────
-    // Get all project docs with versions
+    // ════════════════════════════════════════════════
+    // REQ 5 — DOC REGEN TARGETING (priority A → B → C)
+    // ════════════════════════════════════════════════
+
+    // Fetch all project docs with versions
     const { data: existingDocs } = await sbAdmin
       .from("project_documents")
       .select("doc_type, latest_version_id")
       .eq("project_id", projectId);
 
     const docsWithVersions = new Set(
-      (existingDocs || []).filter((d: any) => d.latest_version_id).map((d: any) => d.doc_type)
+      (existingDocs || []).filter((d: any) => d.latest_version_id).map((d: any) => d.doc_type),
     );
 
-    // Priority 1: target_ref.doc_type from action
     let affectedDocTypes: string[] = [];
-    if (actionRecord?.target_ref?.doc_type && docsWithVersions.has(actionRecord.target_ref.doc_type)) {
-      affectedDocTypes.push(actionRecord.target_ref.doc_type);
-    }
 
-    // Priority 2: ACTION_TYPE_TO_DOC_TYPES mapping (only existing docs)
-    if (affectedDocTypes.length === 0 && ACTION_TYPE_TO_DOC_TYPES[effectiveChangeType]) {
-      affectedDocTypes = ACTION_TYPE_TO_DOC_TYPES[effectiveChangeType].filter((dt) => docsWithVersions.has(dt));
-    }
-
-    // Priority 3: keyword heuristic fallback
-    if (affectedDocTypes.length === 0) {
-      const inferred = inferDocTypeFromKeywords(effectiveChangeType);
-      if (docsWithVersions.has(inferred)) {
-        affectedDocTypes.push(inferred);
+    // A) target_ref.doc_type from action
+    if (actionRecord?.target_ref?.doc_type) {
+      const targetType = actionRecord.target_ref.doc_type;
+      if (docsWithVersions.has(targetType)) {
+        affectedDocTypes = [targetType];
+        logs.push(`target: A (target_ref) → ${targetType}`);
       }
     }
 
-    logs.push(`affected: ${affectedDocTypes.length > 0 ? affectedDocTypes.join(", ") : "none"}`);
+    // B) ACTION_TYPE_TO_DOC_TYPES mapping
+    if (affectedDocTypes.length === 0 && ACTION_TYPE_TO_DOC_TYPES[effectiveChangeType]) {
+      affectedDocTypes = ACTION_TYPE_TO_DOC_TYPES[effectiveChangeType].filter((dt) => docsWithVersions.has(dt));
+      if (affectedDocTypes.length > 0) {
+        logs.push(`target: B (mapping) → ${affectedDocTypes.join(", ")}`);
+      }
+    }
 
+    // C) keyword heuristic fallback
+    if (affectedDocTypes.length === 0) {
+      const candidates = inferDocTypeFromKeywords(effectiveChangeType);
+      for (const c of candidates) {
+        if (docsWithVersions.has(c)) {
+          affectedDocTypes.push(c);
+          break; // take first match
+        }
+      }
+      if (affectedDocTypes.length > 0) {
+        logs.push(`target: C (heuristic) → ${affectedDocTypes.join(", ")}`);
+      } else {
+        logs.push("target: no eligible docs found");
+      }
+    }
+
+    // ════════════════════════════════════════════════
+    // REQ 7c — Regenerate affected docs
+    // ════════════════════════════════════════════════
     const regenerated: any[] = [];
     const regenErrors: any[] = [];
 
@@ -323,13 +349,12 @@ Deno.serve(async (req) => {
       }
     }
 
-    // ──────────────────────────────────────────────
-    // GOAL 7: Only mark 'applied' if real work happened
-    // ──────────────────────────────────────────────
+    // ════════════════════════════════════════════════
+    // REQ 6 — ACTION STATUS: truthful, no manual updated_at
+    // ════════════════════════════════════════════════
     const actionMarkedApplied = patchApplied || regenerated.length > 0;
     const finalActionStatus = actionMarkedApplied ? "applied" : "ready_to_apply";
 
-    // GOAL 6: Do NOT manually set updated_at
     if (actionId) {
       await sbAdmin
         .from("document_assistant_actions")
@@ -338,16 +363,21 @@ Deno.serve(async (req) => {
       logs.push(`action status → ${finalActionStatus}`);
     }
 
-    // ──────────────────────────────────────────────
-    // GOAL 3: Finalize audit trail
-    // ──────────────────────────────────────────────
+    // ════════════════════════════════════════════════
+    // REQ 3 — Finalize audit trail
+    // REQ 9 — Trim logs
+    // ════════════════════════════════════════════════
     const summary = [
       patchApplied ? `Patched: ${patchedKeys.join(", ")}` : "No metadata patch",
       `Regenerated: ${regenerated.length}/${affectedDocTypes.length} docs`,
       regenErrors.length > 0 ? `Errors: ${regenErrors.length}` : null,
+      affectedDocTypes.length === 0 ? "No eligible documents to regenerate" : null,
     ].filter(Boolean).join(". ");
 
     if (applyRunId && sbAdmin) {
+      const rawLogs = logs.join("\n");
+      const trimmedLogs = rawLogs.length > LOG_TRIM_MAX ? rawLogs.slice(0, LOG_TRIM_MAX) + "\n…(trimmed)" : rawLogs;
+
       await sbAdmin
         .from("document_assistant_apply_runs")
         .update({
@@ -355,16 +385,20 @@ Deno.serve(async (req) => {
           status: actionMarkedApplied ? "applied" : "failed",
           summary: summary.slice(0, 500),
           details: JSON.stringify({ patchedKeys, affectedDocTypes, regenErrors }).slice(0, 2000),
-          logs: logs.join("\n").slice(0, 5000),
+          logs: trimmedLogs,
         })
         .eq("id", applyRunId);
     }
 
+    // ════════════════════════════════════════════════
+    // REQ 8 — Return shape
+    // ════════════════════════════════════════════════
     return new Response(
       JSON.stringify({
         success: true,
         new_resolver_hash: newHash,
         stale_doc_types: staleDocs,
+        stale_count: staleDocs.length,
         regenerated,
         regeneration_errors: regenErrors,
         affected_doc_types: affectedDocTypes,
@@ -373,30 +407,33 @@ Deno.serve(async (req) => {
         action_marked_applied: actionMarkedApplied,
         apply_run_id: applyRunId,
       }),
-      { headers: JSON_HEADERS }
+      { headers: JSON_HEADERS },
     );
   } catch (e: any) {
     console.error("[apply-project-change] error:", e);
     logs.push(`FATAL: ${e.message}`);
 
-    // Best-effort audit trail update on error
+    // Best-effort audit trail update
     if (applyRunId && sbAdmin) {
       try {
+        const rawLogs = logs.join("\n");
+        const trimmedLogs = rawLogs.length > LOG_TRIM_MAX ? rawLogs.slice(0, LOG_TRIM_MAX) + "\n…(trimmed)" : rawLogs;
+
         await sbAdmin
           .from("document_assistant_apply_runs")
           .update({
             finished_at: new Date().toISOString(),
             status: "error",
             summary: `Error: ${(e.message || "unknown").slice(0, 200)}`,
-            logs: logs.join("\n").slice(0, 5000),
+            logs: trimmedLogs,
           })
           .eq("id", applyRunId);
       } catch { /* best effort */ }
     }
 
-    return new Response(JSON.stringify({ error: e.message || "Internal error", apply_run_id: applyRunId }), {
-      status: 500,
-      headers: JSON_HEADERS,
-    });
+    return new Response(
+      JSON.stringify({ error: e.message || "Internal error", apply_run_id: applyRunId }),
+      { status: 500, headers: JSON_HEADERS },
+    );
   }
 });
