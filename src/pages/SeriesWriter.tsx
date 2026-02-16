@@ -832,6 +832,47 @@ export default function SeriesWriter() {
                 </Card>
               )}
 
+              {/* Deleted Episodes — shown between progress and episode list */}
+              {showDeleted && deletedEpisodes.length > 0 && (
+                <div className="space-y-1.5 p-3 rounded-lg border border-dashed border-destructive/30 bg-destructive/5">
+                  <div className="flex items-center gap-2 pb-1">
+                    <Trash2 className="h-3 w-3 text-muted-foreground" />
+                    <span className="text-xs font-medium text-muted-foreground">Deleted Episodes</span>
+                  </div>
+                  {deletedEpisodes.map(ep => (
+                    <div key={ep.id} className="flex items-center justify-between gap-3 px-3 py-2 rounded bg-muted/20">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-xs font-mono text-muted-foreground">
+                          EP {String(ep.episode_number).padStart(2, '0')}
+                        </span>
+                        <span className="text-sm text-muted-foreground line-through truncate">
+                          {ep.title || `Episode ${ep.episode_number}`}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 px-2.5 text-xs gap-1"
+                          onClick={() => restoreEpisode.mutate(ep.id)}
+                          disabled={restoreEpisode.isPending}
+                        >
+                          <Undo2 className="h-3 w-3" /> Restore
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-[10px] gap-1 text-destructive"
+                          onClick={() => setHardDeleteEp(ep)}
+                        >
+                          <Trash2 className="h-3 w-3" /> Permanent
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               {/* Episode List */}
               {episodes.length > 0 && (
                 <ScrollArea className="max-h-[calc(100vh-280px)]">
@@ -994,54 +1035,7 @@ export default function SeriesWriter() {
                 </ScrollArea>
               )}
 
-              {/* Deleted Episodes — outside ScrollArea so always visible when toggled */}
-              {showDeleted && deletedEpisodes.length > 0 && (
-                <div className="space-y-1.5 mt-2">
-                  <div className="flex items-center gap-2 pb-1">
-                    <Trash2 className="h-3 w-3 text-muted-foreground" />
-                    <span className="text-xs font-medium text-muted-foreground">Deleted Episodes</span>
-                  </div>
-                  {deletedEpisodes.map(ep => (
-                    <div key={ep.id} className="border border-dashed border-border/30 rounded-lg bg-muted/10 opacity-60">
-                      <div className="flex items-center gap-3 px-3 py-2">
-                        <Trash2 className="h-4 w-4 text-muted-foreground shrink-0" />
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs font-mono text-muted-foreground">
-                              EP {String(ep.episode_number).padStart(2, '0')}
-                            </span>
-                            <span className="text-sm text-muted-foreground line-through truncate">
-                              {ep.title || `Episode ${ep.episode_number}`}
-                            </span>
-                          </div>
-                          {ep.delete_reason && (
-                            <p className="text-[10px] text-muted-foreground mt-0.5">Reason: {ep.delete_reason}</p>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-7 px-2.5 text-xs gap-1"
-                            onClick={() => restoreEpisode.mutate(ep.id)}
-                            disabled={restoreEpisode.isPending}
-                          >
-                            <Undo2 className="h-3 w-3" /> Restore
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 px-2 text-[10px] gap-1 text-destructive"
-                            onClick={() => setHardDeleteEp(ep)}
-                          >
-                            <Trash2 className="h-3 w-3" /> Permanent
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+              {/* Deleted Episodes — shown inline right after episode list */}
 
               {/* Season Health */}
               {episodes.length > 0 && episodeMetrics.length > 0 && (
