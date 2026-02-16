@@ -185,12 +185,12 @@ export function useAutoRun(projectId: string | undefined) {
     }
   }, [job]);
 
-  const resume = useCallback(async () => {
+  const resume = useCallback(async (followLatest?: boolean) => {
     if (!job) return;
     setError(null);
     abortRef.current = false;
     try {
-      await callAutoRun('resume', { jobId: job.id });
+      await callAutoRun('resume', { jobId: job.id, followLatest: followLatest ?? true });
       runLoop(job.id);
     } catch (e: any) {
       setError(e.message);
