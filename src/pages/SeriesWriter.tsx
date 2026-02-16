@@ -125,7 +125,7 @@ export default function SeriesWriter() {
     validations, episodeMetrics, metricsRunning, metricsRunningEp,
     progress, isGenerating, completedCount,
     isSeasonComplete, nextEpisode, hasFailedValidation, hasMetricsBlock, isCanonValid,
-    createCanonSnapshot, createEpisodes, generateOne, generateAll,
+    createCanonSnapshot, createEpisodes, generateOne, generateAll, stopGeneration,
     fetchScriptContent, runEpisodeMetrics,
   } = useSeriesWriter(projectId!);
 
@@ -737,7 +737,17 @@ export default function SeriesWriter() {
                       <Sparkles className="h-3 w-3 text-primary animate-pulse" />
                       Generating Episode {progress.currentEpisode} of {progress.totalEpisodes}
                     </span>
-                    <span className="text-muted-foreground">{progress.phase}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-muted-foreground">{progress.phase}</span>
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        className="h-6 px-2 text-[10px] gap-1"
+                        onClick={stopGeneration}
+                      >
+                        <XCircle className="h-3 w-3" /> Stop
+                      </Button>
+                    </div>
                   </div>
                   <Progress value={progress.totalEpisodes > 0 ? (progress.currentEpisode / progress.totalEpisodes) * 100 : 0} className="h-1.5" />
                 </div>

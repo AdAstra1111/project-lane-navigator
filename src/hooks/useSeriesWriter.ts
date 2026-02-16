@@ -74,6 +74,8 @@ export function useSeriesWriter(projectId: string) {
     currentEpisode: 0, totalEpisodes: 0, phase: 'idle',
   });
   const runningRef = useRef(false);
+  const stopRequestedRef = useRef(false);
+  const [, forceRender] = useState(0);
 
   const [metricsRunning, setMetricsRunning] = useState(false);
   const [metricsRunningEp, setMetricsRunningEp] = useState<number | null>(null);
@@ -395,6 +397,8 @@ export function useSeriesWriter(projectId: string) {
       return;
     }
     runningRef.current = true;
+    stopRequestedRef.current = false;
+    forceRender(n => n + 1);
     setProgress({ currentEpisode: episode.episode_number, totalEpisodes: 1, phase: 'blueprint' });
 
     try {
@@ -470,6 +474,7 @@ export function useSeriesWriter(projectId: string) {
 
       await updateEpisodeProgress(episode.id, 'blueprint', 'generating');
       const bpResult = await callEngine('blueprint', projectId, undefined, { forceNew: true, ...episodeContext });
+      if (stopRequestedRef.current) throw new Error('Generation stopped by user');
       const scriptId = bpResult.scriptId;
       if (!scriptId) throw new Error('Blueprint did not return scriptId');
       await updateEpisodeProgress(episode.id, 'blueprint', 'generating', scriptId);
@@ -497,14 +502,17 @@ export function useSeriesWriter(projectId: string) {
       setProgress({ currentEpisode: episode.episode_number, totalEpisodes: 1, phase: 'architecture' });
       await updateEpisodeProgress(episode.id, 'architecture', 'generating');
       await callEngine('architecture', projectId, scriptId, episodeContext);
+      if (stopRequestedRef.current) throw new Error('Generation stopped by user');
 
       setProgress({ currentEpisode: episode.episode_number, totalEpisodes: 1, phase: 'draft' });
       await updateEpisodeProgress(episode.id, 'draft', 'generating');
       await callEngine('draft', projectId, scriptId, episodeContext);
+      if (stopRequestedRef.current) throw new Error('Generation stopped by user');
 
       setProgress({ currentEpisode: episode.episode_number, totalEpisodes: 1, phase: 'score' });
       await updateEpisodeProgress(episode.id, 'score', 'generating');
       await callEngine('score', projectId, scriptId, episodeContext);
+      if (stopRequestedRef.current) throw new Error('Generation stopped by user');
 
       // Validate
       setProgress({ currentEpisode: episode.episode_number, totalEpisodes: 1, phase: 'validate' });
@@ -517,15 +525,19 @@ export function useSeriesWriter(projectId: string) {
       await updateEpisodeProgress(episode.id, 'complete', passed ? 'complete' : 'needs_revision');
       toast.success(`Episode ${episode.episode_number} generated${!passed ? ' (needs revision)' : ''}`);
     } catch (err: any) {
-      console.error(`Episode ${episode.episode_number} generation failed:`, err);
-      await updateEpisodeProgress(episode.id, 'error', 'error');
-      setProgress({ currentEpisode: episode.episode_number, totalEpisodes: 1, phase: 'error', error: err.message });
-      toast.error(`Episode ${episode.episode_number} failed: ${err.message}`);
+      const stopped = stopRequestedRef.current;
+      console.error(`Episode ${episode.episode_number} generation ${stopped ? 'stopped' : 'failed'}:`, err);
+      await updateEpisodeProgress(episode.id, 'error', stopped ? 'pending' : 'error');
+      setProgress({ currentEpisode: episode.episode_number, totalEpisodes: 1, phase: stopped ? 'idle' : 'error', error: stopped ? undefined : err.message });
+      if (stopped) toast.info('Generation stopped');
+      else toast.error(`Episode ${episode.episode_number} failed: ${err.message}`);
     }
 
-    setProgress(prev => ({ ...prev, phase: 'complete' }));
+    setProgress(prev => ({ ...prev, phase: stopRequestedRef.current ? 'idle' : 'complete' }));
     invalidateAll();
     runningRef.current = false;
+    stopRequestedRef.current = false;
+    forceRender(n => n + 1);
   }, [projectId, canonSnapshot]);
 
   // ── Generate all pending episodes sequentially ──
@@ -535,6 +547,8 @@ export function useSeriesWriter(projectId: string) {
       return;
     }
     runningRef.current = true;
+    stopRequestedRef.current = false;
+    forceRender(n => n + 1);
 
     const { data: freshEpisodes, error: fetchErr } = await supabase
       .from('series_episodes')
@@ -552,6 +566,10 @@ export function useSeriesWriter(projectId: string) {
     setProgress({ currentEpisode: 0, totalEpisodes: total, phase: 'idle' });
 
     for (let i = 0; i < total; i++) {
+      if (stopRequestedRef.current) {
+        toast.info('Generation stopped by user');
+        break;
+      }
       const ep = freshEpisodes[i] as SeriesEpisode;
       if (ep.status === 'complete') continue;
       // Block if previous episode failed validation
@@ -640,9 +658,11 @@ export function useSeriesWriter(projectId: string) {
       toast.success('Season generation complete!');
     }
 
-    setProgress(prev => ({ ...prev, phase: 'complete' }));
+    setProgress(prev => ({ ...prev, phase: stopRequestedRef.current ? 'idle' : 'complete' }));
     invalidateAll();
     runningRef.current = false;
+    stopRequestedRef.current = false;
+    forceRender(n => n + 1);
   }, [projectId, canonSnapshot]);
 
   // ── Invalidate canon (when user edits canon docs) ──
@@ -725,6 +745,11 @@ export function useSeriesWriter(projectId: string) {
     setMetricsRunningEp(null);
   }, [projectId, canonSnapshot, episodes, episodeMetrics]);
 
+  const stopGeneration = useCallback(() => {
+    stopRequestedRef.current = true;
+    toast.info('Stopping after current phase completes…');
+  }, []);
+
   // ── Derived state ──
   const isGenerating = runningRef.current;
   const completedCount = episodes.filter(e => e.status === 'complete').length;
@@ -761,6 +786,7 @@ export function useSeriesWriter(projectId: string) {
     updateEpisode,
     generateAll,
     generateOne,
+    stopGeneration,
     invalidateCanon,
     fetchScriptContent,
     runEpisodeMetrics,
