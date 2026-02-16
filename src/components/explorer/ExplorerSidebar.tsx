@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { Link, useParams, useSearchParams, useLocation } from 'react-router-dom';
-import { Building2, FolderOpen, Layers, Clock, Star, ChevronRight, ChevronDown, Plus, Trash2, Inbox } from 'lucide-react';
+import { Building2, FolderOpen, Layers, Clock, Star, ChevronRight, ChevronDown, Plus, Trash2, Inbox, ArrowRightToLine } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useCompanies, useCompanyProjects } from '@/hooks/useCompanies';
 import { useAllCompanyLinks } from '@/hooks/useAllCompanyLinks';
@@ -9,6 +9,7 @@ import { FORMAT_META } from '@/lib/mode-engine';
 import { normalizeFormat } from '@/lib/format-helpers';
 import { cn } from '@/lib/utils';
 import { DeleteProjectDialog } from '@/components/DeleteProjectDialog';
+import { AssignCompanyDialog } from '@/components/explorer/AssignCompanyDialog';
 
 interface TreeItemProps {
   icon: React.ReactNode;
@@ -21,9 +22,10 @@ interface TreeItemProps {
   onToggle?: () => void;
   children?: React.ReactNode;
   onDelete?: (e: React.MouseEvent) => void;
+  onAssign?: (e: React.MouseEvent) => void;
 }
 
-function TreeItem({ icon, label, to, active, depth = 0, count, expanded, onToggle, children, onDelete }: TreeItemProps) {
+function TreeItem({ icon, label, to, active, depth = 0, count, expanded, onToggle, children, onDelete, onAssign }: TreeItemProps) {
   const hasChildren = !!children;
   const content = (
     <div
@@ -45,6 +47,15 @@ function TreeItem({ icon, label, to, active, depth = 0, count, expanded, onToggl
       <span className="truncate flex-1">{label}</span>
       {count !== undefined && (
         <span className="text-[10px] text-sidebar-foreground/40 tabular-nums">{count}</span>
+      )}
+      {onAssign && (
+        <button
+          onClick={onAssign}
+          className="opacity-0 group-hover/tree-item:opacity-100 flex items-center justify-center p-0.5 rounded text-muted-foreground hover:text-primary transition-all shrink-0"
+          title="Assign to company"
+        >
+          <ArrowRightToLine className="h-3 w-3" strokeWidth={2.5} />
+        </button>
       )}
       {onDelete && (
         <button
@@ -217,6 +228,7 @@ export function ExplorerSidebar() {
   const [companiesExpanded, setCompaniesExpanded] = useState(true);
   const [unassignedExpanded, setUnassignedExpanded] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string } | null>(null);
+  const [assignTarget, setAssignTarget] = useState<{ id: string; title: string } | null>(null);
 
   // Determine selected company from URL
   const selectedCompanyId = useMemo(() => {
@@ -300,6 +312,7 @@ export function ExplorerSidebar() {
                 depth={1}
                 active={location.pathname === `/projects/${p.id}`}
                 onDelete={(e) => { e.preventDefault(); e.stopPropagation(); setDeleteTarget({ id: p.id, title: p.title }); }}
+                onAssign={(e) => { e.preventDefault(); e.stopPropagation(); setAssignTarget({ id: p.id, title: p.title }); }}
               />
             ))}
           </TreeItem>
@@ -324,6 +337,12 @@ export function ExplorerSidebar() {
           }
         }}
         isPending={deleteProject.isPending}
+      />
+      <AssignCompanyDialog
+        open={!!assignTarget}
+        onOpenChange={(v) => { if (!v) setAssignTarget(null); }}
+        projectId={assignTarget?.id || ''}
+        projectTitle={assignTarget?.title || ''}
       />
     </div>
   );
