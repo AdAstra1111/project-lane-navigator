@@ -12,6 +12,7 @@ export const DOC_DEPENDENCY_MAP: Record<string, string[]> = {
   season_arc: ["qualifications.season_episode_count", "qualifications.episode_target_duration_seconds"],
   episode_grid: ["qualifications.season_episode_count", "qualifications.episode_target_duration_seconds"],
   vertical_episode_beats: ["qualifications.season_episode_count", "qualifications.episode_target_duration_seconds"],
+  vertical_market_sheet: ["qualifications.season_episode_count", "qualifications.episode_target_duration_seconds"],
   series_overview: ["qualifications.season_episode_count"],
   format_rules: ["qualifications.episode_target_duration_seconds"],
   pilot_script: ["qualifications.episode_target_duration_seconds"],

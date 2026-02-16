@@ -62,6 +62,18 @@ const registry: Record<DeliverableType, ReviewSchema> = {
     convergenceRules: { minCI: 55, minGP: 70 },
     forbiddenCritique: ['dialogue quality', 'scene construction', 'character depth', 'emotional impact'],
   },
+  vertical_market_sheet: {
+    rubricSections: [
+      { dimension: 'Platform Targeting', weight: 25, description: 'Are target platforms/distributors clearly identified for vertical drama?' },
+      { dimension: 'Audience & Demo Clarity', weight: 25, description: 'Is the mobile-first audience well-defined?' },
+      { dimension: 'Comp Titles & Trends', weight: 25, description: 'Are relevant vertical drama comparables cited?' },
+      { dimension: 'Revenue Model', weight: 25, description: 'Is the monetization strategy (ad-supported, freemium, premium) clear?' },
+    ],
+    analysisPromptModifier: 'This is a VERTICAL MARKET SHEET — evaluate platform targeting, audience demographics, comparable vertical titles, and revenue/monetization model. Do NOT critique creative writing quality.',
+    rewritePromptModifier: 'Strengthen platform fit, audience definition, and comparable analysis. Do NOT add creative content.',
+    convergenceRules: { minCI: 55, minGP: 70 },
+    forbiddenCritique: ['dialogue quality', 'scene construction', 'character depth', 'emotional impact'],
+  },
   blueprint: {
     rubricSections: [
       { dimension: 'Act Logic', weight: 30, description: 'Does the act structure hold?' },
