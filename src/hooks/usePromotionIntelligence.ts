@@ -155,6 +155,8 @@ export interface PromotionInput {
   iterationCount: number;
   blockerTexts?: string[];
   highImpactTexts?: string[];
+  /** Project format — used to route series formats to Series Writer instead of coverage */
+  projectFormat?: string | null;
 }
 
 function computeLocally(input: PromotionInput): PromotionRecommendation {
@@ -162,6 +164,7 @@ function computeLocally(input: PromotionInput): PromotionRecommendation {
     ci, gp, gap, trajectory, currentDocument,
     blockersCount, highImpactCount, iterationCount,
     blockerTexts = [], highImpactTexts = [],
+    projectFormat,
   } = input;
 
   const doc = resolveDocStage(currentDocument);
@@ -221,9 +224,19 @@ function computeLocally(input: PromotionInput): PromotionRecommendation {
     return { recommendation: 'stabilise', next_document: null, readiness_score: readinessScore, confidence, reasons, must_fix_next: mustFixNext, risk_flags: riskFlags };
   }
 
+  // ── Determine next document (format-aware) ──
+  const SERIES_FORMATS = new Set([
+    'tv-series', 'tv_series', 'limited-series', 'limited_series',
+    'digital-series', 'digital_series', 'vertical-drama', 'vertical_drama',
+    'documentary-series', 'documentary_series', 'anim-series', 'anim_series',
+  ]);
+  const normFormat = normalizeDocTypeKey(projectFormat);
+  const isSeries = SERIES_FORMATS.has(normFormat);
+  // For series at the draft (script) stage, next step is series_writer, not coverage
+  const next = (isSeries && doc === 'draft') ? 'series_writer' : nextDoc(doc);
+
   // ── Decision bands (only reached when no hard gate fires) ──
   let recommendation: 'promote' | 'stabilise' | 'escalate';
-  const next = nextDoc(doc);
 
   if (readinessScore >= 78) recommendation = 'promote';
   else if (readinessScore >= 65) recommendation = 'stabilise';
@@ -242,8 +255,9 @@ function computeLocally(input: PromotionInput): PromotionRecommendation {
   if (highImpactCount > 0) reasons.push(`${highImpactCount} high-impact note(s) remaining`);
   if (iterationCount > 3) reasons.push(`${iterationCount} iterations completed — diminishing returns possible`);
 
+  const nextLabel = next === 'series_writer' ? 'Enter Series Writer' : `Promote to ${next}`;
   if (recommendation === 'promote' && next) {
-    mustFixNext.push(`Promote to ${next}`);
+    mustFixNext.push(nextLabel);
   } else if (recommendation === 'stabilise') {
     mustFixNext.push(...highImpactTexts.slice(0, 2));
     if (mustFixNext.length === 0) mustFixNext.push('Resolve high-impact notes');

@@ -244,6 +244,7 @@ export default function ProjectDevelopmentEngine() {
       iterationCount: iterCount,
       blockerTexts: blockers,
       highImpactTexts: highImpact,
+      projectFormat,
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [latestAnalysis, latestNotes]);
