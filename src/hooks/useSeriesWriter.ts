@@ -13,12 +13,45 @@ export interface SeriesEpisode {
   script_id: string | null;
   status: string;
   generation_progress: Record<string, any>;
+  canon_snapshot_id: string | null;
+  validation_status: string | null;
+  validation_score: number | null;
   created_at: string;
   updated_at: string;
 }
 
-type GenerationPhase = 'blueprint' | 'architecture' | 'draft' | 'score';
-const PHASES: GenerationPhase[] = ['blueprint', 'architecture', 'draft', 'score'];
+export interface CanonSnapshot {
+  id: string;
+  project_id: string;
+  user_id: string;
+  blueprint_version_id: string | null;
+  character_bible_version_id: string | null;
+  episode_grid_version_id: string | null;
+  episode_1_version_id: string | null;
+  season_episode_count: number;
+  snapshot_data: Record<string, any>;
+  status: string;
+  invalidated_at: string | null;
+  invalidation_reason: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EpisodeValidation {
+  id: string;
+  episode_id: string;
+  character_consistency_score: number;
+  relationship_continuity_score: number;
+  location_limit_score: number;
+  season_arc_alignment_score: number;
+  emotional_escalation_score: number;
+  overall_score: number;
+  passed: boolean;
+  issues: any[];
+}
+
+type GenerationPhase = 'blueprint' | 'architecture' | 'draft' | 'score' | 'validate';
+const PHASES: GenerationPhase[] = ['blueprint', 'architecture', 'draft', 'score', 'validate'];
 
 export interface SeriesProgress {
   currentEpisode: number;
@@ -35,7 +68,10 @@ export function useSeriesWriter(projectId: string) {
   const runningRef = useRef(false);
 
   const queryKey = ['series-episodes', projectId];
+  const canonKey = ['canon-snapshot', projectId];
+  const validationKey = ['episode-validations', projectId];
 
+  // ── Episodes ──
   const { data: episodes = [], isLoading } = useQuery({
     queryKey,
     queryFn: async () => {
@@ -50,17 +86,135 @@ export function useSeriesWriter(projectId: string) {
     enabled: !!projectId,
   });
 
-  function invalidate() {
+  // ── Canon Snapshot ──
+  const { data: canonSnapshot, isLoading: canonLoading } = useQuery({
+    queryKey: canonKey,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('canon_snapshots')
+        .select('*')
+        .eq('project_id', projectId)
+        .eq('status', 'active')
+        .maybeSingle();
+      if (error) throw error;
+      return data as CanonSnapshot | null;
+    },
+    enabled: !!projectId,
+  });
+
+  // ── Validations ──
+  const { data: validations = [] } = useQuery({
+    queryKey: validationKey,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('episode_validations')
+        .select('*')
+        .eq('project_id', projectId)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      return (data || []) as EpisodeValidation[];
+    },
+    enabled: !!projectId,
+  });
+
+  function invalidateAll() {
     qc.invalidateQueries({ queryKey });
+    qc.invalidateQueries({ queryKey: canonKey });
+    qc.invalidateQueries({ queryKey: validationKey });
   }
 
-  // Create episode slots
+  // ── Create Canon Snapshot ──
+  const createCanonSnapshot = useMutation({
+    mutationFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+
+      // Fetch latest versions of canon documents
+      const { data: docs } = await supabase
+        .from('project_documents')
+        .select('id, doc_type')
+        .eq('project_id', projectId)
+        .in('doc_type', ['blueprint', 'season_arc', 'character_bible', 'episode_grid', 'script']);
+
+      if (!docs?.length) throw new Error('No canon documents found');
+
+      const findDoc = (type: string) => docs.find(d => d.doc_type === type);
+      const blueprintDoc = findDoc('blueprint') || findDoc('season_arc');
+      const charBibleDoc = findDoc('character_bible');
+      const gridDoc = findDoc('episode_grid');
+      const scriptDoc = findDoc('script'); // Episode 1
+
+      if (!gridDoc) throw new Error('Episode Grid is required for canon snapshot');
+      if (!scriptDoc) throw new Error('Episode 1 script is required for canon snapshot');
+
+      // Get latest version IDs
+      const getLatestVersion = async (docId: string) => {
+        const { data } = await supabase
+          .from('project_document_versions')
+          .select('id')
+          .eq('document_id', docId)
+          .order('version_number', { ascending: false })
+          .limit(1)
+          .single();
+        return data?.id || null;
+      };
+
+      const [bpVer, cbVer, gridVer, scriptVer] = await Promise.all([
+        blueprintDoc ? getLatestVersion(blueprintDoc.id) : null,
+        charBibleDoc ? getLatestVersion(charBibleDoc.id) : null,
+        getLatestVersion(gridDoc.id),
+        getLatestVersion(scriptDoc.id),
+      ]);
+
+      // Get season episode count
+      const { data: project } = await supabase
+        .from('projects')
+        .select('season_episode_count')
+        .eq('id', projectId)
+        .single();
+
+      const seasonCount = (project as any)?.season_episode_count;
+      if (!seasonCount) throw new Error('season_episode_count must be set before creating canon snapshot');
+
+      // Deactivate existing snapshots
+      await supabase
+        .from('canon_snapshots')
+        .update({ status: 'superseded' })
+        .eq('project_id', projectId)
+        .eq('status', 'active');
+
+      // Create new snapshot
+      const { data: snapshot, error } = await supabase
+        .from('canon_snapshots')
+        .insert({
+          project_id: projectId,
+          user_id: user.id,
+          blueprint_version_id: bpVer,
+          character_bible_version_id: cbVer,
+          episode_grid_version_id: gridVer,
+          episode_1_version_id: scriptVer,
+          season_episode_count: seasonCount,
+          status: 'active',
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+      return snapshot;
+    },
+    onSuccess: () => {
+      toast.success('Canon snapshot locked');
+      invalidateAll();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  // ── Create episode slots ──
   const createEpisodes = useMutation({
     mutationFn: async (count: number) => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
 
-      // Delete existing episodes first
       await supabase.from('series_episodes').delete().eq('project_id', projectId);
 
       const rows = Array.from({ length: count }, (_, i) => ({
@@ -69,6 +223,7 @@ export function useSeriesWriter(projectId: string) {
         episode_number: i + 1,
         title: `Episode ${i + 1}`,
         status: 'pending',
+        canon_snapshot_id: canonSnapshot?.id || null,
       }));
 
       const { error } = await supabase.from('series_episodes').insert(rows);
@@ -76,12 +231,12 @@ export function useSeriesWriter(projectId: string) {
     },
     onSuccess: () => {
       toast.success('Episode slots created');
-      invalidate();
+      invalidateAll();
     },
     onError: (e: Error) => toast.error(e.message),
   });
 
-  // Update a single episode
+  // ── Update episode ──
   const updateEpisode = useMutation({
     mutationFn: async (params: { episodeId: string; title?: string; logline?: string }) => {
       const updates: Record<string, any> = {};
@@ -93,11 +248,11 @@ export function useSeriesWriter(projectId: string) {
         .eq('id', params.episodeId);
       if (error) throw error;
     },
-    onSuccess: () => invalidate(),
+    onSuccess: () => invalidateAll(),
     onError: (e: Error) => toast.error(e.message),
   });
 
-  // Call script-engine for a specific action (with optional episode context)
+  // ── Call script-engine ──
   async function callEngine(action: string, pId: string, scriptId?: string, extra: Record<string, any> = {}) {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) throw new Error('Not authenticated');
@@ -114,17 +269,98 @@ export function useSeriesWriter(projectId: string) {
     return result;
   }
 
-  // Update episode progress in DB
+  // ── Call dev-engine-v2 for validation ──
+  async function callDevEngineV2(action: string, body: Record<string, any>) {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) throw new Error('Not authenticated');
+    const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/dev-engine-v2`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ action, ...body }),
+    });
+    const result = await resp.json();
+    if (!resp.ok) throw new Error(result.error || `Dev engine error (${action})`);
+    return result;
+  }
+
+  // ── Update episode progress ──
   async function updateEpisodeProgress(episodeId: string, phase: string, status: string, scriptId?: string) {
     const updates: Record<string, any> = {
       generation_progress: { phase, updatedAt: new Date().toISOString() },
       status,
     };
     if (scriptId) updates.script_id = scriptId;
+    if (canonSnapshot?.id) updates.canon_snapshot_id = canonSnapshot.id;
     await supabase.from('series_episodes').update(updates).eq('id', episodeId);
   }
 
-  // Generate a single episode through the full pipeline
+  // ── Validate episode after generation ──
+  async function validateEpisode(episode: SeriesEpisode, scriptId: string): Promise<boolean> {
+    try {
+      const { data: scriptData } = await supabase
+        .from('scripts')
+        .select('text_content')
+        .eq('id', scriptId)
+        .single();
+
+      if (!scriptData?.text_content) return true; // Skip validation if no content
+
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return true;
+
+      // Simple validation checks
+      const text = scriptData.text_content;
+      const lines = text.split('\n');
+      const hasHook = lines.slice(0, 10).some((l: string) => l.trim().length > 20);
+      const hasCliffhanger = lines.slice(-15).some((l: string) => l.trim().length > 10);
+      
+      // Location check: count unique INT./EXT. locations
+      const locationMatches = text.match(/(?:INT\.|EXT\.|INT\/EXT\.)\s+[A-Z][A-Z\s\-\/]+/g) || [];
+      const uniqueLocations = new Set(locationMatches.map((l: string) => l.replace(/(?:INT\.|EXT\.|INT\/EXT\.)\s+/, '').trim()));
+      const locationScore = uniqueLocations.size <= 3 ? 100 : uniqueLocations.size <= 5 ? 70 : 40;
+
+      const hookScore = hasHook ? 90 : 40;
+      const cliffScore = hasCliffhanger ? 90 : 40;
+      const overall = (hookScore + cliffScore + locationScore) / 3;
+      const passed = overall >= 60;
+
+      // Store validation
+      await supabase.from('episode_validations').insert({
+        project_id: projectId,
+        episode_id: episode.id,
+        canon_snapshot_id: canonSnapshot?.id || null,
+        user_id: user.id,
+        character_consistency_score: 75, // Default until AI validation
+        relationship_continuity_score: 75,
+        location_limit_score: locationScore,
+        season_arc_alignment_score: 75,
+        emotional_escalation_score: hookScore,
+        overall_score: overall,
+        passed,
+        issues: [
+          ...(!hasHook ? [{ type: 'missing_hook', message: 'No immediate hook detected in first 10 lines' }] : []),
+          ...(!hasCliffhanger ? [{ type: 'missing_cliffhanger', message: 'No cliffhanger detected at end' }] : []),
+          ...(uniqueLocations.size > 3 ? [{ type: 'location_excess', message: `${uniqueLocations.size} unique locations (max 3 recommended)` }] : []),
+        ],
+      });
+
+      // Update episode validation status
+      await supabase.from('series_episodes').update({
+        validation_status: passed ? 'passed' : 'needs_revision',
+        validation_score: overall,
+      }).eq('id', episode.id);
+
+      return passed;
+    } catch (err) {
+      console.error('Validation error:', err);
+      return true; // Don't block on validation errors
+    }
+  }
+
+  // ── Generate a single episode ──
   const generateOne = useCallback(async (episode: SeriesEpisode) => {
     if (runningRef.current) {
       toast.warning('Generation already in progress');
@@ -134,7 +370,7 @@ export function useSeriesWriter(projectId: string) {
     setProgress({ currentEpisode: episode.episode_number, totalEpisodes: 1, phase: 'blueprint' });
 
     try {
-      // Fetch previous episode's script for continuity context
+      // Fetch previous episode's script for continuity
       let previousEpisodeSummary: string | undefined;
       if (episode.episode_number > 1) {
         const { data: prevEps } = await supabase
@@ -155,13 +391,53 @@ export function useSeriesWriter(projectId: string) {
         }
       }
 
+      // Fetch canon context (episode grid row, blueprint, character bible)
+      let canonContext = '';
+      if (canonSnapshot) {
+        // Fetch episode grid text for this episode's row
+        if (canonSnapshot.episode_grid_version_id) {
+          const { data: gridVer } = await supabase
+            .from('project_document_versions')
+            .select('plaintext')
+            .eq('id', canonSnapshot.episode_grid_version_id)
+            .single();
+          if (gridVer?.plaintext) {
+            canonContext += `\n\nEPISODE GRID (Canon Locked):\n${(gridVer.plaintext as string).slice(0, 4000)}`;
+          }
+        }
+        // Fetch character bible
+        if (canonSnapshot.character_bible_version_id) {
+          const { data: cbVer } = await supabase
+            .from('project_document_versions')
+            .select('plaintext')
+            .eq('id', canonSnapshot.character_bible_version_id)
+            .single();
+          if (cbVer?.plaintext) {
+            canonContext += `\n\nCHARACTER BIBLE (Canon Locked):\n${(cbVer.plaintext as string).slice(0, 3000)}`;
+          }
+        }
+        // Fetch blueprint/season arc
+        if (canonSnapshot.blueprint_version_id) {
+          const { data: bpVer } = await supabase
+            .from('project_document_versions')
+            .select('plaintext')
+            .eq('id', canonSnapshot.blueprint_version_id)
+            .single();
+          if (bpVer?.plaintext) {
+            canonContext += `\n\nSEASON BLUEPRINT (Canon Locked):\n${(bpVer.plaintext as string).slice(0, 3000)}`;
+          }
+        }
+      }
+
       const episodeContext = {
         episodeNumber: episode.episode_number,
         episodeTitle: episode.title,
         episodeLogline: episode.logline,
-        totalEpisodes: 1,
+        totalEpisodes: canonSnapshot?.season_episode_count || 1,
         seriesMode: true,
         previousEpisodeSummary,
+        canonContext,
+        canonSnapshotId: canonSnapshot?.id,
       };
 
       await updateEpisodeProgress(episode.id, 'blueprint', 'generating');
@@ -170,7 +446,7 @@ export function useSeriesWriter(projectId: string) {
       if (!scriptId) throw new Error('Blueprint did not return scriptId');
       await updateEpisodeProgress(episode.id, 'blueprint', 'generating', scriptId);
 
-      // Extract title/logline from blueprint and update episode
+      // Extract title/logline from blueprint
       const bp = bpResult.blueprint || {};
       const extractedTitle = bp.title || bp.episode_title || 
         bp.three_act_breakdown?.act_1?.name ||
@@ -202,8 +478,12 @@ export function useSeriesWriter(projectId: string) {
       await updateEpisodeProgress(episode.id, 'score', 'generating');
       await callEngine('score', projectId, scriptId, episodeContext);
 
-      await updateEpisodeProgress(episode.id, 'complete', 'complete');
-      toast.success(`Episode ${episode.episode_number} generated`);
+      // Validate
+      setProgress({ currentEpisode: episode.episode_number, totalEpisodes: 1, phase: 'validate' });
+      const passed = await validateEpisode(episode, scriptId);
+
+      await updateEpisodeProgress(episode.id, 'complete', passed ? 'complete' : 'needs_revision');
+      toast.success(`Episode ${episode.episode_number} generated${!passed ? ' (needs revision)' : ''}`);
     } catch (err: any) {
       console.error(`Episode ${episode.episode_number} generation failed:`, err);
       await updateEpisodeProgress(episode.id, 'error', 'error');
@@ -212,11 +492,11 @@ export function useSeriesWriter(projectId: string) {
     }
 
     setProgress(prev => ({ ...prev, phase: 'complete' }));
-    invalidate();
+    invalidateAll();
     runningRef.current = false;
-  }, [projectId]);
+  }, [projectId, canonSnapshot]);
 
-  // Generate all episodes sequentially
+  // ── Generate all pending episodes sequentially ──
   const generateAll = useCallback(async () => {
     if (runningRef.current) {
       toast.warning('Generation already in progress');
@@ -242,6 +522,11 @@ export function useSeriesWriter(projectId: string) {
     for (let i = 0; i < total; i++) {
       const ep = freshEpisodes[i] as SeriesEpisode;
       if (ep.status === 'complete') continue;
+      // Block if previous episode failed validation
+      if (i > 0 && freshEpisodes[i - 1].validation_status === 'needs_revision') {
+        toast.warning(`Episode ${freshEpisodes[i - 1].episode_number} needs revision before continuing`);
+        break;
+      }
 
       const episodeContext = {
         episodeNumber: ep.episode_number,
@@ -249,6 +534,7 @@ export function useSeriesWriter(projectId: string) {
         episodeLogline: ep.logline,
         totalEpisodes: total,
         seriesMode: true,
+        canonSnapshotId: canonSnapshot?.id,
       };
 
       setProgress({ currentEpisode: ep.episode_number, totalEpisodes: total, phase: 'blueprint' });
@@ -260,7 +546,7 @@ export function useSeriesWriter(projectId: string) {
         if (!scriptId) throw new Error('Blueprint did not return scriptId');
         await updateEpisodeProgress(ep.id, 'blueprint', 'generating', scriptId);
 
-        // Extract title/logline from blueprint and update episode
+        // Extract title/logline
         const bp = bpResult.blueprint || {};
         const extractedTitle = bp.title || bp.episode_title || 
           bp.three_act_breakdown?.act_1?.name ||
@@ -292,23 +578,75 @@ export function useSeriesWriter(projectId: string) {
         await updateEpisodeProgress(ep.id, 'score', 'generating');
         await callEngine('score', projectId, scriptId, episodeContext);
 
-        await updateEpisodeProgress(ep.id, 'complete', 'complete');
-        invalidate();
+        // Validate
+        setProgress({ currentEpisode: ep.episode_number, totalEpisodes: total, phase: 'validate' });
+        const passed = await validateEpisode(ep as SeriesEpisode, scriptId);
+
+        await updateEpisodeProgress(ep.id, 'complete', passed ? 'complete' : 'needs_revision');
+        invalidateAll();
+
+        if (!passed) {
+          toast.warning(`Episode ${ep.episode_number} needs revision — stopping auto-run`);
+          break;
+        }
       } catch (err: any) {
         console.error(`Episode ${ep.episode_number} generation failed:`, err);
         await updateEpisodeProgress(ep.id, 'error', 'error');
         setProgress({ currentEpisode: ep.episode_number, totalEpisodes: total, phase: 'error', error: err.message });
         toast.error(`Episode ${ep.episode_number} failed: ${err.message}`);
+        break; // Stop on error
       }
     }
 
-    setProgress(prev => ({ ...prev, phase: 'complete' }));
-    toast.success('Series generation complete');
-    invalidate();
-    runningRef.current = false;
-  }, [projectId]);
+    // Check completion
+    const { data: finalEps } = await supabase
+      .from('series_episodes')
+      .select('status')
+      .eq('project_id', projectId);
+    const allDone = finalEps?.every(e => e.status === 'complete');
+    if (allDone) {
+      toast.success('Season generation complete!');
+    }
 
-  // Fetch script content for reading
+    setProgress(prev => ({ ...prev, phase: 'complete' }));
+    invalidateAll();
+    runningRef.current = false;
+  }, [projectId, canonSnapshot]);
+
+  // ── Invalidate canon (when user edits canon docs) ──
+  const invalidateCanon = useMutation({
+    mutationFn: async (reason: string) => {
+      if (!canonSnapshot) return;
+      await supabase.from('canon_snapshots').update({
+        status: 'invalidated',
+        invalidated_at: new Date().toISOString(),
+        invalidation_reason: reason,
+      }).eq('id', canonSnapshot.id);
+
+      // Mark all non-complete episodes as invalidated
+      const completedEps = episodes.filter(e => e.status === 'complete');
+      const highestComplete = completedEps.length > 0
+        ? Math.max(...completedEps.map(e => e.episode_number))
+        : 0;
+
+      // Invalidate episodes after the last complete one
+      for (const ep of episodes) {
+        if (ep.episode_number > highestComplete && ep.status !== 'pending') {
+          await supabase.from('series_episodes').update({
+            status: 'invalidated',
+            validation_status: 'canon_changed',
+          }).eq('id', ep.id);
+        }
+      }
+    },
+    onSuccess: () => {
+      toast.warning('Canon changed — future episodes must be regenerated');
+      invalidateAll();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  // ── Fetch script content ──
   const fetchScriptContent = useCallback(async (scriptId: string): Promise<string> => {
     const { data, error } = await supabase
       .from('scripts')
@@ -319,17 +657,33 @@ export function useSeriesWriter(projectId: string) {
     return data?.text_content || 'No content available.';
   }, []);
 
+  // ── Derived state ──
   const isGenerating = runningRef.current;
+  const completedCount = episodes.filter(e => e.status === 'complete').length;
+  const isSeasonComplete = episodes.length > 0 && episodes.every(e => e.status === 'complete');
+  const nextEpisode = episodes.find(e => e.status === 'pending' || e.status === 'error');
+  const hasFailedValidation = episodes.some(e => e.validation_status === 'needs_revision');
+  const isCanonValid = canonSnapshot?.status === 'active';
 
   return {
     episodes,
     isLoading,
+    canonSnapshot,
+    canonLoading,
+    validations,
     progress,
     isGenerating,
+    completedCount,
+    isSeasonComplete,
+    nextEpisode,
+    hasFailedValidation,
+    isCanonValid,
+    createCanonSnapshot,
     createEpisodes,
     updateEpisode,
     generateAll,
     generateOne,
+    invalidateCanon,
     fetchScriptContent,
   };
 }

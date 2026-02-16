@@ -21,7 +21,8 @@ export type DeliverableType =
   | 'format_rules'
   | 'season_arc'
   | 'episode_grid'
-  | 'vertical_episode_beats';
+  | 'vertical_episode_beats'
+  | 'series_writer';
 
 export const DELIVERABLE_LABELS: Record<DeliverableType, string> = {
   idea: 'Idea',
@@ -40,6 +41,7 @@ export const DELIVERABLE_LABELS: Record<DeliverableType, string> = {
   season_arc: 'Season Arc',
   episode_grid: 'Episode Grid',
   vertical_episode_beats: 'Episode Beats',
+  series_writer: 'Series Writer',
 };
 
 export const DELIVERABLE_PIPELINE_ORDER: DeliverableType[] = [
@@ -64,6 +66,7 @@ export const VERTICAL_DRAMA_PIPELINE_ORDER: DeliverableType[] = [
   'episode_grid',
   'vertical_episode_beats',
   'script',
+  'series_writer',
 ];
 
 /**
@@ -133,18 +136,20 @@ export function getVerticalDramaNextStep(
 
 // ── Development Behavior ──
 
-export type DevelopmentBehavior = 'efficiency' | 'market' | 'prestige';
+export type DevelopmentBehavior = 'efficiency' | 'market' | 'prestige' | 'sequential_canon_locked';
 
 export const BEHAVIOR_LABELS: Record<DevelopmentBehavior, string> = {
   efficiency: 'Efficiency',
   market: 'Market',
   prestige: 'Prestige',
+  sequential_canon_locked: 'Canon Locked',
 };
 
 export const BEHAVIOR_COLORS: Record<DevelopmentBehavior, string> = {
   efficiency: 'bg-sky-500/15 text-sky-400 border-sky-500/30',
   market: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
   prestige: 'bg-purple-500/15 text-purple-400 border-purple-500/30',
+  sequential_canon_locked: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
 };
 
 export interface BehaviorConfig {
@@ -175,6 +180,12 @@ export const behaviorConfig: Record<DevelopmentBehavior, BehaviorConfig> = {
     minRewriteCycles: 2,
     minBeatsPerMinute: 2.5,
   },
+  sequential_canon_locked: {
+    convergenceMultiplier: 1.0,
+    rewriteIntensity: 'direct',
+    packagingDepth: 'light',
+    minBeatsPerMinute: 3.0,
+  },
 };
 
 // ── Convergence Thresholds (per behavior) ──
@@ -189,6 +200,7 @@ export const convergenceThresholds: Record<DevelopmentBehavior, ConvergenceThres
   efficiency: { minCI: 65, minGP: 65, minRewriteCycles: 0 },
   market: { minCI: 75, minGP: 75, minRewriteCycles: 0 },
   prestige: { minCI: 85, minGP: 80, minRewriteCycles: 2 },
+  sequential_canon_locked: { minCI: 70, minGP: 70, minRewriteCycles: 0 },
 };
 
 export type ConvergenceStatus = 'Not Started' | 'In Progress' | 'Converged';
@@ -465,6 +477,7 @@ export function defaultDeliverableForDocType(docType: string): DeliverableType {
     episode_grid: 'episode_grid',
     vertical_episode_grid: 'episode_grid',
     vertical_episode_beats: 'vertical_episode_beats',
+    series_writer: 'series_writer',
   };
   return map[normalized] || 'script';
 }

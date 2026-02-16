@@ -519,6 +519,65 @@ export type Database = {
           },
         ]
       }
+      canon_snapshots: {
+        Row: {
+          blueprint_version_id: string | null
+          character_bible_version_id: string | null
+          created_at: string
+          episode_1_version_id: string | null
+          episode_grid_version_id: string | null
+          id: string
+          invalidated_at: string | null
+          invalidation_reason: string | null
+          project_id: string
+          season_episode_count: number
+          snapshot_data: Json | null
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          blueprint_version_id?: string | null
+          character_bible_version_id?: string | null
+          created_at?: string
+          episode_1_version_id?: string | null
+          episode_grid_version_id?: string | null
+          id?: string
+          invalidated_at?: string | null
+          invalidation_reason?: string | null
+          project_id: string
+          season_episode_count: number
+          snapshot_data?: Json | null
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          blueprint_version_id?: string | null
+          character_bible_version_id?: string | null
+          created_at?: string
+          episode_1_version_id?: string | null
+          episode_grid_version_id?: string | null
+          id?: string
+          invalidated_at?: string | null
+          invalidation_reason?: string | null
+          project_id?: string
+          season_episode_count?: number
+          snapshot_data?: Json | null
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "canon_snapshots_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       cast_trends: {
         Row: {
           actor_name: string
@@ -2911,6 +2970,79 @@ export type Database = {
           weights?: Json
         }
         Relationships: []
+      }
+      episode_validations: {
+        Row: {
+          canon_snapshot_id: string | null
+          character_consistency_score: number | null
+          created_at: string
+          emotional_escalation_score: number | null
+          episode_id: string
+          id: string
+          issues: Json | null
+          location_limit_score: number | null
+          overall_score: number | null
+          passed: boolean | null
+          project_id: string
+          relationship_continuity_score: number | null
+          season_arc_alignment_score: number | null
+          user_id: string
+        }
+        Insert: {
+          canon_snapshot_id?: string | null
+          character_consistency_score?: number | null
+          created_at?: string
+          emotional_escalation_score?: number | null
+          episode_id: string
+          id?: string
+          issues?: Json | null
+          location_limit_score?: number | null
+          overall_score?: number | null
+          passed?: boolean | null
+          project_id: string
+          relationship_continuity_score?: number | null
+          season_arc_alignment_score?: number | null
+          user_id: string
+        }
+        Update: {
+          canon_snapshot_id?: string | null
+          character_consistency_score?: number | null
+          created_at?: string
+          emotional_escalation_score?: number | null
+          episode_id?: string
+          id?: string
+          issues?: Json | null
+          location_limit_score?: number | null
+          overall_score?: number | null
+          passed?: boolean | null
+          project_id?: string
+          relationship_continuity_score?: number | null
+          season_arc_alignment_score?: number | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "episode_validations_canon_snapshot_id_fkey"
+            columns: ["canon_snapshot_id"]
+            isOneToOne: false
+            referencedRelation: "canon_snapshots"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "episode_validations_episode_id_fkey"
+            columns: ["episode_id"]
+            isOneToOne: false
+            referencedRelation: "series_episodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "episode_validations_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       failure_contrast: {
         Row: {
@@ -7461,6 +7593,7 @@ export type Database = {
       }
       series_episodes: {
         Row: {
+          canon_snapshot_id: string | null
           created_at: string
           episode_number: number
           generation_progress: Json | null
@@ -7472,8 +7605,11 @@ export type Database = {
           title: string
           updated_at: string
           user_id: string
+          validation_score: number | null
+          validation_status: string | null
         }
         Insert: {
+          canon_snapshot_id?: string | null
           created_at?: string
           episode_number: number
           generation_progress?: Json | null
@@ -7485,8 +7621,11 @@ export type Database = {
           title?: string
           updated_at?: string
           user_id: string
+          validation_score?: number | null
+          validation_status?: string | null
         }
         Update: {
+          canon_snapshot_id?: string | null
           created_at?: string
           episode_number?: number
           generation_progress?: Json | null
@@ -7498,8 +7637,17 @@ export type Database = {
           title?: string
           updated_at?: string
           user_id?: string
+          validation_score?: number | null
+          validation_status?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "series_episodes_canon_snapshot_id_fkey"
+            columns: ["canon_snapshot_id"]
+            isOneToOne: false
+            referencedRelation: "canon_snapshots"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "series_episodes_project_id_fkey"
             columns: ["project_id"]

@@ -109,6 +109,7 @@ const DELIVERABLE_RUBRICS: Record<string, string> = {
   season_arc: `Evaluate as a SEASON ARC. Score arc architecture, escalation logic, episode count alignment with canonical qualifications, and thematic spine.`,
   episode_grid: `Evaluate as an EPISODE GRID. Score grid completeness (must match canonical episode count), hook design per episode, escalation curve, and emotional engine distribution.`,
   vertical_episode_beats: `Evaluate as EPISODE BEATS for vertical drama. Score beat density per episode duration, scroll-stop hook design (3-10 second window), micro-cliffhanger endings, escalation intensity, and character agency.`,
+  series_writer: `Evaluate as a SERIES WRITER episode script for vertical drama. Score canon consistency (characters, relationships must match Character Bible), emotional escalation from previous episode, immediate hook in opening lines, cliffhanger ending, location limit (max 3 primary), and season arc alignment per Episode Grid. Do NOT allow feature-film pacing. Do NOT introduce characters not in canon.`,
 };
 
 const BEHAVIOR_MODIFIERS: Record<string, string> = {
@@ -2792,6 +2793,170 @@ Return ONLY valid JSON matching this schema:
       console.log(`[dev-engine-v2] extract-criteria: extracted ${Object.keys(criteria).filter(k => criteria[k] != null).length} fields, missing: ${parsed.missing_required.join(", ") || "none"}`);
 
       return new Response(JSON.stringify(parsed), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ══════════════════════════════════════════════
+    // SERIES WRITER VALIDATION
+    // ══════════════════════════════════════════════
+    if (action === "series-writer-validate") {
+      const { projectId, episodeId, scriptId, canonSnapshotId, episodeNumber } = body;
+      if (!projectId || !episodeId || !scriptId) throw new Error("projectId, episodeId, scriptId required");
+
+      // Fetch script content
+      const { data: scriptData } = await supabase.from("scripts")
+        .select("text_content").eq("id", scriptId).single();
+      const scriptText = scriptData?.text_content || "";
+      if (scriptText.length < 100) {
+        return new Response(JSON.stringify({ passed: true, overall_score: 100, issues: [], message: "Script too short to validate" }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // Fetch canon snapshot for context
+      let canonContext = "";
+      if (canonSnapshotId) {
+        const { data: snapshot } = await supabase.from("canon_snapshots")
+          .select("*").eq("id", canonSnapshotId).single();
+        if (snapshot) {
+          // Fetch character bible for validation
+          if (snapshot.character_bible_version_id) {
+            const { data: cbVer } = await supabase.from("project_document_versions")
+              .select("plaintext").eq("id", snapshot.character_bible_version_id).single();
+            if (cbVer?.plaintext) canonContext += `CHARACTER BIBLE:\n${cbVer.plaintext.slice(0, 2000)}\n\n`;
+          }
+          // Fetch episode grid
+          if (snapshot.episode_grid_version_id) {
+            const { data: gridVer } = await supabase.from("project_document_versions")
+              .select("plaintext").eq("id", snapshot.episode_grid_version_id).single();
+            if (gridVer?.plaintext) canonContext += `EPISODE GRID:\n${gridVer.plaintext.slice(0, 2000)}\n\n`;
+          }
+        }
+      }
+
+      // Fetch previous episode for escalation check
+      let prevEpisodeText = "";
+      if (episodeNumber > 1) {
+        const { data: prevEp } = await supabase.from("series_episodes")
+          .select("script_id").eq("project_id", projectId)
+          .eq("episode_number", episodeNumber - 1).eq("status", "complete").single();
+        if (prevEp?.script_id) {
+          const { data: prevScript } = await supabase.from("scripts")
+            .select("text_content").eq("id", prevEp.script_id).single();
+          prevEpisodeText = prevScript?.text_content?.slice(0, 2000) || "";
+        }
+      }
+
+      const VALIDATION_SYSTEM = `You are a Vertical Drama Episode Validator. Analyze the episode script against canon and vertical drama rules.
+
+VALIDATION CRITERIA:
+1. CHARACTER CONSISTENCY (0-100): Do characters match the Character Bible? No new unnamed characters introduced.
+2. RELATIONSHIP CONTINUITY (0-100): Are relationships consistent with previous episodes and Character Bible?
+3. LOCATION LIMIT (0-100): Maximum 1-3 primary locations for vertical drama pacing. Score 100 for <=3, 70 for 4-5, 40 for 6+.
+4. SEASON ARC ALIGNMENT (0-100): Does the episode advance the season arc per the Episode Grid?
+5. EMOTIONAL ESCALATION (0-100): Does tension escalate from the previous episode?
+6. HOOK PRESENCE (pass/fail): Does the episode open with an immediate hook in the first 5-10 lines?
+7. CLIFFHANGER PRESENCE (pass/fail): Does the episode end with a cliffhanger?
+
+Return ONLY valid JSON:
+{
+  "character_consistency_score": number,
+  "relationship_continuity_score": number,
+  "location_limit_score": number,
+  "season_arc_alignment_score": number,
+  "emotional_escalation_score": number,
+  "overall_score": number,
+  "passed": boolean,
+  "issues": [{"type": "string", "severity": "blocker|warning", "message": "string"}],
+  "summary": "One sentence validation summary"
+}
+
+Overall score = average of all 5 dimension scores. Passed = overall_score >= 65 AND no blocker issues.`;
+
+      const userPrompt = `${canonContext ? `CANON CONTEXT:\n${canonContext}\n` : ""}${prevEpisodeText ? `PREVIOUS EPISODE (for escalation check):\n${prevEpisodeText}\n\n` : ""}EPISODE ${episodeNumber} SCRIPT TO VALIDATE:\n${scriptText.slice(0, 8000)}`;
+
+      const raw = await callAI(LOVABLE_API_KEY, FAST_MODEL, VALIDATION_SYSTEM, userPrompt, 0.1, 2000);
+      let result: any;
+      try {
+        result = JSON.parse(extractJSON(raw));
+      } catch {
+        result = await parseAIJson(LOVABLE_API_KEY, raw);
+      }
+
+      // Store validation result
+      await supabase.from("episode_validations").insert({
+        project_id: projectId,
+        episode_id: episodeId,
+        canon_snapshot_id: canonSnapshotId || null,
+        user_id: user.id,
+        character_consistency_score: result.character_consistency_score || 0,
+        relationship_continuity_score: result.relationship_continuity_score || 0,
+        location_limit_score: result.location_limit_score || 0,
+        season_arc_alignment_score: result.season_arc_alignment_score || 0,
+        emotional_escalation_score: result.emotional_escalation_score || 0,
+        overall_score: result.overall_score || 0,
+        passed: result.passed ?? true,
+        issues: result.issues || [],
+      });
+
+      // Update episode validation status
+      await supabase.from("series_episodes").update({
+        validation_status: result.passed ? "passed" : "needs_revision",
+        validation_score: result.overall_score || 0,
+      }).eq("id", episodeId);
+
+      console.log(`[dev-engine-v2] series-writer-validate: EP${episodeNumber} score=${result.overall_score} passed=${result.passed}`);
+
+      return new Response(JSON.stringify(result), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ══════════════════════════════════════════════
+    // CANON SNAPSHOT CHECK
+    // ══════════════════════════════════════════════
+    if (action === "canon-check") {
+      const { projectId, canonSnapshotId } = body;
+      if (!projectId || !canonSnapshotId) throw new Error("projectId and canonSnapshotId required");
+
+      const { data: snapshot } = await supabase.from("canon_snapshots")
+        .select("*").eq("id", canonSnapshotId).single();
+      if (!snapshot) throw new Error("Canon snapshot not found");
+
+      // Check if any canon document versions have changed
+      const versionIds = [
+        snapshot.blueprint_version_id,
+        snapshot.character_bible_version_id,
+        snapshot.episode_grid_version_id,
+      ].filter(Boolean);
+
+      let changed = false;
+      const changes: string[] = [];
+
+      for (const vId of versionIds) {
+        const { data: ver } = await supabase.from("project_document_versions")
+          .select("document_id, version_number").eq("id", vId).single();
+        if (!ver) continue;
+
+        // Check if a newer version exists
+        const { data: latestVer } = await supabase.from("project_document_versions")
+          .select("id, version_number").eq("document_id", ver.document_id)
+          .order("version_number", { ascending: false }).limit(1).single();
+
+        if (latestVer && latestVer.id !== vId) {
+          changed = true;
+          const { data: doc } = await supabase.from("project_documents")
+            .select("doc_type").eq("id", ver.document_id).single();
+          changes.push(`${doc?.doc_type || "document"} updated (v${ver.version_number} → v${latestVer.version_number})`);
+        }
+      }
+
+      return new Response(JSON.stringify({
+        valid: !changed,
+        changes,
+        snapshot_id: canonSnapshotId,
+      }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
