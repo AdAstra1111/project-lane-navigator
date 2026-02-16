@@ -362,7 +362,7 @@ export function useDevEngineV2(projectId: string | undefined) {
   const resolveDrift = useMutation({
     mutationFn: async (params: { driftEventId: string; resolutionType: 'accept_drift' | 'intentional_pivot' | 'reseed'; versionId?: string }) =>
       callEngineV2('drift-resolve', params),
-    onSuccess: () => { toast.success('Drift resolved'); invalidateAll(); },
+    onSuccess: () => { toast.success('Drift resolved'); invalidateAll(); refetchDrift(); },
     onError: (e: Error) => toast.error(e.message),
   });
 
