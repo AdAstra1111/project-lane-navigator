@@ -7,6 +7,7 @@ import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import { AnimatePresence } from "framer-motion";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { CommandPalette } from "@/components/CommandPalette";
+import { ScrollToTop } from "@/components/ScrollToTop";
 import { AuthProvider } from "@/hooks/useAuth";
 import { ThemeProvider } from "@/hooks/useTheme";
 import { CorpusIntegrityBanner } from "@/components/corpus/CorpusIntegrityBanner";
@@ -140,6 +141,7 @@ const App = () => (
       <Toaster />
       <Sonner />
       <BrowserRouter>
+        <ScrollToTop />
         <CorpusIntegrityBanner />
         <CommandPalette />
         <AnimatedRoutes />
