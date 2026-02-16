@@ -27,6 +27,7 @@ interface BeatSheetScopeInfo {
 }
 
 interface ActionToolbarProps {
+  projectId?: string;
   hasAnalysis: boolean;
   isConverged: boolean;
   isLoading: boolean;
@@ -57,6 +58,7 @@ interface ActionToolbarProps {
 }
 
 export function ActionToolbar({
+  projectId,
   hasAnalysis, isConverged, isLoading,
   onRunReview, onApplyRewrite, onPromote, onSkipStage, onConvert,
   selectedNoteCount, totalNoteCount,
@@ -95,8 +97,11 @@ export function ActionToolbar({
         {isConverged && (
           <Button size="sm" className="h-8 text-xs gap-1.5 bg-emerald-600 hover:bg-emerald-700"
             onClick={() => {
+              // Series Writer entry: always navigate, never promote/convert
               if (nextAction?.kind === 'enter_mode' && nextAction.route) {
                 navigate(nextAction.route);
+              } else if (isVerticalDrama && nextBestDocument === 'script' && projectId) {
+                navigate(`/projects/${projectId}/series-writer`);
               } else {
                 onPromote?.();
               }
