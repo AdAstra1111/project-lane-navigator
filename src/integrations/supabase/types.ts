@@ -2622,6 +2622,129 @@ export type Database = {
           },
         ]
       }
+      doc_change_proposals: {
+        Row: {
+          created_at: string
+          draft_new_version_id: string | null
+          id: string
+          project_id: string
+          proposal_text: string
+          selected_span: Json | null
+          status: string
+          target_doc_type: string
+          target_version_id: string | null
+          test_report: Json | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          draft_new_version_id?: string | null
+          id?: string
+          project_id: string
+          proposal_text: string
+          selected_span?: Json | null
+          status?: string
+          target_doc_type: string
+          target_version_id?: string | null
+          test_report?: Json | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          draft_new_version_id?: string | null
+          id?: string
+          project_id?: string
+          proposal_text?: string
+          selected_span?: Json | null
+          status?: string
+          target_doc_type?: string
+          target_version_id?: string | null
+          test_report?: Json | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "doc_change_proposals_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      doc_queries: {
+        Row: {
+          created_at: string
+          doc_type: string | null
+          doc_version_id: string | null
+          id: string
+          project_id: string
+          query_text: string
+          scope: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          doc_type?: string | null
+          doc_version_id?: string | null
+          id?: string
+          project_id: string
+          query_text: string
+          scope?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          doc_type?: string | null
+          doc_version_id?: string | null
+          id?: string
+          project_id?: string
+          query_text?: string
+          scope?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "doc_queries_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      doc_query_answers: {
+        Row: {
+          answer_text: string
+          citations: Json | null
+          created_at: string
+          doc_query_id: string
+          id: string
+        }
+        Insert: {
+          answer_text: string
+          citations?: Json | null
+          created_at?: string
+          doc_query_id: string
+          id?: string
+        }
+        Update: {
+          answer_text?: string
+          citations?: Json | null
+          created_at?: string
+          doc_query_id?: string
+          id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "doc_query_answers_doc_query_id_fkey"
+            columns: ["doc_query_id"]
+            isOneToOne: false
+            referencedRelation: "doc_queries"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       document_drift_events: {
         Row: {
           acknowledged: boolean | null
@@ -5803,6 +5926,50 @@ export type Database = {
           },
         ]
       }
+      project_doc_chunks: {
+        Row: {
+          chunk_index: number
+          chunk_text: string
+          created_at: string
+          doc_type: string
+          embedding: string | null
+          id: string
+          project_id: string
+          search_vector: unknown
+          version_id: string
+        }
+        Insert: {
+          chunk_index?: number
+          chunk_text: string
+          created_at?: string
+          doc_type: string
+          embedding?: string | null
+          id?: string
+          project_id: string
+          search_vector?: unknown
+          version_id: string
+        }
+        Update: {
+          chunk_index?: number
+          chunk_text?: string
+          created_at?: string
+          doc_type?: string
+          embedding?: string | null
+          id?: string
+          project_id?: string
+          search_vector?: unknown
+          version_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_doc_chunks_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       project_document_versions: {
         Row: {
           branch_id: string | null
@@ -8509,6 +8676,21 @@ export type Database = {
           chunk_text: string
           distance: number
           script_id: string
+        }[]
+      }
+      search_project_doc_chunks: {
+        Args: {
+          match_count?: number
+          p_project_id: string
+          search_query: string
+        }
+        Returns: {
+          chunk_index: number
+          chunk_text: string
+          doc_type: string
+          id: string
+          rank: number
+          version_id: string
         }[]
       }
     }
