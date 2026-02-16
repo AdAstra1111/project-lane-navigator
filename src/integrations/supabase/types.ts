@@ -2789,6 +2789,224 @@ export type Database = {
           },
         ]
       }
+      document_assistant_actions: {
+        Row: {
+          action_type: string
+          created_at: string
+          created_by: string
+          human_summary: string
+          id: string
+          patch: Json
+          proposed_by_message_id: string | null
+          status: string
+          target_ref: Json
+          thread_id: string
+          updated_at: string
+        }
+        Insert: {
+          action_type: string
+          created_at?: string
+          created_by: string
+          human_summary: string
+          id?: string
+          patch?: Json
+          proposed_by_message_id?: string | null
+          status?: string
+          target_ref?: Json
+          thread_id: string
+          updated_at?: string
+        }
+        Update: {
+          action_type?: string
+          created_at?: string
+          created_by?: string
+          human_summary?: string
+          id?: string
+          patch?: Json
+          proposed_by_message_id?: string | null
+          status?: string
+          target_ref?: Json
+          thread_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "document_assistant_actions_proposed_by_message_id_fkey"
+            columns: ["proposed_by_message_id"]
+            isOneToOne: false
+            referencedRelation: "document_assistant_messages"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "document_assistant_actions_thread_id_fkey"
+            columns: ["thread_id"]
+            isOneToOne: false
+            referencedRelation: "document_assistant_threads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      document_assistant_apply_runs: {
+        Row: {
+          action_id: string
+          details: Json
+          finished_at: string | null
+          id: string
+          logs: string
+          started_at: string
+          started_by: string
+          status: string
+          summary: string | null
+        }
+        Insert: {
+          action_id: string
+          details?: Json
+          finished_at?: string | null
+          id?: string
+          logs?: string
+          started_at?: string
+          started_by: string
+          status?: string
+          summary?: string | null
+        }
+        Update: {
+          action_id?: string
+          details?: Json
+          finished_at?: string | null
+          id?: string
+          logs?: string
+          started_at?: string
+          started_by?: string
+          status?: string
+          summary?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "document_assistant_apply_runs_action_id_fkey"
+            columns: ["action_id"]
+            isOneToOne: false
+            referencedRelation: "document_assistant_actions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      document_assistant_messages: {
+        Row: {
+          content: string
+          created_at: string
+          created_by: string
+          id: string
+          metadata: Json
+          role: string
+          thread_id: string
+        }
+        Insert: {
+          content: string
+          created_at?: string
+          created_by: string
+          id?: string
+          metadata?: Json
+          role: string
+          thread_id: string
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          created_by?: string
+          id?: string
+          metadata?: Json
+          role?: string
+          thread_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "document_assistant_messages_thread_id_fkey"
+            columns: ["thread_id"]
+            isOneToOne: false
+            referencedRelation: "document_assistant_threads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      document_assistant_test_runs: {
+        Row: {
+          action_id: string
+          details: Json
+          finished_at: string | null
+          id: string
+          logs: string
+          started_at: string
+          started_by: string
+          status: string
+          summary: string | null
+        }
+        Insert: {
+          action_id: string
+          details?: Json
+          finished_at?: string | null
+          id?: string
+          logs?: string
+          started_at?: string
+          started_by: string
+          status?: string
+          summary?: string | null
+        }
+        Update: {
+          action_id?: string
+          details?: Json
+          finished_at?: string | null
+          id?: string
+          logs?: string
+          started_at?: string
+          started_by?: string
+          status?: string
+          summary?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "document_assistant_test_runs_action_id_fkey"
+            columns: ["action_id"]
+            isOneToOne: false
+            referencedRelation: "document_assistant_actions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      document_assistant_threads: {
+        Row: {
+          created_at: string
+          created_by: string
+          id: string
+          project_id: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          id?: string
+          project_id: string
+          title?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          id?: string
+          project_id?: string
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "document_assistant_threads_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       document_drift_events: {
         Row: {
           acknowledged: boolean | null
