@@ -664,9 +664,9 @@ export default function ProjectDevelopmentEngine() {
                   onSetResumeSource={autoRun.setResumeSource}
                   onStop={autoRun.stop}
                    onScrollToApproval={() => {
-                     setIntelligenceTab('convergence');
+                     setIntelligenceTab('notes');
                      setTimeout(() => {
-                       const el = document.getElementById('approval-queue-anchor');
+                       const el = document.getElementById('decision-panel-anchor');
                        el?.scrollIntoView({ behavior: 'smooth' });
                      }, 100);
                    }}
