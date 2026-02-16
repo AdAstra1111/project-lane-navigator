@@ -219,6 +219,18 @@ const registry: Record<DeliverableType, ReviewSchema> = {
     convergenceRules: { minCI: 65, minGP: 60 },
     forbiddenCritique: ['prose style', 'literary quality', 'feature-film pacing'],
   },
+  series_writer: {
+    rubricSections: [
+      { dimension: 'Canon Consistency', weight: 30, description: 'Does the episode maintain character/relationship consistency with canon?' },
+      { dimension: 'Escalation & Pacing', weight: 25, description: 'Does tension escalate from the previous episode with vertical pacing?' },
+      { dimension: 'Hook & Cliffhanger', weight: 25, description: 'Does the episode open with an immediate hook and end with a cliffhanger?' },
+      { dimension: 'Arc Alignment', weight: 20, description: 'Does the episode advance the season arc per the episode grid?' },
+    ],
+    analysisPromptModifier: 'This is a SERIES WRITER episode — evaluate canon consistency, emotional escalation from the previous episode, hook/cliffhanger presence, and season arc alignment. Enforce vertical drama pacing.',
+    rewritePromptModifier: 'Maintain strict canon. Sharpen hooks and cliffhangers. Ensure escalation from previous episode.',
+    convergenceRules: { minCI: 70, minGP: 70 },
+    forbiddenCritique: ['feature-film pacing', 'literary quality', 'canon changes'],
+  },
 };
 
 // ── Public API ──
