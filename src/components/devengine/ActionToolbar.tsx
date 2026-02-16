@@ -4,6 +4,7 @@
  * Includes Beat Sheet → Episode Script for vertical_drama.
  */
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -68,6 +69,7 @@ export function ActionToolbar({
   beatSheetScope,
   nextAction,
 }: ActionToolbarProps) {
+  const navigate = useNavigate();
   const anyPending = analyzePending || rewritePending || convertPending || generateNotesPending || beatSheetToScriptPending;
   const hasMissingPrereqs = verticalDramaGating && verticalDramaGating.missing_prerequisites.length > 0;
 
@@ -92,7 +94,14 @@ export function ActionToolbar({
         {/* Converged — promote or enter mode */}
         {isConverged && (
           <Button size="sm" className="h-8 text-xs gap-1.5 bg-emerald-600 hover:bg-emerald-700"
-            onClick={onPromote} disabled={anyPending || !nextBestDocument}>
+            onClick={() => {
+              if (nextAction?.kind === 'enter_mode' && nextAction.route) {
+                navigate(nextAction.route);
+              } else {
+                onPromote?.();
+              }
+            }}
+            disabled={anyPending || (!nextBestDocument && nextAction?.kind !== 'enter_mode')}>
             {convertPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <ArrowRight className="h-3 w-3" />}
             {nextAction && nextAction.kind !== 'none'
               ? renderActionPillText(nextAction)

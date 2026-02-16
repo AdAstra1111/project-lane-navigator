@@ -3094,6 +3094,41 @@ export type Database = {
         }
         Relationships: []
       }
+      episode_continuity_notes: {
+        Row: {
+          created_at: string
+          episode_number: number
+          id: string
+          project_id: string
+          summary: Json
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          episode_number: number
+          id?: string
+          project_id: string
+          summary?: Json
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          episode_number?: number
+          id?: string
+          project_id?: string
+          summary?: Json
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "episode_continuity_notes_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       episode_validations: {
         Row: {
           canon_snapshot_id: string | null
@@ -7774,10 +7809,14 @@ export type Database = {
           episode_number: number
           generation_progress: Json | null
           id: string
+          is_season_template: boolean
+          locked_at: string | null
           logline: string | null
           project_id: string
+          resolver_hash_used: string | null
           script_id: string | null
           status: string
+          style_template_version_id: string | null
           title: string
           updated_at: string
           user_id: string
@@ -7790,10 +7829,14 @@ export type Database = {
           episode_number: number
           generation_progress?: Json | null
           id?: string
+          is_season_template?: boolean
+          locked_at?: string | null
           logline?: string | null
           project_id: string
+          resolver_hash_used?: string | null
           script_id?: string | null
           status?: string
+          style_template_version_id?: string | null
           title?: string
           updated_at?: string
           user_id: string
@@ -7806,10 +7849,14 @@ export type Database = {
           episode_number?: number
           generation_progress?: Json | null
           id?: string
+          is_season_template?: boolean
+          locked_at?: string | null
           logline?: string | null
           project_id?: string
+          resolver_hash_used?: string | null
           script_id?: string | null
           status?: string
+          style_template_version_id?: string | null
           title?: string
           updated_at?: string
           user_id?: string
@@ -7836,6 +7883,50 @@ export type Database = {
             columns: ["script_id"]
             isOneToOne: false
             referencedRelation: "scripts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      series_writer_sessions: {
+        Row: {
+          active_episode_number: number
+          created_at: string
+          id: string
+          project_id: string
+          resolver_hash: string
+          sequential_mode: boolean
+          updated_at: string
+          user_id: string
+          working_set: Json
+        }
+        Insert: {
+          active_episode_number?: number
+          created_at?: string
+          id?: string
+          project_id: string
+          resolver_hash?: string
+          sequential_mode?: boolean
+          updated_at?: string
+          user_id: string
+          working_set?: Json
+        }
+        Update: {
+          active_episode_number?: number
+          created_at?: string
+          id?: string
+          project_id?: string
+          resolver_hash?: string
+          sequential_mode?: boolean
+          updated_at?: string
+          user_id?: string
+          working_set?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "series_writer_sessions_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: true
+            referencedRelation: "projects"
             referencedColumns: ["id"]
           },
         ]

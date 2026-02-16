@@ -18,6 +18,10 @@ export interface SeriesEpisode {
   canon_snapshot_id: string | null;
   validation_status: string | null;
   validation_score: number | null;
+  locked_at: string | null;
+  resolver_hash_used: string | null;
+  style_template_version_id: string | null;
+  is_season_template: boolean;
   created_at: string;
   updated_at: string;
 }
