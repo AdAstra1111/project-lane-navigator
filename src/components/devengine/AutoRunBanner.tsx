@@ -47,7 +47,8 @@ export function AutoRunBanner({
   const hasHardGate = (job.last_risk_flags || []).some((f: string) => f.startsWith('hard_gate:'));
   const reason = job.stop_reason || job.error || '—';
   const isPausedOrStopped = status === 'paused' || status === 'stopped';
-  const isFailed = status === 'failed';
+  const hasStepError = !!job.error && status === 'running';
+  const isFailed = status === 'failed' || hasStepError;
   const hasSelectedVersion = !!selectedDocId && !!selectedVersionId;
   const needsApproval = job.awaiting_approval || (job.pending_decisions && (job.pending_decisions as any[]).length > 0);
   const needsCriteria = (job.stop_reason || '').includes('Missing required criteria');
@@ -148,7 +149,7 @@ export function AutoRunBanner({
 
       {/* Row 4: Buttons */}
       <div className="flex flex-wrap gap-1.5 pt-1">
-        {status === 'running' && (
+        {status === 'running' && !hasStepError && (
           <>
             <Button size="sm" variant="outline" className="h-7 text-[10px] gap-1" onClick={onPause}>
               <Pause className="h-3 w-3" /> Pause
