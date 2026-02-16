@@ -70,7 +70,7 @@ export default function ProjectDevelopmentEngine() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('projects')
-        .select('format, development_behavior, episode_target_duration_seconds, season_episode_count')
+        .select('format, development_behavior, episode_target_duration_seconds, season_episode_count, assigned_lane, budget_range, genres, comparable_titles, tone, target_audience, guardrails_config')
         .eq('id', projectId!)
         .single();
       if (error) throw error;
@@ -1015,6 +1015,7 @@ export default function ProjectDevelopmentEngine() {
                   char_count: versionText?.length,
                 }}
                 availableDocuments={documents?.map((d: any) => ({ id: d.id, doc_type: d.doc_type, title: d.title })) || []}
+                project={project}
               />
             </TabsContent>
 
