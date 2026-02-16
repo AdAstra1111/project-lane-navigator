@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Link, useParams, useSearchParams, useLocation } from 'react-router-dom';
 import { Building2, FolderOpen, Layers, Clock, Star, ChevronRight, ChevronDown, Plus, Trash2, Inbox, ArrowRightToLine } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -223,6 +224,7 @@ export function ExplorerSidebar() {
   const { companies, isLoading } = useCompanies();
   const { linkMap, links } = useAllCompanyLinks();
   const { projects: allProjects, deleteProject } = useProjects();
+  const queryClient = useQueryClient();
   const location = useLocation();
   const { id: paramId } = useParams<{ id: string }>();
   const [companiesExpanded, setCompaniesExpanded] = useState(true);
@@ -334,6 +336,8 @@ export function ExplorerSidebar() {
           if (deleteTarget) {
             deleteProject.mutate(deleteTarget.id, {
               onSuccess: () => {
+                queryClient.invalidateQueries({ queryKey: ['all-company-links'] });
+                queryClient.invalidateQueries({ queryKey: ['company-projects'] });
                 setDeleteTarget(null);
               },
             });
