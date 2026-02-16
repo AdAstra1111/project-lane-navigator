@@ -125,3 +125,6 @@ verify_jwt = false
 
 [functions.confirm-decision]
 verify_jwt = false
+
+[functions.publish-package]
+verify_jwt = false

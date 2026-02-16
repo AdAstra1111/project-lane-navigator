@@ -5687,8 +5687,11 @@ export type Database = {
           label: string | null
           parent_version_id: string | null
           plaintext: string
+          source_decision_ids: Json | null
           source_document_ids: Json | null
+          source_run_id: string | null
           stage: string | null
+          status: string | null
           version_number: number
         }
         Insert: {
@@ -5706,8 +5709,11 @@ export type Database = {
           label?: string | null
           parent_version_id?: string | null
           plaintext?: string
+          source_decision_ids?: Json | null
           source_document_ids?: Json | null
+          source_run_id?: string | null
           stage?: string | null
+          status?: string | null
           version_number?: number
         }
         Update: {
@@ -5725,8 +5731,11 @@ export type Database = {
           label?: string | null
           parent_version_id?: string | null
           plaintext?: string
+          source_decision_ids?: Json | null
           source_document_ids?: Json | null
+          source_run_id?: string | null
           stage?: string | null
+          status?: string | null
           version_number?: number
         }
         Relationships: [
@@ -5765,6 +5774,8 @@ export type Database = {
           file_path: string
           id: string
           ingestion_source: string | null
+          latest_export_path: string | null
+          latest_version_id: string | null
           pages_analyzed: number | null
           plaintext: string | null
           project_id: string
@@ -5772,6 +5783,7 @@ export type Database = {
           storage_path: string | null
           title: string | null
           total_pages: number | null
+          updated_at: string | null
           user_id: string
         }
         Insert: {
@@ -5785,6 +5797,8 @@ export type Database = {
           file_path: string
           id?: string
           ingestion_source?: string | null
+          latest_export_path?: string | null
+          latest_version_id?: string | null
           pages_analyzed?: number | null
           plaintext?: string | null
           project_id: string
@@ -5792,6 +5806,7 @@ export type Database = {
           storage_path?: string | null
           title?: string | null
           total_pages?: number | null
+          updated_at?: string | null
           user_id: string
         }
         Update: {
@@ -5805,6 +5820,8 @@ export type Database = {
           file_path?: string
           id?: string
           ingestion_source?: string | null
+          latest_export_path?: string | null
+          latest_version_id?: string | null
           pages_analyzed?: number | null
           plaintext?: string | null
           project_id?: string
@@ -5812,9 +5829,17 @@ export type Database = {
           storage_path?: string | null
           title?: string | null
           total_pages?: number | null
+          updated_at?: string | null
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "project_documents_latest_version_id_fkey"
+            columns: ["latest_version_id"]
+            isOneToOne: false
+            referencedRelation: "project_document_versions"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "project_documents_project_id_fkey"
             columns: ["project_id"]
