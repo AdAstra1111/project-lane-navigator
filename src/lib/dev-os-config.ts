@@ -52,6 +52,17 @@ export const DELIVERABLE_PIPELINE_ORDER: DeliverableType[] = [
   'production_draft',
 ];
 
+export const VERTICAL_DRAMA_PIPELINE_ORDER: DeliverableType[] = [
+  'idea',
+  'concept_brief',
+  'format_rules',
+  'character_bible',
+  'season_arc',
+  'episode_grid',
+  'vertical_episode_beats',
+  'script',
+];
+
 /**
  * Vertical Drama document ordering — enforces prerequisite chain.
  * Each entry lists its required prerequisites.
