@@ -26,10 +26,13 @@ export function OperationProgress({ isActive, stages = DEFAULT_STAGES, className
   const [progress, setProgress] = useState(0);
   const [label, setLabel] = useState('');
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const stuckTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const stop = useCallback(() => {
     if (timer.current) clearInterval(timer.current);
     timer.current = null;
+    if (stuckTimer.current) clearTimeout(stuckTimer.current);
+    stuckTimer.current = null;
   }, []);
 
   useEffect(() => {
@@ -37,9 +40,22 @@ export function OperationProgress({ isActive, stages = DEFAULT_STAGES, className
       setProgress(0);
       setLabel(stages[0]?.label || 'Working…');
       let current = 0;
+      let atCapSince: number | null = null;
+
       timer.current = setInterval(() => {
         current += Math.random() * 3 + 0.5;
-        if (current > 96) current = 96;
+        if (current > 96) {
+          current = 96;
+          // Track how long we've been at the cap
+          if (!atCapSince) atCapSince = Date.now();
+          // If stuck at cap for >20s, nudge to 100 and auto-dismiss
+          if (Date.now() - atCapSince > 20000) {
+            setProgress(100);
+            setLabel('Done!');
+            setTimeout(stop, 400);
+            return;
+          }
+        }
         setProgress(current);
         const stage = [...stages].reverse().find(s => current >= s.at);
         if (stage) setLabel(stage.label);
