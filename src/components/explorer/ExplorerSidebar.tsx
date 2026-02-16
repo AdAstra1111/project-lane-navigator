@@ -49,10 +49,10 @@ function TreeItem({ icon, label, to, active, depth = 0, count, expanded, onToggl
       {onDelete && (
         <button
           onClick={onDelete}
-          className="opacity-0 group-hover/tree-item:opacity-100 p-0.5 rounded text-sidebar-foreground/30 hover:text-destructive transition-all shrink-0"
+          className="hidden group-hover/tree-item:flex items-center justify-center p-0.5 rounded text-muted-foreground hover:text-destructive transition-colors shrink-0"
           title="Delete project"
         >
-          <Trash2 className="h-3 w-3" />
+          <Trash2 className="h-3 w-3" strokeWidth={2.5} />
         </button>
       )}
     </div>
