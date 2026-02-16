@@ -28,6 +28,8 @@ export interface DevNotesRun {
     overall_grade?: string;
     summary?: string;
     notes?: DevNote[];
+    canon_risk_notes?: DevNote[];
+    canon_risk_count?: number;
     strengths?: string[];
     overall_recommendations?: string;
   };
@@ -103,12 +105,13 @@ export function useEpisodeDevValidation(projectId: string, episodeNumber: number
       if (!session) throw new Error('Not authenticated');
 
       // Fire both in parallel
+      const episodeVersionId = params.episodeScriptId || null;
       const [auditResp, notesResp] = await Promise.allSettled([
         supabase.functions.invoke('series-continuity-audit', {
-          body: { projectId, episodeNumber, episodeVersionId: params.episodeScriptId || null },
+          body: { projectId, episodeNumber, episodeVersionId },
         }),
         supabase.functions.invoke('series-dev-notes', {
-          body: { projectId, episodeNumber, episodeScriptId: params.episodeScriptId || null },
+          body: { projectId, episodeNumber, episodeScriptId: episodeVersionId },
         }),
       ]);
 
