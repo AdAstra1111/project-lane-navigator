@@ -25,6 +25,7 @@ import type { DeliverableType } from '@/lib/dev-os-config';
 const LADDER_LABELS: Record<string, string> = {
   idea: 'Idea', concept_brief: 'Concept Brief', blueprint: 'Blueprint',
   architecture: 'Architecture', draft: 'Draft', coverage: 'Coverage',
+  series_writer: 'Series Writer', writers_room: "Writer's Room",
 };
 const LADDER_OPTIONS = ['idea', 'concept_brief', 'blueprint', 'architecture', 'draft'];
 
@@ -618,8 +619,10 @@ export function AutoRunMissionControl({
                     <h3 className="text-sm font-semibold">Approval Required</h3>
                     <p className="text-[11px] text-muted-foreground">
                       {job.approval_type === 'convert'
-                        ? `Review the newly generated ${LADDER_LABELS[job.pending_doc_type || ''] || job.pending_doc_type} before continuing.`
-                        : `Review ${LADDER_LABELS[job.pending_doc_type || ''] || job.pending_doc_type} before promoting to ${LADDER_LABELS[job.pending_next_doc_type || ''] || job.pending_next_doc_type}.`
+                        ? `Review the newly generated ${LADDER_LABELS[job.pending_doc_type || ''] || job.pending_doc_type || 'Document'} before continuing.`
+                        : job.pending_next_doc_type === 'series_writer'
+                          ? `Review ${LADDER_LABELS[job.pending_doc_type || ''] || job.pending_doc_type || 'Document'} before entering Series Writer.`
+                          : `Review ${LADDER_LABELS[job.pending_doc_type || ''] || job.pending_doc_type || 'Document'} before promoting to ${LADDER_LABELS[job.pending_next_doc_type || ''] || job.pending_next_doc_type || 'Next Step'}.`
                       }
                     </p>
                   </div>
