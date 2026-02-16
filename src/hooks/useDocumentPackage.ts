@@ -63,7 +63,7 @@ export function useDocumentPackage(projectId: string | undefined) {
       if (docIds.length > 0) {
         const { data: versions } = await (supabase as any)
           .from('project_document_versions')
-          .select('id, status, depends_on_resolver_hash')
+          .select('id, status, depends_on_resolver_hash, is_stale, stale_reason, inputs_used, depends_on, generator_id')
           .in('id', docIds);
         versionMap = new Map((versions || []).map((v: any) => [v.id, v]));
       }

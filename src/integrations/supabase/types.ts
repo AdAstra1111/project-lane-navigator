@@ -5682,8 +5682,12 @@ export type Database = {
           depends_on_resolver_hash: string | null
           document_id: string
           drift_snapshot: Json | null
+          generator_id: string | null
+          generator_run_id: string | null
           id: string
           inherited_core: Json | null
+          inputs_used: Json | null
+          is_stale: boolean | null
           label: string | null
           parent_version_id: string | null
           plaintext: string
@@ -5691,6 +5695,7 @@ export type Database = {
           source_document_ids: Json | null
           source_run_id: string | null
           stage: string | null
+          stale_reason: string | null
           status: string | null
           version_number: number
         }
@@ -5704,8 +5709,12 @@ export type Database = {
           depends_on_resolver_hash?: string | null
           document_id: string
           drift_snapshot?: Json | null
+          generator_id?: string | null
+          generator_run_id?: string | null
           id?: string
           inherited_core?: Json | null
+          inputs_used?: Json | null
+          is_stale?: boolean | null
           label?: string | null
           parent_version_id?: string | null
           plaintext?: string
@@ -5713,6 +5722,7 @@ export type Database = {
           source_document_ids?: Json | null
           source_run_id?: string | null
           stage?: string | null
+          stale_reason?: string | null
           status?: string | null
           version_number?: number
         }
@@ -5726,8 +5736,12 @@ export type Database = {
           depends_on_resolver_hash?: string | null
           document_id?: string
           drift_snapshot?: Json | null
+          generator_id?: string | null
+          generator_run_id?: string | null
           id?: string
           inherited_core?: Json | null
+          inputs_used?: Json | null
+          is_stale?: boolean | null
           label?: string | null
           parent_version_id?: string | null
           plaintext?: string
@@ -5735,6 +5749,7 @@ export type Database = {
           source_document_ids?: Json | null
           source_run_id?: string | null
           stage?: string | null
+          stale_reason?: string | null
           status?: string | null
           version_number?: number
         }
