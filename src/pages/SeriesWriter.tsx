@@ -29,7 +29,13 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import { useSeriesWriter, type SeriesEpisode } from '@/hooks/useSeriesWriter';
+import { useSeriesWriterV2 } from '@/hooks/useSeriesWriterV2';
 import { SeasonHealthDashboard } from '@/components/series/SeasonHealthDashboard';
+import { ContinuityLedgerPanel } from '@/components/series/ContinuityLedgerPanel';
+import { ComplianceReportPanel } from '@/components/series/ComplianceReportPanel';
+import { EpisodeHeatmap } from '@/components/series/EpisodeHeatmap';
+import { RetconPanel } from '@/components/series/RetconPanel';
+import { EpisodePackagePanel } from '@/components/series/EpisodePackagePanel';
 
 // ── Working Set doc types for vertical drama ──
 const WORKING_SET_DOC_TYPES = [
@@ -123,7 +129,12 @@ export default function SeriesWriter() {
     fetchScriptContent, runEpisodeMetrics,
   } = useSeriesWriter(projectId!);
 
-  // ── Project metadata ──
+  const {
+    ledgers, generateLedger, complianceReports, runCompliance,
+    retconEvents, createRetconEvent, analyzeRetcon, proposeRetconPatches,
+    exportEpisodePackage, exportSeasonBinder,
+  } = useSeriesWriterV2(projectId!);
+
   const { data: project } = useQuery({
     queryKey: ['sw-project', projectId],
     queryFn: async () => {
@@ -276,6 +287,9 @@ export default function SeriesWriter() {
       toast.success(`Episode ${ep.episode_number} locked`);
       qc.invalidateQueries({ queryKey: ['series-episodes', projectId] });
       qc.invalidateQueries({ queryKey: ['episode-continuity', projectId] });
+      // Trigger v2: continuity ledger + compliance
+      generateLedger.mutate(ep.episode_number);
+      runCompliance.mutate(ep.episode_number);
 
       // If this is EP1 and no template exists, prompt
       if (ep.episode_number === 1) {
@@ -536,6 +550,25 @@ export default function SeriesWriter() {
 
             {/* ── Main Content: Episode List + Canvas ── */}
             <div className="flex-1 min-w-0 space-y-4">
+              {/* Episode Heatmap */}
+              {episodes.length > 0 && (
+                <EpisodeHeatmap
+                  episodes={episodes.map(ep => ({
+                    episode_number: ep.episode_number,
+                    status: ep.status,
+                    is_locked: !!ep.locked_at,
+                    is_template: ep.is_season_template,
+                    has_conflict: false,
+                    compliance_score: typeof (ep as any).compliance_score === 'number' ? (ep as any).compliance_score : undefined,
+                  }))}
+                  selectedEpisode={selectedEpisode?.episode_number}
+                  onSelectEpisode={(epNum) => {
+                    const ep = episodes.find(e => e.episode_number === epNum);
+                    if (ep) setSelectedEpisode(ep);
+                  }}
+                />
+              )}
+
               {/* Season Progress */}
               {episodes.length > 0 && (
                 <div className="space-y-2">
@@ -733,6 +766,46 @@ export default function SeriesWriter() {
                   isRunning={metricsRunning}
                   runningEpisode={metricsRunningEp}
                 />
+              )}
+
+              {/* ── V2 Panels: Continuity, Compliance, Retcon, Packaging ── */}
+              {episodes.length > 0 && (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  {/* Continuity Ledger for selected episode */}
+                  <ContinuityLedgerPanel
+                    ledger={selectedEpisode ? ledgers.find(l => l.episode_number === selectedEpisode.episode_number) || null : null}
+                  />
+
+                  {/* Compliance Report for selected episode */}
+                  <ComplianceReportPanel
+                    report={selectedEpisode ? complianceReports.find(r => r.episode_number === selectedEpisode.episode_number) || null : null}
+                    onRunCompliance={() => selectedEpisode && runCompliance.mutate(selectedEpisode.episode_number)}
+                    isRunning={runCompliance.isPending}
+                    hasScript={!!selectedEpisode?.script_id}
+                  />
+
+                  {/* Retcon Assistant */}
+                  <RetconPanel
+                    events={retconEvents}
+                    onCreateEvent={(summary) => createRetconEvent.mutate({ changeSummary: summary })}
+                    onAnalyze={(id) => analyzeRetcon.mutate(id)}
+                    onPropose={(id, eps) => proposeRetconPatches.mutate({ retconEventId: id, episodeNumbers: eps })}
+                    isAnalyzing={analyzeRetcon.isPending}
+                    isProposing={proposeRetconPatches.isPending}
+                  />
+
+                  {/* Episode Packaging */}
+                  <EpisodePackagePanel
+                    lockedEpisodeCount={episodes.filter(e => !!e.locked_at).length}
+                    totalEpisodes={episodes.length}
+                    onExportBinder={() => exportSeasonBinder(
+                      episodes.map(e => ({ episode_number: e.episode_number, title: e.title, logline: e.logline, status: e.status })),
+                      seasonEpisodeCount,
+                      episodeDuration,
+                      resolverHash,
+                    )}
+                  />
+                </div>
               )}
             </div>
 
