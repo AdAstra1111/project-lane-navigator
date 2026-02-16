@@ -4,7 +4,7 @@
  */
 
 import { useState, useMemo, useCallback, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
@@ -17,6 +17,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Progress } from '@/components/ui/progress';
 import { Separator } from '@/components/ui/separator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Textarea } from '@/components/ui/textarea';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -24,7 +25,7 @@ import {
 import {
   ArrowLeft, Layers, Lock, Unlock, Play, CheckCircle2, Circle, Loader2,
   AlertTriangle, BookOpen, Zap, RotateCcw, FileText, Shield, ChevronRight,
-  ExternalLink, XCircle, Sparkles, Eye, EyeOff, X, Pin, PinOff,
+  ExternalLink, XCircle, Sparkles, Eye, EyeOff, X, Pin, PinOff, Trash2, Undo2, FlaskConical,
 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
@@ -82,6 +83,7 @@ interface WorkingSetDoc {
 export default function SeriesWriter() {
   const { id: projectId } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const qc = useQueryClient();
   const [showAllDocs, setShowAllDocs] = useState(false);
   const [selectedEpisode, setSelectedEpisode] = useState<SeriesEpisode | null>(null);
@@ -91,6 +93,8 @@ export default function SeriesWriter() {
   const [lockConfirmEp, setLockConfirmEp] = useState<SeriesEpisode | null>(null);
   const [templatePromptEp, setTemplatePromptEp] = useState<SeriesEpisode | null>(null);
   const [autoRunConfirmOpen, setAutoRunConfirmOpen] = useState(false);
+  const [deleteConfirmEp, setDeleteConfirmEp] = useState<SeriesEpisode | null>(null);
+  const [deleteReason, setDeleteReason] = useState('');
 
   // ── In-page doc viewer state ──
   const [viewerDoc, setViewerDoc] = useState<WorkingSetDoc | null>(null);
@@ -121,12 +125,13 @@ export default function SeriesWriter() {
   }, []);
 
   const {
-    episodes, isLoading, canonSnapshot, canonLoading,
+    episodes, deletedEpisodes, showDeleted, setShowDeleted,
+    isLoading, canonSnapshot, canonLoading,
     validations, episodeMetrics, metricsRunning, metricsRunningEp,
     progress, isGenerating, completedCount,
     isSeasonComplete, nextEpisode, hasFailedValidation, hasMetricsBlock, isCanonValid,
     createCanonSnapshot, createEpisodes, generateOne, generateAll, stopGeneration,
-    fetchScriptContent, runEpisodeMetrics,
+    fetchScriptContent, runEpisodeMetrics, deleteEpisode, restoreEpisode,
   } = useSeriesWriter(projectId!);
 
   const {
@@ -233,6 +238,16 @@ export default function SeriesWriter() {
     },
     enabled: !!projectId,
   });
+
+  // ── Auto-select episode from URL param (e.g., returning from Dev Engine) ──
+  useEffect(() => {
+    const epParam = searchParams.get('ep');
+    if (epParam && episodes.length > 0 && !selectedEpisode) {
+      const epNum = parseInt(epParam, 10);
+      const ep = episodes.find(e => e.episode_number === epNum);
+      if (ep) setSelectedEpisode(ep);
+    }
+  }, [episodes, searchParams, selectedEpisode]);
 
   // ── Auto-bootstrap: create canon + episodes if core docs exist but tables are empty ──
   const anyLoading = isLoading || canonLoading;
@@ -690,6 +705,17 @@ export default function SeriesWriter() {
                       </span>
                     </div>
                     <div className="flex items-center gap-2">
+                      {deletedEpisodes.length > 0 && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 text-xs gap-1"
+                          onClick={() => setShowDeleted(!showDeleted)}
+                        >
+                          {showDeleted ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                          {showDeleted ? 'Hide' : 'Show'} Deleted ({deletedEpisodes.length})
+                        </Button>
+                      )}
                       {nextEpisode && !hasFailedValidation && isCanonValid && !isGenerating && (
                         <Button size="sm" className="h-7 text-xs gap-1.5" onClick={() => generateOne(nextEpisode)}>
                           <Play className="h-3 w-3" /> Generate EP {nextEpisode.episode_number}
@@ -866,6 +892,41 @@ export default function SeriesWriter() {
                                 </Button>
                               )}
 
+                              {/* Send to Dev Engine */}
+                              {ep.script_id && (ep.status === 'complete' || state.isLocked) && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 px-2 text-[10px] gap-1 text-muted-foreground hover:text-foreground"
+                                  onClick={() => navigate(`/projects/${projectId}/development?source=series-writer&ep=${ep.episode_number}&returnTo=series-writer`)}
+                                >
+                                  <FlaskConical className="h-3 w-3" /> Test
+                                </Button>
+                              )}
+
+                              {/* Delete */}
+                              {!state.isLocked && !state.isTemplate && ep.status !== 'generating' && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 px-2 text-[10px] gap-1 text-muted-foreground hover:text-destructive"
+                                  onClick={() => setDeleteConfirmEp(ep)}
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                </Button>
+                              )}
+                              {/* Locked episode delete: needs confirmation with reason */}
+                              {state.isLocked && !state.isTemplate && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 px-2 text-[10px] gap-1 text-muted-foreground hover:text-destructive"
+                                  onClick={() => setDeleteConfirmEp(ep)}
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                </Button>
+                              )}
+
                               <Badge variant="outline" className={`text-[9px] ${
                                 state.isLocked ? 'border-primary/30 text-primary' :
                                 cfg.color.replace('text-', 'border-').replace('400', '500/30') + ' ' + cfg.color
@@ -877,6 +938,45 @@ export default function SeriesWriter() {
                         </div>
                       );
                     })}
+
+                    {/* Deleted Episodes */}
+                    {showDeleted && deletedEpisodes.length > 0 && (
+                      <>
+                        <div className="flex items-center gap-2 pt-3 pb-1">
+                          <Trash2 className="h-3 w-3 text-muted-foreground" />
+                          <span className="text-xs font-medium text-muted-foreground">Deleted Episodes</span>
+                        </div>
+                        {deletedEpisodes.map(ep => (
+                          <div key={ep.id} className="border border-dashed border-border/30 rounded-lg bg-muted/10 opacity-60">
+                            <div className="flex items-center gap-3 px-3 py-2">
+                              <Trash2 className="h-4 w-4 text-muted-foreground shrink-0" />
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs font-mono text-muted-foreground">
+                                    EP {String(ep.episode_number).padStart(2, '0')}
+                                  </span>
+                                  <span className="text-sm text-muted-foreground line-through truncate">
+                                    {ep.title || `Episode ${ep.episode_number}`}
+                                  </span>
+                                </div>
+                                {ep.delete_reason && (
+                                  <p className="text-[10px] text-muted-foreground mt-0.5">Reason: {ep.delete_reason}</p>
+                                )}
+                              </div>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-7 px-2.5 text-xs gap-1"
+                                onClick={() => restoreEpisode.mutate(ep.id)}
+                                disabled={restoreEpisode.isPending}
+                              >
+                                <Undo2 className="h-3 w-3" /> Restore
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </>
+                    )}
                   </div>
                 </ScrollArea>
               )}
@@ -1055,6 +1155,52 @@ export default function SeriesWriter() {
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={() => generateAll()}>Start AutoRun</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={!!deleteConfirmEp} onOpenChange={open => { if (!open) { setDeleteConfirmEp(null); setDeleteReason(''); } }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete Episode {deleteConfirmEp?.episode_number}?
+              {deleteConfirmEp?.locked_at && (
+                <Badge variant="destructive" className="ml-2 text-[10px]">Locked</Badge>
+              )}
+            </AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2">
+              <span className="block">
+                {deleteConfirmEp?.locked_at
+                  ? 'This episode is locked. It will be soft-deleted and can be restored later. Please provide a reason.'
+                  : 'This draft episode will be soft-deleted. You can restore it later from the "Show Deleted" view.'}
+              </span>
+              {deleteConfirmEp?.locked_at && (
+                <Textarea
+                  placeholder="Reason for deletion (required for locked episodes)..."
+                  value={deleteReason}
+                  onChange={e => setDeleteReason(e.target.value)}
+                  className="mt-2 text-xs"
+                  rows={2}
+                />
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={!!deleteConfirmEp?.locked_at && !deleteReason.trim()}
+              onClick={() => {
+                if (deleteConfirmEp) {
+                  deleteEpisode.mutate({ episodeId: deleteConfirmEp.id, reason: deleteReason || undefined });
+                  setDeleteConfirmEp(null);
+                  setDeleteReason('');
+                }
+              }}
+            >
+              Delete Episode
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

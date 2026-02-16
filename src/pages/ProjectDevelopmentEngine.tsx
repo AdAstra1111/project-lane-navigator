@@ -419,6 +419,18 @@ export default function ProjectDevelopmentEngine() {
                 ← Project
               </Link>
               <h1 className="text-base font-display font-bold text-foreground">Development Engine</h1>
+              {/* Return to Series Writer when launched from there */}
+              {searchParams.get('source') === 'series-writer' && (
+                <Link
+                  to={`/projects/${projectId}/series-writer${searchParams.get('ep') ? `?ep=${searchParams.get('ep')}` : ''}`}
+                  className="ml-2"
+                >
+                  <Badge variant="outline" className="text-[10px] gap-1 cursor-pointer hover:bg-primary/10 border-primary/30 text-primary">
+                    <ArrowRight className="h-3 w-3 rotate-180" /> Return to Series Writer
+                    {searchParams.get('ep') && ` (EP ${searchParams.get('ep')})`}
+                  </Badge>
+                </Link>
+              )}
             </div>
             <div className="flex flex-wrap items-center gap-1.5">
               <Badge variant="outline" className={`text-[10px] ${BEHAVIOR_COLORS[projectBehavior]}`}>
