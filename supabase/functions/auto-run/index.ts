@@ -518,6 +518,54 @@ async function updateJob(supabase: any, jobId: string, fields: Record<string, an
   await supabase.from("auto_run_jobs").update(fields).eq("id", jobId);
 }
 
+// ── Helper: get job ──
+async function getJob(supabase: any, jobId: string) {
+  const { data } = await supabase.from("auto_run_jobs").select("*").eq("id", jobId).single();
+  return data;
+}
+
+// ── Helper: normalize pending decisions from dev-engine-v2 options output ──
+interface NormalizedDecision {
+  id: string;
+  question: string;
+  options: { value: string; why: string }[];
+  recommended?: string;
+  impact: "blocking" | "non_blocking";
+}
+
+function normalizePendingDecisions(rawDecisions: any[], context: string): NormalizedDecision[] {
+  if (!Array.isArray(rawDecisions) || rawDecisions.length === 0) return [];
+  return rawDecisions.map((d: any, i: number) => ({
+    id: d.note_id || d.id || `decision_${i}`,
+    question: d.note || d.question || d.description || `Decision ${i + 1}: ${context}`,
+    options: Array.isArray(d.options) ? d.options.map((o: any) => ({
+      value: o.option_id || o.value || o.title || `opt_${i}`,
+      why: o.what_changes ? (Array.isArray(o.what_changes) ? o.what_changes.join("; ") : String(o.what_changes)) : o.why || o.title || "",
+    })) : [
+      { value: "accept", why: "Apply the recommended fix" },
+      { value: "skip", why: "Skip this issue" },
+    ],
+    recommended: d.recommended_option_id || d.recommended || undefined,
+    impact: d.severity === "blocker" ? "blocking" : "non_blocking",
+  }));
+}
+
+// ── Helper: create fallback decisions when options generation fails or returns empty ──
+function createFallbackDecisions(currentDoc: string, ci: number, gp: number, reason: string): NormalizedDecision[] {
+  return [
+    {
+      id: "fallback_force_promote",
+      question: `${reason} at ${currentDoc} (CI:${ci} GP:${gp}). How would you like to proceed?`,
+      options: [
+        { value: "force_promote", why: "Skip remaining issues and advance to the next stage" },
+        { value: "retry", why: "Run another development cycle at the current stage" },
+        { value: "stop", why: "Stop the auto-run and review manually" },
+      ],
+      impact: "blocking",
+    },
+  ];
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -1884,8 +1932,10 @@ Deno.serve(async (req) => {
 
             const optionsData = optionsResult?.result?.options || optionsResult?.result || {};
 
+            const normalizedDecisions = normalizePendingDecisions(optionsData.decisions || [], escalateReason);
+
             await logStep(supabase, jobId, newStep + 2, currentDoc, "escalate_options_generated",
-              `${escalateReason}. Generated ${(optionsData.decisions || []).length} decision sets.`,
+              `${escalateReason}. Generated ${normalizedDecisions.length} decision sets.`,
               { ci, gp, gap, readiness: promo.readiness_score, confidence: promo.confidence, risk_flags: promo.risk_flags },
             );
 
@@ -1893,6 +1943,9 @@ Deno.serve(async (req) => {
               step_count: newStep + 2,
               status: "paused",
               stop_reason: `Decisions required: ${escalateReason}`,
+              pending_decisions: normalizedDecisions.length > 0 ? normalizedDecisions : createFallbackDecisions(currentDoc, ci, gp, escalateReason),
+              awaiting_approval: false,
+              approval_type: null,
               pending_doc_id: doc.id,
               pending_version_id: latestVersion.id,
             });
@@ -1961,10 +2014,12 @@ Deno.serve(async (req) => {
               const optionsData = optionsResult?.result?.options || optionsResult?.result || {};
               const optionsRunId = optionsResult?.result?.run?.id || null;
 
+              const stabiliseDecisions = normalizePendingDecisions(optionsData.decisions || [], "Stabilise: blockers/high-impact");
+
               await logStep(supabase, jobId, newStep + 2, currentDoc, "options_generated",
-                `Generated ${(optionsData.decisions || []).length} decision sets for ${blockersCount} blockers + ${highImpactCount} high-impact notes`,
+                `Generated ${stabiliseDecisions.length} decision sets for ${blockersCount} blockers + ${highImpactCount} high-impact notes`,
                 { ci, gp, gap, readiness: promo.readiness_score },
-                undefined, { optionsRunId, decisions: optionsData.decisions?.length || 0, global_directions: optionsData.global_directions?.length || 0 }
+                undefined, { optionsRunId, decisions: stabiliseDecisions.length, global_directions: optionsData.global_directions?.length || 0 }
               );
 
               await updateJob(supabase, jobId, {
@@ -1972,6 +2027,9 @@ Deno.serve(async (req) => {
                 stage_loop_count: newLoopCount,
                 status: "paused",
                 stop_reason: "Decisions required",
+                pending_decisions: stabiliseDecisions.length > 0 ? stabiliseDecisions : createFallbackDecisions(currentDoc, ci, gp, "Blockers/high-impact issues"),
+                awaiting_approval: false,
+                approval_type: null,
                 pending_doc_id: doc.id,
                 pending_version_id: latestVersion.id,
               });
@@ -1984,9 +2042,14 @@ Deno.serve(async (req) => {
             }
           }
 
-          if (newLoopCount >= job.max_stage_loops) {
+          // ── DECISION-PRIORITY GUARD: skip max-loops approval if decisions were just set ──
+          const jobAfterOptions = await getJob(supabase, jobId);
+          const hasActiveDecisions = Array.isArray(jobAfterOptions?.pending_decisions) && (jobAfterOptions.pending_decisions as any[]).length > 0;
+
+          if (!hasActiveDecisions && newLoopCount >= job.max_stage_loops) {
             if (blockersCount > 0) {
-              await updateJob(supabase, jobId, { status: "paused", stop_reason: "Blockers persist — manual decision required", stage_loop_count: newLoopCount });
+              const fallback = createFallbackDecisions(currentDoc, ci, gp, "Blockers persist after max loops");
+              await updateJob(supabase, jobId, { status: "paused", stop_reason: "Blockers persist — manual decision required", stage_loop_count: newLoopCount, pending_decisions: fallback });
               await logStep(supabase, jobId, newStep + 2, currentDoc, "stop", "Blockers persist after max loops");
               return respondWithJob(supabase, jobId);
             }
