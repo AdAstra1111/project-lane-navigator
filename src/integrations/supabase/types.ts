@@ -8319,6 +8319,48 @@ export type Database = {
         }
         Relationships: []
       }
+      vertical_episode_metrics: {
+        Row: {
+          canon_snapshot_version: string
+          created_at: string
+          episode_number: number
+          id: string
+          metrics: Json
+          project_id: string
+        }
+        Insert: {
+          canon_snapshot_version: string
+          created_at?: string
+          episode_number: number
+          id?: string
+          metrics?: Json
+          project_id: string
+        }
+        Update: {
+          canon_snapshot_version?: string
+          created_at?: string
+          episode_number?: number
+          id?: string
+          metrics?: Json
+          project_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vertical_episode_metrics_canon_snapshot_version_fkey"
+            columns: ["canon_snapshot_version"]
+            isOneToOne: false
+            referencedRelation: "canon_snapshots"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vertical_episode_metrics_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       vertical_trend_snapshots: {
         Row: {
           created_at: string
