@@ -26,6 +26,7 @@ import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { OperationProgress, DEV_ANALYZE_STAGES, DEV_NOTES_STAGES, DEV_REWRITE_STAGES, DEV_CONVERT_STAGES } from '@/components/OperationProgress';
 import { useSetAsLatestDraft } from '@/hooks/useSetAsLatestDraft';
 import { useSeasonTemplate } from '@/hooks/useSeasonTemplate';
+import { canPromoteToScript } from '@/lib/can-promote-to-script';
 import { FeatureLengthGuardrails } from '@/components/FeatureLengthGuardrails';
 import { type DevelopmentBehavior, BEHAVIOR_LABELS, BEHAVIOR_COLORS, DELIVERABLE_LABELS, defaultDeliverableForDocType, type DeliverableType } from '@/lib/dev-os-config';
 import { isSeriesFormat as checkSeriesFormat } from '@/lib/format-helpers';
@@ -750,17 +751,21 @@ export default function ProjectDevelopmentEngine() {
                         </ConfirmDialog>
                       )}
 
-                      {/* Publish as Script — only when doc is NOT already a script type AND no script record linked */}
+                      {/* Publish as Script — gated by canPromoteToScript() */}
                       {(() => {
-                        const scriptDocTypes = ['screenplay_draft', 'pilot_script', 'episode_script', 'script'];
-                        const currentDocType = (selectedDoc?.doc_type || '').toLowerCase().replace(/[\s\-]+/g, '_');
-                        const isAlreadyScript = scriptDocTypes.includes(currentDocType);
-                        const shouldShowPublish = !isAlreadyScript;
-                        if (!shouldShowPublish) {
-                          console.log('[Promote-to-Script] Hidden: doc_type is already a script type:', currentDocType);
+                        const result = canPromoteToScript({
+                          docType: selectedDoc?.doc_type,
+                          linkedScriptId: null, // TODO: wire linked_script_id when available
+                          contentLength: versionText.length,
+                        });
+                        if (!result.eligible) {
+                          console.log('[Promote-to-Script] Hidden:', result.reason, {
+                            doc_type: selectedDoc?.doc_type,
+                            version_id: selectedVersionId,
+                          });
                           return null;
                         }
-                        console.log('[Promote-to-Script] Showing: doc_type =', currentDocType, ', not a script type');
+                        console.log('[Promote-to-Script] Showing: eligible for', selectedDoc?.doc_type);
                         return (
                           <ConfirmDialog
                             title="Publish as Script?"
