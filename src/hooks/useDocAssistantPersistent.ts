@@ -127,7 +127,15 @@ export function useDocAssistantPersistent(projectId: string | undefined) {
       if (result.threadId && !threadId) setThreadId(result.threadId);
       return result;
     },
-    onSuccess: () => {
+    onSuccess: (result: any) => {
+      console.log('[DocAssistant] Send success:', {
+        threadId: result?.threadId,
+        messageCount: result?.messages?.length ?? 0,
+        actionCount: result?.actions?.length ?? 0,
+      });
+      if (result?.messages?.length === 0) {
+        toast.error('No messages returned — check backend logs.');
+      }
       qc.invalidateQueries({ queryKey: ['da-messages', threadId] });
       qc.invalidateQueries({ queryKey: ['da-actions', threadId] });
       qc.invalidateQueries({ queryKey: ['da-thread', projectId] });

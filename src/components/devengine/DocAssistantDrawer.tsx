@@ -83,7 +83,7 @@ function ActionCard({ action }: { action: DAAction }) {
 
       {scores && (
         <CardContent className="px-3 pb-2 pt-0 space-y-0.5">
-          {['story_coherence', 'character_compelling', 'market_fit', 'finance_viability', 'buyer_attachability', 'budget_risk'].map(k => {
+          {['story_coherence', 'character_compelling', 'emotional_engagement', 'market_fit', 'finance_viability', 'buyer_attachability', 'budget_risk'].map(k => {
             const s = scores[k];
             if (!s) return null;
             return <ScoreDelta key={k} label={k} baseline={s.baseline} after={s.after} />;
