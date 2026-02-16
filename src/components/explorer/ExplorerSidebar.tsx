@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { Link, useParams, useSearchParams, useLocation } from 'react-router-dom';
-import { Building2, FolderOpen, Layers, Clock, Star, ChevronRight, ChevronDown, Plus, Trash2 } from 'lucide-react';
+import { Building2, FolderOpen, Layers, Clock, Star, ChevronRight, ChevronDown, Plus, Trash2, Inbox } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useCompanies, useCompanyProjects } from '@/hooks/useCompanies';
 import { useAllCompanyLinks } from '@/hooks/useAllCompanyLinks';
@@ -210,11 +210,12 @@ function CompanyTree({ companyId, companyName, onDeleteProject }: { companyId: s
 
 export function ExplorerSidebar() {
   const { companies, isLoading } = useCompanies();
-  const { linkMap } = useAllCompanyLinks();
-  const { deleteProject } = useProjects();
+  const { linkMap, links } = useAllCompanyLinks();
+  const { projects: allProjects, deleteProject } = useProjects();
   const location = useLocation();
   const { id: paramId } = useParams<{ id: string }>();
   const [companiesExpanded, setCompaniesExpanded] = useState(true);
+  const [unassignedExpanded, setUnassignedExpanded] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string } | null>(null);
 
   // Determine selected company from URL
@@ -222,6 +223,17 @@ export function ExplorerSidebar() {
     const match = location.pathname.match(/\/companies\/([^/]+)/);
     return match?.[1] || null;
   }, [location.pathname]);
+
+  // Projects not linked to any company
+  const linkedProjectIds = useMemo(() => {
+    const set = new Set<string>();
+    for (const l of links) set.add(l.project_id);
+    return set;
+  }, [links]);
+
+  const unassignedProjects = useMemo(() => {
+    return (allProjects || []).filter((p: any) => !linkedProjectIds.has(p.id));
+  }, [allProjects, linkedProjectIds]);
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -268,6 +280,30 @@ export function ExplorerSidebar() {
             })
           )}
         </TreeItem>
+
+        {/* Unassigned projects */}
+        {unassignedProjects.length > 0 && (
+          <TreeItem
+            icon={<Inbox className="h-3.5 w-3.5" />}
+            label="Unassigned Projects"
+            depth={0}
+            count={unassignedProjects.length}
+            expanded={unassignedExpanded}
+            onToggle={() => setUnassignedExpanded(!unassignedExpanded)}
+          >
+            {unassignedProjects.map((p: any) => (
+              <TreeItem
+                key={p.id}
+                icon={<span className="text-[10px]">📄</span>}
+                label={p.title}
+                to={`/projects/${p.id}`}
+                depth={1}
+                active={location.pathname === `/projects/${p.id}`}
+                onDelete={(e) => { e.preventDefault(); e.stopPropagation(); setDeleteTarget({ id: p.id, title: p.title }); }}
+              />
+            ))}
+          </TreeItem>
+        )}
       </div>
       <div className="px-3 py-2 border-t border-sidebar-border">
         <Link to="/projects/new">
