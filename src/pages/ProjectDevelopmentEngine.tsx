@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
+import { toast } from 'sonner';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useParams, Link, useSearchParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
@@ -309,6 +310,10 @@ export default function ProjectDevelopmentEngine() {
   };
 
   const handlePromote = () => {
+    if (!selectedVersionId) {
+      toast.error('Select a version before promoting');
+      return;
+    }
     if (hasUnresolvedMajorDrift) {
       setDriftOverrideOpen(true);
       return;
@@ -321,6 +326,10 @@ export default function ProjectDevelopmentEngine() {
   };
 
   const handleSkipStage = () => {
+    if (!selectedVersionId) {
+      toast.error('Select a version before promoting');
+      return;
+    }
     const nextBestDocument = latestAnalysis?.convergence?.next_best_document;
     setPendingStageAction(() => () => {
       if (nextBestDocument) {
