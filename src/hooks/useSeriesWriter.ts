@@ -2,6 +2,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { useState, useRef, useCallback } from 'react';
+import type { VerticalEpisodeMetricRow, EpisodeMetrics } from '@/lib/vertical-metrics-config';
+import { metricsPassGate } from '@/lib/vertical-metrics-config';
 
 export interface SeriesEpisode {
   id: string;
@@ -50,8 +52,8 @@ export interface EpisodeValidation {
   issues: any[];
 }
 
-type GenerationPhase = 'blueprint' | 'architecture' | 'draft' | 'score' | 'validate';
-const PHASES: GenerationPhase[] = ['blueprint', 'architecture', 'draft', 'score', 'validate'];
+type GenerationPhase = 'blueprint' | 'architecture' | 'draft' | 'score' | 'validate' | 'metrics';
+const PHASES: GenerationPhase[] = ['blueprint', 'architecture', 'draft', 'score', 'validate', 'metrics'];
 
 export interface SeriesProgress {
   currentEpisode: number;
@@ -60,6 +62,8 @@ export interface SeriesProgress {
   error?: string;
 }
 
+export type { VerticalEpisodeMetricRow, EpisodeMetrics };
+
 export function useSeriesWriter(projectId: string) {
   const qc = useQueryClient();
   const [progress, setProgress] = useState<SeriesProgress>({
@@ -67,9 +71,13 @@ export function useSeriesWriter(projectId: string) {
   });
   const runningRef = useRef(false);
 
+  const [metricsRunning, setMetricsRunning] = useState(false);
+  const [metricsRunningEp, setMetricsRunningEp] = useState<number | null>(null);
+
   const queryKey = ['series-episodes', projectId];
   const canonKey = ['canon-snapshot', projectId];
   const validationKey = ['episode-validations', projectId];
+  const metricsKey = ['vertical-episode-metrics', projectId];
 
   // ── Episodes ──
   const { data: episodes = [], isLoading } = useQuery({
@@ -117,10 +125,26 @@ export function useSeriesWriter(projectId: string) {
     enabled: !!projectId,
   });
 
+  // ── Episode Metrics ──
+  const { data: episodeMetrics = [] } = useQuery({
+    queryKey: metricsKey,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('vertical_episode_metrics')
+        .select('*')
+        .eq('project_id', projectId)
+        .order('episode_number', { ascending: true });
+      if (error) throw error;
+      return (data || []) as unknown as VerticalEpisodeMetricRow[];
+    },
+    enabled: !!projectId,
+  });
+
   function invalidateAll() {
     qc.invalidateQueries({ queryKey });
     qc.invalidateQueries({ queryKey: canonKey });
     qc.invalidateQueries({ queryKey: validationKey });
+    qc.invalidateQueries({ queryKey: metricsKey });
   }
 
   // ── Create Canon Snapshot ──
@@ -482,6 +506,10 @@ export function useSeriesWriter(projectId: string) {
       setProgress({ currentEpisode: episode.episode_number, totalEpisodes: 1, phase: 'validate' });
       const passed = await validateEpisode(episode, scriptId);
 
+      // Run metrics scoring
+      setProgress({ currentEpisode: episode.episode_number, totalEpisodes: 1, phase: 'metrics' });
+      await runEpisodeMetrics(episode.episode_number, scriptId);
+
       await updateEpisodeProgress(episode.id, 'complete', passed ? 'complete' : 'needs_revision');
       toast.success(`Episode ${episode.episode_number} generated${!passed ? ' (needs revision)' : ''}`);
     } catch (err: any) {
@@ -657,6 +685,42 @@ export function useSeriesWriter(projectId: string) {
     return data?.text_content || 'No content available.';
   }, []);
 
+  // ── Run metrics for a single episode ──
+  const runEpisodeMetrics = useCallback(async (episodeNumber: number, scriptId?: string) => {
+    setMetricsRunning(true);
+    setMetricsRunningEp(episodeNumber);
+    try {
+      // Find scriptId if not provided
+      let sid = scriptId;
+      if (!sid) {
+        const ep = episodes.find(e => e.episode_number === episodeNumber);
+        sid = ep?.script_id || undefined;
+      }
+      if (!sid) throw new Error('No script found for this episode');
+
+      // Gather previous metrics for flag detection
+      const prevMetrics = episodeMetrics
+        .filter(m => m.episode_number < episodeNumber)
+        .sort((a, b) => a.episode_number - b.episode_number)
+        .map(m => m.metrics);
+
+      await callDevEngineV2('series-writer-metrics', {
+        projectId,
+        episodeNumber,
+        scriptId: sid,
+        canonSnapshotId: canonSnapshot?.id,
+        seasonEpisodeCount: canonSnapshot?.season_episode_count || episodes.length,
+        previousMetrics: prevMetrics.slice(-5),
+      });
+
+      invalidateAll();
+    } catch (err: any) {
+      toast.error(`Metrics failed: ${err.message}`);
+    }
+    setMetricsRunning(false);
+    setMetricsRunningEp(null);
+  }, [projectId, canonSnapshot, episodes, episodeMetrics]);
+
   // ── Derived state ──
   const isGenerating = runningRef.current;
   const completedCount = episodes.filter(e => e.status === 'complete').length;
@@ -665,18 +729,28 @@ export function useSeriesWriter(projectId: string) {
   const hasFailedValidation = episodes.some(e => e.validation_status === 'needs_revision');
   const isCanonValid = canonSnapshot?.status === 'active';
 
+  // Check metrics gating
+  const hasMetricsBlock = episodeMetrics.some(m => {
+    const gate = metricsPassGate(m.metrics);
+    return !gate.passed;
+  });
+
   return {
     episodes,
     isLoading,
     canonSnapshot,
     canonLoading,
     validations,
+    episodeMetrics,
+    metricsRunning,
+    metricsRunningEp,
     progress,
     isGenerating,
     completedCount,
     isSeasonComplete,
     nextEpisode,
     hasFailedValidation,
+    hasMetricsBlock,
     isCanonValid,
     createCanonSnapshot,
     createEpisodes,
@@ -685,5 +759,6 @@ export function useSeriesWriter(projectId: string) {
     generateOne,
     invalidateCanon,
     fetchScriptContent,
+    runEpisodeMetrics,
   };
 }

@@ -2914,6 +2914,186 @@ Overall score = average of all 5 dimension scores. Passed = overall_score >= 65 
     }
 
     // ══════════════════════════════════════════════
+    // SERIES WRITER METRICS (Tension / Retention / Engagement)
+    // ══════════════════════════════════════════════
+    if (action === "series-writer-metrics") {
+      const { projectId, episodeNumber, scriptId, canonSnapshotId, seasonEpisodeCount, previousMetrics } = body;
+      if (!projectId || !episodeNumber || !scriptId || !canonSnapshotId) throw new Error("projectId, episodeNumber, scriptId, canonSnapshotId required");
+
+      // Fetch script
+      const { data: scriptData } = await supabase.from("scripts")
+        .select("text_content").eq("id", scriptId).single();
+      const scriptText = scriptData?.text_content || "";
+      if (scriptText.length < 50) {
+        return new Response(JSON.stringify({ error: "Script too short to score" }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // Fetch previous episode script for escalation comparison
+      let prevScriptText = "";
+      if (episodeNumber > 1) {
+        const { data: prevEp } = await supabase.from("series_episodes")
+          .select("script_id").eq("project_id", projectId)
+          .eq("episode_number", episodeNumber - 1).eq("status", "complete").single();
+        if (prevEp?.script_id) {
+          const { data: ps } = await supabase.from("scripts")
+            .select("text_content").eq("id", prevEp.script_id).single();
+          prevScriptText = ps?.text_content?.slice(0, 3000) || "";
+        }
+      }
+
+      // Fetch canon context (character bible, episode grid)
+      let canonContext = "";
+      if (canonSnapshotId) {
+        const { data: snapshot } = await supabase.from("canon_snapshots")
+          .select("*").eq("id", canonSnapshotId).single();
+        if (snapshot?.character_bible_version_id) {
+          const { data: cb } = await supabase.from("project_document_versions")
+            .select("plaintext").eq("id", snapshot.character_bible_version_id).single();
+          if (cb?.plaintext) canonContext += `CHARACTER BIBLE:\n${cb.plaintext.slice(0, 2000)}\n\n`;
+        }
+        if (snapshot?.episode_grid_version_id) {
+          const { data: grid } = await supabase.from("project_document_versions")
+            .select("plaintext").eq("id", snapshot.episode_grid_version_id).single();
+          if (grid?.plaintext) canonContext += `EPISODE GRID:\n${grid.plaintext.slice(0, 2000)}\n\n`;
+        }
+      }
+
+      // Compute target tension
+      const totalEps = seasonEpisodeCount || 10;
+      const pct = episodeNumber / totalEps;
+      let targetLevel: number;
+      if (pct <= 0.15) targetLevel = 40 + (pct / 0.15) * 25;
+      else if (pct <= 0.6) { const mp = (pct - 0.15) / 0.45; targetLevel = Math.min(85, 60 + mp * 15 + Math.sin(mp * Math.PI * 4) * 5); }
+      else if (pct <= 0.85) { const lp = (pct - 0.6) / 0.25; targetLevel = 78 + lp * 10; }
+      else { const fp = (pct - 0.85) / 0.15; targetLevel = 85 + fp * 10; }
+      targetLevel = Math.round(targetLevel);
+
+      const METRICS_SYSTEM = `You are a Vertical Drama Episode Metrics Analyzer. Score this episode across multiple dimensions.
+
+CONTEXT:
+- Episode ${episodeNumber} of ${totalEps}
+- Target tension level: ${targetLevel}/100
+${prevScriptText ? "- Previous episode script provided for escalation comparison" : "- First episode or no previous script available"}
+${canonContext ? `\nCANON:\n${canonContext}` : ""}
+${previousMetrics ? `\nPREVIOUS METRICS HISTORY (JSON):\n${JSON.stringify(previousMetrics).slice(0, 1500)}` : ""}
+
+Score each dimension 0-100. Return ONLY valid JSON:
+{
+  "tension": {
+    "tension_level": <0-100 overall edge-of-seat>,
+    "tension_delta": <change vs previous episode, 0 if first>,
+    "stakes_level": <0-100 consequence magnitude>,
+    "conflict_intensity": <0-100 interpersonal + external conflict>,
+    "momentum": <0-100 plot movement speed>,
+    "emotional_intensity": <0-100 strength of emotion>,
+    "twist_impact": <0-100 surprise magnitude, canon-consistent>
+  },
+  "cliffhanger": {
+    "cliffhanger_strength": <0-100 compulsion to watch next>
+  },
+  "retention": {
+    "score": <0-100 overall watch-through probability>,
+    "next_ep_click_likelihood": <0-100>,
+    "reasons": ["top 3 negative factors"],
+    "components": {
+      "hook_strength": <0-100>,
+      "clarity": <0-100>,
+      "pacing": <0-100>,
+      "payoff_density": <0-100>,
+      "emotional_resonance": <0-100>,
+      "cliffhanger_strength": <0-100>,
+      "confusion_risk": <0-100, higher = MORE confusing>
+    }
+  },
+  "engagement": {
+    "score": <0-100>,
+    "components": {
+      "comment_bait": <0-100>,
+      "shareability": <0-100>,
+      "rewatch_magnet": <0-100>,
+      "dominant_genre_driver": <0-100>,
+      "character_attachment": <0-100>
+    }
+  },
+  "recommendations": [
+    {
+      "type": "hook"|"pacing"|"emotion"|"stakes"|"cliffhanger"|"clarity",
+      "severity": "low"|"med"|"high",
+      "note": "what to change (canon-safe)",
+      "example": "1-2 suggested lines or beat description"
+    }
+  ]
+}
+
+RULES:
+- Never recommend changes that break canon (Character Bible, Episode Grid).
+- Never recommend introducing new major characters.
+- Recommendations must be LOCAL fixes: sharpen hooks, add micro-conflict, reduce exposition, insert emotional turns, sharpen cliffhangers.
+- If retention < 60 or cliffhanger < 60 or confusion_risk > 70, include at least one HIGH severity recommendation.`;
+
+      const userPrompt = `${prevScriptText ? `PREVIOUS EPISODE (for escalation comparison):\n${prevScriptText}\n\n` : ""}EPISODE ${episodeNumber} SCRIPT:\n${scriptText.slice(0, 10000)}`;
+
+      const raw = await callAI(LOVABLE_API_KEY, FAST_MODEL, METRICS_SYSTEM, userPrompt, 0.2, 3000);
+      let result: any;
+      try {
+        result = JSON.parse(extractJSON(raw));
+      } catch {
+        result = await parseAIJson(LOVABLE_API_KEY, raw);
+      }
+
+      // Add computed fields
+      result.tension = result.tension || {};
+      result.tension.target_level = targetLevel;
+      result.tension.tension_gap = targetLevel - (result.tension.tension_level || 0);
+      result.tension.flags = [];
+
+      // Detect flags from previous metrics
+      if (previousMetrics && Array.isArray(previousMetrics) && previousMetrics.length > 0) {
+        const t = result.tension;
+        // Overheat
+        if (previousMetrics.length >= 1) {
+          const prevOverheat = previousMetrics.slice(-1).every(
+            (m: any) => (m.tension?.tension_level || 0) > (m.tension?.target_level || 0) + 15
+          );
+          if (prevOverheat && t.tension_level > targetLevel + 15) {
+            t.flags.push("overheat_risk");
+          }
+        }
+        // Flatline
+        if (previousMetrics.length >= 2) {
+          const prevFlat = previousMetrics.slice(-2).every(
+            (m: any) => Math.abs(m.tension?.tension_delta || 0) <= 5
+          );
+          if (prevFlat && Math.abs(t.tension_delta || 0) <= 5) {
+            t.flags.push("flatline_risk");
+          }
+        }
+        // Whiplash
+        if (Math.abs(t.tension_delta || 0) > 35) {
+          t.flags.push("whiplash_risk");
+        }
+      }
+
+      // Upsert into vertical_episode_metrics
+      const { error: upsertErr } = await supabase.from("vertical_episode_metrics")
+        .upsert({
+          project_id: projectId,
+          episode_number: episodeNumber,
+          canon_snapshot_version: canonSnapshotId,
+          metrics: result,
+        }, { onConflict: "project_id,canon_snapshot_version,episode_number" });
+      if (upsertErr) console.error("Metrics upsert error:", upsertErr);
+
+      console.log(`[dev-engine-v2] series-writer-metrics: EP${episodeNumber} tension=${result.tension?.tension_level} retention=${result.retention?.score} engagement=${result.engagement?.score}`);
+
+      return new Response(JSON.stringify(result), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ══════════════════════════════════════════════
     // CANON SNAPSHOT CHECK
     // ══════════════════════════════════════════════
     if (action === "canon-check") {

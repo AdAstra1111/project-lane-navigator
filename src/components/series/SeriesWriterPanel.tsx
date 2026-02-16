@@ -4,6 +4,7 @@
  */
 
 import { useState, useCallback } from 'react';
+import { toast } from 'sonner';
 import {
   Layers, Play, CheckCircle2, Circle, Loader2, AlertTriangle,
   Plus, Pen, ChevronDown, Sparkles, BookOpen, Lock, Shield,
@@ -22,6 +23,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Card, CardContent } from '@/components/ui/card';
 import { InfoTooltip } from '@/components/InfoTooltip';
 import { useSeriesWriter, type SeriesEpisode, type SeriesProgress } from '@/hooks/useSeriesWriter';
+import { SeasonHealthDashboard } from '@/components/series/SeasonHealthDashboard';
 
 interface Props {
   projectId: string;
@@ -42,6 +44,7 @@ const PHASE_LABELS: Record<string, string> = {
   draft: 'Drafting',
   score: 'Scoring',
   validate: 'Validating',
+  metrics: 'Metrics',
   idle: 'Ready',
   complete: 'Complete',
   error: 'Error',
@@ -346,10 +349,11 @@ function ScriptReaderDialog({
 export function SeriesWriterPanel({ projectId }: Props) {
   const {
     episodes, isLoading, canonSnapshot, canonLoading,
-    validations, progress, isGenerating, completedCount,
-    isSeasonComplete, nextEpisode, hasFailedValidation, isCanonValid,
+    validations, episodeMetrics, metricsRunning, metricsRunningEp,
+    progress, isGenerating, completedCount,
+    isSeasonComplete, nextEpisode, hasFailedValidation, hasMetricsBlock, isCanonValid,
     createCanonSnapshot, createEpisodes, generateOne, generateAll,
-    fetchScriptContent,
+    fetchScriptContent, runEpisodeMetrics,
   } = useSeriesWriter(projectId);
 
   const [episodeCount, setEpisodeCount] = useState('10');
@@ -524,6 +528,18 @@ export function SeriesWriterPanel({ projectId }: Props) {
             })}
           </div>
         </ScrollArea>
+      )}
+
+      {/* Season Health Dashboard */}
+      {hasEpisodes && episodeMetrics.length > 0 && (
+        <SeasonHealthDashboard
+          metrics={episodeMetrics}
+          seasonEpisodeCount={canonSnapshot?.season_episode_count || episodes.length}
+          onRunMetrics={(ep) => runEpisodeMetrics(ep)}
+          onAutoFix={(ep) => { /* TODO: auto-fix integration */ toast.info(`Auto-fix for EP ${ep} coming soon`); }}
+          isRunning={metricsRunning}
+          runningEpisode={metricsRunningEp}
+        />
       )}
 
       {/* Script Reader */}
