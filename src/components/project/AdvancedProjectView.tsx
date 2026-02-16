@@ -3,7 +3,8 @@
  * One domain visible at a time, summary cards first, deep content behind accordions.
  */
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import {
@@ -109,7 +110,15 @@ interface Props {
 
 export function AdvancedProjectView(props: Props) {
   const [activeTab, setActiveTab] = useState<TabId>('overview');
-  const [seriesWriterEntered, setSeriesWriterEntered] = useState(false);
+  const navigate = useNavigate();
+
+  const handleTabChange = (tabId: TabId) => {
+    if (tabId === 'series-writer') {
+      navigate(`/projects/${props.projectId}/series-writer`);
+      return;
+    }
+    setActiveTab(tabId);
+  };
 
   // Only show Series Writer tab for vertical drama projects
   const TABS = useMemo(() => {
@@ -121,30 +130,6 @@ export function AdvancedProjectView(props: Props) {
 
   const renderTab = () => {
     switch (activeTab) {
-      case 'series-writer':
-        return (
-          <div className="space-y-4">
-            {/* Show readiness panel for vertical drama — always visible as reference */}
-            {isVerticalDrama && (
-              <SeriesWriterReadiness
-                projectId={props.projectId}
-                onEnterSeriesWriter={() => setSeriesWriterEntered(true)}
-                onGoToStage={(stage) => {
-                  // Navigate to appropriate tab for the blocker
-                  const stageToTab: Record<string, TabId> = {
-                    episode_grid: 'script',
-                    season_arc: 'script',
-                    character_bible: 'script',
-                    script: 'script',
-                    development: 'script',
-                  };
-                  setActiveTab(stageToTab[stage] || 'script');
-                }}
-              />
-            )}
-            <SeriesWriterPanel projectId={props.projectId} />
-          </div>
-        );
 
       case 'overview':
         return (
@@ -360,7 +345,7 @@ export function AdvancedProjectView(props: Props) {
         {TABS.map(({ id, label, icon: Icon }) => (
           <button
             key={id}
-            onClick={() => setActiveTab(id)}
+            onClick={() => handleTabChange(id)}
             className={cn(
               'flex items-center gap-1.5 px-3 py-2 text-sm font-medium whitespace-nowrap border-b-2 transition-colors -mb-[1px]',
               activeTab === id
