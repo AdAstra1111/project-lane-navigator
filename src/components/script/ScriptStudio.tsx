@@ -873,10 +873,50 @@ export function ScriptStudio({
                   <SelectValue placeholder="Select document…" />
                 </SelectTrigger>
                 <SelectContent className="bg-popover border-border z-50 max-h-[400px] min-w-[350px] w-auto">
-                {documents.map((doc: any, docIdx: number) => {
+                {(() => {
+                  // Build friendly labels and deduplicate names
+                  const DOC_TYPE_LABELS: Record<string, string> = {
+                    idea: 'Pitch Idea',
+                    concept_brief: 'Concept Brief',
+                    market_sheet: 'Market Sheet',
+                    vertical_market_sheet: 'Vertical Market Sheet',
+                    format_rules: 'Format Rules',
+                    character_bible: 'Character Bible',
+                    season_arc: 'Season Arc',
+                    episode_grid: 'Episode Grid',
+                    vertical_episode_beats: 'Episode Beats',
+                    script: 'Script',
+                    document: 'Script Draft',
+                  };
+
+                  // Count duplicates for numbering
+                  const nameCounts: Record<string, number> = {};
+                  const nameIdx: Record<string, number> = {};
+                  documents.forEach((d: any) => {
+                    const name = d.file_name || 'Untitled';
+                    nameCounts[name] = (nameCounts[name] || 0) + 1;
+                  });
+
+                  return documents.map((doc: any, docIdx: number) => {
                     const isActive = doc.id === (selectedDocId || currentScript?.id || documents[0]?.id);
                     const vCount = docVersionCounts[doc.id] || 0;
                     const latestV = docLatestVersions[doc.id] || 0;
+                    const rawName = doc.file_name || doc.version_label || 'Untitled';
+                    const docType = doc.doc_type || 'document';
+                    const friendlyType = DOC_TYPE_LABELS[docType] || docType;
+
+                    // For duplicates, add a number suffix
+                    let displayName = friendlyType;
+                    if (docType !== 'document') {
+                      displayName = friendlyType;
+                    } else {
+                      nameIdx[rawName] = (nameIdx[rawName] || 0) + 1;
+                      const count = nameCounts[rawName] || 1;
+                      displayName = count > 1
+                        ? `${friendlyType} #${nameIdx[rawName]}`
+                        : friendlyType;
+                    }
+
                     return (
                       <SelectItem
                         key={doc.id}
@@ -885,7 +925,7 @@ export function ScriptStudio({
                       >
                         <span className="flex items-center gap-1.5">
                           <FileText className="h-3 w-3 shrink-0" />
-                          <span className="whitespace-normal break-words">{doc.file_name || doc.version_label || 'Untitled'}</span>
+                          <span className="whitespace-normal break-words">{displayName}</span>
                           {vCount > 0 && (
                             <Badge variant="outline" className="text-[9px] px-1 py-0 ml-1 shrink-0 border-border">
                               v{latestV}{vCount > 1 ? ` · ${vCount} drafts` : ''}
@@ -894,7 +934,8 @@ export function ScriptStudio({
                         </span>
                       </SelectItem>
                     );
-                  })}
+                  });
+                })()}
                   {seriesEpisodes.length > 0 && documents.length > 0 && (
                     <div className="px-2 py-1.5 border-t border-border/50">
                       <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">Series Episodes</span>
