@@ -932,8 +932,8 @@ export default function SeriesWriter() {
                                 </Button>
                               )}
 
-                              {/* Retry / Revise */}
-                              {state.canWrite && (ep.status === 'error' || ep.status === 'needs_revision') && (
+                              {/* Retry / Revise — error episodes can always retry */}
+                              {(ep.status === 'error' || (state.canWrite && ep.status === 'needs_revision')) && (
                                 <Button variant="outline" size="sm" className="h-7 px-2.5 text-xs gap-1 border-orange-500/30 text-orange-400"
                                   onClick={() => generateOne(ep)} disabled={isGenerating}>
                                   <RotateCcw className="h-3 w-3" /> {ep.status === 'needs_revision' ? 'Revise' : 'Retry'}
