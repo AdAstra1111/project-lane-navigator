@@ -30,7 +30,7 @@ function TreeItem({ icon, label, to, active, depth = 0, count, expanded, onToggl
   const content = (
     <div
       className={cn(
-        'flex items-center gap-2 py-1.5 px-2 rounded-md text-sm cursor-pointer transition-colors group/tree-item',
+        'flex items-center gap-2 py-1.5 px-2 rounded-md text-sm cursor-pointer transition-colors',
         active ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium' : 'text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground',
       )}
       style={{ paddingLeft: `${depth * 16 + 8}px` }}
@@ -51,7 +51,7 @@ function TreeItem({ icon, label, to, active, depth = 0, count, expanded, onToggl
       {onAssign && (
         <button
           onClick={onAssign}
-          className="opacity-0 group-hover/tree-item:opacity-100 flex items-center justify-center p-0.5 rounded text-muted-foreground hover:text-primary transition-all shrink-0"
+          className="opacity-0 group-hover:opacity-100 flex items-center justify-center p-0.5 rounded text-muted-foreground hover:text-primary transition-all shrink-0"
           title="Assign to company"
         >
           <ArrowRightToLine className="h-3 w-3" strokeWidth={2.5} />
@@ -60,7 +60,7 @@ function TreeItem({ icon, label, to, active, depth = 0, count, expanded, onToggl
       {onDelete && (
         <button
           onClick={onDelete}
-          className="opacity-0 group-hover/tree-item:opacity-100 flex items-center justify-center p-0.5 rounded text-muted-foreground hover:text-destructive transition-all shrink-0"
+          className="opacity-0 group-hover:opacity-100 flex items-center justify-center p-0.5 rounded text-muted-foreground hover:text-destructive transition-all shrink-0"
           title="Delete project"
         >
           <Trash2 className="h-3 w-3" strokeWidth={2.5} />
@@ -70,7 +70,7 @@ function TreeItem({ icon, label, to, active, depth = 0, count, expanded, onToggl
   );
 
   return (
-    <div>
+    <div className="group">
       {to && !hasChildren ? <Link to={to}>{content}</Link> : content}
       {hasChildren && expanded && <div>{children}</div>}
     </div>
