@@ -318,6 +318,19 @@ export function useDevEngineV2(projectId: string | undefined) {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  const deleteVersion = useMutation({
+    mutationFn: async (versionId: string) => {
+      const { error } = await (supabase as any).from('project_document_versions').delete().eq('id', versionId);
+      if (error) throw error;
+    },
+    onSuccess: (_data, deletedId) => {
+      toast.success('Version deleted');
+      if (selectedVersionId === deletedId) setSelectedVersionId('');
+      invalidateAll();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   const deleteDocument = useMutation({
     mutationFn: async (docId: string) => {
       await (supabase as any).from('development_runs').delete().eq('document_id', docId);
@@ -391,7 +404,7 @@ export function useDevEngineV2(projectId: string | undefined) {
     selectDocument, setSelectedVersionId,
     runs, allDocRuns, convergenceHistory,
     latestAnalysis, latestNotes, isConverged, convergenceStatus, isLoading,
-    analyze, generateNotes, rewrite, convert, createPaste, deleteDocument,
+    analyze, generateNotes, rewrite, convert, createPaste, deleteDocument, deleteVersion,
     // Drift
     driftEvents, latestDrift, acknowledgeDrift, resolveDrift,
   };

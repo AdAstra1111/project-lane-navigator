@@ -94,7 +94,7 @@ export default function ProjectDevelopmentEngine() {
     selectDocument, setSelectedVersionId,
     runs, allDocRuns, convergenceHistory,
     latestAnalysis, latestNotes, isConverged, convergenceStatus, isLoading,
-    analyze, generateNotes, rewrite, convert, createPaste, deleteDocument,
+    analyze, generateNotes, rewrite, convert, createPaste, deleteDocument, deleteVersion,
     driftEvents, latestDrift, acknowledgeDrift, resolveDrift,
   } = useDevEngineV2(projectId);
 
@@ -445,7 +445,7 @@ export default function ProjectDevelopmentEngine() {
               <DocumentSidebar
                 documents={documents} docsLoading={docsLoading}
                 selectedDocId={selectedDocId} selectDocument={selectDocument}
-                deleteDocument={deleteDocument} versions={versions}
+                deleteDocument={deleteDocument} deleteVersion={deleteVersion} versions={versions}
                 selectedVersionId={selectedVersionId} setSelectedVersionId={setSelectedVersionId}
                 createPaste={createPaste}
               />
