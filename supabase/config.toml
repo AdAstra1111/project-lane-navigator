@@ -128,3 +128,12 @@ verify_jwt = false
 
 [functions.publish-package]
 verify_jwt = false
+
+[functions.generate-document]
+verify_jwt = false
+
+[functions.apply-project-change]
+verify_jwt = false
+
+[functions.regenerate-stale-docs]
+verify_jwt = false

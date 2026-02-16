@@ -51,6 +51,9 @@ import { useDecisionCommit } from '@/hooks/useDecisionCommit';
 import { isDocStale } from '@/lib/stale-detection';
 import { StaleDocBanner } from '@/components/devengine/StaleDocBanner';
 import { DocumentPackagePanel } from '@/components/devengine/DocumentPackagePanel';
+import { ProvenancePanel } from '@/components/devengine/ProvenancePanel';
+import { ConnectivityBanner } from '@/components/devengine/ConnectivityBanner';
+import { useDocumentPackage } from '@/hooks/useDocumentPackage';
 
 // ── Main Page ──
 export default function ProjectDevelopmentEngine() {
@@ -106,6 +109,7 @@ export default function ProjectDevelopmentEngine() {
   const autoRun = useAutoRunMissionControl(projectId);
   const { resolveOnEntry, currentResolverHash, resolvedQuals } = useStageResolve(projectId);
   const { propose } = useDecisionCommit(projectId);
+  const { packageStatus: packageStatusData } = useDocumentPackage(projectId);
 
   // Stage-entry re-resolve: call resolve-qualifications when the page loads
   useEffect(() => {
@@ -683,14 +687,33 @@ export default function ProjectDevelopmentEngine() {
           </div>
 
           {/* ═══ INTELLIGENCE PANELS (tabbed, below workspace) ═══ */}
+          {/* Connectivity banner */}
+          {projectId && (() => {
+            const pkgData = packageStatusData;
+            if (!pkgData) return null;
+            const staleTypes = pkgData.filter((d: any) => d.status === 'stale').map((d: any) => d.docType);
+            const connectedCount = pkgData.filter((d: any) => d.resolverHash).length;
+            return staleTypes.length > 0 || connectedCount < pkgData.length ? (
+              <ConnectivityBanner
+                projectId={projectId}
+                currentResolverHash={currentResolverHash}
+                staleDocCount={staleTypes.length}
+                staleDocTypes={staleTypes}
+                totalDocs={pkgData.length}
+                connectedDocs={connectedCount}
+              />
+            ) : null;
+          })()}
+
           <Tabs defaultValue="notes" className="w-full">
-             <TabsList className="w-full justify-start bg-muted/30 border border-border/50 h-9">
+             <TabsList className="w-full justify-start bg-muted/30 border border-border/50 h-9 flex-wrap">
               <TabsTrigger value="notes" className="text-xs">Notes & Feedback</TabsTrigger>
               <TabsTrigger value="convergence" className="text-xs">Convergence</TabsTrigger>
               <TabsTrigger value="qualifications" className="text-xs">Qualifications</TabsTrigger>
               <TabsTrigger value="autorun" className="text-xs">Auto-Run</TabsTrigger>
               <TabsTrigger value="criteria" className="text-xs">Criteria</TabsTrigger>
               <TabsTrigger value="package" className="text-xs">Package</TabsTrigger>
+              <TabsTrigger value="provenance" className="text-xs">Provenance</TabsTrigger>
               {convergenceHistory.length > 0 && (
                 <TabsTrigger value="timeline" className="text-xs">Timeline ({convergenceHistory.length})</TabsTrigger>
               )}
@@ -899,6 +922,32 @@ export default function ProjectDevelopmentEngine() {
 
             <TabsContent value="package" className="mt-3">
               <DocumentPackagePanel projectId={projectId} />
+            </TabsContent>
+
+            <TabsContent value="provenance" className="mt-3">
+              <Card>
+                <CardContent className="p-4">
+                  <ProvenancePanel
+                    docType={selectedDoc?.doc_type || ''}
+                    versionNumber={selectedVersion?.version_number ?? null}
+                    status={(selectedVersion as any)?.status || 'draft'}
+                    dependsOnHash={(selectedVersion as any)?.depends_on_resolver_hash || null}
+                    currentResolverHash={currentResolverHash}
+                    isStale={(selectedVersion as any)?.is_stale || false}
+                    staleReason={(selectedVersion as any)?.stale_reason || null}
+                    inputsUsed={(selectedVersion as any)?.inputs_used || null}
+                    dependsOn={Array.isArray((selectedVersion as any)?.depends_on) ? (selectedVersion as any).depends_on : null}
+                    generatorId={(selectedVersion as any)?.generator_id || null}
+                    resolvedQualifications={resolvedQuals ? {
+                      season_episode_count: resolvedQuals.season_episode_count,
+                      episode_target_duration_seconds: resolvedQuals.episode_target_duration_seconds,
+                      format: resolvedQuals.format,
+                    } : null}
+                    onRegenerate={handleRunEngine}
+                    isRegenerating={analyze.isPending}
+                  />
+                </CardContent>
+              </Card>
             </TabsContent>
 
             {convergenceHistory.length > 0 && (
