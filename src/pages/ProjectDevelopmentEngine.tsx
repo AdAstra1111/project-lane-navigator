@@ -54,6 +54,7 @@ import { DocumentPackagePanel } from '@/components/devengine/DocumentPackagePane
 import { ProvenancePanel } from '@/components/devengine/ProvenancePanel';
 import { ConnectivityBanner } from '@/components/devengine/ConnectivityBanner';
 import { useDocumentPackage } from '@/hooks/useDocumentPackage';
+import { DocAssistantDrawer } from '@/components/devengine/DocAssistantDrawer';
 
 // ── Main Page ──
 export default function ProjectDevelopmentEngine() {
@@ -399,6 +400,13 @@ export default function ProjectDevelopmentEngine() {
               <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/30">
                 {DELIVERABLE_LABELS[selectedDeliverableType]}
               </Badge>
+              <DocAssistantDrawer
+                projectId={projectId}
+                selectedDocType={selectedDoc?.doc_type}
+                selectedVersionId={selectedVersionId || undefined}
+                selectedVersionText={versionText}
+                onVersionCreated={(vid) => setSelectedVersionId(vid)}
+              />
             </div>
           </div>
 

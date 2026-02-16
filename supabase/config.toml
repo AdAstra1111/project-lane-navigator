@@ -137,3 +137,6 @@ verify_jwt = false
 
 [functions.regenerate-stale-docs]
 verify_jwt = false
+
+[functions.doc-assistant]
+verify_jwt = false
