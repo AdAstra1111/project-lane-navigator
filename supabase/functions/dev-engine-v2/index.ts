@@ -2099,9 +2099,9 @@ Output ONLY the expanded screenplay text. No JSON, no commentary, no markdown.`;
       if (!driftEventId || !resolutionType) throw new Error("driftEventId and resolutionType required");
 
       if (resolutionType === "accept_drift") {
-        // Accept drift — just mark acknowledged
+        // Accept drift — mark as resolved and update baseline
         await supabase.from("document_drift_events")
-          .update({ acknowledged: true, resolved: false, resolution_type: "accept_drift" })
+          .update({ acknowledged: true, resolved: true, resolved_at: new Date().toISOString(), resolved_by: user.id, resolution_type: "accept_drift" })
           .eq("id", driftEventId);
       } else if (resolutionType === "intentional_pivot") {
         // Mark as intentional — update inherited_core to current core
