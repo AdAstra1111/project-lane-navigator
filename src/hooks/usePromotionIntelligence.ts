@@ -2,9 +2,10 @@ import { useState, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import type { PromotionRecommendation } from '@/components/devengine/PromotionIntelligenceCard';
 import { isScriptDocType, normalizeDocTypeKey } from '@/lib/can-promote-to-script';
-import { isSeriesFormat } from '@/lib/format-helpers';
+import { isSeriesFormat, isVerticalDrama } from '@/lib/format-helpers';
 import type { NextAction } from '@/lib/next-action';
 import { buildSeriesWriterAction, buildPromoteAction, buildNoAction } from '@/lib/next-action';
+import { getVerticalDramaNextStep, DELIVERABLE_LABELS } from '@/lib/dev-os-config';
 
 // ── Local computation (same algorithm as edge function) for when no sessionId exists ──
 
@@ -160,6 +161,8 @@ export interface PromotionInput {
   highImpactTexts?: string[];
   /** Project format — used to route series formats to Series Writer instead of coverage */
   projectFormat?: string | null;
+  /** All existing (non-stale) doc types in the project — used for vertical drama pipeline routing */
+  existingDocTypes?: string[];
 }
 
 function computeLocally(input: PromotionInput): PromotionRecommendation {
@@ -168,6 +171,7 @@ function computeLocally(input: PromotionInput): PromotionRecommendation {
     blockersCount, highImpactCount, iterationCount,
     blockerTexts = [], highImpactTexts = [],
     projectFormat,
+    existingDocTypes = [],
   } = input;
 
   const doc = resolveDocStage(currentDocument);
@@ -180,7 +184,7 @@ function computeLocally(input: PromotionInput): PromotionRecommendation {
   const confidence = computeConfidence(iterationCount, highImpactCount, gap, trajectory);
 
   if (import.meta.env.DEV) {
-    console.debug('Promotion Intel Input:', { ci, gp, gap, blockersCount, highImpactCount, trajectory, currentDocument: doc, iterationCount });
+    console.debug('Promotion Intel Input:', { ci, gp, gap, blockersCount, highImpactCount, trajectory, currentDocument: doc, iterationCount, projectFormat, existingDocTypes });
   }
 
   // ── Compute weighted score FIRST (always) ──
@@ -228,10 +232,26 @@ function computeLocally(input: PromotionInput): PromotionRecommendation {
   }
 
   // ── Determine next document (format-aware) ──
+  const isVD = isVerticalDrama(projectFormat || '');
   const isSeries = isSeriesFormat(projectFormat || '');
-  // For series at the draft (script) stage, next step is series_writer (enter_mode), not coverage
-  const rawNext = nextDoc(doc);
-  const isSeriesWriterTarget = isSeries && doc === 'draft';
+
+  let rawNext: string | null;
+  let isSeriesWriterTarget = false;
+
+  if (isVD && existingDocTypes.length > 0) {
+    // Use the vertical drama prerequisite pipeline
+    const vdNext = getVerticalDramaNextStep(existingDocTypes);
+    rawNext = vdNext.nextStep;
+    isSeriesWriterTarget = rawNext === 'series_writer';
+    if (vdNext.missingPrerequisites.length > 0) {
+      reasons.push(vdNext.reason);
+    }
+  } else {
+    // Generic ladder for all other formats
+    rawNext = nextDoc(doc);
+    isSeriesWriterTarget = isSeries && doc === 'draft';
+  }
+
   const next = isSeriesWriterTarget ? 'series_writer' : rawNext;
 
   // ── Build NextAction ──

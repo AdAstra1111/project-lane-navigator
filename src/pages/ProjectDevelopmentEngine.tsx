@@ -295,6 +295,7 @@ export default function ProjectDevelopmentEngine() {
       blockerTexts: blockers,
       highImpactTexts: highImpact,
       projectFormat,
+      existingDocTypes: documents.map((d: any) => d.doc_type),
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [latestAnalysis, latestNotes]);
