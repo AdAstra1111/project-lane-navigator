@@ -33,6 +33,7 @@ import { RecoupmentLayer } from '@/components/stages/RecoupmentLayer';
 import { TrendsLayer } from '@/components/stages/TrendsLayer';
 import { IntegrationHub } from '@/components/integrations/IntegrationHub';
 import { SeriesWriterPanel } from '@/components/series/SeriesWriterPanel';
+import { SeriesWriterReadiness } from '@/components/series/SeriesWriterReadiness';
 
 import { Cable } from 'lucide-react';
 
@@ -108,6 +109,7 @@ interface Props {
 
 export function AdvancedProjectView(props: Props) {
   const [activeTab, setActiveTab] = useState<TabId>('overview');
+  const [seriesWriterEntered, setSeriesWriterEntered] = useState(false);
 
   // Only show Series Writer tab for vertical drama projects
   const TABS = useMemo(() => {
@@ -115,10 +117,34 @@ export function AdvancedProjectView(props: Props) {
     return BASE_TABS.filter(t => t.id !== 'series-writer');
   }, [props.project.format]);
 
+  const isVerticalDrama = (props.project.format || '').toLowerCase().replace(/_/g, '-') === 'vertical-drama';
+
   const renderTab = () => {
     switch (activeTab) {
       case 'series-writer':
-        return <SeriesWriterPanel projectId={props.projectId} />;
+        return (
+          <div className="space-y-4">
+            {/* Show readiness panel for vertical drama — always visible as reference */}
+            {isVerticalDrama && (
+              <SeriesWriterReadiness
+                projectId={props.projectId}
+                onEnterSeriesWriter={() => setSeriesWriterEntered(true)}
+                onGoToStage={(stage) => {
+                  // Navigate to appropriate tab for the blocker
+                  const stageToTab: Record<string, TabId> = {
+                    episode_grid: 'script',
+                    season_arc: 'script',
+                    character_bible: 'script',
+                    script: 'script',
+                    development: 'script',
+                  };
+                  setActiveTab(stageToTab[stage] || 'script');
+                }}
+              />
+            )}
+            <SeriesWriterPanel projectId={props.projectId} />
+          </div>
+        );
 
       case 'overview':
         return (
