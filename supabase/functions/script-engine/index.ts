@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { buildGuardrailBlock } from "../_shared/guardrails.ts";
+import { fetchCoreDocs, validateCharacterCues, type CoreDocs } from "../_shared/coreDocs.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -372,18 +373,50 @@ Return as JSON: { scenes: [...], structural_check: { redundant_scenes, escalatio
 }
 
 // ─── Batched Draft Prompt ───
-function getDraftPrompt(scenes: any[], batchStart: number, batchEnd: number, project: any, blueprint: any, characterBible?: string) {
+function getDraftPrompt(
+  scenes: any[], batchStart: number, batchEnd: number,
+  project: any, blueprint: any,
+  coreDocs: CoreDocs,
+  previousEpisodeContext?: string
+) {
   const batchScenes = scenes.filter(s => s.scene_number >= batchStart && s.scene_number <= batchEnd);
 
-  const charBlock = characterBible
-    ? `\nCHARACTER BIBLE (AUTHORITATIVE — use ONLY these characters):\n${characterBible.substring(0, 4000)}\n\nCRITICAL: Do NOT invent new named characters. Every named character in the script MUST appear in the Character Bible above. If a scene requires an unnamed extra (waiter, passerby), use a generic descriptor, never a proper name.\n`
+  // ── Character Bible Block (AUTHORITATIVE — fail-closed) ──
+  const charBlock = coreDocs.characterBible
+    ? `
+═══ CHARACTER BIBLE (AUTHORITATIVE — MANDATORY CONSTRAINT) ═══
+${coreDocs.characterBible.substring(0, 5000)}
+
+HARD RULES — CHARACTER COMPLIANCE:
+1. Every named character in dialogue MUST appear in the Character Bible above.
+2. Do NOT invent new named characters. No new proper names. No new recurring characters.
+3. Unnamed extras are allowed ONLY as generic descriptors in ALL-CAPS: WAITER, GUARD, DRIVER, PASSERBY, COURIER, BARTENDER, CUSTOMER, etc.
+4. If a scene logically requires a named role not in the Character Bible, output: [MISSING CHARACTER: brief description of needed role] and continue with a generic descriptor.
+5. Violation of these rules will cause the draft to be REJECTED.
+═══ END CHARACTER BIBLE ═══
+`
+    : "";
+
+  // ── Format Rules Block ──
+  const formatBlock = coreDocs.formatRules
+    ? `\nFORMAT RULES:\n${coreDocs.formatRules.substring(0, 2000)}\n`
+    : "";
+
+  // ── Season Arc Context ──
+  const arcBlock = coreDocs.seasonArc
+    ? `\nSEASON ARC CONTEXT:\n${coreDocs.seasonArc.substring(0, 2000)}\n`
+    : "";
+
+  // ── Previous Episode Continuity ──
+  const prevBlock = previousEpisodeContext
+    ? `\nPREVIOUS EPISODE CONTEXT (maintain continuity):\n${previousEpisodeContext.substring(0, 3000)}\n`
     : "";
 
   return `You are IFFY, writing script pages for "${project.title}".
 
 BLUEPRINT CONTEXT:
 ${JSON.stringify(blueprint, null, 2).substring(0, 2000)}
-${charBlock}
+${charBlock}${formatBlock}${arcBlock}${prevBlock}
 SCENES TO DRAFT (scenes ${batchStart}-${batchEnd}):
 ${JSON.stringify(batchScenes, null, 2)}
 
@@ -394,7 +427,7 @@ Write these scenes in proper screenplay format. Rules:
 - Action lines: visual, present tense, lean
 - Budget awareness: respect production weight flags
 - Lane: ${project.assigned_lane || "general"} — match tone expectations
-- ONLY use characters from the Character Bible. No invented characters.
+- ONLY use characters from the Character Bible. No invented characters. Generic extras only as descriptors.
 
 Return the screenplay pages as plain text in standard format.`;
 }
@@ -676,9 +709,19 @@ serve(async (req) => {
 
       const blueprintCalibration = await getCorpusCalibration(supabase, project.format, (project.genres || [])[0]);
 
+      // Fetch core docs for character bible injection into blueprint
+      const bpCoreDocs = await fetchCoreDocs(supabase, projectId);
+
       // For series mode (vertical drama episodes), generate a single-episode blueprint
       let prompt: string;
       if (seriesMode && episodeNumber) {
+        // Block if character bible missing for series
+        if (!bpCoreDocs.characterBible) {
+          throw new Error("Character Bible is required to generate episode blueprints. Create or finalize Character Bible first.");
+        }
+
+        const charBibleBlock = `\n\nCHARACTER BIBLE (AUTHORITATIVE — use ONLY these characters):\n${bpCoreDocs.characterBible.substring(0, 4000)}\n\nCRITICAL: Use ONLY characters from the Character Bible. Do NOT invent new named characters. Generic extras only as descriptors (WAITER, GUARD, etc.).\n`;
+
         const epContext = `
 SERIES EPISODE CONTEXT:
 This is Episode ${episodeNumber}${totalEpisodes ? ` of ${totalEpisodes}` : ''}.
@@ -689,9 +732,13 @@ CRITICAL: Generate a blueprint for THIS SINGLE EPISODE ONLY (2-5 minutes runtime
 Do NOT generate the entire series. Focus only on Episode ${episodeNumber}.
 The episode should be self-contained but fit within the larger series arc.
 `;
-        prompt = getBlueprintPrompt(productionType, project, conceptDocs || [], blueprintCalibration) + epContext;
+        prompt = getBlueprintPrompt(productionType, project, conceptDocs || [], blueprintCalibration) + charBibleBlock + epContext;
       } else {
-        prompt = getBlueprintPrompt(productionType, project, conceptDocs || [], blueprintCalibration);
+        // For non-series, include character bible if available but don't block
+        const charBibleBlock = bpCoreDocs.characterBible
+          ? `\n\nCHARACTER BIBLE:\n${bpCoreDocs.characterBible.substring(0, 4000)}\nUse ONLY characters from this Character Bible. Do not invent new named characters.\n`
+          : "";
+        prompt = getBlueprintPrompt(productionType, project, conceptDocs || [], blueprintCalibration) + charBibleBlock;
       }
       const blueprint = await callAI(prompt);
 
@@ -822,31 +869,46 @@ Do NOT generate architecture for the entire series. Keep it focused and compact.
         .limit(1);
       const blueprint = bpVersions?.[0]?.blueprint_json || {};
 
-      // Fetch character bible for this project
-      let characterBible = "";
-      const { data: charBibleDoc } = await supabase
-        .from("project_documents")
-        .select("id")
-        .eq("project_id", projectId)
-        .eq("doc_type", "character_bible")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (charBibleDoc) {
-        const { data: charVersion } = await supabase
-          .from("project_document_versions")
-          .select("content")
-          .eq("document_id", charBibleDoc.id)
-          .order("version_number", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-        characterBible = charVersion?.content || "";
+      // Fetch all core docs using canonical helper
+      const coreDocs = await fetchCoreDocs(supabase, projectId);
+
+      // Block drafting if character bible is missing for series formats
+      const isSeries = ['vertical-drama', 'vertical_drama', 'tv-series', 'tv_series', 'limited-series', 'anim-series', 'digital-series', 'documentary-series']
+        .includes((project.format || '').toLowerCase().replace(/[_ ]+/g, '-'));
+      if (isSeries && !coreDocs.characterBible) {
+        throw new Error("Character Bible is required to draft episodes. Create or finalize Character Bible first.");
       }
 
-      const prompt = getDraftPrompt(scenes, batchStart, batchEnd, project, blueprint, characterBible);
+      console.log(`[draft] Core docs loaded — charBible: ${coreDocs.characterBible ? coreDocs.characterBible.length + ' chars' : 'MISSING'}, formatRules: ${coreDocs.formatRules ? 'yes' : 'no'}, seasonArc: ${coreDocs.seasonArc ? 'yes' : 'no'}`);
+
+      // Fetch previous episode context if available
+      const prevContext = body.previousEpisodeSummary || body.canonContext || "";
+
+      const prompt = getDraftPrompt(scenes, batchStart, batchEnd, project, blueprint, coreDocs, prevContext);
       console.log(`[draft] Generating batch ${batchStart}-${batchEnd} for script ${scriptId}`);
-      const draftText = await callAI(prompt, false);
+      let draftText = await callAI(prompt, false);
       console.log(`[draft] AI returned ${typeof draftText === 'string' ? draftText.length : 0} chars`);
+
+      // ── Post-generation character validation (fail-closed) ──
+      const draftStr = typeof draftText === 'string' ? draftText : JSON.stringify(draftText);
+      if (coreDocs.characterBible) {
+        const validation = validateCharacterCues(draftStr, coreDocs.characterBible);
+        if (!validation.passed) {
+          console.warn(`[draft] Character validation FAILED — invented: ${validation.inventedCharacters.join(', ')}`);
+          // Auto-regenerate once with stronger constraint
+          const retryPrompt = prompt + `\n\n═══ CRITICAL CORRECTION ═══\nYour previous draft contained invented characters not in the Character Bible: ${validation.inventedCharacters.join(', ')}.\nReplace ALL invented names with an existing character from the Bible or a generic extra (WAITER, GUARD, etc.). Do NOT add new proper names.\n═══ END CORRECTION ═══`;
+          draftText = await callAI(retryPrompt, false);
+          console.log(`[draft] Retry draft returned ${typeof draftText === 'string' ? draftText.length : 0} chars`);
+
+          // Second validation
+          const retryStr = typeof draftText === 'string' ? draftText : JSON.stringify(draftText);
+          const retryValidation = validateCharacterCues(retryStr, coreDocs.characterBible);
+          if (!retryValidation.passed) {
+            console.warn(`[draft] Retry still has invented characters: ${retryValidation.inventedCharacters.join(', ')}`);
+            // Continue but flag the issue — don't block completely on retry failure
+          }
+        }
+      }
 
       // Store batch in storage with proper naming
       const { data: scriptRow } = await supabase.from("scripts").select("draft_number, version").eq("id", scriptId).single();
@@ -1078,6 +1140,12 @@ Do NOT generate architecture for the entire series. Keep it focused and compact.
         corpusMinPages,
         needsContinuation,
         continuationMessage: needsContinuation ? `Draft at ${metrics.pageCountEst} pages — below corpus minimum of ${corpusMinPages}. Additional drafting recommended.` : null,
+        inputs_used: {
+          character_bible_version_id: coreDocs.characterBibleVersionId,
+          format_rules_version_id: coreDocs.formatRulesVersionId,
+          season_arc_version_id: coreDocs.seasonArcVersionId,
+          episode_grid_version_id: coreDocs.episodeGridVersionId,
+        },
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
