@@ -634,7 +634,23 @@ serve(async (req) => {
         if (resp.status === 402) throw new Error("AI credits exhausted — please top up.");
         throw new Error(`AI error ${resp.status}: ${t}`);
       }
-      const data = await resp.json();
+      const rawText = await resp.text();
+      let data: any;
+      try {
+        data = JSON.parse(rawText);
+      } catch {
+        // Attempt to recover truncated JSON
+        const lastBrace = rawText.lastIndexOf("}");
+        if (lastBrace > 0) {
+          try { data = JSON.parse(rawText.substring(0, lastBrace + 1)); } catch {
+            console.error("callAI: failed to parse even after truncation repair, raw length:", rawText.length);
+            throw new Error("AI returned malformed response — please retry.");
+          }
+        } else {
+          console.error("callAI: empty or non-JSON response, raw length:", rawText.length);
+          throw new Error("AI returned empty response — please retry.");
+        }
+      }
       const content = data.choices?.[0]?.message?.content || "";
       if (useJson) {
         try { return JSON.parse(content); } catch { return { raw: content }; }
