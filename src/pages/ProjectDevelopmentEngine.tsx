@@ -63,6 +63,7 @@ export default function ProjectDevelopmentEngine() {
   const { id: projectId } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
   const qc = useQueryClient();
+  const [intelligenceTab, setIntelligenceTab] = useState('notes');
 
   // Fetch project metadata
   const { data: project } = useQuery({
@@ -662,14 +663,20 @@ export default function ProjectDevelopmentEngine() {
                   onResume={autoRun.resume}
                   onSetResumeSource={autoRun.setResumeSource}
                   onStop={autoRun.stop}
-                  onScrollToApproval={() => {
-                    const el = document.getElementById('approval-queue-anchor');
-                    el?.scrollIntoView({ behavior: 'smooth' });
-                  }}
-                  onScrollToCriteria={() => {
-                    const el = document.getElementById('criteria-panel');
-                    el?.scrollIntoView({ behavior: 'smooth' });
-                  }}
+                   onScrollToApproval={() => {
+                     setIntelligenceTab('convergence');
+                     setTimeout(() => {
+                       const el = document.getElementById('approval-queue-anchor');
+                       el?.scrollIntoView({ behavior: 'smooth' });
+                     }, 100);
+                   }}
+                   onScrollToCriteria={() => {
+                     setIntelligenceTab('criteria');
+                     setTimeout(() => {
+                       const el = document.getElementById('criteria-panel');
+                       el?.scrollIntoView({ behavior: 'smooth' });
+                     }, 100);
+                   }}
                 />
               )}
               {!selectedDocId ? (
@@ -860,7 +867,7 @@ export default function ProjectDevelopmentEngine() {
 
           {/* ═══ INTELLIGENCE PANELS (tabbed, below workspace) ═══ */}
 
-          <Tabs defaultValue="notes" className="w-full">
+          <Tabs value={intelligenceTab} onValueChange={setIntelligenceTab} className="w-full">
              <TabsList className="w-full justify-start bg-muted/30 border border-border/50 h-9 flex-wrap">
               <TabsTrigger value="notes" className="text-xs">Notes & Feedback</TabsTrigger>
               <TabsTrigger value="convergence" className="text-xs">Convergence</TabsTrigger>
