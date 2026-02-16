@@ -411,7 +411,7 @@ export default function ProjectDevelopmentEngine() {
             </Select>
             {(isVerticalDrama || isSeriesFormat) && (
               <div className="flex items-center gap-1">
-                <Input type="number" className="h-7 text-xs w-[60px]" value={effectiveEpisodeDuration}
+                <Input type="number" className="h-7 text-xs w-[72px]" value={effectiveEpisodeDuration}
                   onChange={(e) => setEpisodeDuration(Number(e.target.value))}
                   onBlur={async () => {
                     if (!projectId || !effectiveEpisodeDuration) return;
@@ -420,7 +420,7 @@ export default function ProjectDevelopmentEngine() {
                   }}
                   min={30} max={7200} />
                 <span className="text-[9px] text-muted-foreground">s/ep</span>
-                <Input type="number" className="h-7 text-xs w-[50px]" value={effectiveSeasonEpisodes}
+                <Input type="number" className="h-7 text-xs w-[64px]" value={effectiveSeasonEpisodes}
                   onChange={(e) => setSeasonEpisodes(Number(e.target.value))}
                   onBlur={async () => {
                     if (!projectId || !effectiveSeasonEpisodes) return;
