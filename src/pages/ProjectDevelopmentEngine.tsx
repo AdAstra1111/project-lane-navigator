@@ -49,6 +49,7 @@ import { useStageResolve } from '@/hooks/useStageResolve';
 import { useDecisionCommit } from '@/hooks/useDecisionCommit';
 import { isDocStale } from '@/lib/stale-detection';
 import { StaleDocBanner } from '@/components/devengine/StaleDocBanner';
+import { DocumentPackagePanel } from '@/components/devengine/DocumentPackagePanel';
 
 // ── Main Page ──
 export default function ProjectDevelopmentEngine() {
@@ -680,6 +681,7 @@ export default function ProjectDevelopmentEngine() {
               <TabsTrigger value="qualifications" className="text-xs">Qualifications</TabsTrigger>
               <TabsTrigger value="autorun" className="text-xs">Auto-Run</TabsTrigger>
               <TabsTrigger value="criteria" className="text-xs">Criteria</TabsTrigger>
+              <TabsTrigger value="package" className="text-xs">Package</TabsTrigger>
               {convergenceHistory.length > 0 && (
                 <TabsTrigger value="timeline" className="text-xs">Timeline ({convergenceHistory.length})</TabsTrigger>
               )}
@@ -884,6 +886,10 @@ export default function ProjectDevelopmentEngine() {
                 documents={documents?.map((d: any) => ({ id: d.id, doc_type: d.doc_type, title: d.title })) || []}
                 onCriteriaUpdated={() => qc.invalidateQueries({ queryKey: ['dev-engine-project', projectId] })}
               />
+            </TabsContent>
+
+            <TabsContent value="package" className="mt-3">
+              <DocumentPackagePanel projectId={projectId} />
             </TabsContent>
 
             {convergenceHistory.length > 0 && (
