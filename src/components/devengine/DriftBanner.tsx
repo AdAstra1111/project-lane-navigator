@@ -119,15 +119,15 @@ export function DriftBanner({ drift, onAcknowledge, onResolve, resolvePending }:
                     {(item.inherited || item.current) && (
                       <div className="grid grid-cols-2 gap-2 mt-1">
                         {item.inherited && (
-                          <div className="rounded bg-muted p-1.5">
-                            <span className="text-[9px] font-semibold text-muted-foreground block mb-0.5">Original</span>
-                            <span className="text-[10px] text-foreground line-clamp-3">{item.inherited}</span>
+                          <div className="rounded bg-muted p-2">
+                            <span className="text-[9px] font-semibold text-muted-foreground block mb-1">Original</span>
+                            <span className="text-[11px] text-foreground leading-relaxed">{item.inherited}</span>
                           </div>
                         )}
                         {item.current && (
-                          <div className="rounded bg-accent p-1.5 border border-primary/20">
-                            <span className="text-[9px] font-semibold text-primary block mb-0.5">Current</span>
-                            <span className="text-[10px] text-foreground line-clamp-3">{item.current}</span>
+                          <div className="rounded bg-accent p-2 border border-primary/20">
+                            <span className="text-[9px] font-semibold text-primary block mb-1">Current</span>
+                            <span className="text-[11px] text-foreground leading-relaxed">{item.current}</span>
                           </div>
                         )}
                       </div>
