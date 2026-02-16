@@ -3323,11 +3323,13 @@ export type Database = {
           applied_at: string | null
           applied_by: string | null
           applied_version_id: string | null
+          completed_at: string | null
           context_doc_ids: string[] | null
           created_at: string
           desired_outcome: string
           episode_id: string
           episode_script_text: string | null
+          error_message: string | null
           id: string
           issue_description: string
           issue_title: string
@@ -3339,6 +3341,7 @@ export type Database = {
           rejected_at: string | null
           rejected_by: string | null
           source_notes: Json | null
+          started_at: string | null
           status: string
           updated_at: string
           user_id: string
@@ -3347,11 +3350,13 @@ export type Database = {
           applied_at?: string | null
           applied_by?: string | null
           applied_version_id?: string | null
+          completed_at?: string | null
           context_doc_ids?: string[] | null
           created_at?: string
           desired_outcome?: string
           episode_id: string
           episode_script_text?: string | null
+          error_message?: string | null
           id?: string
           issue_description?: string
           issue_title?: string
@@ -3363,6 +3368,7 @@ export type Database = {
           rejected_at?: string | null
           rejected_by?: string | null
           source_notes?: Json | null
+          started_at?: string | null
           status?: string
           updated_at?: string
           user_id: string
@@ -3371,11 +3377,13 @@ export type Database = {
           applied_at?: string | null
           applied_by?: string | null
           applied_version_id?: string | null
+          completed_at?: string | null
           context_doc_ids?: string[] | null
           created_at?: string
           desired_outcome?: string
           episode_id?: string
           episode_script_text?: string | null
+          error_message?: string | null
           id?: string
           issue_description?: string
           issue_title?: string
@@ -3387,6 +3395,7 @@ export type Database = {
           rejected_at?: string | null
           rejected_by?: string | null
           source_notes?: Json | null
+          started_at?: string | null
           status?: string
           updated_at?: string
           user_id?: string

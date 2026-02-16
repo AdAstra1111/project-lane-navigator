@@ -3443,6 +3443,199 @@ ${prevScript ? `PREVIOUS EPISODE ENDING (for continuity):\n${prevScript}\n\n` : 
       });
     }
 
+    // ══════════════════════════════════════════════
+    // EPISODE-PATCH — Series Writer escalation handler
+    // ══════════════════════════════════════════════
+    if (action === "episode-patch") {
+      const {
+        projectId, patchRunId, episodeId,
+        issueTitle, issueDescription, desiredOutcome,
+        contextDocIds = [],
+        episodeScriptText,
+        format: reqFormat,
+        deliverableType,
+        developmentBehavior,
+        episodeTargetDurationSeconds,
+      } = body;
+      if (!projectId || !patchRunId || !episodeId) throw new Error("projectId, patchRunId, episodeId required");
+
+      // 1) Load patch run + basic auth check (project match)
+      const { data: patchRun, error: prErr } = await supabase
+        .from("episode_patch_runs")
+        .select("*")
+        .eq("id", patchRunId)
+        .single();
+      if (prErr || !patchRun) throw new Error("Patch run not found");
+      if (patchRun.project_id !== projectId) throw new Error("Patch run does not match project");
+
+      // Mark running
+      await supabase.from("episode_patch_runs")
+        .update({ status: "running", started_at: new Date().toISOString() })
+        .eq("id", patchRunId);
+
+      // 2) Fetch project settings for format/behavior
+      const { data: patchProject } = await supabase.from("projects")
+        .select("title, format, development_behavior, episode_target_duration_seconds, guardrails_config")
+        .eq("id", projectId)
+        .single();
+
+      const effectiveFormat = (reqFormat || patchProject?.format || "film").toLowerCase().replace(/_/g, "-");
+      const effectiveBehavior = developmentBehavior || patchProject?.development_behavior || "market";
+      const effectiveDeliverable = deliverableType || "script";
+      const effectiveDuration = episodeTargetDurationSeconds || patchProject?.episode_target_duration_seconds;
+
+      // 3) Fetch episode row
+      const { data: ep, error: epErr } = await supabase
+        .from("series_episodes")
+        .select("*")
+        .eq("id", episodeId)
+        .single();
+      if (epErr || !ep) throw new Error("Episode not found");
+
+      // 4) Resolve episode script text
+      // Episodes use script_id → scripts.text_content (not project_document_versions)
+      let baseScriptText = (episodeScriptText || patchRun.episode_script_text || "").trim();
+      if (!baseScriptText && ep.script_id) {
+        const { data: scriptRow } = await supabase
+          .from("scripts")
+          .select("text_content")
+          .eq("id", ep.script_id)
+          .single();
+        baseScriptText = (scriptRow?.text_content || "").trim();
+      }
+      if (!baseScriptText) {
+        await supabase.from("episode_patch_runs").update({
+          status: "failed", error_message: "No episode script text found",
+          completed_at: new Date().toISOString(),
+        }).eq("id", patchRunId);
+        throw new Error("No episode script text found (provide episodeScriptText or link episode to a script)");
+      }
+
+      // 5) Load context docs + latest versions
+      const contextBlocks: string[] = [];
+      if (contextDocIds.length > 0) {
+        const { data: docs } = await supabase
+          .from("project_documents")
+          .select("id, doc_type, title")
+          .eq("project_id", projectId)
+          .in("id", contextDocIds);
+        for (const d of (docs || [])) {
+          const { data: v } = await supabase
+            .from("project_document_versions")
+            .select("plaintext, version_number")
+            .eq("document_id", d.id)
+            .order("version_number", { ascending: false })
+            .limit(1)
+            .single();
+          const txt = (v?.plaintext || "").trim();
+          if (txt) {
+            contextBlocks.push(
+              `--- CONTEXT: ${d.doc_type} — ${d.title || d.doc_type} (v${v?.version_number ?? "?"}) ---\n${txt.slice(0, 12000)}`
+            );
+          }
+        }
+      }
+
+      // 6) Build guardrails block if available
+      let guardrailBlock = "";
+      if (patchProject?.guardrails_config) {
+        const productionType = formatToProductionType[effectiveFormat] || effectiveFormat;
+        guardrailBlock = buildGuardrailBlock(productionType, patchProject.guardrails_config) || "";
+      }
+
+      // 7) Build system prompt for patch output
+      let verticalRules = "";
+      if (effectiveFormat === "vertical-drama" && effectiveDuration) {
+        verticalRules = `\nVERTICAL DRAMA RULES: Episode duration = ${effectiveDuration}s. Hook within first 10s. Cliffhanger ending required. Maintain beat density.`;
+      }
+
+      const PATCH_SYSTEM = `You are IFFY. You are performing an EPISODE PATCH.
+
+You must return ONLY valid JSON:
+{
+  "patch_summary": "1-3 sentence summary of what you changed and why",
+  "replacement_script": "FULL revised script text (not truncated)",
+  "changes": [{"type":"edit|insert|delete","location":"where in script","summary":"what changed"}],
+  "references_used": ["list of context doc types that informed the patch"],
+  "safety": {"no_new_characters": true, "kept_format": true}
+}
+
+Rules:
+- Preserve the creative DNA unless it directly causes the issue.
+- Fix ONLY what is necessary to resolve the issue; do not rewrite the entire episode unless desiredOutcome implies full rewrite.
+- Maintain the project's format: ${effectiveFormat}
+- Behavior mode: ${effectiveBehavior}
+- If format is vertical-drama: hook in first 10s, end on a cliffhanger, keep beat density.${verticalRules}
+- If deliverable/format implies documentary/deck safeguards: DO NOT invent facts; use [PLACEHOLDER] for unknowns.
+- Output replacement_script as the full script text — do NOT truncate.
+${guardrailBlock}`;
+
+      // 8) User prompt
+      const userPrompt = `PROJECT: ${patchProject?.title || "Unknown"}
+EPISODE: ${String(ep.episode_number ?? "").padStart(2, "0")} — ${ep.title || "Untitled"}
+ISSUE TITLE: ${issueTitle || "Issue"}
+DESIRED OUTCOME: ${desiredOutcome || "other"}
+
+ISSUE DESCRIPTION:
+${issueDescription || ""}
+
+CONTEXT:
+${contextBlocks.join("\n\n") || "[No additional context provided]"}
+
+--- CURRENT EPISODE SCRIPT ---
+${baseScriptText.slice(0, 30000)}`;
+
+      try {
+        const raw = await callAI(LOVABLE_API_KEY, PRO_MODEL, PATCH_SYSTEM, userPrompt, 0.3, 16000);
+        const parsed = await parseAIJson(LOVABLE_API_KEY, raw);
+
+        const patchSummary = parsed.patch_summary || "";
+        const replacement = parsed.replacement_script || "";
+        const proposed_changes = {
+          patch_summary: patchSummary,
+          replacement_script: replacement,
+          changes: parsed.changes || [],
+          references_used: parsed.references_used || [],
+          safety: parsed.safety || { no_new_characters: true, kept_format: true },
+          meta: {
+            format: effectiveFormat,
+            behavior: effectiveBehavior,
+            deliverable_type: effectiveDeliverable,
+            model: PRO_MODEL,
+          },
+        };
+
+        await supabase.from("episode_patch_runs").update({
+          status: "complete",
+          patch_summary: patchSummary,
+          proposed_changes,
+          references_used: parsed.references_used || [],
+          completed_at: new Date().toISOString(),
+        }).eq("id", patchRunId);
+
+        return new Response(JSON.stringify({
+          patchRunId,
+          status: "complete",
+          patch_summary: patchSummary,
+          has_replacement: !!replacement,
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
+      } catch (e: any) {
+        console.error("episode-patch error:", e);
+        await supabase.from("episode_patch_runs").update({
+          status: "failed",
+          error_message: e.message || "Unknown error",
+          completed_at: new Date().toISOString(),
+        }).eq("id", patchRunId);
+
+        return new Response(JSON.stringify({
+          patchRunId,
+          status: "failed",
+          error: e.message || "Episode patch failed",
+        }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+    }
+
     throw new Error(`Unknown action: ${action}`);
   } catch (err: any) {
     console.error("dev-engine-v2 error:", err);
