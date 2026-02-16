@@ -32,6 +32,14 @@ export const DOC_STAGE_LABELS: Record<string, string> = {
   architecture: 'Architecture',
   draft: 'Draft',
   coverage: 'Coverage',
+  vertical_market_sheet: 'Market Sheet (VD)',
+  format_rules: 'Format Rules',
+  character_bible: 'Character Bible',
+  season_arc: 'Season Arc',
+  episode_grid: 'Episode Grid',
+  vertical_episode_beats: 'Episode Beats',
+  script: 'Script',
+  production_draft: 'Production Draft',
 };
 
 // ── Mode/workflow labels (NOT doc types — these are tools/workflows) ──
