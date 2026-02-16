@@ -140,3 +140,6 @@ verify_jwt = false
 
 [functions.doc-assistant]
 verify_jwt = false
+
+[functions.document-assistant-run]
+verify_jwt = false
