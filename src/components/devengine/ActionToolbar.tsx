@@ -1,10 +1,13 @@
 /**
  * ActionToolbar — Primary action buttons for the Dev Engine workspace.
  * Includes "Why this step?" display for vertical drama gating.
+ * Includes Beat Sheet → Episode Script for vertical_drama.
  */
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Play, ArrowRight, RefreshCw, Loader2, AlertTriangle, Info } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Play, ArrowRight, RefreshCw, Loader2, AlertTriangle, Info, Film } from 'lucide-react';
 import { DELIVERABLE_LABELS, type DeliverableType } from '@/lib/dev-os-config';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
@@ -13,6 +16,11 @@ interface VerticalDramaGating {
   reason: string;
   canonical_episode_count: number | null;
   production_type: string;
+}
+
+interface BeatSheetScopeInfo {
+  scope: 'season' | 'episode' | 'unknown';
+  confidence: number;
 }
 
 interface ActionToolbarProps {
@@ -34,6 +42,13 @@ interface ActionToolbarProps {
   convertPending: boolean;
   generateNotesPending: boolean;
   verticalDramaGating?: VerticalDramaGating | null;
+  /** Vertical drama beat sheet → script */
+  isVerticalDrama?: boolean;
+  currentDocType?: string;
+  seasonEpisodeCount?: number | null;
+  onBeatSheetToScript?: (episodeNumber: number) => void;
+  beatSheetToScriptPending?: boolean;
+  beatSheetScope?: BeatSheetScopeInfo | null;
 }
 
 export function ActionToolbar({
@@ -44,9 +59,21 @@ export function ActionToolbar({
   hasUnresolvedDrift,
   analyzePending, rewritePending, convertPending, generateNotesPending,
   verticalDramaGating,
+  isVerticalDrama, currentDocType, seasonEpisodeCount,
+  onBeatSheetToScript, beatSheetToScriptPending,
+  beatSheetScope,
 }: ActionToolbarProps) {
-  const anyPending = analyzePending || rewritePending || convertPending || generateNotesPending;
+  const anyPending = analyzePending || rewritePending || convertPending || generateNotesPending || beatSheetToScriptPending;
   const hasMissingPrereqs = verticalDramaGating && verticalDramaGating.missing_prerequisites.length > 0;
+
+  const [episodeNum, setEpisodeNum] = useState('1');
+
+  // Show beat sheet → script button for vertical_drama when on a beat_sheet doc
+  const isBeatSheet = currentDocType?.toLowerCase().replace(/[\s\-]+/g, '_') === 'beat_sheet'
+    || currentDocType?.toLowerCase().replace(/[\s\-]+/g, '_') === 'vertical_episode_beats';
+  const showBeatSheetToScript = isVerticalDrama && isBeatSheet && onBeatSheetToScript;
+
+  const epCount = seasonEpisodeCount || 10;
 
   return (
     <div className="space-y-1.5">
@@ -106,6 +133,59 @@ export function ActionToolbar({
           Convert → {DELIVERABLE_LABELS[selectedDeliverableType]}
         </Button>
       </div>
+
+      {/* Beat Sheet → Episode Script for vertical_drama */}
+      {showBeatSheetToScript && (
+        <div className="flex flex-wrap items-center gap-2 p-2 rounded-lg bg-primary/5 border border-primary/20">
+          {/* Scope indicator */}
+          {beatSheetScope && (
+            <Badge variant="outline" className={`text-[9px] ${
+              beatSheetScope.scope === 'season' ? 'border-amber-500/30 text-amber-400 bg-amber-500/10' :
+              beatSheetScope.scope === 'episode' ? 'border-emerald-500/30 text-emerald-400 bg-emerald-500/10' :
+              'border-muted-foreground/30 text-muted-foreground'
+            }`}>
+              Scope: {beatSheetScope.scope === 'season' ? 'Season' : beatSheetScope.scope === 'episode' ? 'Episode' : 'Unknown'}
+              {beatSheetScope.confidence > 0 && ` (${beatSheetScope.confidence}%)`}
+            </Badge>
+          )}
+
+          {/* Episode number selector */}
+          <Select value={episodeNum} onValueChange={setEpisodeNum}>
+            <SelectTrigger className="h-7 w-24 text-xs">
+              <SelectValue placeholder="EP #" />
+            </SelectTrigger>
+            <SelectContent>
+              {Array.from({ length: epCount }, (_, i) => i + 1).map(n => (
+                <SelectItem key={n} value={String(n)} className="text-xs">
+                  EP {n}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {/* Generate button */}
+          <Button
+            size="sm"
+            className="h-8 text-xs gap-1.5"
+            onClick={() => onBeatSheetToScript(Number(episodeNum))}
+            disabled={anyPending}
+          >
+            {beatSheetToScriptPending ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <Film className="h-3 w-3" />
+            )}
+            Write Episode Script (Screenplay)
+          </Button>
+
+          {beatSheetScope?.scope === 'season' && (
+            <span className="text-[10px] text-amber-400 flex items-center gap-1">
+              <Info className="h-3 w-3" />
+              Auto-slice: will extract EP {episodeNum} beats
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Missing prerequisites warning */}
       {hasMissingPrereqs && (
