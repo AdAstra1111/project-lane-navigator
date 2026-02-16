@@ -124,7 +124,7 @@ Deno.serve(async (req) => {
 
     // 2) Load project metadata
     const { data: project } = await supabase.from("projects")
-      .select("title, format, production_type, pipeline_stage, guardrails_config")
+      .select("title, format, production_type, pipeline_stage, guardrails_config, season_style_template_version_id, season_style_profile")
       .eq("id", projectId).single();
 
     if (!project) throw new Error("Project not found");
@@ -175,13 +175,27 @@ Deno.serve(async (req) => {
       `- Replace any conflicting episode count or runtime references with canonical values above.`,
     ].filter(Boolean).join("\n");
 
+    // Build style profile block if season template exists
+    const styleProfile = project.season_style_profile;
+    const hasStyleProfile = styleProfile && Object.keys(styleProfile).length > 0 && styleProfile.tone_tags;
+    const styleBlock = hasStyleProfile ? [
+      `## SEASON STYLE TEMPLATE (LOCKED CONSTRAINTS — must follow)`,
+      styleProfile.tone_tags?.length > 0 ? `- Tone: ${styleProfile.tone_tags.join(', ')}` : null,
+      styleProfile.pacing ? `- Pacing: ${styleProfile.pacing}` : null,
+      styleProfile.dialogue_ratio ? `- Dialogue ratio target: ${Math.round(styleProfile.dialogue_ratio * 100)}%` : null,
+      styleProfile.has_cliffhanger_pattern ? `- Must include cliffhanger ending pattern` : null,
+      styleProfile.forbidden_elements?.length > 0 ? `- Forbidden elements: ${styleProfile.forbidden_elements.join(', ')}` : null,
+      `- Style template version: ${project.season_style_template_version_id || 'n/a'}`,
+    ].filter(Boolean).join("\n") : "";
+
     const system = [
       `You are a professional development document generator for film/TV projects.`,
       `Generate a ${docType.replace(/_/g, " ")} document for the project "${project.title}".`,
       `Production type: ${project.format || project.production_type || "film"}`,
       qualBlock,
+      styleBlock,
       mode === "final" ? "This is a FINAL version — ensure completeness and polish." : "This is a DRAFT — focus on substance over polish.",
-    ].join("\n\n");
+    ].filter(Boolean).join("\n\n");
 
     const userPrompt = upstreamContent
       ? `Using the upstream documents below, generate the ${docType.replace(/_/g, " ")}.\n\n${upstreamContent}`
@@ -266,6 +280,7 @@ Deno.serve(async (req) => {
         generator_id: generatorId,
         generator_run_id: generatorRunId || null,
         source_document_ids: Object.values(inputsUsed).map((v: any) => v.version_id),
+        style_template_version_id: project.season_style_template_version_id || null,
       })
       .select("id")
       .single();

@@ -25,6 +25,7 @@ import {
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { OperationProgress, DEV_ANALYZE_STAGES, DEV_NOTES_STAGES, DEV_REWRITE_STAGES, DEV_CONVERT_STAGES } from '@/components/OperationProgress';
 import { useSetAsLatestDraft } from '@/hooks/useSetAsLatestDraft';
+import { useSeasonTemplate } from '@/hooks/useSeasonTemplate';
 import { FeatureLengthGuardrails } from '@/components/FeatureLengthGuardrails';
 import { type DevelopmentBehavior, BEHAVIOR_LABELS, BEHAVIOR_COLORS, DELIVERABLE_LABELS, defaultDeliverableForDocType, type DeliverableType } from '@/lib/dev-os-config';
 import { isSeriesFormat as checkSeriesFormat } from '@/lib/format-helpers';
@@ -399,6 +400,7 @@ export default function ProjectDevelopmentEngine() {
   }, [documents, allDocRuns]);
 
   const setAsDraft = useSetAsLatestDraft(projectId);
+  const seasonTemplate = useSeasonTemplate(projectId);
   const resolutionSummary = latestNotes?.resolution_summary;
   const stabilityStatus = latestNotes?.stability_status || latestAnalysis?.stability_status;
 
@@ -727,19 +729,59 @@ export default function ProjectDevelopmentEngine() {
                   </Card>
 
                   {versionText && (
-                    <div className="flex justify-end">
-                      <ConfirmDialog
-                        title="Set as Latest Draft?"
-                        description={`Register "${selectedDoc?.title || 'this document'}" as the project's current script draft.`}
-                        confirmLabel="Set as Latest Draft"
-                        onConfirm={() => setAsDraft.mutate({ title: selectedDoc?.title || 'Dev Engine Draft', text: versionText, documentId: selectedDocId || undefined, versionId: selectedVersionId || undefined, docType: selectedDoc?.doc_type || undefined })}
-                      >
-                        <Button variant="outline" size="sm" className="h-7 text-[10px] gap-1"
-                          disabled={setAsDraft.isPending}>
-                          {setAsDraft.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
-                          Set as Latest Draft
-                        </Button>
-                      </ConfirmDialog>
+                    <div className="flex flex-wrap items-center justify-end gap-2">
+                      {/* Set as Season Template — available for episode scripts on series formats */}
+                      {(isSeriesFormat || isVerticalDrama) && (
+                        <ConfirmDialog
+                          title="Set as Season Template (Style Benchmark)?"
+                          description="This sets tone/pacing/quality constraints for generation. It does not change document type or promote to script."
+                          confirmLabel="Set as Season Template"
+                          onConfirm={() => seasonTemplate.mutate({
+                            docType: selectedDoc?.doc_type || '',
+                            versionId: selectedVersionId || '',
+                            versionText,
+                          })}
+                        >
+                          <Button variant="outline" size="sm" className="h-7 text-[10px] gap-1"
+                            disabled={seasonTemplate.isPending}>
+                            {seasonTemplate.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Target className="h-3 w-3" />}
+                            Set as Season Template (Style Benchmark)
+                          </Button>
+                        </ConfirmDialog>
+                      )}
+
+                      {/* Publish as Script — only when doc is NOT already a script type AND no script record linked */}
+                      {(() => {
+                        const scriptDocTypes = ['screenplay_draft', 'pilot_script', 'episode_script', 'script'];
+                        const currentDocType = (selectedDoc?.doc_type || '').toLowerCase().replace(/[\s\-]+/g, '_');
+                        const isAlreadyScript = scriptDocTypes.includes(currentDocType);
+                        const shouldShowPublish = !isAlreadyScript;
+                        if (!shouldShowPublish) {
+                          console.log('[Promote-to-Script] Hidden: doc_type is already a script type:', currentDocType);
+                          return null;
+                        }
+                        console.log('[Promote-to-Script] Showing: doc_type =', currentDocType, ', not a script type');
+                        return (
+                          <ConfirmDialog
+                            title="Publish as Script?"
+                            description={`Register "${selectedDoc?.title || 'this document'}" as the project's current script draft. This creates a script record.`}
+                            confirmLabel="Publish as Script"
+                            onConfirm={() => setAsDraft.mutate({
+                              title: selectedDoc?.title || 'Dev Engine Draft',
+                              text: versionText,
+                              documentId: selectedDocId || undefined,
+                              versionId: selectedVersionId || undefined,
+                              docType: selectedDoc?.doc_type || undefined,
+                            })}
+                          >
+                            <Button variant="outline" size="sm" className="h-7 text-[10px] gap-1"
+                              disabled={setAsDraft.isPending}>
+                              {setAsDraft.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
+                              Publish as Script
+                            </Button>
+                          </ConfirmDialog>
+                        );
+                      })()}
                     </div>
                   )}
                 </>
