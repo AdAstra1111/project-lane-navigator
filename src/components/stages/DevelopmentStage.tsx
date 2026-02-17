@@ -5,7 +5,9 @@
  */
 
 import { useMemo } from 'react';
-import { FileText, TrendingUp, AlertTriangle, Quote, CheckCircle2, ShieldAlert, MessageSquareQuote } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { FileText, TrendingUp, AlertTriangle, Quote, CheckCircle2, ShieldAlert, MessageSquareQuote, Zap } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { StageReadinessScore } from '@/components/StageReadinessScore';
 import { DevelopmentIntelligencePanel } from '@/components/intelligence/DevelopmentIntelligencePanel';
 import { ScriptStudio } from '@/components/script/ScriptStudio';
@@ -78,7 +80,22 @@ export function DevelopmentStage({
         coverageVerdict={project.script_coverage_verdict}
       />
 
-      {/* Script Studio — 2-column read-only layout (replaces old scattered ScriptEngine/Coverage/DraftDelta) */}
+      {/* Dev Engine link — always visible */}
+      <div className="flex items-center justify-between glass-card rounded-xl px-4 py-3">
+        <div className="flex items-center gap-2">
+          <Zap className="h-4 w-4 text-primary" />
+          <span className="text-sm text-muted-foreground">
+            {hasDocuments || hasScript ? 'Continue developing in the Dev Engine' : 'No documents yet — create and develop your idea'}
+          </span>
+        </div>
+        <Button variant="default" size="sm" className="gap-1.5" asChild>
+          <Link to={`/projects/${projectId}/development`}>
+            <Zap className="h-3.5 w-3.5" />Dev Engine
+          </Link>
+        </Button>
+      </div>
+
+      {/* Script Studio — 2-column read-only layout */}
       {(hasDocuments || hasScript) && (
         <ScriptStudio
           projectId={projectId}
