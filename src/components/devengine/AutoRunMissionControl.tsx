@@ -217,7 +217,7 @@ export function AutoRunMissionControl({
     stakes: '', world_rules: '', comparables: '',
   });
   const [storyAutoFilled, setStoryAutoFilled] = useState(false);
-  const [quals, setQuals] = useState({ episode_target_duration_seconds: 0, season_episode_count: 0, target_runtime_min_low: 0, target_runtime_min_high: 0 });
+  const [quals, setQuals] = useState({ episode_target_duration_min_seconds: 0, episode_target_duration_max_seconds: 0, season_episode_count: 0, target_runtime_min_low: 0, target_runtime_min_high: 0 });
   const [lane, setLane] = useState('');
   const [budget, setBudget] = useState('');
   const [jumpStage, setJumpStage] = useState('');
@@ -236,7 +236,8 @@ export function AutoRunMissionControl({
     const gc = project.guardrails_config;
     const gcQuals = gc?.overrides?.qualifications || {};
     setQuals(prev => ({
-      episode_target_duration_seconds: gcQuals.episode_target_duration_seconds || project.episode_target_duration_seconds || prev.episode_target_duration_seconds,
+      episode_target_duration_min_seconds: gcQuals.episode_target_duration_min_seconds || (project as any).episode_target_duration_min_seconds || gcQuals.episode_target_duration_seconds || project.episode_target_duration_seconds || prev.episode_target_duration_min_seconds,
+      episode_target_duration_max_seconds: gcQuals.episode_target_duration_max_seconds || (project as any).episode_target_duration_max_seconds || gcQuals.episode_target_duration_seconds || project.episode_target_duration_seconds || prev.episode_target_duration_max_seconds,
       season_episode_count: gcQuals.season_episode_count || project.season_episode_count || prev.season_episode_count,
       target_runtime_min_low: gcQuals.target_runtime_min_low || prev.target_runtime_min_low,
       target_runtime_min_high: gcQuals.target_runtime_min_high || prev.target_runtime_min_high,
@@ -769,9 +770,14 @@ export function AutoRunMissionControl({
               <AccordionContent className="space-y-2 pb-3">
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <Label className="text-[10px]">Episode Duration (s)</Label>
-                    <Input type="number" className="h-7 text-xs mt-0.5" value={quals.episode_target_duration_seconds || ''}
-                      onChange={e => setQuals(p => ({ ...p, episode_target_duration_seconds: Number(e.target.value) }))} />
+                    <Label className="text-[10px]">Ep Duration Min (s)</Label>
+                    <Input type="number" className="h-7 text-xs mt-0.5" value={quals.episode_target_duration_min_seconds || ''}
+                      onChange={e => setQuals(p => ({ ...p, episode_target_duration_min_seconds: Number(e.target.value) }))} />
+                  </div>
+                  <div>
+                    <Label className="text-[10px]">Ep Duration Max (s)</Label>
+                    <Input type="number" className="h-7 text-xs mt-0.5" value={quals.episode_target_duration_max_seconds || ''}
+                      onChange={e => setQuals(p => ({ ...p, episode_target_duration_max_seconds: Number(e.target.value) }))} />
                   </div>
                   <div>
                     <Label className="text-[10px]">Season Episodes</Label>

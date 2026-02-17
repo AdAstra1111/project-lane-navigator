@@ -171,7 +171,7 @@ Deno.serve(async (req) => {
     const qualBlock = [
       "## CANONICAL QUALIFICATIONS (MUST USE — override any conflicting values)",
       resolvedQuals.is_series ? `- Canonical season length: ${resolvedQuals.season_episode_count} episodes.` : null,
-      resolvedQuals.is_series ? `- Canonical episode duration: ${resolvedQuals.episode_target_duration_seconds} seconds.` : null,
+      resolvedQuals.is_series ? `- Canonical episode duration range: ${resolvedQuals.episode_target_duration_min_seconds || resolvedQuals.episode_target_duration_seconds || 'N/A'}–${resolvedQuals.episode_target_duration_max_seconds || resolvedQuals.episode_target_duration_seconds || 'N/A'} seconds.` : null,
       resolvedQuals.target_runtime_min_low ? `- Target runtime: ${resolvedQuals.target_runtime_min_low}–${resolvedQuals.target_runtime_min_high} minutes.` : null,
       `- Format: ${resolvedQuals.format}`,
       `- Replace any conflicting episode count or runtime references with canonical values above.`,

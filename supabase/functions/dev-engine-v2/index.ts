@@ -137,16 +137,20 @@ const FORMAT_EXPECTATIONS: Record<string, string> = {
 // STANDARDIZED OUTPUT SCHEMA (v3)
 // ═══════════════════════════════════════════════════════════════
 
-function buildAnalyzeSystem(deliverable: string, format: string, behavior: string, episodeDuration?: number): string {
+function buildAnalyzeSystem(deliverable: string, format: string, behavior: string, episodeDurationMin?: number, episodeDurationMax?: number): string {
   const rubric = DELIVERABLE_RUBRICS[deliverable] || DELIVERABLE_RUBRICS.script;
   const behaviorMod = BEHAVIOR_MODIFIERS[behavior] || BEHAVIOR_MODIFIERS.market;
   const formatExp = FORMAT_EXPECTATIONS[format] || FORMAT_EXPECTATIONS.film;
 
   let verticalRules = "";
-  if (format === "vertical-drama" && episodeDuration) {
-    const beatMin = episodeDuration <= 90 ? 3 : episodeDuration <= 120 ? 4 : episodeDuration <= 150 ? 5 : episodeDuration <= 180 ? 6 : 7;
+  if (format === "vertical-drama" && (episodeDurationMin || episodeDurationMax)) {
+    const targetDur = episodeDurationMin && episodeDurationMax ? Math.round((episodeDurationMin + episodeDurationMax) / 2) : (episodeDurationMin || episodeDurationMax || 60);
+    const beatMin = targetDur <= 90 ? 3 : targetDur <= 120 ? 4 : targetDur <= 150 ? 5 : targetDur <= 180 ? 6 : 7;
     const beatsPerMin = behavior === "efficiency" ? 2.5 : behavior === "prestige" ? 2.5 : 3.0;
-    verticalRules = `\nVERTICAL DRAMA RULES: Episode duration = ${episodeDuration}s. Required beat minimum = ${beatMin}. Required beats-per-minute ≥ ${beatsPerMin}. Hook within first 10s. Cliffhanger ending required.`;
+    const rangeStr = episodeDurationMin && episodeDurationMax && episodeDurationMin !== episodeDurationMax
+      ? `${episodeDurationMin}–${episodeDurationMax}s (aim midpoint ${targetDur}s)`
+      : `${targetDur}s`;
+    verticalRules = `\nVERTICAL DRAMA RULES: Episode duration target: ${rangeStr}. Required beat minimum = ${beatMin}. Required beats-per-minute ≥ ${beatsPerMin}. Hook within first 10s. Cliffhanger ending required.`;
   }
 
   // Documentary/deck safeguard
@@ -602,14 +606,14 @@ function resolveVerticalDramaNextStep(
 // FORMAT DEFAULTS (engine-side) — mirrors auto-run for consistency
 // ═══════════════════════════════════════════════════════════════
 
-const FORMAT_DEFAULTS_ENGINE: Record<string, { episode_target_duration_seconds?: number; season_episode_count?: number }> = {
-  "vertical-drama": { episode_target_duration_seconds: 60, season_episode_count: 30 },
-  "limited-series": { episode_target_duration_seconds: 3300, season_episode_count: 8 },
-  "tv-series": { episode_target_duration_seconds: 2700, season_episode_count: 10 },
-  "anim-series": { episode_target_duration_seconds: 1320, season_episode_count: 10 },
-  "documentary-series": { episode_target_duration_seconds: 2700, season_episode_count: 6 },
-  "digital-series": { episode_target_duration_seconds: 600, season_episode_count: 10 },
-  "reality": { episode_target_duration_seconds: 2700, season_episode_count: 10 },
+const FORMAT_DEFAULTS_ENGINE: Record<string, { episode_target_duration_seconds?: number; episode_target_duration_min_seconds?: number; episode_target_duration_max_seconds?: number; season_episode_count?: number }> = {
+  "vertical-drama": { episode_target_duration_seconds: 60, episode_target_duration_min_seconds: 45, episode_target_duration_max_seconds: 90, season_episode_count: 30 },
+  "limited-series": { episode_target_duration_seconds: 3300, episode_target_duration_min_seconds: 2700, episode_target_duration_max_seconds: 3600, season_episode_count: 8 },
+  "tv-series": { episode_target_duration_seconds: 2700, episode_target_duration_min_seconds: 2400, episode_target_duration_max_seconds: 3000, season_episode_count: 10 },
+  "anim-series": { episode_target_duration_seconds: 1320, episode_target_duration_min_seconds: 1200, episode_target_duration_max_seconds: 1500, season_episode_count: 10 },
+  "documentary-series": { episode_target_duration_seconds: 2700, episode_target_duration_min_seconds: 2400, episode_target_duration_max_seconds: 3300, season_episode_count: 6 },
+  "digital-series": { episode_target_duration_seconds: 600, episode_target_duration_min_seconds: 420, episode_target_duration_max_seconds: 900, season_episode_count: 10 },
+  "reality": { episode_target_duration_seconds: 2700, episode_target_duration_min_seconds: 2400, episode_target_duration_max_seconds: 3000, season_episode_count: 10 },
 };
 
 // ═══════════════════════════════════════════════════════════════
@@ -725,7 +729,7 @@ serve(async (req) => {
       if (!version) throw new Error("Version not found");
 
       const { data: project } = await supabase.from("projects")
-        .select("title, budget_range, assigned_lane, format, development_behavior, episode_target_duration_seconds, season_episode_count, guardrails_config")
+        .select("title, budget_range, assigned_lane, format, development_behavior, episode_target_duration_seconds, episode_target_duration_min_seconds, episode_target_duration_max_seconds, season_episode_count, guardrails_config")
         .eq("id", projectId).single();
 
       const rawFormat = reqFormat || project?.format || "film";
@@ -756,17 +760,21 @@ serve(async (req) => {
       const rq = resolvedQuals?.resolvedQualifications || {};
       // Accept both camelCase and snake_case from payload as final override
       const payloadDuration = body.episodeTargetDurationSeconds ?? body.episode_target_duration_seconds ?? null;
+      const payloadDurationMin = body.episode_target_duration_min_seconds ?? null;
+      const payloadDurationMax = body.episode_target_duration_max_seconds ?? null;
       const payloadCount = body.seasonEpisodeCount ?? body.season_episode_count ?? null;
 
       const gc = project?.guardrails_config || {};
       const gquals = gc?.overrides?.qualifications || {};
       const fmtDefaults = FORMAT_DEFAULTS_ENGINE[effectiveFormat] || {};
       const effectiveDuration = payloadDuration || rq.episode_target_duration_seconds || project?.episode_target_duration_seconds || gquals.episode_target_duration_seconds || fmtDefaults.episode_target_duration_seconds || null;
+      const effectiveDurationMin = payloadDurationMin || rq.episode_target_duration_min_seconds || (project as any)?.episode_target_duration_min_seconds || gquals.episode_target_duration_min_seconds || fmtDefaults.episode_target_duration_min_seconds || effectiveDuration || null;
+      const effectiveDurationMax = payloadDurationMax || rq.episode_target_duration_max_seconds || (project as any)?.episode_target_duration_max_seconds || gquals.episode_target_duration_max_seconds || fmtDefaults.episode_target_duration_max_seconds || effectiveDuration || null;
       const effectiveSeasonCount = payloadCount || rq.season_episode_count || (project as any)?.season_episode_count || gquals.season_episode_count || fmtDefaults.season_episode_count || null;
 
-      // Vertical drama: require episode duration
-      if (effectiveFormat === "vertical-drama" && !effectiveDuration) {
-        throw new Error("episode_target_duration_seconds is required for vertical drama format");
+      // Vertical drama: require episode duration (min or max or scalar)
+      if (effectiveFormat === "vertical-drama" && !effectiveDuration && !effectiveDurationMin) {
+        throw new Error("episode_target_duration is required for vertical drama format");
       }
 
       // Fetch season config for vertical drama
@@ -838,9 +846,12 @@ serve(async (req) => {
       // Build canonical qualification binding for prompt
       let qualBinding = "";
       if (rq.is_series && rq.season_episode_count) {
+        const durRangeStr = (rq.episode_target_duration_min_seconds && rq.episode_target_duration_max_seconds && rq.episode_target_duration_min_seconds !== rq.episode_target_duration_max_seconds)
+          ? `${rq.episode_target_duration_min_seconds}–${rq.episode_target_duration_max_seconds} seconds`
+          : `${rq.episode_target_duration_seconds || rq.episode_target_duration_min_seconds || 'N/A'} seconds`;
         qualBinding = `\nCANONICAL QUALIFICATIONS (authoritative — ignore older references to different values):
 Target season length: ${rq.season_episode_count} episodes.
-Episode target duration: ${rq.episode_target_duration_seconds} seconds.
+Episode target duration range: ${durRangeStr}.
 Format: ${rq.format}.
 Resolver hash: ${resolvedQuals?.resolver_hash || "unknown"}.`;
       }
@@ -1769,9 +1780,12 @@ MATERIAL TO REWRITE:\n${fullText}`;
           const resolverResult = await resolverResp.json();
           const rq = resolverResult.resolvedQualifications || {};
           if (rq.is_series) {
+            const durRangeStr = (rq.episode_target_duration_min_seconds && rq.episode_target_duration_max_seconds && rq.episode_target_duration_min_seconds !== rq.episode_target_duration_max_seconds)
+              ? `${rq.episode_target_duration_min_seconds}–${rq.episode_target_duration_max_seconds} seconds`
+              : `${rq.episode_target_duration_seconds || rq.episode_target_duration_min_seconds || 'N/A'} seconds`;
             qualBindingBlock = `\nCANONICAL QUALIFICATIONS (use ONLY these values — ignore any older references):
 Target season length: ${rq.season_episode_count} episodes.
-Episode target duration: ${rq.episode_target_duration_seconds} seconds.
+Episode target duration range: ${durRangeStr}.
 Season target runtime: ${rq.season_target_runtime_seconds || "N/A"} seconds.
 Format: ${rq.format}.
 Ignore any older references to different episode counts; they are deprecated.

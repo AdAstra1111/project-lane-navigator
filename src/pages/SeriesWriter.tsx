@@ -176,7 +176,7 @@ export default function SeriesWriter() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('projects')
-        .select('title, format, season_episode_count, episode_target_duration_seconds')
+        .select('title, format, season_episode_count, episode_target_duration_seconds, episode_target_duration_min_seconds, episode_target_duration_max_seconds')
         .eq('id', projectId!)
         .single();
       if (error) throw error;
@@ -208,6 +208,8 @@ export default function SeriesWriter() {
 
   const resolverHash = resolverData?.resolver_hash || '';
   const seasonEpisodeCount = resolverData?.resolved?.season_episode_count || project?.season_episode_count || 0;
+  const episodeDurationMin = resolverData?.resolved?.episode_target_duration_min_seconds || (project as any)?.episode_target_duration_min_seconds || resolverData?.resolved?.episode_target_duration_seconds || project?.episode_target_duration_seconds || 60;
+  const episodeDurationMax = resolverData?.resolved?.episode_target_duration_max_seconds || (project as any)?.episode_target_duration_max_seconds || resolverData?.resolved?.episode_target_duration_seconds || project?.episode_target_duration_seconds || 60;
   const episodeDuration = resolverData?.resolved?.episode_target_duration_seconds || project?.episode_target_duration_seconds || 60;
 
   // ── Working set docs ──
@@ -533,7 +535,7 @@ export default function SeriesWriter() {
             <div className="flex items-center gap-3 text-xs text-muted-foreground shrink-0">
               <span className="font-mono">{seasonEpisodeCount} eps</span>
               <span>•</span>
-              <span className="font-mono">{episodeDuration}s each</span>
+              <span className="font-mono">{episodeDurationMin !== episodeDurationMax ? `${episodeDurationMin}–${episodeDurationMax}s` : `${episodeDurationMin}s`} each</span>
               {resolverHash && (
                 <>
                   <span>•</span>

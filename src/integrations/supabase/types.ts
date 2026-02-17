@@ -8119,6 +8119,8 @@ export type Database = {
           current_stage: string | null
           development_behavior: string | null
           document_urls: string[]
+          episode_target_duration_max_seconds: number | null
+          episode_target_duration_min_seconds: number | null
           episode_target_duration_seconds: number | null
           format: string
           genres: string[]
@@ -8175,6 +8177,8 @@ export type Database = {
           current_stage?: string | null
           development_behavior?: string | null
           document_urls?: string[]
+          episode_target_duration_max_seconds?: number | null
+          episode_target_duration_min_seconds?: number | null
           episode_target_duration_seconds?: number | null
           format?: string
           genres?: string[]
@@ -8231,6 +8235,8 @@ export type Database = {
           current_stage?: string | null
           development_behavior?: string | null
           document_urls?: string[]
+          episode_target_duration_max_seconds?: number | null
+          episode_target_duration_min_seconds?: number | null
           episode_target_duration_seconds?: number | null
           format?: string
           genres?: string[]

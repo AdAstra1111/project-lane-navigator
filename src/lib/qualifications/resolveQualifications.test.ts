@@ -5,6 +5,7 @@ import {
   normalizeFormat,
   RESOLVER_VERSION,
   type QualificationInput,
+  type ResolvedQualifications,
 } from "./resolveQualifications";
 
 describe("normalizeFormat", () => {
@@ -150,8 +151,10 @@ describe("resolveQualifications", () => {
 
 describe("computeResolverHash", () => {
   it("produces stable hash for identical inputs", () => {
-    const quals = {
+    const quals: ResolvedQualifications = {
       episode_target_duration_seconds: 60,
+      episode_target_duration_min_seconds: 60,
+      episode_target_duration_max_seconds: 60,
       season_episode_count: 30,
       season_target_runtime_seconds: 1800,
       target_runtime_min_low: null,
@@ -168,6 +171,8 @@ describe("computeResolverHash", () => {
   it("produces different hash for different inputs", () => {
     const a = computeResolverHash({
       episode_target_duration_seconds: 60,
+      episode_target_duration_min_seconds: 60,
+      episode_target_duration_max_seconds: 60,
       season_episode_count: 30,
       season_target_runtime_seconds: 1800,
       target_runtime_min_low: null,
@@ -177,6 +182,8 @@ describe("computeResolverHash", () => {
     });
     const b = computeResolverHash({
       episode_target_duration_seconds: 120,
+      episode_target_duration_min_seconds: 120,
+      episode_target_duration_max_seconds: 120,
       season_episode_count: 30,
       season_target_runtime_seconds: 3600,
       target_runtime_min_low: null,

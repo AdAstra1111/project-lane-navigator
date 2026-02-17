@@ -12,17 +12,19 @@ const MIN_DURATION_SECONDS = 5;
 
 const FORMAT_DEFAULTS: Record<string, {
   episode_target_duration_seconds?: number;
+  episode_target_duration_min_seconds?: number;
+  episode_target_duration_max_seconds?: number;
   season_episode_count?: number;
   target_runtime_min_low?: number;
   target_runtime_min_high?: number;
 }> = {
-  "vertical-drama":     { episode_target_duration_seconds: 60,   season_episode_count: 30 },
-  "limited-series":     { episode_target_duration_seconds: 3300, season_episode_count: 8 },
-  "tv-series":          { episode_target_duration_seconds: 2700, season_episode_count: 10 },
-  "anim-series":        { episode_target_duration_seconds: 1320, season_episode_count: 10 },
-  "documentary-series": { episode_target_duration_seconds: 2700, season_episode_count: 6 },
-  "digital-series":     { episode_target_duration_seconds: 600,  season_episode_count: 10 },
-  "reality":            { episode_target_duration_seconds: 2700, season_episode_count: 10 },
+  "vertical-drama":     { episode_target_duration_seconds: 60,  episode_target_duration_min_seconds: 45,  episode_target_duration_max_seconds: 90,  season_episode_count: 30 },
+  "limited-series":     { episode_target_duration_seconds: 3300, episode_target_duration_min_seconds: 2700, episode_target_duration_max_seconds: 3600, season_episode_count: 8 },
+  "tv-series":          { episode_target_duration_seconds: 2700, episode_target_duration_min_seconds: 2400, episode_target_duration_max_seconds: 3000, season_episode_count: 10 },
+  "anim-series":        { episode_target_duration_seconds: 1320, episode_target_duration_min_seconds: 1200, episode_target_duration_max_seconds: 1500, season_episode_count: 10 },
+  "documentary-series": { episode_target_duration_seconds: 2700, episode_target_duration_min_seconds: 2400, episode_target_duration_max_seconds: 3300, season_episode_count: 6 },
+  "digital-series":     { episode_target_duration_seconds: 600,  episode_target_duration_min_seconds: 420,  episode_target_duration_max_seconds: 900,  season_episode_count: 10 },
+  "reality":            { episode_target_duration_seconds: 2700, episode_target_duration_min_seconds: 2400, episode_target_duration_max_seconds: 3000, season_episode_count: 10 },
   "film":               { target_runtime_min_low: 85,  target_runtime_min_high: 110 },
   "anim-feature":       { target_runtime_min_low: 80,  target_runtime_min_high: 100 },
   "short-film":         { target_runtime_min_low: 5,   target_runtime_min_high: 20 },
@@ -40,6 +42,8 @@ function normalizeFormat(format: string): string {
 function computeResolverHash(resolved: any): string {
   const canonical = JSON.stringify({
     d: resolved.episode_target_duration_seconds,
+    dmin: resolved.episode_target_duration_min_seconds,
+    dmax: resolved.episode_target_duration_max_seconds,
     c: resolved.season_episode_count,
     rl: resolved.target_runtime_min_low,
     rh: resolved.target_runtime_min_high,
@@ -87,6 +91,12 @@ function resolveQualificationsCore(input: any) {
   const dur = resolve("episode_target_duration_seconds",
     proj.episode_target_duration_seconds, overrideQuals.episode_target_duration_seconds,
     gcOverrides.episode_target_duration_seconds, defaults.episode_target_duration_seconds);
+  const durMin = resolve("episode_target_duration_min_seconds",
+    proj.episode_target_duration_min_seconds, overrideQuals.episode_target_duration_min_seconds,
+    gcOverrides.episode_target_duration_min_seconds, defaults.episode_target_duration_min_seconds);
+  const durMax = resolve("episode_target_duration_max_seconds",
+    proj.episode_target_duration_max_seconds, overrideQuals.episode_target_duration_max_seconds,
+    gcOverrides.episode_target_duration_max_seconds, defaults.episode_target_duration_max_seconds);
   const cnt = resolve("season_episode_count",
     proj.season_episode_count, overrideQuals.season_episode_count,
     gcOverrides.season_episode_count, defaults.season_episode_count);
@@ -115,21 +125,39 @@ function resolveQualificationsCore(input: any) {
     }
   }
 
-  if (isSeries && episodeDuration == null && defaults.episode_target_duration_seconds == null) {
+  // Resolve episode duration range
+  let epDurMin = durMin.value != null ? Math.round(durMin.value) : null;
+  let epDurMax = durMax.value != null ? Math.round(durMax.value) : null;
+  if (epDurMin == null && epDurMax == null && episodeDuration != null) {
+    epDurMin = episodeDuration;
+    epDurMax = episodeDuration;
+  }
+  if (epDurMin != null && epDurMax == null) epDurMax = epDurMin;
+  if (epDurMax != null && epDurMin == null) epDurMin = epDurMax;
+  if (epDurMin != null && epDurMin < MIN_DURATION_SECONDS) { epDurMin = null; }
+  if (epDurMax != null && epDurMax < MIN_DURATION_SECONDS) { epDurMax = null; }
+  if (epDurMin != null && epDurMax != null && epDurMin > epDurMax) {
+    errors.push({ field: "episode_target_duration_min_seconds", message: `Min (${epDurMin}) must be <= max (${epDurMax})` });
+  }
+
+  if (isSeries && episodeDuration == null && epDurMin == null && defaults.episode_target_duration_seconds == null) {
     errors.push({ field: "episode_target_duration_seconds", message: "Required for series format" });
   }
   if (isSeries && episodeCount == null && defaults.season_episode_count == null) {
     errors.push({ field: "season_episode_count", message: "Required for series format" });
   }
 
-  const seasonRuntime = (episodeDuration != null && episodeCount != null)
-    ? episodeDuration * episodeCount : null;
+  const effectiveMidpoint = (epDurMin != null && epDurMax != null) ? Math.round((epDurMin + epDurMax) / 2) : episodeDuration;
+  const seasonRuntime = (effectiveMidpoint != null && episodeCount != null)
+    ? effectiveMidpoint * episodeCount : null;
 
   if (dur.source === "defaults") warnings.push({ field: "episode_target_duration_seconds", message: "Using global default" });
   if (cnt.source === "defaults") warnings.push({ field: "season_episode_count", message: "Using global default" });
 
   const resolved = {
     episode_target_duration_seconds: episodeDuration,
+    episode_target_duration_min_seconds: epDurMin,
+    episode_target_duration_max_seconds: epDurMax,
     season_episode_count: episodeCount,
     season_target_runtime_seconds: seasonRuntime,
     target_runtime_min_low: rtLow.value != null ? Math.round(rtLow.value) : null,
@@ -188,7 +216,7 @@ Deno.serve(async (req) => {
 
     // Fetch project data
     const { data: project, error: projErr } = await supabase.from("projects")
-      .select("format, episode_target_duration_seconds, season_episode_count, guardrails_config, resolved_qualifications_hash")
+      .select("format, episode_target_duration_seconds, episode_target_duration_min_seconds, episode_target_duration_max_seconds, season_episode_count, guardrails_config, resolved_qualifications_hash")
       .eq("id", projectId).single();
 
     if (projErr || !project) {
@@ -205,6 +233,8 @@ Deno.serve(async (req) => {
       format_subtype: normalizeFormat(project.format || "film"),
       project_qualification_fields: {
         episode_target_duration_seconds: project.episode_target_duration_seconds,
+        episode_target_duration_min_seconds: (project as any).episode_target_duration_min_seconds,
+        episode_target_duration_max_seconds: (project as any).episode_target_duration_max_seconds,
         season_episode_count: project.season_episode_count,
         format: project.format,
       },

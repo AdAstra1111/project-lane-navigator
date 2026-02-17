@@ -75,7 +75,7 @@ export default function ProjectDevelopmentEngine() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('projects')
-        .select('format, development_behavior, episode_target_duration_seconds, season_episode_count, assigned_lane, budget_range, genres, comparable_titles, tone, target_audience, guardrails_config, source_pitch_idea_id')
+        .select('format, development_behavior, episode_target_duration_seconds, episode_target_duration_min_seconds, episode_target_duration_max_seconds, season_episode_count, assigned_lane, budget_range, genres, comparable_titles, tone, target_audience, guardrails_config, source_pitch_idea_id')
         .eq('id', projectId!)
         .single();
       if (error) throw error;
@@ -129,11 +129,14 @@ export default function ProjectDevelopmentEngine() {
   const isSeriesFormat = checkSeriesFormat(normalizedFormat);
   const projectBehavior = (project?.development_behavior as DevelopmentBehavior) || 'market';
   const projectFormat = normalizedFormat;
-  const [episodeDuration, setEpisodeDuration] = useState<number | null>(null);
+  const [episodeDurationMin, setEpisodeDurationMin] = useState<number | null>(null);
+  const [episodeDurationMax, setEpisodeDurationMax] = useState<number | null>(null);
   const [seasonEpisodes, setSeasonEpisodes] = useState<number | null>(null);
 
-  // Derive effective values: local override takes priority, then DB, then format defaults
-  const effectiveEpisodeDuration = episodeDuration ?? project?.episode_target_duration_seconds ?? (isVerticalDrama ? 60 : 120);
+  // Derive effective values: local override takes priority, then DB min/max, then DB scalar, then format defaults
+  const defaultDur = isVerticalDrama ? 60 : 120;
+  const effectiveEpisodeDurationMin = episodeDurationMin ?? (project as any)?.episode_target_duration_min_seconds ?? project?.episode_target_duration_seconds ?? defaultDur;
+  const effectiveEpisodeDurationMax = episodeDurationMax ?? (project as any)?.episode_target_duration_max_seconds ?? project?.episode_target_duration_seconds ?? defaultDur;
   const effectiveSeasonEpisodes = seasonEpisodes ?? (project as any)?.season_episode_count ?? 8;
   const [softGateOpen, setSoftGateOpen] = useState(false);
   const [pendingStageAction, setPendingStageAction] = useState<(() => void) | null>(null);
@@ -651,14 +654,33 @@ export default function ProjectDevelopmentEngine() {
             </Select>
             {(isVerticalDrama || isSeriesFormat) && (
               <div className="flex items-center gap-1">
-                <Input type="number" className="h-7 text-xs w-[72px]" value={effectiveEpisodeDuration}
-                  onChange={(e) => setEpisodeDuration(Number(e.target.value))}
+                <Input type="number" className="h-7 text-xs w-[60px]" value={effectiveEpisodeDurationMin}
+                  onChange={(e) => setEpisodeDurationMin(Number(e.target.value))}
                   onBlur={async () => {
-                    if (!projectId || !effectiveEpisodeDuration) return;
-                    await (supabase as any).from('projects').update({ episode_target_duration_seconds: effectiveEpisodeDuration }).eq('id', projectId);
+                    if (!projectId || !effectiveEpisodeDurationMin) return;
+                    const updates: Record<string, any> = { episode_target_duration_min_seconds: effectiveEpisodeDurationMin };
+                    // Mirror max if not explicitly set
+                    if (!episodeDurationMax && !(project as any)?.episode_target_duration_max_seconds) {
+                      updates.episode_target_duration_max_seconds = effectiveEpisodeDurationMin;
+                    }
+                    updates.episode_target_duration_seconds = effectiveEpisodeDurationMin; // legacy fallback
+                    await (supabase as any).from('projects').update(updates).eq('id', projectId);
                     qc.invalidateQueries({ queryKey: ['dev-engine-project', projectId] });
                   }}
-                  min={30} max={7200} />
+                  min={5} max={7200} />
+                <span className="text-[9px] text-muted-foreground">–</span>
+                <Input type="number" className="h-7 text-xs w-[60px]" value={effectiveEpisodeDurationMax}
+                  onChange={(e) => setEpisodeDurationMax(Number(e.target.value))}
+                  onBlur={async () => {
+                    if (!projectId || !effectiveEpisodeDurationMax) return;
+                    const updates: Record<string, any> = { episode_target_duration_max_seconds: effectiveEpisodeDurationMax };
+                    if (!episodeDurationMin && !(project as any)?.episode_target_duration_min_seconds) {
+                      updates.episode_target_duration_min_seconds = effectiveEpisodeDurationMax;
+                    }
+                    await (supabase as any).from('projects').update(updates).eq('id', projectId);
+                    qc.invalidateQueries({ queryKey: ['dev-engine-project', projectId] });
+                  }}
+                  min={5} max={7200} />
                 <span className="text-[9px] text-muted-foreground">s/ep</span>
                 <Input type="number" className="h-7 text-xs w-[64px]" value={effectiveSeasonEpisodes}
                   onChange={(e) => setSeasonEpisodes(Number(e.target.value))}
