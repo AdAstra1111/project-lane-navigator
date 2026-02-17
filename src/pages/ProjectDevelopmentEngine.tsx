@@ -804,20 +804,35 @@ export default function ProjectDevelopmentEngine() {
                   {/* Resume auto-run handled by banner above */}
 
                   {/* Progress indicators */}
-                  <OperationProgress isActive={analyze.isPending} stages={DEV_ANALYZE_STAGES} />
-                  <OperationProgress isActive={generateNotes.isPending} stages={DEV_NOTES_STAGES} />
-                  <OperationProgress isActive={rewrite.isPending} stages={DEV_REWRITE_STAGES} />
-                  <OperationProgress isActive={convert.isPending} stages={DEV_CONVERT_STAGES} />
+                  <OperationProgress isActive={analyze.isPending} stages={DEV_ANALYZE_STAGES} onStop={() => analyze.reset()} onRestart={handleRunEngine} />
+                  <OperationProgress isActive={generateNotes.isPending} stages={DEV_NOTES_STAGES} onStop={() => generateNotes.reset()} onRestart={() => generateNotes.mutate(latestAnalysis)} />
+                  <OperationProgress isActive={rewrite.isPending} stages={DEV_REWRITE_STAGES} onStop={() => rewrite.reset()} onRestart={() => handleRewrite()} />
+                  <OperationProgress isActive={convert.isPending} stages={DEV_CONVERT_STAGES} onStop={() => convert.reset()} onRestart={() => {
+                    const nbd = latestAnalysis?.convergence?.next_best_document;
+                    if (nbd) convert.mutate({ targetOutput: nbd.toUpperCase(), protectItems: latestAnalysis?.protect });
+                  }} />
                   {rewritePipeline.status !== 'idle' && rewritePipeline.status !== 'complete' && (
                     <div className="p-2 rounded-lg border bg-muted/30">
                       <div className="flex items-center gap-2 text-xs">
                         <Loader2 className="h-3 w-3 animate-spin" />
-                        <span>
+                        <span className="flex-1">
                           {rewritePipeline.status === 'planning' && 'Planning rewrite…'}
                           {rewritePipeline.status === 'writing' && `Chunk ${rewritePipeline.currentChunk}/${rewritePipeline.totalChunks}`}
                           {rewritePipeline.status === 'assembling' && 'Assembling…'}
                           {rewritePipeline.status === 'error' && `Error: ${rewritePipeline.error}`}
                         </span>
+                        <div className="flex gap-0.5 shrink-0">
+                          {rewritePipeline.status !== 'error' && (
+                            <Button variant="ghost" size="sm" className="h-5 w-5 p-0" onClick={() => rewritePipeline.reset()} title="Stop">
+                              <Square className="h-3 w-3" />
+                            </Button>
+                          )}
+                          {rewritePipeline.status === 'error' && (
+                            <Button variant="ghost" size="sm" className="h-5 w-5 p-0" onClick={() => { rewritePipeline.reset(); handleRewrite(); }} title="Restart">
+                              <RotateCcw className="h-3 w-3" />
+                            </Button>
+                          )}
+                        </div>
                       </div>
                       {rewritePipeline.totalChunks > 0 && (
                         <Progress value={(rewritePipeline.currentChunk / rewritePipeline.totalChunks) * 100} className="h-1 mt-1" />

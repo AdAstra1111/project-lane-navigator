@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Progress } from '@/components/ui/progress';
+import { Button } from '@/components/ui/button';
+import { Square, RotateCcw } from 'lucide-react';
 
 interface Stage {
   at: number;
@@ -11,6 +13,10 @@ interface OperationProgressProps {
   isActive: boolean;
   stages?: Stage[];
   className?: string;
+  /** Called when the user clicks the Stop button — should abort the operation */
+  onStop?: () => void;
+  /** Called when the user clicks Restart after stopping */
+  onRestart?: () => void;
 }
 
 const DEFAULT_STAGES: Stage[] = [
@@ -22,9 +28,10 @@ const DEFAULT_STAGES: Stage[] = [
   { at: 95, label: 'Almost done…' },
 ];
 
-export function OperationProgress({ isActive, stages = DEFAULT_STAGES, className }: OperationProgressProps) {
+export function OperationProgress({ isActive, stages = DEFAULT_STAGES, className, onStop, onRestart }: OperationProgressProps) {
   const [progress, setProgress] = useState(0);
   const [label, setLabel] = useState('');
+  const [stopped, setStopped] = useState(false);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
   const stuckTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -34,6 +41,11 @@ export function OperationProgress({ isActive, stages = DEFAULT_STAGES, className
     if (stuckTimer.current) clearTimeout(stuckTimer.current);
     stuckTimer.current = null;
   }, []);
+
+  // Reset stopped state when operation starts
+  useEffect(() => {
+    if (isActive) setStopped(false);
+  }, [isActive]);
 
   useEffect(() => {
     if (isActive) {
@@ -46,9 +58,7 @@ export function OperationProgress({ isActive, stages = DEFAULT_STAGES, className
         current += Math.random() * 3 + 0.5;
         if (current > 96) {
           current = 96;
-          // Track how long we've been at the cap
           if (!atCapSince) atCapSince = Date.now();
-          // If stuck at cap for >20s, nudge to 100 and auto-dismiss
           if (Date.now() - atCapSince > 20000) {
             setProgress(100);
             setLabel('Done!');
@@ -70,9 +80,21 @@ export function OperationProgress({ isActive, stages = DEFAULT_STAGES, className
     return stop;
   }, [isActive, stages, stop]);
 
+  const handleStop = () => {
+    setStopped(true);
+    stop();
+    setLabel('Stopped');
+    onStop?.();
+  };
+
+  const handleRestart = () => {
+    setStopped(false);
+    onRestart?.();
+  };
+
   return (
     <AnimatePresence>
-      {(isActive || progress === 100) && progress > 0 && (
+      {(isActive || stopped || progress === 100) && progress > 0 && (
         <motion.div
           initial={{ opacity: 0, height: 0 }}
           animate={{ opacity: 1, height: 'auto' }}
@@ -81,7 +103,23 @@ export function OperationProgress({ isActive, stages = DEFAULT_STAGES, className
           className={className}
         >
           <div className="space-y-1.5">
-            <Progress value={progress} className="h-1.5" />
+            <div className="flex items-center gap-1.5">
+              <Progress value={stopped ? progress : progress} className="h-1.5 flex-1" />
+              {(onStop || onRestart) && (
+                <div className="flex gap-0.5 shrink-0">
+                  {isActive && !stopped && onStop && (
+                    <Button variant="ghost" size="sm" className="h-5 w-5 p-0" onClick={handleStop} title="Stop">
+                      <Square className="h-3 w-3" />
+                    </Button>
+                  )}
+                  {stopped && onRestart && (
+                    <Button variant="ghost" size="sm" className="h-5 w-5 p-0" onClick={handleRestart} title="Restart">
+                      <RotateCcw className="h-3 w-3" />
+                    </Button>
+                  )}
+                </div>
+              )}
+            </div>
             <p className="text-[11px] text-muted-foreground text-center">{label}</p>
           </div>
         </motion.div>
