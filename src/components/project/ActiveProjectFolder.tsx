@@ -6,7 +6,8 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { FolderOpen, Check, RefreshCw, Loader2, ChevronDown, FileText, ShieldCheck, AlertCircle } from 'lucide-react';
+import { FolderOpen, Check, RefreshCw, Loader2, ChevronDown, FileText, ShieldCheck, AlertCircle, Download } from 'lucide-react';
+import { DocumentExportDropdown } from '@/components/DocumentExportDropdown';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -126,7 +127,7 @@ export function ActiveProjectFolder({ projectId }: Props) {
       if (!activeVersionIds.length) return {};
       const { data } = await supabase
         .from('project_document_versions')
-        .select('id, version_number, document_id, created_at, approval_status')
+        .select('id, version_number, document_id, created_at, approval_status, plaintext')
         .in('id', activeVersionIds);
       const map: Record<string, any> = {};
       for (const v of (data || [])) map[v.id] = v;
@@ -321,6 +322,15 @@ export function ActiveProjectFolder({ projectId }: Props) {
                 </div>
 
                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  {/* Export */}
+                  {version?.plaintext && (
+                    <DocumentExportDropdown
+                      text={version.plaintext}
+                      title={`${title}_v${version?.version_number || 1}`}
+                      size="sm"
+                      showLabel={false}
+                    />
+                  )}
                   <Check className="h-3 w-3 text-emerald-400" />
 
                   {/* Replace dropdown - only shows APPROVED versions of SAME doc_type_key */}

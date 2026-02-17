@@ -28,6 +28,7 @@ import { useSetAsLatestDraft } from '@/hooks/useSetAsLatestDraft';
 import { approveAndActivate } from '@/lib/active-folder/approveAndActivate';
 import { useSeasonTemplate } from '@/hooks/useSeasonTemplate';
 import { canPromoteToScript } from '@/lib/can-promote-to-script';
+import { DocumentExportDropdown } from '@/components/DocumentExportDropdown';
 import { FeatureLengthGuardrails } from '@/components/FeatureLengthGuardrails';
 import { type DevelopmentBehavior, BEHAVIOR_LABELS, BEHAVIOR_COLORS, DELIVERABLE_LABELS, defaultDeliverableForDocType, type DeliverableType } from '@/lib/dev-os-config';
 import { isSeriesFormat as checkSeriesFormat } from '@/lib/format-helpers';
@@ -924,6 +925,11 @@ export default function ProjectDevelopmentEngine() {
 
                   {versionText && (
                     <div className="flex flex-wrap items-center justify-end gap-2">
+                      {/* Export document */}
+                      <DocumentExportDropdown
+                        text={versionText}
+                        title={selectedDoc?.title || selectedDoc?.doc_type || 'document'}
+                      />
                       {/* Set as Season Template — available for episode scripts on series formats */}
                       {(isSeriesFormat || isVerticalDrama) && (
                         <ConfirmDialog
