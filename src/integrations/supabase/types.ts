@@ -6731,6 +6731,9 @@ export type Database = {
       }
       project_document_versions: {
         Row: {
+          approval_status: string
+          approved_at: string | null
+          approved_by: string | null
           branch_id: string | null
           change_summary: string | null
           created_at: string
@@ -6758,6 +6761,9 @@ export type Database = {
           version_number: number
         }
         Insert: {
+          approval_status?: string
+          approved_at?: string | null
+          approved_by?: string | null
           branch_id?: string | null
           change_summary?: string | null
           created_at?: string
@@ -6785,6 +6791,9 @@ export type Database = {
           version_number?: number
         }
         Update: {
+          approval_status?: string
+          approved_at?: string | null
+          approved_by?: string | null
           branch_id?: string | null
           change_summary?: string | null
           created_at?: string

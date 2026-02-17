@@ -71,6 +71,17 @@ function isSeriesFormat(format: string): boolean {
   return SERIES_FORMATS.includes((format || "").toLowerCase().replace(/_/g, "-"));
 }
 
+// ─── Helper: mark version as approved in project_document_versions ───
+async function markVersionApproved(db: any, versionId: string, userId: string) {
+  await db.from("project_document_versions")
+    .update({
+      approval_status: "approved",
+      approved_at: new Date().toISOString(),
+      approved_by: userId,
+    })
+    .eq("id", versionId);
+}
+
 // ─── Main Handler ───
 
 Deno.serve(async (req) => {
@@ -120,7 +131,7 @@ Deno.serve(async (req) => {
 
       // Fetch version + parent doc
       const { data: version } = await db.from("project_document_versions")
-        .select("id, deliverable_type, label, stage, document_id")
+        .select("id, deliverable_type, label, stage, document_id, approval_status")
         .eq("id", documentVersionId).single();
       if (!version) {
         return new Response(JSON.stringify({ error: "Version not found" }), { status: 404, headers: JSON_HEADERS });
@@ -131,6 +142,11 @@ Deno.serve(async (req) => {
         .eq("id", version.document_id).single();
 
       const docTypeKey = resolveDocTypeKey(version, parentDoc, isSeries);
+
+      // Mark version as approved
+      if (version.approval_status !== "approved") {
+        await markVersionApproved(db, documentVersionId, userId);
+      }
 
       // Upsert into project_active_docs
       const { data: upserted, error: upsertErr } = await db.from("project_active_docs")
@@ -154,20 +170,73 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ active: upserted, docTypeKey }), { headers: JSON_HEADERS });
     }
 
+    // ─── ACTION: approve-many ───
+    if (action === "approve-many") {
+      const { documentVersionIds, sourceFlow } = body;
+      if (!Array.isArray(documentVersionIds) || documentVersionIds.length === 0) {
+        return new Response(JSON.stringify({ error: "Missing documentVersionIds array" }), { status: 400, headers: JSON_HEADERS });
+      }
+
+      const results: any[] = [];
+      for (const versionId of documentVersionIds) {
+        const { data: version } = await db.from("project_document_versions")
+          .select("id, deliverable_type, label, stage, document_id, approval_status")
+          .eq("id", versionId).single();
+        if (!version) continue;
+
+        const { data: parentDoc } = await db.from("project_documents")
+          .select("id, doc_type, title, file_name")
+          .eq("id", version.document_id).single();
+
+        const docTypeKey = resolveDocTypeKey(version, parentDoc, isSeries);
+
+        // Mark approved
+        if (version.approval_status !== "approved") {
+          await markVersionApproved(db, versionId, userId);
+        }
+
+        // Upsert active
+        const { data: upserted } = await db.from("project_active_docs")
+          .upsert({
+            project_id: projectId,
+            doc_type_key: docTypeKey,
+            document_version_id: versionId,
+            approved_at: new Date().toISOString(),
+            approved_by: userId,
+            source_flow: sourceFlow || "manual",
+          }, { onConflict: "project_id,doc_type_key" })
+          .select("*")
+          .single();
+
+        if (upserted) results.push(upserted);
+      }
+
+      return new Response(JSON.stringify({ activeDocs: results, count: results.length }), { headers: JSON_HEADERS });
+    }
+
     // ─── ACTION: set-active ───
     if (action === "set-active") {
-      const { docTypeKey, documentVersionId } = body;
+      const { docTypeKey, documentVersionId, allowDraft } = body;
       if (!docTypeKey || !documentVersionId) {
         return new Response(JSON.stringify({ error: "Missing docTypeKey or documentVersionId" }), { status: 400, headers: JSON_HEADERS });
       }
 
-      // Validate version exists and matches the key
+      // Validate version exists and check approval status
       const { data: version } = await db.from("project_document_versions")
-        .select("id, deliverable_type, label, stage, document_id")
+        .select("id, deliverable_type, label, stage, document_id, approval_status")
         .eq("id", documentVersionId).single();
       if (!version) {
         return new Response(JSON.stringify({ error: "Version not found" }), { status: 404, headers: JSON_HEADERS });
       }
+
+      // Require approved unless allowDraft is true
+      if (version.approval_status !== "approved" && !allowDraft) {
+        return new Response(JSON.stringify({
+          error: "Version is not approved. Approve it first, or pass allowDraft:true.",
+          approval_status: version.approval_status,
+        }), { status: 400, headers: JSON_HEADERS });
+      }
+
       const { data: parentDoc } = await db.from("project_documents")
         .select("id, doc_type, title, file_name, project_id")
         .eq("id", version.document_id).single();
@@ -178,7 +247,6 @@ Deno.serve(async (req) => {
 
       const computedKey = resolveDocTypeKey(version, parentDoc, isSeries);
       if (computedKey !== docTypeKey && docTypeKey !== "other") {
-        // Allow override but log it
         console.warn(`Doc type key mismatch: computed=${computedKey}, requested=${docTypeKey}`);
       }
 
@@ -201,7 +269,7 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ active: upserted }), { headers: JSON_HEADERS });
     }
 
-    // ─── ACTION: init (lazy backfill) ───
+    // ─── ACTION: init (returns candidates, does NOT auto-activate) ───
     if (action === "init") {
       // Get all project docs with latest versions
       const { data: docs } = await db.from("project_documents")
@@ -210,7 +278,7 @@ Deno.serve(async (req) => {
         .not("latest_version_id", "is", null);
 
       if (!docs?.length) {
-        return new Response(JSON.stringify({ initialized: 0, activeDocs: [] }), { headers: JSON_HEADERS });
+        return new Response(JSON.stringify({ candidates: [] }), { headers: JSON_HEADERS });
       }
 
       // Get existing active docs
@@ -219,51 +287,57 @@ Deno.serve(async (req) => {
         .eq("project_id", projectId);
       const existingKeys = new Set((existing || []).map((e: any) => e.doc_type_key));
 
-      // Get version metadata for role resolution
+      // Get version metadata
       const versionIds = docs.map(d => d.latest_version_id).filter(Boolean);
       const { data: versions } = await db.from("project_document_versions")
-        .select("id, deliverable_type, label, stage")
+        .select("id, deliverable_type, label, stage, approval_status")
         .in("id", versionIds);
       const versionMap = new Map((versions || []).map((v: any) => [v.id, v]));
 
-      // Group by doc_type_key, pick latest per key
-      const byKey: Record<string, { versionId: string; docId: string }> = {};
+      // Build candidates grouped by doc_type_key
+      const byKey: Record<string, { versionId: string; title: string; approvalStatus: string }[]> = {};
       for (const doc of docs) {
         if (!doc.latest_version_id) continue;
         const version = versionMap.get(doc.latest_version_id);
         const key = resolveDocTypeKey(version || {}, doc, isSeries);
-        if (key === "other") continue; // Skip unknowns
-        if (existingKeys.has(key)) continue; // Already active
-        // For episode_script in series: prefer pilot (first by title heuristic)
-        if (key === "episode_script" && byKey[key]) {
-          const title = (doc.title || doc.file_name || "").toLowerCase();
-          if (!/pilot|episode\s*1\b|ep\s*1\b/i.test(title)) continue; // Keep existing pilot
-        }
-        byKey[key] = { versionId: doc.latest_version_id, docId: doc.id };
+        if (key === "other") continue;
+        if (existingKeys.has(key)) continue;
+
+        if (!byKey[key]) byKey[key] = [];
+        byKey[key].push({
+          versionId: doc.latest_version_id,
+          title: doc.title || doc.file_name || "Untitled",
+          approvalStatus: version?.approval_status || "draft",
+        });
       }
 
-      // Insert missing
-      const inserts = Object.entries(byKey).map(([key, val]) => ({
-        project_id: projectId,
-        doc_type_key: key,
-        document_version_id: val.versionId,
-        approved_at: new Date().toISOString(),
-        approved_by: userId,
-        source_flow: "auto_init",
-      }));
-
-      if (inserts.length > 0) {
-        const { error: insertErr } = await db.from("project_active_docs").insert(inserts);
-        if (insertErr) console.error("Init insert error:", insertErr);
+      // Pick best candidate per key: prefer approved, then latest
+      const candidates: any[] = [];
+      for (const [key, entries] of Object.entries(byKey)) {
+        // Sort: approved first, then by title heuristic for pilot
+        const sorted = entries.sort((a, b) => {
+          if (a.approvalStatus === "approved" && b.approvalStatus !== "approved") return -1;
+          if (b.approvalStatus === "approved" && a.approvalStatus !== "approved") return 1;
+          // For episode_script, prefer pilot
+          if (key === "episode_script") {
+            const aIsPilot = /pilot|episode\s*1\b|ep\s*1\b/i.test(a.title);
+            const bIsPilot = /pilot|episode\s*1\b|ep\s*1\b/i.test(b.title);
+            if (aIsPilot && !bIsPilot) return -1;
+            if (bIsPilot && !aIsPilot) return 1;
+          }
+          return 0;
+        });
+        const best = sorted[0];
+        candidates.push({
+          doc_type_key: key,
+          document_version_id: best.versionId,
+          title: best.title,
+          approval_status: best.approvalStatus,
+          reason: best.approvalStatus === "approved" ? "Latest approved version" : "Latest draft (not yet approved)",
+        });
       }
 
-      // Return full folder
-      const { data: activeDocs } = await db.from("project_active_docs")
-        .select("*")
-        .eq("project_id", projectId)
-        .order("doc_type_key");
-
-      return new Response(JSON.stringify({ initialized: inserts.length, activeDocs }), { headers: JSON_HEADERS });
+      return new Response(JSON.stringify({ candidates }), { headers: JSON_HEADERS });
     }
 
     // ─── ACTION: list ───

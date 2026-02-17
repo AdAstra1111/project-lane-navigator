@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { approveAndActivate } from '@/lib/active-folder/approveAndActivate';
 
 interface SetAsDraftParams {
   title: string;
@@ -51,7 +52,21 @@ export function useSetAsLatestDraft(projectId: string | undefined) {
           .eq('project_id', projectId);
       }
 
-      // 4. Trigger project re-analysis with this text
+      // 4. Approve & activate in Active Project Folder
+      if (versionId) {
+        try {
+          await approveAndActivate({
+            projectId,
+            documentVersionId: versionId,
+            sourceFlow: 'publish_as_script',
+          });
+        } catch (err) {
+          console.error('Approve+activate after publish failed:', err);
+          // Non-fatal
+        }
+      }
+
+      // 5. Trigger project re-analysis with this text
       try {
         const { data: project } = await supabase
           .from('projects')

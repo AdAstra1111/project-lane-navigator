@@ -1021,8 +1021,67 @@ Deno.serve(async (req) => {
         return respondWithJob(supabase, jobId, "run-next");
       }
 
-      // approve — advance stage
+      // approve — advance stage + approve+activate the pending version
       const nextStage = job.pending_next_doc_type as DocStage | null;
+
+      // Approve the document version in project_document_versions + active folder
+      const approveVersionId = job.pending_version_id || null;
+      if (approveVersionId) {
+        try {
+          await supabase.from("project_document_versions").update({
+            approval_status: "approved",
+            approved_at: new Date().toISOString(),
+            approved_by: userId,
+          }).eq("id", approveVersionId);
+
+          // Resolve doc_type_key and upsert active folder
+          const { data: ver } = await supabase.from("project_document_versions")
+            .select("id, deliverable_type, label, stage, document_id")
+            .eq("id", approveVersionId).single();
+          if (ver) {
+            const { data: parentDoc } = await supabase.from("project_documents")
+              .select("id, doc_type, title, file_name")
+              .eq("id", ver.document_id).single();
+            const { data: proj } = await supabase.from("projects")
+              .select("format").eq("id", job.project_id).single();
+            const fmt = (proj?.format || "film").toLowerCase().replace(/_/g, "-");
+            const isSeries = ["tv-series","limited-series","vertical-drama","digital-series","documentary-series","anim-series"].includes(fmt);
+
+            const keys = [ver.deliverable_type, parentDoc?.doc_type].filter(Boolean);
+            let docTypeKey = "other";
+            for (const k of keys) {
+              const norm = (k as string).toLowerCase().replace(/[-\s]/g, "_");
+              const KEY_MAP_LOCAL: Record<string,string> = {
+                concept_brief:"concept_brief",concept:"concept_brief",market_sheet:"market_sheet",market:"market_sheet",
+                deck:"deck",blueprint:"blueprint",series_bible:"blueprint",beat_sheet:"beat_sheet",
+                character_bible:"character_bible",character:"character_bible",episode_grid:"episode_grid",
+                season_arc:"season_arc",documentary_outline:"documentary_outline",script:"feature_script",
+                feature_script:"feature_script",pilot_script:"episode_script",episode_script:"episode_script",
+                episode_1_script:"episode_script",production_draft:"production_draft",format_rules:"format_rules",
+              };
+              if (KEY_MAP_LOCAL[norm]) {
+                docTypeKey = KEY_MAP_LOCAL[norm];
+                if (isSeries && docTypeKey === "feature_script") docTypeKey = "episode_script";
+                break;
+              }
+            }
+
+            if (docTypeKey !== "other") {
+              await supabase.from("project_active_docs").upsert({
+                project_id: job.project_id,
+                doc_type_key: docTypeKey,
+                document_version_id: approveVersionId,
+                approved_at: new Date().toISOString(),
+                approved_by: userId,
+                source_flow: "auto_run",
+              }, { onConflict: "project_id,doc_type_key" });
+            }
+          }
+        } catch (e: any) {
+          console.error("Auto-run approve+activate failed (non-fatal):", e.message);
+        }
+      }
+
       await logStep(supabase, jobId, stepCount, currentDoc, "approval_approved",
         `User approved ${job.approval_type}: ${currentDoc} → ${nextStage || "continue"}`
       );
