@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { buildBeatGuidanceBlock } from "../_shared/verticalDramaBeats.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -168,13 +169,25 @@ Deno.serve(async (req) => {
     }
 
     // 4) Build prompt with HARD BINDING
+    const durMin = resolvedQuals.episode_target_duration_min_seconds || resolvedQuals.episode_target_duration_seconds || null;
+    const durMax = resolvedQuals.episode_target_duration_max_seconds || resolvedQuals.episode_target_duration_seconds || null;
+    const durMid = durMin && durMax ? Math.round((durMin + durMax) / 2) : (durMin || durMax || null);
+    const durRangeStr = (durMin && durMax && durMin !== durMax)
+      ? `${durMin}–${durMax} seconds (midpoint ${durMid}s)`
+      : `${durMid || 'N/A'} seconds`;
+
+    // Beat guidance for vertical drama
+    const isVerticalDrama = (resolvedQuals.format || project.format || '').toLowerCase().includes('vertical');
+    const beatBlock = isVerticalDrama ? buildBeatGuidanceBlock(durMin, durMax) : '';
+
     const qualBlock = [
       "## CANONICAL QUALIFICATIONS (MUST USE — override any conflicting values)",
       resolvedQuals.is_series ? `- Canonical season length: ${resolvedQuals.season_episode_count} episodes.` : null,
-      resolvedQuals.is_series ? `- Canonical episode duration range: ${resolvedQuals.episode_target_duration_min_seconds || resolvedQuals.episode_target_duration_seconds || 'N/A'}–${resolvedQuals.episode_target_duration_max_seconds || resolvedQuals.episode_target_duration_seconds || 'N/A'} seconds.` : null,
+      resolvedQuals.is_series ? `- Canonical episode duration range: ${durRangeStr}.` : null,
       resolvedQuals.target_runtime_min_low ? `- Target runtime: ${resolvedQuals.target_runtime_min_low}–${resolvedQuals.target_runtime_min_high} minutes.` : null,
       `- Format: ${resolvedQuals.format}`,
       `- Replace any conflicting episode count or runtime references with canonical values above.`,
+      beatBlock || null,
     ].filter(Boolean).join("\n");
 
     // Build style profile block if season template exists

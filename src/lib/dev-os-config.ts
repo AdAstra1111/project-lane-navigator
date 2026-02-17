@@ -249,6 +249,23 @@ export function verticalBeatMinimum(durationSeconds: number): number {
   return 7;
 }
 
+/**
+ * Range-aware beat minimum: returns [min, max] beat counts
+ * based on the episode duration range.
+ */
+export function verticalBeatMinimumRange(
+  minSeconds?: number | null,
+  maxSeconds?: number | null,
+  scalarSeconds?: number | null,
+): { beatMin: number; beatMax: number; label: string } {
+  const lo = minSeconds || scalarSeconds || 120;
+  const hi = maxSeconds || scalarSeconds || lo;
+  const beatMin = verticalBeatMinimum(lo);
+  const beatMax = verticalBeatMinimum(hi);
+  const label = beatMin === beatMax ? `${beatMin} beats` : `${beatMin}–${beatMax} beats`;
+  return { beatMin, beatMax, label };
+}
+
 // ── Vertical Season Architecture ──
 
 export interface SeasonAnchor {

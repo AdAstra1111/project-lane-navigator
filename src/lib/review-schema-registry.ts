@@ -254,7 +254,12 @@ export function getReviewSchema(deliverableType: DeliverableType): ReviewSchema 
 /**
  * Build format overlay prompt modifier based on project format.
  */
-export function getFormatOverlay(format: string, episodeDurationSeconds?: number | null): string {
+export function getFormatOverlay(
+  format: string,
+  episodeDurationSeconds?: number | null,
+  episodeDurationMinSeconds?: number | null,
+  episodeDurationMaxSeconds?: number | null,
+): string {
   const g = getFormatGuardrails(format);
   const parts: string[] = [];
 
@@ -269,9 +274,12 @@ export function getFormatOverlay(format: string, episodeDurationSeconds?: number
   }
 
   if (format === 'vertical-drama') {
-    const dur = episodeDurationSeconds || 120;
-    const minBeats = verticalBeatMinimum(dur);
-    parts.push(`FORMAT: Vertical Drama — episode target ${dur}s. Hook required within 3-10 seconds. Mandatory cliffhanger per episode. Minimum ${minBeats} beats per episode.`);
+    const min = episodeDurationMinSeconds || episodeDurationSeconds || 120;
+    const max = episodeDurationMaxSeconds || episodeDurationSeconds || min;
+    const mid = Math.round((min + max) / 2);
+    const beatMinCount = verticalBeatMinimum(mid);
+    const rangeStr = min !== max ? `${min}–${max}s (midpoint ${mid}s)` : `${min}s`;
+    parts.push(`FORMAT: Vertical Drama — episode target ${rangeStr}. Hook required within 3-10 seconds. Mandatory micro-cliffhanger per episode. Minimum ${beatMinCount} beats per episode. BEAT = a distinct moment of story change that creates forward motion.`);
   }
 
   if (g.noFictionalization) {
@@ -328,11 +336,13 @@ export function composePromptContext(
   format: string,
   behavior: DevelopmentBehavior,
   episodeDurationSeconds?: number | null,
+  episodeDurationMinSeconds?: number | null,
+  episodeDurationMaxSeconds?: number | null,
 ): string {
   const schema = getReviewSchema(deliverableType);
   const parts = [
     schema.analysisPromptModifier,
-    getFormatOverlay(format, episodeDurationSeconds),
+    getFormatOverlay(format, episodeDurationSeconds, episodeDurationMinSeconds, episodeDurationMaxSeconds),
     getBehaviorModifier(behavior),
   ];
 
