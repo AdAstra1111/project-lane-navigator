@@ -5,6 +5,7 @@
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { FileText, Sparkles, ShieldCheck, Loader2, Plus, ExternalLink } from 'lucide-react';
 import { DocumentExportDropdown } from '@/components/DocumentExportDropdown';
@@ -30,6 +31,7 @@ function parseToplineSections(text: string) {
 
 export function ToplineNarrativeCard({ projectId, onNavigateToDoc, onGenerateTopline }: Props) {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [creating, setCreating] = useState(false);
 
   // Fetch topline doc: prefer active folder, else latest version
@@ -74,6 +76,18 @@ export function ToplineNarrativeCard({ projectId, onNavigateToDoc, onGenerateTop
     },
   });
 
+  const openDocument = (docId: string, versionId?: string) => {
+    if (onNavigateToDoc) {
+      onNavigateToDoc(docId, versionId);
+    } else {
+      // Fallback: navigate to dev engine with doc + version params
+      const params = new URLSearchParams();
+      params.set('doc', docId);
+      if (versionId) params.set('version', versionId);
+      navigate(`/projects/${projectId}/development?${params.toString()}`);
+    }
+  };
+
   const createTopline = async () => {
     setCreating(true);
     try {
@@ -85,8 +99,8 @@ export function ToplineNarrativeCard({ projectId, onNavigateToDoc, onGenerateTop
       queryClient.invalidateQueries({ queryKey: ['topline-narrative', projectId] });
       queryClient.invalidateQueries({ queryKey: ['project-docs-for-folder', projectId] });
       queryClient.invalidateQueries({ queryKey: ['active-folder', projectId] });
-      if (data?.documentId && onNavigateToDoc) {
-        onNavigateToDoc(data.documentId, data.versionId);
+      if (data?.documentId) {
+        openDocument(data.documentId, data.versionId);
       }
     } catch (err: any) {
       toast.error(err.message || 'Failed to create topline');
@@ -169,7 +183,7 @@ export function ToplineNarrativeCard({ projectId, onNavigateToDoc, onGenerateTop
           ) : null}
         </div>
         <div className="flex items-center gap-1">
-          {/* Download/Export */}
+          {/* Download/Export — same props as DocumentExportDropdown everywhere else */}
           {version?.plaintext && !isTemplate && (
             <DocumentExportDropdown
               text={version.plaintext}
@@ -178,13 +192,13 @@ export function ToplineNarrativeCard({ projectId, onNavigateToDoc, onGenerateTop
               showLabel={false}
             />
           )}
-          {/* Open */}
-          {toplineData.documentId && onNavigateToDoc && (
+          {/* Open — works even without onNavigateToDoc */}
+          {toplineData.documentId && (
             <Button
               size="sm"
               variant="ghost"
               className="h-7 text-xs gap-1"
-              onClick={() => onNavigateToDoc(toplineData.documentId!, version?.id)}
+              onClick={() => openDocument(toplineData.documentId!, version?.id)}
             >
               <ExternalLink className="h-3 w-3" />
               Open

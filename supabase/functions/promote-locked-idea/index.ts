@@ -231,7 +231,7 @@ const TOPLINE_TEMPLATE = `# LOGLINE
 `;
 
 async function ensureToplineNarrative(supabase: any, projectId: string, userId: string) {
-  // Check if topline doc already exists
+  // Idempotent: check if topline doc already exists
   const { data: existing } = await supabase
     .from("project_documents")
     .select("id")
@@ -241,7 +241,7 @@ async function ensureToplineNarrative(supabase: any, projectId: string, userId: 
 
   if (existing && existing.length > 0) return { documentId: existing[0].id, created: false };
 
-  // Create project_documents row
+  // Create project_documents row (file_name + file_path are required NOT NULL)
   const { data: doc, error: docErr } = await supabase
     .from("project_documents")
     .insert({
@@ -251,7 +251,6 @@ async function ensureToplineNarrative(supabase: any, projectId: string, userId: 
       title: "Topline Narrative",
       file_name: "topline_narrative.md",
       file_path: `${projectId}/topline_narrative.md`,
-      extraction_status: "complete",
     })
     .select("id")
     .single();
@@ -261,17 +260,16 @@ async function ensureToplineNarrative(supabase: any, projectId: string, userId: 
     return null;
   }
 
-  // Create initial version
+  // Create initial version — matching dev-engine-v2 insert shape
   const { data: version, error: verErr } = await supabase
     .from("project_document_versions")
     .insert({
       document_id: doc.id,
       version_number: 1,
-      deliverable_type: "topline_narrative",
-      approval_status: "draft",
-      status: "draft",
       plaintext: TOPLINE_TEMPLATE,
       created_by: userId,
+      label: "Initial template",
+      deliverable_type: "topline_narrative",
     })
     .select("id")
     .single();
