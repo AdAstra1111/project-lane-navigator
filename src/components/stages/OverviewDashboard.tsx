@@ -29,6 +29,7 @@ import { BudgetAssumptionsPanel } from '@/components/finance/BudgetAssumptionsPa
 import { ProjectProfileCoverage } from '@/components/project/ProjectProfileCoverage';
 import { ActiveProjectFolder } from '@/components/project/ActiveProjectFolder';
 import { PackagingPipelinePanel } from '@/components/PackagingPipelinePanel';
+import { ReconcileBanner } from '@/components/project/ReconcileBanner';
 import { StageGatesPanel } from '@/components/StageGatesPanel';
 import { LIFECYCLE_STAGES, type LifecycleStage, getStageOrder, getStageMeta } from '@/lib/lifecycle-stages';
 import { Badge } from '@/components/ui/badge';
@@ -261,6 +262,9 @@ export function OverviewDashboard({
           savedExecConfidence={(baseline as any)?.paradox_exec_confidence ?? null}
         />
       )}
+
+      {/* Reconcile Banner */}
+      <ReconcileBanner projectId={projectId} />
 
       {/* Active Project Folder */}
       <ActiveProjectFolder projectId={projectId} />

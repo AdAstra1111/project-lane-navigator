@@ -2107,6 +2107,78 @@ export type Database = {
         }
         Relationships: []
       }
+      decision_ledger: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          decision_key: string
+          decision_text: string
+          decision_value: Json | null
+          id: string
+          project_id: string
+          scope: string
+          source: string
+          source_issue_id: string | null
+          source_note_id: string | null
+          source_run_id: string | null
+          status: string
+          superseded_by: string | null
+          targets: Json | null
+          title: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          decision_key: string
+          decision_text: string
+          decision_value?: Json | null
+          id?: string
+          project_id: string
+          scope?: string
+          source: string
+          source_issue_id?: string | null
+          source_note_id?: string | null
+          source_run_id?: string | null
+          status?: string
+          superseded_by?: string | null
+          targets?: Json | null
+          title: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          decision_key?: string
+          decision_text?: string
+          decision_value?: Json | null
+          id?: string
+          project_id?: string
+          scope?: string
+          source?: string
+          source_issue_id?: string | null
+          source_note_id?: string | null
+          source_run_id?: string | null
+          status?: string
+          superseded_by?: string | null
+          targets?: Json | null
+          title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "decision_ledger_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "decision_ledger_superseded_by_fkey"
+            columns: ["superseded_by"]
+            isOneToOne: false
+            referencedRelation: "decision_ledger"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       dev_engine_convergence_history: {
         Row: {
           allowed_gap: number | null
@@ -6858,9 +6930,11 @@ export type Database = {
           ingestion_source: string | null
           latest_export_path: string | null
           latest_version_id: string | null
+          needs_reconcile: boolean
           pages_analyzed: number | null
           plaintext: string | null
           project_id: string
+          reconcile_reasons: Json | null
           source: string | null
           storage_path: string | null
           title: string | null
@@ -6881,9 +6955,11 @@ export type Database = {
           ingestion_source?: string | null
           latest_export_path?: string | null
           latest_version_id?: string | null
+          needs_reconcile?: boolean
           pages_analyzed?: number | null
           plaintext?: string | null
           project_id: string
+          reconcile_reasons?: Json | null
           source?: string | null
           storage_path?: string | null
           title?: string | null
@@ -6904,9 +6980,11 @@ export type Database = {
           ingestion_source?: string | null
           latest_export_path?: string | null
           latest_version_id?: string | null
+          needs_reconcile?: boolean
           pages_analyzed?: number | null
           plaintext?: string | null
           project_id?: string
+          reconcile_reasons?: Json | null
           source?: string | null
           storage_path?: string | null
           title?: string | null
@@ -8245,6 +8323,51 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "readiness_score_history_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      resolved_notes: {
+        Row: {
+          created_at: string
+          decision_id: string | null
+          id: string
+          note_fingerprint: string
+          project_id: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          decision_id?: string | null
+          id?: string
+          note_fingerprint: string
+          project_id: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          decision_id?: string | null
+          id?: string
+          note_fingerprint?: string
+          project_id?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "resolved_notes_decision_id_fkey"
+            columns: ["decision_id"]
+            isOneToOne: false
+            referencedRelation: "decision_ledger"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "resolved_notes_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"

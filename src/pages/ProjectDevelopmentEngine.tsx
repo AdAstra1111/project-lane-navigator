@@ -26,6 +26,7 @@ import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { OperationProgress, DEV_ANALYZE_STAGES, DEV_NOTES_STAGES, DEV_REWRITE_STAGES, DEV_CONVERT_STAGES } from '@/components/OperationProgress';
 import { useSetAsLatestDraft } from '@/hooks/useSetAsLatestDraft';
 import { approveAndActivate } from '@/lib/active-folder/approveAndActivate';
+import { recordResolutions } from '@/lib/decisions/client';
 import { useSeasonTemplate } from '@/hooks/useSeasonTemplate';
 import { canPromoteToScript } from '@/lib/can-promote-to-script';
 import { DocumentExportDropdown } from '@/components/DocumentExportDropdown';
@@ -409,8 +410,23 @@ export default function ProjectDevelopmentEngine() {
       enrichedNotes.push(...directionNotes);
     }
 
+    // Record decisions after rewrite
+    const afterRewrite = () => {
+      recordResolutions({
+        projectId: projectId!,
+        source: decisions && Object.keys(decisions).length > 0 ? 'dev_engine_decision' : 'dev_engine_rewrite',
+        notes: enrichedNotes.filter((n: any) => n.severity !== 'direction'),
+        selectedOptions: decisions ? Object.entries(decisions).filter(([,v]) => !!v).map(([noteId, optionId]) => ({
+          note_id: noteId, option_id: optionId, custom_direction: notesCustomDirections[noteId] || undefined,
+        })) : undefined,
+        globalDirections: globalDirections,
+        currentDocTypeKey: selectedDeliverableType,
+      }).catch(e => console.warn('[decisions] record failed:', e));
+    };
+
     if (textLength > 30000 && selectedDocId && selectedVersionId) {
       rewritePipeline.startRewrite(selectedDocId, selectedVersionId, enrichedNotes, protectItems);
+      afterRewrite();
     } else {
       rewrite.mutate({
         approvedNotes: enrichedNotes,
@@ -418,7 +434,7 @@ export default function ProjectDevelopmentEngine() {
         deliverableType: selectedDeliverableType,
         developmentBehavior: projectBehavior,
         format: projectFormat,
-      });
+      }, { onSuccess: afterRewrite });
     }
   };
 
