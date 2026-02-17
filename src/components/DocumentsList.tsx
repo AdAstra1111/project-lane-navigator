@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { FileText, File, CheckCircle2, AlertCircle, AlertTriangle, RotateCw, Trash2, Sparkles, ChevronRight, Eye, ScanSearch } from 'lucide-react';
 import { ProjectDocument, DocumentType, DOC_TYPE_LABELS } from '@/lib/types';
+import { getDocTypeLabel } from '@/lib/can-promote-to-script';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -253,7 +254,7 @@ export function DocumentsList({ documents, projectId }: DocumentsListProps) {
                         className={`text-[10px] cursor-pointer hover:opacity-80 ${DOC_TYPE_COLORS[(doc.doc_type as DocumentType) || 'document']}`}
                         onClick={() => setEditingTypeId(doc.id)}
                       >
-                        {DOC_TYPE_LABELS[(doc.doc_type as DocumentType) || 'document']}
+                        {getDocTypeLabel(doc.doc_type)}
                       </Badge>
                     )}
                     {doc.ingestion_source && (
