@@ -36,19 +36,21 @@ function normalizeFormat(format: string): string {
 
 interface QualificationDefaults {
   episode_target_duration_seconds?: number;
+  episode_target_duration_min_seconds?: number;
+  episode_target_duration_max_seconds?: number;
   season_episode_count?: number;
   target_runtime_min_low?: number;
   target_runtime_min_high?: number;
 }
 
 const FORMAT_DEFAULTS: Record<string, QualificationDefaults> = {
-  "vertical-drama": { episode_target_duration_seconds: 60, season_episode_count: 30 },
-  "limited-series": { episode_target_duration_seconds: 3300, season_episode_count: 8 },
-  "tv-series": { episode_target_duration_seconds: 2700, season_episode_count: 10 },
-  "anim-series": { episode_target_duration_seconds: 1320, season_episode_count: 10 },
-  "documentary-series": { episode_target_duration_seconds: 2700, season_episode_count: 6 },
-  "digital-series": { episode_target_duration_seconds: 600, season_episode_count: 10 },
-  "reality": { episode_target_duration_seconds: 2700, season_episode_count: 10 },
+  "vertical-drama": { episode_target_duration_min_seconds: 45, episode_target_duration_max_seconds: 90, episode_target_duration_seconds: 60, season_episode_count: 30 },
+  "limited-series": { episode_target_duration_min_seconds: 2700, episode_target_duration_max_seconds: 3600, episode_target_duration_seconds: 3300, season_episode_count: 8 },
+  "tv-series": { episode_target_duration_min_seconds: 2400, episode_target_duration_max_seconds: 3300, episode_target_duration_seconds: 2700, season_episode_count: 10 },
+  "anim-series": { episode_target_duration_min_seconds: 1200, episode_target_duration_max_seconds: 1500, episode_target_duration_seconds: 1320, season_episode_count: 10 },
+  "documentary-series": { episode_target_duration_min_seconds: 2400, episode_target_duration_max_seconds: 3300, episode_target_duration_seconds: 2700, season_episode_count: 6 },
+  "digital-series": { episode_target_duration_min_seconds: 480, episode_target_duration_max_seconds: 720, episode_target_duration_seconds: 600, season_episode_count: 10 },
+  "reality": { episode_target_duration_min_seconds: 2400, episode_target_duration_max_seconds: 3300, episode_target_duration_seconds: 2700, season_episode_count: 10 },
   "film": { target_runtime_min_low: 85, target_runtime_min_high: 110 },
   "anim-feature": { target_runtime_min_low: 80, target_runtime_min_high: 100 },
   "short-film": { target_runtime_min_low: 5, target_runtime_min_high: 20 },
@@ -68,6 +70,8 @@ function needsEpisodeQuals(format: string, _stageIdx: number): boolean {
 
 interface ResolvedQualifications {
   episode_target_duration_seconds: number | null;
+  episode_target_duration_min_seconds: number | null;
+  episode_target_duration_max_seconds: number | null;
   season_episode_count: number | null;
   source: {
     duration: "project_column" | "guardrails" | "defaults" | null;
@@ -82,27 +86,50 @@ async function resolveSeriesQualifications(
 ): Promise<ResolvedQualifications> {
   const fmt = normalizeFormat(format);
   const { data: project } = await supabase.from("projects")
-    .select("episode_target_duration_seconds, season_episode_count, guardrails_config")
+    .select("episode_target_duration_seconds, episode_target_duration_min_seconds, episode_target_duration_max_seconds, season_episode_count, guardrails_config")
     .eq("id", projectId).single();
-  if (!project) return { episode_target_duration_seconds: null, season_episode_count: null, source: { duration: null, count: null } };
+  if (!project) return { episode_target_duration_seconds: null, episode_target_duration_min_seconds: null, episode_target_duration_max_seconds: null, season_episode_count: null, source: { duration: null, count: null } };
 
   const gc = project.guardrails_config || {};
   const quals = gc?.overrides?.qualifications || {};
   const defaults = FORMAT_DEFAULTS[fmt] || {};
 
-  // Duration resolution: project column → guardrails → defaults
-  let duration: number | null = null;
+  // Duration range resolution: project columns → guardrails → defaults → legacy scalar fallback
+  let durMin: number | null = null;
+  let durMax: number | null = null;
+  let durScalar: number | null = null;
   let durSource: "project_column" | "guardrails" | "defaults" | null = null;
-  if (project.episode_target_duration_seconds) {
-    duration = project.episode_target_duration_seconds;
+
+  if (project.episode_target_duration_min_seconds || project.episode_target_duration_max_seconds) {
+    durMin = project.episode_target_duration_min_seconds;
+    durMax = project.episode_target_duration_max_seconds;
     durSource = "project_column";
-  } else if (quals.episode_target_duration_seconds) {
-    duration = quals.episode_target_duration_seconds;
+  } else if (quals.episode_target_duration_min_seconds || quals.episode_target_duration_max_seconds) {
+    durMin = quals.episode_target_duration_min_seconds;
+    durMax = quals.episode_target_duration_max_seconds;
     durSource = "guardrails";
-  } else if (defaults.episode_target_duration_seconds) {
-    duration = defaults.episode_target_duration_seconds;
+  } else if (defaults.episode_target_duration_min_seconds || defaults.episode_target_duration_max_seconds) {
+    durMin = defaults.episode_target_duration_min_seconds ?? null;
+    durMax = defaults.episode_target_duration_max_seconds ?? null;
     durSource = "defaults";
   }
+
+  // Legacy scalar fallback
+  if (durMin == null && durMax == null) {
+    const scalar = project.episode_target_duration_seconds ?? quals.episode_target_duration_seconds ?? defaults.episode_target_duration_seconds ?? null;
+    if (scalar) {
+      durMin = scalar;
+      durMax = scalar;
+      durScalar = scalar;
+      durSource = project.episode_target_duration_seconds ? "project_column" : quals.episode_target_duration_seconds ? "guardrails" : "defaults";
+    }
+  }
+
+  // Normalize: mirror if one side missing
+  if (durMin != null && durMax == null) durMax = durMin;
+  if (durMax != null && durMin == null) durMin = durMax;
+
+  durScalar = (durMin != null && durMax != null) ? Math.round((durMin + durMax) / 2) : null;
 
   // Count resolution: project column → guardrails → defaults
   let count: number | null = null;
@@ -124,23 +151,26 @@ async function resolveSeriesQualifications(
     const newGc = { ...gc };
     newGc.overrides = newGc.overrides || {};
     newGc.overrides.qualifications = { ...(newGc.overrides.qualifications || {}) };
-    if (durSource === "defaults" && duration != null) {
-      newGc.overrides.qualifications.episode_target_duration_seconds = duration;
+    if (durSource === "defaults" && durMin != null) {
+      newGc.overrides.qualifications.episode_target_duration_min_seconds = durMin;
+      newGc.overrides.qualifications.episode_target_duration_max_seconds = durMax;
+      newGc.overrides.qualifications.episode_target_duration_seconds = durScalar;
     }
     if (countSource === "defaults" && count != null) {
       newGc.overrides.qualifications.season_episode_count = count;
     }
 
     const updates: Record<string, any> = { guardrails_config: newGc };
-    // Also set the project column for episode_target_duration_seconds if it was missing
-    if (durSource === "defaults" && duration != null) {
-      updates.episode_target_duration_seconds = duration;
+    if (durSource === "defaults" && durMin != null) {
+      updates.episode_target_duration_min_seconds = durMin;
+      updates.episode_target_duration_max_seconds = durMax;
+      updates.episode_target_duration_seconds = durScalar;
     }
 
     await supabase.from("projects").update(updates).eq("id", projectId);
   }
 
-  return { episode_target_duration_seconds: duration, season_episode_count: count, source: { duration: durSource, count: countSource } };
+  return { episode_target_duration_seconds: durScalar, episode_target_duration_min_seconds: durMin, episode_target_duration_max_seconds: durMax, season_episode_count: count, source: { duration: durSource, count: countSource } };
 }
 
 function needsFilmQuals(format: string, stageIdx: number): boolean {
@@ -157,6 +187,7 @@ interface PreflightResult {
 // ── Criteria Snapshot ──
 const CRITERIA_SNAPSHOT_KEYS = [
   "format_subtype", "season_episode_count", "episode_target_duration_seconds",
+  "episode_target_duration_min_seconds", "episode_target_duration_max_seconds",
   "target_runtime_min_low", "target_runtime_min_high", "assigned_lane",
   "budget_range", "development_behavior"
 ] as const;
@@ -165,6 +196,8 @@ interface CriteriaSnapshot {
   format_subtype?: string;
   season_episode_count?: number;
   episode_target_duration_seconds?: number;
+  episode_target_duration_min_seconds?: number;
+  episode_target_duration_max_seconds?: number;
   target_runtime_min_low?: number;
   target_runtime_min_high?: number;
   assigned_lane?: string;
@@ -175,7 +208,7 @@ interface CriteriaSnapshot {
 
 async function buildCriteriaSnapshot(supabase: any, projectId: string): Promise<CriteriaSnapshot> {
   const { data: p } = await supabase.from("projects")
-    .select("format, assigned_lane, budget_range, development_behavior, episode_target_duration_seconds, season_episode_count, guardrails_config")
+    .select("format, assigned_lane, budget_range, development_behavior, episode_target_duration_seconds, episode_target_duration_min_seconds, episode_target_duration_max_seconds, season_episode_count, guardrails_config")
     .eq("id", projectId).single();
   if (!p) return {};
   const gc = p.guardrails_config || {};
@@ -185,6 +218,8 @@ async function buildCriteriaSnapshot(supabase: any, projectId: string): Promise<
     format_subtype: quals.format_subtype || fmt,
     season_episode_count: quals.season_episode_count || p.season_episode_count || undefined,
     episode_target_duration_seconds: quals.episode_target_duration_seconds || p.episode_target_duration_seconds || undefined,
+    episode_target_duration_min_seconds: quals.episode_target_duration_min_seconds || p.episode_target_duration_min_seconds || undefined,
+    episode_target_duration_max_seconds: quals.episode_target_duration_max_seconds || p.episode_target_duration_max_seconds || undefined,
     target_runtime_min_low: quals.target_runtime_min_low || undefined,
     target_runtime_min_high: quals.target_runtime_min_high || undefined,
     assigned_lane: p.assigned_lane || quals.assigned_lane || undefined,
@@ -211,7 +246,7 @@ async function runPreflight(
   supabase: any, projectId: string, format: string, currentDoc: DocStage, allowDefaults = true
 ): Promise<PreflightResult> {
   const { data: project } = await supabase.from("projects")
-    .select("episode_target_duration_seconds, season_episode_count, assigned_lane, budget_range, guardrails_config")
+    .select("episode_target_duration_seconds, episode_target_duration_min_seconds, episode_target_duration_max_seconds, season_episode_count, assigned_lane, budget_range, guardrails_config")
     .eq("id", projectId).single();
 
   if (!project) return { resolved: {}, changed: false, missing_required: [] };
@@ -232,15 +267,25 @@ async function runPreflight(
     return ideaCriteria[field] ?? overrideQuals[field] ?? projectCol ?? null;
   }
 
-  // Episode qualifications for series formats
+  // Episode qualifications for series formats (range-aware)
   if (needsEpisodeQuals(format, stageIdx)) {
-    const epDuration = resolveValue("episode_target_duration_seconds", project.episode_target_duration_seconds);
-    if (!epDuration) {
-      if (allowDefaults && defaults.episode_target_duration_seconds) {
-        updates.episode_target_duration_seconds = defaults.episode_target_duration_seconds;
-        resolved.episode_target_duration_seconds = defaults.episode_target_duration_seconds;
+    const epDurMin = resolveValue("episode_target_duration_min_seconds", project.episode_target_duration_min_seconds);
+    const epDurMax = resolveValue("episode_target_duration_max_seconds", project.episode_target_duration_max_seconds);
+    const epDurScalar = resolveValue("episode_target_duration_seconds", project.episode_target_duration_seconds);
+
+    if (!epDurMin && !epDurMax && !epDurScalar) {
+      if (allowDefaults && (defaults.episode_target_duration_min_seconds || defaults.episode_target_duration_seconds)) {
+        const defMin = defaults.episode_target_duration_min_seconds ?? defaults.episode_target_duration_seconds!;
+        const defMax = defaults.episode_target_duration_max_seconds ?? defaults.episode_target_duration_seconds!;
+        const defMid = Math.round((defMin + defMax) / 2);
+        updates.episode_target_duration_min_seconds = defMin;
+        updates.episode_target_duration_max_seconds = defMax;
+        updates.episode_target_duration_seconds = defMid;
+        resolved.episode_target_duration_min_seconds = defMin;
+        resolved.episode_target_duration_max_seconds = defMax;
+        resolved.episode_target_duration_seconds = defMid;
       } else {
-        missing_required.push("episode_target_duration_seconds");
+        missing_required.push("episode_target_duration_min_seconds");
       }
     }
 
