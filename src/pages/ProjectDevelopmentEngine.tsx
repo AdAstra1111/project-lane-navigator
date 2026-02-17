@@ -19,7 +19,7 @@ import { Progress } from '@/components/ui/progress';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
-  ArrowRight, Play, Loader2, Target, ClipboardPaste, Upload, Sparkles,
+  ArrowRight, Play, Loader2, Target, ClipboardPaste, Upload, Sparkles, Plus,
   AlertTriangle, GitBranch, Clock, Film, Pause, Square, RotateCcw, ChevronDown,
 } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
@@ -717,9 +717,16 @@ export default function ProjectDevelopmentEngine() {
               )}
               {!selectedDocId ? (
                 <Card className="h-full flex items-center justify-center min-h-[400px]">
-                  <div className="text-center space-y-3 p-8">
-                    <Target className="h-8 w-8 text-muted-foreground mx-auto" />
-                    <p className="text-sm text-muted-foreground">Select or paste a document to begin</p>
+                  <div className="text-center space-y-4 p-8 max-w-sm">
+                    <Sparkles className="h-8 w-8 text-primary mx-auto" />
+                    <p className="text-sm text-muted-foreground">No documents yet — start by creating an idea</p>
+                    <Button size="sm" className="gap-1.5" onClick={() => {
+                      createPaste.mutate({ title: 'New Idea', docType: 'idea', text: '## Idea\n\nDescribe your concept here…' });
+                    }} disabled={createPaste.isPending}>
+                      {createPaste.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                      Create New Idea
+                    </Button>
+                    <p className="text-[10px] text-muted-foreground">Or use the <strong>+ New</strong> button in the sidebar to paste existing material</p>
                   </div>
                 </Card>
               ) : (
