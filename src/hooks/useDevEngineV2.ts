@@ -259,6 +259,9 @@ export function useDevEngineV2(projectId: string | undefined) {
   const analyze = useMutation({
     mutationFn: async (params: { productionType?: string; strategicPriority?: string; developmentStage?: string; analysisMode?: string; previousVersionId?: string; deliverableType?: DeliverableType; developmentBehavior?: DevelopmentBehavior; format?: string; episodeTargetDurationSeconds?: number }) => {
       if (!selectedDocId || !documents.find(d => d.id === selectedDocId)) throw new Error('Document not found — please select a valid document');
+      // Re-verify document still exists in DB (guards against stale cache after deletion)
+      const { data: docCheck } = await (supabase as any).from('project_documents').select('id').eq('id', selectedDocId).maybeSingle();
+      if (!docCheck) throw new Error('Document no longer exists — it may have been deleted');
       const vid = await resolveVersionId();
       if (!vid) throw new Error('No version found — please select a document first');
       return callEngineV2('analyze', { projectId, documentId: selectedDocId, versionId: vid, ...params });
