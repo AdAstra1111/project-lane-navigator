@@ -58,7 +58,7 @@ serve(async (req) => {
         if (rq.is_series && rq.season_episode_count) {
           canonicalQualBlock = `\nCANONICAL QUALIFICATIONS (authoritative — replace any other episode count references with these):
 Canonical season length: ${rq.season_episode_count} episodes.
-Canonical episode duration target: ${rq.episode_target_duration_seconds} seconds.
+Canonical episode duration target range: ${rq.episode_target_duration_min_seconds || rq.episode_target_duration_seconds || 'N/A'}–${rq.episode_target_duration_max_seconds || rq.episode_target_duration_seconds || 'N/A'} seconds.
 Replace any other episode count references with the canonical value.`;
         }
       }

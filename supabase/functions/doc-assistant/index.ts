@@ -202,13 +202,16 @@ Be concise and specific.`;
 
       // Get project qualifications
       const { data: proj } = await sb.from("projects")
-        .select("format, season_episode_count, episode_target_duration_seconds, qualifications")
+        .select("format, season_episode_count, episode_target_duration_seconds, episode_target_duration_min_seconds, episode_target_duration_max_seconds, qualifications")
         .eq("id", projectId).single();
 
+      const durRange = (proj as any)?.episode_target_duration_min_seconds && (proj as any)?.episode_target_duration_max_seconds
+        ? `${(proj as any).episode_target_duration_min_seconds}–${(proj as any).episode_target_duration_max_seconds}s`
+        : `${proj?.episode_target_duration_seconds || 'N/A'}s`;
       const canonBlock = proj ? `CANONICAL QUALIFICATIONS:
 - Format: ${proj.format || 'film'}
 - Season Episode Count: ${proj.season_episode_count || 'N/A'}
-- Episode Duration: ${proj.episode_target_duration_seconds || 'N/A'}s
+- Episode Duration Range: ${durRange}
 IMPORTANT: Never deviate from these canonical values.` : "";
 
       const spanNote = selectedSpan?.text ? `\nFocus on this section: "${selectedSpan.text}"` : "";
@@ -282,8 +285,12 @@ Maintain the document's existing style and format.`;
 
       // Load project for canonical check
       const { data: proj } = await sb.from("projects")
-        .select("format, season_episode_count, episode_target_duration_seconds, qualifications, resolved_qualifications")
+        .select("format, season_episode_count, episode_target_duration_seconds, episode_target_duration_min_seconds, episode_target_duration_max_seconds, qualifications, resolved_qualifications")
         .eq("id", proposal.project_id).single();
+
+      const docDurRange = (proj as any)?.episode_target_duration_min_seconds && (proj as any)?.episode_target_duration_max_seconds
+        ? `${(proj as any).episode_target_duration_min_seconds}–${(proj as any).episode_target_duration_max_seconds}s`
+        : `${proj?.episode_target_duration_seconds || 'N/A'}s`;
 
       // Run AI test battery
       const systemPrompt = `You are a quality analyst for film/TV document changes.
@@ -302,7 +309,7 @@ Return a JSON object with these fields:
 CANONICAL CONSTRAINTS:
 - Format: ${proj?.format || 'film'}
 - Season Episode Count: ${proj?.season_episode_count || 'N/A'}
-- Episode Duration: ${proj?.episode_target_duration_seconds || 'N/A'}s
+- Episode Duration Range: ${docDurRange}
 
 Check for:
 1. Canonical constraint violations (wrong episode count, format deviations)

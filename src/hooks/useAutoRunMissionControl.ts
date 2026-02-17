@@ -277,15 +277,20 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
   }, [projectId]);
 
   const saveQualifications = useCallback(async (quals: {
-    episode_target_duration_seconds?: number;
+    episode_target_duration_min_seconds?: number;
+    episode_target_duration_max_seconds?: number;
     season_episode_count?: number;
     target_runtime_min_low?: number;
     target_runtime_min_high?: number;
   }) => {
     if (!projectId) return;
     const updates: Record<string, any> = {};
-    if (quals.episode_target_duration_seconds) {
-      updates.episode_target_duration_seconds = quals.episode_target_duration_seconds;
+    if (quals.episode_target_duration_min_seconds) {
+      updates.episode_target_duration_min_seconds = quals.episode_target_duration_min_seconds;
+      updates.episode_target_duration_seconds = quals.episode_target_duration_min_seconds; // legacy
+    }
+    if (quals.episode_target_duration_max_seconds) {
+      updates.episode_target_duration_max_seconds = quals.episode_target_duration_max_seconds;
     }
     const { data: proj } = await supabase.from('projects').select('guardrails_config').eq('id', projectId).single();
     const gc = (proj?.guardrails_config as any) || {};

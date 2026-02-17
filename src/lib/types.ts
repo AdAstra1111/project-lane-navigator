@@ -231,6 +231,8 @@ export interface Project {
   updated_at: string;
   development_behavior?: string | null;
   episode_target_duration_seconds?: number | null;
+  episode_target_duration_min_seconds?: number | null;
+  episode_target_duration_max_seconds?: number | null;
 }
 
 export const LANE_LABELS: Record<MonetisationLane, string> = {
