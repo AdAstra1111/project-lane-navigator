@@ -6698,6 +6698,59 @@ export type Database = {
           },
         ]
       }
+      project_deferred_notes: {
+        Row: {
+          created_at: string
+          created_by: string
+          id: string
+          last_checked_at: string | null
+          last_seen_in_doc_type: string | null
+          note_json: Json
+          note_key: string
+          project_id: string
+          source_doc_type: string
+          source_version_id: string | null
+          status: string
+          target_deliverable_type: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          id?: string
+          last_checked_at?: string | null
+          last_seen_in_doc_type?: string | null
+          note_json?: Json
+          note_key?: string
+          project_id: string
+          source_doc_type?: string
+          source_version_id?: string | null
+          status?: string
+          target_deliverable_type?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          id?: string
+          last_checked_at?: string | null
+          last_seen_in_doc_type?: string | null
+          note_json?: Json
+          note_key?: string
+          project_id?: string
+          source_doc_type?: string
+          source_version_id?: string | null
+          status?: string
+          target_deliverable_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_deferred_notes_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       project_deliverables: {
         Row: {
           buyer_name: string

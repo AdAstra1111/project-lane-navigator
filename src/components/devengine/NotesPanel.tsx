@@ -45,6 +45,10 @@ interface NotesPanelProps {
   onCustomDirectionsChange?: (customDirections: Record<string, string>) => void;
   /** External decisions (from OPTIONS run) to merge onto notes by note_id */
   externalDecisions?: Array<{ note_id: string; options: NoteDecisionOption[]; recommended_option_id?: string; recommended?: string }>;
+  /** Deferred notes for later deliverables */
+  deferredNotes?: any[];
+  /** Carried-forward notes from earlier deliverables targeting current doc */
+  carriedNotes?: any[];
 }
 
 function InlineDecisionCard({
@@ -242,9 +246,11 @@ export function NotesPanel({
   onApplyRewrite, isRewriting, isLoading,
   resolutionSummary, stabilityStatus, globalDirections,
   hideApplyButton, onDecisionsChange, onCustomDirectionsChange, externalDecisions,
+  deferredNotes, carriedNotes,
 }: NotesPanelProps) {
   const [polishOpen, setPolishOpen] = useState(false);
-  // Track selected decision option per note (keyed by note id)
+  const [deferredOpen, setDeferredOpen] = useState(false);
+  const [carriedOpen, setCarriedOpen] = useState(true);
   const [selectedDecisions, setSelectedDecisions] = useState<Record<string, string>>({});
   // Track custom direction text per note (for "Other" selections)
   const [customDirections, setCustomDirections] = useState<Record<string, string>>({});
@@ -444,6 +450,64 @@ export function NotesPanel({
                   />
                 );
               })}
+            </CollapsibleContent>
+          </Collapsible>
+        )}
+
+        {/* Carried-forward notes from earlier deliverables */}
+        {carriedNotes && carriedNotes.length > 0 && (
+          <Collapsible open={carriedOpen} onOpenChange={setCarriedOpen}>
+            <CollapsibleTrigger className="flex items-center gap-1 text-[10px] text-primary hover:text-primary/80 transition-colors w-full py-1">
+              <ChevronDown className={`h-3 w-3 transition-transform ${carriedOpen ? 'rotate-0' : '-rotate-90'}`} />
+              <ArrowRight className="h-3 w-3" />
+              {carriedNotes.length} Carried Forward
+              <span className="text-[8px] text-muted-foreground ml-1">(from earlier docs)</span>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="space-y-1 mt-1">
+              {carriedNotes.map((note: any, i: number) => (
+                <div key={`carried-${i}`} className="rounded border border-primary/20 bg-primary/5 p-2">
+                  <div className="flex items-center gap-1 mb-0.5">
+                    <Badge variant="outline" className="text-[8px] px-1 py-0 border-primary/30 text-primary">
+                      From: {note.source_doc_type || 'earlier'}
+                    </Badge>
+                    {note.category && <Badge variant="outline" className="text-[8px] px-1 py-0">{note.category}</Badge>}
+                  </div>
+                  <p className="text-[10px] text-foreground">{note.description || note.note}</p>
+                  {note.why_it_matters && (
+                    <p className="text-[9px] text-muted-foreground mt-0.5 italic">{note.why_it_matters}</p>
+                  )}
+                </div>
+              ))}
+            </CollapsibleContent>
+          </Collapsible>
+        )}
+
+        {/* Deferred notes for later deliverables */}
+        {deferredNotes && deferredNotes.length > 0 && (
+          <Collapsible open={deferredOpen} onOpenChange={setDeferredOpen}>
+            <CollapsibleTrigger className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors w-full py-1">
+              <ChevronDown className={`h-3 w-3 transition-transform ${deferredOpen ? 'rotate-0' : '-rotate-90'}`} />
+              {deferredNotes.length} Deferred
+              <span className="text-[8px] text-muted-foreground ml-1">(for later docs)</span>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="space-y-1 mt-1">
+              {deferredNotes.map((note: any, i: number) => (
+                <div key={`def-${i}`} className="rounded border border-border/30 bg-muted/10 p-2 opacity-70">
+                  <div className="flex items-center gap-1 mb-0.5">
+                    <Badge variant="outline" className="text-[8px] px-1 py-0">
+                      → {note.target_deliverable_type || 'later'}
+                    </Badge>
+                    <Badge variant="outline" className="text-[8px] px-1 py-0 text-muted-foreground">
+                      {note.apply_timing === 'next_doc' ? 'Next Doc' : 'Later'}
+                    </Badge>
+                    {note.category && <Badge variant="outline" className="text-[8px] px-1 py-0">{note.category}</Badge>}
+                  </div>
+                  <p className="text-[10px] text-foreground">{note.description || note.note}</p>
+                  {note.defer_reason && (
+                    <p className="text-[9px] text-muted-foreground mt-0.5 italic">↳ {note.defer_reason}</p>
+                  )}
+                </div>
+              ))}
             </CollapsibleContent>
           </Collapsible>
         )}

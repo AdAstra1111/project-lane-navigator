@@ -137,10 +137,61 @@ const FORMAT_EXPECTATIONS: Record<string, string> = {
 // STANDARDIZED OUTPUT SCHEMA (v3)
 // ═══════════════════════════════════════════════════════════════
 
+// ── Format-specific document ladders ──
+const FORMAT_LADDERS: Record<string, string[]> = {
+  "vertical-drama": ["idea", "topline_narrative", "concept_brief", "vertical_market_sheet", "format_rules", "character_bible", "season_arc", "episode_grid", "vertical_episode_beats", "script"],
+  "tv-series": ["idea", "topline_narrative", "concept_brief", "market_sheet", "blueprint", "architecture", "character_bible", "beat_sheet", "script", "production_draft"],
+  "limited-series": ["idea", "topline_narrative", "concept_brief", "market_sheet", "blueprint", "architecture", "character_bible", "beat_sheet", "script", "production_draft"],
+  "digital-series": ["idea", "topline_narrative", "concept_brief", "market_sheet", "blueprint", "architecture", "character_bible", "beat_sheet", "script", "production_draft"],
+  "film": ["idea", "topline_narrative", "concept_brief", "market_sheet", "blueprint", "architecture", "character_bible", "beat_sheet", "script", "production_draft", "deck"],
+  "feature": ["idea", "topline_narrative", "concept_brief", "market_sheet", "blueprint", "architecture", "character_bible", "beat_sheet", "script", "production_draft", "deck"],
+  "documentary": ["idea", "topline_narrative", "concept_brief", "market_sheet", "documentary_outline", "deck"],
+  "documentary-series": ["idea", "topline_narrative", "concept_brief", "market_sheet", "documentary_outline", "deck"],
+  "hybrid-documentary": ["idea", "topline_narrative", "concept_brief", "market_sheet", "documentary_outline", "blueprint", "deck"],
+  "short": ["idea", "topline_narrative", "concept_brief", "script"],
+  "animation": ["idea", "topline_narrative", "concept_brief", "market_sheet", "blueprint", "character_bible", "beat_sheet", "script"],
+};
+
+function getLadderForFormat(format: string): string[] {
+  return FORMAT_LADDERS[format] || FORMAT_LADDERS["film"];
+}
+
+// Map notes referencing out-of-ladder doc types to closest valid type
+const DOC_TYPE_REMAP: Record<string, Record<string, string>> = {
+  "vertical-drama": {
+    blueprint: "season_arc",
+    architecture: "episode_grid",
+    beat_sheet: "vertical_episode_beats",
+    market_sheet: "vertical_market_sheet",
+    production_draft: "script",
+  },
+  "documentary": {
+    blueprint: "documentary_outline",
+    architecture: "documentary_outline",
+    character_bible: "documentary_outline",
+    beat_sheet: "documentary_outline",
+  },
+  "documentary-series": {
+    blueprint: "documentary_outline",
+    architecture: "documentary_outline",
+    character_bible: "documentary_outline",
+    beat_sheet: "documentary_outline",
+  },
+};
+
+function remapDocType(docType: string, format: string): string | null {
+  const ladder = getLadderForFormat(format);
+  if (ladder.includes(docType)) return docType;
+  const remap = DOC_TYPE_REMAP[format];
+  if (remap && remap[docType]) return remap[docType];
+  return null; // not valid for this format
+}
+
 function buildAnalyzeSystem(deliverable: string, format: string, behavior: string, episodeDurationMin?: number, episodeDurationMax?: number): string {
   const rubric = DELIVERABLE_RUBRICS[deliverable] || DELIVERABLE_RUBRICS.script;
   const behaviorMod = BEHAVIOR_MODIFIERS[behavior] || BEHAVIOR_MODIFIERS.market;
   const formatExp = FORMAT_EXPECTATIONS[format] || FORMAT_EXPECTATIONS.film;
+  const ladder = getLadderForFormat(format);
 
   let verticalRules = "";
   if (format === "vertical-drama" && (episodeDurationMin || episodeDurationMax)) {
@@ -167,6 +218,8 @@ REQUIRED OUTPUTS for documentary:
 - claims_list: Array of {claim, evidence_type, status} for every factual claim made. Status: verified|needs_check|unknown.`
     : "";
 
+  const ladderStr = ladder.join(", ");
+
   return `You are IFFY, a Creative–Commercial Alignment Architect.
 
 EDITORIAL SCOPE LOCK:
@@ -177,6 +230,12 @@ You are operating in EDITORIAL MODE.
 - If format/lane are misaligned, you may flag it ONCE as a "risk flag" in clarify (or lane) — but do NOT propose a change.
 - Focus ONLY on improving the current deliverable within its declared format and lane.
 You are an editor, not a strategist, in this mode.
+
+FORMAT DOCUMENT LADDER (these are the ONLY valid document types for this project's format):
+${ladderStr}
+CRITICAL: Do NOT reference, recommend, or generate notes about document types outside this ladder.
+If you want to mention a concept that maps to a doc type not in this ladder, remap it to the closest valid type.
+For example, in vertical-drama format, "blueprint" concepts should map to "season_arc"; "architecture" to "episode_grid".
 
 ${rubric}
 
@@ -220,13 +279,13 @@ Return ONLY valid JSON matching this EXACT schema:
     "allowed_gap": number
   },
   "blocking_issues": [
-    {"id": "unique_stable_key", "note_key": "same_as_id", "category": "structural|character|escalation|lane|packaging|risk|pacing|hook|cliffhanger", "description": "...", "why_it_matters": "...", "severity": "blocker"}
+    {"id": "unique_stable_key", "note_key": "same_as_id", "category": "structural|character|escalation|lane|packaging|risk|pacing|hook|cliffhanger", "description": "...", "why_it_matters": "...", "severity": "blocker", "apply_timing": "now|next_doc|later", "target_deliverable_type": "one of the ladder types or null if now", "defer_reason": "why deferred, if later"}
   ],
   "high_impact_notes": [
-    {"id": "unique_stable_key", "note_key": "same_as_id", "category": "structural|character|escalation|lane|packaging|risk|pacing|hook|cliffhanger", "description": "...", "why_it_matters": "...", "severity": "high"}
+    {"id": "unique_stable_key", "note_key": "same_as_id", "category": "structural|character|escalation|lane|packaging|risk|pacing|hook|cliffhanger", "description": "...", "why_it_matters": "...", "severity": "high", "apply_timing": "now|next_doc|later", "target_deliverable_type": "one of the ladder types or null if now", "defer_reason": "why deferred, if later"}
   ],
   "polish_notes": [
-    {"id": "unique_stable_key", "note_key": "same_as_id", "category": "structural|character|escalation|lane|packaging|risk|pacing|hook|cliffhanger", "description": "...", "why_it_matters": "...", "severity": "polish"}
+    {"id": "unique_stable_key", "note_key": "same_as_id", "category": "structural|character|escalation|lane|packaging|risk|pacing|hook|cliffhanger", "description": "...", "why_it_matters": "...", "severity": "polish", "apply_timing": "now|next_doc|later", "target_deliverable_type": "one of the ladder types or null if now", "defer_reason": "why deferred, if later"}
   ],
   "rewrite_plan": ["what will change in next rewrite — max 5 items"],
   "convergence": {
@@ -235,7 +294,7 @@ Return ONLY valid JSON matching this EXACT schema:
     "blockers_remaining": number,
     "high_impact_remaining": number,
     "polish_remaining": number,
-    "next_best_document": "MUST be one of: idea, concept_brief, market_sheet, blueprint, architecture, character_bible, beat_sheet, script, production_draft, deck, documentary_outline, format_rules, season_arc, episode_grid, vertical_episode_beats"
+    "next_best_document": "MUST be one of: ${ladderStr}"
   },
   "protect": ["non-negotiable creative strengths, 1-10 items"],
   "verdict": "Invest" | "Develop Further" | "Major Rethink" | "Pass",
@@ -255,16 +314,23 @@ Return ONLY valid JSON matching this EXACT schema:
   }
 }
 
+NOTE TIMING CLASSIFICATION RULES:
+- apply_timing: "now" = must be addressed in the current document/version. "next_doc" = should be handled in the immediately-next deliverable. "later" = belongs to a specific future deliverable type.
+- target_deliverable_type: null for "now" notes. For "next_doc" or "later", MUST be a valid type from the ladder above.
+- defer_reason: required for "later" notes, explaining why it cannot be addressed now.
+- Blocking issues should almost always be "now" unless they genuinely cannot be fixed in the current deliverable type.
+- If a note is about something that belongs to a later stage (e.g., character depth notes while working on an idea doc), classify as "later" with the appropriate target.
+
 RULES FOR NOTE GENERATION:
 - Each note id and note_key MUST be identical, stable, descriptive snake_case keys (e.g. "weak_act2_midpoint", "flat_protagonist_arc"). Use consistent keys across runs.
-- blocking_issues: ONLY items that fundamentally prevent the document from working. Max 5. These gate convergence.
+- blocking_issues: ONLY items that fundamentally prevent the document from working. Max 5. These gate convergence. Only "now" timing notes count for convergence gating.
 - high_impact_notes: Significant improvements but do NOT block convergence. Max 5.
 - polish_notes: Optional refinements. NEVER block convergence. Max 5.
 - If an existing note_key persists, refer to it by the same key — do NOT rephrase the same issue under a new key.
 - Once blockers reach zero, do NOT invent new blockers unless drift or regression is detected.
 - Do NOT introduce new blocking issues unless they are fundamentally distinct from previous ones or true regression occurred.
 - If high_impact_notes <= 3 AND polish_notes <= 5 AND blockers == 0, set convergence.status to "converged".
-- CONVERGENCE RULE: convergence.status = "converged" if and only if blocking_issues is empty.`;
+- CONVERGENCE RULE: convergence.status = "converged" if and only if blocking_issues with apply_timing="now" is empty.`;
 }
 
 function buildRewriteSystem(deliverable: string, format: string, behavior: string): string {
@@ -937,20 +1003,111 @@ ${version.plaintext.slice(0, 25000)}`;
       parsed.deliverable_type = effectiveDeliverable;
       parsed.development_behavior = effectiveBehavior;
 
-      // Validate next_best_document — must be a valid deliverable type key
-      const VALID_DELIVERABLES = new Set(["idea","topline_narrative","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","script","production_draft","deck","documentary_outline","format_rules","season_arc","episode_grid","vertical_episode_beats"]);
+      // Validate next_best_document — must be a valid deliverable type key for THIS format's ladder
+      const formatLadder = getLadderForFormat(effectiveFormat);
+      const VALID_DELIVERABLES = new Set(formatLadder);
       if (parsed.convergence?.next_best_document) {
         const raw_nbd = parsed.convergence.next_best_document;
         const normalized_nbd = raw_nbd.toLowerCase().replace(/[\s\-]+/g, "_").replace(/[^a-z_]/g, "");
-        // Try direct match, then docTypeMap, then fuzzy
         if (VALID_DELIVERABLES.has(normalized_nbd)) {
           parsed.convergence.next_best_document = normalized_nbd;
-        } else if (docTypeMap[raw_nbd.toUpperCase()]) {
-          parsed.convergence.next_best_document = docTypeMap[raw_nbd.toUpperCase()];
         } else {
-          // Fuzzy: find best match from valid set
-          const fuzzyMatch = [...VALID_DELIVERABLES].find(d => normalized_nbd.includes(d) || d.includes(normalized_nbd));
-          parsed.convergence.next_best_document = fuzzyMatch || "script";
+          // Try remapping to ladder-valid type
+          const remapped = remapDocType(normalized_nbd, effectiveFormat);
+          if (remapped) {
+            parsed.convergence.next_best_document = remapped;
+          } else if (docTypeMap[raw_nbd.toUpperCase()]) {
+            const mapped = docTypeMap[raw_nbd.toUpperCase()];
+            parsed.convergence.next_best_document = remapDocType(mapped, effectiveFormat) || mapped;
+          } else {
+            // Fuzzy: find best match from ladder
+            const fuzzyMatch = [...VALID_DELIVERABLES].find(d => normalized_nbd.includes(d) || d.includes(normalized_nbd));
+            parsed.convergence.next_best_document = fuzzyMatch || formatLadder[formatLadder.length - 1] || "script";
+          }
+        }
+      }
+
+      // ── Filter notes: remap or remove notes referencing out-of-ladder doc types ──
+      function filterAndTimingNotes(notes: any[]): { now: any[]; deferred: any[] } {
+        if (!notes) return { now: [], deferred: [] };
+        const nowNotes: any[] = [];
+        const deferredNotes: any[] = [];
+        for (const note of notes) {
+          // Default apply_timing to "now" for backward compat
+          if (!note.apply_timing) note.apply_timing = "now";
+          // Validate target_deliverable_type against ladder
+          if (note.target_deliverable_type) {
+            const remapped = remapDocType(note.target_deliverable_type, effectiveFormat);
+            if (!remapped) {
+              // Target not in ladder — remap to closest or drop
+              note.target_deliverable_type = null;
+              note.apply_timing = "now";
+            } else {
+              note.target_deliverable_type = remapped;
+            }
+          }
+          if (note.apply_timing === "now") {
+            nowNotes.push(note);
+          } else {
+            deferredNotes.push(note);
+          }
+        }
+        return { now: nowNotes, deferred: deferredNotes };
+      }
+
+      const blockersResult = filterAndTimingNotes(parsed.blocking_issues || []);
+      const highResult = filterAndTimingNotes(parsed.high_impact_notes || []);
+      const polishResult = filterAndTimingNotes(parsed.polish_notes || []);
+
+      // Keep only NOW notes in the main arrays
+      parsed.blocking_issues = blockersResult.now;
+      parsed.high_impact_notes = highResult.now;
+      parsed.polish_notes = polishResult.now;
+
+      // Collect all deferred notes
+      const allDeferred = [...blockersResult.deferred, ...highResult.deferred, ...polishResult.deferred];
+      parsed.deferred_notes = allDeferred;
+
+      // ── Persist deferred notes to DB ──
+      if (allDeferred.length > 0 && projectId) {
+        for (const dn of allDeferred) {
+          try {
+            await supabase.from("project_deferred_notes").upsert({
+              project_id: projectId,
+              created_by: user.id,
+              source_doc_type: effectiveDeliverable,
+              source_version_id: versionId,
+              note_key: dn.note_key || dn.id,
+              note_json: dn,
+              target_deliverable_type: dn.target_deliverable_type || "",
+              status: "open",
+              last_checked_at: new Date().toISOString(),
+              last_seen_in_doc_type: effectiveDeliverable,
+            }, { onConflict: "project_id,note_key,target_deliverable_type" });
+          } catch (e) {
+            console.warn("[dev-engine-v2] Failed to persist deferred note:", e);
+          }
+        }
+      }
+
+      // ── Load and inject carried-forward deferred notes for current deliverable ──
+      if (projectId) {
+        try {
+          const { data: carriedNotes } = await supabase.from("project_deferred_notes")
+            .select("*")
+            .eq("project_id", projectId)
+            .eq("target_deliverable_type", effectiveDeliverable)
+            .eq("status", "open");
+          if (carriedNotes && carriedNotes.length > 0) {
+            parsed.carried_deferred_notes = carriedNotes.map((cn: any) => ({
+              ...cn.note_json,
+              deferred_id: cn.id,
+              source_doc_type: cn.source_doc_type,
+              originally_deferred: true,
+            }));
+          }
+        } catch (e) {
+          console.warn("[dev-engine-v2] Failed to load carried deferred notes:", e);
         }
       }
 
@@ -971,7 +1128,7 @@ ${version.plaintext.slice(0, 25000)}`;
         };
       }
 
-      // Enforce caps: max 5 per tier
+      // Enforce caps: max 5 per tier (NOW notes only)
       if (parsed.blocking_issues && parsed.blocking_issues.length > 5) parsed.blocking_issues = parsed.blocking_issues.slice(0, 5);
       if (parsed.high_impact_notes && parsed.high_impact_notes.length > 5) parsed.high_impact_notes = parsed.high_impact_notes.slice(0, 5);
       if (parsed.polish_notes && parsed.polish_notes.length > 5) parsed.polish_notes = parsed.polish_notes.slice(0, 5);
@@ -981,7 +1138,7 @@ ${version.plaintext.slice(0, 25000)}`;
         if (arr) for (const n of arr) { if (!n.note_key) n.note_key = n.id; if (!n.id) n.id = n.note_key; }
       }
 
-      // Blocker-based convergence override: blockers gate convergence, not high/polish
+      // Blocker-based convergence override: only NOW blockers gate convergence
       const blockerCount = (parsed.blocking_issues || []).length;
       const highCount = (parsed.high_impact_notes || []).length;
       const polishCount = (parsed.polish_notes || []).length;
@@ -989,7 +1146,8 @@ ${version.plaintext.slice(0, 25000)}`;
         parsed.convergence.blockers_remaining = blockerCount;
         parsed.convergence.high_impact_remaining = highCount;
         parsed.convergence.polish_remaining = polishCount;
-        // Override AI convergence: only blockers prevent convergence
+        parsed.convergence.deferred_count = allDeferred.length;
+        // Override AI convergence: only NOW blockers prevent convergence
         if (blockerCount > 0 && parsed.convergence.status === "converged") {
           parsed.convergence.status = "in_progress";
           parsed.convergence.reasons = [...(parsed.convergence.reasons || []), "Blocking issues remain"];
