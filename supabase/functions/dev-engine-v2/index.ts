@@ -1929,6 +1929,7 @@ MATERIAL TO REWRITE:\n${fullText}`;
 
       // ── Canonical Qualification Resolver for convert (esp. character_bible) ──
       let qualBindingBlock = "";
+      let resolverResult: any = null;
       try {
         const resolverResp = await fetch(`${supabaseUrl}/functions/v1/resolve-qualifications`, {
           method: "POST",
@@ -1936,7 +1937,7 @@ MATERIAL TO REWRITE:\n${fullText}`;
           body: JSON.stringify({ projectId }),
         });
         if (resolverResp.ok) {
-          const resolverResult = await resolverResp.json();
+          resolverResult = await resolverResp.json();
           const rq = resolverResult.resolvedQualifications || {};
           if (rq.is_series) {
             const durRangeStr = (rq.episode_target_duration_min_seconds && rq.episode_target_duration_max_seconds && rq.episode_target_duration_min_seconds !== rq.episode_target_duration_max_seconds)
