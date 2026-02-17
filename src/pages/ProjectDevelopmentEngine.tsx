@@ -279,12 +279,30 @@ export default function ProjectDevelopmentEngine() {
     }
   }, [selectedDoc?.doc_type]);
 
-  // Tiered notes
+  // Tiered notes — only NOW-timing notes in main tiers; deferred/carried separate
   const tieredNotes = useMemo(() => {
-    const blockers = latestNotes?.blocking_issues || latestAnalysis?.blocking_issues || [];
-    const high = latestNotes?.high_impact_notes || latestAnalysis?.high_impact_notes || [];
-    const polish = latestNotes?.polish_notes || latestAnalysis?.polish_notes || [];
-    return { blockers, high, polish };
+    const rawBlockers = latestNotes?.blocking_issues || latestAnalysis?.blocking_issues || [];
+    const rawHigh = latestNotes?.high_impact_notes || latestAnalysis?.high_impact_notes || [];
+    const rawPolish = latestNotes?.polish_notes || latestAnalysis?.polish_notes || [];
+    // Filter to NOW only (backward compat: missing apply_timing = "now")
+    const isNow = (n: any) => !n.apply_timing || n.apply_timing === 'now';
+    return {
+      blockers: rawBlockers.filter(isNow),
+      high: rawHigh.filter(isNow),
+      polish: rawPolish.filter(isNow),
+    };
+  }, [latestNotes, latestAnalysis]);
+
+  // Deferred notes (for later deliverables)
+  const deferredNotes = useMemo(() => {
+    const src = latestNotes || latestAnalysis;
+    return src?.deferred_notes || [];
+  }, [latestNotes, latestAnalysis]);
+
+  // Carried-forward notes (from earlier deliverables targeting current doc)
+  const carriedNotes = useMemo(() => {
+    const src = latestNotes || latestAnalysis;
+    return src?.carried_deferred_notes || [];
   }, [latestNotes, latestAnalysis]);
 
   const allPrioritizedMoves = useMemo(() => {
@@ -1197,6 +1215,8 @@ export default function ProjectDevelopmentEngine() {
                     hideApplyButton
                     onDecisionsChange={setNotesDecisions}
                     onCustomDirectionsChange={setNotesCustomDirections}
+                    deferredNotes={deferredNotes}
+                    carriedNotes={carriedNotes}
                   />
                 );
               })()}
