@@ -638,8 +638,8 @@ async function buildCriteriaSnapshot(supabase: any, projectId: string): Promise<
   const fmt = (p.format || "film").toLowerCase().replace(/[_ ]+/g, "-");
   return {
     format_subtype: quals.format_subtype || fmt,
-    season_episode_count: quals.season_episode_count || p.season_episode_count || undefined,
-    episode_target_duration_seconds: quals.episode_target_duration_seconds || p.episode_target_duration_seconds || undefined,
+    season_episode_count: p.season_episode_count || quals.season_episode_count || undefined,
+    episode_target_duration_seconds: p.episode_target_duration_seconds || quals.episode_target_duration_seconds || undefined,
     target_runtime_min_low: quals.target_runtime_min_low || undefined,
     target_runtime_min_high: quals.target_runtime_min_high || undefined,
     assigned_lane: p.assigned_lane || quals.assigned_lane || undefined,
