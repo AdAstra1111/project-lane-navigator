@@ -163,6 +163,8 @@ export interface PromotionInput {
   projectFormat?: string | null;
   /** All existing (non-stale) doc types in the project — used for vertical drama pipeline routing */
   existingDocTypes?: string[];
+  /** Season episode count — needed for vertical drama gating */
+  seasonEpisodeCount?: number | null;
 }
 
 function computeLocally(input: PromotionInput): PromotionRecommendation {
@@ -240,7 +242,7 @@ function computeLocally(input: PromotionInput): PromotionRecommendation {
 
   if (isVD && existingDocTypes.length > 0) {
     // Use the vertical drama prerequisite pipeline
-    const vdNext = getVerticalDramaNextStep(existingDocTypes);
+    const vdNext = getVerticalDramaNextStep(existingDocTypes, input.seasonEpisodeCount);
     rawNext = vdNext.nextStep;
     isSeriesWriterTarget = rawNext === 'series_writer';
     if (vdNext.missingPrerequisites.length > 0) {
