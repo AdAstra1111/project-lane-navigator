@@ -36,7 +36,7 @@ export function DocumentSidebar({
 }: DocumentSidebarProps) {
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteTitle, setPasteTitle] = useState('');
-  const [pasteType, setPasteType] = useState('treatment');
+  const [pasteType, setPasteType] = useState('idea');
   const [pasteText, setPasteText] = useState('');
 
   const handlePaste = () => {
@@ -69,6 +69,7 @@ export function DocumentSidebar({
                   <Select value={pasteType} onValueChange={setPasteType}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
+                      <SelectItem value="idea">Idea</SelectItem>
                       {Object.entries(DELIVERABLE_LABELS).map(([key, label]) => (
                         <SelectItem key={key} value={key}>{label}</SelectItem>
                       ))}
