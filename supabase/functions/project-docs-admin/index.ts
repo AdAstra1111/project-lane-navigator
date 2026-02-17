@@ -7,19 +7,21 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const TOPLINE_TEMPLATE = `# LOGLINE
+const TOPLINE_TEMPLATE = `# Topline Narrative
+
+## Logline
 
 [1–2 sentences]
 
-# SHORT SYNOPSIS
+## Short Synopsis
 
 [150–300 words]
 
-# LONG SYNOPSIS
+## Long Synopsis
 
 [~1–2 pages]
 
-# STORY PILLARS
+## Story Pillars
 
 - Theme:
 - Protagonist:
@@ -30,7 +32,7 @@ const TOPLINE_TEMPLATE = `# LOGLINE
 - Tone:
 - Comps:
 
-# SERIES ONLY
+## Series Only
 
 - Series promise / engine:
 - Season arc snapshot:

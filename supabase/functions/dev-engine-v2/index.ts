@@ -3897,17 +3897,19 @@ ${baseScriptText.slice(0, 30000)}`;
       // 3) Generate topline content via AI
       const toplineSystemPrompt = `You are IFFY, a senior development executive. Generate a professional TOPLINE NARRATIVE document from the provided project context.
 
-OUTPUT FORMAT (use these exact headings):
-# LOGLINE
+OUTPUT FORMAT (use these exact headings — the document MUST start with "# Topline Narrative"):
+# Topline Narrative
+
+## Logline
 [1-2 compelling sentences that capture the essence]
 
-# SHORT SYNOPSIS
+## Short Synopsis
 [150-300 words — the story at a glance]
 
-# LONG SYNOPSIS
+## Long Synopsis
 [1-2 pages — the full narrative arc with key beats, turns, and resolution]
 
-# STORY PILLARS
+## Story Pillars
 - Theme: [core thematic concern]
 - Protagonist: [name and defining trait]
 - Goal: [what they want]
@@ -3917,7 +3919,7 @@ OUTPUT FORMAT (use these exact headings):
 - Tone: [emotional register and style]
 - Comps: [2-3 comparable titles]
 ${isSeries ? `
-# SERIES ONLY
+## Series Only
 - Series promise / engine: [what makes this repeatable — the core mechanic that sustains multiple episodes]
 - Season arc snapshot: [the season-level journey in 3-5 sentences]` : ""}
 
