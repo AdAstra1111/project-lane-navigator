@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from 'react';
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { toast } from 'sonner';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useParams, Link, useSearchParams } from 'react-router-dom';
@@ -452,6 +452,28 @@ export default function ProjectDevelopmentEngine() {
 
   const versionText = selectedVersion?.plaintext || selectedDoc?.plaintext || selectedDoc?.extracted_text || '';
 
+  const [editableText, setEditableText] = useState(versionText);
+  const [isSavingText, setIsSavingText] = useState(false);
+  useEffect(() => { setEditableText(versionText); }, [versionText]);
+  const qcRef = useQueryClient();
+  const saveEditedText = useCallback(async () => {
+    if (!selectedVersionId || editableText === versionText) return;
+    setIsSavingText(true);
+    try {
+      const { error } = await (supabase as any)
+        .from('project_document_versions')
+        .update({ plaintext: editableText })
+        .eq('id', selectedVersionId);
+      if (error) throw error;
+      toast.success('Saved');
+      qcRef.invalidateQueries({ queryKey: ['dev-v2-versions', selectedDocId] });
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to save');
+    } finally {
+      setIsSavingText(false);
+    }
+  }, [selectedVersionId, editableText, versionText, selectedDocId, qcRef]);
+
   const analysisConvergence = latestAnalysis?.convergence;
   const isAnalysisConverged = analysisConvergence?.status === 'converged' || convergenceStatus === 'Converged';
   const nextBestDocument = analysisConvergence?.next_best_document;
@@ -847,14 +869,26 @@ export default function ProjectDevelopmentEngine() {
                     </div>
                   )}
 
-                  {/* Document content */}
+                  {/* Document content — editable */}
                   <Card>
                     <CardContent className="p-4">
-                      <ScrollArea className="h-[300px]">
-                        <pre className="text-sm text-foreground whitespace-pre-wrap font-body leading-relaxed">
-                          {versionText || 'No content available.'}
-                        </pre>
-                      </ScrollArea>
+                      <textarea
+                        className="w-full h-[300px] text-sm text-foreground whitespace-pre-wrap font-body leading-relaxed bg-transparent border-none outline-none resize-none focus:ring-0"
+                        value={editableText}
+                        onChange={(e) => setEditableText(e.target.value)}
+                        placeholder="Start writing your idea here…"
+                      />
+                      {editableText !== versionText && (
+                        <div className="flex justify-end mt-2">
+                          <Button size="sm" variant="outline" className="mr-2 text-xs" onClick={() => setEditableText(versionText)}>
+                            Discard
+                          </Button>
+                          <Button size="sm" className="text-xs" onClick={saveEditedText} disabled={isSavingText}>
+                            {isSavingText ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
+                            Save
+                          </Button>
+                        </div>
+                      )}
                     </CardContent>
                   </Card>
 
