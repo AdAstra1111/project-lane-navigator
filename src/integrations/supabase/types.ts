@@ -5562,6 +5562,60 @@ export type Database = {
         }
         Relationships: []
       }
+      project_active_docs: {
+        Row: {
+          approved_at: string
+          approved_by: string | null
+          created_at: string
+          doc_type_key: string
+          document_version_id: string
+          id: string
+          notes: string | null
+          project_id: string
+          source_flow: string | null
+          updated_at: string
+        }
+        Insert: {
+          approved_at?: string
+          approved_by?: string | null
+          created_at?: string
+          doc_type_key: string
+          document_version_id: string
+          id?: string
+          notes?: string | null
+          project_id: string
+          source_flow?: string | null
+          updated_at?: string
+        }
+        Update: {
+          approved_at?: string
+          approved_by?: string | null
+          created_at?: string
+          doc_type_key?: string
+          document_version_id?: string
+          id?: string
+          notes?: string | null
+          project_id?: string
+          source_flow?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_active_docs_document_version_id_fkey"
+            columns: ["document_version_id"]
+            isOneToOne: false
+            referencedRelation: "project_document_versions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_active_docs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       project_activity_log: {
         Row: {
           action: string

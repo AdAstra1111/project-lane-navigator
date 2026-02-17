@@ -71,31 +71,67 @@ Deno.serve(async (req) => {
       docVersionIds = [subject.documentVersionId];
     } else if (subjectType === "bundle") {
       bundleKey = subject.bundleKey;
-      // Get all project docs with their latest versions
-      const { data: docs } = await db
-        .from("project_documents")
-        .select("id, doc_type, title, file_name, latest_version_id")
-        .eq("project_id", projectId)
-        .not("latest_version_id", "is", null);
+      const useActiveOnly = subject.useActiveOnly !== false; // default true
 
-      if (!docs?.length) {
-        return new Response(JSON.stringify({ error: "No documents found" }), {
-          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+      // Try active folder first
+      if (useActiveOnly) {
+        const { data: activeDocs } = await db
+          .from("project_active_docs")
+          .select("doc_type_key, document_version_id")
+          .eq("project_id", projectId);
+
+        if (activeDocs?.length) {
+          // Map active doc_type_keys to coverage roles
+          const ROLE_FROM_KEY: Record<string, string> = {
+            concept_brief: "concept", market_sheet: "market", deck: "deck",
+            blueprint: "blueprint", beat_sheet: "blueprint", character_bible: "character_bible",
+            episode_grid: "episode_grid", season_arc: "season_arc",
+            documentary_outline: "documentary_outline", format_rules: "format_rules",
+            episode_script: "episode_script", feature_script: "feature_script",
+            production_draft: "production_draft",
+          };
+
+          const BUNDLE_ROLES: Record<string, string[]> = {
+            PACKAGE: ["concept", "market", "deck", "blueprint", "character_bible", "episode_script", "feature_script", "episode_grid", "season_arc", "format_rules", "documentary_outline"],
+            NARRATIVE: ["feature_script", "episode_script", "episode_grid", "season_arc", "blueprint", "character_bible"],
+            COMMERCIAL: ["market", "deck", "concept"],
+            DOCU_REALITY: ["documentary_outline", "deck", "market", "concept"],
+          };
+          const desiredRoles = new Set(BUNDLE_ROLES[bundleKey || "PACKAGE"] || BUNDLE_ROLES.PACKAGE);
+
+          for (const ad of activeDocs) {
+            const role = ROLE_FROM_KEY[ad.doc_type_key];
+            if (role && desiredRoles.has(role)) {
+              docVersionIds.push(ad.document_version_id);
+            }
+          }
+        }
       }
 
-      // Get version details for role mapping
-      const versionIds = docs.map(d => d.latest_version_id).filter(Boolean);
-      const { data: versions } = await db
-        .from("project_document_versions")
-        .select("id, deliverable_type, label, stage")
-        .in("id", versionIds);
+      // Fallback: if no active docs, use latest versions
+      if (!docVersionIds.length) {
+        const { data: docs } = await db
+          .from("project_documents")
+          .select("id, doc_type, title, file_name, latest_version_id")
+          .eq("project_id", projectId)
+          .not("latest_version_id", "is", null);
 
-      const versionMap = new Map((versions || []).map(v => [v.id, v]));
+        if (!docs?.length) {
+          return new Response(JSON.stringify({ error: "No documents found" }), {
+            status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
 
-      // Map roles
-      const roleMap = buildRoleMap(bundleKey, project.format, docs, versionMap);
-      docVersionIds = roleMap.map(r => r.versionId);
+        const versionIds = docs.map(d => d.latest_version_id).filter(Boolean);
+        const { data: versions } = await db
+          .from("project_document_versions")
+          .select("id, deliverable_type, label, stage")
+          .in("id", versionIds);
+        const versionMap = new Map((versions || []).map(v => [v.id, v]));
+        const roleMap = buildRoleMap(bundleKey, project.format, docs, versionMap);
+        docVersionIds = roleMap.map(r => r.versionId);
+      }
+
       bundleName = getBundleName(bundleKey);
     }
 
