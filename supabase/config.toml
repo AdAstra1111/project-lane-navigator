@@ -155,3 +155,6 @@ verify_jwt = false
 
 [functions.coverage-engine]
 verify_jwt = false
+
+[functions.project-folder-engine]
+verify_jwt = false

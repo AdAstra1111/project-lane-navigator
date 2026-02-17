@@ -27,6 +27,7 @@ import { ProjectChat } from '@/components/project/ProjectChat';
 import { DecisionJournal } from '@/components/DecisionJournal';
 import { BudgetAssumptionsPanel } from '@/components/finance/BudgetAssumptionsPanel';
 import { ProjectProfileCoverage } from '@/components/project/ProjectProfileCoverage';
+import { ActiveProjectFolder } from '@/components/project/ActiveProjectFolder';
 import { PackagingPipelinePanel } from '@/components/PackagingPipelinePanel';
 import { StageGatesPanel } from '@/components/StageGatesPanel';
 import { LIFECYCLE_STAGES, type LifecycleStage, getStageOrder, getStageMeta } from '@/lib/lifecycle-stages';
@@ -260,6 +261,9 @@ export function OverviewDashboard({
           savedExecConfidence={(baseline as any)?.paradox_exec_confidence ?? null}
         />
       )}
+
+      {/* Active Project Folder */}
+      <ActiveProjectFolder projectId={projectId} />
 
       {/* Project Profile Coverage */}
       <ProjectProfileCoverage projectId={projectId} format={project.format} />
