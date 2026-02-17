@@ -879,7 +879,7 @@ serve(async (req) => {
       }
 
       // Build deliverable-aware system prompt (routing order: deliverable → format → behavior)
-      const baseSystemPrompt = buildAnalyzeSystem(effectiveDeliverable, effectiveFormat, effectiveBehavior, effectiveDuration);
+      const baseSystemPrompt = buildAnalyzeSystem(effectiveDeliverable, effectiveFormat, effectiveBehavior, effectiveDurationMin, effectiveDurationMax);
 
       // Inject guardrails with per-engine mode support
       const guardrails = buildGuardrailBlock({
@@ -912,9 +912,12 @@ serve(async (req) => {
       // Build canonical qualification binding for prompt
       let qualBinding = "";
       if (rq.is_series && rq.season_episode_count) {
-        const durRangeStr = (rq.episode_target_duration_min_seconds && rq.episode_target_duration_max_seconds && rq.episode_target_duration_min_seconds !== rq.episode_target_duration_max_seconds)
-          ? `${rq.episode_target_duration_min_seconds}–${rq.episode_target_duration_max_seconds} seconds`
-          : `${rq.episode_target_duration_seconds || rq.episode_target_duration_min_seconds || 'N/A'} seconds`;
+        const durMin = rq.episode_target_duration_min_seconds || rq.episode_target_duration_seconds || effectiveDurationMin;
+        const durMax = rq.episode_target_duration_max_seconds || rq.episode_target_duration_seconds || effectiveDurationMax;
+        const durMid = durMin && durMax ? Math.round((durMin + durMax) / 2) : (durMin || durMax || null);
+        const durRangeStr = (durMin && durMax && durMin !== durMax)
+          ? `${durMin}–${durMax} seconds (midpoint ${durMid}s)`
+          : `${durMid || 'N/A'} seconds`;
         qualBinding = `\nCANONICAL QUALIFICATIONS (authoritative — ignore older references to different values):
 Target season length: ${rq.season_episode_count} episodes.
 Episode target duration range: ${durRangeStr}.

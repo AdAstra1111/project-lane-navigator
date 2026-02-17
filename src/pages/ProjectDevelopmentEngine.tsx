@@ -359,6 +359,8 @@ export default function ProjectDevelopmentEngine() {
       developmentBehavior: projectBehavior,
       format: projectFormat,
       episodeTargetDurationSeconds: (isVerticalDrama || isSeriesFormat) ? Math.round((effectiveEpisodeDurationMin + effectiveEpisodeDurationMax) / 2) : undefined,
+      episode_target_duration_min_seconds: (isVerticalDrama || isSeriesFormat) ? effectiveEpisodeDurationMin : undefined,
+      episode_target_duration_max_seconds: (isVerticalDrama || isSeriesFormat) ? effectiveEpisodeDurationMax : undefined,
       previousVersionId: prevVersion?.id,
     }, {
       onSuccess: (analysisResult: any) => {
@@ -1363,6 +1365,8 @@ export default function ProjectDevelopmentEngine() {
                     resolvedQualifications={resolvedQuals ? {
                       season_episode_count: resolvedQuals.season_episode_count,
                       episode_target_duration_seconds: resolvedQuals.episode_target_duration_seconds,
+                      episode_target_duration_min_seconds: resolvedQuals.episode_target_duration_min_seconds,
+                      episode_target_duration_max_seconds: resolvedQuals.episode_target_duration_max_seconds,
                       format: resolvedQuals.format,
                     } : null}
                     onRegenerate={handleRunEngine}

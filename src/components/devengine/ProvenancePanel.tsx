@@ -17,6 +17,8 @@ interface ProvenancePanelProps {
   resolvedQualifications: {
     season_episode_count?: number | null;
     episode_target_duration_seconds?: number | null;
+    episode_target_duration_min_seconds?: number | null;
+    episode_target_duration_max_seconds?: number | null;
     format?: string;
   } | null;
   onRegenerate?: () => void;
@@ -75,9 +77,13 @@ export function ProvenancePanel({
             {resolvedQualifications.season_episode_count != null && (
               <p>Episodes: <span className="text-foreground">{resolvedQualifications.season_episode_count}</span></p>
             )}
-            {resolvedQualifications.episode_target_duration_seconds != null && (
-              <p>Duration: <span className="text-foreground">{resolvedQualifications.episode_target_duration_seconds}s</span></p>
-            )}
+            {resolvedQualifications.episode_target_duration_min_seconds != null || resolvedQualifications.episode_target_duration_seconds != null ? (
+              <p>Duration: <span className="text-foreground">
+                {resolvedQualifications.episode_target_duration_min_seconds && resolvedQualifications.episode_target_duration_max_seconds && resolvedQualifications.episode_target_duration_min_seconds !== resolvedQualifications.episode_target_duration_max_seconds
+                  ? `${resolvedQualifications.episode_target_duration_min_seconds}–${resolvedQualifications.episode_target_duration_max_seconds}s`
+                  : `${resolvedQualifications.episode_target_duration_min_seconds || resolvedQualifications.episode_target_duration_seconds}s`}
+              </span></p>
+            ) : null}
             {currentResolverHash && (
               <p className="flex items-center gap-1">
                 <Hash className="h-3 w-3" />
