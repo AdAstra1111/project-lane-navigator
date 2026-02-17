@@ -11,6 +11,7 @@ const DOC_DEPENDENCY_MAP: Record<string, string[]> = {
   pitch_document: ["qualifications.season_episode_count", "qualifications.episode_target_duration_seconds"],
   season_arc: ["qualifications.season_episode_count", "qualifications.episode_target_duration_seconds"],
   episode_grid: ["qualifications.season_episode_count", "qualifications.episode_target_duration_seconds"],
+  vertical_episode_beats: ["qualifications.season_episode_count", "qualifications.episode_target_duration_seconds"],
   vertical_market_sheet: ["qualifications.season_episode_count", "qualifications.episode_target_duration_seconds"],
   series_overview: ["qualifications.season_episode_count"],
   format_rules: ["qualifications.episode_target_duration_seconds"],
@@ -37,11 +38,12 @@ const UPSTREAM_DEPS: Record<string, string[]> = {
   series_overview: ["idea_brief", "logline"],
   season_arc: ["series_overview", "character_bible"],
   episode_grid: ["season_arc", "character_bible"],
+  vertical_episode_beats: ["episode_grid", "season_arc", "character_bible", "format_rules"],
   pilot_outline: ["episode_grid", "character_bible"],
   pilot_script: ["pilot_outline", "character_bible"],
-  format_rules: ["idea_brief"],
+  format_rules: ["idea_brief", "concept_brief"],
   vertical_market_sheet: ["idea_brief", "concept_brief"],
-  season_scripts_bundle: ["episode_grid", "pilot_script", "character_bible"],
+  season_scripts_bundle: ["episode_grid", "vertical_episode_beats", "character_bible"],
   future_seasons_map: ["season_arc", "series_overview"],
   budget_topline: ["treatment"],
   finance_plan: ["budget_topline"],
@@ -124,7 +126,7 @@ Deno.serve(async (req) => {
 
     // 2) Load project metadata
     const { data: project } = await supabase.from("projects")
-      .select("title, format, production_type, pipeline_stage, guardrails_config, season_style_template_version_id, season_style_profile")
+      .select("title, format, pipeline_stage, guardrails_config, season_style_template_version_id, season_style_profile")
       .eq("id", projectId).single();
 
     if (!project) throw new Error("Project not found");
@@ -191,7 +193,7 @@ Deno.serve(async (req) => {
     const system = [
       `You are a professional development document generator for film/TV projects.`,
       `Generate a ${docType.replace(/_/g, " ")} document for the project "${project.title}".`,
-      `Production type: ${project.format || project.production_type || "film"}`,
+      `Production type: ${project.format || "film"}`,
       qualBlock,
       styleBlock,
       additionalContext ? `## CREATIVE DIRECTION (MUST INCORPORATE)\n${additionalContext}` : "",
