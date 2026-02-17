@@ -44,17 +44,18 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
   const [steps, setSteps] = useState<AutoRunStep[]>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [activated, setActivated] = useState(false);
   const abortRef = useRef(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // ── Fetch existing job ──
+  // ── Fetch existing job only when user has activated auto-run ──
   const { data: existingJob } = useQuery({
     queryKey: ['auto-run-mission-status', projectId],
     queryFn: async () => {
       if (!projectId) return null;
       return await callAutoRun('status', { projectId });
     },
-    enabled: !!projectId,
+    enabled: !!projectId && activated,
     refetchOnWindowFocus: false,
   });
 
@@ -62,7 +63,6 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
     if (existingJob?.job) {
       setJob(existingJob.job);
       setSteps(existingJob.latest_steps || []);
-      // Only set isRunning if job is actually running and not awaiting anything
       if (existingJob.job.status === 'running' && !existingJob.job.awaiting_approval) {
         setIsRunning(true);
       } else {
@@ -114,8 +114,11 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
     } catch {}
   }, [job]);
 
+  const activate = useCallback(() => setActivated(true), []);
+
   const start = useCallback(async (mode: string, startDocument: string) => {
     if (!projectId) return;
+    setActivated(true);
     setError(null);
     abortRef.current = false;
     const LADDER_MAP: Record<string, string> = {
@@ -314,6 +317,7 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
     setSteps([]);
     setError(null);
     setIsRunning(false);
+    setActivated(false);
     abortRef.current = true;
   }, []);
 
@@ -340,9 +344,9 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
   }, [job]);
 
   return {
-    job, steps, isRunning, error,
+    job, steps, isRunning, error, activated,
     // Core actions
-    start, pause, resume, stop, runNext, clear, refreshStatus,
+    start, pause, resume, stop, runNext, clear, refreshStatus, activate,
     // Approval
     getPendingDoc, approveNext, approveDecision,
     // Decisions

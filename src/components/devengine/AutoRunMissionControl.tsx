@@ -69,6 +69,8 @@ interface AutoRunMissionControlProps {
   steps: AutoRunStep[];
   isRunning: boolean;
   error: string | null;
+  activated: boolean;
+  onActivate: () => void;
   onStart: (mode: string, startDoc: string) => void;
   onPause: () => void;
   onResume: (followLatest?: boolean) => void;
@@ -186,6 +188,7 @@ function StepTimeline({ steps, onViewOutput }: { steps: AutoRunStep[]; onViewOut
 // ── Main Component ──
 export function AutoRunMissionControl({
   projectId, currentDeliverable, job, steps, isRunning, error,
+  activated, onActivate,
   onStart, onPause, onResume, onSetResumeSource, onStop, onRunNext, onClear,
   onGetPendingDoc, onApproveNext, onApproveDecision,
   onSetStage, onForcePromote, onRestartFromStage,
@@ -410,6 +413,24 @@ export function AutoRunMissionControl({
       onStart(mode, startDocument);
     });
   };
+
+  // ── Not activated → Show activate button ──
+  if (!activated) {
+    return (
+      <Card className="border-border/40">
+        <CardContent className="py-8 flex flex-col items-center gap-3 text-center">
+          <Rocket className="h-8 w-8 text-muted-foreground" />
+          <div>
+            <p className="text-sm font-medium">Auto-Run is off</p>
+            <p className="text-xs text-muted-foreground mt-1">Activate to automate the development ladder from idea to draft.</p>
+          </div>
+          <Button size="sm" onClick={onActivate} className="gap-1.5">
+            <Zap className="h-3.5 w-3.5" /> Activate Auto-Run
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
 
   // ── No job or terminal state → Start form ──
   if (!job || ['completed', 'stopped', 'failed'].includes(job.status)) {

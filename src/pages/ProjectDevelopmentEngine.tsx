@@ -677,7 +677,7 @@ export default function ProjectDevelopmentEngine() {
             {/* ── CENTER: Workspace ── */}
             <div className="md:col-span-10 space-y-3" style={{ minHeight: 'calc(100vh - 280px)' }}>
               {/* Auto-Run Banner */}
-              {autoRun.job && !['completed'].includes(autoRun.job.status) && (
+              {autoRun.activated && autoRun.job && !['completed'].includes(autoRun.job.status) && (
                 <AutoRunBanner
                   job={autoRun.job}
                   steps={autoRun.steps}
@@ -1119,6 +1119,8 @@ export default function ProjectDevelopmentEngine() {
               <AutoRunMissionControl
                 projectId={projectId!}
                 currentDeliverable={selectedDeliverableType}
+                activated={autoRun.activated}
+                onActivate={autoRun.activate}
                 job={autoRun.job}
                 steps={autoRun.steps}
                 isRunning={autoRun.isRunning}
