@@ -875,12 +875,29 @@ Resolver hash: ${resolvedQuals?.resolver_hash || "unknown"}.`;
         console.warn("[dev-engine-v2] Signal context fetch failed (non-fatal):", e);
       }
 
+      // ── Locked Decisions Injection ──
+      let lockedDecisionsContext = "";
+      try {
+        const { data: decisions } = await supabase.from("decision_ledger")
+          .select("decision_key, title, decision_text")
+          .eq("project_id", projectId)
+          .eq("status", "active")
+          .order("created_at", { ascending: false })
+          .limit(20);
+        if (decisions && decisions.length > 0) {
+          const bullets = decisions.map((d: any) => `- [${d.decision_key}] ${d.decision_text}`).join("\n");
+          lockedDecisionsContext = `\n\nLOCKED DECISIONS (MUST FOLLOW — treat as canon, do not re-open):\n${bullets}`;
+        }
+      } catch (e) {
+        console.warn("[dev-engine-v2] Locked decisions fetch failed (non-fatal):", e);
+      }
+
       const userPrompt = `PRODUCTION TYPE: ${effectiveProductionType}
 STRATEGIC PRIORITY: ${strategicPriority || "BALANCED"}
 DEVELOPMENT STAGE: ${developmentStage || "IDEA"}
 PROJECT: ${project?.title || "Unknown"}
 LANE: ${project?.assigned_lane || "Unknown"} | BUDGET: ${project?.budget_range || "Unknown"}
-${prevContext}${seasonContext}${qualBinding}${signalContext}
+${prevContext}${seasonContext}${qualBinding}${signalContext}${lockedDecisionsContext}
 
 MATERIAL (${version.plaintext.length} chars):
 ${version.plaintext.slice(0, 25000)}`;

@@ -14,6 +14,7 @@ import {
 import { supabase } from '@/integrations/supabase/client';
 import { DecisionCard, type Decision, type DecisionOption } from './DecisionCard';
 import { toast } from 'sonner';
+import { recordResolutions } from '@/lib/decisions/client';
 
 interface GlobalDirection {
   id: string;
@@ -171,6 +172,13 @@ export function DecisionModePanel({
         toast.success('Decisions applied — new version created');
         onRewriteComplete?.();
       }
+      // Record decisions to ledger (fire-and-forget)
+      recordResolutions({
+        projectId,
+        source: 'dev_engine_decision',
+        selectedOptions: opts,
+        globalDirections: gd,
+      }).catch(e => console.warn('[decisions] record failed:', e));
     } catch (e: any) {
       toast.error(e.message);
     } finally {

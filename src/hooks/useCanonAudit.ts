@@ -6,6 +6,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { useEffect, useRef } from 'react';
+import { recordCanonFix } from '@/lib/decisions/client';
 
 export interface ContinuityIssue {
   id: string;
@@ -140,11 +141,19 @@ export function useCanonAudit(projectId: string, episodeNumber: number | null) {
       if (resp.error) throw new Error(resp.error.message || 'Fix failed');
       return resp.data;
     },
-    onSuccess: (data) => {
+    onSuccess: (data, variables) => {
       toast.success(data?.message || 'Fix applied');
       qc.invalidateQueries({ queryKey: runKey });
       qc.invalidateQueries({ queryKey: issuesKey });
       qc.invalidateQueries({ queryKey: ['series-episodes', projectId] });
+      // Record canon fix to decision ledger
+      recordCanonFix({
+        projectId,
+        runId: latestRun?.id,
+        issueId: variables.issueId,
+        episodeNumber: episodeNumber || undefined,
+        selectedFixOption: variables.selectedFixOption,
+      }).catch(e => console.warn('[decisions] canon fix record failed:', e));
       // Auto re-audit after fix
       setTimeout(() => {
         startAudit.mutate({ episodeVersionId: data?.newScriptId });
