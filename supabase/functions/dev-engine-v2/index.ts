@@ -695,9 +695,12 @@ serve(async (req) => {
     // Any action that sends a documentId must reference a valid project_documents row
     const centralDocId = body.documentId || body.scriptDocId;
     if (centralDocId) {
-      const { data: docExists } = await supabase.from("project_documents")
-        .select("id").eq("id", centralDocId).single();
-      if (!docExists) throw new Error("Document not found — it may have been deleted. Please refresh and select another document.");
+      const { data: docExists, error: docCheckErr } = await supabase.from("project_documents")
+        .select("id").eq("id", centralDocId).maybeSingle();
+      if (docCheckErr || !docExists) {
+        console.error("Document existence check failed:", centralDocId, docCheckErr?.message);
+        throw new Error("Document not found — it may have been deleted. Please refresh and select another document.");
+      }
     }
 
     // ══════════════════════════════════════════════

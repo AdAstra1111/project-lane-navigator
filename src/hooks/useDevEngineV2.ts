@@ -258,6 +258,7 @@ export function useDevEngineV2(projectId: string | undefined) {
 
   const analyze = useMutation({
     mutationFn: async (params: { productionType?: string; strategicPriority?: string; developmentStage?: string; analysisMode?: string; previousVersionId?: string; deliverableType?: DeliverableType; developmentBehavior?: DevelopmentBehavior; format?: string; episodeTargetDurationSeconds?: number }) => {
+      if (!selectedDocId || !documents.find(d => d.id === selectedDocId)) throw new Error('Document not found — please select a valid document');
       const vid = await resolveVersionId();
       if (!vid) throw new Error('No version found — please select a document first');
       return callEngineV2('analyze', { projectId, documentId: selectedDocId, versionId: vid, ...params });
