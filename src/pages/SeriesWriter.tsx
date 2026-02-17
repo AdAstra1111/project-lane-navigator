@@ -1123,7 +1123,7 @@ export default function SeriesWriter() {
                         isRunning={canonAudit.isRunning}
                         isApplyingFix={canonAudit.isApplyingFix}
                         onStartAudit={() => canonAudit.startAudit.mutate({ episodeVersionId: selectedEpisode?.script_id || undefined })}
-                        onApplyFix={(issueId) => canonAudit.applyFix.mutate(issueId)}
+                        onApplyFix={(issueId, selectedFixOption) => canonAudit.applyFix.mutate({ issueId, selectedFixOption })}
                         onDismiss={(issueId) => canonAudit.dismissIssue.mutate(issueId)}
                         hasScript={!!selectedEpisode?.script_id}
                       />
