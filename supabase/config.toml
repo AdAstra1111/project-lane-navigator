@@ -152,3 +152,6 @@ verify_jwt = false
 
 [functions.series-dev-notes]
 verify_jwt = false
+
+[functions.coverage-engine]
+verify_jwt = false
