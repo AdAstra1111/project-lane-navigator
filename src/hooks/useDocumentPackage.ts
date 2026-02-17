@@ -25,7 +25,7 @@ export function useDocumentPackage(projectId: string | undefined) {
       if (!projectId) return null;
       const { data, error } = await (supabase as any)
         .from('projects')
-        .select('id, format, production_type, pipeline_stage, resolved_qualifications_hash')
+        .select('id, format, pipeline_stage, resolved_qualifications_hash')
         .eq('id', projectId)
         .single();
       if (error) throw error;
@@ -34,7 +34,7 @@ export function useDocumentPackage(projectId: string | undefined) {
     enabled: !!projectId,
   });
 
-  const productionType = project?.format || project?.production_type || 'film';
+  const productionType = project?.format || 'film';
   const pipelineStage = project?.pipeline_stage || 'development';
   const currentResolverHash = project?.resolved_qualifications_hash || null;
 

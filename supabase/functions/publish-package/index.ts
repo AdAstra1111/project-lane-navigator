@@ -53,7 +53,7 @@ Deno.serve(async (req) => {
     // 1. Fetch project for format + current resolver hash
     const { data: project, error: projErr } = await supabase
       .from("projects")
-      .select("id, format, pipeline_stage, resolved_qualifications_hash, production_type")
+      .select("id, format, pipeline_stage, resolved_qualifications_hash")
       .eq("id", projectId)
       .single();
 
@@ -126,7 +126,7 @@ Deno.serve(async (req) => {
           .eq("id", latestVersion.id);
 
         // Compute export path
-        const format = (project.format || project.production_type || "film").toLowerCase().replace(/[_ ]+/g, "-");
+        const format = (project.format || "film").toLowerCase().replace(/[_ ]+/g, "-");
         const order = String(docsToPublish.indexOf(docType) + 1).padStart(2, "0");
         const exportPath = `${projectId}/package/${order}_${docType}/LATEST.md`;
 
