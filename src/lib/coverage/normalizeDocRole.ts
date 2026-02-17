@@ -21,6 +21,13 @@ const ROLE_MAP: Record<string, CoverageRole> = {
   topline: 'topline',
   logline_synopsis: 'topline',
   narrative_summary: 'topline',
+  synopsis: 'topline',
+  short_synopsis: 'topline',
+  long_synopsis: 'topline',
+  logline: 'topline',
+  narrative: 'topline',
+  top_line: 'topline',
+  topline_doc: 'topline',
   // doc_type / deliverable_type keys
   concept_brief: 'concept',
   concept: 'concept',
@@ -52,8 +59,10 @@ const ROLE_MAP: Record<string, CoverageRole> = {
 };
 
 const TITLE_HINTS: [RegExp, CoverageRole][] = [
-  [/topline\s*narrative/i, 'topline'],
-  [/\blogline\b.*\bsynopsis\b|\bsynopsis\b.*\blogline\b/i, 'topline'],
+  [/topline/i, 'topline'],
+  [/\blogline\b/i, 'topline'],
+  [/\bsynopsis\b/i, 'topline'],
+  [/narrative\s*(summary|topline)/i, 'topline'],
   [/concept\s*brief/i, 'concept'],
   [/market\s*(sheet|positioning)/i, 'market'],
   [/\bdeck\b/i, 'deck'],

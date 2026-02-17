@@ -52,6 +52,13 @@ const KEY_MAP: Record<string, DocTypeKey> = {
   topline: 'topline_narrative',
   logline_synopsis: 'topline_narrative',
   narrative_summary: 'topline_narrative',
+  synopsis: 'topline_narrative',
+  short_synopsis: 'topline_narrative',
+  long_synopsis: 'topline_narrative',
+  logline: 'topline_narrative',
+  narrative: 'topline_narrative',
+  top_line: 'topline_narrative',
+  topline_doc: 'topline_narrative',
   concept_brief: 'concept_brief',
   concept: 'concept_brief',
   concept_lock: 'concept_brief',
@@ -81,8 +88,10 @@ const KEY_MAP: Record<string, DocTypeKey> = {
 };
 
 const TITLE_HINTS: [RegExp, DocTypeKey][] = [
-  [/topline\s*narrative/i, 'topline_narrative'],
-  [/\blogline\b.*\bsynopsis\b|\bsynopsis\b.*\blogline\b/i, 'topline_narrative'],
+  [/topline/i, 'topline_narrative'],
+  [/\blogline\b/i, 'topline_narrative'],
+  [/\bsynopsis\b/i, 'topline_narrative'],
+  [/narrative\s*(summary|topline)/i, 'topline_narrative'],
   [/concept\s*brief/i, 'concept_brief'],
   [/market\s*(sheet|positioning)/i, 'market_sheet'],
   [/\bdeck\b/i, 'deck'],
