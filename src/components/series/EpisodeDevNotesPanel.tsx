@@ -81,7 +81,7 @@ export function EpisodeDevNotesPanel({ run, notes, isRunning }: Props) {
       )}
 
       {run && run.status === 'completed' && (notes.length > 0 || canonRiskCount > 0) && (
-        <ScrollArea className="max-h-[250px]">
+        <ScrollArea className="h-[300px]">
           <div className="space-y-2">
             {(['blocking', 'high_impact', 'polish'] as const).map(tier => {
               const items = grouped[tier];
