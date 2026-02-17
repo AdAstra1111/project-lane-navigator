@@ -882,7 +882,7 @@ export default function SeriesWriter() {
 
               {/* Episode List */}
               {episodes.length > 0 && (
-                <ScrollArea className="max-h-[calc(100vh-280px)]">
+                <ScrollArea className="max-h-[400px]">
                   <div className="space-y-1">
                     {episodes.map((ep, idx) => {
                       const state = getEpisodeState(ep, idx);
