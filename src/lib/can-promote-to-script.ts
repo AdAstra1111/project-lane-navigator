@@ -17,6 +17,7 @@ export const SCRIPT_DOC_TYPES = new Set([
 export const NON_SCRIPT_DOC_TYPES = new Set([
   'writers_room',
   'notes',
+  'topline_narrative',
   'concept_brief',
   'format_rules',
   'season_arc',
@@ -68,6 +69,7 @@ export const ALL_DOC_TYPE_LABELS: Record<string, string> = {
   // Non-script types
   writers_room: "Writer's Room",
   notes: 'Notes',
+  topline_narrative: 'Topline Narrative',
   concept_brief: 'Concept Brief',
   format_rules: 'Format Rules',
   season_arc: 'Season Arc',

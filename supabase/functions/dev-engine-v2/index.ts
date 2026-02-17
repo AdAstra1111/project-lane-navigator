@@ -94,6 +94,7 @@ async function parseAIJson(apiKey: string, raw: string): Promise<any> {
 
 const DELIVERABLE_RUBRICS: Record<string, string> = {
   idea: `Evaluate as an IDEA/LOGLINE. Score clarity, originality, market hook, audience identification. Do NOT evaluate dialogue, pacing, or scene structure.`,
+  topline_narrative: `Evaluate as a TOPLINE NARRATIVE (logline + short synopsis + long synopsis + story pillars). Score logline clarity, synopsis coherence, story pillar completeness, theme/stakes articulation, and market positioning. Do NOT evaluate scene construction or dialogue. For series, also evaluate the series promise/engine and season arc snapshot.`,
   concept_brief: `Evaluate as a CONCEPT BRIEF. Score premise strength, theme clarity, genre positioning, tonal consistency. Do NOT evaluate scene-level craft or dialogue.`,
   market_sheet: `Evaluate as a MARKET SHEET. Score market positioning, comparable titles, audience targeting, budget alignment. Do NOT evaluate narrative craft.`,
   vertical_market_sheet: `Evaluate as a VERTICAL MARKET SHEET for mobile-first drama. Score platform targeting, audience demographics, comparable vertical titles, and revenue/monetization model. Do NOT evaluate narrative craft.`,
@@ -352,6 +353,7 @@ const CONVERT_SYSTEM = `You are IFFY. Convert the source material into the speci
 Preserve the creative DNA (protect items). Adapt structure and detail level to the target format.
 
 Target format guidelines:
+- TOPLINE_NARRATIVE: A canonical narrative summary containing: # LOGLINE (1-2 sentences), # SHORT SYNOPSIS (150-300 words), # LONG SYNOPSIS (~1-2 pages), # STORY PILLARS (Theme, Protagonist, Goal, Stakes, Antagonistic force, Setting, Tone, Comps). For series, also include # SERIES ONLY with series promise/engine and season arc snapshot.
 - BLUEPRINT: High-level structural blueprint with act breaks, key beats, character arcs, tone anchors
 - ARCHITECTURE: Detailed scene-by-scene architecture with sluglines, beats, page estimates
 - TREATMENT: Prose narrative treatment (3-10 pages), vivid and readable
@@ -372,6 +374,7 @@ const CONVERT_SYSTEM_JSON = `You are IFFY. Convert the source material into the 
 Preserve the creative DNA (protect items). Adapt structure and detail level to the target format.
 
 Target format guidelines:
+- TOPLINE_NARRATIVE: A canonical narrative summary containing: # LOGLINE (1-2 sentences), # SHORT SYNOPSIS (150-300 words), # LONG SYNOPSIS (~1-2 pages), # STORY PILLARS (Theme, Protagonist, Goal, Stakes, Antagonistic force, Setting, Tone, Comps). For series, also include # SERIES ONLY with series promise/engine and season arc snapshot.
 - BLUEPRINT: High-level structural blueprint with act breaks, key beats, character arcs, tone anchors
 - ARCHITECTURE: Detailed scene-by-scene architecture with sluglines, beats, page estimates
 - TREATMENT: Prose narrative treatment (3-10 pages), vivid and readable
@@ -518,6 +521,9 @@ const formatToProductionType: Record<string, string> = {
 
 const docTypeMap: Record<string, string> = {
   IDEA: "idea",
+  TOPLINE_NARRATIVE: "topline_narrative",
+  "TOPLINE NARRATIVE": "topline_narrative",
+  TOPLINE: "topline_narrative",
   CONCEPT_BRIEF: "concept_brief",
   "CONCEPT BRIEF": "concept_brief",
   MARKET_SHEET: "market_sheet",
@@ -921,7 +927,7 @@ ${version.plaintext.slice(0, 25000)}`;
       parsed.development_behavior = effectiveBehavior;
 
       // Validate next_best_document — must be a valid deliverable type key
-      const VALID_DELIVERABLES = new Set(["idea","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","script","production_draft","deck","documentary_outline","format_rules","season_arc","episode_grid","vertical_episode_beats"]);
+      const VALID_DELIVERABLES = new Set(["idea","topline_narrative","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","script","production_draft","deck","documentary_outline","format_rules","season_arc","episode_grid","vertical_episode_beats"]);
       if (parsed.convergence?.next_best_document) {
         const raw_nbd = parsed.convergence.next_best_document;
         const normalized_nbd = raw_nbd.toLowerCase().replace(/[\s\-]+/g, "_").replace(/[^a-z_]/g, "");
@@ -1807,7 +1813,7 @@ MATERIAL:\n${version.plaintext.slice(0, 20000)}`;
       const normalizedTarget = (targetOutput || "").toUpperCase().replace(/\s+/g, "_");
       let resolvedDocType = docTypeMap[targetOutput] || docTypeMap[normalizedTarget] || docTypeMap[(targetOutput || "").toUpperCase()] || "other";
 
-      const VALID_DELIVERABLES_SET = new Set(["idea","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","script","production_draft","deck","documentary_outline","format_rules","season_arc","episode_grid","vertical_episode_beats"]);
+      const VALID_DELIVERABLES_SET = new Set(["idea","topline_narrative","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","script","production_draft","deck","documentary_outline","format_rules","season_arc","episode_grid","vertical_episode_beats"]);
       if (resolvedDocType === "other") {
         // Fuzzy match: strip numbers, parens, normalize
         const aggressive = (targetOutput || "").toLowerCase().replace(/[\s\-()0-9]+/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "");

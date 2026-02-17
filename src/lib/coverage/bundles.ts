@@ -20,16 +20,17 @@ export function getBundleDefinitions(format: string): BundleDef[] {
     name: 'Whole Package',
     description: 'Creative + commercial evaluation of the full project package.',
     roles: [
-      'concept', 'market', 'deck', 'blueprint', 'character_bible',
+      'topline', 'concept', 'market', 'deck', 'blueprint', 'character_bible',
       isSeries ? 'episode_script' : 'feature_script',
       'episode_grid', 'season_arc', 'format_rules',
       isDoc ? 'documentary_outline' : null,
     ].filter(Boolean) as CoverageRole[],
     weights: {
-      concept: 15,
+      topline: 5,
+      concept: 13,
       market: 10,
-      deck: 10,
-      blueprint: 15,
+      deck: 9,
+      blueprint: 13,
       character_bible: 10,
       [isSeries ? 'episode_script' : 'feature_script']: 25,
       episode_grid: 5,
@@ -45,8 +46,8 @@ export function getBundleDefinitions(format: string): BundleDef[] {
       key: 'NARRATIVE',
       name: 'Narrative Coverage',
       description: 'Season arc coherence, episode structure, and character consistency.',
-      roles: ['episode_script', 'episode_grid', 'season_arc', 'blueprint', 'character_bible'],
-      weights: { episode_script: 35, episode_grid: 20, season_arc: 20, blueprint: 15, character_bible: 10 },
+      roles: ['topline', 'episode_script', 'episode_grid', 'season_arc', 'blueprint', 'character_bible'],
+      weights: { topline: 5, episode_script: 33, episode_grid: 18, season_arc: 18, blueprint: 14, character_bible: 12 },
       minDocs: 1,
     });
   } else {
@@ -54,8 +55,8 @@ export function getBundleDefinitions(format: string): BundleDef[] {
       key: 'NARRATIVE',
       name: 'Narrative Coverage',
       description: 'Script structure, character arcs, and story coherence.',
-      roles: ['feature_script', 'blueprint', 'character_bible'],
-      weights: { feature_script: 60, blueprint: 25, character_bible: 15 },
+      roles: ['topline', 'feature_script', 'blueprint', 'character_bible'],
+      weights: { topline: 5, feature_script: 57, blueprint: 23, character_bible: 15 },
       minDocs: 1,
     });
   }
@@ -65,8 +66,8 @@ export function getBundleDefinitions(format: string): BundleDef[] {
     key: 'COMMERCIAL',
     name: 'Commercial Readiness',
     description: 'Market positioning, buyer alignment, and commercial viability.',
-    roles: ['market', 'deck', 'concept'],
-    weights: { market: 45, deck: 35, concept: 20 },
+    roles: ['topline', 'market', 'deck', 'concept'],
+    weights: { topline: 5, market: 43, deck: 33, concept: 19 },
     minDocs: 1,
   });
 

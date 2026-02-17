@@ -26,6 +26,18 @@ export interface ReviewSchema {
 // ── Registry ──
 
 const registry: Record<DeliverableType, ReviewSchema> = {
+  topline_narrative: {
+    rubricSections: [
+      { dimension: 'Logline Clarity', weight: 25, description: 'Is the logline immediately compelling and clear?' },
+      { dimension: 'Synopsis Coherence', weight: 25, description: 'Does the synopsis convey a complete story with emotional logic?' },
+      { dimension: 'Story Pillars', weight: 25, description: 'Are theme, protagonist, stakes, and tone clearly articulated?' },
+      { dimension: 'Market Positioning', weight: 25, description: 'Does the topline position the project for its target audience?' },
+    ],
+    analysisPromptModifier: 'This is a TOPLINE NARRATIVE (logline + synopsis + story pillars). Evaluate logline clarity, synopsis coherence, story pillar completeness, and market positioning. Do NOT critique scene construction or dialogue.',
+    rewritePromptModifier: 'Sharpen the logline, strengthen the synopsis arc, and ensure story pillars are specific and compelling. Do NOT add scenes or dialogue.',
+    convergenceRules: { minCI: 65, minGP: 60 },
+    forbiddenCritique: ['dialogue quality', 'scene construction', 'slugline formatting', 'act structure'],
+  },
   idea: {
     rubricSections: [
       { dimension: 'Concept Spark', weight: 35, description: 'Is the core idea compelling and original?' },

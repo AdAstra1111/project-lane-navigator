@@ -5,6 +5,7 @@
 
 // Coverage roles (read-only mapping, never stored in DB as canonical)
 export type CoverageRole =
+  | 'topline'
   | 'concept'
   | 'market'
   | 'deck'
@@ -20,6 +21,7 @@ export type CoverageRole =
   | 'other';
 
 export const COVERAGE_ROLE_LABELS: Record<CoverageRole, string> = {
+  topline: 'Topline Narrative',
   concept: 'Concept Brief',
   market: 'Market Sheet',
   deck: 'Deck',

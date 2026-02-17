@@ -14,13 +14,13 @@ export interface DocPackageSpec {
 
 const FEATURE_FILM: DocPackageSpec = {
   doc_order: {
-    idea_brief: 1, logline: 2, one_pager: 3, long_synopsis: 4,
-    treatment: 5, character_bible: 6, feature_outline: 7, screenplay_draft: 8,
-    budget_topline: 9, finance_plan: 10, packaging_targets: 11,
-    production_plan: 12, delivery_requirements: 13,
+    topline_narrative: 1, idea_brief: 2, logline: 3, one_pager: 4, long_synopsis: 5,
+    treatment: 6, character_bible: 7, feature_outline: 8, screenplay_draft: 9,
+    budget_topline: 10, finance_plan: 11, packaging_targets: 12,
+    production_plan: 13, delivery_requirements: 14,
   },
   required_by_stage: {
-    development: ["idea_brief", "logline", "one_pager", "long_synopsis", "treatment", "character_bible", "feature_outline"],
+    development: ["topline_narrative", "idea_brief", "logline", "one_pager", "long_synopsis", "treatment", "character_bible", "feature_outline"],
     packaging: ["screenplay_draft", "budget_topline", "packaging_targets"],
     pre_production: ["finance_plan", "production_plan"],
     production: [],
@@ -33,14 +33,14 @@ const FEATURE_FILM: DocPackageSpec = {
 
 const TV_SERIES: DocPackageSpec = {
   doc_order: {
-    idea_brief: 1, logline: 2, series_overview: 3, season_arc: 4,
-    episode_grid: 5, character_bible: 6, pilot_outline: 7, pilot_script: 8,
-    future_seasons_map: 9, budget_topline: 10, finance_plan: 11,
-    packaging_targets: 12, sales_distribution_strategy: 13,
-    production_plan: 14, delivery_requirements: 15,
+    topline_narrative: 1, idea_brief: 2, logline: 3, series_overview: 4, season_arc: 5,
+    episode_grid: 6, character_bible: 7, pilot_outline: 8, pilot_script: 9,
+    future_seasons_map: 10, budget_topline: 11, finance_plan: 12,
+    packaging_targets: 13, sales_distribution_strategy: 14,
+    production_plan: 15, delivery_requirements: 16,
   },
   required_by_stage: {
-    development: ["idea_brief", "logline", "series_overview", "season_arc", "episode_grid", "character_bible", "pilot_outline"],
+    development: ["topline_narrative", "idea_brief", "logline", "series_overview", "season_arc", "episode_grid", "character_bible", "pilot_outline"],
     packaging: ["pilot_script", "budget_topline", "packaging_targets"],
     pre_production: ["finance_plan", "production_plan", "future_seasons_map"],
     production: [],
@@ -53,14 +53,14 @@ const TV_SERIES: DocPackageSpec = {
 
 const VERTICAL_DRAMA: DocPackageSpec = {
   doc_order: {
-    idea: 1, concept_brief: 2, vertical_market_sheet: 3, format_rules: 4,
-    character_bible: 5, season_arc: 6, episode_grid: 7,
-    vertical_episode_beats: 8, script: 9,
-    budget_topline: 10, release_strategy: 11,
-    production_plan: 12, delivery_requirements: 13,
+    topline_narrative: 1, idea: 2, concept_brief: 3, vertical_market_sheet: 4, format_rules: 5,
+    character_bible: 6, season_arc: 7, episode_grid: 8,
+    vertical_episode_beats: 9, script: 10,
+    budget_topline: 11, release_strategy: 12,
+    production_plan: 13, delivery_requirements: 14,
   },
   required_by_stage: {
-    development: ["idea", "concept_brief", "vertical_market_sheet", "format_rules", "character_bible", "season_arc", "episode_grid", "vertical_episode_beats"],
+    development: ["topline_narrative", "idea", "concept_brief", "vertical_market_sheet", "format_rules", "character_bible", "season_arc", "episode_grid", "vertical_episode_beats"],
     packaging: ["script", "budget_topline"],
     pre_production: ["production_plan", "release_strategy"],
     production: [],
@@ -73,13 +73,13 @@ const VERTICAL_DRAMA: DocPackageSpec = {
 
 const DOCUMENTARY: DocPackageSpec = {
   doc_order: {
-    doc_premise_brief: 1, logline: 2, one_pager: 3, research_dossier: 4,
-    contributors_list: 5, story_arc_plan: 6, shoot_plan: 7,
-    ethical_risk_notes: 8, budget_topline: 9, finance_plan: 10,
-    distribution_targets: 11, delivery_requirements: 12,
+    topline_narrative: 1, doc_premise_brief: 2, logline: 3, one_pager: 4, research_dossier: 5,
+    contributors_list: 6, story_arc_plan: 7, shoot_plan: 8,
+    ethical_risk_notes: 9, budget_topline: 10, finance_plan: 11,
+    distribution_targets: 12, delivery_requirements: 13,
   },
   required_by_stage: {
-    development: ["doc_premise_brief", "logline", "one_pager", "research_dossier", "story_arc_plan"],
+    development: ["topline_narrative", "doc_premise_brief", "logline", "one_pager", "research_dossier", "story_arc_plan"],
     packaging: ["contributors_list", "budget_topline"],
     pre_production: ["shoot_plan", "ethical_risk_notes", "finance_plan"],
     production: [],
