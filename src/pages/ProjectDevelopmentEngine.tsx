@@ -321,6 +321,7 @@ export default function ProjectDevelopmentEngine() {
       highImpactTexts: highImpact,
       projectFormat,
       existingDocTypes: documents.map((d: any) => d.doc_type),
+      seasonEpisodeCount: effectiveSeasonEpisodes,
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [latestAnalysis, latestNotes, documents]);
