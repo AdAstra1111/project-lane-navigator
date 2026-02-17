@@ -6272,6 +6272,126 @@ export type Database = {
           },
         ]
       }
+      project_coverage_runs: {
+        Row: {
+          commercial_score: number | null
+          confidence: number | null
+          contradictions: Json | null
+          created_at: string
+          creative_score: number | null
+          id: string
+          missing_docs: Json | null
+          model: string | null
+          narrative_score: number | null
+          output: Json
+          project_id: string
+          risk_flags: Json | null
+          status: string
+          subject_id: string
+        }
+        Insert: {
+          commercial_score?: number | null
+          confidence?: number | null
+          contradictions?: Json | null
+          created_at?: string
+          creative_score?: number | null
+          id?: string
+          missing_docs?: Json | null
+          model?: string | null
+          narrative_score?: number | null
+          output?: Json
+          project_id: string
+          risk_flags?: Json | null
+          status?: string
+          subject_id: string
+        }
+        Update: {
+          commercial_score?: number | null
+          confidence?: number | null
+          contradictions?: Json | null
+          created_at?: string
+          creative_score?: number | null
+          id?: string
+          missing_docs?: Json | null
+          model?: string | null
+          narrative_score?: number | null
+          output?: Json
+          project_id?: string
+          risk_flags?: Json | null
+          status?: string
+          subject_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_coverage_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_coverage_runs_subject_id_fkey"
+            columns: ["subject_id"]
+            isOneToOne: false
+            referencedRelation: "project_coverage_subjects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_coverage_subjects: {
+        Row: {
+          bundle_document_version_ids: Json | null
+          bundle_key: string | null
+          bundle_name: string | null
+          bundle_rules: Json | null
+          created_at: string
+          document_version_id: string | null
+          id: string
+          project_id: string
+          subject_type: string
+          updated_at: string
+        }
+        Insert: {
+          bundle_document_version_ids?: Json | null
+          bundle_key?: string | null
+          bundle_name?: string | null
+          bundle_rules?: Json | null
+          created_at?: string
+          document_version_id?: string | null
+          id?: string
+          project_id: string
+          subject_type: string
+          updated_at?: string
+        }
+        Update: {
+          bundle_document_version_ids?: Json | null
+          bundle_key?: string | null
+          bundle_name?: string | null
+          bundle_rules?: Json | null
+          created_at?: string
+          document_version_id?: string | null
+          id?: string
+          project_id?: string
+          subject_type?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_coverage_subjects_document_version_id_fkey"
+            columns: ["document_version_id"]
+            isOneToOne: false
+            referencedRelation: "project_document_versions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_coverage_subjects_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       project_deadlines: {
         Row: {
           completed: boolean
