@@ -21,6 +21,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   ArrowRight, Play, Loader2, Target, ClipboardPaste, Upload, Sparkles, Plus,
   AlertTriangle, GitBranch, Clock, Film, Pause, Square, RotateCcw, ChevronDown,
+  FileText,
 } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { OperationProgress, DEV_ANALYZE_STAGES, DEV_NOTES_STAGES, DEV_REWRITE_STAGES, DEV_CONVERT_STAGES } from '@/components/OperationProgress';
@@ -547,6 +548,39 @@ export default function ProjectDevelopmentEngine() {
   const resolutionSummary = latestNotes?.resolution_summary;
   const stabilityStatus = latestNotes?.stability_status || latestAnalysis?.stability_status;
 
+  // ── Generate Topline Narrative ──
+  const [toplinePending, setToplinePending] = useState(false);
+  const handleGenerateTopline = async () => {
+    if (!projectId) return;
+    setToplinePending(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('dev-engine-v2', {
+        body: { action: 'ensure-and-generate-topline', projectId },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+
+      // Invalidate relevant queries
+      qc.invalidateQueries({ queryKey: ['dev-v2-documents', projectId] });
+      qc.invalidateQueries({ queryKey: ['dev-v2-versions'] });
+      qc.invalidateQueries({ queryKey: ['project-docs-for-folder', projectId] });
+      qc.invalidateQueries({ queryKey: ['active-folder', projectId] });
+      qc.invalidateQueries({ queryKey: ['dev-engine-project', projectId] });
+
+      // Auto-navigate to the generated topline
+      if (data?.documentId) {
+        selectDocument(data.documentId);
+        if (data.versionId) setSelectedVersionId(data.versionId);
+        setSelectedDeliverableType('topline_narrative' as DeliverableType);
+      }
+
+      toast.success(`Topline Narrative v${data?.versionNumber || 1} generated from ${data?.sourceCount || 0} source docs`);
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to generate topline');
+    } finally {
+      setToplinePending(false);
+    }
+  };
   return (
     <PageTransition>
       <div className="min-h-screen bg-background">
@@ -637,6 +671,16 @@ export default function ProjectDevelopmentEngine() {
                 <span className="text-[9px] text-muted-foreground">eps</span>
               </div>
             )}
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-[10px] gap-1 border-primary/30 text-primary hover:bg-primary/10"
+              disabled={toplinePending || isLoading}
+              onClick={handleGenerateTopline}
+            >
+              {toplinePending ? <Loader2 className="h-3 w-3 animate-spin" /> : <FileText className="h-3 w-3" />}
+              {toplinePending ? 'Generating…' : 'Generate Topline'}
+            </Button>
           </div>
 
           {/* ═══ CONNECTIVITY STATUS ═══ */}

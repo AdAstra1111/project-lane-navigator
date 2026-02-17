@@ -3775,6 +3775,239 @@ ${baseScriptText.slice(0, 30000)}`;
       }
     }
 
+    // ══════════════════════════════════════════════
+    // ENSURE-AND-GENERATE-TOPLINE — create topline doc if missing, then generate content from project context
+    // ══════════════════════════════════════════════
+    if (action === "ensure-and-generate-topline") {
+      const { projectId, globalDirections } = body;
+      if (!projectId) throw new Error("projectId required");
+
+      // 1) Ensure topline document exists (idempotent)
+      let toplineDocId: string;
+      let toplineDocCreated = false;
+      const { data: existingTopline } = await supabase
+        .from("project_documents")
+        .select("id")
+        .eq("project_id", projectId)
+        .eq("doc_type", "topline_narrative")
+        .limit(1);
+
+      if (existingTopline && existingTopline.length > 0) {
+        toplineDocId = existingTopline[0].id;
+      } else {
+        const { data: newDoc, error: docErr } = await supabase
+          .from("project_documents")
+          .insert({
+            project_id: projectId,
+            user_id: user.id,
+            doc_type: "topline_narrative",
+            title: "Topline Narrative",
+            file_name: "topline_narrative.md",
+            file_path: `${projectId}/topline_narrative.md`,
+            source: "generated",
+          })
+          .select("id")
+          .single();
+        if (docErr) throw docErr;
+        toplineDocId = newDoc.id;
+        toplineDocCreated = true;
+      }
+
+      // 2) Gather context from Active Folder, fallback to latest versions
+      const contextParts: string[] = [];
+      const sourceDocIds: string[] = [];
+
+      // Try Active Folder first
+      const { data: activeDocs } = await supabase
+        .from("project_active_docs")
+        .select("doc_type_key, document_version_id")
+        .eq("project_id", projectId);
+
+      if (activeDocs && activeDocs.length > 0) {
+        const versionIds = activeDocs.map((d: any) => d.document_version_id).filter(Boolean);
+        if (versionIds.length > 0) {
+          const { data: activeVersions } = await supabase
+            .from("project_document_versions")
+            .select("id, document_id, plaintext")
+            .in("id", versionIds);
+          if (activeVersions) {
+            for (const av of activeVersions) {
+              const docTypeKey = activeDocs.find((d: any) => d.document_version_id === av.id)?.doc_type_key || "unknown";
+              if (av.plaintext && av.plaintext.trim().length > 50) {
+                contextParts.push(`=== ${docTypeKey.toUpperCase()} ===\n${av.plaintext.slice(0, 8000)}`);
+                sourceDocIds.push(av.document_id);
+              }
+            }
+          }
+        }
+      }
+
+      // Fallback: latest versions of all project docs
+      if (contextParts.length === 0) {
+        const { data: allDocs } = await supabase
+          .from("project_documents")
+          .select("id, doc_type, latest_version_id")
+          .eq("project_id", projectId)
+          .neq("doc_type", "topline_narrative");
+        if (allDocs) {
+          const vIds = allDocs.map((d: any) => d.latest_version_id).filter(Boolean);
+          if (vIds.length > 0) {
+            const { data: latestVersions } = await supabase
+              .from("project_document_versions")
+              .select("id, document_id, plaintext")
+              .in("id", vIds);
+            if (latestVersions) {
+              for (const lv of latestVersions) {
+                const docInfo = allDocs.find((d: any) => d.latest_version_id === lv.id);
+                if (lv.plaintext && lv.plaintext.trim().length > 50) {
+                  contextParts.push(`=== ${(docInfo?.doc_type || "unknown").toUpperCase()} ===\n${lv.plaintext.slice(0, 8000)}`);
+                  sourceDocIds.push(lv.document_id);
+                }
+              }
+            }
+          }
+          // Also try docs without latest_version_id — get their newest version
+          const docsWithoutLatest = allDocs.filter((d: any) => !d.latest_version_id);
+          for (const doc of docsWithoutLatest) {
+            const { data: newestVer } = await supabase
+              .from("project_document_versions")
+              .select("id, plaintext")
+              .eq("document_id", doc.id)
+              .order("version_number", { ascending: false })
+              .limit(1)
+              .maybeSingle();
+            if (newestVer?.plaintext && newestVer.plaintext.trim().length > 50) {
+              contextParts.push(`=== ${(doc.doc_type || "unknown").toUpperCase()} ===\n${newestVer.plaintext.slice(0, 8000)}`);
+              sourceDocIds.push(doc.id);
+            }
+          }
+        }
+      }
+
+      // Also fetch project metadata
+      const { data: projectMeta } = await supabase
+        .from("projects")
+        .select("title, format, genres, assigned_lane, budget_range, tone, target_audience, comparable_titles, season_episode_count, episode_target_duration_seconds")
+        .eq("id", projectId)
+        .single();
+
+      const fmt = (projectMeta?.format || "film").toLowerCase().replace(/[_ ]+/g, "-");
+      const isSeries = ["tv-series", "limited-series", "vertical-drama", "miniseries", "anthology"].includes(fmt);
+
+      // 3) Generate topline content via AI
+      const toplineSystemPrompt = `You are IFFY, a senior development executive. Generate a professional TOPLINE NARRATIVE document from the provided project context.
+
+OUTPUT FORMAT (use these exact headings):
+# LOGLINE
+[1-2 compelling sentences that capture the essence]
+
+# SHORT SYNOPSIS
+[150-300 words — the story at a glance]
+
+# LONG SYNOPSIS
+[1-2 pages — the full narrative arc with key beats, turns, and resolution]
+
+# STORY PILLARS
+- Theme: [core thematic concern]
+- Protagonist: [name and defining trait]
+- Goal: [what they want]
+- Stakes: [what happens if they fail]
+- Antagonistic force: [opposition]
+- Setting: [world/time/place]
+- Tone: [emotional register and style]
+- Comps: [2-3 comparable titles]
+${isSeries ? `
+# SERIES ONLY
+- Series promise / engine: [what makes this repeatable — the core mechanic that sustains multiple episodes]
+- Season arc snapshot: [the season-level journey in 3-5 sentences]` : ""}
+
+RULES:
+- Synthesize from the provided context documents — do NOT invent new characters, plot points, or world details.
+- Be concise and specific — this is an executive document, not a creative writing exercise.
+- Logline must be pitch-ready.
+- Short synopsis must stand alone as a complete summary.
+- Long synopsis should include act structure and key dramatic turns.
+- Output ONLY the formatted narrative text. No JSON, no code fences.`;
+
+      const contextBlock = contextParts.length > 0
+        ? contextParts.join("\n\n")
+        : "No existing documents found — generate a placeholder template that the user can fill in.";
+
+      const metaBlock = projectMeta
+        ? `PROJECT: ${projectMeta.title || "Untitled"}
+FORMAT: ${projectMeta.format || "film"}
+GENRES: ${(projectMeta.genres || []).join(", ") || "unspecified"}
+LANE: ${projectMeta.assigned_lane || "unspecified"}
+BUDGET: ${projectMeta.budget_range || "unspecified"}
+TONE: ${projectMeta.tone || "unspecified"}
+TARGET AUDIENCE: ${projectMeta.target_audience || "unspecified"}
+COMPS: ${(projectMeta.comparable_titles || []).join(", ") || "unspecified"}
+${isSeries ? `EPISODES: ${projectMeta.season_episode_count || "TBD"} × ${projectMeta.episode_target_duration_seconds || "TBD"}s` : ""}`
+        : "";
+
+      const userPrompt = `${metaBlock}\n\n${globalDirections ? `ADDITIONAL DIRECTIONS: ${globalDirections}\n\n` : ""}CONTEXT DOCUMENTS:\n${contextBlock}`;
+
+      const raw = await callAI(LOVABLE_API_KEY, PRO_MODEL, toplineSystemPrompt, userPrompt, 0.3, 6000);
+      const generatedText = raw.replace(/^```[\s\S]*?\n/, "").replace(/\n?```\s*$/, "").trim();
+
+      // 4) Determine next version number
+      const { data: existingVersions } = await supabase
+        .from("project_document_versions")
+        .select("version_number")
+        .eq("document_id", toplineDocId)
+        .order("version_number", { ascending: false })
+        .limit(1);
+      const nextVersion = (existingVersions?.[0]?.version_number || 0) + 1;
+
+      // 5) Create new version
+      const { data: newVersion, error: verErr } = await supabase
+        .from("project_document_versions")
+        .insert({
+          document_id: toplineDocId,
+          version_number: nextVersion,
+          plaintext: generatedText,
+          created_by: user.id,
+          label: nextVersion === 1 ? "AI-generated from project context" : `Regenerated v${nextVersion}`,
+          deliverable_type: "topline_narrative",
+          source_document_ids: [...new Set(sourceDocIds)],
+        })
+        .select("id, version_number")
+        .single();
+      if (verErr) throw verErr;
+
+      // 6) Update latest_version_id
+      await supabase
+        .from("project_documents")
+        .update({ latest_version_id: newVersion.id, plaintext: generatedText })
+        .eq("id", toplineDocId);
+
+      // 7) Store development run
+      await supabase.from("development_runs").insert({
+        project_id: projectId,
+        document_id: toplineDocId,
+        version_id: newVersion.id,
+        user_id: user.id,
+        run_type: "CONVERT",
+        output_json: {
+          action: "ensure-and-generate-topline",
+          source_doc_ids: sourceDocIds,
+          active_folder_used: (activeDocs && activeDocs.length > 0),
+          generated_text_length: generatedText.length,
+        },
+        deliverable_type: "topline_narrative",
+      });
+
+      console.log(`[dev-engine-v2] topline generated: doc=${toplineDocId}, ver=${newVersion.id}, sources=${sourceDocIds.length}`);
+
+      return new Response(JSON.stringify({
+        documentId: toplineDocId,
+        versionId: newVersion.id,
+        versionNumber: newVersion.version_number,
+        created: toplineDocCreated,
+        sourceCount: sourceDocIds.length,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     throw new Error(`Unknown action: ${action}`);
   } catch (err: any) {
     console.error("dev-engine-v2 error:", err);
