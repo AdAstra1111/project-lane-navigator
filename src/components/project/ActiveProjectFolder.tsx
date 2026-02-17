@@ -321,8 +321,8 @@ export function ActiveProjectFolder({ projectId }: Props) {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  {/* Export */}
+                <div className="flex items-center gap-1">
+                  {/* Export — always visible */}
                   {version?.plaintext && (
                     <DocumentExportDropdown
                       text={version.plaintext}
