@@ -53,15 +53,16 @@ const TV_SERIES: DocPackageSpec = {
 
 const VERTICAL_DRAMA: DocPackageSpec = {
   doc_order: {
-    idea_brief: 1, logline: 2, format_rules: 3, season_arc: 4,
-    episode_grid: 5, character_bible: 6, pilot_script: 7,
-    season_scripts_bundle: 8, budget_topline: 9, release_strategy: 10,
-    production_plan: 11, delivery_requirements: 12,
+    idea: 1, concept_brief: 2, vertical_market_sheet: 3, format_rules: 4,
+    character_bible: 5, season_arc: 6, episode_grid: 7,
+    vertical_episode_beats: 8, script: 9,
+    budget_topline: 10, release_strategy: 11,
+    production_plan: 12, delivery_requirements: 13,
   },
   required_by_stage: {
-    development: ["idea_brief", "logline", "format_rules", "season_arc", "episode_grid", "character_bible"],
-    packaging: ["pilot_script", "budget_topline"],
-    pre_production: ["season_scripts_bundle", "production_plan", "release_strategy"],
+    development: ["idea", "concept_brief", "vertical_market_sheet", "format_rules", "character_bible", "season_arc", "episode_grid", "vertical_episode_beats"],
+    packaging: ["script", "budget_topline"],
+    pre_production: ["production_plan", "release_strategy"],
     production: [],
     post_production: [],
     sales_delivery: ["delivery_requirements"],
