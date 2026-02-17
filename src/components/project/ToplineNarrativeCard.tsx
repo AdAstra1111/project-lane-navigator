@@ -183,8 +183,8 @@ export function ToplineNarrativeCard({ projectId, onNavigateToDoc, onGenerateTop
           ) : null}
         </div>
         <div className="flex items-center gap-1">
-          {/* Download/Export — same props as DocumentExportDropdown everywhere else */}
-          {version?.plaintext && !isTemplate && (
+          {/* Download/Export */}
+          {version?.plaintext && (
             <DocumentExportDropdown
               text={version.plaintext}
               title={`Topline_Narrative_v${version.version_number}`}
