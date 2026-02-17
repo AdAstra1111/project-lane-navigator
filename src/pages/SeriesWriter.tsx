@@ -1115,22 +1115,24 @@ export default function SeriesWriter() {
                       </Button>
                     </div>
                   </CardHeader>
-                  <CardContent className="pt-0 space-y-3">
-                    <CanonAuditPanel
-                      latestRun={canonAudit.latestRun || null}
-                      issues={canonAudit.issues}
-                      isRunning={canonAudit.isRunning}
-                      isApplyingFix={canonAudit.isApplyingFix}
-                      onStartAudit={() => canonAudit.startAudit.mutate({ episodeVersionId: selectedEpisode?.script_id || undefined })}
-                      onApplyFix={(issueId) => canonAudit.applyFix.mutate(issueId)}
-                      onDismiss={(issueId) => canonAudit.dismissIssue.mutate(issueId)}
-                      hasScript={!!selectedEpisode?.script_id}
-                    />
-                    <EpisodeDevNotesPanel
-                      run={devValidation.devNotesRun || null}
-                      notes={devValidation.devNotes}
-                      isRunning={devValidation.isDevNotesRunning}
-                    />
+                  <CardContent className="pt-0">
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                      <CanonAuditPanel
+                        latestRun={canonAudit.latestRun || null}
+                        issues={canonAudit.issues}
+                        isRunning={canonAudit.isRunning}
+                        isApplyingFix={canonAudit.isApplyingFix}
+                        onStartAudit={() => canonAudit.startAudit.mutate({ episodeVersionId: selectedEpisode?.script_id || undefined })}
+                        onApplyFix={(issueId) => canonAudit.applyFix.mutate(issueId)}
+                        onDismiss={(issueId) => canonAudit.dismissIssue.mutate(issueId)}
+                        hasScript={!!selectedEpisode?.script_id}
+                      />
+                      <EpisodeDevNotesPanel
+                        run={devValidation.devNotesRun || null}
+                        notes={devValidation.devNotes}
+                        isRunning={devValidation.isDevNotesRunning}
+                      />
+                    </div>
                   </CardContent>
                 </Card>
 
