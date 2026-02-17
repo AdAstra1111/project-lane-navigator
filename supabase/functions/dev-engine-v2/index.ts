@@ -918,8 +918,7 @@ serve(async (req) => {
         qualBinding = `\nCANONICAL QUALIFICATIONS (authoritative — ignore older references to different values):
 Target season length: ${rq.season_episode_count} episodes.
 Episode target duration range: ${durRangeStr}.
-Format: ${rq.format}.
-Resolver hash: ${resolvedQuals?.resolver_hash || "unknown"}.`;
+Format: ${rq.format}.`;
       }
 
       // ── Signal Context Injection ──
@@ -1946,13 +1945,11 @@ Target season length: ${rq.season_episode_count} episodes.
 Episode target duration range: ${durRangeStr}.
 Season target runtime: ${rq.season_target_runtime_seconds || "N/A"} seconds.
 Format: ${rq.format}.
-Ignore any older references to different episode counts; they are deprecated.
-Resolver hash: ${resolverResult.resolver_hash}`;
+Ignore any older references to different episode counts; they are deprecated.`;
           } else if (rq.target_runtime_min_low) {
             qualBindingBlock = `\nCANONICAL QUALIFICATIONS (use ONLY these values):
 Target runtime: ${rq.target_runtime_min_low}-${rq.target_runtime_min_high} minutes.
-Format: ${rq.format}.
-Resolver hash: ${resolverResult.resolver_hash}`;
+Format: ${rq.format}.`;
           }
         }
       } catch (e) {
@@ -2017,9 +2014,8 @@ MATERIAL:\n${version.plaintext.slice(0, 20000)}`;
       const convertDepFields = CONVERT_DEP_TYPES.has(resolvedDeliverable)
         ? ["qualifications.season_episode_count", "qualifications.episode_target_duration_seconds"]
         : [];
-      // qualBindingBlock already resolved above — extract hash from it
-      const convertHashMatch = qualBindingBlock.match(/Resolver hash: (\S+)/);
-      const convertResolverHash = convertHashMatch?.[1] || null;
+      // Use resolver hash from the resolve result directly
+      const convertResolverHash = resolverResult?.resolver_hash || null;
 
       const { data: newVersion } = await supabase.from("project_document_versions").insert({
         document_id: newDoc.id,
