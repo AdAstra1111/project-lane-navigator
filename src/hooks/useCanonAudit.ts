@@ -123,7 +123,7 @@ export function useCanonAudit(projectId: string, episodeNumber: number | null) {
 
   // ── Apply fix ──
   const applyFix = useMutation({
-    mutationFn: async (issueId: string) => {
+    mutationFn: async (params: { issueId: string; selectedFixOption?: string }) => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error('Not authenticated');
 
@@ -131,9 +131,10 @@ export function useCanonAudit(projectId: string, episodeNumber: number | null) {
         body: {
           projectId,
           runId: latestRun?.id,
-          issueId,
+          issueId: params.issueId,
           episodeNumber,
           episodeVersionId: latestRun?.episode_version_id,
+          selectedFixOption: params.selectedFixOption || undefined,
         },
       });
       if (resp.error) throw new Error(resp.error.message || 'Fix failed');
