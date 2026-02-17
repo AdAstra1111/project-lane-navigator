@@ -174,12 +174,37 @@ export default function ProjectDevelopmentEngine() {
 
   // Re-resolve after version changes (e.g. rewrite creates new version with fresh hash)
   const prevVersionId = useRef(selectedVersionId);
+  const autoReviewPending = useRef(false);
   useEffect(() => {
     if (selectedVersionId && selectedVersionId !== prevVersionId.current) {
       prevVersionId.current = selectedVersionId;
       resolveOnEntry();
+      // Auto-trigger review when a new draft lands
+      if (autoReviewPending.current) {
+        autoReviewPending.current = false;
+        // Small delay to let queries settle before triggering review
+        setTimeout(() => handleRunEngine(), 600);
+      }
     }
   }, [selectedVersionId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-review after rewrite pipeline completes (large documents)
+  useEffect(() => {
+    if (rewritePipeline.status === 'complete' && rewritePipeline.newVersionId) {
+      setSelectedVersionId(rewritePipeline.newVersionId);
+      autoReviewPending.current = true;
+      rewritePipeline.reset();
+    }
+  }, [rewritePipeline.status]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-review after small rewrite or convert completes (version change triggers review via autoReviewPending)
+  useEffect(() => {
+    if (rewrite.isSuccess) autoReviewPending.current = true;
+  }, [rewrite.isSuccess]);
+
+  useEffect(() => {
+    if (convert.isSuccess) autoReviewPending.current = true;
+  }, [convert.isSuccess]);
 
   // Detect episode count conflicts in upstream artifacts
   const artifactConflicts = useMemo(() => {
