@@ -201,6 +201,95 @@ function getStageGateDefaults(productionType: string) {
   ];
 }
 
+const TOPLINE_TEMPLATE = `# LOGLINE
+
+[1–2 sentences]
+
+# SHORT SYNOPSIS
+
+[150–300 words]
+
+# LONG SYNOPSIS
+
+[~1–2 pages]
+
+# STORY PILLARS
+
+- Theme:
+- Protagonist:
+- Goal:
+- Stakes:
+- Antagonistic force:
+- Setting:
+- Tone:
+- Comps:
+
+# SERIES ONLY
+
+- Series promise / engine:
+- Season arc snapshot:
+`;
+
+async function ensureToplineNarrative(supabase: any, projectId: string, userId: string) {
+  // Check if topline doc already exists
+  const { data: existing } = await supabase
+    .from("project_documents")
+    .select("id")
+    .eq("project_id", projectId)
+    .eq("doc_type", "topline_narrative")
+    .limit(1);
+
+  if (existing && existing.length > 0) return { documentId: existing[0].id, created: false };
+
+  // Create project_documents row
+  const { data: doc, error: docErr } = await supabase
+    .from("project_documents")
+    .insert({
+      project_id: projectId,
+      user_id: userId,
+      doc_type: "topline_narrative",
+      title: "Topline Narrative",
+      file_name: "topline_narrative.md",
+      file_path: `${projectId}/topline_narrative.md`,
+      extraction_status: "complete",
+    })
+    .select("id")
+    .single();
+
+  if (docErr) {
+    console.error("Failed to create topline doc:", docErr.message);
+    return null;
+  }
+
+  // Create initial version
+  const { data: version, error: verErr } = await supabase
+    .from("project_document_versions")
+    .insert({
+      document_id: doc.id,
+      version_number: 1,
+      deliverable_type: "topline_narrative",
+      approval_status: "draft",
+      status: "draft",
+      plaintext: TOPLINE_TEMPLATE,
+      created_by: userId,
+    })
+    .select("id")
+    .single();
+
+  if (verErr) {
+    console.error("Failed to create topline version:", verErr.message);
+    return null;
+  }
+
+  // Set latest_version_id
+  await supabase
+    .from("project_documents")
+    .update({ latest_version_id: version.id })
+    .eq("id", doc.id);
+
+  return { documentId: doc.id, versionId: version.id, created: true };
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -378,6 +467,9 @@ serve(async (req) => {
       required_artifacts: g.required_artifacts, score: 0,
     }));
     await supabase.from("stage_gates").insert(gateRows);
+
+    // STEP 9: Auto-create Topline Narrative document
+    await ensureToplineNarrative(supabase, projectId, user.id);
 
     return new Response(JSON.stringify({ projectId }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
