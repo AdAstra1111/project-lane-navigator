@@ -1,12 +1,11 @@
 /**
  * CanonAuditPanel — Shows continuity audit results grouped by severity
- * with selectable fix options (radio-style) and Apply Fix / Dismiss actions.
+ * with selectable fix options (radio-style) and a single Apply All button.
  */
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   Shield, Loader2, AlertTriangle, AlertOctagon, Info, CheckCircle2,
   Wrench, X, ChevronDown, ChevronRight,
@@ -37,7 +36,6 @@ export function CanonAuditPanel({
   onStartAudit, onApplyFix, onDismiss, hasScript,
 }: CanonAuditPanelProps) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({ BLOCKER: true, MAJOR: true });
-  // Track selected fix option per issue: { [issueId]: fixOptionIndex }
   const [selectedFix, setSelectedFix] = useState<Record<string, number>>({});
 
   const openIssues = issues.filter(i => i.status === 'open');
@@ -49,10 +47,26 @@ export function CanonAuditPanel({
   const appliedCount = issues.filter(i => i.status === 'applied').length;
   const dismissedCount = issues.filter(i => i.status === 'dismissed').length;
 
-  const handleApplyFix = (issue: ContinuityIssue) => {
-    const idx = selectedFix[issue.id];
-    const selected = idx !== undefined && issue.fix_options?.[idx] ? issue.fix_options[idx] : undefined;
-    onApplyFix(issue.id, selected);
+  // Count how many fixable issues have a selection
+  const fixableIssues = openIssues.filter(i =>
+    (i.severity === 'BLOCKER' || i.severity === 'MAJOR') && i.fix_options && i.fix_options.length > 0
+  );
+  const selectedCount = fixableIssues.filter(i => selectedFix[i.id] !== undefined).length;
+  // Also count fixable issues without options (auto-fix)
+  const autoFixIssues = openIssues.filter(i =>
+    (i.severity === 'BLOCKER' || i.severity === 'MAJOR') && (!i.fix_options || i.fix_options.length === 0)
+  );
+  const totalReady = selectedCount + autoFixIssues.length;
+
+  const handleApplyAll = () => {
+    // Apply each issue sequentially — those with selections get the chosen option
+    for (const issue of openIssues) {
+      if (issue.severity !== 'BLOCKER' && issue.severity !== 'MAJOR') continue;
+      const idx = selectedFix[issue.id];
+      if (issue.fix_options && issue.fix_options.length > 0 && idx === undefined) continue; // skip unselected
+      const selected = idx !== undefined && issue.fix_options?.[idx] ? issue.fix_options[idx] : undefined;
+      onApplyFix(issue.id, selected);
+    }
   };
 
   return (
@@ -61,7 +75,7 @@ export function CanonAuditPanel({
         <div className="flex items-center justify-between">
           <CardTitle className="text-sm font-medium flex items-center gap-2">
             <Shield className="h-4 w-4 text-primary" />
-            Canon Audit (Dev Engine)
+            Canon Audit
           </CardTitle>
           <Button
             variant="outline"
@@ -75,7 +89,6 @@ export function CanonAuditPanel({
           </Button>
         </div>
 
-        {/* Status badge */}
         {latestRun && (
           <div className="flex items-center gap-2 mt-1">
             <Badge variant="outline" className={`text-[9px] ${
@@ -88,11 +101,6 @@ export function CanonAuditPanel({
                latestRun.status === 'completed_with_blockers' ? '✗ Blockers Found' :
                latestRun.status === 'running' ? 'Running...' : 'Failed'}
             </Badge>
-            {latestRun.summary && (
-              <span className="text-[10px] text-muted-foreground truncate max-w-[200px]">
-                {latestRun.summary}
-              </span>
-            )}
             {appliedCount > 0 && (
               <Badge variant="outline" className="text-[9px] border-emerald-500/30 text-emerald-400">
                 {appliedCount} fixed
@@ -108,7 +116,7 @@ export function CanonAuditPanel({
       </CardHeader>
 
       {latestRun && openIssues.length > 0 && (
-        <CardContent className="pt-0">
+        <CardContent className="pt-0 space-y-3">
           <ScrollArea className="h-[300px]">
             <div className="space-y-3">
               {(['BLOCKER', 'MAJOR', 'MINOR', 'NIT'] as const).map(severity => {
@@ -136,13 +144,20 @@ export function CanonAuditPanel({
                         {items.map(issue => {
                           const hasOptions = issue.fix_options && issue.fix_options.length > 0;
                           const currentSelection = selectedFix[issue.id];
-                          const hasSelection = currentSelection !== undefined;
+                          const isSelected = currentSelection !== undefined;
 
                           return (
-                            <div key={issue.id} className="bg-background/50 rounded p-2 space-y-1.5">
+                            <div key={issue.id} className={`bg-background/50 rounded p-2 space-y-1.5 border transition-colors ${
+                              isSelected ? 'border-primary/30' : 'border-transparent'
+                            }`}>
                               <div className="flex items-start justify-between gap-2">
                                 <div className="flex-1 min-w-0">
-                                  <p className="text-xs font-medium text-foreground">{issue.title}</p>
+                                  <div className="flex items-center gap-1.5">
+                                    <p className="text-xs font-medium text-foreground">{issue.title}</p>
+                                    {isSelected && (
+                                      <CheckCircle2 className="h-3 w-3 text-primary shrink-0" />
+                                    )}
+                                  </div>
                                   <p className="text-[10px] text-muted-foreground mt-0.5">
                                     {issue.issue_type} • {issue.claim_in_episode?.slice(0, 80)}
                                     {(issue.claim_in_episode?.length || 0) > 80 ? '...' : ''}
@@ -153,66 +168,39 @@ export function CanonAuditPanel({
                                     </p>
                                   )}
                                 </div>
-                                <div className="flex items-center gap-1 shrink-0">
-                                  {(severity === 'BLOCKER' || severity === 'MAJOR') && (
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <Button
-                                          variant="outline"
-                                          size="sm"
-                                          className={`h-6 px-2 text-[10px] gap-1 ${
-                                            hasOptions && !hasSelection
-                                              ? 'border-muted text-muted-foreground'
-                                              : 'border-primary/30 text-primary'
-                                          }`}
-                                          onClick={() => handleApplyFix(issue)}
-                                          disabled={isApplyingFix || (hasOptions && !hasSelection)}
-                                        >
-                                          {isApplyingFix ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wrench className="h-3 w-3" />}
-                                          {hasOptions ? 'Apply Selected' : 'Fix'}
-                                        </Button>
-                                      </TooltipTrigger>
-                                      <TooltipContent side="top" className="text-xs max-w-[200px]">
-                                        {hasOptions && !hasSelection
-                                          ? 'Select a fix option below first'
-                                          : 'Apply fix to resolve this issue. Creates a new script version.'}
-                                      </TooltipContent>
-                                    </Tooltip>
-                                  )}
-                                  {severity !== 'BLOCKER' && (
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      className="h-6 px-1.5 text-[10px] text-muted-foreground"
-                                      onClick={() => onDismiss(issue.id)}
-                                    >
-                                      <X className="h-3 w-3" />
-                                    </Button>
-                                  )}
-                                </div>
+                                {severity !== 'BLOCKER' && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-6 px-1.5 text-[10px] text-muted-foreground shrink-0"
+                                    onClick={() => onDismiss(issue.id)}
+                                  >
+                                    <X className="h-3 w-3" />
+                                  </Button>
+                                )}
                               </div>
 
-                              {/* ── Selectable Fix Options (radio-style, like Dev Engine notes) ── */}
+                              {/* ── Selectable Fix Options (radio-style) ── */}
                               {hasOptions && (
                                 <div className="space-y-1 mt-1">
-                                  <p className="text-[9px] text-muted-foreground font-medium uppercase tracking-wide">Fix options — select one:</p>
+                                  <p className="text-[9px] text-muted-foreground font-medium uppercase tracking-wide">Select fix:</p>
                                   {issue.fix_options!.slice(0, 4).map((opt: string, i: number) => {
-                                    const isSelected = currentSelection === i;
+                                    const optSelected = currentSelection === i;
                                     return (
                                       <button
                                         key={i}
                                         onClick={(e) => { e.stopPropagation(); setSelectedFix(prev => ({ ...prev, [issue.id]: i })); }}
                                         className={`w-full text-left rounded px-2 py-1.5 border transition-all ${
-                                          isSelected
+                                          optSelected
                                             ? 'border-primary/60 bg-primary/10'
                                             : 'border-border/30 bg-muted/20 hover:border-border/60'
                                         }`}
                                       >
                                         <div className="flex items-center gap-1.5">
                                           <div className={`h-3 w-3 rounded-full border-2 flex items-center justify-center shrink-0 ${
-                                            isSelected ? 'border-primary bg-primary' : 'border-muted-foreground/40'
+                                            optSelected ? 'border-primary bg-primary' : 'border-muted-foreground/40'
                                           }`}>
-                                            {isSelected && <CheckCircle2 className="h-2 w-2 text-primary-foreground" />}
+                                            {optSelected && <CheckCircle2 className="h-2 w-2 text-primary-foreground" />}
                                           </div>
                                           <span className="text-[10px] text-foreground leading-snug">{opt}</span>
                                           {i === 0 && (
@@ -236,6 +224,24 @@ export function CanonAuditPanel({
               })}
             </div>
           </ScrollArea>
+
+          {/* ── Single Apply All Button ── */}
+          <div className="flex items-center justify-between pt-1 border-t border-border/30">
+            <span className="text-[10px] text-muted-foreground">
+              {totalReady > 0
+                ? `${totalReady} fix${totalReady > 1 ? 'es' : ''} ready to apply`
+                : 'Select fix options above'}
+            </span>
+            <Button
+              size="sm"
+              className="h-7 text-xs gap-1.5"
+              onClick={handleApplyAll}
+              disabled={isApplyingFix || totalReady === 0}
+            >
+              {isApplyingFix ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wrench className="h-3 w-3" />}
+              Apply Fixes ({totalReady})
+            </Button>
+          </div>
         </CardContent>
       )}
 
