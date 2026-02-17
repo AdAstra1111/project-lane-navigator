@@ -22,8 +22,8 @@ interface Props {
 }
 
 function parseToplineSections(text: string) {
-  const loglineMatch = text.match(/# LOGLINE\s*\n([\s\S]*?)(?=\n# |$)/i);
-  const shortSynMatch = text.match(/# SHORT SYNOPSIS\s*\n([\s\S]*?)(?=\n# |$)/i);
+  const loglineMatch = text.match(/##?\s*LOGLINE\s*\n([\s\S]*?)(?=\n##?\s|$)/i);
+  const shortSynMatch = text.match(/##?\s*SHORT SYNOPSIS\s*\n([\s\S]*?)(?=\n##?\s|$)/i);
   const logline = loglineMatch?.[1]?.trim() || '';
   const shortSynopsis = shortSynMatch?.[1]?.trim() || '';
   return { logline, shortSynopsis };
