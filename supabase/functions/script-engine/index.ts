@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { buildGuardrailBlock } from "../_shared/guardrails.ts";
 import { fetchCoreDocs, validateCharacterCues, type CoreDocs } from "../_shared/coreDocs.ts";
+import { BEAT_DEFINITION_TEXT, buildBeatGuidanceBlock } from "../_shared/verticalDramaBeats.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -70,13 +71,15 @@ Return as JSON with keys: series_overview, season_arc, episode_grid (array), pil
 
   if (pt.includes("vertical")) {
     return base + `Generate a VERTICAL DRAMA BLUEPRINT with:
-1. Episode Hook Cadence (how each 2-5 min ep opens)
+1. Episode Hook Cadence (how each 2-5 min ep opens — hook within 3-10 seconds)
 2. Emotional Spike Mapping (emotional peaks per episode)
-3. Cliffhanger Density (cliffhanger strategy per episode)
+3. Cliffhanger Density (micro-cliffhanger strategy per episode)
 4. Retention Mechanics (what keeps viewers swiping to next ep)
 5. Season Arc (compressed for short-form)
-6. Character Arc Summary
+6. Character Arc Summary (high-agency, compressed)
 7. Thematic Spine
+
+${BEAT_DEFINITION_TEXT}
 
 Return as JSON with keys: hook_cadence (array), emotional_spikes (array), cliffhanger_density, retention_mechanics, season_arc, character_arcs (array), thematic_spine.`;
   }

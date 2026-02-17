@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { buildGuardrailBlock, validateOutput, buildRegenerationPrompt } from "../_shared/guardrails.ts";
 import { composeSystem } from "../_shared/llm.ts";
+import { buildBeatGuidanceBlock, computeBeatTargets } from "../_shared/verticalDramaBeats.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -195,13 +196,11 @@ function buildAnalyzeSystem(deliverable: string, format: string, behavior: strin
 
   let verticalRules = "";
   if (format === "vertical-drama" && (episodeDurationMin || episodeDurationMax)) {
-    const targetDur = episodeDurationMin && episodeDurationMax ? Math.round((episodeDurationMin + episodeDurationMax) / 2) : (episodeDurationMin || episodeDurationMax || 60);
-    const beatMin = targetDur <= 90 ? 3 : targetDur <= 120 ? 4 : targetDur <= 150 ? 5 : targetDur <= 180 ? 6 : 7;
-    const beatsPerMin = behavior === "efficiency" ? 2.5 : behavior === "prestige" ? 2.5 : 3.0;
-    const rangeStr = episodeDurationMin && episodeDurationMax && episodeDurationMin !== episodeDurationMax
-      ? `${episodeDurationMin}–${episodeDurationMax}s (aim midpoint ${targetDur}s)`
-      : `${targetDur}s`;
-    verticalRules = `\nVERTICAL DRAMA RULES: Episode duration target: ${rangeStr}. Required beat minimum = ${beatMin}. Required beats-per-minute ≥ ${beatsPerMin}. Hook within first 10s. Cliffhanger ending required.`;
+    const effMin = episodeDurationMin || episodeDurationMax || 60;
+    const effMax = episodeDurationMax || episodeDurationMin || 60;
+    const beatTargets = computeBeatTargets({ minSeconds: effMin, maxSeconds: effMax });
+    const beatGuidance = buildBeatGuidanceBlock(episodeDurationMin, episodeDurationMax);
+    verticalRules = `\nVERTICAL DRAMA RULES: Episode duration target: ${beatTargets.durationRangeLabel} (midpoint ${beatTargets.midSeconds}s). ${beatTargets.summaryText}${beatGuidance}`;
   }
 
   // Documentary/deck safeguard
@@ -349,7 +348,7 @@ function buildRewriteSystem(deliverable: string, format: string, behavior: strin
 
   let formatRules = "";
   if (format === "vertical-drama") {
-    formatRules = "\n\nVERTICAL DRAMA: Preserve hook in first 10 seconds. Maintain cliffhanger ending. Do NOT apply feature pacing logic.";
+    formatRules = "\n\nVERTICAL DRAMA: Preserve hook in first 3–10 seconds. Maintain micro-cliffhanger ending. Do NOT apply feature pacing logic. Ensure continuous beat cadence throughout.";
   }
 
   return `You are IFFY. Rewrite the material applying the approved strategic notes.
