@@ -43,6 +43,7 @@ import { PatchReadyBanner, type PatchRun } from '@/components/series/PatchReadyB
 import { CanonAuditPanel } from '@/components/series/CanonAuditPanel';
 import { EpisodeDevNotesPanel } from '@/components/series/EpisodeDevNotesPanel';
 import { useEpisodeDevValidation } from '@/hooks/useEpisodeDevValidation';
+import { DocumentExportDropdown } from '@/components/DocumentExportDropdown';
 
 // ── Working Set doc types for vertical drama ──
 const WORKING_SET_DOC_TYPES = [
@@ -1210,9 +1211,19 @@ export default function SeriesWriter() {
 
                 {/* Viewer Footer */}
                 <div className="border-t border-border/50 px-3 py-2 flex items-center justify-between">
-                  <span className="text-[10px] text-muted-foreground">
-                    v{viewerDoc.latest_version_id?.slice(0, 8) || '—'}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-muted-foreground">
+                      v{viewerDoc.latest_version_id?.slice(0, 8) || '—'}
+                    </span>
+                    {viewerContent && (
+                      <DocumentExportDropdown
+                        text={viewerContent}
+                        title={viewerDoc.title || viewerDoc.doc_type || 'document'}
+                        size="sm"
+                        showLabel={false}
+                      />
+                    )}
+                  </div>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -1334,12 +1345,20 @@ export default function SeriesWriter() {
       <Dialog open={readerOpen} onOpenChange={setReaderOpen}>
         <DialogContent className="max-w-3xl h-[85vh] flex flex-col">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-base">
-              <BookOpen className="h-4 w-4 text-primary" />
-              {selectedEpisode
-                ? `EP ${String(selectedEpisode.episode_number).padStart(2, '0')} — ${selectedEpisode.title || `Episode ${selectedEpisode.episode_number}`}`
-                : 'Script'}
-            </DialogTitle>
+            <div className="flex items-center justify-between">
+              <DialogTitle className="flex items-center gap-2 text-base">
+                <BookOpen className="h-4 w-4 text-primary" />
+                {selectedEpisode
+                  ? `EP ${String(selectedEpisode.episode_number).padStart(2, '0')} — ${selectedEpisode.title || `Episode ${selectedEpisode.episode_number}`}`
+                  : 'Script'}
+              </DialogTitle>
+              {readerContent && (
+                <DocumentExportDropdown
+                  text={readerContent}
+                  title={selectedEpisode ? `EP${String(selectedEpisode.episode_number).padStart(2, '0')}_${selectedEpisode.title || 'Episode'}` : 'Script'}
+                />
+              )}
+            </div>
           </DialogHeader>
           {readerLoading ? (
             <div className="flex items-center justify-center py-12">
