@@ -8,7 +8,7 @@ import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Play, ArrowRight, RefreshCw, Loader2, AlertTriangle, Info, Film } from 'lucide-react';
+import { Play, ArrowRight, RefreshCw, Loader2, AlertTriangle, Info, Film, ShieldCheck } from 'lucide-react';
 import { DELIVERABLE_LABELS, type DeliverableType } from '@/lib/dev-os-config';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import type { NextAction } from '@/lib/next-action';
@@ -36,6 +36,8 @@ interface ActionToolbarProps {
   onPromote: () => void;
   onSkipStage: () => void;
   onConvert: () => void;
+  onApproveVersion?: () => void;
+  approvePending?: boolean;
   selectedNoteCount: number;
   totalNoteCount: number;
   nextBestDocument: string | null;
@@ -61,6 +63,7 @@ export function ActionToolbar({
   projectId,
   hasAnalysis, isConverged, isLoading,
   onRunReview, onApplyRewrite, onPromote, onSkipStage, onConvert,
+  onApproveVersion, approvePending,
   selectedNoteCount, totalNoteCount,
   nextBestDocument, selectedDeliverableType,
   hasUnresolvedDrift,
@@ -147,6 +150,15 @@ export function ActionToolbar({
               )}
             </TooltipContent>
           </Tooltip>
+        )}
+
+        {/* Approve this version */}
+        {onApproveVersion && (
+          <Button size="sm" variant="outline" className="h-8 text-xs gap-1"
+            onClick={onApproveVersion} disabled={anyPending || approvePending}>
+            {approvePending ? <Loader2 className="h-3 w-3 animate-spin" /> : <ShieldCheck className="h-3 w-3" />}
+            Approve Version
+          </Button>
         )}
 
         {/* Convert — secondary */}

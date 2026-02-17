@@ -25,6 +25,7 @@ import {
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { OperationProgress, DEV_ANALYZE_STAGES, DEV_NOTES_STAGES, DEV_REWRITE_STAGES, DEV_CONVERT_STAGES } from '@/components/OperationProgress';
 import { useSetAsLatestDraft } from '@/hooks/useSetAsLatestDraft';
+import { approveAndActivate } from '@/lib/active-folder/approveAndActivate';
 import { useSeasonTemplate } from '@/hooks/useSeasonTemplate';
 import { canPromoteToScript } from '@/lib/can-promote-to-script';
 import { FeatureLengthGuardrails } from '@/components/FeatureLengthGuardrails';
@@ -502,6 +503,30 @@ export default function ProjectDevelopmentEngine() {
 
   const setAsDraft = useSetAsLatestDraft(projectId);
   const seasonTemplate = useSeasonTemplate(projectId);
+
+  // Approve version mutation
+  const [approvePending, setApprovePending] = useState(false);
+  const handleApproveVersion = async () => {
+    if (!projectId || !selectedVersionId) {
+      toast.error('Select a version first');
+      return;
+    }
+    setApprovePending(true);
+    try {
+      await approveAndActivate({
+        projectId,
+        documentVersionId: selectedVersionId,
+        sourceFlow: 'dev_engine',
+      });
+      toast.success('Version approved & activated in Active Folder');
+      qc.invalidateQueries({ queryKey: ['active-folder', projectId] });
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to approve');
+    } finally {
+      setApprovePending(false);
+    }
+  };
+
   const resolutionSummary = latestNotes?.resolution_summary;
   const stabilityStatus = latestNotes?.stability_status || latestAnalysis?.stability_status;
 
@@ -831,6 +856,8 @@ export default function ProjectDevelopmentEngine() {
                     onBeatSheetToScript={(epNum) => beatSheetToScript.mutate({ episodeNumber: epNum, seasonEpisodeCount: effectiveSeasonEpisodes })}
                     beatSheetToScriptPending={beatSheetToScript.isPending}
                     nextAction={promotionIntel.data?.next_action}
+                    onApproveVersion={selectedVersionId ? handleApproveVersion : undefined}
+                    approvePending={approvePending}
                   />
 
                   {/* Resume auto-run handled by banner above */}

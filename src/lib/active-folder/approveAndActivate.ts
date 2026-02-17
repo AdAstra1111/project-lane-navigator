@@ -1,5 +1,5 @@
 /**
- * Client-side helper to approve a document version and activate it in the project folder.
+ * Client-side helpers for the Active Project Folder.
  */
 
 import { supabase } from '@/integrations/supabase/client';
@@ -12,8 +12,8 @@ interface ApproveAndActivateOptions {
 }
 
 /**
- * Approve a document version and set it as the active doc in the project folder.
- * Calls the project-folder-engine edge function.
+ * Approve a document version (marks approval_status='approved')
+ * and set it as the active doc in the project folder.
  */
 export async function approveAndActivate(opts: ApproveAndActivateOptions) {
   const { data, error } = await supabase.functions.invoke('project-folder-engine', {
@@ -31,19 +31,19 @@ export async function approveAndActivate(opts: ApproveAndActivateOptions) {
 }
 
 /**
- * Manually set a specific version as active for a doc_type_key.
+ * Approve and activate multiple versions at once.
  */
-export async function setActiveVersion(opts: {
+export async function approveAndActivateMany(opts: {
   projectId: string;
-  docTypeKey: string;
-  documentVersionId: string;
+  documentVersionIds: string[];
+  sourceFlow?: string;
 }) {
   const { data, error } = await supabase.functions.invoke('project-folder-engine', {
     body: {
-      action: 'set-active',
+      action: 'approve-many',
       projectId: opts.projectId,
-      docTypeKey: opts.docTypeKey,
-      documentVersionId: opts.documentVersionId,
+      documentVersionIds: opts.documentVersionIds,
+      sourceFlow: opts.sourceFlow || 'manual',
     },
   });
 
@@ -52,8 +52,32 @@ export async function setActiveVersion(opts: {
 }
 
 /**
- * Initialize the active folder for a project (lazy backfill).
- * Picks latest version per doc_type_key for docs that don't have an active entry yet.
+ * Manually set a specific version as active for a doc_type_key.
+ * By default requires the version to be approved.
+ */
+export async function setActiveVersion(opts: {
+  projectId: string;
+  docTypeKey: string;
+  documentVersionId: string;
+  allowDraft?: boolean;
+}) {
+  const { data, error } = await supabase.functions.invoke('project-folder-engine', {
+    body: {
+      action: 'set-active',
+      projectId: opts.projectId,
+      docTypeKey: opts.docTypeKey,
+      documentVersionId: opts.documentVersionId,
+      allowDraft: opts.allowDraft || false,
+    },
+  });
+
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Initialize the active folder for a project.
+ * Returns candidates (does NOT auto-activate). UI should present them for approval.
  */
 export async function initActiveFolder(projectId: string) {
   const { data, error } = await supabase.functions.invoke('project-folder-engine', {

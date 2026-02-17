@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { getDocPackage, getRequiredDocsForStage, getDocOrderPrefix } from '@/lib/document-packages';
+import { approveAndActivateMany } from '@/lib/active-folder/approveAndActivate';
 
 export interface PackageDocStatus {
   docType: string;
@@ -126,7 +127,7 @@ export function useDocumentPackage(projectId: string | undefined) {
       }
       return data;
     },
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
       const publishedCount = data?.published?.length || 0;
       const errorCount = data?.errors?.length || 0;
       if (errorCount > 0) {
@@ -134,9 +135,30 @@ export function useDocumentPackage(projectId: string | undefined) {
       } else {
         toast.success(`Published ${publishedCount} documents${data?.advancedStage ? ' — stage advanced' : ''}`);
       }
+
+      // Approve & activate all published doc versions in Active Folder
+      if (projectId && publishedCount > 0) {
+        try {
+          const versionIds = packageStatus
+            .filter(d => d.latestVersionId && (data?.published || []).includes(d.docType))
+            .map(d => d.latestVersionId!)
+            .filter(Boolean);
+          if (versionIds.length > 0) {
+            await approveAndActivateMany({
+              projectId,
+              documentVersionIds: versionIds,
+              sourceFlow: 'package_publish',
+            });
+          }
+        } catch (err) {
+          console.error('Approve+activate after publish failed:', err);
+        }
+      }
+
       qc.invalidateQueries({ queryKey: ['package-status', projectId] });
       qc.invalidateQueries({ queryKey: ['package-project', projectId] });
       qc.invalidateQueries({ queryKey: ['dev-engine-project', projectId] });
+      qc.invalidateQueries({ queryKey: ['active-folder', projectId] });
     },
     onError: (err: any) => {
       toast.error('Publish failed: ' + (err.message || 'Unknown error'));

@@ -1,11 +1,12 @@
 /**
  * ActiveProjectFolder: Displays and manages the canonical active document per type.
+ * Shows candidates from init (not auto-populated), filtered replace dropdown by doc_type_key.
  */
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { FolderOpen, Check, RefreshCw, Loader2, ChevronDown, FileText } from 'lucide-react';
+import { FolderOpen, Check, RefreshCw, Loader2, ChevronDown, FileText, ShieldCheck, AlertCircle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -16,7 +17,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
-import { DOC_TYPE_KEY_LABELS, type DocTypeKey } from '@/lib/active-folder/normalizeDocTypeKey';
+import { DOC_TYPE_KEY_LABELS, type DocTypeKey, normalizeDocTypeKey } from '@/lib/active-folder/normalizeDocTypeKey';
 import { initActiveFolder, setActiveVersion, approveAndActivate } from '@/lib/active-folder/approveAndActivate';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -35,9 +36,18 @@ interface ActiveDocRow {
   notes: string | null;
 }
 
+interface Candidate {
+  doc_type_key: string;
+  document_version_id: string;
+  title: string;
+  approval_status: string;
+  reason: string;
+}
+
 export function ActiveProjectFolder({ projectId }: Props) {
   const queryClient = useQueryClient();
-  const [expandedKey, setExpandedKey] = useState<string | null>(null);
+  const [candidates, setCandidates] = useState<Candidate[] | null>(null);
+  const [showCandidates, setShowCandidates] = useState(false);
 
   // Fetch active docs
   const { data: activeDocs, isLoading } = useQuery({
@@ -53,16 +63,58 @@ export function ActiveProjectFolder({ projectId }: Props) {
     },
   });
 
-  // Fetch all project docs for version selection
-  const { data: projectDocs } = useQuery({
-    queryKey: ['project-docs-for-folder', projectId],
+  // Fetch project format for normalization
+  const { data: projectData } = useQuery({
+    queryKey: ['active-folder-project', projectId],
     queryFn: async () => {
       const { data } = await supabase
+        .from('projects')
+        .select('format')
+        .eq('id', projectId)
+        .single();
+      return data;
+    },
+  });
+
+  const isSeries = ['tv-series', 'limited-series', 'vertical-drama', 'digital-series', 'documentary-series', 'anim-series']
+    .includes((projectData?.format || '').toLowerCase().replace(/_/g, '-'));
+
+  // Fetch all project doc versions for replace dropdown (with approval_status + doc_type info)
+  const { data: allVersions } = useQuery({
+    queryKey: ['active-folder-all-versions', projectId],
+    queryFn: async () => {
+      const { data: docs } = await supabase
         .from('project_documents')
-        .select('id, doc_type, title, file_name, latest_version_id')
-        .eq('project_id', projectId)
-        .not('latest_version_id', 'is', null);
-      return data || [];
+        .select('id, doc_type, title, file_name')
+        .eq('project_id', projectId);
+      if (!docs?.length) return [];
+
+      const docIds = docs.map(d => d.id);
+      const { data: versions } = await supabase
+        .from('project_document_versions')
+        .select('id, document_id, version_number, deliverable_type, label, stage, approval_status, created_at')
+        .in('document_id', docIds)
+        .order('version_number', { ascending: false });
+
+      const docMap: Record<string, any> = {};
+      for (const d of docs) docMap[d.id] = d;
+
+      return (versions || []).map(v => {
+        const parent = docMap[v.document_id];
+        const docTypeKey = normalizeDocTypeKey({
+          deliverable_type: v.deliverable_type,
+          doc_type: parent?.doc_type,
+          title: parent?.title,
+          file_name: parent?.file_name,
+          label: v.label,
+          stage: v.stage,
+        }, isSeries);
+        return {
+          ...v,
+          parentTitle: parent?.title || parent?.file_name || 'Document',
+          doc_type_key: docTypeKey,
+        };
+      });
     },
   });
 
@@ -74,7 +126,7 @@ export function ActiveProjectFolder({ projectId }: Props) {
       if (!activeVersionIds.length) return {};
       const { data } = await supabase
         .from('project_document_versions')
-        .select('id, version_number, document_id, created_at')
+        .select('id, version_number, document_id, created_at, approval_status')
         .in('id', activeVersionIds);
       const map: Record<string, any> = {};
       for (const v of (data || [])) map[v.id] = v;
@@ -83,27 +135,39 @@ export function ActiveProjectFolder({ projectId }: Props) {
     enabled: activeVersionIds.length > 0,
   });
 
-  // Doc ID -> doc info map
+  // Fetch parent doc info for active versions
+  const { data: projectDocs } = useQuery({
+    queryKey: ['project-docs-for-folder', projectId],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('project_documents')
+        .select('id, doc_type, title, file_name, latest_version_id')
+        .eq('project_id', projectId);
+      return data || [];
+    },
+  });
+
   const docMap: Record<string, any> = {};
   for (const d of (projectDocs || [])) docMap[d.id] = d;
+
+  const invalidateAll = () => {
+    queryClient.invalidateQueries({ queryKey: ['active-folder', projectId] });
+    queryClient.invalidateQueries({ queryKey: ['active-folder-all-versions', projectId] });
+  };
 
   const initFolder = useMutation({
     mutationFn: () => initActiveFolder(projectId),
     onSuccess: (data: any) => {
-      toast.success(`Initialized ${data.initialized} active doc${data.initialized !== 1 ? 's' : ''}`);
-      queryClient.invalidateQueries({ queryKey: ['active-folder', projectId] });
+      const cands = data.candidates || [];
+      setCandidates(cands);
+      setShowCandidates(true);
+      if (cands.length === 0) {
+        toast.info('No new candidates found — all doc types already have active versions or no documents exist.');
+      } else {
+        toast.success(`Found ${cands.length} candidate${cands.length !== 1 ? 's' : ''} to review`);
+      }
     },
-    onError: (err: any) => toast.error(err.message || 'Failed to initialize'),
-  });
-
-  const setActive = useMutation({
-    mutationFn: (opts: { docTypeKey: string; documentVersionId: string }) =>
-      setActiveVersion({ projectId, ...opts }),
-    onSuccess: () => {
-      toast.success('Active document updated');
-      queryClient.invalidateQueries({ queryKey: ['active-folder', projectId] });
-    },
-    onError: (err: any) => toast.error(err.message || 'Failed to set active'),
+    onError: (err: any) => toast.error(err.message || 'Failed to scan'),
   });
 
   const approveDoc = useMutation({
@@ -111,9 +175,21 @@ export function ActiveProjectFolder({ projectId }: Props) {
       approveAndActivate({ projectId, documentVersionId: versionId, sourceFlow: 'manual' }),
     onSuccess: () => {
       toast.success('Document approved and activated');
-      queryClient.invalidateQueries({ queryKey: ['active-folder', projectId] });
+      invalidateAll();
+      // Remove from candidates
+      setCandidates(prev => prev?.filter(c => c.document_version_id !== approveDoc.variables) || null);
     },
     onError: (err: any) => toast.error(err.message || 'Failed to approve'),
+  });
+
+  const setActive = useMutation({
+    mutationFn: (opts: { docTypeKey: string; documentVersionId: string }) =>
+      setActiveVersion({ projectId, ...opts }),
+    onSuccess: () => {
+      toast.success('Active document updated');
+      invalidateAll();
+    },
+    onError: (err: any) => toast.error(err.message || 'Failed to set active'),
   });
 
   if (isLoading) {
@@ -127,6 +203,7 @@ export function ActiveProjectFolder({ projectId }: Props) {
   }
 
   const isEmpty = !activeDocs?.length;
+  const activeCandidates = candidates?.filter(c => !activeDocs?.some(a => a.doc_type_key === c.doc_type_key)) || [];
 
   return (
     <div className="glass-card rounded-xl p-4">
@@ -148,23 +225,76 @@ export function ActiveProjectFolder({ projectId }: Props) {
           className="h-7 text-xs"
         >
           {initFolder.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <RefreshCw className="h-3 w-3 mr-1" />}
-          {isEmpty ? 'Initialize' : 'Refresh'}
+          {isEmpty ? 'Scan Documents' : 'Scan for New'}
         </Button>
       </div>
 
-      {isEmpty ? (
+      {/* Candidates section */}
+      {showCandidates && activeCandidates.length > 0 && (
+        <div className="mb-3 p-3 rounded-lg bg-amber-500/5 border border-amber-500/20">
+          <p className="text-[10px] text-amber-400 uppercase tracking-wider mb-2 font-medium">
+            Candidates to Approve & Activate
+          </p>
+          <div className="space-y-1">
+            {activeCandidates.map(c => {
+              const label = DOC_TYPE_KEY_LABELS[c.doc_type_key as DocTypeKey] || c.doc_type_key;
+              return (
+                <div key={c.document_version_id} className="flex items-center gap-2 py-1.5 px-2 rounded-lg hover:bg-muted/20">
+                  <FileText className="h-3 w-3 text-muted-foreground" />
+                  <div className="flex-1 min-w-0">
+                    <span className="text-xs text-foreground truncate block">{c.title}</span>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      <Badge variant="outline" className="text-[9px] h-4">{label}</Badge>
+                      {c.approval_status === 'approved' ? (
+                        <Badge variant="outline" className="text-[9px] h-4 border-emerald-500/30 text-emerald-400 bg-emerald-500/10">
+                          <ShieldCheck className="h-2.5 w-2.5 mr-0.5" /> Approved
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="text-[9px] h-4 border-amber-500/30 text-amber-400 bg-amber-500/10">
+                          <AlertCircle className="h-2.5 w-2.5 mr-0.5" /> Draft
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="default"
+                    className="h-6 text-[10px] px-2 gap-1"
+                    onClick={() => approveDoc.mutate(c.document_version_id)}
+                    disabled={approveDoc.isPending}
+                  >
+                    {approveDoc.isPending ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <ShieldCheck className="h-2.5 w-2.5" />}
+                    Approve & Activate
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {isEmpty && !showCandidates ? (
         <div className="text-center py-6 text-sm text-muted-foreground">
           <FolderOpen className="h-8 w-8 mx-auto mb-2 opacity-40" />
           <p>No active documents set yet.</p>
-          <p className="text-xs mt-1">Click Initialize to auto-populate from your latest documents.</p>
+          <p className="text-xs mt-1">Click "Scan Documents" to find candidates, then approve them.</p>
         </div>
-      ) : (
+      ) : !isEmpty && (
         <div className="space-y-1">
           {activeDocs.map((doc) => {
             const version = versionDetails?.[doc.document_version_id];
             const parentDoc = version ? docMap[version.document_id] : null;
             const label = DOC_TYPE_KEY_LABELS[doc.doc_type_key as DocTypeKey] || doc.doc_type_key;
             const title = parentDoc?.title || parentDoc?.file_name || 'Document';
+
+            // Filter replace options: same doc_type_key, approved only, not current
+            const replaceOptions = (allVersions || [])
+              .filter(v =>
+                v.doc_type_key === doc.doc_type_key &&
+                v.id !== doc.document_version_id &&
+                v.approval_status === 'approved'
+              )
+              .slice(0, 10);
 
             return (
               <div
@@ -181,6 +311,9 @@ export function ActiveProjectFolder({ projectId }: Props) {
                   </div>
                   <div className="flex items-center gap-1.5 mt-0.5">
                     <Badge variant="outline" className="text-[9px] h-4">{label}</Badge>
+                    <Badge variant="outline" className="text-[9px] h-4 border-emerald-500/30 text-emerald-400 bg-emerald-500/10">
+                      <ShieldCheck className="h-2.5 w-2.5 mr-0.5" /> Approved
+                    </Badge>
                     <span className="text-[10px] text-muted-foreground">
                       {formatDistanceToNow(new Date(doc.approved_at), { addSuffix: true })}
                     </span>
@@ -190,66 +323,37 @@ export function ActiveProjectFolder({ projectId }: Props) {
                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                   <Check className="h-3 w-3 text-emerald-400" />
 
-                  {/* Replace dropdown - shows other versions of same doc type */}
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
-                        <ChevronDown className="h-3 w-3" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-48">
-                      {(projectDocs || [])
-                        .filter(d => d.latest_version_id && d.latest_version_id !== doc.document_version_id)
-                        .slice(0, 10)
-                        .map(d => (
+                  {/* Replace dropdown - only shows APPROVED versions of SAME doc_type_key */}
+                  {replaceOptions.length > 0 && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
+                          <ChevronDown className="h-3 w-3" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-52">
+                        <div className="px-2 py-1 text-[10px] text-muted-foreground font-medium">
+                          Replace with (approved only)
+                        </div>
+                        {replaceOptions.map(v => (
                           <DropdownMenuItem
-                            key={d.id}
-                            onClick={() => {
-                              if (d.latest_version_id) {
-                                setActive.mutate({
-                                  docTypeKey: doc.doc_type_key,
-                                  documentVersionId: d.latest_version_id,
-                                });
-                              }
-                            }}
+                            key={v.id}
+                            onClick={() => setActive.mutate({
+                              docTypeKey: doc.doc_type_key,
+                              documentVersionId: v.id,
+                            })}
                             className="text-xs"
                           >
-                            {d.title || d.file_name}
+                            {v.parentTitle} v{v.version_number}
                           </DropdownMenuItem>
                         ))}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
                 </div>
               </div>
             );
           })}
-        </div>
-      )}
-
-      {/* Quick approve section for unapproved docs */}
-      {projectDocs && projectDocs.length > (activeDocs?.length || 0) && (
-        <div className="mt-3 pt-3 border-t border-border/50">
-          <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-2">Available to activate</p>
-          <div className="space-y-1">
-            {projectDocs
-              .filter(d => d.latest_version_id && !activeDocs?.some(a => a.document_version_id === d.latest_version_id))
-              .slice(0, 5)
-              .map(d => (
-                <div key={d.id} className="flex items-center gap-2 py-1 px-2 rounded-lg hover:bg-muted/20">
-                  <FileText className="h-3 w-3 text-muted-foreground" />
-                  <span className="text-xs text-muted-foreground flex-1 truncate">{d.title || d.file_name}</span>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-5 text-[10px] px-2"
-                    onClick={() => d.latest_version_id && approveDoc.mutate(d.latest_version_id)}
-                    disabled={approveDoc.isPending}
-                  >
-                    Activate
-                  </Button>
-                </div>
-              ))}
-          </div>
         </div>
       )}
     </div>
