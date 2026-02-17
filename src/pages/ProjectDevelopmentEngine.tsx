@@ -602,16 +602,16 @@ export default function ProjectDevelopmentEngine() {
             const pkgData = packageStatusData;
             if (!pkgData) return null;
             const staleTypes = pkgData.filter((d: any) => d.status === 'stale').map((d: any) => d.docType);
-            const existingDocs = pkgData.filter((d: any) => d.documentId);
-            const connectedCount = existingDocs.filter((d: any) => d.resolverHash).length;
-            const totalExisting = existingDocs.length;
+            const versionedDocs = pkgData.filter((d: any) => d.latestVersionId);
+            const connectedCount = versionedDocs.filter((d: any) => d.resolverHash).length;
+            const totalVersioned = versionedDocs.length;
             return (
               <ConnectivityBanner
                 projectId={projectId}
                 currentResolverHash={currentResolverHash}
                 staleDocCount={staleTypes.length}
                 staleDocTypes={staleTypes}
-                totalDocs={totalExisting}
+                totalDocs={totalVersioned}
                 connectedDocs={connectedCount}
               />
             );
