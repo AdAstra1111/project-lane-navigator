@@ -101,7 +101,7 @@ export function CanonAuditPanel({
 
       {latestRun && openIssues.length > 0 && (
         <CardContent className="pt-0">
-          <ScrollArea className="max-h-[400px]">
+          <ScrollArea className="h-[300px]">
             <div className="space-y-3">
               {(['BLOCKER', 'MAJOR', 'MINOR', 'NIT'] as const).map(severity => {
                 const items = grouped[severity];
