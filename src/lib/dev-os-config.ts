@@ -7,6 +7,7 @@
 
 export type DeliverableType =
   | 'idea'
+  | 'topline_narrative'
   | 'concept_brief'
   | 'market_sheet'
   | 'vertical_market_sheet'
@@ -26,6 +27,7 @@ export type DeliverableType =
 
 export const DELIVERABLE_LABELS: Record<DeliverableType, string> = {
   idea: 'Idea',
+  topline_narrative: 'Topline Narrative',
   concept_brief: 'Concept Brief',
   market_sheet: 'Market Sheet',
   vertical_market_sheet: 'Market Sheet (VD)',
@@ -450,6 +452,10 @@ export function defaultDeliverableForDocType(docType: string): DeliverableType {
   const normalized = (docType || '').toLowerCase().trim().replace(/[\s\-]+/g, '_');
   const map: Record<string, DeliverableType> = {
     idea: 'idea',
+    topline_narrative: 'topline_narrative',
+    topline: 'topline_narrative',
+    logline_synopsis: 'topline_narrative',
+    narrative_summary: 'topline_narrative',
     concept_brief: 'concept_brief',
     logline: 'concept_brief',
     market_sheet: 'market_sheet',

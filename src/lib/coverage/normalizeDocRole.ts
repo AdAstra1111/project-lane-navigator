@@ -16,6 +16,11 @@ interface DocInput {
 }
 
 const ROLE_MAP: Record<string, CoverageRole> = {
+  // topline narrative
+  topline_narrative: 'topline',
+  topline: 'topline',
+  logline_synopsis: 'topline',
+  narrative_summary: 'topline',
   // doc_type / deliverable_type keys
   concept_brief: 'concept',
   concept: 'concept',
@@ -47,6 +52,8 @@ const ROLE_MAP: Record<string, CoverageRole> = {
 };
 
 const TITLE_HINTS: [RegExp, CoverageRole][] = [
+  [/topline\s*narrative/i, 'topline'],
+  [/\blogline\b.*\bsynopsis\b|\bsynopsis\b.*\blogline\b/i, 'topline'],
   [/concept\s*brief/i, 'concept'],
   [/market\s*(sheet|positioning)/i, 'market'],
   [/\bdeck\b/i, 'deck'],

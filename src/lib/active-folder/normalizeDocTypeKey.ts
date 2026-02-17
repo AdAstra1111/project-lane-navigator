@@ -4,6 +4,7 @@
  */
 
 export type DocTypeKey =
+  | 'topline_narrative'
   | 'concept_brief'
   | 'character_bible'
   | 'market_sheet'
@@ -20,6 +21,7 @@ export type DocTypeKey =
   | 'other';
 
 export const DOC_TYPE_KEY_LABELS: Record<DocTypeKey, string> = {
+  topline_narrative: 'Topline Narrative',
   concept_brief: 'Concept Brief',
   character_bible: 'Character Bible',
   market_sheet: 'Market Sheet',
@@ -46,6 +48,10 @@ interface DocInput {
 }
 
 const KEY_MAP: Record<string, DocTypeKey> = {
+  topline_narrative: 'topline_narrative',
+  topline: 'topline_narrative',
+  logline_synopsis: 'topline_narrative',
+  narrative_summary: 'topline_narrative',
   concept_brief: 'concept_brief',
   concept: 'concept_brief',
   concept_lock: 'concept_brief',
@@ -75,6 +81,8 @@ const KEY_MAP: Record<string, DocTypeKey> = {
 };
 
 const TITLE_HINTS: [RegExp, DocTypeKey][] = [
+  [/topline\s*narrative/i, 'topline_narrative'],
+  [/\blogline\b.*\bsynopsis\b|\bsynopsis\b.*\blogline\b/i, 'topline_narrative'],
   [/concept\s*brief/i, 'concept_brief'],
   [/market\s*(sheet|positioning)/i, 'market_sheet'],
   [/\bdeck\b/i, 'deck'],
