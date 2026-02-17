@@ -728,7 +728,7 @@ This is Episode ${episodeNumber}${totalEpisodes ? ` of ${totalEpisodes}` : ''}.
 Episode Title: ${episodeTitle || `Episode ${episodeNumber}`}
 Episode Logline: ${episodeLogline || 'Not specified'}
 
-CRITICAL: Generate a blueprint for THIS SINGLE EPISODE ONLY (2-5 minutes runtime, 3-8 scenes max).
+CRITICAL: Generate a blueprint for THIS SINGLE EPISODE ONLY (target ${project.episode_target_duration_min_seconds || 120}–${project.episode_target_duration_max_seconds || 300} seconds runtime, 3-8 scenes max).
 Do NOT generate the entire series. Focus only on Episode ${episodeNumber}.
 The episode should be self-contained but fit within the larger series arc.
 `;
@@ -809,7 +809,7 @@ The episode should be self-contained but fit within the larger series arc.
       let prompt = getArchitecturePrompt(productionType, blueprint, project, calibration);
       if (seriesMode && episodeNumber) {
         prompt += `\n\nCRITICAL: This is for a SINGLE EPISODE (Episode ${episodeNumber}) of a vertical drama series.
-Generate ONLY 3-8 scenes for this one short episode (2-5 minutes runtime).
+Generate ONLY 3-8 scenes for this one short episode (target ${project.episode_target_duration_min_seconds || 120}–${project.episode_target_duration_max_seconds || 300} seconds runtime).
 Do NOT generate architecture for the entire series. Keep it focused and compact.`;
       }
       const architecture = await callAI(prompt);

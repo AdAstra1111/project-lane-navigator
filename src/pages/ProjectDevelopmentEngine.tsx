@@ -340,7 +340,7 @@ export default function ProjectDevelopmentEngine() {
       deliverableType: selectedDeliverableType,
       developmentBehavior: projectBehavior,
       format: projectFormat,
-      episodeTargetDurationSeconds: (isVerticalDrama || isSeriesFormat) ? effectiveEpisodeDuration : undefined,
+      episodeTargetDurationSeconds: (isVerticalDrama || isSeriesFormat) ? Math.round((effectiveEpisodeDurationMin + effectiveEpisodeDurationMax) / 2) : undefined,
       previousVersionId: prevVersion?.id,
     }, {
       onSuccess: (analysisResult: any) => {
