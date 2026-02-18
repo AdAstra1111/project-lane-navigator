@@ -274,7 +274,7 @@ Deno.serve(async (req) => {
     if (latestVersionIds.length > 0) {
       const { data: latestVersions } = await sb
         .from("project_document_versions")
-        .select("id, document_id, status, plaintext, version_number")
+        .select("id, document_id, status, plaintext, version_number, created_at")
         .in("id", latestVersionIds) as { data: any[] | null };
       for (const v of latestVersions || []) {
         latestByDocId.set(v.document_id, v);
@@ -287,7 +287,7 @@ Deno.serve(async (req) => {
       const missingIds = docsStillMissing.map((d: any) => d.id as string);
       const { data: fallbackVersions } = await sb
         .from("project_document_versions")
-        .select("id, document_id, status, plaintext, version_number")
+        .select("id, document_id, status, plaintext, version_number, created_at")
         .in("document_id", missingIds)
         .order("version_number", { ascending: false }) as { data: any[] | null };
       for (const v of fallbackVersions || []) {
@@ -394,6 +394,27 @@ Deno.serve(async (req) => {
       fileExtension = "zip";
     }
 
+    // --- Build a meaningful filename ---
+    // Find the latest created_at across all included versions
+    let lastEditedDate = new Date(0);
+    for (const doc of metaDocs) {
+      // Check in latestByDocId and approvedMap for created_at
+      const ver = latestByDocId.get(doc.doc_id) || approvedMap.get(doc.doc_id);
+      if (ver?.created_at) {
+        const d = new Date(ver.created_at);
+        if (d > lastEditedDate) lastEditedDate = d;
+      }
+    }
+    const dateStr = lastEditedDate > new Date(0)
+      ? lastEditedDate.toISOString().slice(0, 10)
+      : new Date().toISOString().slice(0, 10);
+    const safeTitle = (project.title || "package")
+      .replace(/[^a-zA-Z0-9\s-]/g, "")
+      .trim()
+      .replace(/\s+/g, "_")
+      .slice(0, 40);
+    const suggestedFileName = `${safeTitle}_${dateStr}.${fileExtension}`;
+
     // Upload to exports bucket
     const timestamp = Date.now();
     const storagePath = `${user.id}/${projectId}/${timestamp}_package.${fileExtension}`;
@@ -437,6 +458,7 @@ Deno.serve(async (req) => {
         expires_at: expiresAt,
         doc_count: metaDocs.length,
         output_format: fileExtension,
+        file_name: suggestedFileName,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

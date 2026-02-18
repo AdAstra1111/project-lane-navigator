@@ -53,12 +53,12 @@ export function DownloadPackageButton({ projectId, format, pkg }: Props) {
       });
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
-      return data as { signed_url: string; doc_count: number };
+      return data as { signed_url: string; doc_count: number; file_name: string };
     },
     onSuccess: (data) => {
       const a = document.createElement('a');
       a.href = data.signed_url;
-      a.download = 'project_package.zip';
+      a.download = data.file_name || 'project_package.zip';
       a.click();
       toast.success(`Package ready — ${data.doc_count} documents`);
     },
@@ -81,12 +81,12 @@ export function DownloadPackageButton({ projectId, format, pkg }: Props) {
       });
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
-      return data as { signed_url: string; doc_count: number };
+      return data as { signed_url: string; doc_count: number; file_name: string };
     },
     onSuccess: (data) => {
       const a = document.createElement('a');
       a.href = data.signed_url;
-      a.download = `project_package_${new Date().toISOString().slice(0, 10)}.pdf`;
+      a.download = data.file_name || 'project_package.pdf';
       a.click();
       toast.success(`PDF ready — ${data.doc_count} documents merged`);
     },
