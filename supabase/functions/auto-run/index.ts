@@ -6,37 +6,16 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-// ── Document Ladders ──
-// CANONICAL source: supabase/_shared/stage-ladders.json
-// Deno edge functions cannot import JSON via static import, so these are inlined here.
-// RULE: whenever stage-ladders.json changes, update this block identically.
-// CI self-test: runStageRegistrySelfTest() in registry.ts verifies frontend matches JSON.
-const FORMAT_LADDERS: Record<string, string[]> = {
-  "film":               ["idea","topline_narrative","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","script","production_draft","deck"],
-  "feature":            ["idea","topline_narrative","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","script","production_draft","deck"],
-  "tv-series":          ["idea","topline_narrative","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","script","production_draft"],
-  "limited-series":     ["idea","topline_narrative","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","script","production_draft"],
-  "digital-series":     ["idea","topline_narrative","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","script","production_draft"],
-  "vertical-drama":     ["idea","topline_narrative","concept_brief","vertical_market_sheet","format_rules","character_bible","season_arc","episode_grid","vertical_episode_beats","script"],
-  "documentary":        ["idea","topline_narrative","concept_brief","market_sheet","documentary_outline","deck"],
-  "documentary-series": ["idea","topline_narrative","concept_brief","market_sheet","documentary_outline","deck"],
-  "hybrid-documentary": ["idea","topline_narrative","concept_brief","market_sheet","documentary_outline","blueprint","deck"],
-  "short":              ["idea","topline_narrative","concept_brief","script"],
-  "animation":          ["idea","topline_narrative","concept_brief","market_sheet","blueprint","character_bible","beat_sheet","script"],
-  "anim-series":        ["idea","topline_narrative","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","script","production_draft"],
-  "reality":            ["idea","topline_narrative","concept_brief","market_sheet","blueprint","beat_sheet","script"],
-};
+// ── Document Ladders ──────────────────────────────────────────────────────────
+// SINGLE SOURCE OF TRUTH: supabase/_shared/stage-ladders.json
+// Loaded at runtime via import.meta.url so the edge function always reads the
+// exact same file that the frontend registry.ts imports. No duplication needed.
 
-// Alias map (from stage-ladders.json DOC_TYPE_ALIASES) — never persist these as real doc_types
-const DOC_TYPE_ALIASES: Record<string, string> = {
-  "logline": "idea", "one_pager": "concept_brief", "treatment": "blueprint",
-  "season_outline": "blueprint", "outline": "blueprint",
-  "episode_beat_sheet": "beat_sheet", "feature_script": "script",
-  "pilot_script": "script", "episode_script": "script", "episode_1_script": "script",
-  "writers_room": "series_writer", "notes": "concept_brief",
-  // LEGACY — these must NEVER be stored as real doc_types
-  "draft": "script", "coverage": "production_draft",
-};
+const _jsonUrl = new URL("../_shared/stage-ladders.json", import.meta.url);
+const _laddersJson = await (await fetch(_jsonUrl)).json();
+
+const FORMAT_LADDERS: Record<string, string[]> = _laddersJson.FORMAT_LADDERS;
+const DOC_TYPE_ALIASES: Record<string, string> = _laddersJson.DOC_TYPE_ALIASES;
 
 /**
  * Sanitize a doc_type before persisting — maps legacy aliases to canonical stages.
