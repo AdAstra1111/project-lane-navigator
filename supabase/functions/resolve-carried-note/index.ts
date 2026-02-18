@@ -161,29 +161,56 @@ Deno.serve(async (req) => {
       const apiKey = Deno.env.get("LOVABLE_API_KEY");
       if (!apiKey) return json({ error: "AI not configured" }, 500);
 
-      const systemPrompt = `You are a script development editor. A deferred development note needs to be addressed in the current document.
+      const systemPrompt = `You are a script development editor operating in FIX GENERATION MODE.
 
-Your task: propose minimal, targeted edits to resolve the note WITHOUT inventing new content or hallucinating.
+A forwarded development note requires actionable fix options — not commentary, not re-evaluation.
 
-RULES:
-- Only suggest changes directly tied to the note.
-- Preserve all other content.
-- Return JSON with:
-  {
-    "proposed_edits": [
-      { "find": "exact text to replace (verbatim)", "replace": "new text", "rationale": "why" }
-    ],
-    "summary": "One sentence describing what was changed"
-  }
-- If the note is already addressed in the doc, set proposed_edits to [] and explain in summary.`;
+STRICT OUTPUT RULES:
+- Do NOT summarize the script.
+- Do NOT re-evaluate season alignment or the entire document.
+- Do NOT provide abstract advice or vague rewrites.
+- Do NOT use language like "consider strengthening..." or "you might want to...".
+- ALL fixes must be episode-scoped and scene-specific.
 
-      const userPrompt = `NOTE TO RESOLVE:
+Return a JSON object with this EXACT structure:
+{
+  "diagnosis": "One sentence restating the note as a concrete problem.",
+  "affected_scenes": ["Scene X: <evidence from the document>"],
+  "root_cause": "Structural reason (pacing, missing turn, unclear motivation, escalation gap, exposition density, etc.)",
+  "fix_options": [
+    {
+      "patch_name": "Short descriptive name",
+      "where": "Specific scene or section to edit",
+      "what": "Precise edit — what to add, cut, or change",
+      "structural_impact": "What concretely improves",
+      "risk": "Trade-off or risk of this patch"
+    }
+  ],
+  "recommended_option": {
+    "patch_name": "Name of strongest fix",
+    "rationale": "Why this best satisfies the episode contract",
+    "estimated_impact": "Likely CL/GP shift (e.g. +3–5 GP)"
+  },
+  "proposed_edits": [
+    { "find": "exact verbatim text to replace", "replace": "new text", "rationale": "why" }
+  ],
+  "summary": "One sentence describing what was changed"
+}
+
+REQUIREMENTS:
+- fix_options must contain 3–5 DISTINCT patches.
+- Each fix must name the exact scene.
+- proposed_edits implements the recommended_option only.
+- If the note is already addressed, set fix_options to [] and explain in summary.
+- If the document is an episode script, ensure fixes do not break grid/contract obligations.`;
+
+      const userPrompt = `FORWARDED DEVELOPMENT NOTE:
 ${noteText}
 
 CURRENT DOCUMENT (${current_doc_type || "document"}):
 ${docText.slice(0, 12000)}
 
-Generate proposed edits to resolve this note in the current document.`;
+Enter Fix Generation Mode. Diagnose the note, identify affected scenes with evidence, provide 3–5 distinct patch options, then choose the strongest recommended fix and generate the proposed_edits for it.`;
 
       const result = await callLLM({
         apiKey,
