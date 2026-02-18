@@ -1,6 +1,7 @@
 /**
  * upsert-issues — Receives notes from a dev run and upserts them into project_issues.
  * Computes a stable fingerprint, preserves user-set statuses, logs events.
+ * Auth: service-role client + getClaims() local JWT verification.
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -29,7 +30,6 @@ async function computeFingerprint(
     summary.trim().toLowerCase(),
     detail.slice(0, 120).toLowerCase(),
   ].join("|");
-  // Use Web Crypto for SHA-256
   const msgBuffer = new TextEncoder().encode(raw);
   const hashBuffer = await crypto.subtle.digest("SHA-256", msgBuffer);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
@@ -46,12 +46,16 @@ Deno.serve(async (req) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-    // Verify JWT with anon client
-    const anonClient = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!);
-    const { data: { user }, error: authError } = await anonClient.auth.getUser(
-      authHeader.replace("Bearer ", ""),
-    );
-    if (authError || !user) return json({ error: "Unauthorized" }, 401);
+    // One service-role client; auth header passed globally so getClaims works
+    const db = createClient(supabaseUrl, serviceKey, {
+      global: { headers: { Authorization: authHeader } },
+    });
+
+    // Local JWT verification — no network round-trip to auth server
+    const token = authHeader.replace("Bearer ", "");
+    const { data: claimsData, error: claimsError } = await db.auth.getClaims(token);
+    if (claimsError || !claimsData?.claims) return json({ error: "Unauthorized" }, 401);
+    const userId = claimsData.claims.sub as string;
 
     const body = await req.json();
     const { project_id, doc_type, doc_version_id, run_id, notes } = body as {
@@ -73,17 +77,15 @@ Deno.serve(async (req) => {
       return json({ error: "Missing required fields: project_id, doc_type, notes" }, 400);
     }
 
-    const db = createClient(supabaseUrl, serviceKey);
-
     // Verify project access
     const { data: hasAccess } = await db.rpc("has_project_access", {
-      _user_id: user.id,
+      _user_id: userId,
       _project_id: project_id,
     });
     if (!hasAccess) return json({ error: "Access denied" }, 403);
 
     const upserted: string[] = [];
-    const events: Array<{ issue_id: string; event_type: string; payload?: any }> = [];
+    const events: Array<{ issue_id: string; event_type: string; payload?: unknown }> = [];
 
     for (const note of notes) {
       const fp = await computeFingerprint(
@@ -103,8 +105,7 @@ Deno.serve(async (req) => {
 
       if (existing) {
         // Update metadata but preserve user-set status
-        const userFinalStatuses = ["resolved", "dismissed"];
-        const updateData: any = {
+        const updateData: Record<string, unknown> = {
           summary: note.summary,
           detail: note.detail,
           evidence_snippet: note.evidence_snippet || null,
@@ -112,7 +113,6 @@ Deno.serve(async (req) => {
           anchor: note.anchor || null,
           severity: note.severity ?? 3,
         };
-        // Only update doc_version_id if this is a newer run
         if (doc_version_id) updateData.doc_version_id = doc_version_id;
 
         await db.from("project_issues").update(updateData).eq("id", existing.id);
@@ -160,14 +160,14 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Batch-insert events
     if (events.length > 0) {
       await db.from("project_issue_events").insert(events);
     }
 
     return json({ ok: true, upserted_count: upserted.length, issue_ids: upserted });
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "Internal error";
     console.error("upsert-issues error:", err);
-    return json({ error: err.message || "Internal error" }, 500);
+    return json({ error: msg }, 500);
   }
 });

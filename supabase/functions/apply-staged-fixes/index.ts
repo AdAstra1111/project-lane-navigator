@@ -1,9 +1,11 @@
 /**
  * apply-staged-fixes — Takes all staged issues (with staged_fix_choice) for a document,
  * runs ONE combined rewrite prompt, and saves a new document version.
+ * Version number is computed as MAX(version_number)+1 for the document to avoid collisions.
+ * Auth: service-role client + getClaims() local JWT verification.
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { callLLM, MODELS, parseJsonSafe } from "../_shared/llm.ts";
+import { callLLM, MODELS } from "../_shared/llm.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -28,11 +30,14 @@ Deno.serve(async (req) => {
     const apiKey = Deno.env.get("LOVABLE_API_KEY")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-    const anonClient = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!);
-    const { data: { user }, error: authError } = await anonClient.auth.getUser(
-      authHeader.replace("Bearer ", ""),
-    );
-    if (authError || !user) return json({ error: "Unauthorized" }, 401);
+    const db = createClient(supabaseUrl, serviceKey, {
+      global: { headers: { Authorization: authHeader } },
+    });
+
+    const token = authHeader.replace("Bearer ", "");
+    const { data: claimsData, error: claimsError } = await db.auth.getClaims(token);
+    if (claimsError || !claimsData?.claims) return json({ error: "Unauthorized" }, 401);
+    const userId = claimsData.claims.sub as string;
 
     const body = await req.json();
     const { project_id, doc_type, base_doc_version_id, issue_ids } = body as {
@@ -46,11 +51,9 @@ Deno.serve(async (req) => {
       return json({ error: "Missing required fields" }, 400);
     }
 
-    const db = createClient(supabaseUrl, serviceKey);
-
     // Verify project access
     const { data: hasAccess } = await db.rpc("has_project_access", {
-      _user_id: user.id,
+      _user_id: userId,
       _project_id: project_id,
     });
     if (!hasAccess) return json({ error: "Access denied" }, 403);
@@ -66,7 +69,7 @@ Deno.serve(async (req) => {
       return json({ error: "Base version not found" }, 404);
     }
 
-    const baseText = baseVersion.plaintext || "";
+    const baseText = (baseVersion as Record<string, unknown>).plaintext as string || "";
     if (!baseText.trim()) {
       return json({ error: "Base version has no text content" }, 400);
     }
@@ -84,8 +87,8 @@ Deno.serve(async (req) => {
     }
 
     // Build fix instruction block
-    const fixInstructions = issues.map((iss: any) => {
-      const choice = iss.staged_fix_choice as any;
+    const fixInstructions = (issues as Array<Record<string, unknown>>).map((iss) => {
+      const choice = iss.staged_fix_choice as Record<string, string> | null;
       return `ISSUE [${iss.id}]
 Anchor: ${iss.anchor || "General"}
 Category: ${iss.category} | Severity: ${iss.severity}
@@ -128,18 +131,30 @@ Return ONLY the complete revised document text, no commentary, no JSON.`;
       return json({ error: "AI returned empty rewrite" }, 500);
     }
 
+    // Compute next version number as MAX(version_number)+1 to avoid collisions
+    const documentId = (baseVersion as Record<string, unknown>).document_id as string;
+    const { data: maxVerRow } = await db
+      .from("project_document_versions")
+      .select("version_number")
+      .eq("document_id", documentId)
+      .order("version_number", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const maxVersion = (maxVerRow as Record<string, number> | null)?.version_number ?? 1;
+    const newVersionNumber = maxVersion + 1;
+
     // Create new document version
-    const newVersionNumber = (baseVersion.version_number || 1) + 1;
     const { data: newVersion, error: createError } = await db
       .from("project_document_versions")
       .insert({
-        document_id: baseVersion.document_id,
+        document_id: documentId,
         version_number: newVersionNumber,
         label: `v${newVersionNumber} (batch fix)`,
         plaintext: newText,
-        created_by: user.id,
+        created_by: userId,
         parent_version_id: base_doc_version_id,
-        change_summary: `Applied ${issues.length} staged fix(es): ${issues.map((i: any) => i.summary.slice(0, 40)).join("; ")}`,
+        change_summary: `Applied ${issues.length} staged fix(es): ${(issues as Array<Record<string, unknown>>).map((i) => (i.summary as string).slice(0, 40)).join("; ")}`,
         approval_status: "draft",
       })
       .select("id, version_number")
@@ -150,12 +165,14 @@ Return ONLY the complete revised document text, no commentary, no JSON.`;
       return json({ error: "Failed to create new version" }, 500);
     }
 
-    // Log applied events for each issue
-    const events = issues.map((iss: any) => ({
+    const newVersionData = newVersion as Record<string, unknown>;
+
+    // Log applied events for each issue with correct event_type
+    const events = (issues as Array<Record<string, unknown>>).map((iss) => ({
       issue_id: iss.id,
       event_type: "applied",
       payload: {
-        new_version_id: newVersion.id,
+        new_version_id: newVersionData.id,
         base_version_id: base_doc_version_id,
         fix_choice: iss.staged_fix_choice,
       },
@@ -166,13 +183,14 @@ Return ONLY the complete revised document text, no commentary, no JSON.`;
     // Issues remain "staged" until verification confirms resolution
     return json({
       ok: true,
-      new_version_id: newVersion.id,
-      new_version_number: newVersion.version_number,
-      applied_issue_ids: issues.map((i: any) => i.id),
+      new_version_id: newVersionData.id,
+      new_version_number: newVersionData.version_number,
+      applied_issue_ids: (issues as Array<Record<string, unknown>>).map((i) => i.id),
       applied_count: issues.length,
     });
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "Internal error";
     console.error("apply-staged-fixes error:", err);
-    return json({ error: err.message || "Internal error" }, 500);
+    return json({ error: msg }, 500);
   }
 });

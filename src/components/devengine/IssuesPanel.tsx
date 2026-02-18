@@ -13,8 +13,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Checkbox } from '@/components/ui/checkbox';
 import {
   Loader2, AlertTriangle, CheckCircle2, XCircle, MinusCircle,
-  Zap, Eye, Wrench, RotateCcw, Search, Filter, ChevronDown, ChevronRight,
-  ShieldAlert, Sparkles, Play, SquareCheck,
+  Wrench, RotateCcw, Search, Filter, ChevronDown, ChevronRight,
+  ShieldAlert, Sparkles, Play, Eye,
 } from 'lucide-react';
 import {
   useProjectIssues,
@@ -23,7 +23,6 @@ import {
   type FixOption,
   CATEGORY_COLORS,
   NARRATIVE_PRESETS,
-  CATEGORY_ORDER,
 } from '@/hooks/useProjectIssues';
 
 // ── Sub-components ─────────────────────────────────────────────────────────
@@ -82,8 +81,9 @@ function StatusPill({ status, verifyStatus }: { status: ProjectIssue['status']; 
 }
 
 function CategoryBadge({ category }: { category: IssueCategory }) {
+  const colorClass = CATEGORY_COLORS[category] ?? '';
   return (
-    <Badge variant="outline" className={`text-[8px] px-1 py-0 capitalize ${CATEGORY_COLORS[category]}`}>
+    <Badge variant="outline" className={`text-[8px] px-1 py-0 capitalize ${colorClass}`}>
       {category}
     </Badge>
   );
@@ -101,9 +101,8 @@ interface StageFixModalProps {
 }
 
 function StageFixModal({ issue, fixOptions, isGenerating, onGenerate, onStage, onClose }: StageFixModalProps) {
-  const [selected, setSelected] = useState<number | null>(
-    fixOptions.findIndex(o => o.recommended) >= 0 ? fixOptions.findIndex(o => o.recommended) : null
-  );
+  const defaultSelected = fixOptions.findIndex(o => o.recommended);
+  const [selected, setSelected] = useState<number | null>(defaultSelected >= 0 ? defaultSelected : null);
 
   return (
     <DialogContent className="max-w-lg">
@@ -156,6 +155,7 @@ function StageFixModal({ issue, fixOptions, isGenerating, onGenerate, onStage, o
           {fixOptions.map((opt, i) => (
             <button
               key={i}
+              type="button"
               className={`w-full text-left rounded border px-3 py-2 space-y-0.5 transition-colors ${
                 selected === i
                   ? 'border-primary/40 bg-primary/5'
@@ -180,7 +180,7 @@ function StageFixModal({ issue, fixOptions, isGenerating, onGenerate, onStage, o
             <Button
               size="sm"
               className="flex-1 h-7 text-xs gap-1"
-              onClick={() => selected !== null && onStage(fixOptions[selected])}
+              onClick={() => { if (selected !== null) onStage(fixOptions[selected]); }}
               disabled={selected === null}
             >
               <Wrench className="h-3 w-3" />
@@ -221,7 +221,7 @@ function IssueRow({ issue, isSelected, onToggleSelect, onStage, onResolve, onDis
           onCheckedChange={onToggleSelect}
           className="mt-0.5 h-3 w-3"
         />
-        <button className="flex-1 min-w-0 text-left" onClick={() => setExpanded(v => !v)}>
+        <button type="button" className="flex-1 min-w-0 text-left" onClick={() => setExpanded(v => !v)}>
           <div className="flex items-center gap-1.5 flex-wrap">
             <CategoryBadge category={issue.category} />
             <SeverityDots severity={issue.severity} />
@@ -254,8 +254,12 @@ function IssueRow({ issue, isSelected, onToggleSelect, onStage, onResolve, onDis
           )}
           {issue.staged_fix_choice && (
             <div className="bg-blue-500/5 border border-blue-500/20 rounded px-2 py-1">
-              <p className="text-[9px] font-medium text-blue-400">Staged fix: {issue.staged_fix_choice.option_label}</p>
-              <p className="text-[9px] text-muted-foreground">{issue.staged_fix_choice.approach}</p>
+              <p className="text-[9px] font-medium text-blue-400">
+                Staged fix: {String(issue.staged_fix_choice['option_label'] ?? '')}
+              </p>
+              <p className="text-[9px] text-muted-foreground">
+                {String(issue.staged_fix_choice['approach'] ?? '')}
+              </p>
             </div>
           )}
           <div className="flex gap-1 pt-0.5 flex-wrap">
@@ -270,11 +274,21 @@ function IssueRow({ issue, isSelected, onToggleSelect, onStage, onResolve, onDis
               </Button>
             )}
             {issue.status !== 'resolved' && (
-              <Button size="sm" variant="ghost" className="h-5 text-[9px] px-2 gap-1 text-emerald-400 hover:text-emerald-300" onClick={() => onResolve(issue)}>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-5 text-[9px] px-2 gap-1 text-emerald-400 hover:text-emerald-300"
+                onClick={() => onResolve(issue)}
+              >
                 <CheckCircle2 className="h-2.5 w-2.5" /> Mark Resolved
               </Button>
             )}
-            <Button size="sm" variant="ghost" className="h-5 text-[9px] px-2 gap-1 text-muted-foreground" onClick={() => onDismiss(issue)}>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-5 text-[9px] px-2 gap-1 text-muted-foreground"
+              onClick={() => onDismiss(issue)}
+            >
               <XCircle className="h-2.5 w-2.5" /> Dismiss
             </Button>
           </div>
@@ -302,21 +316,26 @@ function DetectedRunList({ notes }: { notes: EphemeralNote[] }) {
   }
   return (
     <div className="space-y-1.5">
-      {notes.map((note, i) => (
-        <div key={i} className="rounded border border-border/40 bg-background/40 px-2 py-1.5 space-y-0.5">
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <Badge variant="outline" className={`text-[8px] px-1 py-0 capitalize ${CATEGORY_COLORS[(note.category as IssueCategory) || 'polish'] || ''}`}>
-              {note.category}
-            </Badge>
-            {note.severity && <SeverityDots severity={note.severity} />}
-            {note.anchor && (
-              <span className="text-[8px] text-muted-foreground bg-muted/60 px-1 py-0.5 rounded">{note.anchor}</span>
-            )}
+      {notes.map((note, i) => {
+        const cat = (note.category as IssueCategory) in CATEGORY_COLORS
+          ? (note.category as IssueCategory)
+          : ('polish' as IssueCategory);
+        return (
+          <div key={i} className="rounded border border-border/40 bg-background/40 px-2 py-1.5 space-y-0.5">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <Badge variant="outline" className={`text-[8px] px-1 py-0 capitalize ${CATEGORY_COLORS[cat]}`}>
+                {note.category}
+              </Badge>
+              {note.severity !== undefined && <SeverityDots severity={note.severity} />}
+              {note.anchor && (
+                <span className="text-[8px] text-muted-foreground bg-muted/60 px-1 py-0.5 rounded">{note.anchor}</span>
+              )}
+            </div>
+            <p className="text-[10px] text-foreground font-medium">{note.summary ?? note.title}</p>
+            <p className="text-[10px] text-muted-foreground">{note.detail ?? note.description}</p>
           </div>
-          <p className="text-[10px] text-foreground font-medium">{note.summary || note.title}</p>
-          <p className="text-[10px] text-muted-foreground">{note.detail || note.description}</p>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -340,7 +359,7 @@ export function IssuesPanel({
   latestRunNotes = [],
   isRunning = false,
 }: IssuesPanelProps) {
-  const issues = useProjectIssues(projectId);
+  const issuesHook = useProjectIssues(projectId);
 
   // Filters
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
@@ -360,60 +379,58 @@ export function IssuesPanel({
   // Filtered issues
   const filtered = useMemo(() => {
     const preset = NARRATIVE_PRESETS[narrativePreset];
-    return issues.issues.filter(iss => {
-      if (!preset.categories.includes(iss.category)) return false;
+    const allowedCategories = preset?.categories ?? [];
+    return issuesHook.issues.filter(iss => {
+      if (!allowedCategories.includes(iss.category)) return false;
       if (categoryFilter !== 'all' && iss.category !== categoryFilter) return false;
       if (statusFilter !== 'all' && iss.status !== statusFilter) return false;
       if (severityFilter !== 'all' && String(iss.severity) !== severityFilter) return false;
-      if (anchorSearch && !(iss.anchor || '').toLowerCase().includes(anchorSearch.toLowerCase()) &&
+      if (anchorSearch &&
+          !(iss.anchor ?? '').toLowerCase().includes(anchorSearch.toLowerCase()) &&
           !iss.summary.toLowerCase().includes(anchorSearch.toLowerCase())) return false;
       return true;
     });
-  }, [issues.issues, categoryFilter, statusFilter, severityFilter, anchorSearch, narrativePreset]);
+  }, [issuesHook.issues, categoryFilter, statusFilter, severityFilter, anchorSearch, narrativePreset]);
 
-  const stagedCount = issues.stagedIssues.length;
-  const openCount = issues.openIssues.length;
+  const stagedCount = issuesHook.stagedIssues.length;
+  const openCount = issuesHook.openIssues.length;
 
   function toggleSelect(id: string) {
     setSelectedIds(prev => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (next.has(id)) next.delete(id); else next.add(id);
       return next;
     });
   }
 
-  function selectAll() {
-    setSelectedIds(new Set(filtered.map(i => i.id)));
-  }
-
-  function clearSelection() {
-    setSelectedIds(new Set());
-  }
+  function selectAll() { setSelectedIds(new Set(filtered.map(i => i.id))); }
+  function clearSelection() { setSelectedIds(new Set()); }
 
   async function handleGenerateFixes(issue?: ProjectIssue) {
     const ids = issue ? [issue.id] : [...selectedIds];
     if (ids.length === 0) return;
     setGeneratingFor(ids[0]);
-    const result = await issues.generateFixes.mutateAsync({
-      issue_ids: ids,
-      current_text: currentText,
-      doc_version_id: docVersionId,
-    });
-    if (result.fixes && stageModalIssue) {
-      const issueFixes = result.fixes.find((f: any) => f.issue_id === stageModalIssue.id);
-      setFixOptions(issueFixes?.options || []);
+    try {
+      const result = await issuesHook.generateFixes.mutateAsync({
+        issue_ids: ids,
+        current_text: currentText,
+        doc_version_id: docVersionId,
+      });
+      if (result['fixes'] && stageModalIssue) {
+        const issueFixes = (result['fixes'] as Array<{ issue_id: string; options: FixOption[] }>)
+          .find(f => f.issue_id === stageModalIssue.id);
+        setFixOptions(issueFixes?.options ?? []);
+      }
+    } finally {
+      setGeneratingFor(null);
     }
-    setGeneratingFor(null);
   }
 
   async function handleApplyStaged() {
-    if (!docType || !docVersionId) {
-      return;
-    }
-    const stagedIds = issues.stagedIssues.map(i => i.id);
+    if (!docType || !docVersionId) return;
+    const stagedIds = issuesHook.stagedIssues.map(i => i.id);
     if (stagedIds.length === 0) return;
-    await issues.applyStaged.mutateAsync({
+    await issuesHook.applyStaged.mutateAsync({
       doc_type: docType,
       base_doc_version_id: docVersionId,
       issue_ids: stagedIds,
@@ -421,11 +438,11 @@ export function IssuesPanel({
   }
 
   async function handleVerify(newVersionId?: string) {
-    const ids = issues.stagedIssues.map(i => i.id);
+    const ids = issuesHook.stagedIssues.map(i => i.id);
     if (ids.length === 0) return;
-    await issues.verifyFixes.mutateAsync({
+    await issuesHook.verifyFixes.mutateAsync({
       issue_ids: ids,
-      new_doc_version_id: newVersionId || docVersionId || '',
+      new_doc_version_id: newVersionId ?? docVersionId ?? '',
       new_text: currentText || undefined,
     });
   }
@@ -434,6 +451,9 @@ export function IssuesPanel({
     setStageModalIssue(iss);
     setFixOptions([]);
   }
+
+  // The last applied version ID (if we just ran apply)
+  const lastAppliedVersionId = issuesHook.applyStaged.data?.['new_version_id'] as string | undefined;
 
   return (
     <div className="space-y-2">
@@ -511,41 +531,35 @@ export function IssuesPanel({
             variant="outline"
             className="h-5 text-[9px] px-2 gap-1"
             onClick={() => handleGenerateFixes()}
-            disabled={issues.generateFixes.isPending}
+            disabled={issuesHook.generateFixes.isPending}
           >
-            {issues.generateFixes.isPending ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Sparkles className="h-2.5 w-2.5" />}
+            {issuesHook.generateFixes.isPending
+              ? <Loader2 className="h-2.5 w-2.5 animate-spin" />
+              : <Sparkles className="h-2.5 w-2.5" />}
             Gen. Fixes
           </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-5 text-[9px] px-2 text-muted-foreground"
-            onClick={clearSelection}
-          >
+          <Button size="sm" variant="ghost" className="h-5 text-[9px] px-2 text-muted-foreground" onClick={clearSelection}>
             Clear
           </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-5 text-[9px] px-2 text-muted-foreground ml-auto"
-            onClick={selectAll}
-          >
+          <Button size="sm" variant="ghost" className="h-5 text-[9px] px-2 text-muted-foreground ml-auto" onClick={selectAll}>
             All
           </Button>
         </div>
       )}
 
       {/* Apply staged + verify buttons */}
-      {(stagedCount > 0 || issues.applyStaged.data) && (
+      {(stagedCount > 0 || lastAppliedVersionId) && (
         <div className="flex items-center gap-2 flex-wrap bg-blue-500/5 border border-blue-500/20 rounded px-3 py-2">
-          <span className="text-[10px] text-blue-400 font-medium">{stagedCount} fix{stagedCount !== 1 ? 'es' : ''} staged</span>
+          <span className="text-[10px] text-blue-400 font-medium">
+            {stagedCount} fix{stagedCount !== 1 ? 'es' : ''} staged
+          </span>
           <Button
             size="sm"
             className="h-6 text-[10px] gap-1 ml-auto"
             onClick={handleApplyStaged}
-            disabled={stagedCount === 0 || !docVersionId || issues.applyStaged.isPending}
+            disabled={stagedCount === 0 || !docVersionId || issuesHook.applyStaged.isPending}
           >
-            {issues.applyStaged.isPending
+            {issuesHook.applyStaged.isPending
               ? <Loader2 className="h-3 w-3 animate-spin" />
               : <Play className="h-3 w-3" />}
             Apply Staged Fixes
@@ -554,10 +568,10 @@ export function IssuesPanel({
             size="sm"
             variant="outline"
             className="h-6 text-[10px] gap-1 border-blue-500/30 text-blue-400"
-            onClick={() => handleVerify(issues.applyStaged.data?.new_version_id)}
-            disabled={!issues.applyStaged.data && stagedCount === 0 || issues.verifyFixes.isPending}
+            onClick={() => handleVerify(lastAppliedVersionId)}
+            disabled={(stagedCount === 0 && !lastAppliedVersionId) || issuesHook.verifyFixes.isPending}
           >
-            {issues.verifyFixes.isPending
+            {issuesHook.verifyFixes.isPending
               ? <Loader2 className="h-3 w-3 animate-spin" />
               : <Eye className="h-3 w-3" />}
             Verify Fixes
@@ -570,8 +584,8 @@ export function IssuesPanel({
         <TabsList className="h-7 text-[10px]">
           <TabsTrigger value="open" className="text-[10px] h-6 px-3">
             Open Issues
-            {issues.openIssues.length > 0 && (
-              <Badge variant="outline" className="ml-1 text-[8px] px-1 py-0">{issues.openIssues.length}</Badge>
+            {issuesHook.openIssues.length > 0 && (
+              <Badge variant="outline" className="ml-1 text-[8px] px-1 py-0">{issuesHook.openIssues.length}</Badge>
             )}
           </TabsTrigger>
           <TabsTrigger value="run" className="text-[10px] h-6 px-3">
@@ -584,7 +598,7 @@ export function IssuesPanel({
 
         <TabsContent value="open" className="mt-2">
           <ScrollArea className="h-[340px]">
-            {issues.isLoading ? (
+            {issuesHook.isLoading ? (
               <div className="flex items-center justify-center py-8">
                 <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
               </div>
@@ -602,9 +616,9 @@ export function IssuesPanel({
                     isSelected={selectedIds.has(iss.id)}
                     onToggleSelect={() => toggleSelect(iss.id)}
                     onStage={openStageModal}
-                    onResolve={i => issues.resolveManually.mutate({ issueId: i.id })}
-                    onDismiss={i => issues.dismissIssue.mutate({ issueId: i.id })}
-                    onUnstage={i => issues.unstageIssue.mutate(i.id)}
+                    onResolve={i => issuesHook.resolveManually.mutate({ issueId: i.id })}
+                    onDismiss={i => issuesHook.dismissIssue.mutate({ issueId: i.id })}
+                    onUnstage={i => issuesHook.unstageIssue.mutate(i.id)}
                   />
                 ))}
               </div>
@@ -629,15 +643,15 @@ export function IssuesPanel({
       </Tabs>
 
       {/* Stage Fix Modal */}
-      <Dialog open={!!stageModalIssue} onOpenChange={open => !open && setStageModalIssue(null)}>
+      <Dialog open={!!stageModalIssue} onOpenChange={open => { if (!open) setStageModalIssue(null); }}>
         {stageModalIssue && (
           <StageFixModal
             issue={stageModalIssue}
             fixOptions={fixOptions}
-            isGenerating={generatingFor === stageModalIssue.id || issues.generateFixes.isPending}
+            isGenerating={generatingFor === stageModalIssue.id || issuesHook.generateFixes.isPending}
             onGenerate={() => handleGenerateFixes(stageModalIssue)}
             onStage={async (choice) => {
-              await issues.stageIssue.mutateAsync({ issueId: stageModalIssue.id, fixChoice: choice });
+              await issuesHook.stageIssue.mutateAsync({ issueId: stageModalIssue.id, fixChoice: choice });
               setStageModalIssue(null);
             }}
             onClose={() => setStageModalIssue(null)}

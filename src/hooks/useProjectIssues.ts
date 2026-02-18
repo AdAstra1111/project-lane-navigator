@@ -1,8 +1,8 @@
 /**
  * useProjectIssues — Full lifecycle hook for persistent project issues.
  * Handles: fetch, stage, manual-resolve, dismiss, generate-fixes, apply, verify.
+ * Uses supabase.functions.invoke() — no import.meta.env, no raw fetch.
  */
-import { useState, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
@@ -46,7 +46,7 @@ export interface ProjectIssue {
   created_from_run_id: string | null;
   last_seen_run_id: string | null;
   resolution_mode: 'staged' | 'manual';
-  staged_fix_choice: any | null;
+  staged_fix_choice: Record<string, unknown> | null;
   verify_status: VerifyStatus;
   verify_detail: string | null;
   created_at: string;
@@ -61,25 +61,23 @@ export interface FixOption {
   recommended: boolean;
 }
 
-// ── API helpers ────────────────────────────────────────────────────────────
+// ── API helper — uses supabase.functions.invoke, no import.meta.env ─────────
 
-async function callIssuesFunction(fnName: string, body: Record<string, any>) {
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session) throw new Error('Not authenticated');
-  const resp = await fetch(
-    `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${fnName}`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${session.access_token}`,
-      },
-      body: JSON.stringify(body),
+async function callIssuesFunction(fnName: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const { data, error } = await supabase.functions.invoke(fnName, { body });
+  if (error) {
+    // Supabase wraps non-2xx as FunctionsHttpError — try to extract inner message
+    const anyErr = error as Record<string, unknown>;
+    const context = anyErr['context'];
+    if (context && typeof (context as Record<string, unknown>)['json'] === 'function') {
+      const parsed = await (context as { json: () => Promise<Record<string, unknown>> })
+        .json()
+        .catch(() => ({} as Record<string, unknown>));
+      throw new Error(String(parsed['error'] ?? error.message));
     }
-  );
-  const result = await resp.json().catch(() => ({}));
-  if (!resp.ok) throw new Error(result.error || `${fnName} failed`);
-  return result;
+    throw new Error(error.message);
+  }
+  return (data as Record<string, unknown>) ?? {};
 }
 
 // ── Hook ───────────────────────────────────────────────────────────────────
@@ -88,10 +86,11 @@ export function useProjectIssues(projectId: string | undefined) {
   const qc = useQueryClient();
 
   // Fetch all non-dismissed issues
-  const { data: issues = [], isLoading } = useQuery({
+  const { data: issues = [], isLoading } = useQuery<ProjectIssue[]>({
     queryKey: ['project-issues', projectId],
     queryFn: async () => {
       if (!projectId) return [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { data, error } = await (supabase as any)
         .from('project_issues')
         .select('*')
@@ -136,7 +135,7 @@ export function useProjectIssues(projectId: string | undefined) {
       return callIssuesFunction('upsert-issues', { project_id: projectId, ...params });
     },
     onSuccess: (data) => {
-      toast.success(`${data.upserted_count} issue(s) synced`);
+      toast.success(`${data.upserted_count as number} issue(s) synced`);
       invalidate();
     },
     onError: (e: Error) => toast.error(e.message),
@@ -145,12 +144,13 @@ export function useProjectIssues(projectId: string | undefined) {
   // Stage an issue with a chosen fix
   const stageIssue = useMutation({
     mutationFn: async (params: { issueId: string; fixChoice: FixOption }) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { error } = await (supabase as any)
         .from('project_issues')
         .update({ status: 'staged', staged_fix_choice: params.fixChoice })
         .eq('id', params.issueId);
       if (error) throw error;
-
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await (supabase as any).from('project_issue_events').insert({
         issue_id: params.issueId,
         event_type: 'staged',
@@ -164,12 +164,13 @@ export function useProjectIssues(projectId: string | undefined) {
   // Manual resolve (no rewrite needed)
   const resolveManually = useMutation({
     mutationFn: async (params: { issueId: string; reason?: string }) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { error } = await (supabase as any)
         .from('project_issues')
         .update({ status: 'resolved', resolution_mode: 'manual', verify_status: 'skipped' })
         .eq('id', params.issueId);
       if (error) throw error;
-
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await (supabase as any).from('project_issue_events').insert({
         issue_id: params.issueId,
         event_type: 'resolved',
@@ -183,12 +184,13 @@ export function useProjectIssues(projectId: string | undefined) {
   // Dismiss
   const dismissIssue = useMutation({
     mutationFn: async (params: { issueId: string; reason?: string }) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { error } = await (supabase as any)
         .from('project_issues')
         .update({ status: 'dismissed' })
         .eq('id', params.issueId);
       if (error) throw error;
-
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await (supabase as any).from('project_issue_events').insert({
         issue_id: params.issueId,
         event_type: 'dismissed',
@@ -202,6 +204,7 @@ export function useProjectIssues(projectId: string | undefined) {
   // Unstage — revert staged back to open
   const unstageIssue = useMutation({
     mutationFn: async (issueId: string) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { error } = await (supabase as any)
         .from('project_issues')
         .update({ status: 'open', staged_fix_choice: null })
@@ -235,7 +238,7 @@ export function useProjectIssues(projectId: string | undefined) {
       return callIssuesFunction('apply-staged-fixes', { project_id: projectId, ...params });
     },
     onSuccess: (data) => {
-      toast.success(`New version v${data.new_version_number} created with ${data.applied_count} fix(es) applied`);
+      toast.success(`New version v${data.new_version_number as number} created with ${data.applied_count as number} fix(es) applied`);
       invalidate();
     },
     onError: (e: Error) => toast.error(e.message),
@@ -252,7 +255,7 @@ export function useProjectIssues(projectId: string | undefined) {
     },
     onSuccess: (data) => {
       toast.success(
-        `Verification complete: ${data.resolved_count} resolved, ${data.reopened_count} reopened`
+        `Verification complete: ${data.resolved_count as number} resolved, ${data.reopened_count as number} reopened`
       );
       invalidate();
     },
