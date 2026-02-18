@@ -151,6 +151,7 @@ export default function ProjectDevelopmentEngine() {
     latestAnalysis, latestNotes, isConverged, convergenceStatus, isLoading,
     analyze, generateNotes, rewrite, convert, createPaste, deleteDocument, deleteVersion, beatSheetToScript,
     driftEvents, latestDrift, acknowledgeDrift, resolveDrift,
+    approvedVersionMap,
   } = useDevEngineV2(projectId);
 
   const pipeline = useScriptPipeline(projectId);
@@ -562,6 +563,7 @@ export default function ProjectDevelopmentEngine() {
       toast.success('Version approved & activated in Active Folder');
       qc.invalidateQueries({ queryKey: ['active-folder', projectId] });
       qc.invalidateQueries({ queryKey: ['dev-v2-versions', selectedDocId] });
+      qc.invalidateQueries({ queryKey: ['dev-v2-approved', projectId] });
     } catch (err: any) {
       toast.error(err.message || 'Failed to approve');
     } finally {
@@ -762,6 +764,7 @@ export default function ProjectDevelopmentEngine() {
                 selectedVersionId={selectedVersionId} setSelectedVersionId={setSelectedVersionId}
                 createPaste={createPaste}
                 latestVersionMap={latestVersionMap}
+                approvedVersionMap={approvedVersionMap}
               />
 
               {/* Feature Script Pipeline — only for features */}

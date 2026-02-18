@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Plus, ClipboardPaste, GitBranch, Loader2, Trash2 } from 'lucide-react';
+import { Plus, ClipboardPaste, GitBranch, Loader2, Trash2, ShieldCheck } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { DELIVERABLE_LABELS } from '@/lib/dev-os-config';
 
@@ -28,11 +28,14 @@ interface DocumentSidebarProps {
   createPaste: { mutate: (data: any) => void; isPending: boolean };
   /** Map of doc_type -> latest_version_id from project_documents */
   latestVersionMap?: Record<string, string>;
+  /** Map of document_id -> approved_version_id */
+  approvedVersionMap?: Record<string, string>;
 }
 
 export function DocumentSidebar({
   documents, docsLoading, selectedDocId, selectDocument, deleteDocument, deleteVersion,
   versions, selectedVersionId, setSelectedVersionId, createPaste, latestVersionMap = {},
+  approvedVersionMap = {},
 }: DocumentSidebarProps) {
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteTitle, setPasteTitle] = useState('');
@@ -93,7 +96,9 @@ export function DocumentSidebar({
         </CardHeader>
         <CardContent className="px-2 pb-2">
           <div className="max-h-[calc(100vh-420px)] overflow-y-auto space-y-1">
-            {documents.map(doc => (
+            {documents.map(doc => {
+              const hasApproved = !!approvedVersionMap[doc.id];
+              return (
               <div
                 key={doc.id}
                 className={`w-full text-left p-2 rounded-md transition-colors text-sm cursor-pointer ${
@@ -109,6 +114,12 @@ export function DocumentSidebar({
                     <Badge variant="outline" className="text-[8px] px-1 py-0">
                       {getDocTypeLabel(doc.doc_type)}
                     </Badge>
+                    {hasApproved && (
+                      <Badge variant="outline" className="text-[7px] px-1 py-0 h-3 border-yellow-500/40 text-yellow-500 bg-yellow-500/10"
+                        aria-label="Approved version exists">
+                        <ShieldCheck className="h-2.5 w-2.5" />
+                      </Badge>
+                    )}
                     <span className="text-[9px] text-muted-foreground">
                       {doc.source === 'generated' ? '✨' : doc.source === 'paste' ? '📋' : '📄'}
                     </span>
@@ -128,7 +139,8 @@ export function DocumentSidebar({
                   </div>
                 </div>
               </div>
-            ))}
+              );
+            })}
             {documents.length === 0 && !docsLoading && (
               <p className="text-[10px] text-muted-foreground p-3 text-center">No documents yet.</p>
             )}
@@ -147,9 +159,9 @@ export function DocumentSidebar({
           <CardContent className="px-2 pb-2">
             <div className="space-y-0.5 max-h-[160px] overflow-y-auto">
               {versions.map(v => {
-                // Check if this version is the project's latest for this doc type
                 const selectedDocObj = documents.find(d => d.id === selectedDocId);
                 const isLatestForDoc = selectedDocObj && latestVersionMap[selectedDocObj.doc_type] === v.id;
+                const isApprovedVersion = selectedDocId ? approvedVersionMap[selectedDocId] === v.id : false;
                 return (
                 <div
                   key={v.id}
@@ -165,6 +177,12 @@ export function DocumentSidebar({
                       v{v.version_number}
                       {isLatestForDoc && (
                         <Badge variant="default" className="text-[7px] px-1 py-0 h-3 bg-primary/80">LATEST</Badge>
+                      )}
+                      {isApprovedVersion && (
+                        <Badge variant="outline" className="text-[7px] px-1 py-0 h-3 border-yellow-500/40 text-yellow-500 bg-yellow-500/10"
+                          aria-label="Approved version">
+                          <ShieldCheck className="h-2.5 w-2.5 mr-0.5" /> Approved
+                        </Badge>
                       )}
                     </span>
                     <div className="flex items-center gap-1">
