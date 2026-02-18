@@ -7,7 +7,7 @@
  * POST { project_id, use_approved?, force_regenerate? }
  * Returns { doc_id, version_id, path_used, episode_count, sources, skipped, change_log, approved_pack_doc_types }
  */
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2";
 import { callLLM, MODELS, GATEWAY_URL } from "../_shared/llm.ts";
 
 const corsHeaders = {
