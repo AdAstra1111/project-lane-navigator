@@ -1087,7 +1087,7 @@ LANE: ${project?.assigned_lane || "Unknown"} | BUDGET: ${project?.budget_range |
 ${prevContext}${seasonContext}${qualBinding}${signalContext}${lockedDecisionsContext}
 
 MATERIAL (${version.plaintext.length} chars):
-${version.plaintext.slice(0, 25000)}`;
+${version.plaintext.slice(0, 40000)}`;
 
       const raw = await callAI(LOVABLE_API_KEY, PRO_MODEL, systemPrompt, userPrompt, 0.2, 6000);
       const parsed = await parseAIJson(LOVABLE_API_KEY, raw);
@@ -1527,7 +1527,7 @@ GENERAL RULES:
 - Do NOT re-raise previously resolved issues as blockers.
 - If an existing note_key persists, use the same key — do NOT rephrase under a new key.${antiRepeatRule}`;
 
-      const userPrompt = `ANALYSIS:\n${JSON.stringify(analysis)}\n\nMATERIAL:\n${version.plaintext.slice(0, 12000)}`;
+      const userPrompt = `ANALYSIS:\n${JSON.stringify(analysis)}\n\nMATERIAL (${version.plaintext.length} chars total):\n${version.plaintext.slice(0, 40000)}`;
       const raw = await callAI(LOVABLE_API_KEY, PRO_MODEL, notesSystem, userPrompt, 0.25, 6000);
       const parsed = await parseAIJson(LOVABLE_API_KEY, raw);
 
