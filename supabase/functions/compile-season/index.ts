@@ -182,16 +182,16 @@ Deno.serve(async (req) => {
     // Persist as project_document + version with doc_type = 'season_master_script'
     const docTitle = `${projectTitle} — ${seasonLabel} Master Script`;
 
-    // Build a slug-safe file_name
+    // Build a slug-safe file_path (column name in project_documents)
     const slugTitle = (projectTitle || "project")
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-+|-+$/g, "");
     const slugSeason = season_number ? `season-${season_number}` : "season";
     const dateStr = new Date(compiledAt).toISOString().slice(0, 10);
-    const fileName = `${slugTitle}_${slugSeason}_master-season-script_${dateStr}.md`;
+    const filePath = `${userId}/${project_id}/${slugTitle}_${slugSeason}_master-season-script_${dateStr}.md`;
 
-    if (!fileName) throw new Error("Could not generate file_name for master script document");
+    if (!filePath) throw new Error("Could not generate file_path for master script document");
 
     // Check if a season_master_script doc already exists
     const { data: existingDoc } = await sb
@@ -212,7 +212,7 @@ Deno.serve(async (req) => {
           user_id: userId,
           doc_type: "season_master_script",
           title: docTitle,
-          file_name: fileName,
+          file_path: filePath,
         } as any)
         .select("id")
         .single();
