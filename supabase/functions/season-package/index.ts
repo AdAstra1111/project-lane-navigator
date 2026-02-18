@@ -302,11 +302,11 @@ Deno.serve(async (req) => {
       if (existingDoc.latest_version_id) {
         const { data: prevVer } = await sb
           .from("project_document_versions")
-          .select("metadata")
+          .select("inputs_used")
           .eq("id", existingDoc.latest_version_id)
           .single();
 
-        const prevSources: any[] = (prevVer?.metadata as any)?.sources_used || [];
+        const prevSources: any[] = (prevVer?.inputs_used as any)?.sources_used || [];
         const prevMap: Record<number, string> = {};
         for (const s of prevSources) prevMap[s.episode_number] = s.version_id || s.script_id || "";
 
@@ -322,7 +322,7 @@ Deno.serve(async (req) => {
         }
 
         // Check if pack docs changed
-        const prevPackVersions = (prevVer?.metadata as any)?.approved_pack_versions || {};
+        const prevPackVersions = (prevVer?.inputs_used as any)?.approved_pack_versions || {};
         for (const [docType, info] of Object.entries(approvedPack)) {
           const prevId = (prevPackVersions[docType] as any)?.version_id || "";
           if (prevId && prevId !== info.version_id) {
@@ -362,11 +362,12 @@ Deno.serve(async (req) => {
       .from("project_document_versions")
       .insert({
         document_id: docId,
-        user_id: userId,
+        created_by: userId,
         version_number: nextVersion,
         plaintext: masterText,
         status: "draft",
-        metadata: {
+        change_summary: `Complete season script compiled — ${episodes.length} episodes (${pathUsed})`,
+        inputs_used: {
           doc_type: "complete_season_script",
           compiled_at: compiledAt,
           path_used: pathUsed,

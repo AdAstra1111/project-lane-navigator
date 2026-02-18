@@ -236,11 +236,12 @@ Deno.serve(async (req) => {
       .from("project_document_versions")
       .insert({
         document_id: docId,
-        user_id: userId,
+        created_by: userId,
         version_number: nextVersion,
         plaintext: masterText,
         status: "draft",
-        metadata: {
+        change_summary: `Season master script compiled — ${episodes.length} episodes, source mode: ${use_approved ? "approved" : "latest"}`,
+        inputs_used: {
           doc_type: "season_master_script",
           season_number: season_number || null,
           compiled_at: compiledAt,
