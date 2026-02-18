@@ -780,8 +780,8 @@ serve(async (req) => {
     const userClient = createClient(supabaseUrl, supabaseAnonKey, {
       global: { headers: { Authorization: authHeader } },
     });
-    const { data: claimsData, error: claimsError } = await userClient.auth.getClaims(token);
-    if (claimsError || !claimsData?.claims) throw new Error("Unauthorized");
+    const { data: { user }, error: authError } = await userClient.auth.getUser(token);
+    if (authError || !user) throw new Error("Unauthorized");
 
     // Use service client for DB operations
     const supabase = createClient(supabaseUrl, supabaseServiceKey);

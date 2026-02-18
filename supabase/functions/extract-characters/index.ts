@@ -23,9 +23,9 @@ serve(async (req) => {
     );
     
     const token = authHeader.replace("Bearer ", "");
-    const { data: claimsData, error: claimsError } = await supabase.auth.getClaims(token);
-    if (claimsError || !claimsData?.claims) throw new Error("Not authenticated");
-    const userId = claimsData.claims.sub;
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    if (authError || !user) throw new Error("Not authenticated");
+    const userId = user.id;
 
     const { projectId } = await req.json();
     if (!projectId) throw new Error("Missing projectId");
