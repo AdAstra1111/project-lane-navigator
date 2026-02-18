@@ -59,7 +59,7 @@ Given a free-text idea from a producer, extract structured project metadata and 
 
 Be generous in your interpretation — extract whatever you can from the text, use sensible defaults for missing fields. Always return valid JSON only, no markdown fences, no extra text.`;
 
-    const aiResponse = await fetch("https://api.lovable.dev/v1/chat/completions", {
+    const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
