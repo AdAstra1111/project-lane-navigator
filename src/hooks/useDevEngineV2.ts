@@ -381,7 +381,12 @@ export function useDevEngineV2(projectId: string | undefined) {
     },
     onSuccess: (_data, deletedId) => {
       toast.success('Version deleted');
-      if (selectedVersionId === deletedId) setSelectedVersionId('');
+      if (selectedVersionId === deletedId) {
+        // Auto-select another version so the UI doesn't keep the deleted one active
+        const remaining = versions.filter(v => v.id !== deletedId);
+        const next = remaining[remaining.length - 1] ?? null;
+        setSelectedVersionId(next ? next.id : null);
+      }
       invalidateAll();
     },
     onError: (e: Error) => toast.error(e.message),
