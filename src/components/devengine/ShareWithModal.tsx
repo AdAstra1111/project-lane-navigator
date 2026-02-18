@@ -72,10 +72,28 @@ export function ShareWithModal({ open, onOpenChange, projectId, projectTitle, pk
 
   const handleCopyLink = async () => {
     if (!generatedLink) return;
-    await navigator.clipboard.writeText(generatedLink.url);
-    setCopiedLink(true);
-    setTimeout(() => setCopiedLink(false), 2000);
-    toast.success('Link copied to clipboard');
+    const text = generatedLink.url;
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        // Fallback for iframes / non-secure contexts
+        const el = document.createElement('textarea');
+        el.value = text;
+        el.style.position = 'fixed';
+        el.style.opacity = '0';
+        document.body.appendChild(el);
+        el.focus();
+        el.select();
+        document.execCommand('copy');
+        document.body.removeChild(el);
+      }
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 2000);
+      toast.success('Link copied to clipboard');
+    } catch {
+      toast.error('Could not copy — please copy the link manually');
+    }
   };
 
   // ─ Existing shares ─
