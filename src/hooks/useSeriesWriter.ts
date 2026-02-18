@@ -1115,6 +1115,7 @@ export function useSeriesWriter(projectId: string) {
 
   return {
     episodes,
+    allEpisodes,
     deletedEpisodes,
     showDeleted,
     setShowDeleted,
