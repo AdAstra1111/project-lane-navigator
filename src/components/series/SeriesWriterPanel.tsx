@@ -208,116 +208,118 @@ function EpisodeCard({ episode, isActive, isGenerating, disabled, validation, on
   const Icon = style.icon;
   const phase = (episode.generation_progress as any)?.phase;
 
+  const statusBadgeClass =
+    episode.status === 'complete' ? 'border-emerald-500/30 text-emerald-400' :
+    episode.status === 'needs_revision' ? 'border-orange-500/30 text-orange-400' :
+    episode.status === 'error' || episode.status === 'invalidated' ? 'border-red-500/30 text-red-400' :
+    episode.status === 'generating' ? 'border-amber-500/30 text-amber-400' :
+    'border-border text-muted-foreground';
+
   return (
     <div className={`border rounded-lg transition-colors ${
       isActive ? 'border-primary/50 bg-primary/5' : 'border-border/50 bg-card/50'
     }`}>
-      <div className="flex items-center gap-3 px-3 py-2.5">
-        <Icon className={`h-4 w-4 shrink-0 ${style.color} ${
+      {/* Top row: icon + title info + status badge */}
+      <div className="flex items-start gap-2.5 px-3 pt-2.5 pb-1">
+        <Icon className={`h-4 w-4 shrink-0 mt-0.5 ${style.color} ${
           episode.status === 'generating' ? 'animate-spin' : ''
         }`} />
 
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-mono text-muted-foreground">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-xs font-mono text-muted-foreground shrink-0">
               EP {String(episode.episode_number).padStart(2, '0')}
             </span>
-            <span className="text-sm font-medium text-foreground truncate">
+            <span className="text-sm font-medium text-foreground break-words min-w-0">
               {episode.title || `Episode ${episode.episode_number}`}
             </span>
+            {episode.status === 'generating' && phase && (
+              <Badge variant="outline" className="text-[9px] border-amber-500/30 text-amber-400 bg-amber-500/10 shrink-0">
+                {PHASE_LABELS[phase] || phase}
+              </Badge>
+            )}
           </div>
           {episode.logline && (
-            <p className="text-xs text-muted-foreground truncate mt-0.5">{episode.logline}</p>
+            <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{episode.logline}</p>
           )}
           {episode.validation_status === 'needs_revision' && (
             <p className="text-[10px] text-orange-400 mt-0.5 flex items-center gap-1">
-              <AlertTriangle className="h-2.5 w-2.5" />
+              <AlertTriangle className="h-2.5 w-2.5 shrink-0" />
               Validation: {episode.validation_score ? `${Math.round(Number(episode.validation_score))}%` : 'Needs revision'}
             </p>
           )}
         </div>
 
-        <div className="flex items-center gap-1.5 shrink-0">
-          {episode.status === 'generating' && phase && (
-            <Badge variant="outline" className="text-[9px] border-amber-500/30 text-amber-400 bg-amber-500/10">
-              {PHASE_LABELS[phase] || phase}
-            </Badge>
-          )}
+        <Badge variant="outline" className={`text-[9px] shrink-0 mt-0.5 ${statusBadgeClass}`}>
+          {style.label}
+        </Badge>
+      </div>
 
-          {/* Stop & Reset — for stuck/stalled generating episodes */}
-          {episode.status === 'generating' && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-7 px-2.5 text-xs gap-1 border-destructive/40 text-destructive hover:bg-destructive/10"
-              onClick={onReset}
-              disabled={isResetting}
-              title="Stop and reset this stuck episode so you can retry"
-            >
-              {isResetting
-                ? <Loader2 className="h-3 w-3 animate-spin" />
-                : <XCircle className="h-3 w-3" />}
-              Stop & Reset
-            </Button>
-          )}
+      {/* Bottom row: action buttons */}
+      <div className="flex items-center gap-1.5 px-3 pb-2 flex-wrap">
+        {/* Stop & Reset — for stuck/stalled generating episodes */}
+        {episode.status === 'generating' && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 px-2.5 text-xs gap-1 border-destructive/40 text-destructive hover:bg-destructive/10"
+            onClick={onReset}
+            disabled={isResetting}
+            title="Stop and reset this stuck episode so you can retry"
+          >
+            {isResetting
+              ? <Loader2 className="h-3 w-3 animate-spin" />
+              : <XCircle className="h-3 w-3" />}
+            Stop & Reset
+          </Button>
+        )}
 
-          {(episode.status === 'complete' || episode.status === 'needs_revision') && episode.script_id && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 px-2 text-xs gap-1 text-emerald-400 hover:text-emerald-300"
-              onClick={onRead}
-            >
-              <BookOpen className="h-3 w-3" /> Read
-            </Button>
-          )}
+        {(episode.status === 'complete' || episode.status === 'needs_revision') && episode.script_id && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-xs gap-1 text-emerald-400 hover:text-emerald-300"
+            onClick={onRead}
+          >
+            <BookOpen className="h-3 w-3" /> Read
+          </Button>
+        )}
 
-          {(episode.status === 'pending' || episode.status === 'invalidated') && !disabled && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-7 px-2.5 text-xs gap-1"
-              onClick={onGenerate}
-              disabled={isGenerating}
-            >
-              <Play className="h-3 w-3" /> Generate
-            </Button>
-          )}
+        {(episode.status === 'pending' || episode.status === 'invalidated') && !disabled && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 px-2.5 text-xs gap-1"
+            onClick={onGenerate}
+            disabled={isGenerating}
+          >
+            <Play className="h-3 w-3" /> Generate
+          </Button>
+        )}
 
-          {(episode.status === 'error' || episode.status === 'needs_revision') && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-7 px-2.5 text-xs gap-1 border-orange-500/30 text-orange-400 hover:text-orange-300"
-              onClick={onGenerate}
-              disabled={isGenerating}
-            >
-              <RotateCcw className="h-3 w-3" /> {episode.status === 'needs_revision' ? 'Revise' : 'Retry'}
-            </Button>
-          )}
+        {(episode.status === 'error' || episode.status === 'needs_revision') && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 px-2.5 text-xs gap-1 border-orange-500/30 text-orange-400 hover:text-orange-300"
+            onClick={onGenerate}
+            disabled={isGenerating}
+          >
+            <RotateCcw className="h-3 w-3" /> {episode.status === 'needs_revision' ? 'Revise' : 'Retry'}
+          </Button>
+        )}
 
-          {!isGenerating && episode.status !== 'generating' && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 w-7 p-0 text-muted-foreground hover:text-red-400"
-              onClick={onDelete}
-              title="Delete episode"
-            >
-              <Trash2 className="h-3 w-3" />
-            </Button>
-          )}
-
-          <Badge variant="outline" className={`text-[9px] ${
-            episode.status === 'complete' ? 'border-emerald-500/30 text-emerald-400' :
-            episode.status === 'needs_revision' ? 'border-orange-500/30 text-orange-400' :
-            episode.status === 'error' || episode.status === 'invalidated' ? 'border-red-500/30 text-red-400' :
-            episode.status === 'generating' ? 'border-amber-500/30 text-amber-400' :
-            'border-border text-muted-foreground'
-          }`}>
-            {style.label}
-          </Badge>
-        </div>
+        {!isGenerating && episode.status !== 'generating' && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 w-7 p-0 text-muted-foreground hover:text-red-400 ml-auto"
+            onClick={onDelete}
+            title="Delete episode"
+          >
+            <Trash2 className="h-3 w-3" />
+          </Button>
+        )}
       </div>
     </div>
   );
