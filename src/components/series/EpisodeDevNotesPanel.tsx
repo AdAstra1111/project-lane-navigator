@@ -258,14 +258,16 @@ function SectionEPanel({
   appliedPatches,
   isApplyingPatch,
   onApplyPatch,
+  selectedPatch,
+  onSelectPatch,
 }: {
   data: DevNotesRun['results_json']['section_e'];
   appliedPatches?: Array<{ patch_name: string; applied_at: string; new_script_id: string }>;
   isApplyingPatch?: boolean;
   onApplyPatch?: (patch: EpisodePatch, applyMode?: 'patch' | 'rewrite') => void;
+  selectedPatch: number | null;
+  onSelectPatch: (i: number | null) => void;
 }) {
-  const [selectedPatch, setSelectedPatch] = useState<number | null>(null);
-
   if (!data?.patches?.length) return <p className="text-[10px] text-muted-foreground px-3 pb-2">No patches suggested.</p>;
 
   const appliedNames = new Set((appliedPatches || []).map(a => a.patch_name));
@@ -285,7 +287,7 @@ function SectionEPanel({
                   ? 'border-primary/60 bg-primary/10'
                   : 'border-border/30 bg-background/40 hover:border-border/60'
             }`}
-            onClick={() => !isApplied && setSelectedPatch(prev => prev === i ? null : i)}
+            onClick={() => !isApplied && onSelectPatch(selectedPatch === i ? null : i)}
           >
             <div className="flex items-center gap-1.5">
               {/* Radio indicator */}
@@ -352,6 +354,7 @@ function SectionEPanel({
 // ─── Main Panel ─────────────────────────────────────────────────────────────
 
 export function EpisodeDevNotesPanel({ run, notes, isRunning, appliedPatches, isApplyingPatch, onApplyPatch }: Props) {
+  const [selectedPatch, setSelectedPatch] = useState<number | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({
     a: false,
     b: true,
@@ -481,7 +484,7 @@ export function EpisodeDevNotesPanel({ run, notes, isRunning, appliedPatches, is
                 count={patches.length}
                 isOpen={expanded.e} onToggle={() => toggle('e')}
               />
-              {expanded.e && <SectionEPanel data={run.results_json.section_e} appliedPatches={appliedPatches} isApplyingPatch={isApplyingPatch} onApplyPatch={onApplyPatch} />}
+              {expanded.e && <SectionEPanel data={run.results_json.section_e} appliedPatches={appliedPatches} isApplyingPatch={isApplyingPatch} onApplyPatch={onApplyPatch} selectedPatch={selectedPatch} onSelectPatch={setSelectedPatch} />}
             </div>
 
             {/* Strengths */}
