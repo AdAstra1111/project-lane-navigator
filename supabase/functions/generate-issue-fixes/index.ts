@@ -1,6 +1,7 @@
 /**
  * generate-issue-fixes — For a batch of issue IDs, generate 2–4 fix options each.
- * Stores options in issue_events payload. Does NOT rewrite the document.
+ * Stores options in issue_events with event_type="fixes_generated".
+ * Auth: service-role client + getClaims() local JWT verification.
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { callLLM, MODELS, parseJsonSafe } from "../_shared/llm.ts";
@@ -28,14 +29,17 @@ Deno.serve(async (req) => {
     const apiKey = Deno.env.get("LOVABLE_API_KEY")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-    const anonClient = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!);
-    const { data: { user }, error: authError } = await anonClient.auth.getUser(
-      authHeader.replace("Bearer ", ""),
-    );
-    if (authError || !user) return json({ error: "Unauthorized" }, 401);
+    const db = createClient(supabaseUrl, serviceKey, {
+      global: { headers: { Authorization: authHeader } },
+    });
+
+    const token = authHeader.replace("Bearer ", "");
+    const { data: claimsData, error: claimsError } = await db.auth.getClaims(token);
+    if (claimsError || !claimsData?.claims) return json({ error: "Unauthorized" }, 401);
+    const userId = claimsData.claims.sub as string;
 
     const body = await req.json();
-    const { project_id, issue_ids, doc_version_id, current_text } = body as {
+    const { project_id, issue_ids, current_text } = body as {
       project_id: string;
       issue_ids: string[];
       doc_version_id?: string;
@@ -46,11 +50,9 @@ Deno.serve(async (req) => {
       return json({ error: "Missing required fields" }, 400);
     }
 
-    const db = createClient(supabaseUrl, serviceKey);
-
     // Verify project access
     const { data: hasAccess } = await db.rpc("has_project_access", {
-      _user_id: user.id,
+      _user_id: userId,
       _project_id: project_id,
     });
     if (!hasAccess) return json({ error: "Access denied" }, 403);
@@ -66,7 +68,7 @@ Deno.serve(async (req) => {
       return json({ error: "Issues not found" }, 404);
     }
 
-    const issueList = issues.map((iss: any) =>
+    const issueList = (issues as Array<Record<string, unknown>>).map((iss) =>
       `- ID: ${iss.id}
   Category: ${iss.category} | Severity: ${iss.severity} | Anchor: ${iss.anchor || "N/A"}
   Summary: ${iss.summary}
@@ -106,10 +108,10 @@ Generate 2–4 fix options per issue. Be specific about scene/beat locations usi
     const parsed = await parseJsonSafe(result.content, apiKey);
     const fixes = parsed.fixes || [];
 
-    // Store fix options in issue_events
-    const events = fixes.map((f: any) => ({
+    // Store fix options in issue_events with correct event_type
+    const events = fixes.map((f: Record<string, unknown>) => ({
       issue_id: f.issue_id,
-      event_type: "seen",
+      event_type: "fixes_generated",
       payload: { fix_options: f.options, generated_at: new Date().toISOString() },
     }));
 
@@ -118,8 +120,9 @@ Generate 2–4 fix options per issue. Be specific about scene/beat locations usi
     }
 
     return json({ ok: true, fixes });
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "Internal error";
     console.error("generate-issue-fixes error:", err);
-    return json({ error: err.message || "Internal error" }, 500);
+    return json({ error: msg }, 500);
   }
 });
