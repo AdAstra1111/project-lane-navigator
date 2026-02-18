@@ -1,7 +1,7 @@
 /**
  * DocumentSidebar — Document list, version selector, and paste dialog.
  */
-import { useState } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -9,11 +9,25 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Plus, ClipboardPaste, GitBranch, Loader2, Trash2, ShieldCheck } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Plus, ClipboardPaste, GitBranch, Loader2, Trash2, ShieldCheck, GripVertical } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { DELIVERABLE_LABELS } from '@/lib/dev-os-config';
 
 import { getDocTypeLabel } from '@/lib/can-promote-to-script';
+
+const STORAGE_KEY = 'devEngine.leftTrayWidth';
+const MIN_WIDTH = 200;
+const MAX_WIDTH = 520;
+const DEFAULT_WIDTH = 220;
+
+function getStoredWidth(): number {
+  try {
+    const v = localStorage.getItem(STORAGE_KEY);
+    if (v) return Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, Number(v)));
+  } catch {}
+  return DEFAULT_WIDTH;
+}
 
 interface DocumentSidebarProps {
   documents: any[];
@@ -42,6 +56,32 @@ export function DocumentSidebar({
   const [pasteType, setPasteType] = useState('idea');
   const [pasteText, setPasteText] = useState('');
 
+  // Resizable width
+  const [width, setWidth] = useState(getStoredWidth);
+  const dragging = useRef(false);
+  const startX = useRef(0);
+  const startW = useRef(0);
+
+  const onMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    dragging.current = true;
+    startX.current = e.clientX;
+    startW.current = width;
+    const onMove = (ev: MouseEvent) => {
+      if (!dragging.current) return;
+      const newW = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startW.current + ev.clientX - startX.current));
+      setWidth(newW);
+    };
+    const onUp = () => {
+      dragging.current = false;
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      setWidth(w => { try { localStorage.setItem(STORAGE_KEY, String(w)); } catch {} return w; });
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }, [width]);
+
   const handlePaste = () => {
     if (!pasteText.trim()) return;
     createPaste.mutate({ title: pasteTitle || 'Pasted Document', docType: pasteType, text: pasteText.trim() });
@@ -51,7 +91,9 @@ export function DocumentSidebar({
   };
 
   return (
-    <div className="space-y-3">
+    <div className="relative flex" style={{ width }}>
+      <div className="flex-1 min-w-0 space-y-3">
+    <TooltipProvider delayDuration={300}>
       {/* Documents */}
       <Card>
         <CardHeader className="py-2.5 px-3">
@@ -108,7 +150,17 @@ export function DocumentSidebar({
                 }`}
                 onClick={() => selectDocument(doc.id)}
               >
-                <p className="font-medium text-foreground truncate text-[11px]">{doc.title || doc.file_name}</p>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <p className={`font-medium text-foreground text-[11px] ${
+                      selectedDocId === doc.id ? 'line-clamp-2' : 'truncate'
+                    }`} aria-label={doc.title || doc.file_name}>{doc.title || doc.file_name}</p>
+                  </TooltipTrigger>
+                  <TooltipContent side="right" className="max-w-[300px] text-xs">
+                    <p>{doc.title || doc.file_name}</p>
+                    <p className="text-muted-foreground text-[10px]">{getDocTypeLabel(doc.doc_type)}</p>
+                  </TooltipContent>
+                </Tooltip>
                 <div className="flex items-center justify-between mt-1">
                   <div className="flex items-center gap-1">
                     <Badge variant="outline" className="text-[8px] px-1 py-0">
@@ -212,6 +264,16 @@ export function DocumentSidebar({
           </CardContent>
         </Card>
       )}
+    </TooltipProvider>
+    </div>
+      {/* Resize handle */}
+      <div
+        className="absolute top-0 right-0 w-2 h-full cursor-col-resize flex items-center justify-center hover:bg-primary/10 transition-colors group z-10"
+        onMouseDown={onMouseDown}
+        aria-label="Resize document tray"
+      >
+        <GripVertical className="h-4 w-4 text-muted-foreground/40 group-hover:text-muted-foreground" />
+      </div>
     </div>
   );
 }

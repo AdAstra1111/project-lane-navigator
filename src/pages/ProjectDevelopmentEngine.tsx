@@ -752,11 +752,11 @@ export default function ProjectDevelopmentEngine() {
           <DeliverablePipeline stageStatuses={pipelineStatuses} activeDeliverable={selectedDeliverableType}
             onStageClick={(dt) => setSelectedDeliverableType(dt)} isVerticalDrama={isVerticalDrama} />
 
-          {/* ═══ 3-COLUMN LAYOUT ═══ */}
-          <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
+          {/* ═══ 2-COLUMN FLEX LAYOUT ═══ */}
+          <div className="flex flex-col md:flex-row gap-3">
 
-            {/* ── LEFT: Documents ── */}
-            <div className="md:col-span-2">
+            {/* ── LEFT: Documents (self-sizing via DocumentSidebar) ── */}
+            <div className="shrink-0">
               <DocumentSidebar
                 documents={documents} docsLoading={docsLoading}
                 selectedDocId={selectedDocId} selectDocument={selectDocument}
@@ -832,7 +832,7 @@ export default function ProjectDevelopmentEngine() {
             </div>
 
             {/* ── CENTER: Workspace ── */}
-            <div className="md:col-span-10 space-y-3" style={{ minHeight: 'calc(100vh - 280px)' }}>
+            <div className="flex-1 min-w-0 space-y-3" style={{ minHeight: 'calc(100vh - 280px)' }}>
               {/* Auto-Run Banner */}
               {autoRun.activated && autoRun.job && !['completed'].includes(autoRun.job.status) && (
                 <AutoRunBanner
