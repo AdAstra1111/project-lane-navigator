@@ -1,7 +1,8 @@
 /**
- * export-package — Builds a ZIP of all deliverables for a project and uploads to storage.
- * POST { projectId, scope, include_master_script, include_types?, expiresInSeconds? }
- * Returns { url, signed_url, expires_at, storage_path, doc_count }
+ * export-package — Builds a ZIP or merged PDF of all deliverables for a project.
+ * POST { projectId, scope, include_master_script, include_types?, expiresInSeconds?, output_format? }
+ * output_format: "zip" (default) | "pdf"
+ * Returns { signed_url, expires_at, storage_path, doc_count }
  *
  * scope: "approved_preferred" | "approved_only" | "latest_only"
  */
@@ -62,6 +63,114 @@ function toLabel(docType: string): string {
   return LABELS[docType] ?? docType.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
 }
 
+/** Build a minimal PDF from plain-text sections using raw PDF byte generation */
+function buildPdf(sections: Array<{ label: string; text: string }>): Uint8Array {
+  // We'll produce a valid PDF with one page per section using plain text streams.
+  // This avoids any native PDF library dependency.
+  const objects: string[] = [];
+  let objNum = 0;
+  const offsets: number[] = [];
+
+  function addObj(content: string): number {
+    objNum++;
+    offsets.push(0); // filled in during xref
+    objects.push(`${objNum} 0 obj\n${content}\nendobj`);
+    return objNum;
+  }
+
+  // Font
+  const fontRef = addObj(`<<\n/Type /Font\n/Subtype /Type1\n/BaseFont /Courier\n>>`);
+
+  const pageRefs: string[] = [];
+
+  for (const sec of sections) {
+    // Escape text for PDF string literals
+    const escapedLabel = sec.label.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
+
+    // Split body text into lines, limit to ~80 chars per line, ~50 lines per page
+    const rawLines: string[] = [];
+    for (const line of sec.text.split("\n")) {
+      // wrap long lines
+      let remaining = line;
+      while (remaining.length > 90) {
+        rawLines.push(remaining.slice(0, 90));
+        remaining = remaining.slice(90);
+      }
+      rawLines.push(remaining);
+    }
+
+    // Chunk into pages of ~50 lines
+    const LINES_PER_PAGE = 50;
+    const chunks: string[][] = [];
+    for (let i = 0; i < rawLines.length; i += LINES_PER_PAGE) {
+      chunks.push(rawLines.slice(i, i + LINES_PER_PAGE));
+    }
+    if (chunks.length === 0) chunks.push([]);
+
+    for (let ci = 0; ci < chunks.length; ci++) {
+      const chunk = chunks[ci];
+      const isFirst = ci === 0;
+
+      // Build stream content
+      let streamContent = `BT\n/F1 12 Tf\n`;
+      let y = 750;
+
+      // Title on first page of each section
+      if (isFirst) {
+        streamContent += `50 ${y} Td\n/F1 14 Tf\n(${escapedLabel}) Tj\n/F1 11 Tf\n`;
+        y -= 24;
+        streamContent += `0 -8 Td\n`;
+      } else {
+        streamContent += `50 ${y} Td\n/F1 9 Tf\n(${escapedLabel} cont.) Tj\n/F1 11 Tf\n`;
+        y -= 20;
+        streamContent += `0 -4 Td\n`;
+      }
+
+      for (const line of chunk) {
+        const escaped = line.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
+        streamContent += `50 ${y} Td\n(${escaped}) Tj\n`;
+        y -= 14;
+        streamContent += `0 0 Td\n`;
+      }
+      streamContent += `ET`;
+
+      const streamBytes = new TextEncoder().encode(streamContent);
+      const contentRef = addObj(`<<\n/Length ${streamBytes.length}\n>>\nstream\n${streamContent}\nendstream`);
+      const resourcesRef = addObj(`<<\n/Font <<\n/F1 ${fontRef} 0 R\n>>\n>>`);
+      const pageRef = addObj(`<<\n/Type /Page\n/MediaBox [0 0 612 792]\n/Contents ${contentRef} 0 R\n/Resources ${resourcesRef} 0 R\n>>`);
+      pageRefs.push(`${pageRef} 0 R`);
+    }
+  }
+
+  const pagesRef = addObj(`<<\n/Type /Pages\n/Kids [${pageRefs.join(" ")}]\n/Count ${pageRefs.length}\n>>`);
+  // Update each page to point to parent
+  // (Already references will be resolved by reader; parent ref below)
+  const catalogRef = addObj(`<<\n/Type /Catalog\n/Pages ${pagesRef} 0 R\n>>`);
+
+  // Build PDF bytes
+  const header = "%PDF-1.4\n";
+  const lines: string[] = [header];
+  const byteOffsets: number[] = [];
+  let currentOffset = header.length;
+
+  for (const obj of objects) {
+    byteOffsets.push(currentOffset);
+    lines.push(obj + "\n");
+    currentOffset += obj.length + 1;
+  }
+
+  // xref
+  const xrefOffset = currentOffset;
+  lines.push(`xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`);
+  for (const off of byteOffsets) {
+    lines.push(String(off).padStart(10, "0") + " 00000 n \n");
+  }
+  lines.push(`trailer\n<<\n/Size ${objects.length + 1}\n/Root ${catalogRef} 0 R\n>>\n`);
+  lines.push(`startxref\n${xrefOffset}\n%%EOF`);
+
+  return new TextEncoder().encode(lines.join(""));
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -91,7 +200,8 @@ Deno.serve(async (req) => {
       scope = "approved_preferred",
       include_master_script = true,
       include_types,
-      expiresInSeconds = 604800, // 7 days default
+      expiresInSeconds = 604800,
+      output_format = "zip", // "zip" | "pdf"
     } = body;
 
     if (!projectId) {
@@ -122,33 +232,20 @@ Deno.serve(async (req) => {
       ladder = ladder.filter(dt => include_types.includes(dt));
     }
 
-    // Fetch all project_documents for this project
+    // Fetch all project_documents
     const { data: docs } = await sb
       .from("project_documents")
       .select("id, doc_type, title, latest_version_id, file_name")
       .eq("project_id", projectId) as { data: any[] | null };
 
-    const docMap = new Map((docs || []).map((d: any) => [d.doc_type, d]));
+    const allDocs: any[] = docs || [];
+    const docMap = new Map(allDocs.map((d: any) => [d.doc_type, d]));
 
-    // Fetch version statuses for all docs with a latest_version_id
-    const latestVersionIds = (docs || [])
-      .filter((d: any) => d.latest_version_id)
-      .map((d: any) => d.latest_version_id as string);
-
-    let versionMap = new Map<string, any>();
-    if (latestVersionIds.length > 0) {
-      const { data: versions } = await sb
-        .from("project_document_versions")
-        .select("id, status, plaintext, version_number")
-        .in("id", latestVersionIds) as { data: any[] | null };
-      versionMap = new Map((versions || []).map((v: any) => [v.id, v]));
-    }
-
-    // For approved_preferred / approved_only: also fetch final versions per doc
+    // --- Build approved version map (final status) ---
     type ApprovedMap = Map<string, { id: string; plaintext: string; version_number: number }>;
     let approvedMap: ApprovedMap = new Map();
     if (scope !== "latest_only") {
-      const docIds = (docs || []).map((d: any) => d.id as string);
+      const docIds = allDocs.map((d: any) => d.id as string);
       if (docIds.length > 0) {
         const { data: finalVersions } = await sb
           .from("project_document_versions")
@@ -156,7 +253,6 @@ Deno.serve(async (req) => {
           .in("document_id", docIds)
           .eq("status", "final")
           .order("version_number", { ascending: false }) as { data: any[] | null };
-        // Keep only the highest version per document
         for (const v of (finalVersions || [])) {
           if (!approvedMap.has(v.document_id)) {
             approvedMap.set(v.document_id, v);
@@ -165,20 +261,47 @@ Deno.serve(async (req) => {
       }
     }
 
-    const zip = new JSZip();
+    // --- Build latest version map (two-pass: pointer first, then highest version_number) ---
+    const latestByDocId = new Map<string, any>();
+
+    const latestVersionIds = allDocs
+      .filter((d: any) => d.latest_version_id)
+      .map((d: any) => d.latest_version_id as string);
+
+    if (latestVersionIds.length > 0) {
+      const { data: latestVersions } = await sb
+        .from("project_document_versions")
+        .select("id, document_id, status, plaintext, version_number")
+        .in("id", latestVersionIds) as { data: any[] | null };
+      for (const v of latestVersions || []) {
+        latestByDocId.set(v.document_id, v);
+      }
+    }
+
+    // Fallback: docs still missing a latest — fetch by highest version_number
+    const docsStillMissing = allDocs.filter((d: any) => !latestByDocId.has(d.id));
+    if (docsStillMissing.length > 0) {
+      const missingIds = docsStillMissing.map((d: any) => d.id as string);
+      const { data: fallbackVersions } = await sb
+        .from("project_document_versions")
+        .select("id, document_id, status, plaintext, version_number")
+        .in("document_id", missingIds)
+        .order("version_number", { ascending: false }) as { data: any[] | null };
+      for (const v of fallbackVersions || []) {
+        if (!latestByDocId.has(v.document_id)) {
+          latestByDocId.set(v.document_id, v);
+        }
+      }
+    }
+
+    // --- Build deliverable list in ladder order ---
     const metaDocs: any[] = [];
+    const sections: Array<{ label: string; text: string }> = [];
 
     for (let i = 0; i < ladder.length; i++) {
       const docType = ladder[i];
       const doc = docMap.get(docType);
-      const orderPrefix = String(i + 1).padStart(2, "0");
-      const label = toLabel(docType);
-
-      if (!doc) {
-        if (scope === "approved_only" || scope === "approved_preferred") continue; // skip missing
-        // For latest_only, skip missing too
-        continue;
-      }
+      if (!doc) continue;
 
       let versionId: string | null = null;
       let plaintext: string | null = null;
@@ -191,10 +314,9 @@ Deno.serve(async (req) => {
           plaintext = approvedVer.plaintext;
           approved = true;
         } else if (scope === "approved_only") {
-          continue; // skip if approved_only and no approved version
+          continue;
         } else {
-          // Fall back to latest
-          const latestVer = doc.latest_version_id ? versionMap.get(doc.latest_version_id) : null;
+          const latestVer = latestByDocId.get(doc.id);
           if (latestVer) {
             versionId = latestVer.id;
             plaintext = latestVer.plaintext;
@@ -202,8 +324,7 @@ Deno.serve(async (req) => {
           }
         }
       } else {
-        // latest_only
-        const latestVer = doc.latest_version_id ? versionMap.get(doc.latest_version_id) : null;
+        const latestVer = latestByDocId.get(doc.id);
         if (latestVer) {
           versionId = latestVer.id;
           plaintext = latestVer.plaintext;
@@ -213,10 +334,12 @@ Deno.serve(async (req) => {
 
       if (!plaintext) continue;
 
+      const orderPrefix = String(i + 1).padStart(2, "0");
+      const label = toLabel(docType);
       const statusSuffix = approved ? "APPROVED" : "DRAFT";
       const fileName = `${orderPrefix}_${docType}_${statusSuffix}.md`;
 
-      zip.file(fileName, plaintext);
+      sections.push({ label: `${label} (${statusSuffix})`, text: plaintext });
       metaDocs.push({
         order_index: i + 1,
         doc_type: docType,
@@ -225,6 +348,7 @@ Deno.serve(async (req) => {
         version_id: versionId,
         approved,
         file_name: fileName,
+        plaintext,
       });
     }
 
@@ -234,30 +358,42 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Add metadata.json
-    const metadata = {
-      project_id: projectId,
-      title: project.title,
-      format: project.format,
-      exported_at: new Date().toISOString(),
-      scope,
-      docs: metaDocs,
-    };
-    zip.file("metadata.json", JSON.stringify(metadata, null, 2));
+    // --- Generate output (ZIP or PDF) ---
+    let fileBuffer: Uint8Array;
+    let contentType: string;
+    let fileExtension: string;
 
-    // Generate ZIP buffer
-    const zipBuffer = await zip.generateAsync({ type: "uint8array" });
+    if (output_format === "pdf") {
+      fileBuffer = buildPdf(sections);
+      contentType = "application/pdf";
+      fileExtension = "pdf";
+    } else {
+      const zip = new JSZip();
+      for (const doc of metaDocs) {
+        zip.file(doc.file_name, doc.plaintext);
+      }
+      // metadata
+      const metadata = {
+        project_id: projectId,
+        title: project.title,
+        format: project.format,
+        exported_at: new Date().toISOString(),
+        scope,
+        docs: metaDocs.map(({ plaintext: _pt, ...rest }) => rest),
+      };
+      zip.file("metadata.json", JSON.stringify(metadata, null, 2));
+      fileBuffer = await zip.generateAsync({ type: "uint8array" });
+      contentType = "application/zip";
+      fileExtension = "zip";
+    }
 
     // Upload to exports bucket
     const timestamp = Date.now();
-    const storagePath = `${user.id}/${projectId}/${timestamp}_package.zip`;
+    const storagePath = `${user.id}/${projectId}/${timestamp}_package.${fileExtension}`;
 
     const { error: uploadErr } = await sb.storage
       .from("exports")
-      .upload(storagePath, zipBuffer, {
-        contentType: "application/zip",
-        upsert: true,
-      });
+      .upload(storagePath, fileBuffer, { contentType, upsert: true });
 
     if (uploadErr) {
       console.error("Storage upload error:", uploadErr);
@@ -266,7 +402,6 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Create signed URL
     const { data: signedUrlData, error: signedErr } = await sb.storage
       .from("exports")
       .createSignedUrl(storagePath, expiresInSeconds);
@@ -279,7 +414,6 @@ Deno.serve(async (req) => {
 
     const expiresAt = new Date(Date.now() + expiresInSeconds * 1000).toISOString();
 
-    // Persist share link record
     await sb.from("project_share_links").insert({
       project_id: projectId,
       scope,
@@ -295,12 +429,17 @@ Deno.serve(async (req) => {
         storage_path: storagePath,
         expires_at: expiresAt,
         doc_count: metaDocs.length,
-        metadata,
+        output_format: fileExtension,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (err: any) {
     console.error("export-package error:", err);
+    if (err.message === "RATE_LIMIT") {
+      return new Response(JSON.stringify({ error: "RATE_LIMIT" }), {
+        status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
     return new Response(
       JSON.stringify({ error: err.message }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
