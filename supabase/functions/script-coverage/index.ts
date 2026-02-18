@@ -17,14 +17,15 @@ const FORMAT_LABELS: Record<string, string> = {
   "vertical-drama": "Vertical Drama",
 };
 
-const MAX_SCRIPT_CHARS = 15000;
-// Tier 1: Pro model for deep script/documentary analysis
-const COVERAGE_MODEL = "google/gemini-2.5-pro";
+const MAX_SCRIPT_CHARS = 12000;
+// Use flash model for both passes to stay within edge function time limits
+const COVERAGE_MODEL = "google/gemini-2.5-flash";
 const FAST_MODEL = "google/gemini-2.5-flash";
 
 async function callAI(apiKey: string, systemPrompt: string, userPrompt: string, temperature = 0.25): Promise<string> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 55000); // 55s per call max
+  // 60s per AI call — two calls + DB ops must fit within ~150s edge function limit
+  const timeout = setTimeout(() => controller.abort(), 60000);
 
   try {
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
@@ -38,7 +39,7 @@ async function callAI(apiKey: string, systemPrompt: string, userPrompt: string, 
           { role: "user", content: userPrompt },
         ],
         temperature,
-        max_tokens: 4000,
+        max_tokens: 3000,
       }),
     });
 
@@ -47,11 +48,14 @@ async function callAI(apiKey: string, systemPrompt: string, userPrompt: string, 
       if (response.status === 402) throw new Error("AI usage limit reached. Please add credits.");
       const errText = await response.text();
       console.error("AI gateway error:", response.status, errText);
-      throw new Error("AI analysis failed");
+      throw new Error(`AI analysis failed: ${response.status}`);
     }
 
     const data = await response.json();
     return data.choices?.[0]?.message?.content || "";
+  } catch (err: any) {
+    if (err?.name === "AbortError") throw new Error("Coverage analysis timed out. Try a shorter script excerpt.");
+    throw err;
   } finally {
     clearTimeout(timeout);
   }
@@ -1177,10 +1181,14 @@ Each note: {"note_id":"N-001","section":"string","category":"${formatNoteCategor
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
-  } catch (e) {
+  } catch (e: any) {
     console.error("script-coverage error:", e);
-    return new Response(JSON.stringify({ error: e instanceof Error ? e.message : "Unknown error" }), {
-      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    const msg: string = e instanceof Error ? e.message : "Unknown error";
+    const isPayment = msg.includes("402") || msg.toLowerCase().includes("credits") || msg.toLowerCase().includes("payment");
+    const isRateLimit = msg.includes("429") || msg.toLowerCase().includes("rate limit");
+    const status = isPayment ? 402 : isRateLimit ? 429 : 500;
+    return new Response(JSON.stringify({ error: msg }), {
+      status, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 });
