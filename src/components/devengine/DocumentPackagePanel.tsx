@@ -1,11 +1,16 @@
 import { useState } from 'react';
-import { CheckCircle, Circle, AlertTriangle, FileText, Upload, ChevronRight, RefreshCw } from 'lucide-react';
+import { CheckCircle, Circle, AlertTriangle, Upload, ChevronRight, Share2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { useDocumentPackage } from '@/hooks/useDocumentPackage';
 import { formatDocType } from '@/lib/document-packages';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { PackageBar } from '@/components/devengine/PackageBar';
+import { DownloadPackageButton } from '@/components/devengine/DownloadPackageButton';
+import { ShareWithModal } from '@/components/devengine/ShareWithModal';
+import { useQuery } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
 
 interface Props {
   projectId: string | undefined;
@@ -28,10 +33,27 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 export function DocumentPackagePanel({ projectId }: Props) {
+  const [shareOpen, setShareOpen] = useState(false);
+
   const {
     packageStatus, isLoading, packageReadyPct, canProgress,
     hasStale, currentResolverHash, pipelineStage, productionType, publish,
   } = useDocumentPackage(projectId);
+
+  // Fetch project title + format for sub-components
+  const { data: project } = useQuery({
+    queryKey: ['package-project-meta', projectId],
+    queryFn: async () => {
+      if (!projectId) return null;
+      const { data } = await (supabase as any)
+        .from('projects')
+        .select('id, title, format')
+        .eq('id', projectId)
+        .single();
+      return data;
+    },
+    enabled: !!projectId,
+  });
 
   if (isLoading) {
     return <div className="text-xs text-muted-foreground p-4">Loading package status…</div>;
@@ -40,6 +62,9 @@ export function DocumentPackagePanel({ projectId }: Props) {
   const requiredDocs = packageStatus.filter(d => d.required);
   const optionalDocs = packageStatus.filter(d => !d.required);
   const finalizedDocTypes = packageStatus.filter(d => d.status === 'final' || d.status === 'draft').map(d => d.docType);
+
+  const format = project?.format || productionType || 'film';
+  const projectTitle = project?.title || 'Project';
 
   return (
     <div className="space-y-4">
@@ -58,6 +83,19 @@ export function DocumentPackagePanel({ projectId }: Props) {
 
       {/* Progress bar */}
       <Progress value={packageReadyPct} className="h-2" />
+
+      {/* Canonical Package Bar — driven by stage ladder */}
+      {projectId && (
+        <div className="space-y-1.5">
+          <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+            Deliverable Chain
+          </p>
+          <PackageBar
+            projectId={projectId}
+            format={format}
+          />
+        </div>
+      )}
 
       {/* Stale warning */}
       {hasStale && (
@@ -114,17 +152,34 @@ export function DocumentPackagePanel({ projectId }: Props) {
       )}
 
       {/* Actions */}
-      <div className="flex gap-2 pt-2 border-t border-border">
+      <div className="flex flex-wrap gap-2 pt-2 border-t border-border">
+        {/* Publish Package (existing) */}
         <Button
           variant="outline"
           size="sm"
-          className="text-xs gap-1 flex-1"
+          className="text-xs gap-1"
           disabled={finalizedDocTypes.length === 0 || publish.isPending}
           onClick={() => publish.mutate({ docTypes: finalizedDocTypes })}
         >
           <Upload className="h-3 w-3" />
-          Publish Package
+          Publish
         </Button>
+
+        {/* Download Package (Server ZIP + Quick ZIP) */}
+        {projectId && <DownloadPackageButton projectId={projectId} format={format} />}
+
+        {/* Share with… */}
+        <Button
+          variant="outline"
+          size="sm"
+          className="text-xs gap-1"
+          onClick={() => setShareOpen(true)}
+        >
+          <Share2 className="h-3 w-3" />
+          Share with…
+        </Button>
+
+        {/* Finalize & Progress */}
         <ConfirmDialog
           title="Finalize & Progress"
           description={`This will finalize all required documents and advance to the next stage. ${hasStale ? '⚠️ Some docs are stale — they will be published with outdated qualifications.' : ''}`}
@@ -144,6 +199,16 @@ export function DocumentPackagePanel({ projectId }: Props) {
           </Button>
         </ConfirmDialog>
       </div>
+
+      {/* Share Modal */}
+      {projectId && (
+        <ShareWithModal
+          open={shareOpen}
+          onOpenChange={setShareOpen}
+          projectId={projectId}
+          projectTitle={projectTitle}
+        />
+      )}
     </div>
   );
 }
