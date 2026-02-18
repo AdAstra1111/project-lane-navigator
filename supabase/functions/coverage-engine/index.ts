@@ -329,6 +329,16 @@ Produce the coverage analysis JSON now.`;
 
   } catch (err: any) {
     console.error("Coverage engine error:", err);
+    if (err.message === "RATE_LIMIT") {
+      return new Response(JSON.stringify({ error: "RATE_LIMIT", message: "AI rate limit reached. Please wait a moment and try again." }), {
+        status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    if (err.message === "PAYMENT_REQUIRED") {
+      return new Response(JSON.stringify({ error: "PAYMENT_REQUIRED", message: "AI usage limit reached. Please check your plan." }), {
+        status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
     return new Response(JSON.stringify({ error: err.message || "Internal error" }), {
       status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
