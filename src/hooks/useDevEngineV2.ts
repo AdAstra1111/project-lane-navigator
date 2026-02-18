@@ -30,6 +30,7 @@ export interface DevVersion {
   created_at: string;
   parent_version_id: string | null;
   change_summary: string | null;
+  approval_status: string;
 }
 
 export interface DevRun {
