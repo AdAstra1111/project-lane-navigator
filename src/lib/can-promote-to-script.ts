@@ -117,6 +117,23 @@ export function normalizeDocTypeKey(raw: string | null | undefined): string {
 }
 
 /**
+ * Compute the display name for a document.
+ * ALWAYS derived from the live project title + doc_type label.
+ * Never use stored doc.title or doc.file_name for display.
+ *
+ * Format: "Project Title — Doc Type Label"
+ * Fallback: just the doc type label if no project title available.
+ */
+export function getDocDisplayName(
+  projectTitle: string | null | undefined,
+  docType: string | null | undefined,
+): string {
+  const label = getDocTypeLabel(docType);
+  if (projectTitle?.trim()) return `${projectTitle.trim()} \u2014 ${label}`;
+  return label;
+}
+
+/**
  * Get a human-readable label for any doc_type.
  * NEVER defaults to "Script" — returns "Document" for unknown types.
  */
