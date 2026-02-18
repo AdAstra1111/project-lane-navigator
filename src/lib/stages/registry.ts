@@ -18,7 +18,6 @@ import LADDERS_JSON from '../../../supabase/_shared/stage-ladders.json';
 
 export type DeliverableStage =
   | 'idea'
-  | 'topline_narrative'
   | 'concept_brief'
   | 'market_sheet'
   | 'vertical_market_sheet'
@@ -116,7 +115,6 @@ export function getNearestExistingStage(
 export const DOC_TYPE_TO_LADDER_STAGE: Record<string, DeliverableStage> = {
   // Direct matches
   idea:                    'idea',
-  topline_narrative:       'topline_narrative',
   concept_brief:           'concept_brief',
   market_sheet:            'market_sheet',
   vertical_market_sheet:   'vertical_market_sheet',

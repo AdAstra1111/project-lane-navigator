@@ -20,7 +20,7 @@ import { ScoreSparkline } from '@/components/ScoreSparkline';
 import { LaneBadge } from '@/components/LaneBadge';
 import { PipelineStageSuggestion } from '@/components/PipelineStageSuggestion';
 import { ProjectActivityFeed } from '@/components/project/ProjectActivityFeed';
-import { ToplineNarrativeCard } from '@/components/project/ToplineNarrativeCard';
+
 import { ProjectCollaboratorsPanel } from '@/components/project/ProjectCollaboratorsPanel';
 import { ProjectCommentsThread } from '@/components/project/ProjectCommentsThread';
 import { ProjectTimeline } from '@/components/project/ProjectTimeline';
@@ -152,9 +152,6 @@ export function OverviewDashboard({
           )}
         </div>
       )}
-
-      {/* Topline Narrative Card */}
-      <ToplineNarrativeCard projectId={projectId} />
 
       {/* Legacy Readiness Score */}
       {isTV && tvReadiness ? (
