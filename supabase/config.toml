@@ -158,3 +158,6 @@ verify_jwt = false
 
 [functions.project-folder-engine]
 verify_jwt = false
+
+[functions.infer-criteria]
+verify_jwt = false

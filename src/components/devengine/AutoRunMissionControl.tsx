@@ -253,6 +253,12 @@ export function AutoRunMissionControl({
   const [inferLoading, setInferLoading] = useState(false);
   const [storyAutoFilled, setStoryAutoFilled] = useState(false);
   const inferFiredRef = useRef(false);
+
+  // Reset infer ref when projectId changes so switching projects re-triggers inference
+  useEffect(() => {
+    inferFiredRef.current = false;
+    setStoryAutoFilled(false);
+  }, [projectId]);
   const [quals, setQuals] = useState({ episode_target_duration_min_seconds: 0, episode_target_duration_max_seconds: 0, season_episode_count: 0, target_runtime_min_low: 0, target_runtime_min_high: 0 });
   const [lane, setLane] = useState('');
   const [budget, setBudget] = useState('');
@@ -282,6 +288,7 @@ export function AutoRunMissionControl({
   }, [project, projectPreFilled]);
 
   // ── Auto-infer story setup from project documents (fires once per projectId when activated) ──
+  // inferFiredRef tracks whether we've already fetched for this projectId so we don't loop
   useEffect(() => {
     if (!activated || inferFiredRef.current || !projectId) return;
     inferFiredRef.current = true;
@@ -289,10 +296,17 @@ export function AutoRunMissionControl({
     callInferCriteria(projectId).then(result => {
       if (!result) return;
       const { criteria, sources } = result;
+      // Inference wins: overwrite any field that has a real value from docs/LLM
+      // (method !== 'default'). Default-method values fill blanks only.
       setStorySetup(prev => {
         const merged = { ...prev };
         for (const [key, val] of Object.entries(criteria)) {
-          if (val?.trim() && !merged[key]) merged[key] = val;
+          if (!val?.trim()) continue;
+          const method = sources?.[key]?.method;
+          // Always overwrite if extracted or inferred; only fill blank if default
+          if (method === 'extracted' || method === 'inferred' || !merged[key]) {
+            merged[key] = val;
+          }
         }
         return merged;
       });
@@ -430,13 +444,25 @@ export function AutoRunMissionControl({
   }, [storySetup, mode, startDocument, onSaveStorySetup, onStart]);
 
   const handleReInfer = useCallback(() => {
-    inferFiredRef.current = false;
     setInferLoading(true);
+    setStoryAutoFilled(false);
     callInferCriteria(projectId).then(result => {
-      if (!result) return;
+      if (!result) { setInferLoading(false); return; }
       const { criteria, sources } = result;
-      setStorySetup(criteria as Record<string, string>);
+      // Full overwrite on manual rebuild — replace all fields from docs
+      setStorySetup(prev => {
+        const merged = { ...prev };
+        for (const [key, val] of Object.entries(criteria)) {
+          if (!val?.trim()) continue;
+          const method = sources?.[key]?.method;
+          if (method === 'extracted' || method === 'inferred' || !merged[key]) {
+            merged[key] = val;
+          }
+        }
+        return merged;
+      });
       setStorySources(sources || {});
+      setStoryAutoFilled(true);
     }).finally(() => setInferLoading(false));
   }, [projectId]);
 
