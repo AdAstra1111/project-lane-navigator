@@ -4227,66 +4227,100 @@ ${baseScriptText.slice(0, 30000)}`;
         .eq("id", projectId)
         .single();
 
+      // ── HARD FAIL: no source documents found ──
+      if (contextParts.length === 0) {
+        console.warn(`[dev-engine-v2] topline abort: no source documents found for project ${projectId}`);
+        return new Response(
+          JSON.stringify({ error: "Cannot generate: no source documents found. Please add an Idea, Concept Brief, Market Sheet, or Blueprint to this project first." }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
       const fmt = (projectMeta?.format || "film").toLowerCase().replace(/[_ ]+/g, "-");
       const isSeries = ["tv-series", "limited-series", "vertical-drama", "miniseries", "anthology"].includes(fmt);
 
-      // 3) Generate topline content via AI
-      const toplineSystemPrompt = `You are IFFY, a senior development executive. Generate a professional TOPLINE NARRATIVE document from the provided project context.
+      // ── Build PROJECT FACTS block from real metadata ──
+      const metaBlock = projectMeta
+        ? `PROJECT FACTS:
+- Title: ${projectMeta.title || "Untitled"}
+- Format: ${projectMeta.format || "film"}
+- Genres: ${(projectMeta.genres || []).join(", ") || "unspecified"}
+- Lane: ${projectMeta.assigned_lane || "unspecified"}
+- Budget: ${projectMeta.budget_range || "unspecified"}
+- Tone: ${projectMeta.tone || "unspecified"}
+- Target Audience: ${projectMeta.target_audience || "unspecified"}
+- Comps: ${(projectMeta.comparable_titles || []).join(", ") || "unspecified"}${isSeries ? `\n- Episodes: ${projectMeta.season_episode_count || "TBD"} × ${projectMeta.episode_target_duration_seconds || "TBD"}s` : ""}`
+        : "PROJECT FACTS: (metadata unavailable)";
 
-OUTPUT FORMAT (use these exact headings — the document MUST start with "# Topline Narrative"):
+      const contextBlock = contextParts.join("\n\n");
+
+      // 3) Generate topline content via AI
+      const toplineSystemPrompt = `You are a senior development executive. Your only task is to write a TOPLINE NARRATIVE document using the project facts and source documents provided by the user.
+
+OUTPUT FORMAT — the document MUST start with "# Topline Narrative" and use exactly these headings:
+
 # Topline Narrative
 
 ## Logline
-[1-2 compelling sentences that capture the essence]
+[1–2 compelling, pitch-ready sentences that capture protagonist, goal, and stakes]
 
 ## Short Synopsis
-[150-300 words — the story at a glance]
+[150–300 words — the story at a glance; must stand alone as a complete summary]
 
 ## Long Synopsis
-[1-2 pages — the full narrative arc with key beats, turns, and resolution]
+[300–600 words — full narrative arc with act structure, key turns, and resolution]
 
 ## Story Pillars
-- Theme: [core thematic concern]
-- Protagonist: [name and defining trait]
+- Theme: [core thematic concern drawn from the source docs]
+- Protagonist: [name and defining trait — from source docs only]
 - Goal: [what they want]
 - Stakes: [what happens if they fail]
 - Antagonistic force: [opposition]
 - Setting: [world/time/place]
 - Tone: [emotional register and style]
-- Comps: [2-3 comparable titles]
+- Comps: [2–3 comparable titles from the source docs or project metadata]
 ${isSeries ? `
 ## Series Only
 - Series promise / engine: [what makes this repeatable — the core mechanic that sustains multiple episodes]
-- Season arc snapshot: [the season-level journey in 3-5 sentences]` : ""}
+- Season arc snapshot: [the season-level journey in 3–5 sentences]` : ""}
 
-RULES:
-- Synthesize from the provided context documents — do NOT invent new characters, plot points, or world details.
-- Be concise and specific — this is an executive document, not a creative writing exercise.
-- Logline must be pitch-ready.
-- Short synopsis must stand alone as a complete summary.
-- Long synopsis should include act structure and key dramatic turns.
-- Output ONLY the formatted narrative text. No JSON, no code fences.`;
+STRICT RULES:
+1. Synthesize ONLY from the PROJECT FACTS and CONTEXT DOCUMENTS sections below. Do not invent characters, plot points, or world details absent from those sections.
+2. Output ONLY the formatted document. No preamble, no meta-commentary, no code fences, no JSON.
+3. Every section must reference specifics from the source material. If a section cannot be filled from the provided content, write "[insufficient context — please add source documents]" for that field only.`;
 
-      const contextBlock = contextParts.length > 0
-        ? contextParts.join("\n\n")
-        : "No existing documents found — generate a placeholder template that the user can fill in.";
+      const userPrompt = `${metaBlock}
 
-      const metaBlock = projectMeta
-        ? `PROJECT: ${projectMeta.title || "Untitled"}
-FORMAT: ${projectMeta.format || "film"}
-GENRES: ${(projectMeta.genres || []).join(", ") || "unspecified"}
-LANE: ${projectMeta.assigned_lane || "unspecified"}
-BUDGET: ${projectMeta.budget_range || "unspecified"}
-TONE: ${projectMeta.tone || "unspecified"}
-TARGET AUDIENCE: ${projectMeta.target_audience || "unspecified"}
-COMPS: ${(projectMeta.comparable_titles || []).join(", ") || "unspecified"}
-${isSeries ? `EPISODES: ${projectMeta.season_episode_count || "TBD"} × ${projectMeta.episode_target_duration_seconds || "TBD"}s` : ""}`
-        : "";
-
-      const userPrompt = `${metaBlock}\n\n${globalDirections ? `ADDITIONAL DIRECTIONS: ${globalDirections}\n\n` : ""}CONTEXT DOCUMENTS:\n${contextBlock}`;
+${globalDirections ? `ADDITIONAL DIRECTIONS FROM CREATOR:\n${globalDirections}\n\n` : ""}CONTEXT DOCUMENTS (${contextParts.length} source doc${contextParts.length !== 1 ? "s" : ""}):
+${contextBlock}`;
 
       const raw = await callAI(LOVABLE_API_KEY, PRO_MODEL, toplineSystemPrompt, userPrompt, 0.3, 6000);
-      const generatedText = raw.replace(/^```[\s\S]*?\n/, "").replace(/\n?```\s*$/, "").trim();
+      let generatedText = raw.replace(/^```[\s\S]*?\n/, "").replace(/\n?```\s*$/, "").trim();
+
+      // ── BUG PREVENTION: detect leaked instruction text ──
+      const INSTRUCTION_LEAK_PHRASES = [
+        "You are IFFY", "You are a senior development executive",
+        "REQUIREMENTS", "Fix the", "OUTPUT FORMAT", "STRICT RULES",
+        "CONTEXT DOCUMENTS (", "PROJECT FACTS:", "ADDITIONAL DIRECTIONS FROM CREATOR",
+        "do NOT invent", "Do not invent",
+      ];
+      const hasLeak = INSTRUCTION_LEAK_PHRASES.some(phrase => generatedText.includes(phrase));
+      if (hasLeak) {
+        console.error("[dev-engine-v2] topline: instruction text detected in output — aborting");
+        throw new Error("Generation failed: model returned instruction text instead of the document. Please try again.");
+      }
+
+      // ── Sanity check: output must start with the expected heading ──
+      if (!generatedText.startsWith("# Topline Narrative") && !generatedText.startsWith("# TOPLINE NARRATIVE")) {
+        // Try to extract from the response if there's leading text
+        const idx = generatedText.indexOf("# Topline Narrative");
+        if (idx > 0) {
+          generatedText = generatedText.slice(idx);
+        } else {
+          console.error("[dev-engine-v2] topline: unexpected output format");
+          throw new Error("Generation failed: output did not start with expected heading. Please try again.");
+        }
+      }
 
       // 4) Determine next version number
       const { data: existingVersions } = await supabase
