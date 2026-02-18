@@ -562,6 +562,39 @@ export function SeriesWriterPanel({ projectId }: Props) {
         </div>
       )}
 
+      {/* Stuck episode banner — visible when episodes are stalled from a previous session */}
+      {!isGenerating && episodes.some(ep => ep.status === 'generating') && (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 space-y-2">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+            <span className="text-xs font-semibold text-amber-400">Generation Stalled</span>
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            {episodes.filter(ep => ep.status === 'generating').length === 1
+              ? `EP ${episodes.find(ep => ep.status === 'generating')?.episode_number} is stuck from a previous session.`
+              : `${episodes.filter(ep => ep.status === 'generating').length} episodes are stuck.`}
+            {' '}Reset to retry.
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {episodes.filter(ep => ep.status === 'generating').map(ep => (
+              <Button
+                key={ep.id}
+                variant="outline"
+                size="sm"
+                className="h-7 px-2.5 text-xs gap-1 border-destructive/40 text-destructive hover:bg-destructive/10"
+                onClick={() => resetStuckEpisode.mutate(ep.id)}
+                disabled={resetStuckEpisode.isPending}
+              >
+                {resetStuckEpisode.isPending && resetStuckEpisode.variables === ep.id
+                  ? <Loader2 className="h-3 w-3 animate-spin" />
+                  : <XCircle className="h-3 w-3" />}
+                Reset EP {ep.episode_number}
+              </Button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Series Run Control Bar — always visible when active or paused */}
       <SeriesRunControlBar
         progress={progress}

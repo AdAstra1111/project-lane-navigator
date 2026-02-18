@@ -795,6 +795,39 @@ export default function SeriesWriter() {
                 </div>
               )}
 
+              {/* Stuck episode banner — episodes stuck generating from a previous session */}
+              {!isGenerating && episodes.some(ep => ep.status === 'generating') && (
+                <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0" />
+                    <span className="text-sm font-semibold text-amber-400">Generation Stalled</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {episodes.filter(ep => ep.status === 'generating').length === 1
+                      ? `Episode ${episodes.find(ep => ep.status === 'generating')?.episode_number} is stuck in a generating state from a previous session.`
+                      : `${episodes.filter(ep => ep.status === 'generating').length} episodes are stuck in a generating state from a previous session.`}
+                    {' '}Use "Stop & Reset" to recover them.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {episodes.filter(ep => ep.status === 'generating').map(ep => (
+                      <Button
+                        key={ep.id}
+                        variant="outline"
+                        size="sm"
+                        className="h-7 px-2.5 text-xs gap-1.5 border-destructive/40 text-destructive hover:bg-destructive/10"
+                        onClick={() => resetStuckEpisode.mutate(ep.id)}
+                        disabled={resetStuckEpisode.isPending}
+                      >
+                        {resetStuckEpisode.isPending && resetStuckEpisode.variables === ep.id
+                          ? <Loader2 className="h-3 w-3 animate-spin" />
+                          : <XCircle className="h-3 w-3" />}
+                        Stop & Reset EP {ep.episode_number}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Mission Control Bar — always visible when running/paused/has history */}
               <SeriesRunControlBar
                 progress={progress}
