@@ -46,6 +46,7 @@ const UPSTREAM_DEPS: Record<string, string[]> = {
   vertical_market_sheet: ["idea_brief", "concept_brief"],
   season_scripts_bundle: ["episode_grid", "vertical_episode_beats", "character_bible"],
   future_seasons_map: ["season_arc", "series_overview"],
+  topline_narrative: ["idea", "idea_brief", "concept_brief", "market_sheet", "vertical_market_sheet", "blueprint"],
   budget_topline: ["treatment"],
   finance_plan: ["budget_topline"],
   packaging_targets: ["treatment", "character_bible"],
@@ -226,25 +227,127 @@ D) OUTPUT CONTRACT — At the top of your response, print:
 - Completion Status: COMPLETE (Full Detail) OR COMPLETE (Placeholder Detail)
 - Completeness Check: PASS (no missing sections/slots)`;
 
-    const system = [
-      `You are a professional development document generator for film/TV projects.`,
-      `Generate a ${docType.replace(/_/g, " ")} document for the project "${project.title}".`,
-      `Production type: ${project.format || "film"}`,
-      completenessBlock,
-      qualBlock,
-      styleBlock,
-      additionalContext ? `## CREATIVE DIRECTION (MUST INCORPORATE)\n${additionalContext}` : "",
-      mode === "final" ? "This is a FINAL version — ensure completeness and polish." : "This is a DRAFT — focus on substance over polish.",
-    ].filter(Boolean).join("\n\n");
+    // ── Topline narrative: bespoke system + validator ──────────────────────────
+    const isTopline = docType === "topline_narrative";
 
-    const userPrompt = upstreamContent
-      ? `Using the upstream documents below, generate the ${docType.replace(/_/g, " ")}.\n\n${upstreamContent}`
-      : `Generate the ${docType.replace(/_/g, " ")} from scratch based on the project context.`;
+    let system: string;
+    let userPrompt: string;
+
+    if (isTopline) {
+      // Hard-fail if no source docs exist
+      if (!upstreamContent.trim()) {
+        return new Response(JSON.stringify({
+          error: "no_source_documents",
+          message: "No source documents found (Idea, Concept Brief, Market Sheet, or Blueprint). Add at least one document before generating the Topline Narrative.",
+        }), { status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      const isSeries = resolvedQuals.is_series;
+
+      system = [
+        `You are a senior script editor generating a TOPLINE NARRATIVE document for a ${project.format || "film/TV"} project.`,
+        `Project title: "${project.title}"`,
+        ``,
+        `## OUTPUT FORMAT (USE EXACTLY — no other headings)`,
+        ``,
+        `# TOPLINE NARRATIVE`,
+        ``,
+        `## LOGLINE`,
+        `[Write 1–2 sentences only — ONE crisp logline using the project-specific details below]`,
+        ``,
+        `## SHORT SYNOPSIS`,
+        `[150–300 words. Describe what actually happens: protagonist, goal, conflict, stakes, world. Use project specifics.]`,
+        ``,
+        `## LONG SYNOPSIS`,
+        `[~1–2 pages (400–700 words). Cover the full story arc: setup → escalation → climax → resolution.]`,
+        ``,
+        `## STORY PILLARS`,
+        `- Theme: [core thematic statement specific to this project]`,
+        `- Protagonist: [name, role, specific want vs. need]`,
+        `- Goal: [concrete objective]`,
+        `- Stakes: [specific consequence of failure]`,
+        `- Antagonistic force: [person, system, or internal conflict]`,
+        `- Setting: [world, era, specific environment]`,
+        `- Tone: [tonal descriptors, comps]`,
+        `- Comps: [2–3 real comparable titles with brief rationale]`,
+        isSeries ? `\n## SERIES ONLY\n- Series promise / engine: [the engine that drives episode-to-episode tension]\n- Season arc snapshot: [what changes from ep 1 to season finale]` : "",
+        ``,
+        `## CRITICAL RULES`,
+        `1. FILL EVERY SECTION with project-specific content from the PROJECT FACTS block below.`,
+        `2. NEVER output placeholder brackets like [1–2 sentences] or [Theme:] in the final text.`,
+        `3. NEVER repeat the template instructions — replace them with actual content.`,
+        `4. If context is insufficient for a section, synthesize from what is available. Do not leave any section empty.`,
+        `5. Begin your response DIRECTLY with "# TOPLINE NARRATIVE". No preamble.`,
+        qualBlock,
+        styleBlock,
+      ].filter(Boolean).join("\n");
+
+      userPrompt = `PROJECT FACTS (use these as the primary source of truth):\n${upstreamContent}\n\nGenerate the full Topline Narrative for "${project.title}" now. Replace every template placeholder with real content derived from the project facts above.`;
+    } else {
+      system = [
+        `You are a professional development document generator for film/TV projects.`,
+        `Generate a ${docType.replace(/_/g, " ")} document for the project "${project.title}".`,
+        `Production type: ${project.format || "film"}`,
+        completenessBlock,
+        qualBlock,
+        styleBlock,
+        additionalContext ? `## CREATIVE DIRECTION (MUST INCORPORATE)\n${additionalContext}` : "",
+        mode === "final" ? "This is a FINAL version — ensure completeness and polish." : "This is a DRAFT — focus on substance over polish.",
+      ].filter(Boolean).join("\n\n");
+
+      userPrompt = upstreamContent
+        ? `Using the upstream documents below, generate the ${docType.replace(/_/g, " ")}.\n\n${upstreamContent}`
+        : `Generate the ${docType.replace(/_/g, " ")} from scratch based on the project context.`;
+    }
 
     // 5) Generate content
     let content = await callLLM(apiKey, system, userPrompt);
 
-    // 6) Post-generation validation (FAIL CLOSED for episode count)
+    // 6a) Topline placeholder validator (hard gate — never save template)
+    if (isTopline) {
+      const PLACEHOLDER_PATTERNS = [
+        /\[\s*1[–-]2 sentences\s*\]/i,
+        /\[\s*150[–-]300 words\s*\]/i,
+        /\[\s*~?1[–-]2 pages\s*\]/i,
+        /\[\s*Theme:\s*\]/i,
+        /\[\s*Protagonist:\s*\]/i,
+        /\[\s*Goal:\s*\]/i,
+        /\[\s*Stakes:\s*\]/i,
+        /\[\s*core thematic\s/i,
+        /\[\s*name,\s*role\s/i,
+        /\[\s*concrete objective\s*\]/i,
+        /\[\s*specific consequence\s/i,
+        /\[\s*Write 1[–-]2 sentences\s/i,
+        /\[\s*400[–-]700 words\s*\]/i,
+      ];
+
+      const hasPlaceholders = PLACEHOLDER_PATTERNS.some(p => p.test(content));
+
+      if (hasPlaceholders) {
+        // One retry with even stronger instruction
+        const retrySystem = system + `\n\n⚠️ CRITICAL FAILURE DETECTED: Your previous output contained literal bracket placeholders like [1–2 sentences] or [Theme:]. These are FORBIDDEN. Replace EVERY bracket placeholder with real, project-specific text. DO NOT output any text inside square brackets.`;
+        content = await callLLM(apiKey, retrySystem, userPrompt);
+
+        const stillHasPlaceholders = PLACEHOLDER_PATTERNS.some(p => p.test(content));
+        if (stillHasPlaceholders) {
+          return new Response(JSON.stringify({
+            error: "template_not_filled",
+            message: "Generated content still contains unfilled template placeholders. Generation blocked. Please ensure project context documents exist and retry.",
+          }), { status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+      }
+
+      // Strip any Output Contract header if present (internal instruction, not user content)
+      content = content.replace(/^Deliverable Type:.*?\n/gim, "").replace(/^Completion Status:.*?\n/gim, "").replace(/^Completeness Check:.*?\n/gim, "");
+
+      // Ensure starts with the correct heading
+      if (!content.trimStart().startsWith("# TOPLINE NARRATIVE")) {
+        const match = content.match(/(#\s*TOPLINE NARRATIVE[\s\S]*)/i);
+        if (match) content = match[1];
+      }
+    }
+
+    // 6b) Post-generation validation (FAIL CLOSED for episode count)
     if (resolvedQuals.is_series && resolvedQuals.season_episode_count) {
       const expectedCount = resolvedQuals.season_episode_count;
       // Check for wrong episode counts in the output
