@@ -52,41 +52,61 @@ Deno.serve(async (req) => {
 
     // ── Fetch the note ──
     // note_id may be a real DB UUID or a note_key string from AI analysis JSON.
-    // Try UUID match first; fall back to note_json->>'note_key' lookup.
+    console.log("[resolve-carried-note] looking up note_id:", note_id, "project_id:", project_id);
+
     const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(note_id);
 
     let note: any = null;
 
     if (isUuid) {
-      const { data } = await db
+      const { data, error } = await db
         .from("project_deferred_notes")
         .select("*")
         .eq("id", note_id)
         .eq("project_id", project_id)
         .maybeSingle();
+      console.log("[resolve-carried-note] UUID lookup:", data?.id, "err:", error?.message);
       note = data;
     }
 
-    // Fallback: look up by note_key inside note_json
+    // Fallback: look up by note_key inside note_json using RPC raw query
+    // PostgREST filter syntax for JSONB text extraction: note_json->>note_key (no quotes around key)
     if (!note) {
-      const { data } = await db
+      const { data, error } = await db
         .from("project_deferred_notes")
         .select("*")
         .eq("project_id", project_id)
-        .filter("note_json->>'note_key'", "eq", note_id)
+        .filter("note_json->>note_key", "eq", note_id)
         .maybeSingle();
+      console.log("[resolve-carried-note] note_key filter lookup:", data?.id, "err:", error?.message);
       note = data;
     }
 
     // Second fallback: look up by id field inside note_json
     if (!note) {
-      const { data } = await db
+      const { data, error } = await db
         .from("project_deferred_notes")
         .select("*")
         .eq("project_id", project_id)
-        .filter("note_json->>'id'", "eq", note_id)
+        .filter("note_json->>id", "eq", note_id)
         .maybeSingle();
+      console.log("[resolve-carried-note] note_json id filter lookup:", data?.id, "err:", error?.message);
       note = data;
+    }
+
+    // Final fallback: fetch all project notes and find in-memory
+    if (!note) {
+      const { data: allNotes } = await db
+        .from("project_deferred_notes")
+        .select("*")
+        .eq("project_id", project_id);
+      if (allNotes) {
+        note = allNotes.find((n: any) => {
+          const nj = n.note_json as any;
+          return nj?.note_key === note_id || nj?.id === note_id || n.id === note_id;
+        }) || null;
+      }
+      console.log("[resolve-carried-note] in-memory fallback found:", note?.id);
     }
 
     if (!note) return json({ error: "Note not found" }, 404);
