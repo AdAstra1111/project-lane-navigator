@@ -3,7 +3,7 @@
  * POST { project_id, season_number?, use_approved, episode_ids?, include_episode_titles }
  * Returns { doc_id, version_id, sources, skipped }
  */
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
