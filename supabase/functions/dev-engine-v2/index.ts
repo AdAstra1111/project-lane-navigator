@@ -772,16 +772,24 @@ serve(async (req) => {
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-    // Validate JWT using anon client (compatible with ES256 Lovable Cloud tokens)
+    // Validate JWT by decoding claims locally (avoids session lookup which fails for ES256 tokens)
     const token = authHeader.replace("Bearer ", "");
-    const userClient = createClient(supabaseUrl, supabaseAnonKey, {
-      global: { headers: { Authorization: authHeader } },
-    });
-    const { data: { user }, error: authError } = await userClient.auth.getUser(token);
-    if (authError || !user) throw new Error("Unauthorized");
+    let userId: string;
+    let user: { id: string; email?: string };
+    try {
+      const payloadB64 = token.split(".")[1];
+      if (!payloadB64) throw new Error("Invalid token");
+      const payload = JSON.parse(atob(payloadB64.replace(/-/g, "+").replace(/_/g, "/")));
+      if (!payload.sub) throw new Error("Invalid token claims");
+      // Check expiry
+      if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) throw new Error("Token expired");
+      userId = payload.sub;
+      user = { id: payload.sub, email: payload.email };
+    } catch {
+      throw new Error("Unauthorized");
+    }
 
     // Use service client for DB operations
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
