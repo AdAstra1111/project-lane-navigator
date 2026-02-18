@@ -2050,7 +2050,7 @@ MATERIAL:\n${version.plaintext.slice(0, 20000)}`;
       // Use resolver hash from the resolve result directly
       const convertResolverHash = resolverResult?.resolver_hash || null;
 
-      const { data: newVersion } = await supabase.from("project_document_versions").insert({
+      const { data: newVersion, error: nvErr } = await supabase.from("project_document_versions").insert({
         document_id: newDoc.id,
         version_number: 1,
         label: `Converted from ${srcDoc?.doc_type || "source"}`,
@@ -2063,11 +2063,16 @@ MATERIAL:\n${version.plaintext.slice(0, 20000)}`;
         depends_on: convertDepFields,
         depends_on_resolver_hash: convertResolverHash,
       }).select().single();
+      if (nvErr) {
+        console.error("[dev-engine-v2] convert: version insert error:", nvErr);
+        throw nvErr;
+      }
+      if (!newVersion) throw new Error("Failed to create version for converted document");
 
       await supabase.from("development_runs").insert({
         project_id: projectId,
         document_id: newDoc.id,
-        version_id: newVersion!.id,
+        version_id: newVersion.id,
         user_id: user.id,
         run_type: "CONVERT",
         output_json: { ...parsed, source_document_id: documentId, source_version_id: versionId },
