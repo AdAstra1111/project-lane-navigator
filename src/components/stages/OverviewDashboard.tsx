@@ -30,6 +30,7 @@ import { BudgetAssumptionsPanel } from '@/components/finance/BudgetAssumptionsPa
 import { ProjectProfileCoverage } from '@/components/project/ProjectProfileCoverage';
 import { ActiveProjectFolder } from '@/components/project/ActiveProjectFolder';
 import { PackagingPipelinePanel } from '@/components/PackagingPipelinePanel';
+import { DocumentPackagePanel } from '@/components/devengine/DocumentPackagePanel';
 import { ReconcileBanner } from '@/components/project/ReconcileBanner';
 import { StageGatesPanel } from '@/components/StageGatesPanel';
 import { LIFECYCLE_STAGES, type LifecycleStage, getStageOrder, getStageMeta } from '@/lib/lifecycle-stages';
@@ -272,6 +273,11 @@ export function OverviewDashboard({
 
       {/* Active Project Folder */}
       <ActiveProjectFolder projectId={projectId} />
+
+      {/* Project Package */}
+      <div className="glass-card rounded-xl p-5">
+        <DocumentPackagePanel projectId={projectId} />
+      </div>
 
       {/* Project Profile Coverage */}
       <ProjectProfileCoverage projectId={projectId} format={project.format} />
