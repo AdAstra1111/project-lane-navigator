@@ -167,3 +167,6 @@ verify_jwt = false
 
 [functions.compile-season]
 verify_jwt = false
+
+[functions.season-package]
+verify_jwt = false
