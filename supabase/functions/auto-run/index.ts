@@ -1651,6 +1651,34 @@ Deno.serve(async (req) => {
         return respondWithJob(supabase, jobId);
       }
 
+      // ── SERIES WRITER HARD GATE ──
+      // For episodic formats the "script" stage is owned by Series Writer, not AutoRun.
+      // AutoRun generates everything up through the last pre-script stage (e.g. episode_grid /
+      // vertical_episode_beats), then hands off to Series Writer for versioned episode generation.
+      // AutoRun must NEVER create a new project_document of doc_type "script" for episodic formats.
+      {
+        const _fmtCheck = (job as any)._cached_format_for_guard;  // may be undefined — safe
+        const { data: _projFmtRow } = await supabase.from("projects")
+          .select("format").eq("id", job.project_id).single();
+        const _fmtNorm = (_projFmtRow?.format || "film").toLowerCase().replace(/_/g, "-");
+        const EPISODIC_FORMATS = ["tv-series","limited-series","vertical-drama","digital-series","anim-series"];
+        if (EPISODIC_FORMATS.includes(_fmtNorm) && currentDoc === "script") {
+          await logStep(supabase, jobId, stepCount + 1, currentDoc, "series_writer_handoff",
+            `Episodic format (${_fmtNorm}): "script" stage is owned by Series Writer. AutoRun paused — open Series Writer to generate/revise episodes.`,
+          );
+          await updateJob(supabase, jobId, {
+            step_count: stepCount + 1,
+            status: "paused",
+            stop_reason: "series_writer_required: Episode scripts must be generated via Series Writer to maintain version continuity. Click 'Open Series Writer' to continue.",
+            awaiting_approval: true,
+            approval_type: "series_writer",
+            pending_doc_type: "script",
+            pending_next_doc_type: "series_writer",
+          });
+          return respondWithJob(supabase, jobId, "awaiting-approval");
+        }
+      }
+
       // ── Preflight qualification resolver before every cycle ──
       const { data: project } = await supabase.from("projects")
         .select("title, format, development_behavior, episode_target_duration_seconds, season_episode_count, guardrails_config, assigned_lane, budget_range, genres")

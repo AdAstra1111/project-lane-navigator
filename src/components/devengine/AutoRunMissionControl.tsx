@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -15,7 +16,7 @@ import { toast } from '@/hooks/use-toast';
 import {
   Play, Pause, Square, RotateCcw, Zap, AlertTriangle, CheckCircle2, Loader2,
   Eye, FileText, Copy, Download, ChevronRight, Shield, Rocket, Settings2,
-  HelpCircle, ArrowUpRight, Radio,
+  HelpCircle, ArrowUpRight, Radio, Film,
 } from 'lucide-react';
 import type { AutoRunJob, AutoRunStep, PendingDecision } from '@/hooks/useAutoRun';
 import type { DocumentTextResult } from '@/hooks/useAutoRunMissionControl';
@@ -230,6 +231,7 @@ export function AutoRunMissionControl({
   latestAnalysis, currentDocText, currentDocMeta,
   availableDocuments, project,
 }: AutoRunMissionControlProps) {
+  const navigate = useNavigate();
   const [mode, setMode] = useState('balanced');
   const [safeMode, setSafeMode] = useState(true);
   const [startDocument, setStartDocument] = useState(currentDeliverable as string);
@@ -764,8 +766,40 @@ export function AutoRunMissionControl({
             </CardContent>
           </Card>
 
-          {/* C) Approval Gate */}
-          {job.awaiting_approval && (
+          {/* C) Series Writer Handoff Gate — replaces generic approval when approval_type === "series_writer" */}
+          {job.awaiting_approval && job.approval_type === 'series_writer' && (
+            <Card className="border-primary/40 bg-primary/5">
+              <CardContent className="p-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <Film className="h-5 w-5 text-primary" />
+                  <div>
+                    <h3 className="text-sm font-semibold">Series Writer Required</h3>
+                    <p className="text-[11px] text-muted-foreground">
+                      Episode scripts for series formats must be created and revised through Series Writer to maintain version continuity. AutoRun handles all pre-script stages; Series Writer owns the script stage.
+                    </p>
+                  </div>
+                </div>
+                <div className="p-2 rounded border border-amber-500/20 bg-amber-500/5 text-[10px] text-amber-400">
+                  ⚠ Creating a new script via AutoRun would break version history. Use Series Writer to generate or revise episode scripts.
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    className="h-8 text-xs gap-1.5 flex-1"
+                    onClick={() => navigate(`/projects/${projectId}/series-writer`)}
+                  >
+                    <Film className="h-3.5 w-3.5" /> Open Series Writer
+                  </Button>
+                  <Button variant="destructive" size="sm" className="h-8 text-xs gap-1.5" onClick={onStop}>
+                    <Square className="h-3.5 w-3.5" /> Stop AutoRun
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* C2) Standard Approval Gate — only shown when NOT a series_writer handoff */}
+          {job.awaiting_approval && job.approval_type !== 'series_writer' && (
             <Card className="border-primary/30 bg-primary/5">
               <CardContent className="p-4 space-y-3">
                 <div className="flex items-center gap-2">

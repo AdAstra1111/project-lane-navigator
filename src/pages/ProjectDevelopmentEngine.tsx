@@ -1322,6 +1322,33 @@ export default function ProjectDevelopmentEngine() {
                     onCustomDirectionsChange={setNotesCustomDirections}
                     deferredNotes={deferredNotes}
                     carriedNotes={carriedNotes}
+                    currentDocType={selectedDoc?.doc_type}
+                    currentVersionId={selectedVersionId || undefined}
+                    onResolveCarriedNote={async (noteId, action, extra) => {
+                      const { data: { session } } = await supabase.auth.getSession();
+                      if (!session) { toast.error('Not authenticated'); return; }
+                      const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/resolve-carried-note`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+                        body: JSON.stringify({
+                          note_id: noteId,
+                          project_id: projectId,
+                          action,
+                          current_doc_type: selectedDoc?.doc_type,
+                          current_version_id: selectedVersionId,
+                          patch_content: action === 'apply_patch' ? extra : undefined,
+                        }),
+                      });
+                      const result = await resp.json();
+                      if (!resp.ok) { toast.error(result.error || 'Failed'); return result; }
+                      if (action === 'mark_resolved') toast.success('Note resolved');
+                      if (action === 'dismiss') toast.success('Note dismissed');
+                      if (action === 'apply_patch') {
+                        toast.success('Patch applied — new version created');
+                        qc.invalidateQueries({ queryKey: ['dev-v2-versions', selectedDocId] });
+                      }
+                      return result;
+                    }}
                   />
                 );
               })()}
