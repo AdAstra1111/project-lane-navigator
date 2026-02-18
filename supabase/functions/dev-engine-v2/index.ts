@@ -4432,6 +4432,12 @@ ${contextBlock}`;
         status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+    // Return 200 for "stale version" errors so the UI can handle gracefully without crashing
+    if (msg.includes("Version no longer exists") || msg.includes("Version was deleted") || msg.includes("Version not found")) {
+      return new Response(JSON.stringify({ ok: false, stale_version: true, error: msg }), {
+        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
     return new Response(JSON.stringify({ error: msg }), {
       status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
