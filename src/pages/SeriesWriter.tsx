@@ -1205,6 +1205,16 @@ export default function SeriesWriter() {
                         run={devValidation.devNotesRun || null}
                         notes={devValidation.devNotes}
                         isRunning={devValidation.isDevNotesRunning}
+                        appliedPatches={devValidation.appliedPatches}
+                        isApplyingPatch={devValidation.isApplyingPatch}
+                        onApplyPatch={(patch, applyMode) =>
+                          devValidation.applyDevNotesPatch.mutate({
+                            patch,
+                            episodeScriptId: selectedEpisode?.script_id || null,
+                            noteRunId: devValidation.devNotesRun?.id || null,
+                            applyMode,
+                          })
+                        }
                       />
                     </div>
                   </CardContent>

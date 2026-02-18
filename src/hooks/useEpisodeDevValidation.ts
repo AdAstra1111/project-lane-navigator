@@ -102,6 +102,38 @@ export function useEpisodeDevValidation(projectId: string, episodeNumber: number
   const canonAudit = useCanonAudit(projectId, episodeNumber);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // ── Apply Dev Notes Patch ──────────────────────────────────────────────────
+  const applyDevNotesPatch = useMutation({
+    mutationFn: async (params: {
+      patch: { name: string; where: string; what: string; why: string };
+      episodeScriptId?: string | null;
+      noteRunId?: string | null;
+      applyMode?: 'patch' | 'rewrite';
+    }) => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Not authenticated');
+
+      const resp = await supabase.functions.invoke('canon-audit-apply-fix', {
+        body: {
+          project_id: projectId,
+          episode_number: episodeNumber,
+          episode_script_id: params.episodeScriptId || null,
+          note_id: params.noteRunId || null,
+          patch: params.patch,
+          apply_mode: params.applyMode || 'patch',
+        },
+      });
+      if (resp.error) throw new Error(resp.error.message || 'Apply fix failed');
+      return resp.data;
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['dev-notes-run', projectId, episodeNumber] });
+      qc.invalidateQueries({ queryKey: ['series-episodes', projectId] });
+      toast.success(data?.message || 'Fix applied — new script version created');
+    },
+    onError: (e: Error) => toast.error(`Apply fix failed: ${e.message}`),
+  });
+
   const devNotesKey = ['dev-notes-run', projectId, episodeNumber];
 
   // ── Latest dev notes run ──
@@ -199,6 +231,7 @@ export function useEpisodeDevValidation(projectId: string, episodeNumber: number
   const blockingNotes = devNotes.filter(n => n.tier === 'blocking');
   const highImpactNotes = devNotes.filter(n => n.tier === 'high_impact');
   const polishNotes = devNotes.filter(n => n.tier === 'polish');
+  const appliedPatches = (devNotesRun?.results_json as any)?.applied_patches as Array<{ patch_name: string; applied_at: string; new_script_id: string }> | undefined;
   const isDevNotesRunning = devNotesRun?.status === 'running' || startDevNotes.isPending;
   const isAnyRunning = canonAudit.isRunning || isDevNotesRunning || runAllChecks.isPending;
 
@@ -211,11 +244,15 @@ export function useEpisodeDevValidation(projectId: string, episodeNumber: number
     blockingNotes,
     highImpactNotes,
     polishNotes,
+    appliedPatches,
     isDevNotesRunning,
     devNotesLoading,
     // Combined
     runAllChecks,
     isAnyRunning,
     startDevNotes,
+    // Apply patch
+    applyDevNotesPatch,
+    isApplyingPatch: applyDevNotesPatch.isPending,
   };
 }
