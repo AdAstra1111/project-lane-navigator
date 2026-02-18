@@ -392,7 +392,7 @@ function ScriptReaderDialog({
 
 export function SeriesWriterPanel({ projectId }: Props) {
   const {
-    episodes, deletedEpisodes, showDeleted, setShowDeleted,
+    episodes, allEpisodes, deletedEpisodes, showDeleted, setShowDeleted,
     isLoading, canonSnapshot, canonLoading,
     validations, episodeMetrics, metricsRunning, metricsRunningEp,
     progress, isGenerating, completedCount, runControl,
@@ -613,12 +613,40 @@ export function SeriesWriterPanel({ projectId }: Props) {
         onOpenLastDoc={openLastDoc}
       />
 
-      {/* Episode Grid */}
-      {hasEpisodes && (
+      {/* Episode Grid — shows all episodes including deleted placeholders */}
+      {(hasEpisodes || deletedEpisodes.length > 0) && (
         <ScrollArea className="max-h-[500px]">
           <div className="space-y-1.5">
-            {episodes.map((ep, idx) => {
-              const prevComplete = idx === 0 || episodes[idx - 1].status === 'complete';
+            {allEpisodes.map((ep, idx) => {
+              if (ep.is_deleted) {
+                // Render as a placeholder slot so the user can restore or regenerate
+                return (
+                  <div
+                    key={ep.id}
+                    className="border border-dashed border-border/30 rounded-lg px-3 py-2.5 flex items-center justify-between opacity-50"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-mono text-muted-foreground">
+                        EP {String(ep.episode_number).padStart(2, '0')}
+                      </span>
+                      <span className="text-xs text-muted-foreground italic">— slot available</span>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 text-[10px] gap-1 text-muted-foreground hover:text-foreground"
+                      onClick={() => restoreEpisode.mutate(ep.id)}
+                      disabled={restoreEpisode.isPending}
+                    >
+                      <Undo2 className="h-3 w-3" /> Restore
+                    </Button>
+                  </div>
+                );
+              }
+
+              const activeEpisodes = allEpisodes.filter(e => !e.is_deleted);
+              const activeIdx = activeEpisodes.findIndex(e => e.id === ep.id);
+              const prevComplete = activeIdx === 0 || activeEpisodes[activeIdx - 1]?.status === 'complete';
               const isNextPending = prevComplete && (ep.status === 'pending' || ep.status === 'error' || ep.status === 'invalidated' || ep.status === 'needs_revision');
               const epValidation = validations.find(v => v.episode_id === ep.id);
               return (
@@ -639,33 +667,6 @@ export function SeriesWriterPanel({ projectId }: Props) {
             })}
           </div>
         </ScrollArea>
-      )}
-
-      {/* Deleted Episodes */}
-      {deletedEpisodes.length > 0 && (
-        <div className="space-y-1.5">
-          <button
-            onClick={() => setShowDeleted(!showDeleted)}
-            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <ChevronDown className={`h-3 w-3 transition-transform ${showDeleted ? 'rotate-0' : '-rotate-90'}`} />
-            {deletedEpisodes.length} deleted episode{deletedEpisodes.length > 1 ? 's' : ''}
-          </button>
-          {showDeleted && (
-            <div className="space-y-1 pl-2 border-l border-border/30">
-              {deletedEpisodes.map(ep => (
-                <div key={ep.id} className="flex items-center justify-between px-3 py-1.5 rounded bg-muted/20 text-xs text-muted-foreground">
-                  <span>EP {String(ep.episode_number).padStart(2, '0')} — {ep.title}</span>
-                  <div className="flex items-center gap-1">
-                    <Button variant="ghost" size="sm" className="h-6 px-2 text-[10px] gap-1" onClick={() => restoreEpisode.mutate(ep.id)}>
-                      <Undo2 className="h-3 w-3" /> Restore
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
       )}
 
       {/* Season Health Dashboard */}
