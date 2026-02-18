@@ -55,11 +55,15 @@ export function DownloadPackageButton({ projectId, format, pkg }: Props) {
       if (data?.error) throw new Error(data.error);
       return data as { signed_url: string; doc_count: number; file_name: string };
     },
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
+      const res = await fetch(data.signed_url);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = data.signed_url;
+      a.href = url;
       a.download = data.file_name || 'project_package.zip';
       a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
       toast.success(`Package ready — ${data.doc_count} documents`);
     },
     onError: (err: any) => {
@@ -83,11 +87,15 @@ export function DownloadPackageButton({ projectId, format, pkg }: Props) {
       if (data?.error) throw new Error(data.error);
       return data as { signed_url: string; doc_count: number; file_name: string };
     },
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
+      const res = await fetch(data.signed_url);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = data.signed_url;
+      a.href = url;
       a.download = data.file_name || 'project_package.pdf';
       a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
       toast.success(`PDF ready — ${data.doc_count} documents merged`);
     },
     onError: (err: any) => {
@@ -207,7 +215,7 @@ export function DownloadPackageButton({ projectId, format, pkg }: Props) {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `project_package_${new Date().toISOString().slice(0, 10)}.zip`;
+      a.download = `${(pkg.projectTitle || 'package').replace(/[^a-zA-Z0-9\s-]/g, '').trim().replace(/\s+/g, '_').slice(0, 40)}_${new Date().toISOString().slice(0, 10)}.zip`;
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 5000);
       toast.success(`Quick ZIP ready — ${docCount} documents`);
