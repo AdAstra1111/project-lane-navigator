@@ -280,34 +280,52 @@ Enter Fix Generation Mode. Diagnose the note, identify affected scenes with evid
         }
       }
 
-      // Get the true max version_number to avoid UNIQUE(document_id, version_number) collision
-      const { data: maxVerRow } = await db
-        .from("project_document_versions")
-        .select("version_number")
-        .eq("document_id", ver.document_id)
-        .order("version_number", { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      // Retry insert up to 5 times to handle UNIQUE(document_id, version_number) races
+      let newVer: any = null;
+      let verErr: any = null;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        // Always re-query max version_number inside the loop to get the freshest value
+        const { data: maxVerRow } = await db
+          .from("project_document_versions")
+          .select("version_number")
+          .eq("document_id", ver.document_id)
+          .order("version_number", { ascending: false })
+          .limit(1)
+          .maybeSingle();
 
-      const nextVersionNumber = (maxVerRow?.version_number || ver.version_number || 1) + 1;
-      console.log("[resolve-carried-note] inserting version:", nextVersionNumber, "for doc:", ver.document_id, "by:", userId);
+        const nextVersionNumber = (maxVerRow?.version_number || ver.version_number || 1) + 1;
+        console.log("[resolve-carried-note] attempt", attempt + 1, "inserting version:", nextVersionNumber, "for doc:", ver.document_id, "by:", userId);
 
-      // Write new version using service role (bypasses RLS)
-      const { data: newVer, error: verErr } = await db
-        .from("project_document_versions")
-        .insert({
-          document_id: ver.document_id,
-          version_number: nextVersionNumber,
-          plaintext: newText,
-          label: "Carried-note patch",
-          created_by: userId,
-        })
-        .select("id, version_number")
-        .single();
+        const res = await db
+          .from("project_document_versions")
+          .insert({
+            document_id: ver.document_id,
+            version_number: nextVersionNumber,
+            plaintext: newText,
+            label: "Carried-note patch",
+            created_by: userId,
+          })
+          .select("id, version_number")
+          .single();
+
+        if (!res.error) {
+          newVer = res.data;
+          verErr = null;
+          break;
+        }
+
+        verErr = res.error;
+        console.error("[resolve-carried-note] insert attempt", attempt + 1, "error:", res.error?.message, res.error?.code, res.error?.details);
+
+        // Only retry on unique constraint violations (code 23505)
+        if (res.error?.code !== "23505") break;
+
+        // Small delay before retry
+        await new Promise(r => setTimeout(r, 50 * (attempt + 1)));
+      }
 
       if (verErr || !newVer) {
-        console.error("[resolve-carried-note] insert error:", verErr?.message, verErr?.code, verErr?.details);
-        return json({ error: "Failed to create version", detail: verErr?.message }, 500);
+        return json({ error: "Failed to create version", detail: verErr?.message, code: verErr?.code }, 500);
       }
 
       // Mark note resolved
