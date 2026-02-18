@@ -25,7 +25,7 @@ import { InfoTooltip } from '@/components/InfoTooltip';
 import { useSeriesWriter, type SeriesEpisode, type SeriesProgress } from '@/hooks/useSeriesWriter';
 import { SeasonHealthDashboard } from '@/components/series/SeasonHealthDashboard';
 import { SeriesRunControlBar } from '@/components/series/SeriesRunControlBar';
-import { Trash2, Undo2 } from 'lucide-react';
+import { Trash2, Undo2, RefreshCw } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 
 interface Props {
@@ -399,7 +399,7 @@ export function SeriesWriterPanel({ projectId }: Props) {
     isSeasonComplete, nextEpisode, hasFailedValidation, hasMetricsBlock, isCanonValid,
     createCanonSnapshot, createEpisodes, generateOne, generateAll,
     fetchScriptContent, runEpisodeMetrics,
-    deleteEpisode, restoreEpisode, hardDeleteEpisode, resetStuckEpisode,
+    deleteEpisode, restoreEpisode, clearAndRequeueEpisode, hardDeleteEpisode, resetStuckEpisode,
     pauseGeneration, resumeGeneration, stopGeneration,
   } = useSeriesWriter(projectId);
 
@@ -619,11 +619,14 @@ export function SeriesWriterPanel({ projectId }: Props) {
           <div className="space-y-1.5">
             {allEpisodes.map((ep, idx) => {
               if (ep.is_deleted) {
-                // Render as a placeholder slot so the user can restore or regenerate
+                // Determine if previous active episode is complete (prerequisite for rewrite)
+                const activeEps = allEpisodes.filter(e => !e.is_deleted);
+                const prevActiveEp = activeEps.filter(e => e.episode_number < ep.episode_number).at(-1);
+                const prevDone = !prevActiveEp || prevActiveEp.status === 'complete';
                 return (
                   <div
                     key={ep.id}
-                    className="border border-dashed border-border/30 rounded-lg px-3 py-2.5 flex items-center justify-between opacity-50"
+                    className="border border-dashed border-border/30 rounded-lg px-3 py-2.5 flex items-center justify-between opacity-60"
                   >
                     <div className="flex items-center gap-2">
                       <span className="text-xs font-mono text-muted-foreground">
@@ -631,15 +634,28 @@ export function SeriesWriterPanel({ projectId }: Props) {
                       </span>
                       <span className="text-xs text-muted-foreground italic">— slot available</span>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 px-2 text-[10px] gap-1 text-muted-foreground hover:text-foreground"
-                      onClick={() => restoreEpisode.mutate(ep.id)}
-                      disabled={restoreEpisode.isPending}
-                    >
-                      <Undo2 className="h-3 w-3" /> Restore
-                    </Button>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 px-2 text-[10px] gap-1 text-muted-foreground hover:text-foreground"
+                        onClick={() => restoreEpisode.mutate(ep.id)}
+                        disabled={restoreEpisode.isPending || clearAndRequeueEpisode.isPending}
+                        title="Restore previous content"
+                      >
+                        <Undo2 className="h-3 w-3" /> Restore
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 px-2 text-[10px] gap-1 text-primary hover:text-primary/80"
+                        onClick={() => clearAndRequeueEpisode.mutate(ep.id)}
+                        disabled={!prevDone || clearAndRequeueEpisode.isPending || restoreEpisode.isPending}
+                        title={prevDone ? 'Clear slot and queue for fresh generation' : 'Previous episode must be complete first'}
+                      >
+                        <RefreshCw className="h-3 w-3" /> Rewrite
+                      </Button>
+                    </div>
                   </div>
                 );
               }

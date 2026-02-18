@@ -972,6 +972,35 @@ export function useSeriesWriter(projectId: string) {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  // ── Clear & re-queue a deleted episode slot for fresh generation ──
+  const clearAndRequeueEpisode = useMutation({
+    mutationFn: async (episodeId: string) => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+      const { data: ep, error: fetchErr } = await supabase
+        .from('series_episodes')
+        .select('episode_number')
+        .eq('id', episodeId)
+        .single();
+      if (fetchErr) throw fetchErr;
+      const { error } = await supabase.from('series_episodes').update({
+        is_deleted: false,
+        deleted_at: null,
+        deleted_by: null,
+        status: 'pending',
+        script_id: null,
+        title: `Episode ${ep.episode_number}`,
+        logline: null,
+      }).eq('id', episodeId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      invalidateAll();
+      toast.success('Episode slot cleared — ready to regenerate');
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   // ── Escalate to Dev Engine ──
   const escalateToDevEngine = useMutation({
     mutationFn: async (params: {
@@ -1147,6 +1176,7 @@ export function useSeriesWriter(projectId: string) {
     runEpisodeMetrics,
     deleteEpisode,
     restoreEpisode,
+    clearAndRequeueEpisode,
     hardDeleteEpisode,
     escalateToDevEngine,
     applyPatch,
