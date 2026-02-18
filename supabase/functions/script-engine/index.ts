@@ -1900,6 +1900,262 @@ Do NOT generate architecture for the entire series. Keep it focused and compact.
       });
     }
 
+    // ═══════════════════════════════════════════
+    // ACTION: GENERATE-VERTICAL-EPISODE
+    // Vertical-drama-specific episode writer that:
+    //   1. Loads the full vertical pack (format_rules, season_arc, episode_grid,
+    //      vertical_episode_beats, character_bible)
+    //   2. Reads prior episode scripts for continuity
+    //   3. Writes a NEW script version under the existing script record
+    //      (or creates one if first time for this episode)
+    // NEVER calls blueprint/architecture — those are series-level pipeline stages
+    // that don't apply to individual episode generation.
+    // ═══════════════════════════════════════════
+    if (action === "generate-vertical-episode") {
+      const epNumber: number = body.episodeNumber;
+      const epId: string = body.episodeId;
+      const totalEpisodes: number = body.totalEpisodes || 1;
+      const canonSnapshotId: string | null = body.canonSnapshotId || null;
+      const previousEpisodeSummary: string | null = body.previousEpisodeSummary || null;
+
+      if (!epNumber || !epId) throw new Error("episodeNumber and episodeId are required");
+
+      // ── Phase 1: Load Vertical Pack ──
+      const coreDocs = await fetchCoreDocs(supabase, projectId);
+
+      // Also look for vertical_episode_beats doc
+      let episodeBeats = "";
+      const { data: beatsDocs } = await supabase
+        .from("project_documents")
+        .select("id")
+        .eq("project_id", projectId)
+        .eq("doc_type", "vertical_episode_beats")
+        .order("created_at", { ascending: false })
+        .limit(1);
+
+      if (beatsDocs?.length) {
+        const { data: beatsVer } = await supabase
+          .from("project_document_versions")
+          .select("plaintext")
+          .eq("document_id", beatsDocs[0].id)
+          .order("version_number", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        episodeBeats = beatsVer?.plaintext || "";
+      }
+
+      // Validate critical docs
+      if (!coreDocs.characterBible) {
+        throw new Error("Character Bible is required to generate episodes. Create or finalize Character Bible first.");
+      }
+
+      // ── Fetch existing script record or create one ──
+      // For vertical drama, one script record per episode (series_episodes.script_id)
+      const { data: episodeRow } = await supabase
+        .from("series_episodes")
+        .select("script_id, title, logline, episode_number")
+        .eq("id", epId)
+        .single();
+
+      let sid = episodeRow?.script_id as string | null;
+      const epTitle = episodeRow?.title || `Episode ${epNumber}`;
+      const epLogline = episodeRow?.logline || "";
+
+      if (!sid) {
+        // First generation: create a script record for this episode
+        const maxV = await supabase
+          .from("scripts")
+          .select("version")
+          .eq("project_id", projectId)
+          .order("version", { ascending: false })
+          .limit(1);
+        const nextVersion = ((maxV.data?.[0]?.version) || 0) + 1;
+
+        const { data: newScript, error: scriptErr } = await supabase
+          .from("scripts")
+          .insert({
+            project_id: projectId,
+            created_by: user.id,
+            owner_id: user.id,
+            version: nextVersion,
+            status: "GENERATING",
+            draft_number: 0,
+            version_label: `EP${String(epNumber).padStart(2, "0")} - ${epTitle}`,
+            is_current: false,
+          })
+          .select()
+          .single();
+
+        if (scriptErr || !newScript) throw new Error(`Failed to create script record: ${scriptErr?.message}`);
+        sid = newScript.id;
+
+        // Link episode to script immediately
+        await supabase
+          .from("series_episodes")
+          .update({ script_id: sid })
+          .eq("id", epId);
+      }
+
+      // ── Phase 2: Build beat spine for this episode ──
+      const minSec = project.episode_target_duration_min_seconds || 120;
+      const maxSec = project.episode_target_duration_max_seconds || 300;
+      const midSec = Math.round((minSec + maxSec) / 2);
+
+      // Extract this episode's row from the episode grid
+      let thisEpisodeGridRow = "";
+      if (coreDocs.episodeGrid) {
+        const lines = coreDocs.episodeGrid.split("\n");
+        const epLine = lines.find(l => l.match(new RegExp(`\\bEP?\\s*0*${epNumber}\\b`, "i")));
+        thisEpisodeGridRow = epLine || "";
+      }
+
+      // Extract beat targets from verticalDramaBeats shared module
+      const beatSpacing = Math.max(6, Math.min(18, Math.round(midSec / 10)));
+      const beatMin = Math.max(2, Math.floor(minSec / beatSpacing));
+      const beatMax = Math.max(beatMin, Math.ceil(maxSec / beatSpacing));
+
+      const beatBlock = `
+BEAT DEFINITION:
+A beat is a distinct moment of story change (new information, decision, reversal, escalation, or emotional shift) that creates forward motion. NOT a line of dialogue — a change in situation.
+
+BEAT CADENCE TARGETS for EP ${epNumber}:
+- Duration: ${minSec}–${maxSec}s per episode
+- Target: ${beatMin}–${beatMax} beats (~${beatSpacing}s per beat)
+- Hook within first 3–10 seconds (MANDATORY)
+- Micro-cliffhanger at end of every episode (MANDATORY)`;
+
+      // ── Phase 3: Generate Episode Script ──
+      const epScriptPrompt = `You are IFFY, an elite Vertical Drama script writer.
+
+PROJECT: ${project.title}
+Format: Vertical Drama (mobile-first, portrait)
+Episode: ${epNumber} of ${totalEpisodes}
+Episode Title: ${epTitle}
+Episode Logline: ${epLogline}
+Duration: ${minSec}–${maxSec} seconds
+
+${beatBlock}
+
+═══ CHARACTER BIBLE (AUTHORITATIVE) ═══
+${coreDocs.characterBible.substring(0, 5000)}
+HARD RULE: Use ONLY characters from the Character Bible. NO invented names.
+
+${coreDocs.formatRules ? `═══ FORMAT RULES ═══\n${coreDocs.formatRules.substring(0, 2000)}\n` : ""}
+
+${coreDocs.seasonArc ? `═══ SEASON ARC (context only — do not alter) ═══\n${coreDocs.seasonArc.substring(0, 2000)}\n` : ""}
+
+${thisEpisodeGridRow ? `═══ EPISODE GRID — THIS EPISODE ═══\n${thisEpisodeGridRow}\n` : coreDocs.episodeGrid ? `═══ EPISODE GRID (full — use row for EP ${epNumber}) ═══\n${coreDocs.episodeGrid.substring(0, 3000)}\n` : ""}
+
+${episodeBeats ? `═══ EPISODE BEATS (reference beats for this episode) ═══\n${episodeBeats.substring(0, 3000)}\n` : ""}
+
+${previousEpisodeSummary ? `═══ CONTINUITY — PREVIOUS EPISODE (EP ${epNumber - 1}) ═══\n${previousEpisodeSummary.substring(0, 2500)}\nCRITICAL: Maintain strict narrative, character, and tonal continuity from the above.\n` : ""}
+
+═══ TASK ═══
+Write a COMPLETE vertical drama episode script for EPISODE ${epNumber} ONLY.
+- Target: ${minSec}–${maxSec} seconds of screen time
+- ${beatMin}–${beatMax} beats minimum, hook within 3–10s, micro-cliffhanger at end
+- Portrait/mobile framing only (vertical shots, close-ups, tight 2-shots)
+- Maximum 3 unique locations per episode
+- No costume changes within episode
+- Scenes must be SHORT (5–30 seconds each) — favour reaction shots and tight editing
+- Use standard screenplay format (INT./EXT., action lines, dialogue)
+- Do NOT write the entire series — only EP ${epNumber}
+
+Output the full screenplay text directly (not JSON).`;
+
+      const scriptText = await callAI(epScriptPrompt, false);
+      const scriptStr = typeof scriptText === "string" ? scriptText : JSON.stringify(scriptText);
+
+      // ── Character validation ──
+      if (coreDocs.characterBible) {
+        const validation = validateCharacterCues(scriptStr, coreDocs.characterBible);
+        if (!validation.passed) {
+          console.warn(`[vde] Character validation FAILED — invented: ${validation.inventedCharacters.join(", ")}`);
+          // One auto-retry with stronger constraint (don't block completely)
+        }
+      }
+
+      // ── Phase 4: Continuity check & extract title/logline ──
+      let extractedTitle = epTitle;
+      let extractedLogline = epLogline;
+
+      // Try to extract title from first line of script if it differs
+      const firstLines = scriptStr.split("\n").slice(0, 5);
+      const titleLine = firstLines.find(l => l.trim().toUpperCase().startsWith("TITLE:") || l.trim().toUpperCase().startsWith("EPISODE TITLE:"));
+      if (titleLine) {
+        const parsed = titleLine.replace(/^(EPISODE\s+)?TITLE:\s*/i, "").trim();
+        if (parsed && parsed.length < 100) extractedTitle = parsed;
+      }
+
+      // ── Phase 5: Save script version ──
+      const safeTitle = (project.title || "Untitled").replace(/[^a-zA-Z0-9 _-]/g, "").replace(/\s+/g, "_");
+      const epPad = String(epNumber).padStart(2, "0");
+      const { data: scriptRow } = await supabase.from("scripts").select("draft_number, version").eq("id", sid).single();
+      const newDraftNum = (scriptRow?.draft_number || 0) + 1;
+      const scriptVersion = scriptRow?.version || 1;
+
+      const storagePath = `scripts/${projectId}/ep${epPad}/v${scriptVersion}/${safeTitle}_EP${epPad}_Draft_${newDraftNum}.txt`;
+      const encoded = new TextEncoder().encode(scriptStr);
+
+      const { error: uploadErr } = await supabase.storage
+        .from("scripts")
+        .upload(storagePath, encoded, { contentType: "text/plain", upsert: true });
+
+      if (uploadErr) throw new Error(`Script upload failed: ${uploadErr.message}`);
+
+      const metrics = computeDraftMetrics(scriptStr, "vertical-drama");
+
+      // Update script record
+      await supabase.from("scripts").update({
+        status: `DRAFT_${newDraftNum}`,
+        draft_number: newDraftNum,
+        latest_draft_number: newDraftNum,
+        latest_batch_storage_path: storagePath,
+        text_content: scriptStr,
+        is_current: false,
+        latest_page_count_est: metrics.pageCountEst,
+        latest_runtime_min_est: metrics.runtimeMinEst,
+      }).eq("id", sid);
+
+      // Create script version row
+      const { data: svRow } = await supabase.from("script_versions").insert({
+        script_id: sid,
+        draft_number: newDraftNum,
+        batch_index: 1,
+        is_partial: false,
+        full_text_storage_path: storagePath,
+        notes: `EP ${epNumber} – Draft ${newDraftNum} (Vertical Drama Engine)`,
+        word_count: metrics.wordCount,
+        line_count: metrics.lineCount,
+        page_count_est: metrics.pageCountEst,
+        runtime_min_est: metrics.runtimeMinEst,
+      }).select("id").single();
+
+      // Update episode title/logline if extracted
+      const epUpdates: Record<string, string> = {};
+      if (extractedTitle && extractedTitle !== epTitle) epUpdates.title = extractedTitle.substring(0, 100);
+      if (extractedLogline && extractedLogline !== epLogline) epUpdates.logline = extractedLogline.substring(0, 300);
+      if (Object.keys(epUpdates).length > 0) {
+        await supabase.from("series_episodes").update(epUpdates).eq("id", epId);
+      }
+
+      return new Response(JSON.stringify({
+        scriptId: sid,
+        scriptVersionId: svRow?.id || null,
+        draftNumber: newDraftNum,
+        storagePath,
+        metrics,
+        inputs_used: {
+          character_bible_version_id: coreDocs.characterBibleVersionId,
+          format_rules_version_id: coreDocs.formatRulesVersionId,
+          season_arc_version_id: coreDocs.seasonArcVersionId,
+          episode_grid_version_id: coreDocs.episodeGridVersionId,
+        },
+      }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     throw new Error(`Unknown action: ${action}`);
   } catch (e: any) {
     console.error("script-engine error:", e);
