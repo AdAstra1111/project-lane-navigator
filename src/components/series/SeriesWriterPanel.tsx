@@ -240,7 +240,7 @@ function EpisodeCard({ episode, isActive, isGenerating, disabled, validation, on
             )}
           </div>
           {episode.logline && (
-            <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{episode.logline}</p>
+            <p className="text-xs text-muted-foreground mt-0.5 break-words">{episode.logline}</p>
           )}
           {episode.validation_status === 'needs_revision' && (
             <p className="text-[10px] text-orange-400 mt-0.5 flex items-center gap-1">
