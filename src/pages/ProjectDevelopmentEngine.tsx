@@ -21,7 +21,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   ArrowRight, Play, Loader2, Target, ClipboardPaste, Upload, Sparkles, Plus,
   AlertTriangle, GitBranch, Clock, Film, Pause, Square, RotateCcw, ChevronDown,
-  FileText,
+  FileText, ShieldAlert,
 } from 'lucide-react';
 import { RenameProjectDialog } from '@/components/project/RenameProjectDialog';
 import { useProjects } from '@/hooks/useProjects';
@@ -64,6 +64,8 @@ import { ProvenancePanel } from '@/components/devengine/ProvenancePanel';
 import { ConnectivityBanner } from '@/components/devengine/ConnectivityBanner';
 import { useDocumentPackage } from '@/hooks/useDocumentPackage';
 import { DocAssistantDrawer } from '@/components/devengine/DocAssistantDrawer';
+import { IssuesPanel } from '@/components/devengine/IssuesPanel';
+import { useProjectIssues } from '@/hooks/useProjectIssues';
 
 // ── Main Page ──
 export default function ProjectDevelopmentEngine() {
@@ -1096,6 +1098,10 @@ export default function ProjectDevelopmentEngine() {
           <Tabs value={intelligenceTab} onValueChange={setIntelligenceTab} className="w-full">
              <TabsList className="w-full justify-start bg-muted/30 border border-border/50 h-9 flex-wrap">
               <TabsTrigger value="notes" className="text-xs">Notes & Feedback</TabsTrigger>
+              <TabsTrigger value="issues" className="text-xs flex items-center gap-1">
+                <ShieldAlert className="h-3 w-3" />
+                Issues
+              </TabsTrigger>
               <TabsTrigger value="convergence" className="text-xs">Convergence</TabsTrigger>
               <TabsTrigger value="qualifications" className="text-xs">Qualifications</TabsTrigger>
               <TabsTrigger value="autorun" className="text-xs">Auto-Run</TabsTrigger>
@@ -1288,6 +1294,30 @@ export default function ProjectDevelopmentEngine() {
                     : ''})
                 </Button>
               )}
+            </TabsContent>
+
+            <TabsContent value="issues" className="mt-3">
+              <IssuesPanel
+                projectId={projectId!}
+                docType={selectedDoc?.doc_type}
+                docVersionId={selectedVersionId || undefined}
+                currentText={versionText}
+                latestRunNotes={(() => {
+                  const notes = latestNotes;
+                  if (!notes) return [];
+                  // Extract flat notes array from whatever shape the run returns
+                  const arr = notes.notes || notes.blocking_issues || notes.high_impact || notes.polish || [];
+                  return arr.map((n: any) => ({
+                    category: n.category || 'polish',
+                    severity: n.severity ?? 3,
+                    anchor: n.anchor || n.scene_ref,
+                    summary: n.description || n.note || n.summary || '',
+                    detail: n.detail || n.description || n.note || '',
+                    evidence_snippet: n.evidence,
+                  }));
+                })()}
+                isRunning={generateNotes.isPending || analyze.isPending}
+              />
             </TabsContent>
 
             <TabsContent value="convergence" className="mt-3">
