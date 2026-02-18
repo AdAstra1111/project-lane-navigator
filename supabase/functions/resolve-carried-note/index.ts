@@ -147,15 +147,28 @@ Deno.serve(async (req) => {
     if (action === "ai_patch") {
       if (!current_version_id) return json({ error: "current_version_id required for ai_patch" }, 400);
 
-      // Fetch current document version text (doc_type lives on project_documents, not versions)
-      const { data: ver } = await db
+      // Fetch version (two-step: version → document → doc_type, since doc_type is on project_documents)
+      const { data: ver, error: verFetchErr } = await db
         .from("project_document_versions")
-        .select("plaintext, version_number, document_id, project_documents(doc_type)")
+        .select("plaintext, version_number, document_id")
         .eq("id", current_version_id)
-        .single();
+        .maybeSingle();
 
-      const docText = ver?.plaintext || "";
-      const verDocType = (ver?.project_documents as any)?.doc_type || current_doc_type || "document";
+      console.log("[resolve-carried-note] ai_patch ver lookup:", ver?.document_id, "err:", verFetchErr?.message);
+      if (!ver) return json({ error: "Version not found" }, 404);
+
+      // Fetch doc_type from parent document
+      let verDocType = current_doc_type || "document";
+      if (ver.document_id) {
+        const { data: docRow } = await db
+          .from("project_documents")
+          .select("doc_type")
+          .eq("id", ver.document_id)
+          .maybeSingle();
+        if (docRow?.doc_type) verDocType = docRow.doc_type;
+      }
+
+      const docText = ver.plaintext || "";
       const noteJson = note.note_json as any;
       const noteText = noteJson?.description || noteJson?.note || JSON.stringify(noteJson);
 
@@ -237,16 +250,26 @@ Enter Fix Generation Mode. Diagnose the note, identify affected scenes with evid
         return json({ error: "current_version_id and patch_content required for apply_patch" }, 400);
       }
 
-      // Fetch current doc + version (doc_type lives on project_documents, not versions)
-      const { data: ver } = await db
+      // Fetch version (two-step: version → document → doc_type)
+      const { data: ver, error: verFetchErr } = await db
         .from("project_document_versions")
-        .select("plaintext, version_number, document_id, project_documents(doc_type)")
+        .select("plaintext, version_number, document_id")
         .eq("id", current_version_id)
-        .single();
+        .maybeSingle();
 
+      console.log("[resolve-carried-note] apply_patch ver lookup:", ver?.document_id, "err:", verFetchErr?.message);
       if (!ver) return json({ error: "Version not found" }, 404);
 
-      const applyDocType = (ver.project_documents as any)?.doc_type || current_doc_type || null;
+      // Fetch doc_type from parent document
+      let applyDocType = current_doc_type || null;
+      if (ver.document_id) {
+        const { data: docRow } = await db
+          .from("project_documents")
+          .select("doc_type")
+          .eq("id", ver.document_id)
+          .maybeSingle();
+        if (docRow?.doc_type) applyDocType = docRow.doc_type;
+      }
 
       // Apply find/replace patches in sequence
       let newText = ver.plaintext || "";
@@ -278,7 +301,7 @@ Enter Fix Generation Mode. Diagnose the note, identify affected scenes with evid
       await db.from("project_deferred_notes").update({
         status: "resolved",
         resolved_at: new Date().toISOString(),
-        resolved_in_stage: current_doc_type || applyDocType,
+        resolved_in_stage: applyDocType,
         resolution_method: "ai_patch_applied",
         resolution_summary: `Patch applied to ${applyDocType} v${newVer.version_number}: ${noteText.slice(0, 120)}`,
       }).eq("id", dbId);
@@ -297,3 +320,4 @@ Enter Fix Generation Mode. Diagnose the note, identify affected scenes with evid
     return json({ error: e.message }, 500);
   }
 });
+
