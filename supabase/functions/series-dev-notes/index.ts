@@ -1,11 +1,36 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
-import { callLLM, MODELS, composeSystem, parseJsonSafe } from "../_shared/llm.ts";
+import { callLLM, MODELS, composeSystem } from "../_shared/llm.ts";
 import { fetchCoreDocs } from "../_shared/coreDocs.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
+
+// ─── Safe JSON extractor ─────────────────────────────────────────────────────
+async function safeParse(text: string, apiKey: string): Promise<any> {
+  // Try direct parse first
+  const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/) || text.match(/(\{[\s\S]*\})/);
+  if (jsonMatch) {
+    try { return JSON.parse(jsonMatch[1]); } catch { /* fall through */ }
+  }
+  try { return JSON.parse(text); } catch { /* fall through */ }
+  // Ask LLM to extract JSON
+  const fixResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "google/gemini-3-flash-preview",
+      messages: [
+        { role: "system", content: "Extract the JSON object from this text. Return ONLY the raw JSON, no markdown." },
+        { role: "user", content: text.slice(0, 8000) },
+      ],
+    }),
+  });
+  const fixData = await fixResp.json();
+  const fixText = fixData.choices?.[0]?.message?.content || "{}";
+  try { return JSON.parse(fixText); } catch { return {}; }
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -83,7 +108,7 @@ Deno.serve(async (req) => {
       }
       if (!scriptText) {
         const { data: ep } = await sbAdmin.from("series_episodes")
-          .select("script_id").eq("project_id", projectId).eq("episode_number", episodeNumber).maybeSingle();
+          .select("script_id, title").eq("project_id", projectId).eq("episode_number", episodeNumber).maybeSingle();
         if ((ep as any)?.script_id) {
           const { data: s } = await sbAdmin.from("scripts").select("text_content").eq("id", (ep as any).script_id).maybeSingle();
           scriptText = (s as any)?.text_content || "";
@@ -92,21 +117,19 @@ Deno.serve(async (req) => {
       if (!scriptText) throw new Error(`No script text found for episode ${episodeNumber}`);
       log(`Script: ${scriptText.length} chars`);
 
-      // ── Fetch canon facts for context (enriched) ──
+      // ── Fetch canon facts for prior episodes ──
       const { data: canonFacts } = await sbAdmin.from("series_episode_canon_facts")
         .select("episode_number, recap, facts_json")
         .eq("project_id", projectId)
         .lt("episode_number", episodeNumber)
         .order("episode_number");
 
-      // Build enriched canon context with facts_json, not just recaps
       let canonContext = "";
       let canonLen = 0;
       const MAX_CANON_CHARS = 8000;
       for (const f of (canonFacts || []) as any[]) {
         let block = `EP${f.episode_number}: ${f.recap || ""}`;
-        // Include structured facts if available
-        if (f.facts_json && typeof f.facts_json === 'object') {
+        if (f.facts_json && typeof f.facts_json === "object") {
           const fj = f.facts_json;
           const parts: string[] = [];
           if (fj.characters?.length) parts.push(`Characters: ${JSON.stringify(fj.characters).slice(0, 600)}`);
@@ -114,15 +137,10 @@ Deno.serve(async (req) => {
           if (fj.world_rules?.length) parts.push(`Rules: ${JSON.stringify(fj.world_rules).slice(0, 300)}`);
           if (fj.relationships?.length) parts.push(`Relationships: ${JSON.stringify(fj.relationships).slice(0, 300)}`);
           if (fj.unresolved_threads?.length) parts.push(`Unresolved: ${JSON.stringify(fj.unresolved_threads).slice(0, 300)}`);
-          if (fj.revealed_secrets?.length) parts.push(`Secrets: ${JSON.stringify(fj.revealed_secrets).slice(0, 200)}`);
-          if (fj.injuries?.length || fj.status_changes?.length) {
-            parts.push(`Status: ${JSON.stringify(fj.injuries || fj.status_changes || []).slice(0, 200)}`);
-          }
           if (parts.length) block += `\n  ${parts.join("\n  ")}`;
         }
         block += "\n";
         if (canonLen + block.length > MAX_CANON_CHARS) {
-          // Truncate this block to fit
           const remaining = MAX_CANON_CHARS - canonLen;
           if (remaining > 100) canonContext += block.slice(0, remaining) + "...\n";
           break;
@@ -131,100 +149,166 @@ Deno.serve(async (req) => {
         canonLen += block.length;
       }
 
-      // ── Build dev notes prompt ──
+      // ── Build canon pack blocks ──
       const bibleBlock = coreDocs.characterBible ? `\n## CHARACTER BIBLE\n${coreDocs.characterBible.slice(0, 5000)}` : "";
       const arcBlock = coreDocs.seasonArc ? `\n## SEASON ARC\n${coreDocs.seasonArc.slice(0, 3000)}` : "";
-      const gridBlock = coreDocs.episodeGrid ? `\n## EPISODE GRID\n${coreDocs.episodeGrid.slice(0, 3000)}` : "";
+      const gridBlock = coreDocs.episodeGrid ? `\n## EPISODE GRID\n${coreDocs.episodeGrid.slice(0, 4000)}` : "";
       const formatBlock = coreDocs.formatRules ? `\n## FORMAT RULES\n${coreDocs.formatRules.slice(0, 2000)}` : "";
+      const priorCanonBlock = canonContext ? `\n## PRIOR EPISODE CANON (do not contradict)\n${canonContext}` : "";
 
-      const devNotesSystem = composeSystem({
-        baseSystem: `You are an expert script development executive and story editor. You are giving development notes on Episode ${episodeNumber} of a serialized series.
+      // ── Structured Episode Reviewer System Prompt ──
+      const systemPrompt = composeSystem({
+        baseSystem: `You are IFFY — EPISODE SCRIPT REVIEWER (SERIES-AWARE, EPISODE-SCOPED).
 
-Your job is to provide actionable, specific notes that improve the script while RESPECTING established canon. Do NOT suggest changes that would contradict prior episodes or the character bible.
+GOAL: Review ONLY Episode ${episodeNumber} as a "small part of the whole series".
 
-Analyze the episode for:
-1. STRUCTURE — Act breaks, pacing, scene flow, cold open effectiveness, cliffhanger quality
-2. CHARACTER — Motivation clarity, arc progression, voice consistency, emotional beats
-3. DIALOGUE — Naturalism, subtext usage, exposition handling, distinctive voice per character
-4. PACING — Scene length distribution, tension management, breathing room vs momentum
-5. ENGAGEMENT — Hook strength, retention drivers, curiosity gaps, emotional peaks
-6. CLARITY — Plot logic, unclear references, confusing transitions
+Use the Series Overview / Episode Grid ONLY as:
+(1) a CONTRACT for what Episode ${episodeNumber} must accomplish, and
+(2) CONTINUITY CONSTRAINTS so the episode doesn't break canon.
 
-For EACH note, you MUST set the "canon_safe" field:
-- canon_safe=true: the suggestion does NOT conflict with any established canon facts, character bible, or prior episodes
-- canon_safe=false: the suggestion MIGHT conflict with established canon (explain why in the detail field)
+DO NOT judge Episode ${episodeNumber} for not depicting events assigned to later episodes.
 
-If you are unsure whether a suggestion is canon-safe, set canon_safe=false and explain your uncertainty.
+HARD RULES (NO EXCEPTIONS):
+1) Episode-scoped grading: Grade ONLY against Episode ${episodeNumber}'s grid beats + any "must-plant" items assigned to it. Do NOT critique missing beats that belong to other episodes.
+2) Future pivot references: Mention pivots in later episodes ONLY to evaluate whether Episode ${episodeNumber} contains REQUIRED setup signals assigned to it by the grid. If the grid does NOT assign setup for a pivot to this episode, state: "No setup obligation in Episode ${episodeNumber} for this pivot."
+3) Evidence requirement: Every claim must include evidence from the script (scene heading or ≤20-word quote + approximate location).
+4) Canon conflicts: Only flag conflicts that BREAK canon (character facts, timeline, world rules). Do not demand the episode "deliver the season."
 
-Return ONLY valid JSON:
+OUTPUT STRUCTURE — return ONLY valid JSON with these exact keys:
+
 {
-  "episode": ${episodeNumber},
+  "episode_number": ${episodeNumber},
+  "section_a": {
+    "required_beats": ["beat 1", "beat 2", ...],
+    "must_plant_setups": ["setup 1", ...],
+    "end_state_promise": "what audience should feel/learn by end of this episode"
+  },
+  "section_b": {
+    "beat_checks": [
+      {
+        "beat": "beat description from grid",
+        "status": "PRESENT|PARTIAL|MISSING",
+        "evidence": "scene heading or ≤20-word quote + location",
+        "fix": "specific episode-scoped change if not PRESENT"
+      }
+    ],
+    "setup_checks": [
+      {
+        "setup": "setup item description",
+        "status": "PRESENT|PARTIAL|MISSING|NOT_REQUIRED",
+        "evidence": "evidence or N/A",
+        "fix": "how to plant subtly within this episode"
+      }
+    ]
+  },
+  "section_c": {
+    "cold_open_hook": "assessment of cold open / hook effectiveness",
+    "act_turns": "assessment of act breaks, midpoint, escalation",
+    "climax_button": "does it leave a next-episode pull?",
+    "character_turns": "character turns within this episode only",
+    "pacing": "pacing assessment for vertical drama runtime"
+  },
+  "section_d": {
+    "canon_conflicts": [],
+    "season_alignment": "on track|off track",
+    "alignment_bullets": ["bullet 1", "bullet 2"],
+    "later_pivot_notes": ["note about setup obligation or 'No setup obligation in Episode ${episodeNumber} for this pivot.'"]
+  },
+  "section_e": {
+    "patches": [
+      {
+        "name": "patch name",
+        "where": "scene or sequence",
+        "what": "specific change",
+        "why": "ties back to episode contract item"
+      }
+    ]
+  },
   "overall_grade": "A|B|C|D|F",
   "summary": "2-3 sentence overall assessment",
-  "notes": [
-    {
-      "tier": "blocking|high_impact|polish",
-      "category": "structure|character|dialogue|pacing|engagement|clarity",
-      "title": "short label",
-      "detail": "specific note with scene/line references where possible",
-      "suggestion": "concrete actionable fix",
-      "canon_safe": true
-    }
-  ],
   "strengths": ["what's working well"],
-  "overall_recommendations": "1 paragraph of key priorities"
+  "canon_risk_count": 0,
+  "notes": [],
+  "canon_risk_notes": []
 }
 
 RULES:
-- Maximum 5 notes per tier (blocking, high_impact, polish)
-- "blocking" = issues that prevent the episode from working at all
-- "high_impact" = significant improvements that would elevate quality
-- "polish" = optional refinements
-- Set canon_safe=false if a suggestion might conflict with established canon (and explain why)
-- Be specific: reference scenes, characters, lines where possible
+- Section E: 5–12 concrete, episode-scoped patches only
+- Section B: check every required beat from the grid
+- Never demand later-episode content unless grid assigns it as must-plant for Episode ${episodeNumber}
+- Be decisive, practical, evidence-backed
 - Do NOT hallucinate plot points or characters not in the script
-- Do NOT suggest introducing new characters, locations, or lore that contradicts canon`,
-        guardrailsBlock: "Never suggest changes that contradict established canon facts or the character bible. If uncertain, mark canon_safe=false.",
-        conditioningBlock: canonContext ? `PRIOR EPISODE CANON (for reference only — do not suggest contradicting these):\n${canonContext}` : undefined,
+- "notes" and "canon_risk_notes" arrays are for backward compatibility — populate them from section_b beat_checks that are MISSING/PARTIAL`,
+        guardrailsBlock: "Never suggest changes that contradict established canon facts or the character bible. If uncertain, mark it in canon_risk_notes.",
+        conditioningBlock: priorCanonBlock || undefined,
       });
 
-      const userPrompt = `${bibleBlock}${arcBlock}${gridBlock}${formatBlock}\n\n## EPISODE ${episodeNumber} SCRIPT\n${scriptText.slice(0, 12000)}`;
+      const userPrompt = `${bibleBlock}${arcBlock}${gridBlock}${formatBlock}
 
-      log("Calling AI for dev notes...");
+## EPISODE ${episodeNumber} SCRIPT (TARGET — REVIEW THIS ONLY)
+${scriptText.slice(0, 12000)}`;
+
+      log("Calling AI for structured episode review...");
       const result = await callLLM({
         apiKey, model: MODELS.FAST,
-        system: devNotesSystem,
+        system: systemPrompt,
         user: userPrompt,
-        temperature: 0.2, maxTokens: 6000,
+        temperature: 0.2, maxTokens: 8000,
       });
 
-      const parsed = await parseJsonSafe(result.content, apiKey);
+      const parsed = await safeParse(result.content, apiKey);
 
-      // ── Canon safety validation pass ──
-      const allNotes = parsed.notes || [];
-      const canonSafeNotes: any[] = [];
-      const canonRiskNotes: any[] = [];
+      // ── Backward-compat: ensure notes arrays exist ──
+      if (!parsed.notes) parsed.notes = [];
+      if (!parsed.canon_risk_notes) parsed.canon_risk_notes = [];
+      if (!parsed.canon_risk_count) parsed.canon_risk_count = 0;
+      if (!parsed.overall_grade) parsed.overall_grade = "C";
+      if (!parsed.summary) parsed.summary = "Episode review complete.";
+      if (!parsed.strengths) parsed.strengths = [];
 
-      for (const note of allNotes) {
-        if (note.canon_safe === true) {
-          canonSafeNotes.push(note);
-        } else {
-          // Missing or false — treat as canon risk
-          note.canon_safe = false;
-          canonRiskNotes.push(note);
-        }
-      }
+      // ── Derive legacy notes from section_b for any UI that uses them ──
+      const allBeatChecks = parsed.section_b?.beat_checks || [];
+      const issueNotes = allBeatChecks
+        .filter((b: any) => b.status === "MISSING" || b.status === "PARTIAL")
+        .map((b: any) => ({
+          tier: b.status === "MISSING" ? "blocking" : "high_impact",
+          category: "structure",
+          title: b.beat,
+          detail: `Status: ${b.status}. Evidence: ${b.evidence || "none found."}`,
+          suggestion: b.fix || "",
+          canon_safe: true,
+        }));
 
-      parsed.notes = canonSafeNotes;
-      parsed.canon_risk_notes = canonRiskNotes;
-      parsed.canon_risk_count = canonRiskNotes.length;
+      // Supplement with any section_e patches as polish notes
+      const patchNotes = (parsed.section_e?.patches || []).slice(0, 5).map((p: any) => ({
+        tier: "polish",
+        category: "craft",
+        title: p.name,
+        detail: `${p.where} — ${p.what}`,
+        suggestion: p.why,
+        canon_safe: true,
+      }));
 
-      log(`Dev notes complete: ${canonSafeNotes.length} safe, ${canonRiskNotes.length} canon-risk`);
+      parsed.notes = [...issueNotes, ...patchNotes];
+
+      // Canon risk notes from section_d conflicts
+      const canonConflicts = parsed.section_d?.canon_conflicts || [];
+      parsed.canon_risk_notes = canonConflicts.map((c: any) => ({
+        tier: "blocking",
+        category: "canon",
+        title: typeof c === "string" ? c : (c.issue || "Canon conflict"),
+        detail: typeof c === "string" ? c : (c.evidence || ""),
+        suggestion: typeof c === "string" ? "Resolve canon conflict" : (c.fix || "Resolve conflict"),
+        canon_safe: false,
+      }));
+      parsed.canon_risk_count = parsed.canon_risk_notes.length;
+
+      log(`Episode review complete. Grade: ${parsed.overall_grade}. Beats checked: ${allBeatChecks.length}. Patches: ${parsed.section_e?.patches?.length || 0}.`);
 
       // ── Update run ──
       await sbAdmin.from("series_dev_notes_runs").update({
         status: "completed",
-        summary: parsed.summary || "Dev notes complete",
+        summary: parsed.summary,
         results_json: parsed,
         logs,
         finished_at: new Date().toISOString(),

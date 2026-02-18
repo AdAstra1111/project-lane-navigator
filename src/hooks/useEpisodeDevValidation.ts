@@ -17,6 +17,59 @@ export interface DevNote {
   canon_safe: boolean;
 }
 
+// ── Structured Episode Reviewer Sections ──────────────────────────────────────
+
+export interface BeatCheck {
+  beat: string;
+  status: 'PRESENT' | 'PARTIAL' | 'MISSING';
+  evidence: string;
+  fix: string;
+}
+
+export interface SetupCheck {
+  setup: string;
+  status: 'PRESENT' | 'PARTIAL' | 'MISSING' | 'NOT_REQUIRED';
+  evidence: string;
+  fix: string;
+}
+
+export interface SectionA {
+  required_beats: string[];
+  must_plant_setups: string[];
+  end_state_promise: string;
+}
+
+export interface SectionB {
+  beat_checks: BeatCheck[];
+  setup_checks: SetupCheck[];
+}
+
+export interface SectionC {
+  cold_open_hook: string;
+  act_turns: string;
+  climax_button: string;
+  character_turns: string;
+  pacing: string;
+}
+
+export interface SectionD {
+  canon_conflicts: (string | { issue: string; evidence: string; fix: string })[];
+  season_alignment: 'on track' | 'off track';
+  alignment_bullets: string[];
+  later_pivot_notes: string[];
+}
+
+export interface EpisodePatch {
+  name: string;
+  where: string;
+  what: string;
+  why: string;
+}
+
+export interface SectionE {
+  patches: EpisodePatch[];
+}
+
 export interface DevNotesRun {
   id: string;
   project_id: string;
@@ -25,13 +78,20 @@ export interface DevNotesRun {
   status: 'running' | 'completed' | 'failed';
   summary: string | null;
   results_json: {
+    episode_number?: number;
     overall_grade?: string;
     summary?: string;
+    strengths?: string[];
     notes?: DevNote[];
     canon_risk_notes?: DevNote[];
     canon_risk_count?: number;
-    strengths?: string[];
     overall_recommendations?: string;
+    // Structured sections (new episode reviewer)
+    section_a?: SectionA;
+    section_b?: SectionB;
+    section_c?: SectionC;
+    section_d?: SectionD;
+    section_e?: SectionE;
   };
   created_at: string;
   finished_at: string | null;
@@ -93,9 +153,9 @@ export function useEpisodeDevValidation(projectId: string, episodeNumber: number
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: devNotesKey });
-      toast.success('Dev notes complete');
+      toast.success('Episode review complete');
     },
-    onError: (e: Error) => toast.error(`Dev notes failed: ${e.message}`),
+    onError: (e: Error) => toast.error(`Episode review failed: ${e.message}`),
   });
 
   // ── Combined "run all checks" ──
@@ -104,7 +164,6 @@ export function useEpisodeDevValidation(projectId: string, episodeNumber: number
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error('Not authenticated');
 
-      // Fire both in parallel
       const episodeVersionId = params.episodeScriptId || null;
       const [auditResp, notesResp] = await Promise.allSettled([
         supabase.functions.invoke('series-continuity-audit', {
@@ -118,8 +177,8 @@ export function useEpisodeDevValidation(projectId: string, episodeNumber: number
       const errors: string[] = [];
       if (auditResp.status === 'rejected') errors.push(`Canon: ${auditResp.reason}`);
       else if (auditResp.value.error) errors.push(`Canon: ${auditResp.value.error.message}`);
-      if (notesResp.status === 'rejected') errors.push(`Notes: ${notesResp.reason}`);
-      else if (notesResp.value.error) errors.push(`Notes: ${notesResp.value.error.message}`);
+      if (notesResp.status === 'rejected') errors.push(`Review: ${notesResp.reason}`);
+      else if (notesResp.value.error) errors.push(`Review: ${notesResp.value.error.message}`);
 
       if (errors.length === 2) throw new Error(errors.join('; '));
       if (errors.length === 1) toast.warning(errors[0]);
@@ -146,7 +205,7 @@ export function useEpisodeDevValidation(projectId: string, episodeNumber: number
   return {
     // Canon audit (pass-through)
     canonAudit,
-    // Dev notes
+    // Dev notes / episode review
     devNotesRun,
     devNotes,
     blockingNotes,
