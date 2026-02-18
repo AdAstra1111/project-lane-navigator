@@ -44,12 +44,14 @@ interface DocumentSidebarProps {
   latestVersionMap?: Record<string, string>;
   /** Map of document_id -> approved_version_id */
   approvedVersionMap?: Record<string, string>;
+  /** Current project title — used to prefix display names */
+  projectTitle?: string;
 }
 
 export function DocumentSidebar({
   documents, docsLoading, selectedDocId, selectDocument, deleteDocument, deleteVersion,
   versions, selectedVersionId, setSelectedVersionId, createPaste, latestVersionMap = {},
-  approvedVersionMap = {},
+  approvedVersionMap = {}, projectTitle = '',
 }: DocumentSidebarProps) {
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteTitle, setPasteTitle] = useState('');
@@ -140,6 +142,10 @@ export function DocumentSidebar({
           <div className="max-h-[calc(100vh-420px)] overflow-y-auto space-y-1">
             {documents.map(doc => {
               const hasApproved = !!approvedVersionMap[doc.id];
+              const docTypeLabel = getDocTypeLabel(doc.doc_type);
+              const displayName = projectTitle
+                ? `${projectTitle} — ${docTypeLabel}`
+                : docTypeLabel;
               return (
               <div
                 key={doc.id}
@@ -154,11 +160,11 @@ export function DocumentSidebar({
                   <TooltipTrigger asChild>
                     <p className={`font-medium text-foreground text-[11px] ${
                       selectedDocId === doc.id ? 'line-clamp-2' : 'truncate'
-                    }`} aria-label={doc.title || doc.file_name}>{doc.title || doc.file_name}</p>
+                    }`} aria-label={displayName}>{displayName}</p>
                   </TooltipTrigger>
                   <TooltipContent side="right" className="max-w-[300px] text-xs">
-                    <p>{doc.title || doc.file_name}</p>
-                    <p className="text-muted-foreground text-[10px]">{getDocTypeLabel(doc.doc_type)}</p>
+                    <p>{displayName}</p>
+                    <p className="text-muted-foreground text-[10px]">{docTypeLabel}</p>
                   </TooltipContent>
                 </Tooltip>
                 <div className="flex items-center justify-between mt-1">

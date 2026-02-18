@@ -75,7 +75,7 @@ export default function ProjectDevelopmentEngine() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('projects')
-        .select('format, development_behavior, episode_target_duration_seconds, episode_target_duration_min_seconds, episode_target_duration_max_seconds, season_episode_count, assigned_lane, budget_range, genres, comparable_titles, tone, target_audience, guardrails_config, source_pitch_idea_id')
+        .select('title, format, development_behavior, episode_target_duration_seconds, episode_target_duration_min_seconds, episode_target_duration_max_seconds, season_episode_count, assigned_lane, budget_range, genres, comparable_titles, tone, target_audience, guardrails_config, source_pitch_idea_id')
         .eq('id', projectId!)
         .single();
       if (error) throw error;
@@ -765,6 +765,7 @@ export default function ProjectDevelopmentEngine() {
                 createPaste={createPaste}
                 latestVersionMap={latestVersionMap}
                 approvedVersionMap={approvedVersionMap}
+                projectTitle={(project as any)?.title || ''}
               />
 
               {/* Feature Script Pipeline — only for features */}
