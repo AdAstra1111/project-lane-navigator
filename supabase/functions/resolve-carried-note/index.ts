@@ -51,17 +51,51 @@ Deno.serve(async (req) => {
     if (!note_id || !project_id || !action) return json({ error: "note_id, project_id, and action required" }, 400);
 
     // ── Fetch the note ──
-    const { data: note, error: noteErr } = await db
-      .from("project_deferred_notes")
-      .select("*")
-      .eq("id", note_id)
-      .eq("project_id", project_id)
-      .single();
+    // note_id may be a real DB UUID or a note_key string from AI analysis JSON.
+    // Try UUID match first; fall back to note_json->>'note_key' lookup.
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(note_id);
 
-    if (noteErr || !note) return json({ error: "Note not found" }, 404);
+    let note: any = null;
+
+    if (isUuid) {
+      const { data } = await db
+        .from("project_deferred_notes")
+        .select("*")
+        .eq("id", note_id)
+        .eq("project_id", project_id)
+        .maybeSingle();
+      note = data;
+    }
+
+    // Fallback: look up by note_key inside note_json
+    if (!note) {
+      const { data } = await db
+        .from("project_deferred_notes")
+        .select("*")
+        .eq("project_id", project_id)
+        .filter("note_json->>'note_key'", "eq", note_id)
+        .maybeSingle();
+      note = data;
+    }
+
+    // Second fallback: look up by id field inside note_json
+    if (!note) {
+      const { data } = await db
+        .from("project_deferred_notes")
+        .select("*")
+        .eq("project_id", project_id)
+        .filter("note_json->>'id'", "eq", note_id)
+        .maybeSingle();
+      note = data;
+    }
+
+    if (!note) return json({ error: "Note not found" }, 404);
     if (note.status === "resolved" || note.status === "dismissed") {
       return json({ error: "Note already resolved/dismissed" }, 400);
     }
+
+    // Use the real DB id (note.id) for all updates — note_id param may be a note_key string
+    const dbId = note.id;
 
     // ── mark_resolved ──
     if (action === "mark_resolved") {
@@ -71,7 +105,7 @@ Deno.serve(async (req) => {
         resolved_in_stage: current_doc_type || null,
         resolution_method: "user_marked",
         resolution_summary: "Manually marked resolved",
-      }).eq("id", note_id);
+      }).eq("id", dbId);
 
       return json({ ok: true, action: "mark_resolved" });
     }
@@ -84,7 +118,7 @@ Deno.serve(async (req) => {
         resolved_in_stage: current_doc_type || null,
         resolution_method: "dismissed",
         resolution_summary: "Dismissed by user",
-      }).eq("id", note_id);
+      }).eq("id", dbId);
 
       return json({ ok: true, action: "dismiss" });
     }
@@ -198,7 +232,7 @@ Generate proposed edits to resolve this note in the current document.`;
         resolved_in_stage: current_doc_type || ver.doc_type,
         resolution_method: "ai_patch_applied",
         resolution_summary: `Patch applied to ${ver.doc_type} v${newVer.version_number}: ${noteText.slice(0, 120)}`,
-      }).eq("id", note_id);
+      }).eq("id", dbId);
 
       return json({
         ok: true,
