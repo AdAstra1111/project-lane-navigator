@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, ArrowRight, Check, Loader2, Building2 } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, Loader2, Building2, Lightbulb, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -15,6 +15,7 @@ import { MODE_GENRES, MODE_AUDIENCES, MODE_TONES, MODE_BUDGETS, MODE_COMPARABLE_
 import { FORMAT_META } from '@/lib/mode-engine';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { supabase } from '@/integrations/supabase/client';
 
 const STEPS = ['Basics', 'Material', 'Creative', 'Commercial'];
 
@@ -25,6 +26,8 @@ export default function NewProject() {
   const [step, setStep] = useState(0);
   const [files, setFiles] = useState<File[]>([]);
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
+  const [ideaText, setIdeaText] = useState('');
+  const [ideaLoading, setIdeaLoading] = useState(false);
   const [form, setForm] = useState<ProjectInput>({
     title: '',
     format: 'film',
@@ -77,10 +80,74 @@ export default function NewProject() {
     }
   };
 
+  const handleIdeaCreate = async () => {
+    if (!ideaText.trim()) return;
+    setIdeaLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('idea-to-project', {
+        body: { ideaText: ideaText.trim() },
+      });
+      if (error || data?.error) throw new Error(data?.error || error?.message || 'Failed');
+      toast.success('Project created from your idea!');
+      navigate(`/projects/${data.projectId}`);
+    } catch (err: any) {
+      toast.error('Could not create project', { description: err.message });
+    } finally {
+      setIdeaLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <Header />
       <main className="container max-w-2xl py-10">
+
+        {/* Idea Quick-Create Box */}
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="glass-card rounded-xl p-6 mb-8 border-primary/20 bg-primary/5"
+        >
+          <div className="flex items-start gap-3 mb-3">
+            <div className="h-8 w-8 rounded-full bg-primary/15 flex items-center justify-center shrink-0 mt-0.5">
+              <Lightbulb className="h-4 w-4 text-primary" />
+            </div>
+            <div>
+              <h3 className="font-semibold text-foreground text-sm">Develop a new project from just an idea</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">Paste your notes, logline, or rough concept — AI will extract the details and create a project instantly.</p>
+            </div>
+          </div>
+          <Textarea
+            value={ideaText}
+            onChange={(e) => setIdeaText(e.target.value)}
+            placeholder="e.g. A psychological thriller set in a remote Antarctic research station where a crew of six begins to suspect one of them is not who they claim to be. Low budget, character-driven, practical effects only…"
+            className="bg-background/60 border-border/50 focus:border-primary resize-none mb-3 text-sm"
+            rows={4}
+            maxLength={3000}
+          />
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-muted-foreground">{ideaText.length}/3000 characters</span>
+            <Button
+              onClick={handleIdeaCreate}
+              disabled={ideaText.trim().length < 10 || ideaLoading}
+              size="sm"
+              className="bg-primary text-primary-foreground hover:bg-primary/90 gap-1.5"
+            >
+              {ideaLoading ? (
+                <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Creating project…</>
+              ) : (
+                <><Sparkles className="h-3.5 w-3.5" /> Create Project from Idea</>
+              )}
+            </Button>
+          </div>
+        </motion.div>
+
+        <div className="flex items-center gap-3 mb-8">
+          <div className="flex-1 h-px bg-border/50" />
+          <span className="text-xs text-muted-foreground uppercase tracking-wider">or fill in details manually</span>
+          <div className="flex-1 h-px bg-border/50" />
+        </div>
+
         {/* Progress */}
         <div className="flex items-center gap-2 mb-10">
           {STEPS.map((label, i) => (
