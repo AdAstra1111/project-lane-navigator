@@ -118,11 +118,11 @@ export function useAutoRun(projectId: string | undefined) {
     const MODE_STEPS: Record<string, number> = { fast: 8, balanced: 12, premium: 18 };
 
     try {
-      const result = await callAutoRun('start', {
+    const result = await callAutoRun('start', {
         projectId,
         mode,
         start_document: mappedStart,
-        target_document: 'draft',
+        target_document: 'production_draft',
         max_total_steps: MODE_STEPS[mode] || 12,
       });
       setJob(result.job);
