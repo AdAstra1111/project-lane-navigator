@@ -341,7 +341,7 @@ Deno.serve(async (req) => {
 
       const { data: newDoc, error: docErr } = await sb
         .from("project_documents")
-        .insert({ project_id, user_id: userId, doc_type: "complete_season_script", title: docTitle, file_path: filePath } as any)
+        .insert({ project_id, user_id: userId, doc_type: "complete_season_script", title: docTitle, file_path: filePath, file_name: filePath.split("/").pop()! } as any)
         .select("id")
         .single();
       if (docErr) throw new Error(`Failed to create doc: ${docErr.message}`);

@@ -213,6 +213,7 @@ Deno.serve(async (req) => {
           doc_type: "season_master_script",
           title: docTitle,
           file_path: filePath,
+          file_name: filePath.split("/").pop()!,
         } as any)
         .select("id")
         .single();
