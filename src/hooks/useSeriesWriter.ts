@@ -70,6 +70,20 @@ export interface SeriesProgress {
   error?: string;
 }
 
+export interface PhaseLogEntry {
+  time: string;
+  message: string;
+  isActive: boolean;
+}
+
+export interface RunControlState {
+  status: 'idle' | 'running' | 'paused' | 'stopped' | 'error';
+  lastSavedScriptId: string | null;
+  lastSavedEpisodeId: string | null;
+  lastUpdatedAt: string | null;
+  phaseLog: PhaseLogEntry[];
+}
+
 export type { VerticalEpisodeMetricRow, EpisodeMetrics };
 
 export function useSeriesWriter(projectId: string) {
@@ -77,8 +91,16 @@ export function useSeriesWriter(projectId: string) {
   const [progress, setProgress] = useState<SeriesProgress>({
     currentEpisode: 0, totalEpisodes: 0, phase: 'idle',
   });
+  const [runControl, setRunControl] = useState<RunControlState>({
+    status: 'idle',
+    lastSavedScriptId: null,
+    lastSavedEpisodeId: null,
+    lastUpdatedAt: null,
+    phaseLog: [],
+  });
   const runningRef = useRef(false);
   const stopRequestedRef = useRef(false);
+  const pauseRequestedRef = useRef(false);
   const [, forceRender] = useState(0);
 
   const [metricsRunning, setMetricsRunning] = useState(false);
@@ -326,6 +348,16 @@ export function useSeriesWriter(projectId: string) {
     return result;
   }
 
+  // ── Append to phase log ──
+  function appendPhaseLog(message: string, isActive = true) {
+    const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    setRunControl(prev => ({
+      ...prev,
+      lastUpdatedAt: new Date().toISOString(),
+      phaseLog: [...prev.phaseLog.slice(-30), { time, message, isActive }],
+    }));
+  }
+
   // ── Update episode progress ──
   async function updateEpisodeProgress(episodeId: string, phase: string, status: string, scriptId?: string) {
     const updates: Record<string, any> = {
@@ -335,6 +367,43 @@ export function useSeriesWriter(projectId: string) {
     if (scriptId) updates.script_id = scriptId;
     if (canonSnapshot?.id) updates.canon_snapshot_id = canonSnapshot.id;
     await supabase.from('series_episodes').update(updates).eq('id', episodeId);
+    // Track last saved pointers
+    if (scriptId) {
+      setRunControl(prev => ({
+        ...prev,
+        lastSavedScriptId: scriptId,
+        lastSavedEpisodeId: episodeId,
+        lastUpdatedAt: new Date().toISOString(),
+      }));
+    }
+  }
+
+  // ── Wait while paused ──
+  async function waitIfPaused(episodeId: string, episodeNumber: number) {
+    if (!pauseRequestedRef.current) return false; // not paused
+    // Persist paused state to DB
+    await supabase.from('series_episodes').update({
+      generation_progress: { phase: 'paused', updatedAt: new Date().toISOString() },
+      status: 'generating',
+    }).eq('id', episodeId);
+    setRunControl(prev => ({ ...prev, status: 'paused' }));
+    setProgress(prev => ({ ...prev, phase: 'paused' as any }));
+    appendPhaseLog(`⏸ Paused at EP ${episodeNumber} — waiting for Resume`, false);
+
+    // Poll until resumed or stopped
+    await new Promise<void>(resolve => {
+      const interval = setInterval(() => {
+        if (!pauseRequestedRef.current || stopRequestedRef.current) {
+          clearInterval(interval);
+          resolve();
+        }
+      }, 500);
+    });
+
+    if (stopRequestedRef.current) return true; // caller should abort
+    setRunControl(prev => ({ ...prev, status: 'running' }));
+    appendPhaseLog(`▶ Resumed EP ${episodeNumber}`, true);
+    return false;
   }
 
   // ── Validate episode after generation ──
@@ -408,7 +477,9 @@ export function useSeriesWriter(projectId: string) {
     }
     runningRef.current = true;
     stopRequestedRef.current = false;
+    pauseRequestedRef.current = false;
     forceRender(n => n + 1);
+    setRunControl(prev => ({ ...prev, status: 'running', phaseLog: [] }));
     setProgress({ currentEpisode: episode.episode_number, totalEpisodes: 1, phase: 'blueprint' });
 
     try {
@@ -482,6 +553,7 @@ export function useSeriesWriter(projectId: string) {
         canonSnapshotId: canonSnapshot?.id,
       };
 
+      appendPhaseLog(`EP ${episode.episode_number} — Blueprint`);
       await updateEpisodeProgress(episode.id, 'blueprint', 'generating');
       const bpResult = await callEngine('blueprint', projectId, undefined, { forceNew: true, ...episodeContext });
       if (stopRequestedRef.current) throw new Error('Generation stopped by user');
@@ -509,44 +581,58 @@ export function useSeriesWriter(projectId: string) {
         }
       }
 
+      if (await waitIfPaused(episode.id, episode.episode_number)) throw new Error('Generation stopped by user');
+
       setProgress({ currentEpisode: episode.episode_number, totalEpisodes: 1, phase: 'architecture' });
+      appendPhaseLog(`EP ${episode.episode_number} — Architecture`);
       await updateEpisodeProgress(episode.id, 'architecture', 'generating');
       await callEngine('architecture', projectId, scriptId, episodeContext);
       if (stopRequestedRef.current) throw new Error('Generation stopped by user');
+      if (await waitIfPaused(episode.id, episode.episode_number)) throw new Error('Generation stopped by user');
 
       setProgress({ currentEpisode: episode.episode_number, totalEpisodes: 1, phase: 'draft' });
+      appendPhaseLog(`EP ${episode.episode_number} — Writing Draft`);
       await updateEpisodeProgress(episode.id, 'draft', 'generating');
       await callEngine('draft', projectId, scriptId, episodeContext);
       if (stopRequestedRef.current) throw new Error('Generation stopped by user');
+      if (await waitIfPaused(episode.id, episode.episode_number)) throw new Error('Generation stopped by user');
 
       setProgress({ currentEpisode: episode.episode_number, totalEpisodes: 1, phase: 'score' });
+      appendPhaseLog(`EP ${episode.episode_number} — Scoring`);
       await updateEpisodeProgress(episode.id, 'score', 'generating');
       await callEngine('score', projectId, scriptId, episodeContext);
       if (stopRequestedRef.current) throw new Error('Generation stopped by user');
 
       // Validate
       setProgress({ currentEpisode: episode.episode_number, totalEpisodes: 1, phase: 'validate' });
+      appendPhaseLog(`EP ${episode.episode_number} — Validating`);
       const passed = await validateEpisode(episode, scriptId);
 
       // Run metrics scoring
       setProgress({ currentEpisode: episode.episode_number, totalEpisodes: 1, phase: 'metrics' });
+      appendPhaseLog(`EP ${episode.episode_number} — Metrics`);
       await runEpisodeMetrics(episode.episode_number, scriptId);
 
       await updateEpisodeProgress(episode.id, 'complete', passed ? 'complete' : 'needs_revision');
+      appendPhaseLog(`EP ${episode.episode_number} — ${passed ? 'Complete ✓' : 'Needs Revision ⚠'}`, false);
       toast.success(`Episode ${episode.episode_number} generated${!passed ? ' (needs revision)' : ''}`);
     } catch (err: any) {
       const stopped = stopRequestedRef.current;
       console.error(`Episode ${episode.episode_number} generation ${stopped ? 'stopped' : 'failed'}:`, err);
       await updateEpisodeProgress(episode.id, 'error', stopped ? 'pending' : 'error');
       setProgress({ currentEpisode: episode.episode_number, totalEpisodes: 1, phase: stopped ? 'idle' : 'error', error: stopped ? undefined : err.message });
+      setRunControl(prev => ({ ...prev, status: stopped ? 'stopped' : 'error' }));
       if (stopped) toast.info('Generation stopped');
       else toast.error(`Episode ${episode.episode_number} failed: ${err.message}`);
     }
 
-    setProgress(prev => ({ ...prev, phase: stopRequestedRef.current ? 'idle' : 'complete' }));
+    const wasStopped = stopRequestedRef.current;
+    setProgress(prev => ({ ...prev, phase: wasStopped ? 'idle' : 'complete' }));
+    if (!wasStopped) setRunControl(prev => ({ ...prev, status: 'idle' }));
     invalidateAll();
     runningRef.current = false;
     stopRequestedRef.current = false;
+    pauseRequestedRef.current = false;
     forceRender(n => n + 1);
   }, [projectId, canonSnapshot]);
 
@@ -558,7 +644,9 @@ export function useSeriesWriter(projectId: string) {
     }
     runningRef.current = true;
     stopRequestedRef.current = false;
+    pauseRequestedRef.current = false;
     forceRender(n => n + 1);
+    setRunControl(prev => ({ ...prev, status: 'running', phaseLog: [] }));
 
     const { data: freshEpisodes, error: fetchErr } = await supabase
       .from('series_episodes')
@@ -569,6 +657,7 @@ export function useSeriesWriter(projectId: string) {
     if (fetchErr || !freshEpisodes?.length) {
       toast.error('No episodes to generate');
       runningRef.current = false;
+      setRunControl(prev => ({ ...prev, status: 'idle' }));
       return;
     }
 
@@ -600,6 +689,7 @@ export function useSeriesWriter(projectId: string) {
       setProgress({ currentEpisode: ep.episode_number, totalEpisodes: total, phase: 'blueprint' });
 
       try {
+        appendPhaseLog(`EP ${ep.episode_number} — Blueprint`);
         await updateEpisodeProgress(ep.id, 'blueprint', 'generating');
         const bpResult = await callEngine('blueprint', projectId, undefined, { forceNew: true, ...episodeContext });
         const scriptId = bpResult.scriptId;
@@ -625,24 +715,35 @@ export function useSeriesWriter(projectId: string) {
             await supabase.from('series_episodes').update(updates).eq('id', ep.id);
           }
         }
+        if (await waitIfPaused(ep.id, ep.episode_number)) break;
 
         setProgress({ currentEpisode: ep.episode_number, totalEpisodes: total, phase: 'architecture' });
+        appendPhaseLog(`EP ${ep.episode_number} — Architecture`);
         await updateEpisodeProgress(ep.id, 'architecture', 'generating');
         await callEngine('architecture', projectId, scriptId, episodeContext);
+        if (stopRequestedRef.current) break;
+        if (await waitIfPaused(ep.id, ep.episode_number)) break;
 
         setProgress({ currentEpisode: ep.episode_number, totalEpisodes: total, phase: 'draft' });
+        appendPhaseLog(`EP ${ep.episode_number} — Writing Draft`);
         await updateEpisodeProgress(ep.id, 'draft', 'generating');
         await callEngine('draft', projectId, scriptId, episodeContext);
+        if (stopRequestedRef.current) break;
+        if (await waitIfPaused(ep.id, ep.episode_number)) break;
 
         setProgress({ currentEpisode: ep.episode_number, totalEpisodes: total, phase: 'score' });
+        appendPhaseLog(`EP ${ep.episode_number} — Scoring`);
         await updateEpisodeProgress(ep.id, 'score', 'generating');
         await callEngine('score', projectId, scriptId, episodeContext);
+        if (stopRequestedRef.current) break;
 
         // Validate
         setProgress({ currentEpisode: ep.episode_number, totalEpisodes: total, phase: 'validate' });
+        appendPhaseLog(`EP ${ep.episode_number} — Validating`);
         const passed = await validateEpisode(ep as SeriesEpisode, scriptId);
 
         await updateEpisodeProgress(ep.id, 'complete', passed ? 'complete' : 'needs_revision');
+        appendPhaseLog(`EP ${ep.episode_number} — ${passed ? 'Complete ✓' : 'Needs Revision ⚠'}`, false);
         invalidateAll();
 
         if (!passed) {
@@ -650,11 +751,13 @@ export function useSeriesWriter(projectId: string) {
           break;
         }
       } catch (err: any) {
+        const stopped = stopRequestedRef.current;
         console.error(`Episode ${ep.episode_number} generation failed:`, err);
-        await updateEpisodeProgress(ep.id, 'error', 'error');
-        setProgress({ currentEpisode: ep.episode_number, totalEpisodes: total, phase: 'error', error: err.message });
-        toast.error(`Episode ${ep.episode_number} failed: ${err.message}`);
-        break; // Stop on error
+        await updateEpisodeProgress(ep.id, 'error', stopped ? 'pending' : 'error');
+        setProgress({ currentEpisode: ep.episode_number, totalEpisodes: total, phase: stopped ? 'idle' : 'error', error: stopped ? undefined : err.message });
+        setRunControl(prev => ({ ...prev, status: stopped ? 'stopped' : 'error' }));
+        if (!stopped) toast.error(`Episode ${ep.episode_number} failed: ${err.message}`);
+        break;
       }
     }
 
@@ -668,10 +771,15 @@ export function useSeriesWriter(projectId: string) {
       toast.success('Season generation complete!');
     }
 
-    setProgress(prev => ({ ...prev, phase: stopRequestedRef.current ? 'idle' : 'complete' }));
+    const wasStopped = stopRequestedRef.current;
+    setProgress(prev => ({ ...prev, phase: wasStopped ? 'idle' : 'complete' }));
+    if (!wasStopped && !pauseRequestedRef.current) {
+      setRunControl(prev => ({ ...prev, status: 'idle' }));
+    }
     invalidateAll();
     runningRef.current = false;
     stopRequestedRef.current = false;
+    pauseRequestedRef.current = false;
     forceRender(n => n + 1);
   }, [projectId, canonSnapshot]);
 
@@ -757,14 +865,31 @@ export function useSeriesWriter(projectId: string) {
 
   const stopGeneration = useCallback(() => {
     stopRequestedRef.current = true;
+    pauseRequestedRef.current = false; // release any pause-wait loop
+    runningRef.current = false;
+    setRunControl(prev => ({ ...prev, status: 'stopped' }));
+    forceRender(n => n + 1);
     toast.info('Stopping after current phase completes…');
+  }, []);
+
+  const pauseGeneration = useCallback(() => {
+    if (!runningRef.current) return;
+    pauseRequestedRef.current = true;
+    setRunControl(prev => ({ ...prev, status: 'paused' }));
+    toast.info('Pausing after current phase completes…');
+  }, []);
+
+  const resumeGeneration = useCallback(() => {
+    pauseRequestedRef.current = false;
+    setRunControl(prev => ({ ...prev, status: 'running' }));
+    toast.info('Resuming generation…');
   }, []);
 
   // ── Force-reset a stuck/stalled generating episode ──
   const resetStuckEpisode = useMutation({
     mutationFn: async (episodeId: string) => {
-      // Set stopRequested so any in-flight generation bails out cleanly
       stopRequestedRef.current = true;
+      pauseRequestedRef.current = false; // release any pause-wait
       const { error } = await (supabase as any)
         .from('series_episodes')
         .update({
@@ -778,12 +903,13 @@ export function useSeriesWriter(projectId: string) {
         .eq('id', episodeId);
       if (error) throw error;
     },
-    onSuccess: (_, episodeId) => {
-      // Also clear local running state in case the frontend loop is stuck
+    onSuccess: () => {
       runningRef.current = false;
       stopRequestedRef.current = false;
+      pauseRequestedRef.current = false;
       forceRender(n => n + 1);
       setProgress({ currentEpisode: 0, totalEpisodes: 0, phase: 'idle' });
+      setRunControl(prev => ({ ...prev, status: 'stopped' }));
       qc.invalidateQueries({ queryKey: ['series-episodes', projectId] });
       toast.success('Episode reset — click Retry to regenerate');
     },
@@ -1059,6 +1185,8 @@ export function useSeriesWriter(projectId: string) {
     generateAll,
     generateOne,
     stopGeneration,
+    pauseGeneration,
+    resumeGeneration,
     invalidateCanon,
     fetchScriptContent,
     runEpisodeMetrics,
@@ -1069,5 +1197,6 @@ export function useSeriesWriter(projectId: string) {
     applyPatch,
     rejectPatch,
     resetStuckEpisode,
+    runControl,
   };
 }
