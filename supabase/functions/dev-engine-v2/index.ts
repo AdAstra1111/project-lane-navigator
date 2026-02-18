@@ -1276,6 +1276,12 @@ ${version.plaintext.slice(0, 25000)}`;
       const criteriaSnapshot = await buildCriteriaSnapshot(supabase, projectId);
       parsed.criteria_snapshot = criteriaSnapshot;
 
+      // Re-verify version still exists before inserting run (guards against race condition where
+      // version is deleted during the AI call which can take 30+ seconds)
+      const { data: versionStillExists } = await supabase.from("project_document_versions")
+        .select("id").eq("id", versionId).maybeSingle();
+      if (!versionStillExists) throw new Error("Version was deleted while analysis was running — please re-select the document and try again");
+
       const { data: run, error: runErr } = await supabase.from("development_runs").insert({
         project_id: projectId,
         document_id: documentId,
@@ -1293,7 +1299,10 @@ ${version.plaintext.slice(0, 25000)}`;
         episode_target_duration_seconds: effectiveDuration || null,
         schema_version: SCHEMA_VERSION,
       }).select().single();
-      if (runErr) throw runErr;
+      if (runErr) {
+        if (runErr.code === "23503") throw new Error("Version no longer exists — please re-select the document and try again");
+        throw runErr;
+      }
 
       await supabase.from("dev_engine_convergence_history").insert({
         project_id: projectId,
@@ -1587,7 +1596,10 @@ GENERAL RULES:
         run_type: "NOTES",
         output_json: parsed,
       }).select().single();
-      if (runErr) throw runErr;
+      if (runErr) {
+        if (runErr.code === "23503") throw new Error("Version no longer exists — please re-select the document and try again");
+        throw runErr;
+      }
 
       return new Response(JSON.stringify({ run, notes: parsed }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -1690,7 +1702,10 @@ MATERIAL (first 8000 chars):\n${version.plaintext.slice(0, 8000)}`;
         run_type: "OPTIONS",
         output_json: parsed,
       }).select().single();
-      if (runErr) throw runErr;
+      if (runErr) {
+        if (runErr.code === "23503") throw new Error("Version no longer exists — please re-select the document and try again");
+        throw runErr;
+      }
 
       return new Response(JSON.stringify({ run, options: parsed }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -2175,13 +2190,15 @@ MATERIAL:\n${version.plaintext.slice(0, 20000)}`;
       }).select().single();
       if (dErr) throw dErr;
 
-      const { data: ver } = await supabase.from("project_document_versions").insert({
+      const { data: ver, error: verErr } = await supabase.from("project_document_versions").insert({
         document_id: doc.id,
         version_number: 1,
         label: "Original",
         plaintext: text,
         created_by: user.id,
       }).select().single();
+      if (verErr) throw verErr;
+      if (!ver) throw new Error("Failed to create document version");
 
       return new Response(JSON.stringify({ document: doc, version: ver }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
