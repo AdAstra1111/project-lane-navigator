@@ -1,6 +1,6 @@
 /**
- * DownloadPackageButton — split button with Server ZIP (recommended) and Quick ZIP (browser) options.
- * Uses the ProjectPackage resolver as single source of truth for contents.
+ * DownloadPackageButton — split button with Server ZIP (recommended), Quick ZIP (browser),
+ * and Merged PDF options.
  */
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import {
-  Download, ChevronDown, Server, Monitor, Loader2, AlertTriangle,
+  Download, ChevronDown, Server, Monitor, Loader2, AlertTriangle, FileText,
 } from 'lucide-react';
 import { useMutation } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
@@ -48,6 +48,7 @@ export function DownloadPackageButton({ projectId, format, pkg }: Props) {
           scope,
           include_master_script: includeMasterScript,
           expiresInSeconds: 3600,
+          output_format: 'zip',
         },
       });
       if (error) throw error;
@@ -63,6 +64,34 @@ export function DownloadPackageButton({ projectId, format, pkg }: Props) {
     },
     onError: (err: any) => {
       toast.error('Server export failed: ' + (err.message || 'Unknown error'));
+    },
+  });
+
+  // ── SERVER PDF ──
+  const serverPdf = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.functions.invoke('export-package', {
+        body: {
+          projectId,
+          scope,
+          include_master_script: includeMasterScript,
+          expiresInSeconds: 3600,
+          output_format: 'pdf',
+        },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      return data as { signed_url: string; doc_count: number };
+    },
+    onSuccess: (data) => {
+      const a = document.createElement('a');
+      a.href = data.signed_url;
+      a.download = `project_package_${new Date().toISOString().slice(0, 10)}.pdf`;
+      a.click();
+      toast.success(`PDF ready — ${data.doc_count} documents merged`);
+    },
+    onError: (err: any) => {
+      toast.error('PDF export failed: ' + (err.message || 'Unknown error'));
     },
   });
 
@@ -188,7 +217,7 @@ export function DownloadPackageButton({ projectId, format, pkg }: Props) {
     },
   });
 
-  const isPending = serverZip.isPending || quickZip.isPending;
+  const isPending = serverZip.isPending || serverPdf.isPending || quickZip.isPending;
   const hasSeasonScripts = pkg.season_scripts.length > 0;
 
   return (
@@ -256,6 +285,18 @@ export function DownloadPackageButton({ projectId, format, pkg }: Props) {
             <div>
               <p className="font-medium">Server ZIP <span className="text-[9px] text-muted-foreground">(recommended)</span></p>
               <p className="text-[9px] text-muted-foreground">Builds on server, returns signed URL</p>
+            </div>
+          </DropdownMenuItem>
+
+          <DropdownMenuItem
+            className="gap-2 text-xs cursor-pointer"
+            onClick={() => serverPdf.mutate()}
+            disabled={isPending || pkg.totalRequired === 0}
+          >
+            <FileText className="h-3.5 w-3.5 text-primary" />
+            <div>
+              <p className="font-medium">Merged PDF <span className="text-[9px] text-muted-foreground">(single file)</span></p>
+              <p className="text-[9px] text-muted-foreground">All documents in one chronological PDF</p>
             </div>
           </DropdownMenuItem>
 
