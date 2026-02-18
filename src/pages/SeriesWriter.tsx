@@ -939,8 +939,8 @@ export default function SeriesWriter() {
                             selectedEpisode?.id === ep.id ? 'border-primary/50 bg-primary/5' : 'border-border/40 hover:border-border/70'
                           } ${cfg.bg}`}
                         >
-                          <div className="flex items-center gap-3 px-3 py-2">
-                            <Icon className={`h-4 w-4 shrink-0 ${cfg.color} ${ep.status === 'generating' ? 'animate-spin' : ''}`} />
+                          <div className="flex flex-wrap items-start gap-3 px-3 py-2">
+                            <Icon className={`h-4 w-4 shrink-0 mt-0.5 ${cfg.color} ${ep.status === 'generating' ? 'animate-spin' : ''}`} />
 
                             <div className="flex-1 min-w-0 cursor-pointer" onClick={() => {
                               setSelectedEpisode(ep);
@@ -948,25 +948,25 @@ export default function SeriesWriter() {
                                 openReader(ep);
                               }
                             }}>
-                              <div className="flex items-center gap-2">
-                                <span className="text-xs font-mono text-muted-foreground">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-xs font-mono text-muted-foreground shrink-0">
                                   EP {String(ep.episode_number).padStart(2, '0')}
                                 </span>
-                                <span className="text-sm font-medium text-foreground truncate">
+                                <span className="text-sm font-medium text-foreground break-words min-w-0">
                                   {ep.title || `Episode ${ep.episode_number}`}
                                 </span>
                                 {state.isTemplate && (
-                                  <Badge className="text-[8px] bg-violet-500/20 text-violet-400 border-violet-500/30">
+                                  <Badge className="text-[8px] bg-violet-500/20 text-violet-400 border-violet-500/30 shrink-0">
                                     Template
                                   </Badge>
                                 )}
                               </div>
                               {ep.logline && (
-                                <p className="text-[11px] text-muted-foreground truncate mt-0.5">{ep.logline}</p>
+                                <p className="text-[11px] text-muted-foreground break-words mt-0.5">{ep.logline}</p>
                               )}
                             </div>
 
-                            <div className="flex items-center gap-1.5 flex-wrap">
+                            <div className="flex items-center gap-1.5 flex-wrap w-full pl-7">
                               {/* Stop & Reset — always visible for stuck/actively-generating episodes */}
                               {ep.status === 'generating' && (
                                 <Button
