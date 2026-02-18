@@ -38,6 +38,7 @@ interface ActionToolbarProps {
   onConvert: () => void;
   onApproveVersion?: () => void;
   approvePending?: boolean;
+  isVersionApproved?: boolean;
   selectedNoteCount: number;
   totalNoteCount: number;
   nextBestDocument: string | null;
@@ -63,7 +64,7 @@ export function ActionToolbar({
   projectId,
   hasAnalysis, isConverged, isLoading,
   onRunReview, onApplyRewrite, onPromote, onSkipStage, onConvert,
-  onApproveVersion, approvePending,
+  onApproveVersion, approvePending, isVersionApproved,
   selectedNoteCount, totalNoteCount,
   nextBestDocument, selectedDeliverableType,
   hasUnresolvedDrift,
@@ -154,10 +155,11 @@ export function ActionToolbar({
 
         {/* Approve this version */}
         {onApproveVersion && (
-          <Button size="sm" variant="outline" className="h-8 text-xs gap-1"
-            onClick={onApproveVersion} disabled={anyPending || approvePending}>
+          <Button size="sm" variant={isVersionApproved ? "default" : "outline"}
+            className={`h-8 text-xs gap-1 ${isVersionApproved ? 'bg-yellow-500 hover:bg-yellow-600 text-black border-yellow-500' : ''}`}
+            onClick={onApproveVersion} disabled={anyPending || approvePending || isVersionApproved}>
             {approvePending ? <Loader2 className="h-3 w-3 animate-spin" /> : <ShieldCheck className="h-3 w-3" />}
-            Approve Version
+            {isVersionApproved ? 'Approved' : 'Approve Version'}
           </Button>
         )}
 

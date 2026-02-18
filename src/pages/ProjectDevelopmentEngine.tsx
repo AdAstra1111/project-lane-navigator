@@ -561,6 +561,7 @@ export default function ProjectDevelopmentEngine() {
       });
       toast.success('Version approved & activated in Active Folder');
       qc.invalidateQueries({ queryKey: ['active-folder', projectId] });
+      qc.invalidateQueries({ queryKey: ['dev-v2-versions', selectedDocId] });
     } catch (err: any) {
       toast.error(err.message || 'Failed to approve');
     } finally {
@@ -961,6 +962,7 @@ export default function ProjectDevelopmentEngine() {
                     nextAction={promotionIntel.data?.next_action}
                     onApproveVersion={selectedVersionId ? handleApproveVersion : undefined}
                     approvePending={approvePending}
+                    isVersionApproved={selectedVersion?.approval_status === 'approved'}
                   />
 
                   {/* Resume auto-run handled by banner above */}
