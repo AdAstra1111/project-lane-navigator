@@ -14,7 +14,7 @@ import { Plus, ClipboardPaste, GitBranch, Loader2, Trash2, ShieldCheck, GripVert
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { DELIVERABLE_LABELS } from '@/lib/dev-os-config';
 
-import { getDocTypeLabel } from '@/lib/can-promote-to-script';
+import { getDocTypeLabel, getDocDisplayName } from '@/lib/can-promote-to-script';
 
 const STORAGE_KEY = 'devEngine.leftTrayWidth';
 const MIN_WIDTH = 200;
@@ -143,9 +143,7 @@ export function DocumentSidebar({
             {documents.map(doc => {
               const hasApproved = !!approvedVersionMap[doc.id];
               const docTypeLabel = getDocTypeLabel(doc.doc_type);
-              const displayName = projectTitle
-                ? `${projectTitle} — ${docTypeLabel}`
-                : docTypeLabel;
+              const displayName = getDocDisplayName(projectTitle, doc.doc_type);
               return (
               <div
                 key={doc.id}
@@ -170,7 +168,7 @@ export function DocumentSidebar({
                 <div className="flex items-center justify-between mt-1">
                   <div className="flex items-center gap-1">
                     <Badge variant="outline" className="text-[8px] px-1 py-0">
-                      {getDocTypeLabel(doc.doc_type)}
+                      {docTypeLabel}
                     </Badge>
                     {hasApproved && (
                       <Badge variant="outline" className="text-[7px] px-1 py-0 h-3 border-yellow-500/40 text-yellow-500 bg-yellow-500/10"
@@ -185,7 +183,7 @@ export function DocumentSidebar({
                   <div onClick={e => e.stopPropagation()}>
                     <ConfirmDialog
                       title="Delete Document"
-                      description={`Delete "${doc.title || doc.file_name}" and all its versions?`}
+                      description={`Delete "${displayName}" and all its versions?`}
                       confirmLabel="Delete"
                       variant="destructive"
                       onConfirm={() => deleteDocument.mutate(doc.id)}

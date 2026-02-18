@@ -29,7 +29,7 @@ import { useSetAsLatestDraft } from '@/hooks/useSetAsLatestDraft';
 import { approveAndActivate } from '@/lib/active-folder/approveAndActivate';
 import { recordResolutions } from '@/lib/decisions/client';
 import { useSeasonTemplate } from '@/hooks/useSeasonTemplate';
-import { canPromoteToScript } from '@/lib/can-promote-to-script';
+import { canPromoteToScript, getDocDisplayName } from '@/lib/can-promote-to-script';
 import { DocumentExportDropdown } from '@/components/DocumentExportDropdown';
 import { FeatureLengthGuardrails } from '@/components/FeatureLengthGuardrails';
 import { type DevelopmentBehavior, BEHAVIOR_LABELS, BEHAVIOR_COLORS, DELIVERABLE_LABELS, defaultDeliverableForDocType, type DeliverableType } from '@/lib/dev-os-config';
@@ -1036,7 +1036,7 @@ export default function ProjectDevelopmentEngine() {
                       {/* Export document */}
                       <DocumentExportDropdown
                         text={versionText}
-                        title={selectedDoc?.title || selectedDoc?.doc_type || 'document'}
+                        title={getDocDisplayName((project as any)?.title, selectedDoc?.doc_type)}
                       />
                       {/* Set as Season Template — available for episode scripts on series formats */}
                       {(isSeriesFormat || isVerticalDrama) && (
@@ -1074,17 +1074,17 @@ export default function ProjectDevelopmentEngine() {
                         }
                         console.log('[Promote-to-Script] Showing: eligible for', selectedDoc?.doc_type);
                         return (
-                          <ConfirmDialog
-                            title="Publish as Script?"
-                            description={`Register "${selectedDoc?.title || 'this document'}" as the project's current script draft. This creates a script record.`}
-                            confirmLabel="Publish as Script"
-                            onConfirm={() => setAsDraft.mutate({
-                              title: selectedDoc?.title || 'Dev Engine Draft',
-                              text: versionText,
-                              documentId: selectedDocId || undefined,
-                              versionId: selectedVersionId || undefined,
-                              docType: selectedDoc?.doc_type || undefined,
-                            })}
+                           <ConfirmDialog
+                             title="Publish as Script?"
+                             description={`Register "${getDocDisplayName((project as any)?.title, selectedDoc?.doc_type)}" as the project's current script draft. This creates a script record.`}
+                             confirmLabel="Publish as Script"
+                             onConfirm={() => setAsDraft.mutate({
+                               title: getDocDisplayName((project as any)?.title, selectedDoc?.doc_type),
+                               text: versionText,
+                               documentId: selectedDocId || undefined,
+                               versionId: selectedVersionId || undefined,
+                               docType: selectedDoc?.doc_type || undefined,
+                             })}
                           >
                             <Button variant="outline" size="sm" className="h-7 text-[10px] gap-1"
                               disabled={setAsDraft.isPending}>
