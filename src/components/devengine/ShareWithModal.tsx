@@ -1,5 +1,6 @@
 /**
  * ShareWithModal — Two tabs: Share Link (signed URL export) | Share with People (permissioned).
+ * Uses ProjectPackage resolver as single source of truth.
  */
 import { useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -14,9 +15,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
+import type { ProjectPackage } from '@/hooks/useProjectPackage';
 
 type Scope = 'approved_preferred' | 'approved_only' | 'latest_only';
-type Expiry = '86400' | '604800' | '2592000'; // 1d / 7d / 30d in seconds
+type Expiry = '86400' | '604800' | '2592000';
 type Role = 'viewer' | 'commenter' | 'editor';
 
 interface Props {
@@ -24,23 +26,27 @@ interface Props {
   onOpenChange: (v: boolean) => void;
   projectId: string;
   projectTitle: string;
+  pkg?: ProjectPackage | null;
 }
 
-export function ShareWithModal({ open, onOpenChange, projectId, projectTitle }: Props) {
+export function ShareWithModal({ open, onOpenChange, projectId, projectTitle, pkg }: Props) {
   const { user } = useAuth();
   const qc = useQueryClient();
 
-  // ── Link tab state ──
   const [linkScope, setLinkScope] = useState<Scope>('approved_preferred');
   const [linkExpiry, setLinkExpiry] = useState<Expiry>('604800');
   const [copiedLink, setCopiedLink] = useState(false);
   const [generatedLink, setGeneratedLink] = useState<{ url: string; expiresAt: string } | null>(null);
 
-  // ── People tab state ──
   const [newEmail, setNewEmail] = useState('');
   const [newRole, setNewRole] = useState<Role>('viewer');
 
-  // ─ Generate share link ─
+  // Summary for the user
+  const packageSummary = pkg
+    ? `${pkg.deliverables.length + pkg.season_scripts.length} documents (${pkg.approvedCount} approved)`
+    : 'Loading…';
+
+  // ─ Generate share link (delegates to export-package edge function) ─
   const generateLink = useMutation({
     mutationFn: async () => {
       const { data, error } = await supabase.functions.invoke('export-package', {
@@ -72,7 +78,7 @@ export function ShareWithModal({ open, onOpenChange, projectId, projectTitle }: 
     toast.success('Link copied to clipboard');
   };
 
-  // ─ Fetch existing shares ─
+  // ─ Existing shares ─
   const { data: shares = [] } = useQuery({
     queryKey: ['project-shares', projectId],
     queryFn: async () => {
@@ -86,7 +92,6 @@ export function ShareWithModal({ open, onOpenChange, projectId, projectTitle }: 
     enabled: open,
   });
 
-  // ─ Add share ─
   const addShare = useMutation({
     mutationFn: async () => {
       if (!newEmail.trim()) throw new Error('Email required');
@@ -110,7 +115,6 @@ export function ShareWithModal({ open, onOpenChange, projectId, projectTitle }: 
     },
   });
 
-  // ─ Remove share ─
   const removeShare = useMutation({
     mutationFn: async (shareId: string) => {
       const { error } = await (supabase as any)
@@ -142,7 +146,6 @@ export function ShareWithModal({ open, onOpenChange, projectId, projectTitle }: 
     latest_only: 'Latest only',
   };
 
-  // Build invite message template
   const inviteMessage = (email: string, role: Role) =>
     `Hi,\n\nYou've been granted ${ROLE_LABELS[role]} access to "${projectTitle}" on IFFY.\n\nLog in to your account and navigate to the project to get started.\n\n— Shared via IFFY`;
 
@@ -152,8 +155,11 @@ export function ShareWithModal({ open, onOpenChange, projectId, projectTitle }: 
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Link2 className="h-4 w-4 text-primary" />
-            Share "{projectTitle}"
+            Share Project Package
           </DialogTitle>
+          {pkg && (
+            <p className="text-[10px] text-muted-foreground mt-0.5">{packageSummary}</p>
+          )}
         </DialogHeader>
 
         <Tabs defaultValue="link">
@@ -167,7 +173,10 @@ export function ShareWithModal({ open, onOpenChange, projectId, projectTitle }: 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label className="text-xs">Document scope</Label>
-                <Select value={linkScope} onValueChange={(v) => { setLinkScope(v as Scope); setGeneratedLink(null); }}>
+                <Select
+                  value={linkScope}
+                  onValueChange={(v) => { setLinkScope(v as Scope); setGeneratedLink(null); }}
+                >
                   <SelectTrigger className="h-8 text-xs">
                     <SelectValue />
                   </SelectTrigger>
@@ -180,7 +189,10 @@ export function ShareWithModal({ open, onOpenChange, projectId, projectTitle }: 
               </div>
               <div className="space-y-1.5">
                 <Label className="text-xs">Expires after</Label>
-                <Select value={linkExpiry} onValueChange={(v) => { setLinkExpiry(v as Expiry); setGeneratedLink(null); }}>
+                <Select
+                  value={linkExpiry}
+                  onValueChange={(v) => { setLinkExpiry(v as Expiry); setGeneratedLink(null); }}
+                >
                   <SelectTrigger className="h-8 text-xs">
                     <SelectValue />
                   </SelectTrigger>
@@ -202,7 +214,9 @@ export function ShareWithModal({ open, onOpenChange, projectId, projectTitle }: 
                     className="text-xs h-8 font-mono truncate"
                   />
                   <Button size="sm" variant="outline" className="shrink-0 gap-1 h-8" onClick={handleCopyLink}>
-                    {copiedLink ? <Check className="h-3.5 w-3.5 text-[hsl(var(--chart-2))]" /> : <Copy className="h-3.5 w-3.5" />}
+                    {copiedLink
+                      ? <Check className="h-3.5 w-3.5 text-[hsl(var(--chart-2))]" />
+                      : <Copy className="h-3.5 w-3.5" />}
                     {copiedLink ? 'Copied' : 'Copy'}
                   </Button>
                 </div>
@@ -267,19 +281,23 @@ export function ShareWithModal({ open, onOpenChange, projectId, projectTitle }: 
                   onClick={() => addShare.mutate()}
                   disabled={addShare.isPending || !newEmail.trim()}
                 >
-                  {addShare.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UserPlus className="h-3.5 w-3.5" />}
+                  {addShare.isPending
+                    ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    : <UserPlus className="h-3.5 w-3.5" />}
                   Add
                 </Button>
               </div>
             </div>
 
-            {/* Existing shares */}
             {shares.length > 0 && (
               <div className="space-y-1.5">
                 <Label className="text-xs font-medium text-muted-foreground">Current access</Label>
                 <div className="space-y-1 max-h-40 overflow-y-auto">
                   {shares.map((share: any) => (
-                    <div key={share.id} className="flex items-center justify-between px-2 py-1.5 rounded bg-muted/30 text-xs">
+                    <div
+                      key={share.id}
+                      className="flex items-center justify-between px-2 py-1.5 rounded bg-muted/30 text-xs"
+                    >
                       <span className="text-foreground truncate">{share.email || share.user_id}</span>
                       <div className="flex items-center gap-2 shrink-0">
                         <Badge variant="outline" className="text-[9px] px-1.5 py-0 capitalize">
@@ -287,7 +305,7 @@ export function ShareWithModal({ open, onOpenChange, projectId, projectTitle }: 
                         </Badge>
                         <button
                           onClick={() => removeShare.mutate(share.id)}
-                          className="text-muted-foreground hover:text-[hsl(var(--destructive))] transition-colors"
+                          className="text-muted-foreground hover:text-destructive transition-colors"
                         >
                           <Trash2 className="h-3 w-3" />
                         </button>
@@ -298,10 +316,11 @@ export function ShareWithModal({ open, onOpenChange, projectId, projectTitle }: 
               </div>
             )}
 
-            {/* Invite message to copy (no email service) */}
             {newEmail && (
               <div className="space-y-1.5">
-                <Label className="text-xs font-medium text-muted-foreground">Invite message (copy & send manually)</Label>
+                <Label className="text-xs font-medium text-muted-foreground">
+                  Invite message (copy & send manually)
+                </Label>
                 <textarea
                   readOnly
                   value={inviteMessage(newEmail, newRole)}
