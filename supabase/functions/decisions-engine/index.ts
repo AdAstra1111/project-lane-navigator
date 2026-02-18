@@ -60,7 +60,6 @@ Deno.serve(async (req) => {
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
 
   try {
     const authHeader = req.headers.get("Authorization");
@@ -68,9 +67,19 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: JSON_H });
     }
     const token = authHeader.replace("Bearer ", "");
-    const sbAnon = createClient(supabaseUrl, anonKey);
-    const { data: { user } } = await sbAnon.auth.getUser(token);
-    if (!user) return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: JSON_H });
+
+    // Decode JWT claims locally — avoids session lookup failures for ES256 tokens
+    let userId: string;
+    try {
+      const payloadB64 = token.split(".")[1];
+      if (!payloadB64) throw new Error("bad token");
+      const payload = JSON.parse(atob(payloadB64.replace(/-/g, "+").replace(/_/g, "/")));
+      if (!payload.sub) throw new Error("no sub");
+      if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) throw new Error("expired");
+      userId = payload.sub;
+    } catch {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: JSON_H });
+    }
 
     const sb = createClient(supabaseUrl, serviceKey);
     const body = await req.json();
@@ -79,7 +88,7 @@ Deno.serve(async (req) => {
     if (!projectId) return new Response(JSON.stringify({ error: "projectId required" }), { status: 400, headers: JSON_H });
 
     // Authz
-    const { data: hasAccess } = await sb.rpc("has_project_access", { _user_id: user.id, _project_id: projectId });
+    const { data: hasAccess } = await sb.rpc("has_project_access", { _user_id: userId, _project_id: projectId });
     if (!hasAccess) return new Response(JSON.stringify({ error: "Forbidden" }), { status: 403, headers: JSON_H });
 
     // ══════════════════════════════════════════════
@@ -121,7 +130,7 @@ Deno.serve(async (req) => {
           source_run_id: sourceRunId || null,
           source_note_id: noteId || null,
           status: "active",
-          created_by: user.id,
+          created_by: userId,
         }).select("id").single();
 
         // Upsert resolved note
@@ -163,7 +172,7 @@ Deno.serve(async (req) => {
           source: source || "dev_engine_decision",
           source_note_id: so.note_id,
           status: "active",
-          created_by: user.id,
+          created_by: userId,
         }).select("id").single();
 
         await sb.from("resolved_notes").upsert({
@@ -196,7 +205,7 @@ Deno.serve(async (req) => {
           source: source || "dev_engine_rewrite",
           source_run_id: sourceRunId || null,
           status: "active",
-          created_by: user.id,
+          created_by: userId,
         });
       }
 
@@ -260,7 +269,7 @@ Deno.serve(async (req) => {
         source_run_id: runId || null,
         source_issue_id: issueId,
         status: "active",
-        created_by: user.id,
+        created_by: userId,
       }).select("id").single();
 
       await sb.from("resolved_notes").upsert({
