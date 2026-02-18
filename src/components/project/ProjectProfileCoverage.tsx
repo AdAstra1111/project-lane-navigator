@@ -234,6 +234,9 @@ export function ProjectProfileCoverage({ projectId, format }: Props) {
         },
       });
       if (error) throw error;
+      if (data?.error === 'RATE_LIMIT') throw new Error('AI rate limit reached. Please wait a moment and try again.');
+      if (data?.error === 'PAYMENT_REQUIRED') throw new Error('AI usage limit reached. Please check your plan.');
+      if (data?.error) throw new Error(data.error);
       return data;
     },
     onSuccess: () => {
@@ -256,6 +259,9 @@ export function ProjectProfileCoverage({ projectId, format }: Props) {
         },
       });
       if (error) throw error;
+      if (data?.error === 'RATE_LIMIT') throw new Error('AI rate limit reached. Please wait a moment and try again.');
+      if (data?.error === 'PAYMENT_REQUIRED') throw new Error('AI usage limit reached. Please check your plan.');
+      if (data?.error) throw new Error(data.error);
       return data;
     },
     onSuccess: () => {
