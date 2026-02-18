@@ -1417,6 +1417,17 @@ ${version.plaintext.slice(0, 25000)}`;
         .select("plaintext").eq("id", versionId).single();
       if (!version) throw new Error("Version not found");
 
+      // Fetch project format so notes are format-aware (e.g. vertical drama ≠ feature film)
+      const { data: notesProject } = await supabase.from("projects")
+        .select("format, development_behavior, assigned_lane, budget_range")
+        .eq("id", projectId).single();
+      const notesRawFormat = notesProject?.format || "film";
+      const notesEffectiveFormat = notesRawFormat.toLowerCase().replace(/[_ ]+/g, "-");
+      const notesFormatExp = FORMAT_EXPECTATIONS[notesEffectiveFormat] || FORMAT_EXPECTATIONS["film"];
+      const notesLadder = getLadderForFormat(notesEffectiveFormat);
+      const notesLadderStr = notesLadder.join(", ");
+      const notesProductionType = formatToProductionType[notesEffectiveFormat] || "narrative_feature";
+
       let analysis = analysisJson;
       if (!analysis) {
         const { data: latestRun } = await supabase.from("development_runs")
@@ -1443,6 +1454,16 @@ ${version.plaintext.slice(0, 25000)}`;
       }
 
       const notesSystem = `You are IFFY. Generate structured development notes in three tiers, with DECISION OPTIONS for blockers and high-impact notes.
+
+PRODUCTION TYPE: ${notesProductionType}
+${notesFormatExp}
+
+EDITORIAL SCOPE LOCK: You are operating in EDITORIAL MODE for a ${notesEffectiveFormat} project.
+- Do NOT apply feature film pacing logic or structure to non-feature formats.
+- Do NOT penalise a vertical drama for not being a feature film.
+- Score and note relative to the declared format and its ladder.
+- Valid document types for this format: ${notesLadderStr}
+- Do NOT reference document types outside this ladder.
 Return ONLY valid JSON:
 {
   "protect": ["non-negotiable items to preserve"],
