@@ -136,12 +136,15 @@ export function useProjectPackage(projectId: string | undefined) {
       }
 
       // 5. Fetch the latest version per document (any status)
-      //    We use the latest_version_id pointer from project_documents + created_at ordering
+      //    Prefer latest_version_id pointer; fall back to highest version_number for docs
+      //    where latest_version_id is null (common when pointer was never set).
+      const latestByDocId = new Map<string, any>();
+
+      // First: resolve via latest_version_id where available
       const latestVersionIds = allDocs
         .filter((d: any) => d.latest_version_id)
         .map((d: any) => d.latest_version_id as string);
 
-      const latestByDocId = new Map<string, any>();
       if (latestVersionIds.length > 0) {
         const { data: latestVersions } = await (supabase as any)
           .from('project_document_versions')
@@ -150,6 +153,26 @@ export function useProjectPackage(projectId: string | undefined) {
 
         for (const v of latestVersions || []) {
           latestByDocId.set(v.document_id, v);
+        }
+      }
+
+      // Second: for docs still missing a latest version, fetch highest version_number
+      const docsWithoutLatest = allDocs.filter(
+        (d: any) => !latestByDocId.has(d.id)
+      );
+      if (docsWithoutLatest.length > 0) {
+        const missingDocIds = docsWithoutLatest.map((d: any) => d.id as string);
+        const { data: fallbackVersions } = await (supabase as any)
+          .from('project_document_versions')
+          .select('id, document_id, status, created_at, version_number, plaintext')
+          .in('document_id', missingDocIds)
+          .order('version_number', { ascending: false });
+
+        // Keep only highest version_number per document_id
+        for (const v of fallbackVersions || []) {
+          if (!latestByDocId.has(v.document_id)) {
+            latestByDocId.set(v.document_id, v);
+          }
         }
       }
 
