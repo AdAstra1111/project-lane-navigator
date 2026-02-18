@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -23,11 +23,44 @@ import type { DeliverableType } from '@/lib/dev-os-config';
 
 // ── Constants ──
 const LADDER_LABELS: Record<string, string> = {
-  idea: 'Idea', concept_brief: 'Concept Brief', blueprint: 'Blueprint',
-  architecture: 'Architecture', draft: 'Draft', coverage: 'Coverage',
+  idea: 'Idea', topline_narrative: 'Topline', concept_brief: 'Concept Brief',
+  market_sheet: 'Market Sheet', vertical_market_sheet: 'Market Sheet (Vertical)',
+  blueprint: 'Blueprint', architecture: 'Architecture',
+  character_bible: 'Character Bible', beat_sheet: 'Beat Sheet',
+  script: 'Script', production_draft: 'Production Draft', deck: 'Deck',
+  format_rules: 'Format Rules', season_arc: 'Season Arc',
+  episode_grid: 'Episode Grid', vertical_episode_beats: 'Episode Beats',
+  documentary_outline: 'Doc Outline',
   series_writer: 'Series Writer', writers_room: "Writer's Room",
 };
-const LADDER_OPTIONS = ['idea', 'concept_brief', 'blueprint', 'architecture', 'draft'];
+const LADDER_OPTIONS = [
+  'idea','topline_narrative','concept_brief','market_sheet','blueprint',
+  'architecture','character_bible','beat_sheet','script','production_draft',
+];
+
+// ── Provenance badge helper ──
+type InferMethod = 'extracted' | 'inferred' | 'default' | 'project';
+const METHOD_BADGE: Record<InferMethod, { label: string; color: string }> = {
+  extracted: { label: 'From docs', color: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' },
+  inferred:  { label: 'Inferred',  color: 'bg-sky-500/15 text-sky-400 border-sky-500/30' },
+  project:   { label: 'Project',   color: 'bg-violet-500/15 text-violet-400 border-violet-500/30' },
+  default:   { label: 'Default',   color: 'bg-muted text-muted-foreground' },
+};
+
+async function callInferCriteria(projectId: string): Promise<{ criteria: Record<string, string>; sources: Record<string, { source_doc_type: string; method: InferMethod }> } | null> {
+  try {
+    const { supabase } = await import('@/integrations/supabase/client');
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return null;
+    const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/infer-criteria`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ project_id: projectId }),
+    });
+    if (!resp.ok) return null;
+    return await resp.json();
+  } catch { return null; }
+}
 
 const STATUS_STYLES: Record<string, { color: string; label: string }> = {
   running: { color: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30', label: '● Running' },
@@ -216,7 +249,10 @@ export function AutoRunMissionControl({
     logline: '', premise: '', tone_genre: '', protagonist: '', antagonist: '',
     stakes: '', world_rules: '', comparables: '',
   });
+  const [storySources, setStorySources] = useState<Record<string, { source_doc_type: string; method: InferMethod }>>({});
+  const [inferLoading, setInferLoading] = useState(false);
   const [storyAutoFilled, setStoryAutoFilled] = useState(false);
+  const inferFiredRef = useRef(false);
   const [quals, setQuals] = useState({ episode_target_duration_min_seconds: 0, episode_target_duration_max_seconds: 0, season_episode_count: 0, target_runtime_min_low: 0, target_runtime_min_high: 0 });
   const [lane, setLane] = useState('');
   const [budget, setBudget] = useState('');
@@ -242,35 +278,32 @@ export function AutoRunMissionControl({
       target_runtime_min_low: gcQuals.target_runtime_min_low || prev.target_runtime_min_low,
       target_runtime_min_high: gcQuals.target_runtime_min_high || prev.target_runtime_min_high,
     }));
-    // Story setup from project-level fields
-    const storyFromProject: Record<string, string> = {};
-    if (project.tone) storyFromProject.tone_genre = project.genres?.length ? `${project.tone} / ${project.genres.join(', ')}` : project.tone;
-    else if (project.genres?.length) storyFromProject.tone_genre = project.genres.join(', ');
-    if (project.comparable_titles) storyFromProject.comparables = project.comparable_titles;
-    if (project.pitchLogline) storyFromProject.logline = project.pitchLogline;
-    if (project.pitchPremise) storyFromProject.premise = project.pitchPremise;
-    // Story setup from guardrails
-    const gcStory = gc?.overrides?.story_setup;
-    if (gcStory) {
-      for (const [key, val] of Object.entries(gcStory)) {
-        if (val && typeof val === 'string') storyFromProject[key] = val;
-      }
-    }
-    if (Object.keys(storyFromProject).length > 0) {
-      setStorySetup(prev => {
-        const merged = { ...prev };
-        for (const [key, val] of Object.entries(storyFromProject)) {
-          if (val && !merged[key]) merged[key] = val;
-        }
-        return merged;
-      });
-    }
     setProjectPreFilled(true);
   }, [project, projectPreFilled]);
 
-  // Auto-fill story setup from analysis data (deeper extraction, runs after project pre-fill)
+  // ── Auto-infer story setup from project documents (fires once per projectId when activated) ──
   useEffect(() => {
-    if (storyAutoFilled || !latestAnalysis) return;
+    if (!activated || inferFiredRef.current || !projectId) return;
+    inferFiredRef.current = true;
+    setInferLoading(true);
+    callInferCriteria(projectId).then(result => {
+      if (!result) return;
+      const { criteria, sources } = result;
+      setStorySetup(prev => {
+        const merged = { ...prev };
+        for (const [key, val] of Object.entries(criteria)) {
+          if (val?.trim() && !merged[key]) merged[key] = val;
+        }
+        return merged;
+      });
+      setStorySources(sources || {});
+      setStoryAutoFilled(true);
+    }).finally(() => setInferLoading(false));
+  }, [activated, projectId]);
+
+  // Fallback: also fill from latestAnalysis if any field still empty after inference
+  useEffect(() => {
+    if (!latestAnalysis) return;
     const a = latestAnalysis;
     const extracted: Record<string, string> = {};
     if (a.logline) extracted.logline = a.logline;
@@ -281,7 +314,6 @@ export function AutoRunMissionControl({
     if (a.stakes) extracted.stakes = a.stakes;
     if (a.world_rules) extracted.world_rules = a.world_rules;
     if (a.comparables) extracted.comparables = Array.isArray(a.comparables) ? a.comparables.join(', ') : a.comparables;
-    // Also check nested structures
     if (!extracted.logline && a.concept?.logline) extracted.logline = a.concept.logline;
     if (!extracted.premise && a.concept?.premise) extracted.premise = a.concept.premise;
     if (!extracted.tone_genre && a.concept?.tone) extracted.tone_genre = a.concept.tone;
@@ -302,9 +334,8 @@ export function AutoRunMissionControl({
         }
         return merged;
       });
-      setStoryAutoFilled(true);
     }
-  }, [latestAnalysis, storyAutoFilled]);
+  }, [latestAnalysis]);
 
   // Auto-load current document text into viewer
   useEffect(() => {
@@ -381,39 +412,33 @@ export function AutoRunMissionControl({
   const progressPct = job && job.max_total_steps > 0 ? Math.round((job.step_count / job.max_total_steps) * 100) : 0;
   const statusStyle = STATUS_STYLES[job?.status || 'queued'] || STATUS_STYLES.queued;
 
-  // ── Preflight validation ──
-  const REQUIRED_FIELDS = [
-    { key: 'logline', label: 'Logline' },
-    { key: 'premise', label: 'Premise' },
-    { key: 'tone_genre', label: 'Tone / Genre' },
-  ];
-  const RECOMMENDED_FIELDS = [
-    { key: 'protagonist', label: 'Protagonist' },
-    { key: 'stakes', label: 'Stakes' },
+  // ── All story setup fields ──
+  const ALL_STORY_FIELDS = [
+    { key: 'logline',     label: 'Logline',     required: true,  multiline: false },
+    { key: 'premise',     label: 'Premise',      required: true,  multiline: true  },
+    { key: 'tone_genre',  label: 'Tone / Genre', required: true,  multiline: false },
+    { key: 'protagonist', label: 'Protagonist',  required: false, multiline: false },
+    { key: 'antagonist',  label: 'Antagonist',   required: false, multiline: false },
+    { key: 'stakes',      label: 'Stakes',       required: false, multiline: false },
+    { key: 'world_rules', label: 'World Rules',  required: false, multiline: false },
+    { key: 'comparables', label: 'Comparables',  required: false, multiline: false },
   ];
 
-  const handleStartClick = () => {
-    const missing = REQUIRED_FIELDS.filter(f => !storySetup[f.key]?.trim());
-    const missingRecommended = RECOMMENDED_FIELDS.filter(f => !storySetup[f.key]?.trim());
-    if (missing.length > 0 || missingRecommended.length > 0) {
-      setPreflightErrors(missing.map(f => f.label));
-      setShowPreflight(true);
-    } else {
-      onStart(mode, startDocument);
-    }
-  };
+  const handleStartClick = useCallback(() => {
+    // Save whatever we have and start — no blocking gate if inference was run
+    onSaveStorySetup(storySetup).then(() => onStart(mode, startDocument));
+  }, [storySetup, mode, startDocument, onSaveStorySetup, onStart]);
 
-  const handlePreflightConfirm = () => {
-    const stillMissing = REQUIRED_FIELDS.filter(f => !storySetup[f.key]?.trim());
-    if (stillMissing.length > 0) {
-      toast({ title: 'Missing required fields', description: stillMissing.map(f => f.label).join(', '), variant: 'destructive' });
-      return;
-    }
-    onSaveStorySetup(storySetup).then(() => {
-      setShowPreflight(false);
-      onStart(mode, startDocument);
-    });
-  };
+  const handleReInfer = useCallback(() => {
+    inferFiredRef.current = false;
+    setInferLoading(true);
+    callInferCriteria(projectId).then(result => {
+      if (!result) return;
+      const { criteria, sources } = result;
+      setStorySetup(criteria as Record<string, string>);
+      setStorySources(sources || {});
+    }).finally(() => setInferLoading(false));
+  }, [projectId]);
 
   // ── Not activated → Show activate button ──
   if (!activated) {
@@ -423,7 +448,7 @@ export function AutoRunMissionControl({
           <Rocket className="h-8 w-8 text-muted-foreground" />
           <div>
             <p className="text-sm font-medium">Auto-Run is off</p>
-            <p className="text-xs text-muted-foreground mt-1">Activate to automate the development ladder from idea to draft.</p>
+            <p className="text-xs text-muted-foreground mt-1">Activate to automate the development ladder from idea to script.</p>
           </div>
           <Button size="sm" onClick={onActivate} className="gap-1.5">
             <Zap className="h-3.5 w-3.5" /> Activate Auto-Run
@@ -438,9 +463,25 @@ export function AutoRunMissionControl({
     return (
       <Card className="border-primary/20">
         <CardHeader className="py-3 px-4">
-          <CardTitle className="text-sm flex items-center gap-2">
-            <Rocket className="h-4 w-4" /> Auto-Run Mission Control
-          </CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Rocket className="h-4 w-4" /> Auto-Run Mission Control
+            </CardTitle>
+            {/* Re-infer button */}
+            <Button
+              variant="ghost" size="sm"
+              className="h-6 text-[10px] gap-1 text-muted-foreground"
+              onClick={handleReInfer}
+              disabled={inferLoading}
+              title="Re-pull fields from project documents"
+            >
+              {inferLoading
+                ? <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                : <RotateCcw className="h-2.5 w-2.5" />
+              }
+              {inferLoading ? 'Reading docs…' : 'Re-read docs'}
+            </Button>
+          </div>
         </CardHeader>
         <CardContent className="px-4 pb-4 space-y-3">
           {job?.status === 'completed' && (
@@ -459,96 +500,104 @@ export function AutoRunMissionControl({
             </div>
           )}
 
-          {/* Preflight validation form */}
-          {showPreflight ? (
-            <div className="space-y-3 border border-amber-500/30 bg-amber-500/5 rounded-md p-3">
-              <div className="flex items-center gap-2 text-xs font-medium">
-                <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
-                <span>Complete setup before launching</span>
-              </div>
-              {preflightErrors.length > 0 && (
-                <p className="text-[10px] text-destructive">Required: {preflightErrors.join(', ')}</p>
+          {/* ── Story Setup prefill (always visible before launch) ── */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">Story Setup</p>
+              {inferLoading && (
+                <span className="text-[9px] text-muted-foreground flex items-center gap-1">
+                  <Loader2 className="h-2.5 w-2.5 animate-spin" /> Reading docs…
+                </span>
               )}
-              <div className="space-y-2">
-                {[...REQUIRED_FIELDS, ...RECOMMENDED_FIELDS, 
-                  { key: 'antagonist', label: 'Antagonist' },
-                  { key: 'world_rules', label: 'World Rules' },
-                  { key: 'comparables', label: 'Comparables' },
-                ].map(field => (
-                  <div key={field.key}>
+              {storyAutoFilled && !inferLoading && (
+                <span className="text-[9px] text-emerald-400">✓ Auto-filled from docs</span>
+              )}
+            </div>
+            {ALL_STORY_FIELDS.map(field => {
+              const src = storySources[field.key];
+              const badge = src?.method ? METHOD_BADGE[src.method as InferMethod] : null;
+              return (
+                <div key={field.key}>
+                  <div className="flex items-center gap-1 mb-0.5">
                     <Label className="text-[10px] flex items-center gap-1">
                       {field.label}
-                      {REQUIRED_FIELDS.some(f => f.key === field.key) && (
-                        <span className="text-destructive">*</span>
-                      )}
+                      {field.required && <span className="text-destructive">*</span>}
                     </Label>
-                    {field.key === 'premise' ? (
-                      <Textarea
-                        className="h-14 text-xs mt-0.5"
-                        placeholder={`Enter ${field.label.toLowerCase()}…`}
-                        value={storySetup[field.key] || ''}
-                        onChange={e => setStorySetup(prev => ({ ...prev, [field.key]: e.target.value }))}
-                      />
-                    ) : (
-                      <Input
-                        className="h-7 text-xs mt-0.5"
-                        placeholder={`Enter ${field.label.toLowerCase()}…`}
-                        value={storySetup[field.key] || ''}
-                        onChange={e => setStorySetup(prev => ({ ...prev, [field.key]: e.target.value }))}
-                      />
+                    {badge && (
+                      <Badge
+                        variant="outline"
+                        className={`text-[8px] px-1 py-0 ${badge.color}`}
+                        title={src?.source_doc_type ? `From: ${src.source_doc_type}` : ''}
+                      >
+                        {badge.label}
+                      </Badge>
                     )}
                   </div>
-                ))}
-              </div>
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" className="h-7 text-xs flex-1" onClick={() => setShowPreflight(false)}>
-                  Cancel
-                </Button>
-                <Button size="sm" className="h-7 text-xs flex-1 gap-1" onClick={handlePreflightConfirm}>
-                  <Play className="h-3 w-3" /> Confirm & Start
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <>
-              {/* Document selector */}
-              {availableDocuments && availableDocuments.length > 0 && (
-                <div>
-                  <Label className="text-[10px] text-muted-foreground">Start from document</Label>
-                  <Select value={startDocument} onValueChange={setStartDocument}>
-                    <SelectTrigger className="h-8 text-xs mt-0.5"><SelectValue placeholder="Select document…" /></SelectTrigger>
-                    <SelectContent>
-                      {availableDocuments.map(doc => (
-                        <SelectItem key={doc.id} value={doc.doc_type}>
-                          <span className="flex items-center gap-1.5">
-                            <FileText className="h-3 w-3 shrink-0" />
-                            {doc.title || LADDER_LABELS[doc.doc_type] || doc.doc_type}
-                            <Badge variant="outline" className="text-[8px] px-1 py-0 ml-1">{LADDER_LABELS[doc.doc_type] || doc.doc_type}</Badge>
-                          </span>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  {field.multiline ? (
+                    <Textarea
+                      className="text-xs min-h-[50px]"
+                      placeholder={inferLoading ? 'Reading documents…' : `Enter ${field.label.toLowerCase()}…`}
+                      value={storySetup[field.key] || ''}
+                      onChange={e => setStorySetup(prev => ({ ...prev, [field.key]: e.target.value }))}
+                    />
+                  ) : (
+                    <Input
+                      className="h-7 text-xs"
+                      placeholder={inferLoading ? 'Reading documents…' : `Enter ${field.label.toLowerCase()}…`}
+                      value={storySetup[field.key] || ''}
+                      onChange={e => setStorySetup(prev => ({ ...prev, [field.key]: e.target.value }))}
+                    />
+                  )}
                 </div>
-              )}
-              <div className="flex items-center gap-2">
-                <Select value={mode} onValueChange={setMode}>
-                  <SelectTrigger className="h-8 text-xs w-[110px]"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="fast">⚡ Fast (8)</SelectItem>
-                    <SelectItem value="balanced">⚖️ Balanced (12)</SelectItem>
-                    <SelectItem value="premium">💎 Premium (18)</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Button size="sm" className="h-8 text-xs gap-1.5 flex-1" onClick={handleStartClick}>
-                  <Play className="h-3.5 w-3.5" /> Start Auto-Run
-                </Button>
-              </div>
-              <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-                <span>⚡ {mode === 'fast' ? '1 loop/stage, 8 steps' : mode === 'balanced' ? '2 loops/stage, 12 steps' : '3 loops/stage, 18 steps, ≥82 readiness'}</span>
-              </div>
-            </>
+              );
+            })}
+          </div>
+
+          {/* Document selector */}
+          {availableDocuments && availableDocuments.length > 0 && (
+            <div>
+              <Label className="text-[10px] text-muted-foreground">Start from document</Label>
+              <Select value={startDocument} onValueChange={setStartDocument}>
+                <SelectTrigger className="h-8 text-xs mt-0.5"><SelectValue placeholder="Select document…" /></SelectTrigger>
+                <SelectContent>
+                  {availableDocuments.map(doc => (
+                    <SelectItem key={doc.id} value={doc.doc_type}>
+                      <span className="flex items-center gap-1.5">
+                        <FileText className="h-3 w-3 shrink-0" />
+                        {doc.title || LADDER_LABELS[doc.doc_type] || doc.doc_type}
+                        <Badge variant="outline" className="text-[8px] px-1 py-0 ml-1">{LADDER_LABELS[doc.doc_type] || doc.doc_type}</Badge>
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           )}
+
+          <div className="flex items-center gap-2">
+            <Select value={mode} onValueChange={setMode}>
+              <SelectTrigger className="h-8 text-xs w-[110px]"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="fast">⚡ Fast (8)</SelectItem>
+                <SelectItem value="balanced">⚖️ Balanced (12)</SelectItem>
+                <SelectItem value="premium">💎 Premium (18)</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button
+              size="sm"
+              className="h-8 text-xs gap-1.5 flex-1"
+              onClick={handleStartClick}
+              disabled={inferLoading}
+            >
+              {inferLoading
+                ? <><Loader2 className="h-3 w-3 animate-spin" /> Reading docs…</>
+                : <><Play className="h-3.5 w-3.5" /> Confirm & Start</>
+              }
+            </Button>
+          </div>
+          <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+            <span>⚡ {mode === 'fast' ? '1 loop/stage, 8 steps' : mode === 'balanced' ? '2 loops/stage, 12 steps' : '3 loops/stage, 18 steps, ≥82 readiness'}</span>
+          </div>
 
           {job && (
             <Button variant="ghost" size="sm" className="h-7 text-[10px] w-full" onClick={onClear}>
