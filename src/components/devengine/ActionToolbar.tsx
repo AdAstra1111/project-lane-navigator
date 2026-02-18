@@ -2,11 +2,15 @@
  * ActionToolbar — Primary action buttons for the Dev Engine workspace.
  * Includes "Why this step?" display for vertical drama gating.
  * Includes Beat Sheet → Episode Script for vertical_drama.
+ * Includes Auto-review toggle (default OFF) — review only fires on explicit click
+ * or when autoReviewEnabled is ON and content changes.
  */
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Play, ArrowRight, RefreshCw, Loader2, AlertTriangle, Info, Film, ShieldCheck } from 'lucide-react';
 import { DELIVERABLE_LABELS, type DeliverableType } from '@/lib/dev-os-config';
@@ -58,6 +62,9 @@ interface ActionToolbarProps {
   beatSheetScope?: BeatSheetScopeInfo | null;
   /** Structured next action from promotion intelligence */
   nextAction?: NextAction | null;
+  /** Auto-review on content-change toggle (default OFF) */
+  autoReviewEnabled?: boolean;
+  onAutoReviewToggle?: (enabled: boolean) => void;
 }
 
 export function ActionToolbar({
@@ -74,6 +81,8 @@ export function ActionToolbar({
   onBeatSheetToScript, beatSheetToScriptPending,
   beatSheetScope,
   nextAction,
+  autoReviewEnabled = false,
+  onAutoReviewToggle,
 }: ActionToolbarProps) {
   const navigate = useNavigate();
   const anyPending = analyzePending || rewritePending || convertPending || generateNotesPending || beatSheetToScriptPending;
@@ -96,6 +105,21 @@ export function ActionToolbar({
           {analyzePending ? <Loader2 className="h-3 w-3 animate-spin" /> : hasAnalysis ? <RefreshCw className="h-3 w-3" /> : <Play className="h-3 w-3" />}
           {hasAnalysis ? 'Re-review' : 'Run Review'}
         </Button>
+
+        {/* Auto-review on content-change toggle */}
+        {onAutoReviewToggle && (
+          <div className="flex items-center gap-1.5 pl-1 border-l border-border/50">
+            <Switch
+              id="auto-review-toggle"
+              checked={autoReviewEnabled}
+              onCheckedChange={onAutoReviewToggle}
+              className="h-4 w-7 [&>span]:h-3 [&>span]:w-3 [&>span]:data-[state=checked]:translate-x-3"
+            />
+            <Label htmlFor="auto-review-toggle" className="text-[10px] text-muted-foreground cursor-pointer whitespace-nowrap">
+              Auto-review
+            </Label>
+          </div>
+        )}
 
         {/* Converged — promote or enter mode */}
         {isConverged && (

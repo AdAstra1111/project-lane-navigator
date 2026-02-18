@@ -200,39 +200,86 @@ export default function ProjectDevelopmentEngine() {
     resolveOnEntry();
   }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Re-resolve after version changes (e.g. rewrite creates new version with fresh hash)
+  // ── Auto-review control ──────────────────────────────────────────────────
+  // autoReviewEnabled: user-controlled toggle (default OFF)
+  // postOperationVersionId: set ONLY after rewrite/convert — distinguishes
+  //   "a new version landed from an operation" vs "user just navigated"
+  const [autoReviewEnabled, setAutoReviewEnabled] = useState(false);
+  const postOperationVersionId = useRef<string | null>(null);
   const prevVersionId = useRef(selectedVersionId);
-  const autoReviewPending = useRef(false);
+
+  // Re-resolve when version changes (always safe — never triggers review)
   useEffect(() => {
     if (selectedVersionId && selectedVersionId !== prevVersionId.current) {
       prevVersionId.current = selectedVersionId;
       resolveOnEntry();
-      // Auto-trigger review when a new draft lands
-      if (autoReviewPending.current) {
-        autoReviewPending.current = false;
-        // Small delay to let queries settle before triggering review
+      // Auto-review ONLY if this version came from an operation (rewrite/convert),
+      // never from plain navigation.
+      if (postOperationVersionId.current === selectedVersionId) {
+        postOperationVersionId.current = null;
+        // Small delay to let queries settle
         setTimeout(() => handleRunEngine(), 600);
       }
     }
   }, [selectedVersionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Auto-review after rewrite pipeline completes (large documents)
+  // After large rewrite pipeline completes → mark new version as post-operation
   useEffect(() => {
     if (rewritePipeline.status === 'complete' && rewritePipeline.newVersionId) {
+      postOperationVersionId.current = rewritePipeline.newVersionId;
       setSelectedVersionId(rewritePipeline.newVersionId);
-      autoReviewPending.current = true;
       rewritePipeline.reset();
     }
   }, [rewritePipeline.status]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Auto-review after small rewrite or convert completes (version change triggers review via autoReviewPending)
+  // After small rewrite or convert completes → mark upcoming version as post-operation
   useEffect(() => {
-    if (rewrite.isSuccess) autoReviewPending.current = true;
+    if (rewrite.isSuccess) {
+      // The new version will arrive via query invalidation; mark it when it appears
+      postOperationVersionId.current = '__next__';
+    }
   }, [rewrite.isSuccess]);
 
   useEffect(() => {
-    if (convert.isSuccess) autoReviewPending.current = true;
+    if (convert.isSuccess) {
+      postOperationVersionId.current = '__next__';
+    }
   }, [convert.isSuccess]);
+
+  // When a new version arrives and we have a pending '__next__' marker, resolve it
+  useEffect(() => {
+    if (postOperationVersionId.current === '__next__' && selectedVersionId) {
+      postOperationVersionId.current = selectedVersionId;
+    }
+  }, [selectedVersionId]);
+
+  // Auto-review on content change (ONLY when autoReviewEnabled is ON)
+  // Switching doc/version resets the tracking ref so navigation never fires a review.
+  const lastAutoReviewedVersionId = useRef<string | null>(null);
+  const lastAutoReviewedContentLen = useRef<number>(-1);
+  const autoReviewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (!autoReviewEnabled) return;
+    if (!selectedVersionId || !selectedVersion) return;
+
+    const contentLen = (selectedVersion.plaintext || '').length;
+
+    // Version switched → reset tracking, do NOT auto-review
+    if (selectedVersionId !== lastAutoReviewedVersionId.current) {
+      lastAutoReviewedVersionId.current = selectedVersionId;
+      lastAutoReviewedContentLen.current = contentLen;
+      return;
+    }
+
+    // Same version, content changed → debounced auto-review
+    if (contentLen !== lastAutoReviewedContentLen.current) {
+      lastAutoReviewedContentLen.current = contentLen;
+      if (autoReviewTimer.current) clearTimeout(autoReviewTimer.current);
+      autoReviewTimer.current = setTimeout(() => { handleRunEngine(); }, 1500);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoReviewEnabled, selectedVersionId, (selectedVersion as any)?.plaintext]);
 
   // Detect episode count conflicts in upstream artifacts
   const artifactConflicts = useMemo(() => {
@@ -957,7 +1004,7 @@ export default function ProjectDevelopmentEngine() {
                     />
                   )}
 
-                  {/* Action toolbar — simplified: only Run Review, Promote, Convert */}
+                  {/* Action toolbar — Run Review, Auto-review toggle, Promote, Convert */}
                   <ActionToolbar
                     projectId={projectId}
                     hasAnalysis={!!latestAnalysis}
@@ -987,6 +1034,8 @@ export default function ProjectDevelopmentEngine() {
                     onApproveVersion={selectedVersionId ? handleApproveVersion : undefined}
                     approvePending={approvePending}
                     isVersionApproved={selectedVersion?.approval_status === 'approved'}
+                    autoReviewEnabled={autoReviewEnabled}
+                    onAutoReviewToggle={setAutoReviewEnabled}
                   />
 
                   {/* Resume auto-run handled by banner above */}
