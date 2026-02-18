@@ -82,7 +82,7 @@ export default function ProjectDevelopmentEngine() {
 
   // Fetch project metadata — staleTime:0 + refetchOnWindowFocus ensures title changes
   // made elsewhere in the app (ProjectDetail, settings) are always reflected here.
-  const { data: project } = useQuery({
+  const { data: project, isError: projectNotFound } = useQuery({
     queryKey: ['dev-engine-project', projectId],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -90,7 +90,13 @@ export default function ProjectDevelopmentEngine() {
         .select('title, format, development_behavior, episode_target_duration_seconds, episode_target_duration_min_seconds, episode_target_duration_max_seconds, season_episode_count, assigned_lane, budget_range, genres, comparable_titles, tone, target_audience, guardrails_config, source_pitch_idea_id')
         .eq('id', projectId!)
         .single();
-      if (error) throw error;
+      if (error) {
+        // PGRST116 = not found; surface as null rather than throw to avoid blank screen
+        if ((error as any).code === 'PGRST116' || error.message?.includes('Results contain 0 rows')) {
+          return null;
+        }
+        throw error;
+      }
 
       // Try to extract logline & premise from pitch idea or idea document
       let pitchLogline: string | null = null;
@@ -135,7 +141,11 @@ export default function ProjectDevelopmentEngine() {
     enabled: !!projectId,
     staleTime: 0,
     refetchOnWindowFocus: true,
+    retry: false,
   });
+
+
+
 
   // Invalidate the project query whenever the projects row changes in realtime
   // (covers title edits made from ProjectDetail or any other surface).
@@ -651,6 +661,16 @@ export default function ProjectDevelopmentEngine() {
 
   const resolutionSummary = latestNotes?.resolution_summary;
   const stabilityStatus = latestNotes?.stability_status || latestAnalysis?.stability_status;
+
+  // ── Project not found guard — avoids blank screen on stale/deleted project IDs ──
+  if (project === null) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-4">
+        <p className="text-muted-foreground text-sm">This project no longer exists or you don't have access.</p>
+        <Link to="/projects" className="text-primary text-sm underline underline-offset-2">← Back to Projects</Link>
+      </div>
+    );
+  }
 
   return (
     <PageTransition>
