@@ -69,7 +69,8 @@ export default function ProjectDevelopmentEngine() {
   const qc = useQueryClient();
   const [intelligenceTab, setIntelligenceTab] = useState('notes');
 
-  // Fetch project metadata
+  // Fetch project metadata — staleTime:0 + refetchOnWindowFocus ensures title changes
+  // made elsewhere in the app (ProjectDetail, settings) are always reflected here.
   const { data: project } = useQuery({
     queryKey: ['dev-engine-project', projectId],
     queryFn: async () => {
@@ -121,7 +122,26 @@ export default function ProjectDevelopmentEngine() {
       return { ...data, pitchLogline, pitchPremise };
     },
     enabled: !!projectId,
+    staleTime: 0,
+    refetchOnWindowFocus: true,
   });
+
+  // Invalidate the project query whenever the projects row changes in realtime
+  // (covers title edits made from ProjectDetail or any other surface).
+  useEffect(() => {
+    if (!projectId) return;
+    const channel = supabase
+      .channel(`dev-engine-project-title-${projectId}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'projects', filter: `id=eq.${projectId}` },
+        () => {
+          qc.invalidateQueries({ queryKey: ['dev-engine-project', projectId] });
+        }
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [projectId, qc]);
 
   const normalizedFormat = (project?.format || 'film').toLowerCase().replace(/_/g, '-');
   const isFeature = !project?.format || normalizedFormat === 'feature' || normalizedFormat === 'film';
