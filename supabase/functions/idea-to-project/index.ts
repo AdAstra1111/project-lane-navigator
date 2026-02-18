@@ -71,7 +71,6 @@ Be generous in your interpretation — extract whatever you can from the text, u
           { role: "system", content: systemPrompt },
           { role: "user", content: ideaText.slice(0, 4000) },
         ],
-        temperature: 0.3,
         max_completion_tokens: 600,
       }),
     });
