@@ -183,6 +183,12 @@ export function NotesPanel({
     noteId: string; noteText: string;
     proposedEdits: Array<{ find: string; replace: string; rationale: string }>;
     summary: string;
+    // Fix Generation Mode fields
+    diagnosis?: string;
+    affectedScenes?: string[];
+    rootCause?: string;
+    fixOptions?: Array<{ patch_name: string; where: string; what: string; structural_impact: string; risk: string }>;
+    recommendedOption?: { patch_name: string; rationale: string; estimated_impact: string };
   } | null>(null);
   const [patchApplying, setPatchApplying] = useState(false);
 
@@ -233,14 +239,29 @@ export function NotesPanel({
 
   const handleAIPatch = useCallback(async (noteId: string, noteText: string) => {
     if (!onResolveCarriedNote) return;
+    if (!currentVersionId) {
+      // Show error if no version selected
+      alert('Please select a document version before applying an AI fix.');
+      return;
+    }
     setResolvingNoteId(noteId);
     try {
       const result = await onResolveCarriedNote(noteId, 'ai_patch');
-      if (result?.proposed_edits !== undefined) {
-        setPatchDialog({ noteId, noteText, proposedEdits: result.proposed_edits || [], summary: result.summary || '' });
+      if (result?.proposed_edits !== undefined || result?.fix_options !== undefined) {
+        setPatchDialog({
+          noteId,
+          noteText,
+          proposedEdits: result.proposed_edits || [],
+          summary: result.summary || '',
+          diagnosis: result.diagnosis,
+          affectedScenes: result.affected_scenes,
+          rootCause: result.root_cause,
+          fixOptions: result.fix_options,
+          recommendedOption: result.recommended_option,
+        });
       }
     } finally { setResolvingNoteId(null); }
-  }, [onResolveCarriedNote]);
+  }, [onResolveCarriedNote, currentVersionId]);
 
   const handleApplyPatch = useCallback(async () => {
     if (!patchDialog || !onResolveCarriedNote) return;
@@ -426,33 +447,84 @@ export function NotesPanel({
         </CardContent>
       </Card>
 
-      {/* AI Patch Review Dialog */}
+      {/* AI Fix Generation Mode Dialog */}
       <Dialog open={!!patchDialog} onOpenChange={(open) => { if (!open) setPatchDialog(null); }}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle className="text-sm flex items-center gap-2">
-              <Wand2 className="h-4 w-4 text-sky-400" />AI Patch — Review Before Applying
+              <Wand2 className="h-4 w-4 text-sky-400" />Fix Generation — Review Before Applying
             </DialogTitle>
           </DialogHeader>
           {patchDialog && (
-            <div className="space-y-3">
-              <div className="p-2 rounded border border-primary/20 bg-primary/5">
-                <p className="text-[10px] text-muted-foreground font-medium mb-0.5">Note being resolved:</p>
-                <p className="text-[10px] text-foreground">{patchDialog.noteText}</p>
-              </div>
-              <div>
-                <p className="text-[10px] text-muted-foreground font-medium mb-1">Summary:</p>
-                <p className="text-[10px] text-foreground">{patchDialog.summary || 'No summary provided.'}</p>
-              </div>
-              {patchDialog.proposedEdits.length === 0 ? (
-                <div className="p-2 rounded border border-emerald-500/20 bg-emerald-500/5 text-[10px] text-emerald-400">
-                  ✓ Note appears already addressed. No edits needed.
+            <ScrollArea className="flex-1 min-h-0">
+              <div className="space-y-3 pr-2">
+                {/* Note being resolved */}
+                <div className="p-2 rounded border border-primary/20 bg-primary/5">
+                  <p className="text-[10px] text-muted-foreground font-medium mb-0.5">Note:</p>
+                  <p className="text-[10px] text-foreground">{patchDialog.noteText}</p>
                 </div>
-              ) : (
-                <div className="space-y-1.5">
-                  <p className="text-[10px] text-muted-foreground font-medium">Proposed edits ({patchDialog.proposedEdits.length}):</p>
-                  <ScrollArea className="max-h-52">
-                    <div className="space-y-2 pr-2">
+
+                {/* Section 1 — Diagnosis */}
+                {patchDialog.diagnosis && (
+                  <div className="space-y-1">
+                    <p className="text-[10px] font-semibold text-foreground uppercase tracking-wide">§1 Diagnosis</p>
+                    <p className="text-[10px] text-foreground">{patchDialog.diagnosis}</p>
+                    {patchDialog.affectedScenes && patchDialog.affectedScenes.length > 0 && (
+                      <div className="space-y-0.5 mt-1">
+                        {patchDialog.affectedScenes.map((s, i) => (
+                          <p key={i} className="text-[9px] text-muted-foreground pl-2 border-l border-primary/30">• {s}</p>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Section 2 — Root Cause */}
+                {patchDialog.rootCause && (
+                  <div className="space-y-1">
+                    <p className="text-[10px] font-semibold text-foreground uppercase tracking-wide">§2 Root Cause</p>
+                    <p className="text-[10px] text-foreground">{patchDialog.rootCause}</p>
+                  </div>
+                )}
+
+                {/* Section 3 — Fix Options */}
+                {patchDialog.fixOptions && patchDialog.fixOptions.length > 0 && (
+                  <div className="space-y-1.5">
+                    <p className="text-[10px] font-semibold text-foreground uppercase tracking-wide">§3 Fix Options ({patchDialog.fixOptions.length})</p>
+                    {patchDialog.fixOptions.map((opt, i) => (
+                      <div key={i} className={`rounded border p-2 space-y-1 ${patchDialog.recommendedOption?.patch_name === opt.patch_name ? 'border-sky-500/40 bg-sky-500/5' : 'border-border/40 bg-muted/10'}`}>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[9px] font-bold text-foreground">{opt.patch_name}</span>
+                          {patchDialog.recommendedOption?.patch_name === opt.patch_name && (
+                            <Badge variant="outline" className="text-[7px] px-1 py-0 border-sky-500/40 text-sky-400">Recommended</Badge>
+                          )}
+                        </div>
+                        <p className="text-[9px] text-muted-foreground"><span className="text-foreground/70 font-medium">Where:</span> {opt.where}</p>
+                        <p className="text-[9px] text-muted-foreground"><span className="text-foreground/70 font-medium">What:</span> {opt.what}</p>
+                        <p className="text-[9px] text-muted-foreground"><span className="text-foreground/70 font-medium">Impact:</span> {opt.structural_impact}</p>
+                        <p className="text-[9px] text-muted-foreground italic"><span className="text-foreground/70 font-medium">Risk:</span> {opt.risk}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Section 4 — Recommended Option */}
+                {patchDialog.recommendedOption && (
+                  <div className="space-y-1 p-2 rounded border border-emerald-500/30 bg-emerald-500/5">
+                    <p className="text-[10px] font-semibold text-emerald-400 uppercase tracking-wide">§4 Recommended Fix</p>
+                    <p className="text-[10px] font-medium text-foreground">{patchDialog.recommendedOption.patch_name}</p>
+                    <p className="text-[10px] text-muted-foreground">{patchDialog.recommendedOption.rationale}</p>
+                    {patchDialog.recommendedOption.estimated_impact && (
+                      <p className="text-[9px] text-emerald-400 font-medium">Est. impact: {patchDialog.recommendedOption.estimated_impact}</p>
+                    )}
+                  </div>
+                )}
+
+                {/* Proposed Edits */}
+                {patchDialog.proposedEdits.length > 0 ? (
+                  <div className="space-y-1.5">
+                    <p className="text-[10px] font-semibold text-foreground uppercase tracking-wide">Proposed Edits ({patchDialog.proposedEdits.length})</p>
+                    <div className="space-y-2">
                       {patchDialog.proposedEdits.map((edit, i) => (
                         <div key={i} className="rounded border border-border/40 bg-muted/20 p-2 space-y-1">
                           <p className="text-[9px] text-muted-foreground font-medium">Replace:</p>
@@ -463,21 +535,30 @@ export function NotesPanel({
                         </div>
                       ))}
                     </div>
-                  </ScrollArea>
-                </div>
-              )}
-            </div>
+                  </div>
+                ) : (
+                  <div className="p-2 rounded border border-emerald-500/20 bg-emerald-500/5 text-[10px] text-emerald-400">
+                    ✓ Note appears already addressed. No edits needed.
+                  </div>
+                )}
+
+                {/* Summary */}
+                {patchDialog.summary && (
+                  <p className="text-[9px] text-muted-foreground italic">{patchDialog.summary}</p>
+                )}
+              </div>
+            </ScrollArea>
           )}
-          <DialogFooter className="gap-2">
+          <DialogFooter className="gap-2 pt-2 border-t border-border/30">
             <Button variant="ghost" size="sm" onClick={() => setPatchDialog(null)}>Cancel</Button>
             {patchDialog && patchDialog.proposedEdits.length > 0 && (
               <Button size="sm" className="gap-1.5" onClick={handleApplyPatch} disabled={patchApplying}>
                 {patchApplying ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-                Apply Patch & Resolve
+                Apply Recommended Fix
               </Button>
             )}
             {patchDialog && patchDialog.proposedEdits.length === 0 && (
-              <Button size="sm" variant="outline" className="gap-1.5 text-emerald-500 border-emerald-500/30"
+              <Button size="sm" variant="outline" className="gap-1.5 border-emerald-500/30 text-emerald-500"
                 onClick={async () => {
                   if (!onResolveCarriedNote || !patchDialog) return;
                   await onResolveCarriedNote(patchDialog.noteId, 'mark_resolved');
@@ -493,3 +574,4 @@ export function NotesPanel({
     </>
   );
 }
+
