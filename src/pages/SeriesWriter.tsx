@@ -507,7 +507,7 @@ export default function SeriesWriter() {
     const isTemplate = ep.is_season_template;
     const prevLocked = idx === 0 || !!episodes[idx - 1]?.locked_at;
     const canWrite = !isLocked && prevLocked && isCanonValid && !isGenerating;
-    const canLock = !isLocked && (ep.status === 'complete' || ep.status === 'needs_revision') && !!ep.script_id;
+    const canLock = !isLocked && (ep.status === 'complete' || ep.status === 'needs_revision');
 
     let displayStatus = ep.status;
     if (isTemplate) displayStatus = 'template';
