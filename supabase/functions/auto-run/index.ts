@@ -6,17 +6,48 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-// ── Document Ladder ──
-const LADDER = ["idea", "concept_brief", "blueprint", "architecture", "draft"] as const;
-type DocStage = (typeof LADDER)[number];
+// ── Document Ladders ──
+// CANONICAL source: src/lib/stages/registry.ts  (kept in sync manually — Deno cannot import frontend src/)
+// FORMAT_LADDERS here MUST match src/lib/stages/registry.ts FORMAT_LADDERS exactly.
+const FORMAT_LADDERS: Record<string, string[]> = {
+  "film":               ["idea","topline_narrative","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","script","production_draft","deck"],
+  "feature":            ["idea","topline_narrative","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","script","production_draft","deck"],
+  "tv-series":          ["idea","topline_narrative","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","script","production_draft"],
+  "limited-series":     ["idea","topline_narrative","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","script","production_draft"],
+  "digital-series":     ["idea","topline_narrative","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","script","production_draft"],
+  "vertical-drama":     ["idea","topline_narrative","concept_brief","vertical_market_sheet","format_rules","character_bible","season_arc","episode_grid","vertical_episode_beats","script"],
+  "documentary":        ["idea","topline_narrative","concept_brief","market_sheet","documentary_outline","deck"],
+  "documentary-series": ["idea","topline_narrative","concept_brief","market_sheet","documentary_outline","deck"],
+  "hybrid-documentary": ["idea","topline_narrative","concept_brief","market_sheet","documentary_outline","blueprint","deck"],
+  "short":              ["idea","topline_narrative","concept_brief","script"],
+  "animation":          ["idea","topline_narrative","concept_brief","market_sheet","blueprint","character_bible","beat_sheet","script"],
+  "anim-series":        ["idea","topline_narrative","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","script","production_draft"],
+  "reality":            ["idea","topline_narrative","concept_brief","market_sheet","blueprint","beat_sheet","script"],
+};
 
-function nextDoc(current: DocStage): DocStage | null {
-  const idx = LADDER.indexOf(current);
-  return idx >= 0 && idx < LADDER.length - 1 ? LADDER[idx + 1] : null;
+type DocStage = string;
+
+function getLadderForJob(format: string): string[] {
+  const key = (format || "film").toLowerCase().replace(/[_ ]+/g, "-");
+  return FORMAT_LADDERS[key] ?? FORMAT_LADDERS["film"];
 }
 
-function isOnLadder(d: string): d is DocStage {
-  return (LADDER as readonly string[]).includes(d);
+// Flat unique set of all stages (for validation)
+const ALL_STAGES = new Set<string>(Object.values(FORMAT_LADDERS).flat());
+
+function nextDoc(current: string, format: string): string | null {
+  const ladder = getLadderForJob(format);
+  const idx = ladder.indexOf(current);
+  return idx >= 0 && idx < ladder.length - 1 ? ladder[idx + 1] : null;
+}
+
+function isOnLadder(d: string, format?: string): boolean {
+  if (format) return getLadderForJob(format).includes(d);
+  return ALL_STAGES.has(d);
+}
+
+function ladderIndexOf(d: string, format: string): number {
+  return getLadderForJob(format).indexOf(d);
 }
 
 // ── Mode Config ──
@@ -58,9 +89,9 @@ const FORMAT_DEFAULTS: Record<string, QualificationDefaults> = {
 
 const SERIES_FORMATS = ["vertical-drama", "tv-series", "limited-series", "anim-series", "documentary-series", "digital-series", "reality"];
 
-// Stages where episode qualifications become required
-const SERIES_STAGE_THRESHOLD = LADDER.indexOf("concept_brief"); // concept_brief+
-const FILM_STAGE_THRESHOLD = LADDER.indexOf("draft"); // draft+
+// Stages where episode qualifications become required (indexes in the film ladder for reference only)
+const SERIES_STAGE_THRESHOLD = FORMAT_LADDERS["film"].indexOf("concept_brief"); // concept_brief+
+const FILM_STAGE_THRESHOLD = FORMAT_LADDERS["film"].indexOf("script"); // script+
 
 function needsEpisodeQuals(format: string, _stageIdx: number): boolean {
   return SERIES_FORMATS.includes(normalizeFormat(format));
@@ -251,7 +282,7 @@ async function runPreflight(
 
   if (!project) return { resolved: {}, changed: false, missing_required: [] };
 
-  const stageIdx = LADDER.indexOf(currentDoc);
+  const stageIdx = ladderIndexOf(currentDoc, format);
   const defaults = FORMAT_DEFAULTS[format] || {};
   const updates: Record<string, any> = {};
   const resolved: Record<string, any> = {};
@@ -652,19 +683,19 @@ Deno.serve(async (req) => {
     // ═══════════════════════════════════════
     if (action === "start") {
       if (!projectId) return respond({ error: "projectId required" }, 400);
+      const { data: proj } = await supabase.from("projects").select("format").eq("id", projectId).single();
+      const fmt = (proj?.format || "film").toLowerCase().replace(/_/g, "-");
       const startDoc = start_document || "idea";
-      const targetDoc = target_document || "draft";
-      if (!isOnLadder(startDoc)) return respond({ error: `Invalid start_document: ${startDoc}` }, 400);
-      if (!isOnLadder(targetDoc)) return respond({ error: `Invalid target_document: ${targetDoc}` }, 400);
+      const targetDoc = target_document || "script";
+      if (!isOnLadder(startDoc, fmt)) return respond({ error: `Invalid start_document: ${startDoc}` }, 400);
+      if (!isOnLadder(targetDoc, fmt)) return respond({ error: `Invalid target_document: ${targetDoc}` }, 400);
 
       const modeConf = MODE_CONFIG[mode || "balanced"] || MODE_CONFIG.balanced;
       const effectiveMaxLoops = max_stage_loops ?? modeConf.max_stage_loops;
       const effectiveMaxSteps = max_total_steps ?? modeConf.max_total_steps;
 
       // ── Preflight qualification resolver at start ──
-      const { data: proj } = await supabase.from("projects").select("format").eq("id", projectId).single();
-      const fmt = (proj?.format || "film").toLowerCase().replace(/_/g, "-");
-      const preflight = await runPreflight(supabase, projectId, fmt, startDoc as DocStage, true);
+      const preflight = await runPreflight(supabase, projectId, fmt, startDoc, true);
 
       const { data: job, error } = await supabase.from("auto_run_jobs").insert({
         user_id: userId,
@@ -905,7 +936,7 @@ Deno.serve(async (req) => {
 
       if (choiceId === "force_promote" && choiceValue === "yes") {
         const next = nextDoc(currentDoc);
-        if (next && LADDER.indexOf(next) <= LADDER.indexOf(job.target_document as DocStage)) {
+        if (next && ladderIndexOf(next, format) <= ladderIndexOf(job.target_document, format)) {
           await logStep(supabase, jobId, stepCount, currentDoc, "decision_applied",
             `Force-promoted: ${currentDoc} → ${next}`,
             {}, undefined, { choiceId, choiceValue }
@@ -1131,7 +1162,7 @@ Deno.serve(async (req) => {
         `User approved ${job.approval_type}: ${currentDoc} → ${nextStage || "continue"}`
       );
 
-      if (nextStage && isOnLadder(nextStage) && LADDER.indexOf(nextStage) <= LADDER.indexOf(job.target_document as DocStage)) {
+      if (nextStage && isOnLadder(nextStage, format) && ladderIndexOf(nextStage, format) <= ladderIndexOf(job.target_document, format)) {
         await updateJob(supabase, jobId, {
           step_count: stepCount, current_document: nextStage, stage_loop_count: 0,
           status: "running", stop_reason: null,
@@ -1173,13 +1204,15 @@ Deno.serve(async (req) => {
       if (!jobId) return respond({ error: "jobId required" }, 400);
       const { data: job, error: jobErr } = await supabase.from("auto_run_jobs").select("*").eq("id", jobId).eq("user_id", userId).single();
       if (jobErr || !job) return respond({ error: "Job not found" }, 404);
-      const current = job.current_document as DocStage;
-      const next = nextDoc(current);
+      // Fetch format for format-aware ladder
+      const { data: jobProj } = await supabase.from("projects").select("format").eq("id", job.project_id).single();
+      const jobFmt = (jobProj?.format || "film").toLowerCase().replace(/_/g, "-");
+      const next = nextDoc(current, jobFmt);
       if (!next) return respond({ error: `Already at final stage: ${current}` }, 400);
       const stepCount = job.step_count + 1;
       await logStep(supabase, jobId, stepCount, current, "force_promote", `Force-promoted: ${current} → ${next}`);
-      const targetIdx = LADDER.indexOf(job.target_document as DocStage);
-      const nextIdx = LADDER.indexOf(next);
+      const targetIdx = ladderIndexOf(job.target_document, jobFmt);
+      const nextIdx = ladderIndexOf(next, jobFmt);
       if (nextIdx > targetIdx) {
         await updateJob(supabase, jobId, { step_count: stepCount, status: "completed", stop_reason: `Force-promoted past target` });
       } else {
@@ -1234,11 +1267,12 @@ Deno.serve(async (req) => {
       doc = docs?.[0];
       if (!doc) {
         // Fallback: find the closest previous stage document
-        const ladderIdx = LADDER.indexOf(currentDoc);
+        const jobLadder = getLadderForJob(format);
+        const ladderIdx = jobLadder.indexOf(currentDoc);
         for (let i = ladderIdx - 1; i >= 0; i--) {
           const { data: fallbackDocs } = await supabase.from("project_documents")
             .select("id, doc_type, plaintext, extracted_text")
-            .eq("project_id", job.project_id).eq("doc_type", LADDER[i])
+            .eq("project_id", job.project_id).eq("doc_type", jobLadder[i])
             .order("created_at", { ascending: false }).limit(1);
           if (fallbackDocs?.[0]) { doc = fallbackDocs[0]; break; }
         }
@@ -1333,10 +1367,11 @@ Deno.serve(async (req) => {
         .order("created_at", { ascending: false }).limit(1);
       doc = docs?.[0];
       if (!doc) {
-        const ladderIdx = LADDER.indexOf(currentDoc);
+        const jobLadder2 = getLadderForJob(format);
+        const ladderIdx = jobLadder2.indexOf(currentDoc);
         for (let i = ladderIdx - 1; i >= 0; i--) {
           const { data: fallbackDocs } = await supabase.from("project_documents")
-            .select("id").eq("project_id", job.project_id).eq("doc_type", LADDER[i])
+            .select("id").eq("project_id", job.project_id).eq("doc_type", jobLadder2[i])
             .order("created_at", { ascending: false }).limit(1);
           if (fallbackDocs?.[0]) { doc = fallbackDocs[0]; break; }
         }
@@ -1773,13 +1808,14 @@ Deno.serve(async (req) => {
 
       // If no document exists for current stage, generate one
       if (!doc) {
-        const ladderIdx = LADDER.indexOf(currentDoc);
+        const runNextLadder = getLadderForJob(format);
+        const ladderIdx = runNextLadder.indexOf(currentDoc);
         if (ladderIdx <= 0) {
           await updateJob(supabase, jobId, { status: "failed", error: "No source document found for initial stage" });
           return respondWithJob(supabase, jobId);
         }
 
-        const prevStage = LADDER[ladderIdx - 1];
+        const prevStage = runNextLadder[ladderIdx - 1];
         const { data: prevDocs } = await supabase.from("project_documents").select("id").eq("project_id", job.project_id).eq("doc_type", prevStage).order("created_at", { ascending: false }).limit(1);
         const prevDoc = prevDocs?.[0];
         if (!prevDoc) {

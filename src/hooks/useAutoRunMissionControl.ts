@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import type { AutoRunJob, AutoRunStep } from '@/hooks/useAutoRun';
+import { mapDocTypeToLadderStage } from '@/lib/stages/registry';
 
 // ── API helper ──
 async function callAutoRun(action: string, extra: Record<string, any> = {}) {
@@ -121,13 +122,7 @@ export function useAutoRunMissionControl(projectId: string | undefined) {
     setActivated(true);
     setError(null);
     abortRef.current = false;
-    const LADDER_MAP: Record<string, string> = {
-      idea: 'idea', concept_brief: 'concept_brief', market_sheet: 'concept_brief',
-      blueprint: 'blueprint', architecture: 'architecture', character_bible: 'blueprint',
-      beat_sheet: 'architecture', script: 'draft', production_draft: 'draft',
-      deck: 'concept_brief', documentary_outline: 'blueprint',
-    };
-    const mappedStart = LADDER_MAP[startDocument] || 'idea';
+    const mappedStart = mapDocTypeToLadderStage(startDocument);
     const MODE_STEPS: Record<string, number> = { fast: 8, balanced: 12, premium: 18 };
     try {
       const result = await callAutoRun('start', {
