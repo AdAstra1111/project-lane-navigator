@@ -72,7 +72,7 @@ Be generous in your interpretation — extract whatever you can from the text, u
           { role: "user", content: ideaText.slice(0, 4000) },
         ],
         temperature: 0.3,
-        max_tokens: 600,
+        max_completion_tokens: 600,
       }),
     });
 
