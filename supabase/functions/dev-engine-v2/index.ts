@@ -1979,6 +1979,7 @@ PROTECT (non-negotiable creative DNA):\n${JSON.stringify(protectItems || [])}
 ${qualBindingBlock}
 MATERIAL:\n${version.plaintext.slice(0, 20000)}`;
 
+      const normalizedTarget = (targetOutput || "").toUpperCase().replace(/\s+/g, "_");
       const isDraftScript = targetOutput === "DRAFT_SCRIPT" || normalizedTarget === "SCRIPT" || normalizedTarget === "DRAFT_SCRIPT";
       const model = isDraftScript ? PRO_MODEL : BALANCED_MODEL;
       const maxTok = isDraftScript ? 16000 : 10000;
@@ -1995,8 +1996,6 @@ MATERIAL:\n${version.plaintext.slice(0, 20000)}`;
       } else {
         parsed = await parseAIJson(LOVABLE_API_KEY, raw);
       }
-
-      const normalizedTarget = (targetOutput || "").toUpperCase().replace(/\s+/g, "_");
       let resolvedDocType = docTypeMap[targetOutput] || docTypeMap[normalizedTarget] || docTypeMap[(targetOutput || "").toUpperCase()] || "other";
 
       const VALID_DELIVERABLES_SET = new Set(["idea","topline_narrative","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","script","production_draft","deck","documentary_outline","format_rules","season_arc","episode_grid","vertical_episode_beats"]);
