@@ -111,7 +111,8 @@ Deno.serve(async (req) => {
 
     if (!note) return json({ error: "Note not found" }, 404);
     if (note.status === "resolved" || note.status === "dismissed") {
-      return json({ error: "Note already resolved/dismissed" }, 400);
+      // Idempotent: already in terminal state — return success so UI doesn't crash
+      return json({ ok: true, action, already_resolved: true });
     }
 
     // Use the real DB id (note.id) for all updates — note_id param may be a note_key string
