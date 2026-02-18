@@ -760,6 +760,36 @@ export function useSeriesWriter(projectId: string) {
     toast.info('Stopping after current phase completes…');
   }, []);
 
+  // ── Force-reset a stuck/stalled generating episode ──
+  const resetStuckEpisode = useMutation({
+    mutationFn: async (episodeId: string) => {
+      // Set stopRequested so any in-flight generation bails out cleanly
+      stopRequestedRef.current = true;
+      const { error } = await (supabase as any)
+        .from('series_episodes')
+        .update({
+          status: 'error',
+          generation_progress: {
+            phase: 'error',
+            error: 'Manually reset by user',
+            updatedAt: new Date().toISOString(),
+          },
+        })
+        .eq('id', episodeId);
+      if (error) throw error;
+    },
+    onSuccess: (_, episodeId) => {
+      // Also clear local running state in case the frontend loop is stuck
+      runningRef.current = false;
+      stopRequestedRef.current = false;
+      forceRender(n => n + 1);
+      setProgress({ currentEpisode: 0, totalEpisodes: 0, phase: 'idle' });
+      qc.invalidateQueries({ queryKey: ['series-episodes', projectId] });
+      toast.success('Episode reset — click Retry to regenerate');
+    },
+    onError: (e: any) => toast.error(`Reset failed: ${e.message}`),
+  });
+
   // ── Derived state ──
   const isGenerating = runningRef.current;
   const completedCount = episodes.filter(e => e.status === 'complete').length;
@@ -1038,5 +1068,6 @@ export function useSeriesWriter(projectId: string) {
     escalateToDevEngine,
     applyPatch,
     rejectPatch,
+    resetStuckEpisode,
   };
 }
