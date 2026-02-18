@@ -27,6 +27,7 @@ export type DeliverableStage =
   | 'character_bible'
   | 'beat_sheet'
   | 'script'
+  | 'season_master_script'
   | 'production_draft'
   | 'deck'
   | 'documentary_outline'
@@ -124,6 +125,7 @@ export const DOC_TYPE_TO_LADDER_STAGE: Record<string, DeliverableStage> = {
   character_bible:         'character_bible',
   beat_sheet:              'beat_sheet',
   script:                  'script',
+  season_master_script:    'season_master_script',
   production_draft:        'production_draft',
   deck:                    'deck',
   documentary_outline:     'documentary_outline',
@@ -148,6 +150,7 @@ export const DOC_TYPE_TO_LADDER_STAGE: Record<string, DeliverableStage> = {
   // Legacy aliases — NEVER stored as real doc_types
   draft:                   'script',
   coverage:                'production_draft',
+  complete_season_script:  'season_master_script',
 };
 
 export function mapDocTypeToLadderStage(docType: string): DeliverableStage {

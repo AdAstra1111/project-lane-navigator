@@ -16,6 +16,7 @@ export type DeliverableType =
   | 'character_bible'
   | 'beat_sheet'
   | 'script'
+  | 'season_master_script'
   | 'production_draft'
   | 'deck'
   | 'documentary_outline'
@@ -36,6 +37,7 @@ export const DELIVERABLE_LABELS: Record<DeliverableType, string> = {
   character_bible: 'Character Bible',
   beat_sheet: 'Episode Beat Sheet',
   script: 'Script',
+  season_master_script: 'Master Season Script',
   production_draft: 'Production Draft',
   deck: 'Deck',
   documentary_outline: 'Documentary Outline',
@@ -55,6 +57,7 @@ export const DELIVERABLE_PIPELINE_ORDER: DeliverableType[] = [
   'character_bible',
   'beat_sheet',
   'script',
+  'season_master_script',
   'production_draft',
 ];
 
@@ -68,6 +71,7 @@ export const VERTICAL_DRAMA_PIPELINE_ORDER: DeliverableType[] = [
   'episode_grid',
   'vertical_episode_beats',
   'script',
+  'season_master_script',
   'series_writer',
 ];
 
@@ -501,6 +505,8 @@ export function defaultDeliverableForDocType(docType: string): DeliverableType {
     vertical_episode_grid: 'episode_grid',
     vertical_episode_beats: 'vertical_episode_beats',
     series_writer: 'series_writer',
+    season_master_script: 'season_master_script',
+    complete_season_script: 'season_master_script',
   };
   return map[normalized] || 'concept_brief';
 }

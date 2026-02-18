@@ -3,16 +3,16 @@
   "FORMAT_LADDERS": {
     "film":               ["idea","topline_narrative","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","script","production_draft","deck"],
     "feature":            ["idea","topline_narrative","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","script","production_draft","deck"],
-    "tv-series":          ["idea","topline_narrative","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","script","production_draft"],
-    "limited-series":     ["idea","topline_narrative","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","script","production_draft"],
-    "digital-series":     ["idea","topline_narrative","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","script","production_draft"],
-    "vertical-drama":     ["idea","topline_narrative","concept_brief","vertical_market_sheet","format_rules","character_bible","season_arc","episode_grid","vertical_episode_beats","script"],
+    "tv-series":          ["idea","topline_narrative","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","script","season_master_script","production_draft"],
+    "limited-series":     ["idea","topline_narrative","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","script","season_master_script","production_draft"],
+    "digital-series":     ["idea","topline_narrative","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","script","season_master_script","production_draft"],
+    "vertical-drama":     ["idea","topline_narrative","concept_brief","vertical_market_sheet","format_rules","character_bible","season_arc","episode_grid","vertical_episode_beats","script","season_master_script"],
     "documentary":        ["idea","topline_narrative","concept_brief","market_sheet","documentary_outline","deck"],
     "documentary-series": ["idea","topline_narrative","concept_brief","market_sheet","documentary_outline","deck"],
     "hybrid-documentary": ["idea","topline_narrative","concept_brief","market_sheet","documentary_outline","blueprint","deck"],
     "short":              ["idea","topline_narrative","concept_brief","script"],
     "animation":          ["idea","topline_narrative","concept_brief","market_sheet","blueprint","character_bible","beat_sheet","script"],
-    "anim-series":        ["idea","topline_narrative","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","script","production_draft"],
+    "anim-series":        ["idea","topline_narrative","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","script","season_master_script","production_draft"],
     "reality":            ["idea","topline_narrative","concept_brief","market_sheet","blueprint","beat_sheet","script"]
   },
   "DOC_TYPE_ALIASES": {
@@ -29,6 +29,7 @@
     "writers_room":          "series_writer",
     "notes":                 "concept_brief",
     "draft":                 "script",
-    "coverage":              "production_draft"
+    "coverage":              "production_draft",
+    "complete_season_script": "season_master_script"
   }
 }

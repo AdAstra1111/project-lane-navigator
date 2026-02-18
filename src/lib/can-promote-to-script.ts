@@ -12,6 +12,8 @@ export const SCRIPT_DOC_TYPES = new Set([
   'episodes_1_3_scripts',
   'script',
   'season_scripts_bundle',
+  'season_master_script',
+  'complete_season_script',
 ]);
 
 export const NON_SCRIPT_DOC_TYPES = new Set([
@@ -66,6 +68,8 @@ export const ALL_DOC_TYPE_LABELS: Record<string, string> = {
   episodes_1_3_scripts: 'Episodes 1–3 Scripts',
   script: 'Script',
   season_scripts_bundle: 'Season Scripts Bundle',
+  season_master_script: 'Master Season Script',
+  complete_season_script: 'Master Season Script',
   // Non-script types
   writers_room: "Writer's Room",
   notes: 'Notes',

@@ -180,7 +180,7 @@ Deno.serve(async (req) => {
     ].join("\n");
 
     // Persist as project_document + version with doc_type = 'season_master_script'
-    const docTitle = `${projectTitle} — ${seasonLabel} Master Script`;
+    const docTitle = `Master Season Script — ${seasonLabel}`;
 
     // Build a slug-safe file_path (column name in project_documents)
     const slugTitle = (projectTitle || "project")
