@@ -7,8 +7,10 @@ const corsHeaders = {
 };
 
 // ── Document Ladders ──
-// CANONICAL source: src/lib/stages/registry.ts  (kept in sync manually — Deno cannot import frontend src/)
-// FORMAT_LADDERS here MUST match src/lib/stages/registry.ts FORMAT_LADDERS exactly.
+// CANONICAL source: supabase/_shared/stage-ladders.json
+// Deno edge functions cannot import JSON via static import, so these are inlined here.
+// RULE: whenever stage-ladders.json changes, update this block identically.
+// CI self-test: runStageRegistrySelfTest() in registry.ts verifies frontend matches JSON.
 const FORMAT_LADDERS: Record<string, string[]> = {
   "film":               ["idea","topline_narrative","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","script","production_draft","deck"],
   "feature":            ["idea","topline_narrative","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","script","production_draft","deck"],
@@ -24,6 +26,27 @@ const FORMAT_LADDERS: Record<string, string[]> = {
   "anim-series":        ["idea","topline_narrative","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","script","production_draft"],
   "reality":            ["idea","topline_narrative","concept_brief","market_sheet","blueprint","beat_sheet","script"],
 };
+
+// Alias map (from stage-ladders.json DOC_TYPE_ALIASES) — never persist these as real doc_types
+const DOC_TYPE_ALIASES: Record<string, string> = {
+  "logline": "idea", "one_pager": "concept_brief", "treatment": "blueprint",
+  "season_outline": "blueprint", "outline": "blueprint",
+  "episode_beat_sheet": "beat_sheet", "feature_script": "script",
+  "pilot_script": "script", "episode_script": "script", "episode_1_script": "script",
+  "writers_room": "series_writer", "notes": "concept_brief",
+  // LEGACY — these must NEVER be stored as real doc_types
+  "draft": "script", "coverage": "production_draft",
+};
+
+/**
+ * Sanitize a doc_type before persisting — maps legacy aliases to canonical stages.
+ * "draft" → "script", "coverage" → "production_draft", etc.
+ */
+function canonicalDocType(raw: string): string {
+  const key = (raw || "").toLowerCase().replace(/[-\s]+/g, "_");
+  return DOC_TYPE_ALIASES[key] || key;
+}
+
 
 type DocStage = string;
 
@@ -400,11 +423,13 @@ function isQualificationError(msg: string): boolean {
 
 // ── Promotion Intel (inline) ──
 const WEIGHTS: Record<string, { ci: number; gp: number; gap: number; traj: number; hi: number; pen: number }> = {
-  idea:          { ci: 0.20, gp: 0.30, gap: 0.10, traj: 0.15, hi: 0.20, pen: 0.05 },
-  concept_brief: { ci: 0.25, gp: 0.25, gap: 0.10, traj: 0.15, hi: 0.20, pen: 0.05 },
-  blueprint:     { ci: 0.30, gp: 0.20, gap: 0.10, traj: 0.20, hi: 0.15, pen: 0.05 },
-  architecture:  { ci: 0.30, gp: 0.20, gap: 0.10, traj: 0.20, hi: 0.15, pen: 0.05 },
-  draft:         { ci: 0.35, gp: 0.20, gap: 0.10, traj: 0.20, hi: 0.10, pen: 0.05 },
+  idea:             { ci: 0.20, gp: 0.30, gap: 0.10, traj: 0.15, hi: 0.20, pen: 0.05 },
+  concept_brief:    { ci: 0.25, gp: 0.25, gap: 0.10, traj: 0.15, hi: 0.20, pen: 0.05 },
+  blueprint:        { ci: 0.30, gp: 0.20, gap: 0.10, traj: 0.20, hi: 0.15, pen: 0.05 },
+  architecture:     { ci: 0.30, gp: 0.20, gap: 0.10, traj: 0.20, hi: 0.15, pen: 0.05 },
+  // NOTE: "draft" was a legacy alias for "script" — renamed to canonical key
+  script:           { ci: 0.35, gp: 0.20, gap: 0.10, traj: 0.20, hi: 0.10, pen: 0.05 },
+  production_draft: { ci: 0.35, gp: 0.20, gap: 0.10, traj: 0.20, hi: 0.10, pen: 0.05 },
 };
 
 function clamp(v: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, v)); }
@@ -685,10 +710,18 @@ Deno.serve(async (req) => {
       if (!projectId) return respond({ error: "projectId required" }, 400);
       const { data: proj } = await supabase.from("projects").select("format").eq("id", projectId).single();
       const fmt = (proj?.format || "film").toLowerCase().replace(/_/g, "-");
-      const startDoc = start_document || "idea";
-      const targetDoc = target_document || "script";
-      if (!isOnLadder(startDoc, fmt)) return respond({ error: `Invalid start_document: ${startDoc}` }, 400);
-      if (!isOnLadder(targetDoc, fmt)) return respond({ error: `Invalid target_document: ${targetDoc}` }, 400);
+      const startDoc = canonicalDocType(start_document || "idea");
+      // Sanitize target_document — "draft" and "coverage" are legacy aliases, never real targets
+      const rawTarget = target_document || "production_draft";
+      const targetDoc = canonicalDocType(rawTarget);
+      // Validate both are on the format's ladder
+      if (!isOnLadder(startDoc, fmt)) return respond({ error: `Invalid start_document: ${startDoc} (not on ${fmt} ladder)` }, 400);
+      if (!isOnLadder(targetDoc, fmt)) {
+        // Graceful fallback: use last stage on the ladder
+        const ladder = getLadderForJob(fmt);
+        const fallbackTarget = ladder[ladder.length - 1];
+        console.warn(`target_document "${targetDoc}" not on ${fmt} ladder — using "${fallbackTarget}"`);
+      }
 
       const modeConf = MODE_CONFIG[mode || "balanced"] || MODE_CONFIG.balanced;
       const effectiveMaxLoops = max_stage_loops ?? modeConf.max_stage_loops;
@@ -935,8 +968,10 @@ Deno.serve(async (req) => {
       }
 
       if (choiceId === "force_promote" && choiceValue === "yes") {
-        const next = nextDoc(currentDoc);
-        if (next && ladderIndexOf(next, format) <= ladderIndexOf(job.target_document, format)) {
+        const { data: fpProj } = await supabase.from("projects").select("format").eq("id", job.project_id).single();
+        const fpFmt = (fpProj?.format || "film").toLowerCase().replace(/_/g, "-");
+        const next = nextDoc(currentDoc, fpFmt);
+        if (next && ladderIndexOf(next, fpFmt) <= ladderIndexOf(job.target_document, fpFmt)) {
           await logStep(supabase, jobId, stepCount, currentDoc, "decision_applied",
             `Force-promoted: ${currentDoc} → ${next}`,
             {}, undefined, { choiceId, choiceValue }

@@ -37,6 +37,7 @@ import { FeatureLengthGuardrails } from '@/components/FeatureLengthGuardrails';
 import { type DevelopmentBehavior, BEHAVIOR_LABELS, BEHAVIOR_COLORS, DELIVERABLE_LABELS, defaultDeliverableForDocType, type DeliverableType } from '@/lib/dev-os-config';
 import { isSeriesFormat as checkSeriesFormat } from '@/lib/format-helpers';
 import { DeliverablePipeline, type PipelineStageStatus } from '@/components/DeliverablePipeline';
+import { StagePlanPanel } from '@/components/stages/StagePlanPanel';
 
 // Extracted components
 import { DocumentSidebar } from '@/components/devengine/DocumentSidebar';
@@ -836,6 +837,15 @@ export default function ProjectDevelopmentEngine() {
           {/* ═══ PIPELINE ═══ */}
           <DeliverablePipeline stageStatuses={pipelineStatuses} activeDeliverable={selectedDeliverableType}
             onStageClick={(dt) => setSelectedDeliverableType(dt)} isVerticalDrama={isVerticalDrama} />
+
+          {/* ═══ STAGE PLAN PANEL (drift verification) ═══ */}
+          {(project as any)?.format && (
+            <StagePlanPanel
+              projectFormat={(project as any).format}
+              currentDocType={selectedDeliverableType || undefined}
+              existingDocTypes={documents.map(d => d.doc_type)}
+            />
+          )}
 
           {/* ═══ 2-COLUMN FLEX LAYOUT ═══ */}
           <div className="flex flex-col md:flex-row gap-3">
