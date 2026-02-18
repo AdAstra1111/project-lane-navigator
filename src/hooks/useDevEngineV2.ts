@@ -316,8 +316,13 @@ export function useDevEngineV2(projectId: string | undefined) {
     },
     onSuccess: (data) => {
       const status = data.script_format_validation?.status;
-      if (status === 'SCRIPT_FORMAT_INVALID') {
+      const regenAttempted = data.script_format_validation?.regen_attempted;
+      if (status === 'SCRIPT_FORMAT_INVALID' && regenAttempted) {
+        toast.warning(`Episode ${data.episode_number} script generated — auto-regen attempted but format still needs review`);
+      } else if (status === 'SCRIPT_FORMAT_INVALID') {
         toast.warning(`Episode ${data.episode_number} generated but needs rewrite — format validation failed`);
+      } else if (regenAttempted) {
+        toast.success(`Episode ${data.episode_number} screenplay created (auto-corrected on first pass)`);
       } else {
         toast.success(`Episode ${data.episode_number} screenplay created`);
       }
