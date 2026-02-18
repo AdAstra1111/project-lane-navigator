@@ -331,9 +331,17 @@ Deno.serve(async (req) => {
         }
       }
     } else {
+      const slugTitle = (projectTitle || "project")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+      const dateStr = new Date(compiledAt).toISOString().slice(0, 10);
+      const fileName = `${slugTitle}_complete-season-script_${dateStr}.md`;
+      if (!fileName) throw new Error("Could not generate file_name for season script document");
+
       const { data: newDoc, error: docErr } = await sb
         .from("project_documents")
-        .insert({ project_id, user_id: userId, doc_type: "complete_season_script", title: docTitle } as any)
+        .insert({ project_id, user_id: userId, doc_type: "complete_season_script", title: docTitle, file_name: fileName } as any)
         .select("id")
         .single();
       if (docErr) throw new Error(`Failed to create doc: ${docErr.message}`);
