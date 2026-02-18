@@ -72,9 +72,9 @@ export function SeriesRunControlBar({
 
   return (
     <div className={`rounded-lg border p-3 space-y-2.5 transition-colors ${containerClass}`}>
-      {/* Top row: status + controls */}
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 min-w-0">
+      {/* Top row: status label + action buttons — wraps on narrow widths */}
+      <div className="flex items-start gap-2 flex-wrap">
+        <div className="flex items-center gap-2 flex-1 min-w-0">
           {isRunning && <Loader2 className="h-3.5 w-3.5 text-primary animate-spin shrink-0" />}
           {isPaused && <Pause className="h-3.5 w-3.5 text-amber-400 shrink-0" />}
           {status === 'error' && <AlertTriangle className="h-3.5 w-3.5 text-destructive shrink-0" />}
@@ -82,7 +82,7 @@ export function SeriesRunControlBar({
             <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
           )}
 
-          <span className="text-xs font-semibold text-foreground">
+          <span className="text-xs font-semibold text-foreground break-words">
             {isPaused
               ? 'Generation Paused'
               : isRunning
@@ -106,8 +106,8 @@ export function SeriesRunControlBar({
           )}
         </div>
 
-        {/* Action buttons */}
-        <div className="flex items-center gap-1.5 shrink-0">
+        {/* Action buttons — flex-wrap so they never get clipped */}
+        <div className="flex items-center gap-1.5 flex-wrap">
           {lastSavedScriptId && (
             <Button
               variant="ghost"
