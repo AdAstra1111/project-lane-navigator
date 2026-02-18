@@ -280,12 +280,24 @@ Enter Fix Generation Mode. Diagnose the note, identify affected scenes with evid
         }
       }
 
-      // Write new version
+      // Get the true max version_number to avoid UNIQUE(document_id, version_number) collision
+      const { data: maxVerRow } = await db
+        .from("project_document_versions")
+        .select("version_number")
+        .eq("document_id", ver.document_id)
+        .order("version_number", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      const nextVersionNumber = (maxVerRow?.version_number || ver.version_number || 1) + 1;
+      console.log("[resolve-carried-note] inserting version:", nextVersionNumber, "for doc:", ver.document_id, "by:", userId);
+
+      // Write new version using service role (bypasses RLS)
       const { data: newVer, error: verErr } = await db
         .from("project_document_versions")
         .insert({
           document_id: ver.document_id,
-          version_number: (ver.version_number || 1) + 1,
+          version_number: nextVersionNumber,
           plaintext: newText,
           label: "Carried-note patch",
           created_by: userId,
@@ -293,7 +305,10 @@ Enter Fix Generation Mode. Diagnose the note, identify affected scenes with evid
         .select("id, version_number")
         .single();
 
-      if (verErr || !newVer) return json({ error: "Failed to create version" }, 500);
+      if (verErr || !newVer) {
+        console.error("[resolve-carried-note] insert error:", verErr?.message, verErr?.code, verErr?.details);
+        return json({ error: "Failed to create version", detail: verErr?.message }, 500);
+      }
 
       // Mark note resolved
       const noteJson = note.note_json as any;
