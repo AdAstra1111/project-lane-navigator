@@ -23,6 +23,8 @@ import {
   AlertTriangle, GitBranch, Clock, Film, Pause, Square, RotateCcw, ChevronDown,
   FileText,
 } from 'lucide-react';
+import { RenameProjectDialog } from '@/components/project/RenameProjectDialog';
+import { useProjects } from '@/hooks/useProjects';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { OperationProgress, DEV_ANALYZE_STAGES, DEV_NOTES_STAGES, DEV_REWRITE_STAGES, DEV_CONVERT_STAGES } from '@/components/OperationProgress';
 import { useSetAsLatestDraft } from '@/hooks/useSetAsLatestDraft';
@@ -68,6 +70,12 @@ export default function ProjectDevelopmentEngine() {
   const [searchParams] = useSearchParams();
   const qc = useQueryClient();
   const [intelligenceTab, setIntelligenceTab] = useState('notes');
+  const { renameProject } = useProjects();
+
+  const handleRenameProject = async (newTitle: string) => {
+    await renameProject.mutateAsync({ projectId: projectId!, title: newTitle });
+    toast.success('Project renamed');
+  };
 
   // Fetch project metadata — staleTime:0 + refetchOnWindowFocus ensures title changes
   // made elsewhere in the app (ProjectDetail, settings) are always reflected here.
@@ -686,7 +694,17 @@ export default function ProjectDevelopmentEngine() {
               <Link to={`/projects/${projectId}`} className="text-xs text-muted-foreground hover:text-foreground">
                 ← Project
               </Link>
-              <h1 className="text-base font-display font-bold text-foreground">Development Engine</h1>
+              <div className="flex items-center gap-1.5">
+                <h1 className="text-base font-display font-bold text-foreground">
+                  {(project as any)?.title || 'Development Engine'}
+                </h1>
+                {project && (
+                  <RenameProjectDialog
+                    currentTitle={(project as any).title || ''}
+                    onRename={handleRenameProject}
+                  />
+                )}
+              </div>
               {/* Return to Series Writer when launched from there */}
               {searchParams.get('source') === 'series-writer' && (
                 <Link

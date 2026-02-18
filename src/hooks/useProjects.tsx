@@ -228,6 +228,25 @@ export function useProjects() {
     },
   });
 
+  const renameProject = useMutation({
+    mutationFn: async ({ projectId, title }: { projectId: string; title: string }) => {
+      const { error } = await supabase
+        .from('projects')
+        .update({ title })
+        .eq('id', projectId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      queryClient.invalidateQueries({ queryKey: ['project'] });
+      queryClient.invalidateQueries({ queryKey: ['dev-engine-project'] });
+      queryClient.invalidateQueries({ queryKey: ['company-projects'] });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to rename project');
+    },
+  });
+
   const deleteProject = useMutation({
     mutationFn: async (projectId: string) => {
       const { error } = await supabase
@@ -248,7 +267,7 @@ export function useProjects() {
     },
   });
 
-  return { projects, isLoading, error, createProject, deleteProject, togglePin };
+  return { projects, isLoading, error, createProject, deleteProject, togglePin, renameProject };
 }
 
 export function useProject(id: string | undefined) {
