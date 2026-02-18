@@ -13,6 +13,12 @@ import { toast } from 'sonner';
 interface CriteriaData {
   format_subtype?: string | null;
   season_episode_count?: number | null;
+  // Canonical episode length keys (single source of truth)
+  episode_duration_target_seconds?: number | null;
+  episode_duration_min_seconds?: number | null;
+  episode_duration_max_seconds?: number | null;
+  episode_duration_variance_policy?: 'strict' | 'soft' | null;
+  // Legacy scalar — kept for backward compat, mapped on load
   episode_target_duration_seconds?: number | null;
   target_runtime_min_low?: number | null;
   target_runtime_min_high?: number | null;
@@ -96,7 +102,7 @@ export function CriteriaPanel({ projectId, documents, onCriteriaUpdated }: Props
 
   async function loadCriteria() {
     const { data } = await (supabase as any).from('projects')
-      .select('guardrails_config, assigned_lane, budget_range, format, episode_target_duration_seconds, season_episode_count, development_behavior')
+      .select('guardrails_config, assigned_lane, budget_range, format, episode_target_duration_seconds, episode_target_duration_min_seconds, episode_target_duration_max_seconds, season_episode_count, development_behavior')
       .eq('id', projectId).single();
     if (!data) return;
 
@@ -104,10 +110,21 @@ export function CriteriaPanel({ projectId, documents, onCriteriaUpdated }: Props
     const quals = gc?.overrides?.qualifications || {};
     const derived = gc?.derived_from_idea || null;
 
+    // Canonical keys — prefer new keys, fall back to legacy scalar for compat
+    const legacyScalar = quals.episode_target_duration_seconds || data.episode_target_duration_seconds || null;
+    const canonMin = quals.episode_duration_min_seconds || data.episode_target_duration_min_seconds || legacyScalar || null;
+    const canonMax = quals.episode_duration_max_seconds || data.episode_target_duration_max_seconds || legacyScalar || null;
+    const canonTarget = quals.episode_duration_target_seconds || legacyScalar || (canonMin && canonMax ? Math.round((canonMin + canonMax) / 2) : null);
+
     const merged: CriteriaData = {
       format_subtype: quals.format_subtype || (data.format?.toLowerCase().replace(/_/g, '-')) || null,
       season_episode_count: quals.season_episode_count || data.season_episode_count || null,
-      episode_target_duration_seconds: quals.episode_target_duration_seconds || data.episode_target_duration_seconds || null,
+      episode_duration_target_seconds: canonTarget,
+      episode_duration_min_seconds: canonMin,
+      episode_duration_max_seconds: canonMax,
+      episode_duration_variance_policy: quals.episode_duration_variance_policy || 'soft',
+      // legacy field preserved for downstream compat
+      episode_target_duration_seconds: legacyScalar,
       target_runtime_min_low: quals.target_runtime_min_low || null,
       target_runtime_min_high: quals.target_runtime_min_high || null,
       assigned_lane: data.assigned_lane || quals.assigned_lane || null,
@@ -167,10 +184,31 @@ export function CriteriaPanel({ projectId, documents, onCriteriaUpdated }: Props
         .select('guardrails_config').eq('id', projectId).single();
       const gc = proj?.guardrails_config || {};
       gc.overrides = gc.overrides || {};
-      gc.overrides.qualifications = { ...(gc.overrides.qualifications || {}), ...editCriteria };
+
+      // Merge canonical keys into guardrails qualifications
+      const existingQuals = gc.overrides.qualifications || {};
+      const durMin = editCriteria.episode_duration_min_seconds ?? null;
+      const durMax = editCriteria.episode_duration_max_seconds ?? null;
+      const durTarget = editCriteria.episode_duration_target_seconds ?? null;
+      const legacyScalar = durTarget || (durMin && durMax ? Math.round((durMin + durMax) / 2) : durMin || durMax || null);
+
+      const newQuals = {
+        ...existingQuals,
+        ...editCriteria,
+        episode_duration_target_seconds: durTarget,
+        episode_duration_min_seconds: durMin,
+        episode_duration_max_seconds: durMax,
+        episode_duration_variance_policy: editCriteria.episode_duration_variance_policy || 'soft',
+        // legacy scalar — keep in sync
+        episode_target_duration_seconds: legacyScalar,
+      };
+      gc.overrides.qualifications = newQuals;
 
       const updates: Record<string, any> = { guardrails_config: gc };
-      if (editCriteria.episode_target_duration_seconds) updates.episode_target_duration_seconds = editCriteria.episode_target_duration_seconds;
+      // Mirror to DB columns (legacy support for downstream consumers)
+      if (legacyScalar) updates.episode_target_duration_seconds = legacyScalar;
+      if (durMin) updates.episode_target_duration_min_seconds = durMin;
+      if (durMax) updates.episode_target_duration_max_seconds = durMax;
       if (editCriteria.season_episode_count) updates.season_episode_count = editCriteria.season_episode_count;
       if (editCriteria.assigned_lane) updates.assigned_lane = editCriteria.assigned_lane;
       if (editCriteria.budget_range) updates.budget_range = editCriteria.budget_range;
@@ -187,7 +225,6 @@ export function CriteriaPanel({ projectId, documents, onCriteriaUpdated }: Props
       setIsEditing(false);
       toast.success('Criteria saved');
       onCriteriaUpdated?.();
-      // Auto-run rebase check after save
       handleRebaseCheck();
     } catch (e: any) {
       toast.error(e.message);
@@ -317,11 +354,60 @@ export function CriteriaPanel({ projectId, documents, onCriteriaUpdated }: Props
                   <SelectContent>{BUDGET_OPTIONS.map(b => <SelectItem key={b} value={b}>{b}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
-              <div>
-                <Label className="text-[9px]">Episode Duration (s)</Label>
-                <Input type="number" className="h-7 text-[10px]"
-                  value={editCriteria.episode_target_duration_seconds || ''}
-                  onChange={(e) => setEditCriteria(prev => ({ ...prev, episode_target_duration_seconds: Number(e.target.value) || null }))} />
+              {/* ─── Episode Length (canonical) ─── */}
+              <div className="col-span-2">
+                <Label className="text-[9px] font-semibold">Episode Length (canonical — single source of truth)</Label>
+                <div className="grid grid-cols-3 gap-1 mt-0.5">
+                  <div>
+                    <Label className="text-[8px] text-muted-foreground">Min (s)</Label>
+                    <Input type="number" className="h-7 text-[10px]" min={5}
+                      value={editCriteria.episode_duration_min_seconds ?? ''}
+                      onChange={(e) => {
+                        const v = Number(e.target.value) || null;
+                        setEditCriteria(prev => ({
+                          ...prev,
+                          episode_duration_min_seconds: v,
+                          episode_target_duration_seconds: v && prev.episode_duration_max_seconds
+                            ? Math.round((v + prev.episode_duration_max_seconds) / 2)
+                            : v,
+                        }));
+                      }} />
+                  </div>
+                  <div>
+                    <Label className="text-[8px] text-muted-foreground">Max (s)</Label>
+                    <Input type="number" className="h-7 text-[10px]" min={5}
+                      value={editCriteria.episode_duration_max_seconds ?? ''}
+                      onChange={(e) => {
+                        const v = Number(e.target.value) || null;
+                        setEditCriteria(prev => ({
+                          ...prev,
+                          episode_duration_max_seconds: v,
+                          episode_target_duration_seconds: prev.episode_duration_min_seconds && v
+                            ? Math.round((prev.episode_duration_min_seconds + v) / 2)
+                            : v,
+                        }));
+                      }} />
+                  </div>
+                  <div>
+                    <Label className="text-[8px] text-muted-foreground">Target (s)</Label>
+                    <Input type="number" className="h-7 text-[10px]" min={5}
+                      value={editCriteria.episode_duration_target_seconds ?? ''}
+                      onChange={(e) => setEditCriteria(prev => ({ ...prev, episode_duration_target_seconds: Number(e.target.value) || null }))} />
+                  </div>
+                </div>
+                <div className="mt-1">
+                  <Label className="text-[8px] text-muted-foreground">Variance Policy</Label>
+                  <Select
+                    value={editCriteria.episode_duration_variance_policy || 'soft'}
+                    onValueChange={(v) => setEditCriteria(prev => ({ ...prev, episode_duration_variance_policy: v as 'strict' | 'soft' }))}
+                  >
+                    <SelectTrigger className="h-7 text-[10px]"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="soft">soft — 10% tolerance allowed</SelectItem>
+                      <SelectItem value="strict">strict — must be within range</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
               <div>
                 <Label className="text-[9px]">Episodes/Season</Label>
@@ -346,7 +432,15 @@ export function CriteriaPanel({ projectId, documents, onCriteriaUpdated }: Props
               {renderField('Format', 'format_subtype', criteria.format_subtype)}
               {renderField('Lane', 'assigned_lane', criteria.assigned_lane)}
               {renderField('Budget', 'budget_range', criteria.budget_range)}
-              {renderField('Episode Duration', 'episode_target_duration_seconds', criteria.episode_target_duration_seconds ? `${criteria.episode_target_duration_seconds}s` : null)}
+              {/* Canonical episode length display */}
+              {(criteria.episode_duration_min_seconds || criteria.episode_duration_max_seconds) ? (
+                renderField('Episode Length',
+                  'episode_duration_min_seconds',
+                  `${criteria.episode_duration_min_seconds ?? '?'}–${criteria.episode_duration_max_seconds ?? '?'}s` +
+                  (criteria.episode_duration_target_seconds ? ` (target: ${criteria.episode_duration_target_seconds}s)` : '') +
+                  (criteria.episode_duration_variance_policy === 'strict' ? ' [strict]' : '')
+                )
+              ) : renderField('Episode Duration', 'episode_target_duration_seconds', criteria.episode_target_duration_seconds ? `${criteria.episode_target_duration_seconds}s` : null)}
               {renderField('Episodes/Season', 'season_episode_count', criteria.season_episode_count)}
               {renderField('Runtime', 'target_runtime_min_low', criteria.target_runtime_min_low && criteria.target_runtime_min_high ? `${criteria.target_runtime_min_low}–${criteria.target_runtime_min_high} min` : null)}
               {criteria.tone_tags?.length ? renderField('Tone', 'tone_tags', criteria.tone_tags.join(', ')) : null}

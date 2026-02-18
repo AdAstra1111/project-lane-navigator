@@ -698,11 +698,71 @@ const FORMAT_DEFAULTS_ENGINE: Record<string, { episode_target_duration_seconds?:
 };
 
 // ═══════════════════════════════════════════════════════════════
-// CRITERIA SNAPSHOT
+// EPISODE LENGTH — canonical key resolution + prompt block builder
 // ═══════════════════════════════════════════════════════════════
 
+/**
+ * Resolve canonical episode length from project row + guardrails_config.
+ * Priority: episode_duration_* (new canonical) > legacy episode_target_duration_* > format defaults
+ */
+function resolveEpisodeLength(project: any, overrideQuals: Record<string, any> = {}, fmtDefaults: Record<string, any> = {}): {
+  minSeconds: number | null;
+  maxSeconds: number | null;
+  targetSeconds: number | null;
+  variancePolicy: 'strict' | 'soft';
+} {
+  const gc = project?.guardrails_config || {};
+  const quals = gc?.overrides?.qualifications || {};
+  const merged = { ...fmtDefaults, ...quals, ...overrideQuals };
+
+  // Canonical new keys take priority
+  const canonMin = merged.episode_duration_min_seconds ?? null;
+  const canonMax = merged.episode_duration_max_seconds ?? null;
+  const canonTarget = merged.episode_duration_target_seconds ?? null;
+
+  // Legacy keys
+  const legacyMin = project?.episode_target_duration_min_seconds ?? quals.episode_target_duration_min_seconds ?? fmtDefaults.episode_target_duration_min_seconds ?? null;
+  const legacyMax = project?.episode_target_duration_max_seconds ?? quals.episode_target_duration_max_seconds ?? fmtDefaults.episode_target_duration_max_seconds ?? null;
+  const legacyScalar = project?.episode_target_duration_seconds ?? quals.episode_target_duration_seconds ?? fmtDefaults.episode_target_duration_seconds ?? null;
+
+  const minSeconds = canonMin ?? legacyMin ?? legacyScalar ?? null;
+  const maxSeconds = canonMax ?? legacyMax ?? legacyScalar ?? null;
+  const targetSeconds = canonTarget ?? (minSeconds && maxSeconds ? Math.round((minSeconds + maxSeconds) / 2) : minSeconds ?? maxSeconds ?? null);
+  const variancePolicy = (merged.episode_duration_variance_policy as 'strict' | 'soft') || 'soft';
+
+  return { minSeconds, maxSeconds, targetSeconds, variancePolicy };
+}
+
+/**
+ * Build a standardized EPISODE LENGTH RULES block for injection into all prompts.
+ */
+function buildEpisodeLengthBlock(project: any, overrideQuals: Record<string, any> = {}, fmtDefaults: Record<string, any> = {}): string {
+  const { minSeconds, maxSeconds, targetSeconds, variancePolicy } = resolveEpisodeLength(project, overrideQuals, fmtDefaults);
+  if (!minSeconds && !maxSeconds && !targetSeconds) return "";
+
+  const rangeStr = minSeconds !== null && maxSeconds !== null && minSeconds !== maxSeconds
+    ? `${minSeconds}–${maxSeconds}s`
+    : `${targetSeconds ?? minSeconds ?? maxSeconds}s`;
+  const targetStr = targetSeconds ? ` (target: ${targetSeconds}s)` : "";
+  const toleranceStr = variancePolicy === 'strict'
+    ? "Episodes MUST fall within this range. Reject or flag any episode outside it."
+    : "Episodes should aim for the target. A 10% tolerance is allowed (±${Math.round((targetSeconds ?? 60) * 0.1)}s).";
+
+  return `
+EPISODE LENGTH RULES (canonical — authoritative, ignore all other references):
+- Allowed range: ${rangeStr}${targetStr}
+- Variance policy: ${variancePolicy}
+- ${toleranceStr}
+- Every episode MUST conform to this range. Do NOT use different durations for different episodes unless explicitly instructed.
+- If generating a grid or beat sheet: include episode_duration_target_seconds=${targetSeconds ?? minSeconds} for every episode row.`;
+}
+
+
+
 const CRITERIA_SNAPSHOT_KEYS = [
-  "format_subtype", "season_episode_count", "episode_target_duration_seconds",
+  "format_subtype", "season_episode_count",
+  "episode_duration_min_seconds", "episode_duration_max_seconds", "episode_duration_target_seconds",
+  "episode_target_duration_seconds", // legacy
   "target_runtime_min_low", "target_runtime_min_high", "assigned_lane",
   "budget_range", "development_behavior"
 ] as const;
@@ -710,6 +770,9 @@ const CRITERIA_SNAPSHOT_KEYS = [
 interface CriteriaSnapshot {
   format_subtype?: string;
   season_episode_count?: number;
+  episode_duration_min_seconds?: number;
+  episode_duration_max_seconds?: number;
+  episode_duration_target_seconds?: number;
   episode_target_duration_seconds?: number;
   target_runtime_min_low?: number;
   target_runtime_min_high?: number;
@@ -721,16 +784,22 @@ interface CriteriaSnapshot {
 
 async function buildCriteriaSnapshot(supabase: any, projectId: string): Promise<CriteriaSnapshot> {
   const { data: p } = await supabase.from("projects")
-    .select("format, assigned_lane, budget_range, development_behavior, episode_target_duration_seconds, season_episode_count, guardrails_config")
+    .select("format, assigned_lane, budget_range, development_behavior, episode_target_duration_seconds, episode_target_duration_min_seconds, episode_target_duration_max_seconds, season_episode_count, guardrails_config")
     .eq("id", projectId).single();
   if (!p) return {};
   const gc = p.guardrails_config || {};
   const quals = gc?.overrides?.qualifications || {};
   const fmt = (p.format || "film").toLowerCase().replace(/[_ ]+/g, "-");
+  // Resolve canonical episode length
+  const { minSeconds, maxSeconds, targetSeconds } = resolveEpisodeLength(p);
   return {
     format_subtype: quals.format_subtype || fmt,
     season_episode_count: p.season_episode_count || quals.season_episode_count || undefined,
+    episode_duration_min_seconds: minSeconds ?? undefined,
+    episode_duration_max_seconds: maxSeconds ?? undefined,
+    episode_duration_target_seconds: targetSeconds ?? undefined,
     episode_target_duration_seconds: p.episode_target_duration_seconds || quals.episode_target_duration_seconds || undefined,
+
     target_runtime_min_low: quals.target_runtime_min_low || undefined,
     target_runtime_min_high: quals.target_runtime_min_high || undefined,
     assigned_lane: p.assigned_lane || quals.assigned_lane || undefined,
@@ -939,11 +1008,12 @@ serve(async (req) => {
         seasonContext = `\nSEASON ARCHITECTURE: ${seasonArchitecture.episode_count} episodes, ${seasonArchitecture.model} model. Anchors: reveal=${seasonArchitecture.anchors.reveal_index}, midpoint=${seasonArchitecture.anchors.mid_index}${seasonArchitecture.anchors.pre_finale_index ? `, pre-finale=${seasonArchitecture.anchors.pre_finale_index}` : ""}, finale=${seasonArchitecture.anchors.finale_index}.`;
       }
 
-      // Build canonical qualification binding for prompt
+      // Build canonical qualification binding + episode length block for prompt
+      const episodeLengthBlock = buildEpisodeLengthBlock(project, gquals, fmtDefaults);
       let qualBinding = "";
       if (rq.is_series && rq.season_episode_count) {
-        const durMin = rq.episode_target_duration_min_seconds || rq.episode_target_duration_seconds || effectiveDurationMin;
-        const durMax = rq.episode_target_duration_max_seconds || rq.episode_target_duration_seconds || effectiveDurationMax;
+        const durMin = effectiveDurationMin;
+        const durMax = effectiveDurationMax;
         const durMid = durMin && durMax ? Math.round((durMin + durMax) / 2) : (durMin || durMax || null);
         const durRangeStr = (durMin && durMax && durMin !== durMax)
           ? `${durMin}–${durMax} seconds (midpoint ${durMid}s)`
@@ -951,7 +1021,9 @@ serve(async (req) => {
         qualBinding = `\nCANONICAL QUALIFICATIONS (authoritative — ignore older references to different values):
 Target season length: ${rq.season_episode_count} episodes.
 Episode target duration range: ${durRangeStr}.
-Format: ${rq.format}.`;
+Format: ${rq.format}.${episodeLengthBlock}`;
+      } else if (episodeLengthBlock) {
+        qualBinding = episodeLengthBlock;
       }
 
       // ── Signal Context Injection ──
@@ -2520,15 +2592,23 @@ Return ONLY valid JSON:
       if (!projectId) throw new Error("projectId required");
 
       const { data: project } = await supabase.from("projects")
-        .select("season_episode_count, episode_target_duration_seconds, vertical_engine_weights, development_behavior, signals_influence, signals_apply, format")
+        .select("season_episode_count, episode_target_duration_seconds, episode_target_duration_min_seconds, episode_target_duration_max_seconds, vertical_engine_weights, development_behavior, signals_influence, signals_apply, format, guardrails_config")
         .eq("id", projectId).single();
       if (!project) throw new Error("Project not found");
 
       const E = (project as any).season_episode_count;
-      const duration = project.episode_target_duration_seconds;
+
+      // ── Canonical episode length resolution ──
+      const gridFmtDefault = FORMAT_DEFAULTS_ENGINE[(project?.format || "").toLowerCase().replace(/[_ ]+/g, "-")] || {};
+      const { minSeconds: durMin, maxSeconds: durMax, targetSeconds: durTarget, variancePolicy } = resolveEpisodeLength(project, {}, gridFmtDefault);
+      const duration = durTarget ?? durMin ?? (project as any).episode_target_duration_seconds ?? null;
+
       const weights = (project as any).vertical_engine_weights || { power_conflict: 20, romantic_tension: 20, thriller_mystery: 20, revenge_arc: 20, social_exposure: 20 };
 
-      if (!E || !duration) throw new Error("season_episode_count and episode_target_duration_seconds required");
+      if (!E || !duration) throw new Error("season_episode_count and episode duration are required — set them in the Criteria tab (Episode Length)");
+
+      const episodeLengthConstraint = buildEpisodeLengthBlock(project, {}, gridFmtDefault);
+
 
       // ── Signal trope injection for episode grid ──
       let signalTropes: string[] = [];
@@ -2629,12 +2709,19 @@ Return ONLY valid JSON:
           cliff_type: cliffPool[ep - 1], cliff_tier,
           anchor_flags: anchor_type ? [anchor_type] : [],
           beat_minimum: beatMin,
+          // Canonical episode length fields on every grid row
+          episode_duration_min_seconds: durMin ?? duration,
+          episode_duration_max_seconds: durMax ?? duration,
+          episode_duration_target_seconds: durTarget ?? duration,
+          episode_duration_variance_policy: variancePolicy,
           signal_tropes: signalTropes.length > 0 ? signalTropes : undefined,
         });
       }
 
       return new Response(JSON.stringify({
         architecture: arch, grid, engine_weights: weights, beat_minimum: beatMin,
+        episode_length: { min: durMin ?? duration, max: durMax ?? duration, target: durTarget ?? duration, variance_policy: variancePolicy },
+        episode_length_rules: episodeLengthConstraint,
         short_season_warning: E < 10 ? `Short season (${E} episodes): using 3-act model` : null,
         signal_tropes: signalTropes.length > 0 ? signalTropes : undefined,
         signal_constraints: signalConstraints || undefined,
