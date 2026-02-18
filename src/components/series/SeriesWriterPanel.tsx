@@ -198,9 +198,11 @@ interface EpisodeCardProps {
   onGenerate: () => void;
   onRead: () => void;
   onDelete: () => void;
+  onReset: () => void;
+  isResetting?: boolean;
 }
 
-function EpisodeCard({ episode, isActive, isGenerating, disabled, validation, onGenerate, onRead, onDelete }: EpisodeCardProps) {
+function EpisodeCard({ episode, isActive, isGenerating, disabled, validation, onGenerate, onRead, onDelete, onReset, isResetting }: EpisodeCardProps) {
   const style = STATUS_STYLES[episode.status] || STATUS_STYLES.pending;
   const Icon = style.icon;
   const phase = (episode.generation_progress as any)?.phase;
@@ -239,6 +241,23 @@ function EpisodeCard({ episode, isActive, isGenerating, disabled, validation, on
             <Badge variant="outline" className="text-[9px] border-amber-500/30 text-amber-400 bg-amber-500/10">
               {PHASE_LABELS[phase] || phase}
             </Badge>
+          )}
+
+          {/* Stop & Reset — for stuck/stalled generating episodes */}
+          {episode.status === 'generating' && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 px-2.5 text-xs gap-1 border-destructive/40 text-destructive hover:bg-destructive/10"
+              onClick={onReset}
+              disabled={isResetting}
+              title="Stop and reset this stuck episode so you can retry"
+            >
+              {isResetting
+                ? <Loader2 className="h-3 w-3 animate-spin" />
+                : <XCircle className="h-3 w-3" />}
+              Stop & Reset
+            </Button>
           )}
 
           {(episode.status === 'complete' || episode.status === 'needs_revision') && episode.script_id && (
@@ -370,7 +389,7 @@ export function SeriesWriterPanel({ projectId }: Props) {
     isSeasonComplete, nextEpisode, hasFailedValidation, hasMetricsBlock, isCanonValid,
     createCanonSnapshot, createEpisodes, generateOne, generateAll,
     fetchScriptContent, runEpisodeMetrics,
-    deleteEpisode, restoreEpisode, hardDeleteEpisode,
+    deleteEpisode, restoreEpisode, hardDeleteEpisode, resetStuckEpisode,
   } = useSeriesWriter(projectId);
 
   const [episodeCount, setEpisodeCount] = useState('10');
@@ -543,6 +562,8 @@ export function SeriesWriterPanel({ projectId }: Props) {
                   onGenerate={() => generateOne(ep)}
                   onRead={() => { setReaderEpisode(ep); setReaderOpen(true); }}
                   onDelete={() => setDeleteConfirmEp(ep)}
+                  onReset={() => resetStuckEpisode.mutate(ep.id)}
+                  isResetting={resetStuckEpisode.isPending && resetStuckEpisode.variables === ep.id}
                 />
               );
             })}
