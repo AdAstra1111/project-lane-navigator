@@ -68,6 +68,8 @@ const DOC_TYPE_LABELS: Record<string, string> = {
   pitch_document: 'Pitch Document',
   blueprint: 'Blueprint',
   script: 'Script',
+  season_master_script: 'Master Season Script',
+  complete_season_script: 'Master Season Script',
 };
 
 const EPISODE_STATUS_CONFIG: Record<string, { icon: typeof Circle; color: string; label: string; bg: string }> = {

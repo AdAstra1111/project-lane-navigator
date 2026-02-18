@@ -243,6 +243,18 @@ const registry: Record<DeliverableType, ReviewSchema> = {
     convergenceRules: { minCI: 70, minGP: 70 },
     forbiddenCritique: ['feature-film pacing', 'literary quality', 'canon changes'],
   },
+  season_master_script: {
+    rubricSections: [
+      { dimension: 'Season Arc Coherence', weight: 30, description: 'Does the full season maintain a consistent arc with proper escalation and payoff?' },
+      { dimension: 'Episode Consistency', weight: 25, description: 'Are character voices, tones, and relationships consistent across all episodes?' },
+      { dimension: 'Hook & Cliffhanger Density', weight: 25, description: 'Does each episode open with a hook and end with a cliffhanger?' },
+      { dimension: 'Pacing & Format Compliance', weight: 20, description: 'Does each episode respect the target duration and vertical format rules?' },
+    ],
+    analysisPromptModifier: 'This is a MASTER SEASON SCRIPT — a compiled multi-episode document. Evaluate season-level arc coherence, cross-episode consistency, hook/cliffhanger density, and format compliance. Treat each episode section as an individual unit within the season whole.',
+    rewritePromptModifier: 'Improve season-level coherence and cross-episode consistency. Sharpen hooks and cliffhangers. Do NOT collapse or merge episode sections.',
+    convergenceRules: { minCI: 75, minGP: 70 },
+    forbiddenCritique: ['feature-film structure', 'literary prose quality'],
+  },
 };
 
 // ── Public API ──
