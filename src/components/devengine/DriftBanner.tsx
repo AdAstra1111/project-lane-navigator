@@ -6,6 +6,38 @@ import { Button } from '@/components/ui/button';
 import { AlertTriangle, Check, GitBranch, RotateCcw, ArrowRight } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 
+/** Safely render a drift cell value — handles string, object, null/undefined */
+function DriftCellValue({ value, label }: { value: unknown; label: string }) {
+  let display: string;
+  let isEmpty = false;
+
+  if (value === null || value === undefined || value === '') {
+    display = '(empty)';
+    isEmpty = true;
+  } else if (typeof value === 'string') {
+    display = value.trim() || '(empty)';
+    isEmpty = !value.trim();
+  } else if (typeof value === 'object') {
+    display = JSON.stringify(value, null, 2);
+  } else {
+    display = String(value);
+  }
+
+  return (
+    <div className="bg-muted text-foreground border border-border rounded-md p-2">
+      <span className="text-[9px] font-semibold text-muted-foreground block mb-1">{label}</span>
+      {isEmpty ? (
+        <div className="flex items-center gap-1">
+          <AlertTriangle className="h-3 w-3 text-amber-500 shrink-0" />
+          <span className="text-[10px] text-amber-500 italic">(empty)</span>
+        </div>
+      ) : (
+        <span className="text-[11px] text-foreground leading-relaxed whitespace-pre-wrap">{display}</span>
+      )}
+    </div>
+  );
+}
+
 type ResolutionType = 'accept_drift' | 'intentional_pivot' | 'reseed';
 
 interface DriftBannerProps {
@@ -116,21 +148,15 @@ export function DriftBanner({ drift, onAcknowledge, onResolve, resolvePending }:
                         {item.similarity}% match
                       </span>
                     </div>
-                    {(item.inherited || item.current) && (
+                    {(item.inherited != null || item.current != null) ? (
                       <div className="grid grid-cols-2 gap-2 mt-1">
-                        {item.inherited && (
-                          <div className="rounded bg-muted p-2">
-                            <span className="text-[9px] font-semibold text-muted-foreground block mb-1">Original</span>
-                            <span className="text-[11px] text-foreground leading-relaxed">{item.inherited}</span>
-                          </div>
-                        )}
-                        {item.current && (
-                          <div className="rounded bg-accent p-2 border border-primary/20">
-                            <span className="text-[9px] font-semibold text-primary block mb-1">Current</span>
-                            <span className="text-[11px] text-foreground leading-relaxed">{item.current}</span>
-                          </div>
-                        )}
+                        <DriftCellValue value={item.inherited} label="Before" />
+                        <DriftCellValue value={item.current} label="After" />
                       </div>
+                    ) : (
+                      <p className="text-[10px] text-destructive italic mt-1">
+                        Pivot table missing before/after content — check pending_decisions payload
+                      </p>
                     )}
                   </div>
                 ))}
