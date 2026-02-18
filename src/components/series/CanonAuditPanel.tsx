@@ -10,7 +10,7 @@ import {
   Shield, Loader2, AlertTriangle, AlertOctagon, Info, CheckCircle2,
   Wrench, X, ChevronDown, ChevronRight,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { ContinuityIssue, ContinuityRun } from '@/hooks/useCanonAudit';
 
 interface CanonAuditPanelProps {
@@ -37,6 +37,20 @@ export function CanonAuditPanel({
 }: CanonAuditPanelProps) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({ BLOCKER: true, MAJOR: true });
   const [selectedFix, setSelectedFix] = useState<Record<string, number>>({});
+
+  // Auto-select index 0 (Suggested) for any issue that has fix options
+  useEffect(() => {
+    if (!issues.length) return;
+    setSelectedFix(prev => {
+      const next = { ...prev };
+      for (const issue of issues) {
+        if (issue.fix_options && issue.fix_options.length > 0 && next[issue.id] === undefined) {
+          next[issue.id] = 0;
+        }
+      }
+      return next;
+    });
+  }, [issues]);
 
   const openIssues = issues.filter(i => i.status === 'open');
   const grouped: Record<string, ContinuityIssue[]> = { BLOCKER: [], MAJOR: [], MINOR: [], NIT: [] };
