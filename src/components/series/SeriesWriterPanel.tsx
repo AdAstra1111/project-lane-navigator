@@ -24,6 +24,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { InfoTooltip } from '@/components/InfoTooltip';
 import { useSeriesWriter, type SeriesEpisode, type SeriesProgress } from '@/hooks/useSeriesWriter';
 import { SeasonHealthDashboard } from '@/components/series/SeasonHealthDashboard';
+import { SeriesRunControlBar } from '@/components/series/SeriesRunControlBar';
 import { Trash2, Undo2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 
@@ -385,22 +386,41 @@ export function SeriesWriterPanel({ projectId }: Props) {
     episodes, deletedEpisodes, showDeleted, setShowDeleted,
     isLoading, canonSnapshot, canonLoading,
     validations, episodeMetrics, metricsRunning, metricsRunningEp,
-    progress, isGenerating, completedCount,
+    progress, isGenerating, completedCount, runControl,
     isSeasonComplete, nextEpisode, hasFailedValidation, hasMetricsBlock, isCanonValid,
     createCanonSnapshot, createEpisodes, generateOne, generateAll,
     fetchScriptContent, runEpisodeMetrics,
     deleteEpisode, restoreEpisode, hardDeleteEpisode, resetStuckEpisode,
+    pauseGeneration, resumeGeneration, stopGeneration,
   } = useSeriesWriter(projectId);
 
   const [episodeCount, setEpisodeCount] = useState('10');
   const [readerEpisode, setReaderEpisode] = useState<SeriesEpisode | null>(null);
   const [readerOpen, setReaderOpen] = useState(false);
+  const [lastDocOpen, setLastDocOpen] = useState(false);
+  const [lastDocContent, setLastDocContent] = useState('');
+  const [lastDocLoading, setLastDocLoading] = useState(false);
   const [autoRunConfirmOpen, setAutoRunConfirmOpen] = useState(false);
   const [deleteConfirmEp, setDeleteConfirmEp] = useState<SeriesEpisode | null>(null);
   const [hardDeleteConfirmText, setHardDeleteConfirmText] = useState('');
 
   const hasEpisodes = episodes.length > 0;
   const canGenerate = isCanonValid && !isGenerating;
+
+  // ── Open last saved doc from runControl ──
+  const openLastDoc = useCallback(async () => {
+    const scriptId = runControl.lastSavedScriptId;
+    if (!scriptId) return;
+    setLastDocLoading(true);
+    setLastDocOpen(true);
+    try {
+      const text = await fetchScriptContent(scriptId);
+      setLastDocContent(text);
+    } catch {
+      setLastDocContent('Failed to load draft content.');
+    }
+    setLastDocLoading(false);
+  }, [runControl.lastSavedScriptId, fetchScriptContent]);
 
   if (isLoading || canonLoading) {
     return (
@@ -540,8 +560,16 @@ export function SeriesWriterPanel({ projectId }: Props) {
         </div>
       )}
 
-      {/* Generation Progress */}
-      {isGenerating && <ProgressBar progress={progress} />}
+      {/* Series Run Control Bar — always visible when active or paused */}
+      <SeriesRunControlBar
+        progress={progress}
+        runControl={runControl}
+        totalEpisodes={episodes.length}
+        onPause={pauseGeneration}
+        onResume={resumeGeneration}
+        onStop={stopGeneration}
+        onOpenLastDoc={openLastDoc}
+      />
 
       {/* Episode Grid */}
       {hasEpisodes && (
@@ -617,6 +645,30 @@ export function SeriesWriterPanel({ projectId }: Props) {
         onOpenChange={setReaderOpen}
         fetchContent={fetchScriptContent}
       />
+
+      {/* Last Saved Doc Viewer */}
+      <Dialog open={lastDocOpen} onOpenChange={setLastDocOpen}>
+        <DialogContent className="max-w-3xl max-h-[80vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <BookOpen className="h-4 w-4 text-primary" />
+              Last Saved Draft
+            </DialogTitle>
+          </DialogHeader>
+          {lastDocLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : (
+            <ScrollArea className="flex-1 max-h-[60vh]">
+              <pre className="whitespace-pre-wrap text-xs leading-relaxed font-mono text-foreground p-4">
+                {lastDocContent || 'No content available.'}
+              </pre>
+            </ScrollArea>
+          )}
+        </DialogContent>
+      </Dialog>
+
 
       {/* AutoRun Confirm */}
       <AlertDialog open={autoRunConfirmOpen} onOpenChange={setAutoRunConfirmOpen}>
