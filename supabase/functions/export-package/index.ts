@@ -65,111 +65,109 @@ function toLabel(docType: string): string {
 
 /** Build a minimal PDF from plain-text sections using raw PDF byte generation */
 function buildPdf(sections: Array<{ label: string; text: string }>): Uint8Array {
-  // We'll produce a valid PDF with one page per section using plain text streams.
-  // This avoids any native PDF library dependency.
   const objects: string[] = [];
   let objNum = 0;
-  const offsets: number[] = [];
 
   function addObj(content: string): number {
     objNum++;
-    offsets.push(0); // filled in during xref
     objects.push(`${objNum} 0 obj\n${content}\nendobj`);
     return objNum;
+  }
+
+  function escPdf(s: string): string {
+    return s.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
   }
 
   // Font
   const fontRef = addObj(`<<\n/Type /Font\n/Subtype /Type1\n/BaseFont /Courier\n>>`);
 
+  const PAGE_WIDTH = 612;
+  const PAGE_HEIGHT = 792;
+  const MARGIN_LEFT = 50;
+  const MARGIN_TOP = 742;   // y of first line (from bottom of page)
+  const LINE_HEIGHT = 13;   // pt per line
+  const LINES_PER_PAGE = Math.floor((MARGIN_TOP - 40) / LINE_HEIGHT); // ~53 lines
+
   const pageRefs: string[] = [];
 
   for (const sec of sections) {
-    // Escape text for PDF string literals
-    const escapedLabel = sec.label.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
-
-    // Split body text into lines, limit to ~80 chars per line, ~50 lines per page
+    // Wrap text into lines <= 90 chars
     const rawLines: string[] = [];
     for (const line of sec.text.split("\n")) {
-      // wrap long lines
-      let remaining = line;
-      while (remaining.length > 90) {
-        rawLines.push(remaining.slice(0, 90));
-        remaining = remaining.slice(90);
+      let rem = line;
+      while (rem.length > 90) {
+        rawLines.push(rem.slice(0, 90));
+        rem = rem.slice(90);
       }
-      rawLines.push(remaining);
+      rawLines.push(rem);
     }
 
-    // Chunk into pages of ~50 lines
-    const LINES_PER_PAGE = 50;
+    // Split into pages, reserving 2 lines at top for section header + separator
+    const CONTENT_LINES = LINES_PER_PAGE - 2;
     const chunks: string[][] = [];
-    for (let i = 0; i < rawLines.length; i += LINES_PER_PAGE) {
-      chunks.push(rawLines.slice(i, i + LINES_PER_PAGE));
+    for (let i = 0; i < rawLines.length; i += CONTENT_LINES) {
+      chunks.push(rawLines.slice(i, i + CONTENT_LINES));
     }
     if (chunks.length === 0) chunks.push([]);
 
     for (let ci = 0; ci < chunks.length; ci++) {
       const chunk = chunks[ci];
       const isFirst = ci === 0;
+      const headerLabel = isFirst ? sec.label : `${sec.label} (cont.)`;
 
-      // Build stream content
-      let streamContent = `BT\n/F1 12 Tf\n`;
-      let y = 750;
-
-      // Title on first page of each section
-      if (isFirst) {
-        streamContent += `50 ${y} Td\n/F1 14 Tf\n(${escapedLabel}) Tj\n/F1 11 Tf\n`;
-        y -= 24;
-        streamContent += `0 -8 Td\n`;
-      } else {
-        streamContent += `50 ${y} Td\n/F1 9 Tf\n(${escapedLabel} cont.) Tj\n/F1 11 Tf\n`;
-        y -= 20;
-        streamContent += `0 -4 Td\n`;
-      }
-
+      // Use Tm (text matrix) for absolute positioning, then T* for relative line advances.
+      // Tm: 1 0 0 1 x y sets text position absolutely.
+      // TL: sets text leading (line spacing) used by T*.
+      let stream = `BT\n`;
+      stream += `${LINE_HEIGHT} TL\n`;
+      stream += `1 0 0 1 ${MARGIN_LEFT} ${MARGIN_TOP} Tm\n`;
+      stream += `/F1 14 Tf\n`;
+      stream += `(${escPdf(headerLabel)}) Tj\n`;
+      stream += `T*\n/F1 10 Tf\n`;
+      stream += `(----------------------------------------------------------------) Tj\n`;
+      stream += `/F1 11 Tf\n`;
       for (const line of chunk) {
-        const escaped = line.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
-        streamContent += `50 ${y} Td\n(${escaped}) Tj\n`;
-        y -= 14;
-        streamContent += `0 0 Td\n`;
+        stream += `T*\n(${escPdf(line)}) Tj\n`;
       }
-      streamContent += `ET`;
+      stream += `ET`;
 
-      const streamBytes = new TextEncoder().encode(streamContent);
-      const contentRef = addObj(`<<\n/Length ${streamBytes.length}\n>>\nstream\n${streamContent}\nendstream`);
+      const streamBytes = new TextEncoder().encode(stream);
+      const contentRef = addObj(`<<\n/Length ${streamBytes.length}\n>>\nstream\n${stream}\nendstream`);
       const resourcesRef = addObj(`<<\n/Font <<\n/F1 ${fontRef} 0 R\n>>\n>>`);
-      const pageRef = addObj(`<<\n/Type /Page\n/MediaBox [0 0 612 792]\n/Contents ${contentRef} 0 R\n/Resources ${resourcesRef} 0 R\n>>`);
+      const pageRef = addObj(
+        `<<\n/Type /Page\n/MediaBox [0 0 ${PAGE_WIDTH} ${PAGE_HEIGHT}]\n` +
+        `/Contents ${contentRef} 0 R\n/Resources ${resourcesRef} 0 R\n>>`
+      );
       pageRefs.push(`${pageRef} 0 R`);
     }
   }
 
-  const pagesRef = addObj(`<<\n/Type /Pages\n/Kids [${pageRefs.join(" ")}]\n/Count ${pageRefs.length}\n>>`);
-  // Update each page to point to parent
-  // (Already references will be resolved by reader; parent ref below)
+  const pagesRef = addObj(
+    `<<\n/Type /Pages\n/Kids [${pageRefs.join(" ")}]\n/Count ${pageRefs.length}\n>>`
+  );
   const catalogRef = addObj(`<<\n/Type /Catalog\n/Pages ${pagesRef} 0 R\n>>`);
 
-  // Build PDF bytes
+  // Serialise with correct byte offsets for xref
   const header = "%PDF-1.4\n";
-  const lines: string[] = [header];
+  let body = header;
   const byteOffsets: number[] = [];
-  let currentOffset = header.length;
 
   for (const obj of objects) {
-    byteOffsets.push(currentOffset);
-    lines.push(obj + "\n");
-    currentOffset += obj.length + 1;
+    byteOffsets.push(body.length);
+    body += obj + "\n";
   }
 
-  // xref
-  const xrefOffset = currentOffset;
-  lines.push(`xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`);
+  const xrefOffset = body.length;
+  body += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
   for (const off of byteOffsets) {
-    lines.push(String(off).padStart(10, "0") + " 00000 n \n");
+    body += String(off).padStart(10, "0") + " 00000 n \n";
   }
-  lines.push(`trailer\n<<\n/Size ${objects.length + 1}\n/Root ${catalogRef} 0 R\n>>\n`);
-  lines.push(`startxref\n${xrefOffset}\n%%EOF`);
+  body += `trailer\n<<\n/Size ${objects.length + 1}\n/Root ${catalogRef} 0 R\n>>\n`;
+  body += `startxref\n${xrefOffset}\n%%EOF`;
 
-  return new TextEncoder().encode(lines.join(""));
+  return new TextEncoder().encode(body);
 }
+
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
