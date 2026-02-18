@@ -45,19 +45,8 @@ Deno.serve(async (req) => {
       });
     }
 
-    // --- AI parse ---
-    const systemPrompt = `You are a film/TV development executive assistant. 
-Given a free-text idea from a producer, extract structured project metadata and return ONLY a valid JSON object with these fields:
-- title: string (short project title, infer from idea if not explicit)
-- format: one of "film" | "series" | "documentary" | "short" | "podcast" | "book_adaptation"
-- genres: string[] (1-4 genres, e.g. ["Drama", "Thriller"])
-- budget_range: string (one of "$0–$500K" | "$500K–$2M" | "$2M–$10M" | "$10M–$50M" | "$50M+")
-- target_audience: string (e.g. "Adult 25–54" | "Young Adult 18–34" | "Family" | "Niche/Specialist")
-- tone: string (e.g. "Dark & Gritty" | "Light & Comedic" | "Emotional & Dramatic" | "Thriller/Suspense" | "Inspirational")
-- comparable_titles: string (comma-separated comps if you can infer them)
-- idea_summary: string (1-2 sentence summary of the idea)
-
-Be generous in your interpretation — extract whatever you can from the text, use sensible defaults for missing fields. Always return valid JSON only, no markdown fences, no extra text.`;
+    // --- AI parse using tool calling for reliable structured output ---
+    const systemPrompt = `You are a film/TV development executive assistant. Given a free-text idea from a producer, extract structured project metadata and call the extract_project_metadata function with the results. Be generous in your interpretation — extract whatever you can from the text and use sensible defaults for missing fields.`;
 
     const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -66,12 +55,36 @@ Be generous in your interpretation — extract whatever you can from the text, u
         Authorization: `Bearer ${LOVABLE_API_KEY}`,
       },
       body: JSON.stringify({
-        model: "openai/gpt-5-mini",
+        model: "google/gemini-3-flash-preview",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: ideaText.slice(0, 4000) },
         ],
-        max_completion_tokens: 600,
+        tools: [
+          {
+            type: "function",
+            function: {
+              name: "extract_project_metadata",
+              description: "Extract structured film/TV project metadata from a free-text idea.",
+              parameters: {
+                type: "object",
+                properties: {
+                  title: { type: "string", description: "Short project title, infer from idea if not explicit" },
+                  format: { type: "string", enum: ["film", "series", "documentary", "short", "podcast", "book_adaptation"] },
+                  genres: { type: "array", items: { type: "string" }, description: "1-4 genres e.g. Drama, Thriller" },
+                  budget_range: { type: "string", enum: ["$0–$500K", "$500K–$2M", "$2M–$10M", "$10M–$50M", "$50M+"] },
+                  target_audience: { type: "string", description: "e.g. Adult 25–54, Young Adult 18–34, Family, Niche/Specialist" },
+                  tone: { type: "string", description: "e.g. Dark & Gritty, Light & Comedic, Emotional & Dramatic, Thriller/Suspense, Inspirational" },
+                  comparable_titles: { type: "string", description: "Comma-separated comparable titles if inferrable" },
+                  idea_summary: { type: "string", description: "1-2 sentence summary of the idea" },
+                },
+                required: ["title", "format", "genres", "budget_range", "target_audience", "tone", "idea_summary"],
+                additionalProperties: false,
+              },
+            },
+          },
+        ],
+        tool_choice: { type: "function", function: { name: "extract_project_metadata" } },
       }),
     });
 
@@ -81,18 +94,23 @@ Be generous in your interpretation — extract whatever you can from the text, u
     }
 
     const aiData = await aiResponse.json();
-    const rawContent = aiData.choices?.[0]?.message?.content || "";
-
+    const toolCall = aiData.choices?.[0]?.message?.tool_calls?.[0];
+    
     let parsed: Record<string, any>;
-    try {
-      parsed = JSON.parse(rawContent);
-    } catch {
-      // Try to extract JSON from text
+    if (toolCall?.function?.arguments) {
+      try {
+        parsed = JSON.parse(toolCall.function.arguments);
+      } catch {
+        throw new Error("AI returned invalid structured data");
+      }
+    } else {
+      // Fallback: try content field
+      const rawContent = aiData.choices?.[0]?.message?.content || "";
       const match = rawContent.match(/\{[\s\S]*\}/);
       if (match) {
-        parsed = JSON.parse(match[0]);
+        try { parsed = JSON.parse(match[0]); } catch { throw new Error("AI returned invalid JSON"); }
       } else {
-        throw new Error("AI returned invalid JSON");
+        throw new Error("AI returned no structured data");
       }
     }
 
