@@ -203,10 +203,34 @@ Deno.serve(async (req) => {
       `- Style template version: ${project.season_style_template_version_id || 'n/a'}`,
     ].filter(Boolean).join("\n") : "";
 
+    const completenessBlock = `## UNIVERSAL COMPLETENESS RULES (MANDATORY — IFFY STANDARD)
+
+YOUR #1 JOB IS COMPLETENESS. Never output partial documents.
+
+A) HARD UNIVERSAL RULES
+1) NO GAPS / NO SKIPS — If the output contains numbered items (episodes, scenes, beats, steps, acts, chapters), include EVERY number in sequence. Never jump from EP5 to EP7. Never omit sections.
+2) ALWAYS FINISH THE DOCUMENT — If too large to fully expand, complete it using MINIMUM COMPLETE PLACEHOLDER format. You are NOT allowed to stop early or give only highlights/anchors.
+3) STRUCTURE FIRST, THEN DETAIL — Lock the full skeleton (all headings/slots), then populate each slot. If short on space, reduce detail per slot, NOT the number of slots.
+4) SELF-CHECK IS MANDATORY — Before final output, confirm every required section/slot is present. If anything is missing, add it before responding.
+5) NO HALLUCINATED FORMATS — Obey the requested format exactly.
+
+B) MINIMUM COMPLETE PLACEHOLDER — If you cannot fully expand, use the smallest valid unit per slot:
+- Episodic grids: each episode MUST have: HOOK (0–10s): / CORE MOVE / OBJECTIVE: / CLIFFHANGER / TURN:
+- Beat sheets: BEAT 1: / BEAT 2: / BEAT 3: / CLIFFHANGER:
+- Sections (briefs, sheets, bibles): 1–3 bullets per required section, never empty headings.
+
+C) ANTI-ANCHOR MODE — You are FORBIDDEN from outputting only "key episodes", "highlights", "anchors", or "selected examples". If you include anchors, you MUST still include every missing connective episode as placeholders.
+
+D) OUTPUT CONTRACT — At the top of your response, print:
+- Deliverable Type: [type]
+- Completion Status: COMPLETE (Full Detail) OR COMPLETE (Placeholder Detail)
+- Completeness Check: PASS (no missing sections/slots)`;
+
     const system = [
       `You are a professional development document generator for film/TV projects.`,
       `Generate a ${docType.replace(/_/g, " ")} document for the project "${project.title}".`,
       `Production type: ${project.format || "film"}`,
+      completenessBlock,
       qualBlock,
       styleBlock,
       additionalContext ? `## CREATIVE DIRECTION (MUST INCORPORATE)\n${additionalContext}` : "",
