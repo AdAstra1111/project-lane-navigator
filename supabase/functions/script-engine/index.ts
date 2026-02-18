@@ -766,10 +766,13 @@ The episode should be self-contained but fit within the larger series arc.
       } else {
         const maxV = await supabase.from("scripts").select("version").eq("project_id", projectId).order("version", { ascending: false }).limit(1);
         const nextVersion = ((maxV.data?.[0]?.version) || 0) + 1;
+        // Mark any existing current script as not current
+        await supabase.from("scripts").update({ is_current: false }).eq("project_id", projectId).eq("is_current", true);
         const { data: newScript } = await supabase.from("scripts").insert({
           project_id: projectId, created_by: user.id, owner_id: user.id,
           version: nextVersion, status: "BLUEPRINT", draft_number: 0,
           version_label: `Engine Draft v${nextVersion}`,
+          is_current: true,
         }).select().single();
         sid = newScript?.id;
       }
@@ -980,6 +983,8 @@ Do NOT generate architecture for the entire series. Keep it focused and compact.
       const newStatus = isComplete ? `DRAFT_${newDraftNum}` : "DRAFTING";
 
       // Always update scripts with latest batch info + metrics + text_content for reading
+      // Also ensure is_current = true so useScriptEngine picks this script as activeScript
+      await supabase.from("scripts").update({ is_current: false }).eq("project_id", projectId).neq("id", scriptId);
       await supabase.from("scripts").update({
         status: newStatus,
         draft_number: newDraftNum,
@@ -991,6 +996,7 @@ Do NOT generate architecture for the entire series. Keep it focused and compact.
         latest_runtime_min_low: metrics.runtimeMinLow,
         latest_runtime_min_high: metrics.runtimeMinHigh,
         text_content: draftTextStr,
+        is_current: true,
       }).eq("id", scriptId);
 
       // Always create script_versions row per batch with metrics
@@ -1085,6 +1091,7 @@ Do NOT generate architecture for the entire series. Keep it focused and compact.
           console.log(`[draft] Copied to project-documents: ${docPath}`);
 
           // Create project_documents row with extracted text for coverage
+          // Use doc_type 'production_draft' so it's classified as a script, not a generic document
           const { data: docRow, error: docInsertErr } = await supabase
             .from("project_documents")
             .insert({
@@ -1092,6 +1099,7 @@ Do NOT generate architecture for the entire series. Keep it focused and compact.
               user_id: user.id,
               file_name: docFileName,
               file_path: docPath,
+              doc_type: "production_draft",
               extraction_status: "completed",
               extracted_text: fullText,
             })
