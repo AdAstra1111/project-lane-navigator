@@ -23,7 +23,7 @@ const FORMAT_LADDERS: Record<string, string[]> = {
   "tv-series": ["idea","topline_narrative","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","script","season_master_script","production_draft"],
   "limited-series": ["idea","topline_narrative","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","script","season_master_script","production_draft"],
   "digital-series": ["idea","topline_narrative","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","script","season_master_script","production_draft"],
-  "vertical-drama": ["idea","topline_narrative","concept_brief","vertical_market_sheet","format_rules","character_bible","season_arc","episode_grid","vertical_episode_beats","script","season_master_script"],
+  "vertical-drama": ["idea","topline_narrative","concept_brief","vertical_market_sheet","format_rules","character_bible","season_arc","episode_grid","vertical_episode_beats","script","complete_season_script","season_master_script"],
   documentary: ["idea","topline_narrative","concept_brief","market_sheet","documentary_outline","deck"],
   "documentary-series": ["idea","topline_narrative","concept_brief","market_sheet","documentary_outline","deck"],
   "hybrid-documentary": ["idea","topline_narrative","concept_brief","market_sheet","documentary_outline","blueprint","deck"],
@@ -239,7 +239,12 @@ Deno.serve(async (req) => {
       .eq("project_id", projectId) as { data: any[] | null };
 
     const allDocs: any[] = docs || [];
-    const docMap = new Map(allDocs.map((d: any) => [d.doc_type, d]));
+    // Group docs by doc_type (multiple docs can share the same doc_type, e.g. multiple scripts)
+    const docMap = new Map<string, any[]>();
+    for (const d of allDocs) {
+      if (!docMap.has(d.doc_type)) docMap.set(d.doc_type, []);
+      docMap.get(d.doc_type)!.push(d);
+    }
 
     // --- Build approved version map (final status) ---
     type ApprovedMap = Map<string, { id: string; plaintext: string; version_number: number }>;
@@ -298,58 +303,62 @@ Deno.serve(async (req) => {
     const metaDocs: any[] = [];
     const sections: Array<{ label: string; text: string }> = [];
 
+    let globalOrder = 1;
     for (let i = 0; i < ladder.length; i++) {
       const docType = ladder[i];
-      const doc = docMap.get(docType);
-      if (!doc) continue;
+      const docsForType = docMap.get(docType);
+      if (!docsForType || docsForType.length === 0) continue;
 
-      let versionId: string | null = null;
-      let plaintext: string | null = null;
-      let approved = false;
+      for (const doc of docsForType) {
+        let versionId: string | null = null;
+        let plaintext: string | null = null;
+        let approved = false;
 
-      if (scope === "approved_preferred" || scope === "approved_only") {
-        const approvedVer = approvedMap.get(doc.id);
-        if (approvedVer) {
-          versionId = approvedVer.id;
-          plaintext = approvedVer.plaintext;
-          approved = true;
-        } else if (scope === "approved_only") {
-          continue;
+        if (scope === "approved_preferred" || scope === "approved_only") {
+          const approvedVer = approvedMap.get(doc.id);
+          if (approvedVer) {
+            versionId = approvedVer.id;
+            plaintext = approvedVer.plaintext;
+            approved = true;
+          } else if (scope === "approved_only") {
+            continue;
+          } else {
+            const latestVer = latestByDocId.get(doc.id);
+            if (latestVer) {
+              versionId = latestVer.id;
+              plaintext = latestVer.plaintext;
+              approved = false;
+            }
+          }
         } else {
           const latestVer = latestByDocId.get(doc.id);
           if (latestVer) {
             versionId = latestVer.id;
             plaintext = latestVer.plaintext;
-            approved = false;
+            approved = latestVer.status === "final";
           }
         }
-      } else {
-        const latestVer = latestByDocId.get(doc.id);
-        if (latestVer) {
-          versionId = latestVer.id;
-          plaintext = latestVer.plaintext;
-          approved = latestVer.status === "final";
-        }
+
+        if (!plaintext) continue;
+
+        const orderPrefix = String(globalOrder).padStart(2, "0");
+        const label = toLabel(docType);
+        const statusSuffix = approved ? "APPROVED" : "DRAFT";
+        const fileName = `${orderPrefix}_${docType}_${statusSuffix}.md`;
+
+        sections.push({ label: `${label} (${statusSuffix})`, text: plaintext });
+        metaDocs.push({
+          order_index: globalOrder,
+          doc_type: docType,
+          label,
+          doc_id: doc.id,
+          version_id: versionId,
+          approved,
+          file_name: fileName,
+          plaintext,
+        });
+        globalOrder++;
       }
-
-      if (!plaintext) continue;
-
-      const orderPrefix = String(i + 1).padStart(2, "0");
-      const label = toLabel(docType);
-      const statusSuffix = approved ? "APPROVED" : "DRAFT";
-      const fileName = `${orderPrefix}_${docType}_${statusSuffix}.md`;
-
-      sections.push({ label: `${label} (${statusSuffix})`, text: plaintext });
-      metaDocs.push({
-        order_index: i + 1,
-        doc_type: docType,
-        label,
-        doc_id: doc.id,
-        version_id: versionId,
-        approved,
-        file_name: fileName,
-        plaintext,
-      });
     }
 
     if (metaDocs.length === 0) {
