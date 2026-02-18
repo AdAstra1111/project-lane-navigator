@@ -69,6 +69,8 @@ async function callAI(apiKey: string, model: string, system: string, user: strin
     }
     const t = await response.text();
     console.error(`AI error (attempt ${attempt + 1}/${MAX_RETRIES}):`, response.status, t);
+    if (response.status === 429) throw new Error("RATE_LIMIT");
+    if (response.status === 402) throw new Error("PAYMENT_REQUIRED");
     if (response.status >= 500 && attempt < MAX_RETRIES - 1) {
       const delay = Math.pow(2, attempt) * 2000;
       console.log(`Retrying in ${delay}ms...`);
@@ -4237,7 +4239,18 @@ ${isSeries ? `EPISODES: ${projectMeta.season_episode_count || "TBD"} × ${projec
     throw new Error(`Unknown action: ${action}`);
   } catch (err: any) {
     console.error("dev-engine-v2 error:", err);
-    return new Response(JSON.stringify({ error: err.message }), {
+    const msg = err.message || "Unknown error";
+    if (msg === "RATE_LIMIT") {
+      return new Response(JSON.stringify({ error: "Rate limit reached. Please try again in a moment." }), {
+        status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    if (msg === "PAYMENT_REQUIRED") {
+      return new Response(JSON.stringify({ error: "AI credits exhausted. Please add funds to your workspace under Settings → Usage." }), {
+        status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    return new Response(JSON.stringify({ error: msg }), {
       status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }

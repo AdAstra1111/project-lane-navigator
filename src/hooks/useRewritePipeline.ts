@@ -33,6 +33,8 @@ async function callEngine(action: string, extra: Record<string, any> = {}) {
       }
     } else throw new Error('Invalid response from engine');
   }
+  if (resp.status === 402) throw new Error('AI credits exhausted. Please add funds to your workspace under Settings → Usage.');
+  if (resp.status === 429) throw new Error('Rate limit reached. Please try again in a moment.');
   if (!resp.ok) throw new Error(result.error || 'Engine error');
   return result;
 }
