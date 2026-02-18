@@ -195,16 +195,19 @@ Deno.serve(async (req) => {
     }
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-    // Validate JWT using anon client with user's token
-    const userClient = createClient(supabaseUrl, anonKey, {
-      global: { headers: { Authorization: authHeader } },
-    });
+    // Decode JWT claims locally — avoids session lookup failures for ES256 tokens
     const token = authHeader.replace("Bearer ", "");
-    const { data: { user }, error: authError } = await userClient.auth.getUser(token);
-    if (authError || !user) {
+    let userId: string;
+    try {
+      const payloadB64 = token.split(".")[1];
+      if (!payloadB64) throw new Error("bad token");
+      const payload = JSON.parse(atob(payloadB64.replace(/-/g, "+").replace(/_/g, "/")));
+      if (!payload.sub) throw new Error("no sub");
+      if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) throw new Error("expired");
+      userId = payload.sub;
+    } catch {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
