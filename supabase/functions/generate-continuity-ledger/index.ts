@@ -24,7 +24,11 @@ Deno.serve(async (req) => {
 
     // Get the episode + script
     const { data: ep } = await sb.from("series_episodes").select("*").eq("project_id", projectId).eq("episode_number", episodeNumber).single();
-    if (!ep?.script_id) throw new Error(`Episode ${episodeNumber} has no script`);
+    if (!ep?.script_id) {
+      return new Response(JSON.stringify({ skipped: true, reason: "no_script", episodeNumber }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     const { data: script } = await sb.from("scripts").select("text_content").eq("id", ep.script_id).single();
     if (!script?.text_content) throw new Error("No script content");
