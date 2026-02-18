@@ -1,0 +1,216 @@
+/**
+ * POST /functions/v1/resolve-carried-note
+ *
+ * Handles two actions:
+ *  - action: "mark_resolved"  → marks note resolved without AI patch
+ *  - action: "ai_patch"       → generates an AI patch for the current doc, returns proposed edits
+ *  - action: "apply_patch"    → writes a new document version with the patch and marks resolved
+ *  - action: "dismiss"        → dismisses the note (won't reappear)
+ *
+ * Input: { note_id, project_id, action, current_doc_type?, current_version_id?, patch_content? }
+ */
+
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { callLLM, MODELS } from "../_shared/llm.ts";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
+};
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+
+  const json = (data: any, status = 200) =>
+    new Response(JSON.stringify(data), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
+  try {
+    // ── Auth ──
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader?.startsWith("Bearer ")) return json({ error: "Unauthorized" }, 401);
+
+    const token = authHeader.replace("Bearer ", "");
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const db = createClient(supabaseUrl, serviceKey);
+
+    // Decode JWT
+    let userId: string;
+    try {
+      const payload = JSON.parse(atob(token.split(".")[1]));
+      if (!payload.sub || (payload.exp && payload.exp < Date.now() / 1000)) throw new Error("expired");
+      userId = payload.sub;
+    } catch {
+      return json({ error: "Unauthorized" }, 401);
+    }
+
+    const body = await req.json();
+    const { note_id, project_id, action, current_doc_type, current_version_id, patch_content } = body;
+
+    if (!note_id || !project_id || !action) return json({ error: "note_id, project_id, and action required" }, 400);
+
+    // ── Fetch the note ──
+    const { data: note, error: noteErr } = await db
+      .from("project_deferred_notes")
+      .select("*")
+      .eq("id", note_id)
+      .eq("project_id", project_id)
+      .single();
+
+    if (noteErr || !note) return json({ error: "Note not found" }, 404);
+    if (note.status === "resolved" || note.status === "dismissed") {
+      return json({ error: "Note already resolved/dismissed" }, 400);
+    }
+
+    // ── mark_resolved ──
+    if (action === "mark_resolved") {
+      await db.from("project_deferred_notes").update({
+        status: "resolved",
+        resolved_at: new Date().toISOString(),
+        resolved_in_stage: current_doc_type || null,
+        resolution_method: "user_marked",
+        resolution_summary: "Manually marked resolved",
+      }).eq("id", note_id);
+
+      return json({ ok: true, action: "mark_resolved" });
+    }
+
+    // ── dismiss ──
+    if (action === "dismiss") {
+      await db.from("project_deferred_notes").update({
+        status: "dismissed",
+        resolved_at: new Date().toISOString(),
+        resolved_in_stage: current_doc_type || null,
+        resolution_method: "dismissed",
+        resolution_summary: "Dismissed by user",
+      }).eq("id", note_id);
+
+      return json({ ok: true, action: "dismiss" });
+    }
+
+    // ── ai_patch — generate proposed edits without applying ──
+    if (action === "ai_patch") {
+      if (!current_version_id) return json({ error: "current_version_id required for ai_patch" }, 400);
+
+      // Fetch current document version text
+      const { data: ver } = await db
+        .from("project_document_versions")
+        .select("plaintext, doc_type, version_number")
+        .eq("id", current_version_id)
+        .single();
+
+      const docText = ver?.plaintext || "";
+      const noteJson = note.note_json as any;
+      const noteText = noteJson?.description || noteJson?.note || JSON.stringify(noteJson);
+
+      const apiKey = Deno.env.get("LOVABLE_API_KEY");
+      if (!apiKey) return json({ error: "AI not configured" }, 500);
+
+      const systemPrompt = `You are a script development editor. A deferred development note needs to be addressed in the current document.
+
+Your task: propose minimal, targeted edits to resolve the note WITHOUT inventing new content or hallucinating.
+
+RULES:
+- Only suggest changes directly tied to the note.
+- Preserve all other content.
+- Return JSON with:
+  {
+    "proposed_edits": [
+      { "find": "exact text to replace (verbatim)", "replace": "new text", "rationale": "why" }
+    ],
+    "summary": "One sentence describing what was changed"
+  }
+- If the note is already addressed in the doc, set proposed_edits to [] and explain in summary.`;
+
+      const userPrompt = `NOTE TO RESOLVE:
+${noteText}
+
+CURRENT DOCUMENT (${current_doc_type || "document"}):
+${docText.slice(0, 12000)}
+
+Generate proposed edits to resolve this note in the current document.`;
+
+      const result = await callLLM({
+        apiKey,
+        model: MODELS.BALANCED,
+        system: systemPrompt,
+        user: userPrompt,
+        temperature: 0.2,
+        maxTokens: 2000,
+      });
+
+      let parsed: any = {};
+      try {
+        const m = result.content.match(/\{[\s\S]*\}/);
+        if (m) parsed = JSON.parse(m[0]);
+      } catch { parsed = { proposed_edits: [], summary: result.content.slice(0, 300) }; }
+
+      return json({ ok: true, action: "ai_patch", ...parsed });
+    }
+
+    // ── apply_patch — write new doc version + mark resolved ──
+    if (action === "apply_patch") {
+      if (!current_version_id || !patch_content) {
+        return json({ error: "current_version_id and patch_content required for apply_patch" }, 400);
+      }
+
+      // Fetch current doc + version
+      const { data: ver } = await db
+        .from("project_document_versions")
+        .select("plaintext, doc_type, version_number, document_id")
+        .eq("id", current_version_id)
+        .single();
+
+      if (!ver) return json({ error: "Version not found" }, 404);
+
+      // Apply find/replace patches in sequence
+      let newText = ver.plaintext || "";
+      const edits: Array<{ find: string; replace: string }> = patch_content;
+      for (const edit of edits) {
+        if (edit.find && edit.replace !== undefined) {
+          newText = newText.split(edit.find).join(edit.replace);
+        }
+      }
+
+      // Write new version
+      const { data: newVer, error: verErr } = await db
+        .from("project_document_versions")
+        .insert({
+          document_id: ver.document_id,
+          doc_type: ver.doc_type,
+          version_number: (ver.version_number || 1) + 1,
+          plaintext: newText,
+          label: "Carried-note patch",
+          created_by: userId,
+        })
+        .select("id, version_number")
+        .single();
+
+      if (verErr || !newVer) return json({ error: "Failed to create version" }, 500);
+
+      // Mark note resolved
+      const noteJson = note.note_json as any;
+      const noteText = noteJson?.description || noteJson?.note || "";
+      await db.from("project_deferred_notes").update({
+        status: "resolved",
+        resolved_at: new Date().toISOString(),
+        resolved_in_stage: current_doc_type || ver.doc_type,
+        resolution_method: "ai_patch_applied",
+        resolution_summary: `Patch applied to ${ver.doc_type} v${newVer.version_number}: ${noteText.slice(0, 120)}`,
+      }).eq("id", note_id);
+
+      return json({
+        ok: true,
+        action: "apply_patch",
+        new_version_id: newVer.id,
+        new_version_number: newVer.version_number,
+      });
+    }
+
+    return json({ error: `Unknown action: ${action}` }, 400);
+  } catch (e: any) {
+    console.error("resolve-carried-note error:", e);
+    return json({ error: e.message }, 500);
+  }
+});

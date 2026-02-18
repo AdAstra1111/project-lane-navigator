@@ -161,3 +161,6 @@ verify_jwt = false
 
 [functions.infer-criteria]
 verify_jwt = false
+
+[functions.resolve-carried-note]
+verify_jwt = false

@@ -6708,6 +6708,10 @@ export type Database = {
           note_json: Json
           note_key: string
           project_id: string
+          resolution_method: string | null
+          resolution_summary: string | null
+          resolved_at: string | null
+          resolved_in_stage: string | null
           source_doc_type: string
           source_version_id: string | null
           status: string
@@ -6722,6 +6726,10 @@ export type Database = {
           note_json?: Json
           note_key?: string
           project_id: string
+          resolution_method?: string | null
+          resolution_summary?: string | null
+          resolved_at?: string | null
+          resolved_in_stage?: string | null
           source_doc_type?: string
           source_version_id?: string | null
           status?: string
@@ -6736,6 +6744,10 @@ export type Database = {
           note_json?: Json
           note_key?: string
           project_id?: string
+          resolution_method?: string | null
+          resolution_summary?: string | null
+          resolved_at?: string | null
+          resolved_in_stage?: string | null
           source_doc_type?: string
           source_version_id?: string | null
           status?: string
