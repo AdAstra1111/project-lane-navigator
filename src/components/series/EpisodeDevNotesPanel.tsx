@@ -3,6 +3,7 @@
  * Series-aware, episode-scoped. Shows contract, beat checks, craft notes, alignment, patches.
  */
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Loader2, AlertOctagon, AlertTriangle, Sparkles,
@@ -17,6 +18,9 @@ interface Props {
   run: DevNotesRun | null;
   notes: any[];
   isRunning: boolean;
+  appliedPatches?: Array<{ patch_name: string; applied_at: string; new_script_id: string }>;
+  isApplyingPatch?: boolean;
+  onApplyPatch?: (patch: EpisodePatch, applyMode?: 'patch' | 'rewrite') => void;
 }
 
 // ─── Section Toggle helper ──────────────────────────────────────────────────
@@ -247,38 +251,107 @@ function SectionDPanel({ data }: { data: DevNotesRun['results_json']['section_d'
   );
 }
 
-// ─── Section E ──────────────────────────────────────────────────────────────
+// ─── Section E (interactive with Apply) ─────────────────────────────────────
 
-function SectionEPanel({ data }: { data: DevNotesRun['results_json']['section_e'] }) {
+function SectionEPanel({
+  data,
+  appliedPatches,
+  isApplyingPatch,
+  onApplyPatch,
+}: {
+  data: DevNotesRun['results_json']['section_e'];
+  appliedPatches?: Array<{ patch_name: string; applied_at: string; new_script_id: string }>;
+  isApplyingPatch?: boolean;
+  onApplyPatch?: (patch: EpisodePatch, applyMode?: 'patch' | 'rewrite') => void;
+}) {
+  const [selectedPatch, setSelectedPatch] = useState<number | null>(null);
+
   if (!data?.patches?.length) return <p className="text-[10px] text-muted-foreground px-3 pb-2">No patches suggested.</p>;
+
+  const appliedNames = new Set((appliedPatches || []).map(a => a.patch_name));
+
   return (
     <div className="px-3 pb-3 space-y-1.5">
-      {data.patches.map((p, i) => (
-        <div key={i} className="bg-background/40 rounded border border-border/30 px-2 py-1.5 space-y-0.5">
-          <div className="flex items-center gap-1.5">
-            <Badge variant="outline" className="text-[9px] px-1 py-0 border-primary/30 text-primary/70 shrink-0">
-              #{i + 1}
-            </Badge>
-            <p className="text-[10px] font-medium text-foreground">{p.name}</p>
+      {data.patches.map((p, i) => {
+        const isApplied = appliedNames.has(p.name);
+        const isSelected = selectedPatch === i && !isApplied;
+        return (
+          <div
+            key={i}
+            className={`rounded border px-2 py-1.5 space-y-0.5 transition-colors cursor-pointer ${
+              isApplied
+                ? 'border-emerald-500/30 bg-emerald-500/5 opacity-70'
+                : isSelected
+                  ? 'border-primary/60 bg-primary/10'
+                  : 'border-border/30 bg-background/40 hover:border-border/60'
+            }`}
+            onClick={() => !isApplied && setSelectedPatch(prev => prev === i ? null : i)}
+          >
+            <div className="flex items-center gap-1.5">
+              {/* Radio indicator */}
+              {!isApplied && (
+                <div className={`h-3 w-3 rounded-full border-2 shrink-0 flex items-center justify-center ${
+                  isSelected ? 'border-primary bg-primary' : 'border-muted-foreground/40'
+                }`}>
+                  {isSelected && <div className="h-1.5 w-1.5 rounded-full bg-primary-foreground" />}
+                </div>
+              )}
+              {isApplied && <CheckCircle2 className="h-3 w-3 text-emerald-400 shrink-0" />}
+              <Badge variant="outline" className="text-[9px] px-1 py-0 border-primary/30 text-primary/70 shrink-0">
+                #{i + 1}
+              </Badge>
+              <p className="text-[10px] font-medium text-foreground flex-1">{p.name}</p>
+              {isApplied && (
+                <Badge variant="outline" className="text-[7px] px-1 border-emerald-500/40 text-emerald-400 shrink-0">
+                  Applied
+                </Badge>
+              )}
+            </div>
+            <p className="text-[9px] text-muted-foreground">
+              <span className="font-medium text-foreground/60">Where:</span> {p.where}
+            </p>
+            <p className="text-[9px] text-muted-foreground">
+              <span className="font-medium text-foreground/60">What:</span> {p.what}
+            </p>
+            <p className="text-[9px] text-primary/70">
+              <span className="font-medium">Why:</span> {p.why}
+            </p>
           </div>
-          <p className="text-[9px] text-muted-foreground">
-            <span className="font-medium text-foreground/60">Where:</span> {p.where}
-          </p>
-          <p className="text-[9px] text-muted-foreground">
-            <span className="font-medium text-foreground/60">What:</span> {p.what}
-          </p>
-          <p className="text-[9px] text-primary/70">
-            <span className="font-medium">Why:</span> {p.why}
-          </p>
+        );
+      })}
+
+      {/* Apply Fix button — only enabled when a patch is selected */}
+      {onApplyPatch && (
+        <div className="flex items-center justify-between pt-2 border-t border-border/30 mt-2">
+          <span className="text-[10px] text-muted-foreground">
+            {selectedPatch !== null
+              ? `"${data.patches[selectedPatch]?.name}" selected`
+              : 'Select a patch above to apply'}
+          </span>
+          <Button
+            size="sm"
+            className="h-7 text-xs gap-1.5"
+            disabled={selectedPatch === null || isApplyingPatch}
+            onClick={() => {
+              if (selectedPatch !== null && data.patches[selectedPatch]) {
+                onApplyPatch(data.patches[selectedPatch]);
+              }
+            }}
+          >
+            {isApplyingPatch
+              ? <Loader2 className="h-3 w-3 animate-spin" />
+              : <Wrench className="h-3 w-3" />}
+            Apply Fix
+          </Button>
         </div>
-      ))}
+      )}
     </div>
   );
 }
 
 // ─── Main Panel ─────────────────────────────────────────────────────────────
 
-export function EpisodeDevNotesPanel({ run, notes, isRunning }: Props) {
+export function EpisodeDevNotesPanel({ run, notes, isRunning, appliedPatches, isApplyingPatch, onApplyPatch }: Props) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({
     a: false,
     b: true,
@@ -408,7 +481,7 @@ export function EpisodeDevNotesPanel({ run, notes, isRunning }: Props) {
                 count={patches.length}
                 isOpen={expanded.e} onToggle={() => toggle('e')}
               />
-              {expanded.e && <SectionEPanel data={run.results_json.section_e} />}
+              {expanded.e && <SectionEPanel data={run.results_json.section_e} appliedPatches={appliedPatches} isApplyingPatch={isApplyingPatch} onApplyPatch={onApplyPatch} />}
             </div>
 
             {/* Strengths */}
