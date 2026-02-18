@@ -42,15 +42,22 @@ const STATUS_STYLES: Record<string, { icon: typeof Circle; color: string; label:
 };
 
 const PHASE_LABELS: Record<string, string> = {
-  blueprint: 'Blueprint',
-  architecture: 'Architecture',
-  draft: 'Drafting',
-  score: 'Scoring',
-  validate: 'Validating',
-  metrics: 'Metrics',
-  idle: 'Ready',
-  complete: 'Complete',
-  error: 'Error',
+  // Vertical Drama phases
+  load_pack:    'Loading Vertical Pack',
+  beats:        'Episode Beats',
+  draft:        'Drafting Episode Script',
+  continuity:   'Tighten + Continuity',
+  save:         'Saving',
+  // Shared
+  validate:     'Validating Canon',
+  metrics:      'Beat Metrics',
+  idle:         'Ready',
+  complete:     'Complete',
+  error:        'Error',
+  // Legacy (non-vertical — should not appear)
+  blueprint:    'Context Pack',
+  architecture: 'Beat Spine',
+  score:        'Scoring',
 };
 
 function ProgressBar({ progress }: { progress: SeriesProgress }) {

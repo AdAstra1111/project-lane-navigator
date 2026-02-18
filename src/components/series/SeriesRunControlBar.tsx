@@ -9,16 +9,23 @@ import { Badge } from '@/components/ui/badge';
 import type { SeriesProgress, RunControlState } from '@/hooks/useSeriesWriter';
 
 const PHASE_LABELS: Record<string, string> = {
-  blueprint: 'Drafting Blueprint',
-  architecture: 'Building Architecture',
-  draft: 'Writing Draft',
-  score: 'Scoring Script',
-  validate: 'Validating Canon',
-  metrics: 'Running Metrics',
-  idle: 'Ready',
-  complete: 'Complete',
-  error: 'Error',
-  paused: 'Paused',
+  // Vertical Drama phases
+  load_pack:    'Loading Vertical Pack',
+  beats:        'Episode Beats',
+  draft:        'Drafting Episode Script',
+  continuity:   'Tighten + Continuity',
+  save:         'Saving',
+  // Shared phases
+  validate:     'Validating Canon',
+  metrics:      'Beat Metrics',
+  idle:         'Ready',
+  complete:     'Complete',
+  error:        'Error',
+  paused:       'Paused',
+  // Legacy labels (non-vertical paths — should not appear in VD)
+  blueprint:    'Context Pack',
+  architecture: 'Beat Spine',
+  score:        'Scoring',
 };
 
 interface Props {

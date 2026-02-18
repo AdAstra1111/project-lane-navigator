@@ -60,8 +60,12 @@ export interface EpisodeValidation {
   issues: any[];
 }
 
-type GenerationPhase = 'blueprint' | 'architecture' | 'draft' | 'score' | 'validate' | 'metrics';
-const PHASES: GenerationPhase[] = ['blueprint', 'architecture', 'draft', 'score', 'validate', 'metrics'];
+// Vertical-drama phases replace the film/TV blueprint→architecture pipeline
+type GenerationPhase = 'load_pack' | 'beats' | 'draft' | 'continuity' | 'validate' | 'metrics' | 'save'
+  // Legacy phases kept for type-safety on non-vertical paths
+  | 'blueprint' | 'architecture' | 'score';
+const VERTICAL_PHASES: GenerationPhase[] = ['load_pack', 'beats', 'draft', 'continuity', 'validate', 'metrics', 'save'];
+const PHASES: GenerationPhase[] = VERTICAL_PHASES;
 
 export interface SeriesProgress {
   currentEpisode: number;
@@ -469,7 +473,52 @@ export function useSeriesWriter(projectId: string) {
     }
   }
 
-  // ── Generate a single episode ──
+  // ── Call generate-vertical-episode engine action ──
+  async function callVerticalEpisodeEngine(params: {
+    episodeNumber: number;
+    episodeId: string;
+    totalEpisodes: number;
+    canonSnapshotId?: string | null;
+    previousEpisodeSummary?: string;
+  }) {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) throw new Error('Not authenticated');
+    const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/script-engine`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ action: 'generate-vertical-episode', projectId, ...params }),
+    });
+    const result = await resp.json();
+    if (!resp.ok) throw new Error(result.error || 'Vertical episode engine error');
+    return result as { scriptId: string; scriptVersionId: string | null; draftNumber: number; metrics: Record<string, any> };
+  }
+
+  // ── Fetch previous episode summary for continuity ──
+  async function fetchPreviousEpisodeSummary(episodeNumber: number): Promise<string | undefined> {
+    if (episodeNumber <= 1) return undefined;
+    const { data: prevEp } = await supabase
+      .from('series_episodes')
+      .select('script_id, title, logline')
+      .eq('project_id', projectId)
+      .eq('episode_number', episodeNumber - 1)
+      .in('status', ['complete', 'locked'])
+      .single();
+    if (!prevEp?.script_id) return undefined;
+    const { data: prevScript } = await supabase
+      .from('scripts')
+      .select('text_content')
+      .eq('id', prevEp.script_id)
+      .single();
+    const prevText = prevScript?.text_content?.slice(0, 3000) || '';
+    return `Previous Episode "${prevEp.title}" (${prevEp.logline || 'no logline'}):\n${prevText}`;
+  }
+
+  // ── Generate a single episode (Vertical Drama pipeline) ──
+  // Pipeline: load_pack → beats → draft → continuity → validate → metrics → save
+  // NEVER calls blueprint / architecture — those are series-level stages, not episode stages.
   const generateOne = useCallback(async (episode: SeriesEpisode) => {
     if (runningRef.current) {
       toast.warning('Generation already in progress');
@@ -480,142 +529,65 @@ export function useSeriesWriter(projectId: string) {
     pauseRequestedRef.current = false;
     forceRender(n => n + 1);
     setRunControl(prev => ({ ...prev, status: 'running', phaseLog: [] }));
-    setProgress({ currentEpisode: episode.episode_number, totalEpisodes: 1, phase: 'blueprint' });
+    setProgress({ currentEpisode: episode.episode_number, totalEpisodes: 1, phase: 'load_pack' });
 
     try {
-      // Fetch previous episode's script for continuity
-      let previousEpisodeSummary: string | undefined;
-      if (episode.episode_number > 1) {
-        const { data: prevEps } = await supabase
-          .from('series_episodes')
-          .select('script_id, title, logline')
-          .eq('project_id', projectId)
-          .eq('episode_number', episode.episode_number - 1)
-          .eq('status', 'complete')
-          .single();
-        if (prevEps?.script_id) {
-          const { data: prevScript } = await supabase
-            .from('scripts')
-            .select('text_content')
-            .eq('id', prevEps.script_id)
-            .single();
-          const prevText = prevScript?.text_content?.slice(0, 3000) || '';
-          previousEpisodeSummary = `Previous Episode "${prevEps.title}" (${prevEps.logline || 'no logline'}):\n${prevText}`;
-        }
-      }
-
-      // Fetch canon context (episode grid row, blueprint, character bible)
-      let canonContext = '';
-      if (canonSnapshot) {
-        // Fetch episode grid text for this episode's row
-        if (canonSnapshot.episode_grid_version_id) {
-          const { data: gridVer } = await supabase
-            .from('project_document_versions')
-            .select('plaintext')
-            .eq('id', canonSnapshot.episode_grid_version_id)
-            .single();
-          if (gridVer?.plaintext) {
-            canonContext += `\n\nEPISODE GRID (Canon Locked):\n${(gridVer.plaintext as string).slice(0, 4000)}`;
-          }
-        }
-        // Fetch character bible
-        if (canonSnapshot.character_bible_version_id) {
-          const { data: cbVer } = await supabase
-            .from('project_document_versions')
-            .select('plaintext')
-            .eq('id', canonSnapshot.character_bible_version_id)
-            .single();
-          if (cbVer?.plaintext) {
-            canonContext += `\n\nCHARACTER BIBLE (Canon Locked):\n${(cbVer.plaintext as string).slice(0, 3000)}`;
-          }
-        }
-        // Fetch blueprint/season arc
-        if (canonSnapshot.blueprint_version_id) {
-          const { data: bpVer } = await supabase
-            .from('project_document_versions')
-            .select('plaintext')
-            .eq('id', canonSnapshot.blueprint_version_id)
-            .single();
-          if (bpVer?.plaintext) {
-            canonContext += `\n\nSEASON BLUEPRINT (Canon Locked):\n${(bpVer.plaintext as string).slice(0, 3000)}`;
-          }
-        }
-      }
-
-      const episodeContext = {
-        episodeNumber: episode.episode_number,
-        episodeTitle: episode.title,
-        episodeLogline: episode.logline,
-        totalEpisodes: canonSnapshot?.season_episode_count || 1,
-        seriesMode: true,
-        previousEpisodeSummary,
-        canonContext,
-        canonSnapshotId: canonSnapshot?.id,
-      };
-
-      appendPhaseLog(`EP ${episode.episode_number} — Blueprint`);
-      await updateEpisodeProgress(episode.id, 'blueprint', 'generating');
-      const bpResult = await callEngine('blueprint', projectId, undefined, { forceNew: true, ...episodeContext });
+      // ── Phase: Load Pack ──
+      appendPhaseLog(`EP ${episode.episode_number} — Loading Vertical Pack`);
+      await updateEpisodeProgress(episode.id, 'load_pack', 'generating');
       if (stopRequestedRef.current) throw new Error('Generation stopped by user');
-      const scriptId = bpResult.scriptId;
-      if (!scriptId) throw new Error('Blueprint did not return scriptId');
-      await updateEpisodeProgress(episode.id, 'blueprint', 'generating', scriptId);
 
-      // Extract title/logline from blueprint
-      const bp = bpResult.blueprint || {};
-      const extractedTitle = bp.title || bp.episode_title || 
-        bp.three_act_breakdown?.act_1?.name ||
-        bp.hook_cadence?.[0]?.episode_title || 
-        bp.season_arc?.episode_title;
-      const extractedLogline = bp.resolution?.description ||
-        bp.thematic_spine?.theme ||
-        (typeof bp.thematic_spine === 'string' ? bp.thematic_spine : null) ||
-        bp.season_arc?.compressed_arc || 
-        bp.retention_mechanics;
-      if (extractedTitle || extractedLogline) {
-        const updates: Record<string, any> = {};
-        if (extractedTitle && typeof extractedTitle === 'string') updates.title = extractedTitle.substring(0, 100);
-        if (extractedLogline && typeof extractedLogline === 'string') updates.logline = extractedLogline.substring(0, 300);
-        if (Object.keys(updates).length > 0) {
-          await supabase.from('series_episodes').update(updates).eq('id', episode.id);
-        }
-      }
+      const previousEpisodeSummary = await fetchPreviousEpisodeSummary(episode.episode_number);
 
+      // ── Phase: Episode Beats ──
+      setProgress({ currentEpisode: episode.episode_number, totalEpisodes: 1, phase: 'beats' });
+      appendPhaseLog(`EP ${episode.episode_number} — Episode Beats`);
+      await updateEpisodeProgress(episode.id, 'beats', 'generating');
       if (await waitIfPaused(episode.id, episode.episode_number)) throw new Error('Generation stopped by user');
 
-      setProgress({ currentEpisode: episode.episode_number, totalEpisodes: 1, phase: 'architecture' });
-      appendPhaseLog(`EP ${episode.episode_number} — Architecture`);
-      await updateEpisodeProgress(episode.id, 'architecture', 'generating');
-      await callEngine('architecture', projectId, scriptId, episodeContext);
-      if (stopRequestedRef.current) throw new Error('Generation stopped by user');
-      if (await waitIfPaused(episode.id, episode.episode_number)) throw new Error('Generation stopped by user');
-
+      // ── Phase: Draft Episode Script ──
       setProgress({ currentEpisode: episode.episode_number, totalEpisodes: 1, phase: 'draft' });
-      appendPhaseLog(`EP ${episode.episode_number} — Writing Draft`);
+      appendPhaseLog(`EP ${episode.episode_number} — Drafting Episode Script`);
       await updateEpisodeProgress(episode.id, 'draft', 'generating');
-      await callEngine('draft', projectId, scriptId, episodeContext);
+
+      const result = await callVerticalEpisodeEngine({
+        episodeNumber: episode.episode_number,
+        episodeId: episode.id,
+        totalEpisodes: canonSnapshot?.season_episode_count || 1,
+        canonSnapshotId: canonSnapshot?.id || null,
+        previousEpisodeSummary,
+      });
       if (stopRequestedRef.current) throw new Error('Generation stopped by user');
+
+      const scriptId = result.scriptId;
+      await updateEpisodeProgress(episode.id, 'draft', 'generating', scriptId);
+
       if (await waitIfPaused(episode.id, episode.episode_number)) throw new Error('Generation stopped by user');
 
-      setProgress({ currentEpisode: episode.episode_number, totalEpisodes: 1, phase: 'score' });
-      appendPhaseLog(`EP ${episode.episode_number} — Scoring`);
-      await updateEpisodeProgress(episode.id, 'score', 'generating');
-      await callEngine('score', projectId, scriptId, episodeContext);
+      // ── Phase: Continuity Check ──
+      setProgress({ currentEpisode: episode.episode_number, totalEpisodes: 1, phase: 'continuity' });
+      appendPhaseLog(`EP ${episode.episode_number} — Continuity Check`);
+      await updateEpisodeProgress(episode.id, 'continuity', 'generating');
       if (stopRequestedRef.current) throw new Error('Generation stopped by user');
 
-      // Validate
+      // ── Phase: Validate ──
       setProgress({ currentEpisode: episode.episode_number, totalEpisodes: 1, phase: 'validate' });
       appendPhaseLog(`EP ${episode.episode_number} — Validating`);
       const passed = await validateEpisode(episode, scriptId);
+      if (stopRequestedRef.current) throw new Error('Generation stopped by user');
 
-      // Run metrics scoring
+      // ── Phase: Metrics ──
       setProgress({ currentEpisode: episode.episode_number, totalEpisodes: 1, phase: 'metrics' });
-      appendPhaseLog(`EP ${episode.episode_number} — Metrics`);
+      appendPhaseLog(`EP ${episode.episode_number} — Beat Metrics`);
       await runEpisodeMetrics(episode.episode_number, scriptId);
 
+      // ── Phase: Save ──
+      setProgress({ currentEpisode: episode.episode_number, totalEpisodes: 1, phase: 'save' });
+      appendPhaseLog(`EP ${episode.episode_number} — Saving`);
       await updateEpisodeProgress(episode.id, 'complete', passed ? 'complete' : 'needs_revision');
       appendPhaseLog(`EP ${episode.episode_number} — ${passed ? 'Complete ✓' : 'Needs Revision ⚠'}`, false);
       toast.success(`Episode ${episode.episode_number} generated${!passed ? ' (needs revision)' : ''}`);
+
     } catch (err: any) {
       const stopped = stopRequestedRef.current;
       console.error(`Episode ${episode.episode_number} generation ${stopped ? 'stopped' : 'failed'}:`, err);
@@ -636,7 +608,7 @@ export function useSeriesWriter(projectId: string) {
     forceRender(n => n + 1);
   }, [projectId, canonSnapshot]);
 
-  // ── Generate all pending episodes sequentially ──
+  // ── Generate all pending episodes sequentially (Vertical Drama pipeline) ──
   const generateAll = useCallback(async () => {
     if (runningRef.current) {
       toast.warning('Generation already in progress');
@@ -652,6 +624,7 @@ export function useSeriesWriter(projectId: string) {
       .from('series_episodes')
       .select('*')
       .eq('project_id', projectId)
+      .eq('is_deleted', false)
       .order('episode_number', { ascending: true });
 
     if (fetchErr || !freshEpisodes?.length) {
@@ -670,78 +643,59 @@ export function useSeriesWriter(projectId: string) {
         break;
       }
       const ep = freshEpisodes[i] as SeriesEpisode;
-      if (ep.status === 'complete') continue;
+      if (ep.status === 'complete' || ep.status === 'locked') continue;
       // Block if previous episode failed validation
       if (i > 0 && freshEpisodes[i - 1].validation_status === 'needs_revision') {
         toast.warning(`Episode ${freshEpisodes[i - 1].episode_number} needs revision before continuing`);
         break;
       }
 
-      const episodeContext = {
-        episodeNumber: ep.episode_number,
-        episodeTitle: ep.title,
-        episodeLogline: ep.logline,
-        totalEpisodes: total,
-        seriesMode: true,
-        canonSnapshotId: canonSnapshot?.id,
-      };
-
-      setProgress({ currentEpisode: ep.episode_number, totalEpisodes: total, phase: 'blueprint' });
+      setProgress({ currentEpisode: ep.episode_number, totalEpisodes: total, phase: 'load_pack' });
 
       try {
-        appendPhaseLog(`EP ${ep.episode_number} — Blueprint`);
-        await updateEpisodeProgress(ep.id, 'blueprint', 'generating');
-        const bpResult = await callEngine('blueprint', projectId, undefined, { forceNew: true, ...episodeContext });
-        const scriptId = bpResult.scriptId;
-        if (!scriptId) throw new Error('Blueprint did not return scriptId');
-        await updateEpisodeProgress(ep.id, 'blueprint', 'generating', scriptId);
+        appendPhaseLog(`EP ${ep.episode_number} — Loading Vertical Pack`);
+        await updateEpisodeProgress(ep.id, 'load_pack', 'generating');
 
-        // Extract title/logline
-        const bp = bpResult.blueprint || {};
-        const extractedTitle = bp.title || bp.episode_title || 
-          bp.three_act_breakdown?.act_1?.name ||
-          bp.hook_cadence?.[0]?.episode_title || 
-          bp.season_arc?.episode_title;
-        const extractedLogline = bp.resolution?.description ||
-          bp.thematic_spine?.theme ||
-          (typeof bp.thematic_spine === 'string' ? bp.thematic_spine : null) ||
-          bp.season_arc?.compressed_arc || 
-          bp.retention_mechanics;
-        if (extractedTitle || extractedLogline) {
-          const updates: Record<string, any> = {};
-          if (extractedTitle && typeof extractedTitle === 'string') updates.title = extractedTitle.substring(0, 100);
-          if (extractedLogline && typeof extractedLogline === 'string') updates.logline = extractedLogline.substring(0, 300);
-          if (Object.keys(updates).length > 0) {
-            await supabase.from('series_episodes').update(updates).eq('id', ep.id);
-          }
-        }
-        if (await waitIfPaused(ep.id, ep.episode_number)) break;
-
-        setProgress({ currentEpisode: ep.episode_number, totalEpisodes: total, phase: 'architecture' });
-        appendPhaseLog(`EP ${ep.episode_number} — Architecture`);
-        await updateEpisodeProgress(ep.id, 'architecture', 'generating');
-        await callEngine('architecture', projectId, scriptId, episodeContext);
+        const previousEpisodeSummary = await fetchPreviousEpisodeSummary(ep.episode_number);
         if (stopRequestedRef.current) break;
+
+        setProgress({ currentEpisode: ep.episode_number, totalEpisodes: total, phase: 'beats' });
+        appendPhaseLog(`EP ${ep.episode_number} — Episode Beats`);
+        await updateEpisodeProgress(ep.id, 'beats', 'generating');
         if (await waitIfPaused(ep.id, ep.episode_number)) break;
 
         setProgress({ currentEpisode: ep.episode_number, totalEpisodes: total, phase: 'draft' });
-        appendPhaseLog(`EP ${ep.episode_number} — Writing Draft`);
+        appendPhaseLog(`EP ${ep.episode_number} — Drafting Episode Script`);
         await updateEpisodeProgress(ep.id, 'draft', 'generating');
-        await callEngine('draft', projectId, scriptId, episodeContext);
+
+        const result = await callVerticalEpisodeEngine({
+          episodeNumber: ep.episode_number,
+          episodeId: ep.id,
+          totalEpisodes: total,
+          canonSnapshotId: canonSnapshot?.id || null,
+          previousEpisodeSummary,
+        });
         if (stopRequestedRef.current) break;
+
+        const scriptId = result.scriptId;
+        await updateEpisodeProgress(ep.id, 'draft', 'generating', scriptId);
         if (await waitIfPaused(ep.id, ep.episode_number)) break;
 
-        setProgress({ currentEpisode: ep.episode_number, totalEpisodes: total, phase: 'score' });
-        appendPhaseLog(`EP ${ep.episode_number} — Scoring`);
-        await updateEpisodeProgress(ep.id, 'score', 'generating');
-        await callEngine('score', projectId, scriptId, episodeContext);
+        setProgress({ currentEpisode: ep.episode_number, totalEpisodes: total, phase: 'continuity' });
+        appendPhaseLog(`EP ${ep.episode_number} — Continuity Check`);
+        await updateEpisodeProgress(ep.id, 'continuity', 'generating');
         if (stopRequestedRef.current) break;
 
-        // Validate
         setProgress({ currentEpisode: ep.episode_number, totalEpisodes: total, phase: 'validate' });
         appendPhaseLog(`EP ${ep.episode_number} — Validating`);
         const passed = await validateEpisode(ep as SeriesEpisode, scriptId);
 
+        setProgress({ currentEpisode: ep.episode_number, totalEpisodes: total, phase: 'metrics' });
+        appendPhaseLog(`EP ${ep.episode_number} — Beat Metrics`);
+        await runEpisodeMetrics(ep.episode_number, scriptId);
+
+        setProgress({ currentEpisode: ep.episode_number, totalEpisodes: total, phase: 'save' });
+        appendPhaseLog(`EP ${ep.episode_number} — Saving`);
         await updateEpisodeProgress(ep.id, 'complete', passed ? 'complete' : 'needs_revision');
         appendPhaseLog(`EP ${ep.episode_number} — ${passed ? 'Complete ✓' : 'Needs Revision ⚠'}`, false);
         invalidateAll();
@@ -766,7 +720,7 @@ export function useSeriesWriter(projectId: string) {
       .from('series_episodes')
       .select('status')
       .eq('project_id', projectId);
-    const allDone = finalEps?.every(e => e.status === 'complete');
+    const allDone = finalEps?.every(e => e.status === 'complete' || e.status === 'locked');
     if (allDone) {
       toast.success('Season generation complete!');
     }
