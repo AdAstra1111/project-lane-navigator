@@ -109,6 +109,28 @@ export function useDevEngineV2(projectId: string | undefined) {
     enabled: !!projectId,
   });
 
+  // Approved version map: doc_id -> version_id (one approved per doc)
+  const { data: approvedVersionMap = {} } = useQuery({
+    queryKey: ['dev-v2-approved', projectId],
+    queryFn: async () => {
+      if (!projectId) return {};
+      const docIds = documents.map(d => d.id);
+      if (docIds.length === 0) return {};
+      const { data, error } = await (supabase as any)
+        .from('project_document_versions')
+        .select('id, document_id')
+        .in('document_id', docIds)
+        .eq('approval_status', 'approved');
+      if (error) throw error;
+      const map: Record<string, string> = {};
+      for (const v of data || []) {
+        map[v.document_id] = v.id;
+      }
+      return map;
+    },
+    enabled: !!projectId && documents.length > 0,
+  });
+
   // Versions for selected document
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
   const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null);
@@ -440,5 +462,7 @@ export function useDevEngineV2(projectId: string | undefined) {
     analyze, generateNotes, rewrite, convert, createPaste, deleteDocument, deleteVersion, beatSheetToScript,
     // Drift
     driftEvents, latestDrift, acknowledgeDrift, resolveDrift,
+    // Approval
+    approvedVersionMap,
   };
 }
