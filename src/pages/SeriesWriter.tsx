@@ -42,6 +42,7 @@ import { HardDeleteEpisodeDialog } from '@/components/series/HardDeleteEpisodeDi
 import { PatchReadyBanner, type PatchRun } from '@/components/series/PatchReadyBanner';
 import { CanonAuditPanel } from '@/components/series/CanonAuditPanel';
 import { EpisodeDevNotesPanel } from '@/components/series/EpisodeDevNotesPanel';
+import { SeriesRunControlBar } from '@/components/series/SeriesRunControlBar';
 import { useEpisodeDevValidation } from '@/hooks/useEpisodeDevValidation';
 import { DocumentExportDropdown } from '@/components/DocumentExportDropdown';
 
@@ -105,12 +106,16 @@ export default function SeriesWriter() {
   const [hardDeleteEp, setHardDeleteEp] = useState<SeriesEpisode | null>(null);
   const [escalateEp, setEscalateEp] = useState<SeriesEpisode | null>(null);
   const [escalatePrefill, setEscalatePrefill] = useState({ title: '', description: '' });
+  const [lastDocOpen, setLastDocOpen] = useState(false);
+  const [lastDocContent, setLastDocContent] = useState('');
+  const [lastDocLoading, setLastDocLoading] = useState(false);
 
   // ── In-page doc viewer state ──
   const [viewerDoc, setViewerDoc] = useState<WorkingSetDoc | null>(null);
   const [viewerContent, setViewerContent] = useState('');
   const [viewerLoading, setViewerLoading] = useState(false);
   const [viewerPinned, setViewerPinned] = useState(false);
+
 
   // ── Open doc in-page (no navigation) ──
   const openDocViewer = useCallback(async (doc: WorkingSetDoc) => {
@@ -138,12 +143,14 @@ export default function SeriesWriter() {
     episodes, deletedEpisodes, showDeleted, setShowDeleted,
     isLoading, canonSnapshot, canonLoading,
     validations, episodeMetrics, metricsRunning, metricsRunningEp,
-    progress, isGenerating, completedCount,
+    progress, isGenerating, completedCount, runControl,
     isSeasonComplete, nextEpisode, hasFailedValidation, hasMetricsBlock, isCanonValid,
     createCanonSnapshot, createEpisodes, generateOne, generateAll, stopGeneration,
     fetchScriptContent, runEpisodeMetrics, deleteEpisode, restoreEpisode,
     hardDeleteEpisode, escalateToDevEngine, applyPatch, rejectPatch,
+    pauseGeneration, resumeGeneration, resetStuckEpisode,
   } = useSeriesWriter(projectId!);
+
 
   const {
     ledgers, generateLedger, complianceReports, runCompliance,
@@ -788,29 +795,29 @@ export default function SeriesWriter() {
                 </div>
               )}
 
-              {/* Generation Progress */}
-              {isGenerating && (
-                <div className="p-3 rounded-lg bg-muted/30 border border-border/50">
-                  <div className="flex items-center justify-between text-xs mb-2">
-                    <span className="text-foreground font-medium flex items-center gap-1.5">
-                      <Sparkles className="h-3 w-3 text-primary animate-pulse" />
-                      Generating Episode {progress.currentEpisode} of {progress.totalEpisodes}
-                    </span>
-                    <div className="flex items-center gap-2">
-                      <span className="text-muted-foreground">{progress.phase}</span>
-                      <Button
-                        variant="destructive"
-                        size="sm"
-                        className="h-6 px-2 text-[10px] gap-1"
-                        onClick={stopGeneration}
-                      >
-                        <XCircle className="h-3 w-3" /> Stop
-                      </Button>
-                    </div>
-                  </div>
-                  <Progress value={progress.totalEpisodes > 0 ? (progress.currentEpisode / progress.totalEpisodes) * 100 : 0} className="h-1.5" />
-                </div>
-              )}
+              {/* Mission Control Bar — always visible when running/paused/has history */}
+              <SeriesRunControlBar
+                progress={progress}
+                runControl={runControl}
+                totalEpisodes={episodes.length}
+                onPause={pauseGeneration}
+                onResume={resumeGeneration}
+                onStop={stopGeneration}
+                onOpenLastDoc={async () => {
+                  const scriptId = runControl.lastSavedScriptId;
+                  if (!scriptId) return;
+                  setLastDocLoading(true);
+                  setLastDocOpen(true);
+                  try {
+                    const text = await fetchScriptContent(scriptId);
+                    setLastDocContent(text);
+                  } catch {
+                    setLastDocContent('Failed to load draft content.');
+                  }
+                  setLastDocLoading(false);
+                }}
+              />
+
 
               {/* Season complete */}
               {isSeasonComplete && (
@@ -926,7 +933,24 @@ export default function SeriesWriter() {
                               )}
                             </div>
 
-                            <div className="flex items-center gap-1.5 shrink-0">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              {/* Stop & Reset — always visible for stuck/actively-generating episodes */}
+                              {ep.status === 'generating' && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 px-2.5 text-xs gap-1 border-destructive/40 text-destructive hover:bg-destructive/10"
+                                  onClick={() => resetStuckEpisode.mutate(ep.id)}
+                                  disabled={resetStuckEpisode.isPending && resetStuckEpisode.variables === ep.id}
+                                  title="Stop and reset this stuck episode"
+                                >
+                                  {resetStuckEpisode.isPending && resetStuckEpisode.variables === ep.id
+                                    ? <Loader2 className="h-3 w-3 animate-spin" />
+                                    : <XCircle className="h-3 w-3" />}
+                                  Stop & Reset
+                                </Button>
+                              )}
+
                               {/* Read */}
                               {ep.script_id && (ep.status === 'complete' || state.isLocked) && (
                                 <Button variant="ghost" size="sm" className="h-7 px-2 text-xs gap-1" onClick={() => openReader(ep)}>
@@ -942,26 +966,15 @@ export default function SeriesWriter() {
                                 </Button>
                               )}
 
-                              {/* Retry / Revise — error or stuck-generating episodes can always retry */}
-                              {(ep.status === 'error' || ep.status === 'needs_revision' || (ep.status === 'generating' && !isGenerating)) && (
+                              {/* Retry / Revise */}
+                              {(ep.status === 'error' || ep.status === 'needs_revision') && (
                                 <Button variant="outline" size="sm" className="h-7 px-2.5 text-xs gap-1 border-orange-500/30 text-orange-400"
-                                  onClick={async () => {
-                                    if (ep.status === 'generating') {
-                                      // Reset stuck episode to error first, then retry
-                                      await supabase.from('series_episodes').update({ 
-                                        status: 'error', 
-                                        generation_progress: { phase: 'error', updatedAt: new Date().toISOString() } 
-                                      }).eq('id', ep.id);
-                                      qc.invalidateQueries({ queryKey: ['series-episodes', projectId] });
-                                      toast.info(`Episode ${ep.episode_number} reset — click Retry to regenerate`);
-                                      return;
-                                    }
-                                    generateOne(ep);
-                                  }} disabled={isGenerating}>
-                                  <RotateCcw className="h-3 w-3" /> 
-                                  {ep.status === 'generating' ? 'Reset' : ep.status === 'needs_revision' ? 'Revise' : 'Retry'}
+                                  onClick={() => generateOne(ep)} disabled={isGenerating}>
+                                  <RotateCcw className="h-3 w-3" />
+                                  {ep.status === 'needs_revision' ? 'Revise' : 'Retry'}
                                 </Button>
                               )}
+
 
                               {/* Lock — gated by canon audit blockers */}
                               {state.canLock && (
@@ -1376,7 +1389,31 @@ export default function SeriesWriter() {
         </DialogContent>
       </Dialog>
 
+      {/* Last Saved Draft Dialog */}
+      <Dialog open={lastDocOpen} onOpenChange={setLastDocOpen}>
+        <DialogContent className="max-w-3xl h-[85vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <BookOpen className="h-4 w-4 text-primary" />
+              Last Saved Draft
+            </DialogTitle>
+          </DialogHeader>
+          {lastDocLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : (
+            <div className="flex-1 overflow-y-auto min-h-0">
+              <pre className="whitespace-pre-wrap text-xs leading-relaxed font-mono text-foreground p-4">
+                {lastDocContent || 'No content available.'}
+              </pre>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       {/* Escalate to Dev Engine Modal */}
+
       {escalateEp && (
         <EscalateToDevEngineModal
           open={!!escalateEp}
