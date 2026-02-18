@@ -164,3 +164,6 @@ verify_jwt = false
 
 [functions.resolve-carried-note]
 verify_jwt = false
+
+[functions.compile-season]
+verify_jwt = false

@@ -26,6 +26,7 @@ import {
   ArrowLeft, Layers, Lock, Unlock, Play, CheckCircle2, Circle, Loader2,
   AlertTriangle, BookOpen, Zap, RotateCcw, FileText, Shield, ChevronRight,
   ExternalLink, XCircle, Sparkles, Eye, EyeOff, X, Pin, PinOff, Trash2, Undo2, FlaskConical,
+  Layers2,
 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
@@ -39,6 +40,7 @@ import { RetconPanel } from '@/components/series/RetconPanel';
 import { EpisodePackagePanel } from '@/components/series/EpisodePackagePanel';
 import { EscalateToDevEngineModal } from '@/components/series/EscalateToDevEngineModal';
 import { HardDeleteEpisodeDialog } from '@/components/series/HardDeleteEpisodeDialog';
+import { CompileSeasonModal } from '@/components/series/CompileSeasonModal';
 import { PatchReadyBanner, type PatchRun } from '@/components/series/PatchReadyBanner';
 import { CanonAuditPanel } from '@/components/series/CanonAuditPanel';
 import { EpisodeDevNotesPanel } from '@/components/series/EpisodeDevNotesPanel';
@@ -109,6 +111,7 @@ export default function SeriesWriter() {
   const [lastDocOpen, setLastDocOpen] = useState(false);
   const [lastDocContent, setLastDocContent] = useState('');
   const [lastDocLoading, setLastDocLoading] = useState(false);
+  const [compileModalOpen, setCompileModalOpen] = useState(false);
 
   // ── In-page doc viewer state ──
   const [viewerDoc, setViewerDoc] = useState<WorkingSetDoc | null>(null);
@@ -756,6 +759,15 @@ export default function SeriesWriter() {
                           {showDeleted ? 'Hide' : 'Show'} Deleted ({deletedEpisodes.length})
                         </Button>
                       )}
+                      {/* Compile Season Script — always available when episodes exist */}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs gap-1.5"
+                        onClick={() => setCompileModalOpen(true)}
+                      >
+                        <Layers2 className="h-3 w-3" /> Compile Season
+                      </Button>
                       {nextEpisode && !hasFailedValidation && isCanonValid && !isGenerating && (
                         <Button size="sm" className="h-7 text-xs gap-1.5" onClick={() => generateOne(nextEpisode)}>
                           <Play className="h-3 w-3" /> Generate EP {nextEpisode.episode_number}
@@ -856,9 +868,16 @@ export default function SeriesWriter() {
               {isSeasonComplete && (
                 <div className="flex items-center gap-2 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
                   <CheckCircle2 className="h-4 w-4 text-emerald-400" />
-                  <span className="text-xs text-emerald-400 font-medium">
+                  <span className="text-xs text-emerald-400 font-medium flex-1">
                     Season Complete — All {episodes.length} episodes generated
                   </span>
+                  <Button
+                    size="sm"
+                    className="h-7 text-xs gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white border-0"
+                    onClick={() => setCompileModalOpen(true)}
+                  >
+                    <Layers2 className="h-3 w-3" /> Compile Season Script
+                  </Button>
                 </div>
               )}
 
@@ -1488,6 +1507,32 @@ export default function SeriesWriter() {
           }}
         />
       )}
+
+      {/* Compile Season Modal */}
+      <CompileSeasonModal
+        open={compileModalOpen}
+        onOpenChange={setCompileModalOpen}
+        projectId={projectId}
+        episodes={episodes}
+        seasonEpisodeCount={seasonEpisodeCount}
+        onOpenMaster={async (docId, versionId) => {
+          // Fetch the master text and open it in the existing reader
+          setReaderLoading(true);
+          setReaderOpen(true);
+          setSelectedEpisode(null);
+          try {
+            const { data: ver } = await supabase
+              .from('project_document_versions')
+              .select('plaintext')
+              .eq('id', versionId)
+              .single();
+            setReaderContent((ver?.plaintext as string) || 'No content available.');
+          } catch {
+            setReaderContent('Failed to load master script.');
+          }
+          setReaderLoading(false);
+        }}
+      />
     </div>
   );
 }
