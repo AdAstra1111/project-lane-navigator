@@ -41,6 +41,7 @@ import { EpisodePackagePanel } from '@/components/series/EpisodePackagePanel';
 import { EscalateToDevEngineModal } from '@/components/series/EscalateToDevEngineModal';
 import { HardDeleteEpisodeDialog } from '@/components/series/HardDeleteEpisodeDialog';
 import { CompileSeasonModal } from '@/components/series/CompileSeasonModal';
+import { SeasonPackagePanel } from '@/components/series/SeasonPackagePanel';
 import { PatchReadyBanner, type PatchRun } from '@/components/series/PatchReadyBanner';
 import { CanonAuditPanel } from '@/components/series/CanonAuditPanel';
 import { EpisodeDevNotesPanel } from '@/components/series/EpisodeDevNotesPanel';
@@ -1227,6 +1228,29 @@ export default function SeriesWriter() {
                     )}
                   />
                 </div>
+
+                {/* ── Season Package: Complete Season Script ── */}
+                <SeasonPackagePanel
+                  projectId={projectId}
+                  episodeCount={seasonEpisodeCount || episodes.length}
+                  completedEpisodeCount={completedCount}
+                  onOpenDoc={async (versionId, title) => {
+                    setReaderLoading(true);
+                    setReaderOpen(true);
+                    setSelectedEpisode(null);
+                    try {
+                      const { data: ver } = await supabase
+                        .from('project_document_versions')
+                        .select('plaintext')
+                        .eq('id', versionId)
+                        .single();
+                      setReaderContent((ver?.plaintext as string) || 'No content available.');
+                    } catch {
+                      setReaderContent('Failed to load season script.');
+                    }
+                    setReaderLoading(false);
+                  }}
+                />
               </>)}
             </div>
 
