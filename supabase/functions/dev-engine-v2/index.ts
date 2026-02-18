@@ -2165,7 +2165,7 @@ ${version.plaintext.slice(0, 25000)}`;
       }).select().single();
       if (sdErr) throw sdErr;
 
-      const { data: scriptVersion } = await supabase.from("project_document_versions").insert({
+      const { data: scriptVersion, error: svErr } = await supabase.from("project_document_versions").insert({
         document_id: scriptDoc.id,
         version_number: 1,
         label: "Feature screenplay (generating…)",
@@ -2173,6 +2173,7 @@ ${version.plaintext.slice(0, 25000)}`;
         created_by: user.id,
         change_summary: "Pipeline generation in progress",
       }).select().single();
+      if (svErr || !scriptVersion) throw svErr || new Error("Failed to create script version");
 
       const allScenes: any[] = [];
       for (const act of (parsed.acts || [])) {
@@ -2963,7 +2964,7 @@ Return ONLY valid JSON:
           const convParsed = await parseAIJson(LOVABLE_API_KEY, convRaw);
 
           const resolvedDocType = LADDER[i];
-          const { data: newDoc } = await supabase.from("project_documents").insert({
+          const { data: newDoc, error: rebaseDocErr } = await supabase.from("project_documents").insert({
             project_id: projectId,
             user_id: user.id,
             file_name: `${srcDoc?.title || "Document"} — ${LADDER[i]} (rebased)`,
@@ -2974,9 +2975,10 @@ Return ONLY valid JSON:
             source: "generated",
             plaintext: convParsed.converted_text || "",
           }).select("id").single();
+          if (rebaseDocErr || !newDoc) throw rebaseDocErr || new Error("Failed to create rebased document");
 
           const { data: newVer } = await supabase.from("project_document_versions").insert({
-            document_id: newDoc!.id,
+            document_id: newDoc.id,
             version_number: 1,
             label: `Rebased from ${srcDoc?.doc_type}`,
             plaintext: convParsed.converted_text || "",
@@ -3717,7 +3719,7 @@ Previous attempt problems: ${validation.reasons.join("; ")}`;
       }).select().single();
       if (dErr) throw dErr;
 
-      const { data: newVersion } = await supabase.from("project_document_versions").insert({
+      const { data: newVersion, error: nvErr } = await supabase.from("project_document_versions").insert({
         document_id: newDoc.id,
         version_number: 1,
         label: `Episode ${epNum} screenplay`,
@@ -3726,6 +3728,7 @@ Previous attempt problems: ${validation.reasons.join("; ")}`;
         change_summary: `Generated from beat sheet (scope: ${scopeResult.scope}, slice: ${sliceMethod})`,
         source_document_ids: [documentId],
       }).select().single();
+      if (nvErr || !newVersion) throw nvErr || new Error("Failed to create episode script version");
 
       // Store run
       await supabase.from("development_runs").insert({
