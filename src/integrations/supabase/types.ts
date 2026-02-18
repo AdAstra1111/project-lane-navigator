@@ -7431,6 +7431,115 @@ export type Database = {
           },
         ]
       }
+      project_issue_events: {
+        Row: {
+          created_at: string
+          event_type: string
+          id: string
+          issue_id: string
+          payload: Json | null
+        }
+        Insert: {
+          created_at?: string
+          event_type: string
+          id?: string
+          issue_id: string
+          payload?: Json | null
+        }
+        Update: {
+          created_at?: string
+          event_type?: string
+          id?: string
+          issue_id?: string
+          payload?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_issue_events_issue_id_fkey"
+            columns: ["issue_id"]
+            isOneToOne: false
+            referencedRelation: "project_issues"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_issues: {
+        Row: {
+          anchor: string | null
+          category: string
+          created_at: string
+          created_from_run_id: string | null
+          detail: string
+          doc_type: string
+          doc_version_id: string | null
+          evidence_snippet: string | null
+          fingerprint: string
+          id: string
+          last_seen_run_id: string | null
+          project_id: string
+          resolution_mode: string
+          severity: number
+          staged_fix_choice: Json | null
+          status: string
+          summary: string
+          updated_at: string
+          verify_detail: string | null
+          verify_status: string | null
+        }
+        Insert: {
+          anchor?: string | null
+          category: string
+          created_at?: string
+          created_from_run_id?: string | null
+          detail: string
+          doc_type: string
+          doc_version_id?: string | null
+          evidence_snippet?: string | null
+          fingerprint: string
+          id?: string
+          last_seen_run_id?: string | null
+          project_id: string
+          resolution_mode?: string
+          severity?: number
+          staged_fix_choice?: Json | null
+          status?: string
+          summary: string
+          updated_at?: string
+          verify_detail?: string | null
+          verify_status?: string | null
+        }
+        Update: {
+          anchor?: string | null
+          category?: string
+          created_at?: string
+          created_from_run_id?: string | null
+          detail?: string
+          doc_type?: string
+          doc_version_id?: string | null
+          evidence_snippet?: string | null
+          fingerprint?: string
+          id?: string
+          last_seen_run_id?: string | null
+          project_id?: string
+          resolution_mode?: string
+          severity?: number
+          staged_fix_choice?: Json | null
+          status?: string
+          summary?: string
+          updated_at?: string
+          verify_detail?: string | null
+          verify_status?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_issues_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       project_outcomes: {
         Row: {
           budget_achieved: boolean | null
