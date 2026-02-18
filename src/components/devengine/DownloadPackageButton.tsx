@@ -1,6 +1,6 @@
 /**
  * DownloadPackageButton — split button with Server ZIP (recommended) and Quick ZIP (browser) options.
- * Includes scope selector and master script toggle.
+ * Uses the ProjectPackage resolver as single source of truth for contents.
  */
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -18,14 +18,15 @@ import { useMutation } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import JSZip from 'jszip';
-import { getLadderForFormat } from '@/lib/stages/registry';
-import { ALL_DOC_TYPE_LABELS } from '@/lib/can-promote-to-script';
+import type { ProjectPackage } from '@/hooks/useProjectPackage';
 
 type Scope = 'approved_preferred' | 'approved_only' | 'latest_only';
 
 interface Props {
   projectId: string;
   format: string;
+  /** The resolver output — used by Quick ZIP as SSOT */
+  pkg: ProjectPackage;
 }
 
 const SCOPE_LABELS: Record<Scope, string> = {
@@ -34,11 +35,7 @@ const SCOPE_LABELS: Record<Scope, string> = {
   latest_only: 'Latest only',
 };
 
-function getLabel(docType: string): string {
-  return ALL_DOC_TYPE_LABELS[docType] ?? docType.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-}
-
-export function DownloadPackageButton({ projectId, format }: Props) {
+export function DownloadPackageButton({ projectId, format, pkg }: Props) {
   const [scope, setScope] = useState<Scope>('approved_preferred');
   const [includeMasterScript, setIncludeMasterScript] = useState(true);
 
@@ -50,7 +47,7 @@ export function DownloadPackageButton({ projectId, format }: Props) {
           projectId,
           scope,
           include_master_script: includeMasterScript,
-          expiresInSeconds: 3600, // 1h for direct download
+          expiresInSeconds: 3600,
         },
       });
       if (error) throw error;
@@ -58,10 +55,9 @@ export function DownloadPackageButton({ projectId, format }: Props) {
       return data as { signed_url: string; doc_count: number };
     },
     onSuccess: (data) => {
-      // Trigger browser download via signed URL
       const a = document.createElement('a');
       a.href = data.signed_url;
-      a.download = 'package.zip';
+      a.download = 'project_package.zip';
       a.click();
       toast.success(`Package ready — ${data.doc_count} documents`);
     },
@@ -70,82 +66,97 @@ export function DownloadPackageButton({ projectId, format }: Props) {
     },
   });
 
-  // ── QUICK ZIP (client-side) ──
+  // ── QUICK ZIP (client-side, uses pkg resolver data) ──
   const quickZip = useMutation({
     mutationFn: async () => {
-      const ladder = getLadderForFormat(format).filter(dt =>
-        includeMasterScript || dt !== 'season_master_script'
-      );
-
-      // Fetch docs
-      const { data: docs } = await (supabase as any)
-        .from('project_documents')
-        .select('id, doc_type, latest_version_id')
-        .eq('project_id', projectId);
-
-      const docMap = new Map<string, any>((docs || []).map((d: any) => [d.doc_type, d]));
-
-      // Fetch latest versions
-      const latestIds = (docs || [])
-        .filter((d: any) => d.latest_version_id)
-        .map((d: any) => d.latest_version_id as string);
-      let versionMap = new Map<string, any>();
-      if (latestIds.length > 0) {
-        const { data: versions } = await (supabase as any)
-          .from('project_document_versions')
-          .select('id, status, plaintext, document_id')
-          .in('id', latestIds);
-        versionMap = new Map((versions || []).map((v: any) => [v.id, v]));
-      }
-
-      // Fetch approved versions if needed
-      const docIds = (docs || []).map((d: any) => d.id as string);
-      type ApprovedEntry = { id: string; plaintext: string; status: string };
-      let approvedMap = new Map<string, ApprovedEntry>();
-      if (scope !== 'latest_only' && docIds.length > 0) {
-        const { data: finalVers } = await (supabase as any)
-          .from('project_document_versions')
-          .select('id, document_id, plaintext, status')
-          .in('document_id', docIds)
-          .eq('status', 'final')
-          .order('version_number', { ascending: false });
-        for (const v of (finalVers || [])) {
-          if (!approvedMap.has(v.document_id)) approvedMap.set(v.document_id, v);
-        }
-      }
-
       const zip = new JSZip();
       const metaDocs: any[] = [];
       let docCount = 0;
 
-      for (let i = 0; i < ladder.length; i++) {
-        const docType = ladder[i];
-        const doc = docMap.get(docType);
-        if (!doc) continue;
-        const orderPrefix = String(i + 1).padStart(2, '0');
+      // Build ordered list from resolver
+      const ladder = pkg.ladder;
 
-        let plaintext: string | null = null;
-        let approved = false;
+      // We need plaintext — fetch it for the selected versions
+      const versionIds: string[] = [];
 
-        if (scope === 'approved_preferred' || scope === 'approved_only') {
-          const apv = approvedMap.get(doc.id);
-          if (apv) { plaintext = apv.plaintext; approved = true; }
-          else if (scope === 'approved_only') continue;
-          else {
-            const lv = doc.latest_version_id ? versionMap.get(doc.latest_version_id) : null;
-            if (lv) { plaintext = lv.plaintext; approved = false; }
+      // Collect version IDs based on scope from resolver data
+      const deliverablesToExport = pkg.deliverables.filter(
+        d => includeMasterScript || d.deliverable_type !== 'season_master_script'
+      );
+      const seasonScriptsToExport = includeMasterScript ? pkg.season_scripts : [];
+
+      // For approved_only scope: only include approved items
+      const filteredDeliverables = scope === 'approved_only'
+        ? deliverablesToExport.filter(d => d.is_approved)
+        : deliverablesToExport;
+
+      const filteredSeasonScripts = scope === 'approved_only'
+        ? seasonScriptsToExport.filter(s => s.is_approved)
+        : seasonScriptsToExport;
+
+      for (const d of filteredDeliverables) versionIds.push(d.version_id);
+      for (const s of filteredSeasonScripts) versionIds.push(s.version_id);
+
+      if (versionIds.length === 0) throw new Error('No documents available with the selected scope');
+
+      // Fetch plaintext for all version IDs
+      const { data: versions } = await (supabase as any)
+        .from('project_document_versions')
+        .select('id, plaintext, status')
+        .in('id', versionIds);
+
+      const plaintextMap = new Map<string, string>(
+        (versions || []).map((v: any) => [v.id, v.plaintext || ''])
+      );
+
+      // Build ZIP in ladder order
+      let orderIdx = 1;
+      for (const docType of ladder) {
+        if (docType === 'season_master_script') {
+          // Handle season scripts
+          for (const ss of filteredSeasonScripts) {
+            const text = plaintextMap.get(ss.version_id);
+            if (!text) continue;
+            const prefix = String(orderIdx).padStart(2, '0');
+            const statusSuffix = ss.is_approved ? 'APPROVED' : 'DRAFT';
+            const seasonTag = ss.season_number ? `_s${ss.season_number}` : '';
+            const fileName = `${prefix}_season_master_script${seasonTag}_${statusSuffix}.md`;
+            zip.file(fileName, text);
+            metaDocs.push({
+              order_index: orderIdx,
+              doc_type: 'season_master_script',
+              label: ss.season_number ? `Master Script — Season ${ss.season_number}` : 'Master Season Script',
+              doc_id: ss.document_id,
+              version_id: ss.version_id,
+              approved: ss.is_approved,
+              file_name: fileName,
+            });
+            orderIdx++;
+            docCount++;
           }
-        } else {
-          const lv = doc.latest_version_id ? versionMap.get(doc.latest_version_id) : null;
-          if (lv) { plaintext = lv.plaintext; approved = lv.status === 'final'; }
+          continue;
         }
 
-        if (!plaintext) continue;
+        const deliverable = filteredDeliverables.find(d => d.deliverable_type === docType);
+        if (!deliverable) continue;
 
-        const statusSuffix = approved ? 'APPROVED' : 'DRAFT';
-        const fileName = `${orderPrefix}_${docType}_${statusSuffix}.md`;
-        zip.file(fileName, plaintext);
-        metaDocs.push({ order_index: i + 1, doc_type: docType, label: getLabel(docType), doc_id: doc.id, approved, file_name: fileName });
+        const text = plaintextMap.get(deliverable.version_id);
+        if (!text) continue;
+
+        const prefix = String(orderIdx).padStart(2, '0');
+        const statusSuffix = deliverable.is_approved ? 'APPROVED' : 'DRAFT';
+        const fileName = `${prefix}_${docType}_${statusSuffix}.md`;
+        zip.file(fileName, text);
+        metaDocs.push({
+          order_index: orderIdx,
+          doc_type: docType,
+          label: deliverable.label,
+          doc_id: deliverable.document_id,
+          version_id: deliverable.version_id,
+          approved: deliverable.is_approved,
+          file_name: fileName,
+        });
+        orderIdx++;
         docCount++;
       }
 
@@ -153,6 +164,7 @@ export function DownloadPackageButton({ projectId, format }: Props) {
 
       zip.file('metadata.json', JSON.stringify({
         project_id: projectId,
+        title: pkg.projectTitle,
         format,
         exported_at: new Date().toISOString(),
         scope,
@@ -166,7 +178,7 @@ export function DownloadPackageButton({ projectId, format }: Props) {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `package_${new Date().toISOString().slice(0, 10)}.zip`;
+      a.download = `project_package_${new Date().toISOString().slice(0, 10)}.zip`;
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 5000);
       toast.success(`Quick ZIP ready — ${docCount} documents`);
@@ -177,6 +189,7 @@ export function DownloadPackageButton({ projectId, format }: Props) {
   });
 
   const isPending = serverZip.isPending || quickZip.isPending;
+  const hasSeasonScripts = pkg.season_scripts.length > 0;
 
   return (
     <div className="flex items-center gap-0">
@@ -186,11 +199,12 @@ export function DownloadPackageButton({ projectId, format }: Props) {
         size="sm"
         className="text-xs gap-1.5 rounded-r-none border-r-0 h-7"
         onClick={() => serverZip.mutate()}
-        disabled={isPending}
+        disabled={isPending || pkg.totalRequired === 0}
       >
         {isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
         Download Package
       </Button>
+
       {/* Dropdown for options */}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
@@ -205,7 +219,9 @@ export function DownloadPackageButton({ projectId, format }: Props) {
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-64 p-2 space-y-2">
           {/* Scope selector */}
-          <DropdownMenuLabel className="text-[10px] font-medium text-muted-foreground pb-0">Scope</DropdownMenuLabel>
+          <DropdownMenuLabel className="text-[10px] font-medium text-muted-foreground pb-0">
+            Content scope
+          </DropdownMenuLabel>
           <Select value={scope} onValueChange={(v) => setScope(v as Scope)}>
             <SelectTrigger className="h-7 text-xs w-full">
               <SelectValue />
@@ -217,22 +233,24 @@ export function DownloadPackageButton({ projectId, format }: Props) {
             </SelectContent>
           </Select>
 
-          {/* Toggle: master script */}
-          <div className="flex items-center justify-between py-1">
-            <Label className="text-xs text-muted-foreground">Include Master Season Script</Label>
-            <Switch
-              checked={includeMasterScript}
-              onCheckedChange={setIncludeMasterScript}
-              className="scale-75"
-            />
-          </div>
+          {/* Toggle: master script (only shown if project has episodic format) */}
+          {hasSeasonScripts && (
+            <div className="flex items-center justify-between py-1">
+              <Label className="text-xs text-muted-foreground">Include Master Season Script</Label>
+              <Switch
+                checked={includeMasterScript}
+                onCheckedChange={setIncludeMasterScript}
+                className="scale-75"
+              />
+            </div>
+          )}
 
           <DropdownMenuSeparator />
 
           <DropdownMenuItem
             className="gap-2 text-xs cursor-pointer"
             onClick={() => serverZip.mutate()}
-            disabled={isPending}
+            disabled={isPending || pkg.totalRequired === 0}
           >
             <Server className="h-3.5 w-3.5 text-primary" />
             <div>
@@ -244,7 +262,7 @@ export function DownloadPackageButton({ projectId, format }: Props) {
           <DropdownMenuItem
             className="gap-2 text-xs cursor-pointer"
             onClick={() => quickZip.mutate()}
-            disabled={isPending}
+            disabled={isPending || pkg.totalRequired === 0}
           >
             <Monitor className="h-3.5 w-3.5 text-[hsl(var(--chart-4))]" />
             <div>
