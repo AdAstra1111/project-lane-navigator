@@ -351,6 +351,20 @@ function buildRewriteSystem(deliverable: string, format: string, behavior: strin
     formatRules = "\n\nVERTICAL DRAMA: Preserve hook in first 3–10 seconds. Maintain micro-cliffhanger ending. Do NOT apply feature pacing logic. Ensure continuous beat cadence throughout.";
   }
 
+  // Screenplay enforcement for script deliverables
+  let scriptEnforcement = "";
+  if (deliverable === "script" || deliverable === "production_draft") {
+    scriptEnforcement = `\n\nSCREENPLAY FORMAT (MANDATORY):
+- Output MUST be formatted as proper screenplay pages.
+- Use INT./EXT. scene headings (sluglines) with location and DAY/NIGHT.
+- Action lines in present tense.
+- Character names in CAPS on their own line, followed by dialogue.
+- Parentheticals only when needed.
+- Do NOT output a topline narrative, episode summary, overview, or narrative document.
+- Do NOT use outline or bullet-point format.
+- The rewritten_text field must contain a full screenplay, not a summary.`;
+  }
+
   return `You are IFFY. Rewrite the material applying the approved strategic notes.
 DELIVERABLE TYPE: ${deliverable}
 FORMAT: ${format}
@@ -363,7 +377,7 @@ Rules:
 - Match the target deliverable type format expectations.
 - OUTPUT THE FULL REWRITTEN MATERIAL — do NOT summarize or truncate.
 - If repositioning (lane/format) appears in APPROVED STRATEGIC NOTES, reflect it. Otherwise do not stealth-reposition.
-${docGuard}${formatRules}
+${docGuard}${formatRules}${scriptEnforcement}
 
 Return ONLY valid JSON:
 {
@@ -1965,7 +1979,7 @@ PROTECT (non-negotiable creative DNA):\n${JSON.stringify(protectItems || [])}
 ${qualBindingBlock}
 MATERIAL:\n${version.plaintext.slice(0, 20000)}`;
 
-      const isDraftScript = targetOutput === "DRAFT_SCRIPT";
+      const isDraftScript = targetOutput === "DRAFT_SCRIPT" || normalizedTarget === "SCRIPT" || normalizedTarget === "DRAFT_SCRIPT";
       const model = isDraftScript ? PRO_MODEL : BALANCED_MODEL;
       const maxTok = isDraftScript ? 16000 : 10000;
       const systemPrompt = isDraftScript ? CONVERT_SYSTEM : CONVERT_SYSTEM_JSON;
@@ -3591,40 +3605,78 @@ ${prevScript ? `PREVIOUS EPISODE ENDING (for continuity):\n${prevScript}\n\n` : 
 
       const scriptPrompt = `EPISODE ${epNum} BEAT SHEET:\n${episodeBeatSheet.slice(0, 8000)}`;
 
-      const scriptRaw = await callAI(LOVABLE_API_KEY, PRO_MODEL, SCREENPLAY_SYSTEM, scriptPrompt, 0.4, 16000);
-      const scriptText = scriptRaw.replace(/^```[\s\S]*?\n/, "").replace(/\n?```\s*$/, "").trim();
+      // ── Helper: validate screenplay output ──
+      function validateScreenplayOutput(text: string) {
+        const lines = text.split("\n");
+        const sceneHeadingPattern = /^(INT\.|EXT\.|INT\.\/?EXT\.)\s+/;
+        const sceneCount = lines.filter((l: string) => sceneHeadingPattern.test(l.trim())).length;
+        let dialogueCount = 0;
+        for (let i = 0; i < lines.length - 1; i++) {
+          const line = lines[i].trim();
+          if (/^[A-Z][A-Z\s.']{1,29}(\s*\(.*\))?\s*$/.test(line) && lines[i + 1]?.trim().length > 0) {
+            dialogueCount++;
+          }
+        }
+        const outlineLines = lines.filter((l: string) => /^\s*[-•*]\s/.test(l) || /^\s*\d+[\.\)]\s/.test(l));
+        const outlinePct = lines.length > 0 ? Math.round((outlineLines.length / lines.length) * 100) : 0;
+        const lower = text.toLowerCase();
+        const banned = ["topline", "overview", "synopsis", "in this episode", "across the season", "season overview", "narrative", "summary"]
+          .filter(p => {
+            // Only flag if these words appear as structural headings (not in dialogue)
+            const headingPattern = new RegExp(`^\\s*#*\\s*${p}`, "im");
+            return headingPattern.test(text) || (lower.indexOf(p) >= 0 && lower.indexOf(p) < 200);
+          });
+        const passed = sceneCount >= 6 && dialogueCount >= 12 && outlinePct <= 8 && banned.length === 0;
+        const reasons: string[] = [];
+        if (sceneCount < 6) reasons.push(`Only ${sceneCount} scene headings (min 6)`);
+        if (dialogueCount < 12) reasons.push(`Only ${dialogueCount} dialogue blocks (min 12)`);
+        if (outlinePct > 8) reasons.push(`${outlinePct}% outline-style lines (max 8%)`);
+        if (banned.length > 0) reasons.push(`Banned structural headings: ${banned.join(", ")}`);
+        const lastLines = lines.slice(-15).join("\n").toLowerCase();
+        const hasCliffhanger = /\?|reveal|shock|gasp|scream|freeze|black|cut to|smash/i.test(lastLines);
+        return { passed, sceneCount, dialogueCount, outlinePct, banned, reasons, hasCliffhanger };
+      }
 
-      // ── SCREENPLAY FORMAT VALIDATION ──
-      const scriptLines = scriptText.split("\n");
-      const sceneHeadingPattern = /^(INT\.|EXT\.|INT\.\/?EXT\.)\s+/;
-      const sceneHeadingCount = scriptLines.filter((l: string) => sceneHeadingPattern.test(l.trim())).length;
+      let scriptRaw = await callAI(LOVABLE_API_KEY, PRO_MODEL, SCREENPLAY_SYSTEM, scriptPrompt, 0.4, 16000);
+      let scriptText = scriptRaw.replace(/^```[\s\S]*?\n/, "").replace(/\n?```\s*$/, "").trim();
+      let validation = validateScreenplayOutput(scriptText);
+      let regenAttempted = false;
 
-      let dialogueBlockCount = 0;
-      for (let i = 0; i < scriptLines.length - 1; i++) {
-        const line = scriptLines[i].trim();
-        if (/^[A-Z][A-Z\s.']{1,29}(\s*\(.*\))?\s*$/.test(line) && scriptLines[i + 1]?.trim().length > 0) {
-          dialogueBlockCount++;
+      // ── AUTO-REGENERATION if validation fails ──
+      if (!validation.passed) {
+        console.warn(`[dev-engine-v2] beat-sheet-to-script: EP${epNum} FAILED validation (${validation.reasons.join("; ")}). Auto-regenerating...`);
+        regenAttempted = true;
+        const REGEN_SYSTEM = `${SCREENPLAY_SYSTEM}
+
+CRITICAL CORRECTION: Your previous attempt returned a narrative document or summary instead of a screenplay.
+You MUST rewrite as proper screenplay pages with:
+- INT./EXT. sluglines for every scene
+- Action lines in present tense
+- Character names in CAPS followed by dialogue blocks
+- NO outline, NO synopsis, NO narrative summary, NO episode overview
+- Start with a scene heading immediately. Do NOT start with a title or summary paragraph.
+
+Previous attempt problems: ${validation.reasons.join("; ")}`;
+        const regenRaw = await callAI(LOVABLE_API_KEY, PRO_MODEL, REGEN_SYSTEM, scriptPrompt, 0.35, 16000);
+        const regenText = regenRaw.replace(/^```[\s\S]*?\n/, "").replace(/\n?```\s*$/, "").trim();
+        const regenValidation = validateScreenplayOutput(regenText);
+        // Use regen if it's better
+        if (regenValidation.passed || regenValidation.sceneCount > validation.sceneCount) {
+          scriptText = regenText;
+          validation = regenValidation;
+          console.log(`[dev-engine-v2] beat-sheet-to-script: EP${epNum} regen ${validation.passed ? "PASSED" : "improved"} (scenes=${validation.sceneCount} dialogue=${validation.dialogueCount})`);
+        } else {
+          console.warn(`[dev-engine-v2] beat-sheet-to-script: EP${epNum} regen did not improve. Keeping original.`);
         }
       }
 
-      const outlineLines = scriptLines.filter((l: string) => /^\s*[-•*]\s/.test(l) || /^\s*\d+[\.\)]\s/.test(l));
-      const outlinePercent = scriptLines.length > 0 ? Math.round((outlineLines.length / scriptLines.length) * 100) : 0;
-
-      const lowerScript = scriptText.toLowerCase();
-      const bannedPhrases = ["overview", "synopsis", "in this episode", "across the season", "season overview"]
-        .filter(p => lowerScript.includes(p));
-
-      const formatPassed = sceneHeadingCount >= 6 && dialogueBlockCount >= 12 && outlinePercent <= 8 && bannedPhrases.length === 0;
-
-      const validationReasons: string[] = [];
-      if (sceneHeadingCount < 6) validationReasons.push(`Only ${sceneHeadingCount} scene headings (min 6)`);
-      if (dialogueBlockCount < 12) validationReasons.push(`Only ${dialogueBlockCount} dialogue blocks (min 12)`);
-      if (outlinePercent > 8) validationReasons.push(`${outlinePercent}% outline-style lines (max 8%)`);
-      if (bannedPhrases.length > 0) validationReasons.push(`Banned: ${bannedPhrases.join(", ")}`);
-
-      // Check cliffhanger presence
-      const lastLines = scriptLines.slice(-15).join("\n").toLowerCase();
-      const hasCliffhanger = /\?|reveal|shock|gasp|scream|freeze|black|cut to|smash/i.test(lastLines);
+      const sceneHeadingCount = validation.sceneCount;
+      const dialogueBlockCount = validation.dialogueCount;
+      const outlinePercent = validation.outlinePct;
+      const bannedPhrases = validation.banned;
+      const formatPassed = validation.passed;
+      const validationReasons = validation.reasons;
+      const hasCliffhanger = validation.hasCliffhanger;
 
       // ── SAVE AS DOCUMENT ──
       const title = `Episode ${epNum} Script`;
@@ -3670,6 +3722,7 @@ ${prevScript ? `PREVIOUS EPISODE ENDING (for continuity):\n${prevScript}\n\n` : 
           slice_method: sliceMethod,
           script_format_validation: {
             passed: formatPassed,
+            regen_attempted: regenAttempted,
             scene_heading_count: sceneHeadingCount,
             dialogue_block_count: dialogueBlockCount,
             outline_percent: outlinePercent,
@@ -3693,6 +3746,7 @@ ${prevScript ? `PREVIOUS EPISODE ENDING (for continuity):\n${prevScript}\n\n` : 
         script_format_validation: {
           passed: formatPassed,
           status: formatPassed ? "SCREENPLAY_VALID" : "SCRIPT_FORMAT_INVALID",
+          regen_attempted: regenAttempted,
           scene_heading_count: sceneHeadingCount,
           dialogue_block_count: dialogueBlockCount,
           outline_percent: outlinePercent,
