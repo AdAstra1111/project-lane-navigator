@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { invalidateDevEngine } from '@/lib/invalidateDevEngine';
 
 export type AssistantScope = 'current_doc' | 'selected_docs' | 'full_package';
 export type AssistantMode = 'ask' | 'propose' | 'test' | 'apply';
@@ -94,7 +95,7 @@ export function useDocAssistant(projectId: string | undefined) {
     onSuccess: (data) => {
       setLastProposal(data);
       toast.success('Draft revision created');
-      qc.invalidateQueries({ queryKey: ['dev-v2-versions'] });
+      invalidateDevEngine(qc, { projectId, deep: true });
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -119,8 +120,7 @@ export function useDocAssistant(projectId: string | undefined) {
       if (data.staleDependencies?.length) {
         toast.info(`${data.staleDependencies.length} document(s) may need regeneration`);
       }
-      qc.invalidateQueries({ queryKey: ['dev-v2-versions'] });
-      qc.invalidateQueries({ queryKey: ['dev-v2-docs'] });
+      invalidateDevEngine(qc, { projectId, deep: true });
     },
     onError: (e: Error) => toast.error(e.message),
   });

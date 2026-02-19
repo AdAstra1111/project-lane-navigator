@@ -58,6 +58,7 @@ import { QualificationConflictBanner } from '@/components/devengine/Qualificatio
 import { useStageResolve } from '@/hooks/useStageResolve';
 import { useDecisionCommit } from '@/hooks/useDecisionCommit';
 import { isDocStale } from '@/lib/stale-detection';
+import { invalidateDevEngine } from '@/lib/invalidateDevEngine';
 import { StaleDocBanner } from '@/components/devengine/StaleDocBanner';
 import { DocumentPackagePanel } from '@/components/devengine/DocumentPackagePanel';
 import { ProvenancePanel } from '@/components/devengine/ProvenancePanel';
@@ -1193,9 +1194,7 @@ export default function ProjectDevelopmentEngine() {
                     jobId={autoRun.job?.id}
                     isAutoRunPaused={autoRun.job?.status === 'paused'}
                     onRewriteComplete={() => {
-                      qc.invalidateQueries({ queryKey: ['dev-v2-docs', projectId] });
-                      qc.invalidateQueries({ queryKey: ['dev-v2-versions'] });
-                      qc.invalidateQueries({ queryKey: ['dev-v2-runs'] });
+                      invalidateDevEngine(qc, { projectId, docId: selectedDocId, versionId: selectedVersionId, deep: true });
                     }}
                     onAutoRunContinue={(opts, gd) => autoRun.applyDecisionsAndContinue?.(opts, gd)}
                     availableVersions={versions?.map((v: any) => ({ id: v.id, version_number: v.version_number, label: v.label }))}
@@ -1265,21 +1264,14 @@ export default function ProjectDevelopmentEngine() {
                       if (!resp.ok) { toast.error(result.error || 'Failed'); return result; }
                       if (action === 'mark_resolved') toast.success('Note resolved');
                       if (action === 'dismiss') toast.success('Note dismissed');
-                      if (action === 'apply_patch') {
-                        toast.success('Patch applied — new version created');
-                        qc.invalidateQueries({ queryKey: ['dev-v2-versions', selectedDocId] });
-                      }
-                      // Always refresh runs/notes so resolved/dismissed notes
-                      // disappear from the carried-notes list immediately
-                      qc.invalidateQueries({ queryKey: ['dev-v2-runs', selectedVersionId] });
-                      qc.invalidateQueries({ queryKey: ['dev-v2-runs'] });
-                      qc.invalidateQueries({ queryKey: ['dev-v2-doc-runs', selectedDocId] });
-                      qc.invalidateQueries({ queryKey: ['dev-v2-convergence', selectedDocId] });
-                      // For patch applies, also refresh docs so the new version is visible
-                      if (action === 'apply_patch') {
-                        qc.invalidateQueries({ queryKey: ['dev-v2-docs', projectId] });
-                        qc.invalidateQueries({ queryKey: ['dev-v2-versions'] });
-                      }
+                      if (action === 'apply_patch') toast.success('Patch applied — new version created');
+                      // Full system invalidation — all panels refresh regardless of action type
+                      invalidateDevEngine(qc, {
+                        projectId,
+                        docId: selectedDocId,
+                        versionId: selectedVersionId,
+                        deep: true,
+                      });
                       return result;
                     }}
                   />

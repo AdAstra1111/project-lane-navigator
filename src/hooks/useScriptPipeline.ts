@@ -2,6 +2,7 @@ import { useState, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
+import { invalidateDevEngine } from '@/lib/invalidateDevEngine';
 
 interface PipelineBatch {
   index: number;
@@ -81,8 +82,8 @@ export function useScriptPipeline(projectId: string | undefined) {
   const abortRef = useRef(false);
   const runningRef = useRef(false);
 
-  const invalidate = useCallback(() => {
-    qc.invalidateQueries({ queryKey: ['dev-v2-docs', projectId] });
+  const invalidate = useCallback((docId?: string, versionId?: string) => {
+    invalidateDevEngine(qc, { projectId, docId, versionId, deep: true });
   }, [qc, projectId]);
 
   const startPipeline = useCallback(async (

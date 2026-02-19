@@ -7,6 +7,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { useEffect, useRef } from 'react';
 import { recordCanonFix } from '@/lib/decisions/client';
+import { invalidateDevEngine } from '@/lib/invalidateDevEngine';
 
 export interface ContinuityIssue {
   id: string;
@@ -113,6 +114,7 @@ export function useCanonAudit(projectId: string, episodeNumber: number | null) {
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: runKey });
       qc.invalidateQueries({ queryKey: issuesKey });
+      invalidateDevEngine(qc, { projectId, episodeNumber: episodeNumber ?? null, deep: true });
       if (data?.status === 'completed_with_blockers') {
         toast.warning(`Audit found BLOCKERS — resolve before publishing`);
       } else if (data?.status === 'completed') {
@@ -143,12 +145,9 @@ export function useCanonAudit(projectId: string, episodeNumber: number | null) {
     },
     onSuccess: (data, variables) => {
       toast.success(data?.message || 'Fix applied — re-audit to verify');
-      // Only invalidate issues so the applied status renders immediately;
-      // do NOT auto-re-audit — that creates a new run and re-detects the same
-      // issues, making it look like nothing was resolved.
       qc.invalidateQueries({ queryKey: issuesKey });
       qc.invalidateQueries({ queryKey: runKey });
-      qc.invalidateQueries({ queryKey: ['series-episodes', projectId] });
+      invalidateDevEngine(qc, { projectId, episodeNumber: episodeNumber ?? null, deep: true });
       // Record canon fix to decision ledger
       recordCanonFix({
         projectId,
@@ -174,6 +173,7 @@ export function useCanonAudit(projectId: string, episodeNumber: number | null) {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: issuesKey });
+      invalidateDevEngine(qc, { projectId, episodeNumber: episodeNumber ?? null, deep: true });
       toast.info('Issue dismissed');
     },
   });

@@ -2,6 +2,7 @@ import { useState, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
+import { invalidateDevEngine } from '@/lib/invalidateDevEngine';
 
 interface RewritePipelineState {
   status: 'idle' | 'planning' | 'writing' | 'assembling' | 'complete' | 'error';
@@ -46,12 +47,8 @@ export function useRewritePipeline(projectId: string | undefined) {
   });
   const runningRef = useRef(false);
 
-  const invalidate = useCallback(() => {
-    qc.invalidateQueries({ queryKey: ['dev-v2-docs', projectId] });
-    qc.invalidateQueries({ queryKey: ['dev-v2-versions'] });
-    qc.invalidateQueries({ queryKey: ['dev-v2-runs'] });
-    qc.invalidateQueries({ queryKey: ['dev-v2-doc-runs'] });
-    qc.invalidateQueries({ queryKey: ['dev-v2-convergence'] });
+  const invalidate = useCallback((docId?: string, versionId?: string) => {
+    invalidateDevEngine(qc, { projectId, docId, versionId, deep: true });
   }, [qc, projectId]);
 
   const startRewrite = useCallback(async (
