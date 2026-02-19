@@ -68,6 +68,7 @@ interface NotesPanelProps {
   onResolveCarriedNote?: (noteId: string, action: 'mark_resolved' | 'dismiss' | 'ai_patch' | 'apply_patch', extra?: any) => Promise<any>;
   bundles?: NoteBundle[];
   projectId?: string;
+  documentId?: string;
 }
 
 // ── Tier pill ──
@@ -376,7 +377,7 @@ export function NotesPanel({
   resolutionSummary, stabilityStatus, globalDirections,
   hideApplyButton, onDecisionsChange, onCustomDirectionsChange, externalDecisions,
   deferredNotes, carriedNotes, currentDocType, currentVersionId, onResolveCarriedNote,
-  bundles, projectId,
+  bundles, projectId, documentId,
 }: NotesPanelProps) {
   const [polishOpen, setPolishOpen] = useState(false);
   const [deferredOpen, setDeferredOpen] = useState(false);
@@ -527,7 +528,7 @@ export function NotesPanel({
 
           {/* Bundles section */}
           {hasAnyBundles && (
-            <BundlesSection bundles={bundles!} projectId={projectId} documentId={undefined} versionId={currentVersionId}
+            <BundlesSection bundles={bundles!} projectId={projectId} documentId={documentId} versionId={currentVersionId}
               currentDocType={currentDocType} onBundleApplied={() => setStatusVersion(v => v + 1)} />
           )}
 
