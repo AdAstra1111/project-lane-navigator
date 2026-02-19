@@ -61,21 +61,18 @@ export function CanonAuditPanel({
   const appliedCount = issues.filter(i => i.status === 'applied').length;
   const dismissedCount = issues.filter(i => i.status === 'dismissed').length;
 
-  // Count how many fixable issues have a selection
+  // Count all open issues that have a fix ready (selected option or auto-fix)
   const fixableIssues = openIssues.filter(i =>
-    (i.severity === 'BLOCKER' || i.severity === 'MAJOR') && i.fix_options && i.fix_options.length > 0
+    i.fix_options && i.fix_options.length > 0
   );
   const selectedCount = fixableIssues.filter(i => selectedFix[i.id] !== undefined).length;
-  // Also count fixable issues without options (auto-fix)
-  const autoFixIssues = openIssues.filter(i =>
-    (i.severity === 'BLOCKER' || i.severity === 'MAJOR') && (!i.fix_options || i.fix_options.length === 0)
-  );
+  // Also count issues without options (auto-fix)
+  const autoFixIssues = openIssues.filter(i => !i.fix_options || i.fix_options.length === 0);
   const totalReady = selectedCount + autoFixIssues.length;
 
   const handleApplyAll = () => {
-    // Apply each issue sequentially — those with selections get the chosen option
+    // Apply ALL open issues — those with selections get the chosen option, others get auto-fix
     for (const issue of openIssues) {
-      if (issue.severity !== 'BLOCKER' && issue.severity !== 'MAJOR') continue;
       const idx = selectedFix[issue.id];
       if (issue.fix_options && issue.fix_options.length > 0 && idx === undefined) continue; // skip unselected
       const selected = idx !== undefined && issue.fix_options?.[idx] ? issue.fix_options[idx] : undefined;
