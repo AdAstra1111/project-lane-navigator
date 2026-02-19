@@ -93,6 +93,8 @@ interface NotesPanelProps {
   mutedByDecision?: string[];
   projectId?: string;
   documentId?: string;
+  /** Called after a decision is successfully applied — parent should invalidate + refresh */
+  onDecisionApplied?: () => void;
 }
 
 // ── Tier pill ──
@@ -470,7 +472,7 @@ export function NotesPanel({
   resolutionSummary, stabilityStatus, globalDirections,
   hideApplyButton, onDecisionsChange, onCustomDirectionsChange, externalDecisions,
   deferredNotes, carriedNotes, currentDocType, currentVersionId, onResolveCarriedNote,
-  bundles, decisionSets, mutedByDecision, projectId, documentId,
+  bundles, decisionSets, mutedByDecision, projectId, documentId, onDecisionApplied,
 }: NotesPanelProps) {
   const [polishOpen, setPolishOpen] = useState(false);
   const [deferredOpen, setDeferredOpen] = useState(false);
@@ -631,7 +633,10 @@ export function NotesPanel({
               projectId={projectId}
               documentId={documentId}
               versionId={currentVersionId}
-              onDecisionApplied={() => setStatusVersion(v => v + 1)}
+              onDecisionApplied={() => {
+                setStatusVersion(v => v + 1);
+                onDecisionApplied?.();
+              }}
             />
           )}
 
