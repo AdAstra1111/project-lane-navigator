@@ -320,7 +320,7 @@ async function upsertNoteState(supabase: any, params: {
 }
 
 function detectBundles(notes: any[]): any[] {
-  // Group notes by (anchor, constraint_key) — if >2 notes share same group, suggest bundle
+  // Group notes by (anchor, constraint_key) — if >=3 notes share same group, suggest bundle
   const groups: Record<string, any[]> = {};
   for (const note of notes) {
     const anchor = note.anchor || inferNoteAnchor(note);
@@ -331,10 +331,10 @@ function detectBundles(notes: any[]): any[] {
   }
   const bundles: any[] = [];
   for (const [key, group] of Object.entries(groups)) {
-    if (group.length > 2) {
+    if (group.length >= 3) {
       const [anchor, ck] = key.split("||");
       const fingerprints = group.map((n: any) => n.note_fingerprint).filter(Boolean);
-      if (fingerprints.length > 2) {
+      if (fingerprints.length >= 3) {
         bundles.push({
           bundle_id: `bundle_${fingerprints[0]?.slice(0, 8) || Math.random().toString(36).slice(2)}`,
           title: `Loop cluster: ${anchor || ck} (${group.length} recurring notes)`,
@@ -348,6 +348,213 @@ function detectBundles(notes: any[]): any[] {
     }
   }
   return bundles;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CONFLICT DETECTION + DECISION SETS
+// ═══════════════════════════════════════════════════════════════
+
+interface ConflictResult {
+  noteAFingerprint: string;
+  noteBFingerprint: string;
+  score: number;
+  reasons: string[];
+  goal: string;
+}
+
+function detectConflicts(enrichedNotes: any[]): ConflictResult[] {
+  const conflicts: ConflictResult[] = [];
+  // Cap comparisons: only compare within same anchor/scope key, max 10 pairs
+  const byScopeKey: Record<string, any[]> = {};
+  for (const note of enrichedNotes) {
+    const key = note.scope_json?.key || note.anchor || "global";
+    if (!byScopeKey[key]) byScopeKey[key] = [];
+    byScopeKey[key].push(note);
+  }
+
+  for (const [_key, group] of Object.entries(byScopeKey)) {
+    let pairCount = 0;
+    for (let i = 0; i < group.length && pairCount < 10; i++) {
+      for (let j = i + 1; j < group.length && pairCount < 10; j++) {
+        pairCount++;
+        const a = group[i];
+        const b = group[j];
+        if (!a.note_fingerprint || !b.note_fingerprint) continue;
+
+        const reasons: string[] = [];
+        let score = 0;
+
+        const descA = (a.description || a.note || "").toLowerCase();
+        const descB = (b.description || b.note || "").toLowerCase();
+
+        // Hard conflict: both hard tier + opposing operations
+        if (a.tier === "hard" && b.tier === "hard") {
+          const addSignals = ["add", "introduce", "include", "expand", "insert"];
+          const removeSignals = ["remove", "cut", "reduce", "eliminate", "trim", "drop"];
+          const aAdds = addSignals.some(s => descA.includes(s));
+          const aRemoves = removeSignals.some(s => descA.includes(s));
+          const bAdds = addSignals.some(s => descB.includes(s));
+          const bRemoves = removeSignals.some(s => descB.includes(s));
+          if ((aAdds && bRemoves) || (aRemoves && bAdds)) {
+            score += 0.6;
+            reasons.push("Opposing add/remove operations on same scope (hard conflict)");
+          }
+        }
+
+        // Soft conflict: both increase runtime pressure
+        const runtimeA = a.objective === "runtime" || descA.includes("runtime") || descA.includes("length") || descA.includes("duration") || descA.includes("pacing");
+        const runtimeB = b.objective === "runtime" || descB.includes("runtime") || descB.includes("length") || descB.includes("duration") || descB.includes("pacing");
+        if (runtimeA && runtimeB) {
+          score += 0.3;
+          reasons.push("Both notes add runtime pressure");
+        }
+
+        // Soft conflict: mutually exclusive tone directives
+        const toneConflicts = [
+          ["darker", "lighter"], ["gritty", "uplifting"], ["serious", "comedic"],
+          ["slow burn", "fast paced"], ["intimate", "epic"],
+        ];
+        for (const [ta, tb] of toneConflicts) {
+          if ((descA.includes(ta) && descB.includes(tb)) || (descA.includes(tb) && descB.includes(ta))) {
+            score += 0.4;
+            reasons.push(`Tone conflict: "${ta}" vs "${tb}"`);
+            break;
+          }
+        }
+
+        // Pacing vs setup conflict
+        if ((descA.includes("escalat") && descB.includes("setup")) || (descA.includes("setup") && descB.includes("escalat"))) {
+          score += 0.35;
+          reasons.push("Escalation vs setup tension");
+        }
+
+        if (score >= 0.7 && reasons.length > 0) {
+          const catA = a.category || "narrative";
+          const catB = b.category || "narrative";
+          const goal = `Resolve ${catA}/${catB} tension in ${a.scope_json?.key || a.anchor || "this section"}`;
+          conflicts.push({ noteAFingerprint: a.note_fingerprint, noteBFingerprint: b.note_fingerprint, score, reasons, goal });
+        }
+      }
+    }
+  }
+  return conflicts;
+}
+
+async function upsertDecisionSets(
+  supabase: any,
+  projectId: string,
+  docType: string,
+  episodeNumber: number | null,
+  enrichedNotes: any[],
+  conflicts: ConflictResult[],
+): Promise<any[]> {
+  const decisionSets: any[] = [];
+  const noteByFp: Record<string, any> = {};
+  for (const n of enrichedNotes) { if (n.note_fingerprint) noteByFp[n.note_fingerprint] = n; }
+
+  for (const conflict of conflicts) {
+    const noteA = noteByFp[conflict.noteAFingerprint];
+    const noteB = noteByFp[conflict.noteBFingerprint];
+    if (!noteA || !noteB) continue;
+
+    // Deterministic decision_id from sorted fingerprints
+    const fpSorted = [conflict.noteAFingerprint, conflict.noteBFingerprint].sort();
+    const rawId = `${docType}|${episodeNumber ?? ""}|${fpSorted[0]}|${fpSorted[1]}`;
+    let decisionId: string;
+    try {
+      const buf = new TextEncoder().encode(rawId);
+      const hashBuf = await crypto.subtle.digest("SHA-256", buf);
+      decisionId = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, "0")).join("").slice(0, 32);
+    } catch {
+      let h = 5381;
+      for (let i = 0; i < rawId.length; i++) h = ((h << 5) + h + rawId.charCodeAt(i)) >>> 0;
+      decisionId = h.toString(16).padStart(32, "0").slice(0, 32);
+    }
+
+    const descA = noteA.description || noteA.note || "";
+    const descB = noteB.description || noteB.note || "";
+
+    const optionJson = {
+      options: [
+        {
+          option_id: `${decisionId.slice(0, 6)}_A`,
+          title: `Prioritise: ${descA.slice(0, 60)}`,
+          plan_text: `Apply note A and waive note B. Focus on: ${descA.slice(0, 200)}`,
+          resolves: [conflict.noteAFingerprint],
+          waives: [conflict.noteBFingerprint],
+          defers: [],
+          impact: { canon: noteA.tier === "hard" ? "safe" : "neutral", runtime: "neutral", escalation: "neutral" },
+        },
+        {
+          option_id: `${decisionId.slice(0, 6)}_B`,
+          title: `Prioritise: ${descB.slice(0, 60)}`,
+          plan_text: `Apply note B and waive note A. Focus on: ${descB.slice(0, 200)}`,
+          resolves: [conflict.noteBFingerprint],
+          waives: [conflict.noteAFingerprint],
+          defers: [],
+          impact: { canon: noteB.tier === "hard" ? "safe" : "neutral", runtime: "neutral", escalation: "neutral" },
+        },
+        {
+          option_id: `${decisionId.slice(0, 6)}_C`,
+          title: "Compromise: address both with minimal changes",
+          plan_text: `Address both concerns with targeted minimal edits: (A) ${descA.slice(0, 100)} AND (B) ${descB.slice(0, 100)}`,
+          resolves: [conflict.noteAFingerprint, conflict.noteBFingerprint],
+          waives: [],
+          defers: [],
+          impact: { canon: "neutral", runtime: "slight_increase", escalation: "neutral" },
+        },
+      ],
+    };
+
+    // Upsert into project_dev_decision_state
+    try {
+      await supabase.from("project_dev_decision_state").upsert({
+        project_id: projectId,
+        doc_type: docType,
+        episode_number: episodeNumber,
+        decision_id: decisionId,
+        goal: conflict.goal,
+        anchor: noteA.anchor || noteB.anchor || null,
+        scope_json: noteA.scope_json || {},
+        option_json: optionJson,
+        status: "open",
+      }, { onConflict: "project_id,doc_type,episode_number,decision_id", ignoreDuplicates: false });
+    } catch (e) {
+      console.warn("[dev-engine-v2] Decision set upsert failed (non-fatal):", e);
+    }
+
+    // Update conflicts_with on both note states
+    try {
+      await supabase.from("project_dev_note_state")
+        .update({ conflicts_with: [conflict.noteBFingerprint], conflict_json: { reasons: conflict.reasons, score: conflict.score, decision_id: decisionId } })
+        .eq("project_id", projectId).eq("note_fingerprint", conflict.noteAFingerprint);
+      await supabase.from("project_dev_note_state")
+        .update({ conflicts_with: [conflict.noteAFingerprint], conflict_json: { reasons: conflict.reasons, score: conflict.score, decision_id: decisionId } })
+        .eq("project_id", projectId).eq("note_fingerprint", conflict.noteBFingerprint);
+    } catch (e) {
+      console.warn("[dev-engine-v2] Note conflict_json update failed (non-fatal):", e);
+    }
+
+    decisionSets.push({
+      decision_id: decisionId,
+      goal: conflict.goal,
+      anchor: noteA.anchor || noteB.anchor || null,
+      note_fingerprints: [conflict.noteAFingerprint, conflict.noteBFingerprint],
+      note_count: 2,
+      conflict_reasons: conflict.reasons,
+      options: optionJson.options,
+      status: "open",
+    });
+  }
+
+  return decisionSets;
+}
+
+// Compute runtime length pressure for vertical drama soft notes
+function computeRuntimePressure(estSeconds: number, targetHigh: number, targetLow: number): number {
+  if (estSeconds > targetHigh) return Math.min(1, (estSeconds - targetHigh) / targetHigh);
+  if (estSeconds < targetLow) return Math.min(1, (targetLow - estSeconds) / targetLow);
+  return 0;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1850,12 +2057,168 @@ GENERAL RULES:
         await supabase.from("development_notes").insert(noteInserts);
       }
 
+      // ── CONSTRAINT SOLVER: Upsert note states + detect conflicts + decision sets ──
+      let enrichedNotes: any[] = [];
+      let decisionSets: any[] = [];
+      let suppressedCount = 0;
+
+      try {
+        // Fetch previous version text for diff-gating
+        const { data: prevVersionRow } = await supabase.from("project_document_versions")
+          .select("id, plaintext").eq("document_id", documentId)
+          .order("version_number", { ascending: false }).limit(2);
+        const prevVersion = (prevVersionRow || []).find((v: any) => v.id !== versionId);
+        const prevVersionText = prevVersion?.plaintext || "";
+        const prevVersionId = prevVersion?.id || null;
+
+        // Fetch existing state canon_hash for comparison
+        const { data: prevStateRow } = await supabase.from("project_dev_note_state")
+          .select("canon_hash").eq("project_id", projectId).eq("doc_type", notesEffectiveFormat)
+          .order("updated_at", { ascending: false }).limit(1).maybeSingle();
+
+        // Fetch canon inputs for hash
+        const { data: bibleDoc } = await supabase.from("project_documents")
+          .select("plaintext, extracted_text").eq("project_id", projectId).eq("doc_type", "character_bible").maybeSingle();
+        const { data: gridDoc } = await supabase.from("project_documents")
+          .select("plaintext, extracted_text").eq("project_id", projectId).eq("doc_type", "episode_grid").maybeSingle();
+        const bibleText = bibleDoc?.plaintext || bibleDoc?.extracted_text || "";
+        const gridText = gridDoc?.plaintext || gridDoc?.extracted_text || "";
+        const canonHash = hashCanonInputs(bibleText, gridText, "");
+        const prevCanonHash = prevStateRow?.canon_hash || null;
+
+        // Resolve episode number if in vertical drama context
+        const { data: docRow } = await supabase.from("project_documents")
+          .select("doc_type").eq("id", documentId).maybeSingle();
+        const episodeNumber: number | null = null; // notes action is not episode-specific
+
+        // Upsert each note state
+        for (const note of allTieredNotes) {
+          try {
+            // Runtime pressure for soft notes
+            if (note.category === "pacing" || (note.description || "").toLowerCase().includes("runtime") || (note.description || "").toLowerCase().includes("length")) {
+              note.objective = "runtime";
+            }
+            note.intent_label = note.objective || note.category || "";
+            note.constraint_key = note.note_key || note.id || "";
+
+            const result = await upsertNoteState(supabase, {
+              projectId,
+              docType: notesEffectiveFormat,
+              episodeNumber,
+              note,
+              versionId,
+              prevVersionText,
+              prevVersionId,
+              newVersionText: version.plaintext,
+              canonHash,
+              prevCanonHash,
+            });
+
+            // Update canon_hash on the state row
+            if (result.state?.id) {
+              await supabase.from("project_dev_note_state").update({
+                canon_hash: canonHash,
+                intent_label: note.intent_label || null,
+                objective: note.objective || null,
+                constraint_key: note.constraint_key || null,
+              }).eq("id", result.state.id);
+            }
+
+            if (result.suppressed) {
+              suppressedCount++;
+              continue;
+            }
+
+            // Runtime policy: auto-waive soft runtime notes when escalation score is high
+            if (note.objective === "runtime" && note.tier !== "hard") {
+              const escalationOk = (analysis?.gp_score || 0) >= 70;
+              if (escalationOk && result.state) {
+                try {
+                  await supabase.from("project_dev_note_state").update({
+                    status: "waived",
+                    waive_reason: "Auto-waived: escalation score is high; trim in edit",
+                  }).eq("id", result.state.id);
+                } catch (_e) { /* non-fatal */ }
+                suppressedCount++;
+                continue;
+              }
+            }
+
+            enrichedNotes.push({
+              ...note,
+              note_fingerprint: result.fingerprint,
+              note_cluster_id: result.clusterId,
+              tier: result.state?.tier || note.tier || "soft",
+              severity_score: result.state?.severity || 0.5,
+              status: result.state?.status || "open",
+              times_seen: result.state?.times_seen || 1,
+              witness_json: result.state?.witness_json || null,
+              conflict_json: result.state?.conflict_json || null,
+              scope_json: result.state?.scope_json || {},
+              anchor: result.state?.anchor || null,
+              objective: note.objective || null,
+              intent_label: note.intent_label || null,
+              constraint_key: note.constraint_key || null,
+            });
+          } catch (e) {
+            console.warn("[dev-engine-v2] Note state upsert failed (non-fatal):", e);
+            enrichedNotes.push({ ...note });
+          }
+        }
+
+        // Detect conflicts and create decision sets
+        const conflicts = detectConflicts(enrichedNotes);
+        if (conflicts.length > 0) {
+          decisionSets = await upsertDecisionSets(supabase, projectId, notesEffectiveFormat, episodeNumber, enrichedNotes, conflicts);
+        }
+
+        // Detect loop bundles from enriched notes
+        const noteBundles = detectBundles(enrichedNotes);
+
+        // Attach fingerprint metadata to parsed output arrays
+        const fpMap: Record<string, any> = {};
+        for (const en of enrichedNotes) { fpMap[en.id || en.note_key] = en; }
+        for (const arr of [parsed.blocking_issues, parsed.high_impact_notes, parsed.polish_notes]) {
+          if (arr) for (const n of arr) {
+            const en = fpMap[n.id || n.note_key];
+            if (en) {
+              n.note_fingerprint = en.note_fingerprint;
+              n.note_cluster_id = en.note_cluster_id;
+              n.tier = en.tier;
+              n.times_seen = en.times_seen;
+              n.witness_json = en.witness_json;
+              n.conflict_json = en.conflict_json;
+              n.objective = en.objective;
+              n.intent_label = en.intent_label;
+              n.constraint_key = en.constraint_key;
+              n.status = en.status;
+            }
+          }
+        }
+
+        // Mute notes that are part of open decision sets
+        const mutedFingerprints = new Set<string>();
+        for (const ds of decisionSets) {
+          if (ds.status === "open") {
+            for (const fp of ds.note_fingerprints) mutedFingerprints.add(fp);
+          }
+        }
+
+        parsed.bundles = noteBundles;
+        parsed.decision_sets = decisionSets;
+        parsed.suppressed_count = suppressedCount;
+        parsed.muted_by_decision = [...mutedFingerprints];
+      } catch (e) {
+        console.warn("[dev-engine-v2] Constraint solver failed (non-fatal):", e);
+      }
+
       // Compute resolution summary
       const resolvedCount = existingUnresolved.filter(n => !currentNoteKeys.has(n.note_key)).length;
       const regressedCount = allTieredNotes.filter((n: any) => n.id && previouslyResolved.has(n.id)).length;
       parsed.resolution_summary = {
         resolved: resolvedCount,
         regressed: regressedCount,
+        suppressed: suppressedCount,
         blockers_remaining: (parsed.blocking_issues || []).length,
         high_impact_remaining: (parsed.high_impact_notes || []).length,
         polish_remaining: (parsed.polish_notes || []).length,
@@ -4675,6 +5038,122 @@ ${contextBlock}`;
         created: toplineDocCreated,
         sourceCount: sourceDocIds.length,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ══════════════════════════════════════════════
+    // APPLY_DECISION — apply a chosen conflict-resolution option
+    // ══════════════════════════════════════════════
+    if (action === "apply_decision") {
+      const { projectId, doc_type, episode_number, decision_id, option_id, base_version_id, documentId } = body;
+      if (!projectId || !decision_id || !option_id || !base_version_id || !documentId) {
+        throw new Error("projectId, decision_id, option_id, base_version_id, documentId required");
+      }
+
+      // Fetch the decision
+      const { data: decisionRow } = await supabase.from("project_dev_decision_state")
+        .select("*").eq("project_id", projectId).eq("decision_id", decision_id).maybeSingle();
+      if (!decisionRow) throw new Error("Decision not found");
+
+      const options = decisionRow.option_json?.options || [];
+      const chosenOption = options.find((o: any) => o.option_id === option_id);
+      if (!chosenOption) throw new Error(`Option ${option_id} not found in decision`);
+
+      // Fetch base version
+      const { data: baseVersion } = await supabase.from("project_document_versions")
+        .select("plaintext, version_number").eq("id", base_version_id).single();
+      if (!baseVersion) throw new Error("Base version not found");
+
+      const { data: project } = await supabase.from("projects")
+        .select("format, development_behavior").eq("id", projectId).single();
+      const effectiveFormat = (project?.format || "film").toLowerCase().replace(/[_ ]+/g, "-");
+      const effectiveBehavior = project?.development_behavior || "market";
+
+      // AI apply the plan
+      const decisionSystem = `You are IFFY. Apply the following editorial decision plan to the document.
+FORMAT: ${effectiveFormat}
+BEHAVIOR: ${effectiveBehavior}
+Rules:
+- Apply ONLY the changes described in the plan.
+- Preserve all creative elements not targeted by the plan.
+- OUTPUT THE FULL REWRITTEN MATERIAL.
+Return ONLY valid JSON:
+{
+  "rewritten_text": "the full rewritten material",
+  "changes_summary": "bullet summary of changes applied"
+}`;
+      const decisionUserPrompt = `DECISION PLAN:\n${chosenOption.plan_text}\n\nMATERIAL:\n${baseVersion.plaintext.slice(0, 40000)}`;
+      const decisionRaw = await callAI(LOVABLE_API_KEY, BALANCED_MODEL, decisionSystem, decisionUserPrompt, 0.3, 12000);
+      const decisionParsed = await parseAIJson(LOVABLE_API_KEY, decisionRaw);
+      const rewrittenText = decisionParsed.rewritten_text || baseVersion.plaintext;
+
+      // Create new version
+      let newVersion: any = null;
+      for (let _retry = 0; _retry < 3; _retry++) {
+        const { data: maxRow } = await supabase.from("project_document_versions")
+          .select("version_number").eq("document_id", documentId)
+          .order("version_number", { ascending: false }).limit(1).single();
+        const nextVersion = (maxRow?.version_number ?? 0) + 1;
+        const { data: nv, error: vErr } = await supabase.from("project_document_versions").insert({
+          document_id: documentId,
+          version_number: nextVersion,
+          label: `Decision fix — option ${option_id}`,
+          plaintext: rewrittenText,
+          created_by: user.id,
+          parent_version_id: base_version_id,
+          change_summary: decisionParsed.changes_summary || `Applied decision option ${option_id}`,
+        }).select().single();
+        if (!vErr) { newVersion = nv; break; }
+        if (vErr.code !== "23505") throw vErr;
+      }
+      if (!newVersion) throw new Error("Failed to create version after retries");
+
+      // Update decision state
+      await supabase.from("project_dev_decision_state").update({
+        chosen_option_id: option_id,
+        status: "chosen",
+      }).eq("id", decisionRow.id);
+
+      // Update note states for resolves/waives/defers
+      const resolves: string[] = chosenOption.resolves || [];
+      const waives: string[] = chosenOption.waives || [];
+      const defers: string[] = chosenOption.defers || [];
+
+      if (resolves.length > 0) {
+        await supabase.from("project_dev_note_state")
+          .update({ status: "applied", last_applied_version_id: newVersion.id })
+          .eq("project_id", projectId).in("note_fingerprint", resolves);
+      }
+      if (waives.length > 0) {
+        await supabase.from("project_dev_note_state")
+          .update({ status: "waived", waive_reason: `Decision ${decision_id} option ${option_id} chosen` })
+          .eq("project_id", projectId).in("note_fingerprint", waives);
+      }
+      if (defers.length > 0) {
+        await supabase.from("project_dev_note_state")
+          .update({ status: "deferred", defer_to_doc_type: "production_draft" })
+          .eq("project_id", projectId).in("note_fingerprint", defers);
+      }
+
+      // Log run
+      await supabase.from("development_runs").insert({
+        project_id: projectId,
+        document_id: documentId,
+        version_id: newVersion.id,
+        user_id: user.id,
+        run_type: "REWRITE",
+        output_json: {
+          decision_id,
+          option_id,
+          changes_summary: decisionParsed.changes_summary || "",
+          source_version_id: base_version_id,
+          decision_fix: true,
+        },
+        schema_version: SCHEMA_VERSION,
+      });
+
+      return new Response(JSON.stringify({ ok: true, newVersion, decisionId: decision_id, optionId: option_id }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     // ══════════════════════════════════════════════

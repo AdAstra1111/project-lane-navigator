@@ -44,7 +44,29 @@ export interface NoteBundle {
   recommended_patch_plan: string;
 }
 
-type NoteFilter = 'all' | 'open' | 'hard' | 'recurring';
+// ── Constraint Solver types ──
+export interface DecisionSetOption {
+  option_id: string;
+  title: string;
+  plan_text: string;
+  resolves: string[];
+  waives: string[];
+  defers: string[];
+  impact: { canon?: string; runtime?: string; escalation?: string };
+}
+
+export interface DecisionSet {
+  decision_id: string;
+  goal: string;
+  anchor?: string;
+  note_fingerprints: string[];
+  note_count: number;
+  conflict_reasons?: string[];
+  options: DecisionSetOption[];
+  status: 'open' | 'chosen' | 'superseded';
+}
+
+type NoteFilter = 'all' | 'open' | 'hard' | 'recurring' | 'decisions';
 
 interface NotesPanelProps {
   allNotes: any[];
@@ -67,6 +89,8 @@ interface NotesPanelProps {
   currentVersionId?: string;
   onResolveCarriedNote?: (noteId: string, action: 'mark_resolved' | 'dismiss' | 'ai_patch' | 'apply_patch', extra?: any) => Promise<any>;
   bundles?: NoteBundle[];
+  decisionSets?: DecisionSet[];
+  mutedByDecision?: string[];
   projectId?: string;
   documentId?: string;
 }
@@ -335,12 +359,8 @@ function BundlesSection({ bundles, projectId, documentId, versionId, currentDocT
           plan_text: bundle.recommended_patch_plan,
         }),
       });
-      if (res.ok) {
-        toast.success(`Bundle fix applied — new version created`);
-        onBundleApplied?.();
-      } else {
-        toast.error('Bundle fix failed');
-      }
+      if (res.ok) { toast.success(`Bundle fix applied — new version created`); onBundleApplied?.(); }
+      else toast.error('Bundle fix failed');
     } catch { toast.error('Bundle fix failed'); }
     finally { setApplying(null); }
   }
@@ -358,14 +378,87 @@ function BundlesSection({ bundles, projectId, documentId, versionId, currentDocT
           <div className="flex items-center gap-1">
             <Badge variant="outline" className="text-[7px] px-1 py-0 text-orange-400 border-orange-500/30">{b.note_count} notes</Badge>
             <Button size="sm" variant="outline" className="h-5 text-[8px] px-1.5 gap-0.5 border-orange-500/30 text-orange-400 hover:bg-orange-500/10 ml-auto"
-              disabled={applying === b.bundle_id}
-              onClick={() => applyBundle(b)}>
+              disabled={applying === b.bundle_id} onClick={() => applyBundle(b)}>
               {applying === b.bundle_id ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Wand2 className="h-2.5 w-2.5" />}
               Apply Bundle Fix
             </Button>
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+// ── Decision Sets Section ──
+function DecisionSetsSection({ decisionSets, projectId, documentId, versionId, onDecisionApplied }: {
+  decisionSets: DecisionSet[]; projectId?: string; documentId?: string; versionId?: string;
+  onDecisionApplied?: () => void;
+}) {
+  const [applying, setApplying] = useState<string | null>(null);
+  const [chosenOptions, setChosenOptions] = useState<Record<string, string>>({});
+
+  async function applyDecision(ds: DecisionSet, optionId: string) {
+    if (!projectId || !documentId || !versionId) { toast.error('No document selected'); return; }
+    setApplying(ds.decision_id);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      const fnUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/dev-engine-v2`;
+      const res = await fetch(fnUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({
+          action: 'apply_decision',
+          projectId, documentId, base_version_id: versionId,
+          decision_id: ds.decision_id,
+          option_id: optionId,
+        }),
+      });
+      if (res.ok) { toast.success('Decision applied — new version created'); onDecisionApplied?.(); }
+      else toast.error('Decision apply failed');
+    } catch { toast.error('Decision apply failed'); }
+    finally { setApplying(null); }
+  }
+
+  const openSets = (decisionSets || []).filter(ds => ds.status === 'open');
+  if (openSets.length === 0) return null;
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-1 text-[10px] font-semibold text-violet-400">
+        <Zap className="h-3 w-3" />Conflict Decisions ({openSets.length})
+        <span className="text-[8px] text-muted-foreground font-normal ml-1">resolve before applying notes</span>
+      </div>
+      {openSets.map(ds => {
+        const chosen = chosenOptions[ds.decision_id];
+        return (
+          <div key={ds.decision_id} className="rounded border border-violet-500/30 bg-violet-500/5 p-2 space-y-1.5">
+            <p className="text-[10px] font-medium text-foreground">{ds.goal}</p>
+            {ds.conflict_reasons && ds.conflict_reasons.length > 0 && (
+              <p className="text-[8px] text-muted-foreground italic">{ds.conflict_reasons[0]}</p>
+            )}
+            <div className="space-y-1">
+              {(ds.options || []).map(opt => (
+                <button key={opt.option_id}
+                  onClick={() => setChosenOptions(p => ({ ...p, [ds.decision_id]: opt.option_id }))}
+                  className={`w-full text-left rounded px-2 py-1.5 border transition-all text-[9px] ${chosen === opt.option_id ? 'border-violet-500/60 bg-violet-500/10' : 'border-border/30 bg-muted/20 hover:border-border/60'}`}>
+                  <span className="font-medium text-foreground">{opt.title}</span>
+                  {opt.resolves?.length > 0 && <span className="text-emerald-400 ml-1">✓ resolves {opt.resolves.length}</span>}
+                  {opt.waives?.length > 0 && <span className="text-muted-foreground ml-1">· waives {opt.waives.length}</span>}
+                </button>
+              ))}
+            </div>
+            {chosen && (
+              <Button size="sm" className="h-5 text-[8px] px-2 gap-0.5 bg-violet-600 hover:bg-violet-700 w-full"
+                disabled={applying === ds.decision_id}
+                onClick={() => applyDecision(ds, chosen)}>
+                {applying === ds.decision_id ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Check className="h-2.5 w-2.5" />}
+                Apply Decision
+              </Button>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
