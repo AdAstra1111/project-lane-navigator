@@ -92,6 +92,265 @@ async function parseAIJson(apiKey: string, raw: string): Promise<any> {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// NOTE FINGERPRINTING + STATE HELPERS
+// ═══════════════════════════════════════════════════════════════
+
+function normalizeNoteText(s: string): string {
+  return (s || "").toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
+}
+
+async function makeNoteFingerprint(fields: {
+  docType: string;
+  episodeNumber?: number | null;
+  anchor?: string;
+  intentLabel?: string;
+  summary: string;
+  constraintKey?: string;
+}): Promise<string> {
+  const raw = [
+    fields.docType || "",
+    String(fields.episodeNumber ?? ""),
+    fields.anchor || "",
+    fields.intentLabel || "",
+    normalizeNoteText(fields.summary).slice(0, 120),
+    fields.constraintKey || "",
+  ].join("|");
+  try {
+    const buf = new TextEncoder().encode(raw);
+    const hashBuf = await crypto.subtle.digest("SHA-256", buf);
+    const hex = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, "0")).join("");
+    return hex.slice(0, 40);
+  } catch {
+    // Fallback djb2
+    let h = 5381;
+    for (let i = 0; i < raw.length; i++) h = ((h << 5) + h + raw.charCodeAt(i)) >>> 0;
+    return h.toString(16).padStart(40, "0").slice(0, 40);
+  }
+}
+
+function inferNoteAnchor(note: any): string {
+  const desc = (note.description || note.note || "").toLowerCase();
+  if (note.anchor) return note.anchor;
+  if (desc.includes("character:") || desc.match(/\bcharacter\b.{0,20}(maya|protagonist|antagonist)/)) {
+    const m = desc.match(/character:(\w+)/);
+    return m ? `character:${m[1]}` : "character:unknown";
+  }
+  if (desc.match(/scene\s*(\d+)/)) {
+    const m = desc.match(/scene\s*(\d+)/);
+    return `scene:${m![1]}`;
+  }
+  if (note.constraint_key) return `rule:${note.constraint_key}`;
+  return "";
+}
+
+function inferNoteTier(note: any): "hard" | "soft" {
+  if (note.tier) return note.tier as "hard" | "soft";
+  const desc = (note.description || note.note || "").toLowerCase();
+  const cat = (note.category || "").toLowerCase();
+  const hardSignals = [
+    "canon", "contradiction", "timeline", "impossible", "bible", "must happen",
+    "grid beat", "format rule", "episode count", "missing beat", "cliffhanger missing",
+    "character bible", "cross-episode", "continuity",
+  ];
+  const isHard = note.severity === "blocker" &&
+    hardSignals.some(s => desc.includes(s) || cat.includes(s));
+  return isHard ? "hard" : "soft";
+}
+
+function extractNoteScope(note: any, anchor: string): Record<string, any> {
+  if (anchor.startsWith("character:")) return { type: "character", key: anchor.replace("character:", "") };
+  if (anchor.startsWith("scene:")) return { type: "scene", key: anchor.replace("scene:", "") };
+  if (anchor.startsWith("rule:")) return { type: "rule", key: anchor.replace("rule:", "") };
+  const desc = (note.description || note.note || "").toLowerCase();
+  if (desc.match(/scene\s*\d+/)) {
+    const m = desc.match(/scene\s*(\d+)/);
+    return { type: "scene", key: m![1] };
+  }
+  return { type: "global", key: "all" };
+}
+
+// Coarse text diff: returns true if texts share significant changed regions
+// Simple approach: compare line-level hash sets
+function textRegionsChanged(oldText: string, newText: string): boolean {
+  if (!oldText || !newText) return true;
+  const oldLines = new Set(oldText.split("\n").map(l => l.trim()).filter(Boolean));
+  const newLines = new Set(newText.split("\n").map(l => l.trim()).filter(Boolean));
+  let removed = 0;
+  for (const l of oldLines) { if (!newLines.has(l)) removed++; }
+  const changeRatio = removed / Math.max(oldLines.size, 1);
+  return changeRatio > 0.05; // >5% change considered significant
+}
+
+function scopeIntersectsDiff(scope: Record<string, any>, oldText: string, newText: string): boolean {
+  if (!oldText || !newText) return true;
+  if (scope.type === "global") return textRegionsChanged(oldText, newText);
+  // For character/scene/rule scopes, check if relevant lines changed
+  const key = (scope.key || "").toLowerCase();
+  const oldLines = oldText.split("\n").filter(l => l.toLowerCase().includes(key));
+  const newLines = newText.split("\n").filter(l => l.toLowerCase().includes(key));
+  if (oldLines.length === 0 && newLines.length === 0) return false;
+  const oldSet = new Set(oldLines.map(l => l.trim()));
+  const newSet = new Set(newLines.map(l => l.trim()));
+  for (const l of oldSet) { if (!newSet.has(l)) return true; }
+  return false;
+}
+
+// Compute a hash of canon inputs for change detection
+function hashCanonInputs(bible: string, grid: string, formatRules: string): string {
+  const raw = `${(bible || "").slice(0, 2000)}|${(grid || "").slice(0, 1000)}|${(formatRules || "").slice(0, 500)}`;
+  let h = 5381;
+  for (let i = 0; i < raw.length; i++) h = ((h << 5) + h + raw.charCodeAt(i)) >>> 0;
+  return h.toString(16);
+}
+
+async function upsertNoteState(supabase: any, params: {
+  projectId: string;
+  docType: string;
+  episodeNumber: number | null;
+  note: any;
+  versionId: string;
+  prevVersionText: string;
+  prevVersionId: string | null;
+  newVersionText: string;
+  canonHash: string;
+  prevCanonHash: string | null;
+}): Promise<{ fingerprint: string; clusterId: string; state: any | null; suppressed: boolean }> {
+  const { projectId, docType, episodeNumber, note, versionId, prevVersionText, prevVersionId, newVersionText, canonHash, prevCanonHash } = params;
+  const anchor = inferNoteAnchor(note);
+  const tier = inferNoteTier(note);
+  const scope = extractNoteScope(note, anchor);
+  const summary = note.description || note.note || note.id || "";
+  const constraintKey = note.constraint_key || note.note_key || note.id || "";
+
+  const fingerprint = await makeNoteFingerprint({
+    docType,
+    episodeNumber,
+    anchor,
+    intentLabel: note.category || "",
+    summary,
+    constraintKey,
+  });
+  const clusterId = fingerprint.slice(0, 16);
+
+  // Fetch existing state
+  const { data: existing } = await supabase
+    .from("project_dev_note_state")
+    .select("*")
+    .eq("project_id", projectId)
+    .eq("doc_type", docType)
+    .eq("note_fingerprint", fingerprint)
+    .is("episode_number", episodeNumber)
+    .maybeSingle();
+
+  const terminalStatuses = new Set(["applied", "waived", "deferred", "locked", "superseded"]);
+
+  if (existing && terminalStatuses.has(existing.status)) {
+    // Diff-gate: check if scope was touched by the edit
+    const canonChanged = prevCanonHash && canonHash !== prevCanonHash;
+    const scopeTouched = scopeIntersectsDiff(scope, prevVersionText, newVersionText);
+
+    if (!scopeTouched && !canonChanged) {
+      // Not touched — suppress this note, don't reopen
+      return { fingerprint, clusterId, state: existing, suppressed: true };
+    }
+
+    // Scope was touched or canon changed — require witness if recurring
+    const newTimesSeen = (existing.times_seen || 1) + 1;
+    let witnessJson: any = null;
+
+    if (newTimesSeen >= 2 && existing.status === "applied") {
+      // Build witness from note content
+      const excerpt = summary.slice(0, 200);
+      const location = anchor || scope.key || "global";
+      const canonRef = note.why_it_matters ? `Evidence: ${note.why_it_matters.slice(0, 150)}` : "See script";
+      witnessJson = {
+        excerpt,
+        location,
+        canon_ref: canonRef,
+        explanation: `Note reappeared ${newTimesSeen} times. Last applied in version ${existing.last_applied_version_id || prevVersionId || "unknown"}.`,
+        times_seen: newTimesSeen,
+      };
+    }
+
+    // Reopen
+    await supabase.from("project_dev_note_state").update({
+      status: "open",
+      last_seen_at: new Date().toISOString(),
+      times_seen: newTimesSeen,
+      last_version_id: versionId,
+      scope_json: scope,
+      tier,
+      anchor,
+      witness_json: witnessJson || existing.witness_json,
+    }).eq("id", existing.id);
+
+    const updated = { ...existing, status: "open", times_seen: newTimesSeen, witness_json: witnessJson || existing.witness_json };
+    return { fingerprint, clusterId, state: updated, suppressed: false };
+  }
+
+  if (existing) {
+    // Already open — just increment
+    await supabase.from("project_dev_note_state").update({
+      last_seen_at: new Date().toISOString(),
+      times_seen: (existing.times_seen || 1) + 1,
+      last_version_id: versionId,
+      scope_json: scope,
+      tier,
+      anchor,
+    }).eq("id", existing.id);
+    return { fingerprint, clusterId, state: { ...existing, times_seen: (existing.times_seen || 1) + 1 }, suppressed: false };
+  }
+
+  // Insert new state row
+  const { data: inserted } = await supabase.from("project_dev_note_state").insert({
+    project_id: projectId,
+    doc_type: docType,
+    episode_number: episodeNumber,
+    note_fingerprint: fingerprint,
+    note_cluster_id: clusterId,
+    anchor: anchor || null,
+    scope_json: scope,
+    tier,
+    status: "open",
+    times_seen: 1,
+    last_version_id: versionId,
+  }).select().single();
+
+  return { fingerprint, clusterId, state: inserted, suppressed: false };
+}
+
+function detectBundles(notes: any[]): any[] {
+  // Group notes by (anchor, constraint_key) — if >2 notes share same group, suggest bundle
+  const groups: Record<string, any[]> = {};
+  for (const note of notes) {
+    const anchor = note.anchor || inferNoteAnchor(note);
+    const ck = note.constraint_key || note.category || "general";
+    const key = `${anchor}||${ck}`;
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(note);
+  }
+  const bundles: any[] = [];
+  for (const [key, group] of Object.entries(groups)) {
+    if (group.length > 2) {
+      const [anchor, ck] = key.split("||");
+      const fingerprints = group.map((n: any) => n.note_fingerprint).filter(Boolean);
+      if (fingerprints.length > 2) {
+        bundles.push({
+          bundle_id: `bundle_${fingerprints[0]?.slice(0, 8) || Math.random().toString(36).slice(2)}`,
+          title: `Loop cluster: ${anchor || ck} (${group.length} recurring notes)`,
+          anchor,
+          constraint_key: ck,
+          note_fingerprints: fingerprints,
+          note_count: group.length,
+          recommended_patch_plan: `Address the root cause around "${anchor || ck}". Review all ${group.length} related notes together and apply a single cohesive fix that resolves the cluster.`,
+        });
+      }
+    }
+  }
+  return bundles;
+}
+
+// ═══════════════════════════════════════════════════════════════
 // DELIVERABLE-AWARE RUBRICS
 // ═══════════════════════════════════════════════════════════════
 
@@ -4416,6 +4675,148 @@ ${contextBlock}`;
         created: toplineDocCreated,
         sourceCount: sourceDocIds.length,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ══════════════════════════════════════════════
+    // NOTE_STATUS_UPDATE — waive / defer / lock / reopen a note
+    // ══════════════════════════════════════════════
+    if (action === "note_status_update") {
+      const { projectId, note_fingerprint, doc_type, episode_number, status: newStatus, reason, defer_to_doc_type } = body;
+      if (!projectId || !note_fingerprint || !doc_type || !newStatus) {
+        throw new Error("projectId, note_fingerprint, doc_type, status required");
+      }
+
+      const epNum = episode_number ?? null;
+      const updateFields: Record<string, any> = {
+        status: newStatus,
+        last_seen_at: new Date().toISOString(),
+      };
+      if (newStatus === "waived" && reason) updateFields.waive_reason = reason;
+      if (newStatus === "deferred" && defer_to_doc_type) updateFields.defer_to_doc_type = defer_to_doc_type;
+      if (newStatus === "locked" && reason) updateFields.lock_reason = reason;
+
+      // Upsert using the unique index fields
+      const { data: existing } = await supabase
+        .from("project_dev_note_state")
+        .select("id")
+        .eq("project_id", projectId)
+        .eq("doc_type", doc_type)
+        .eq("note_fingerprint", note_fingerprint)
+        .is("episode_number", epNum)
+        .maybeSingle();
+
+      if (existing) {
+        await supabase
+          .from("project_dev_note_state")
+          .update(updateFields)
+          .eq("id", existing.id);
+      } else {
+        // Create a stub row so the state is tracked
+        await supabase.from("project_dev_note_state").insert({
+          project_id: projectId,
+          doc_type,
+          episode_number: epNum,
+          note_fingerprint,
+          note_cluster_id: note_fingerprint.slice(0, 16),
+          ...updateFields,
+        });
+      }
+
+      return new Response(JSON.stringify({ ok: true, status: newStatus }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ══════════════════════════════════════════════
+    // APPLY_BUNDLE_FIX — apply AI patch for a bundle of notes
+    // ══════════════════════════════════════════════
+    if (action === "apply_bundle_fix") {
+      const { projectId, documentId, versionId, bundle_id, note_fingerprints, plan_text, deliverableType, developmentBehavior, format: reqFormat } = body;
+      if (!projectId || !documentId || !versionId || !plan_text) {
+        throw new Error("projectId, documentId, versionId, plan_text required");
+      }
+
+      const { data: version } = await supabase.from("project_document_versions")
+        .select("plaintext, version_number").eq("id", versionId).single();
+      if (!version) throw new Error("Version not found");
+
+      const { data: project } = await supabase.from("projects")
+        .select("format, development_behavior").eq("id", projectId).single();
+
+      const effectiveFormat = (reqFormat || project?.format || "film").toLowerCase().replace(/_/g, "-");
+      const effectiveBehavior = developmentBehavior || project?.development_behavior || "market";
+      const effectiveDeliverable = deliverableType || "script";
+
+      const bundleSystem = `You are IFFY. Apply the given editorial plan to the document.
+DELIVERABLE TYPE: ${effectiveDeliverable}
+FORMAT: ${effectiveFormat}
+BEHAVIOR: ${effectiveBehavior}
+
+Rules:
+- Apply ONLY the changes described in the plan. Do not introduce unrequested changes.
+- Preserve all creative elements not targeted by the plan.
+- OUTPUT THE FULL REWRITTEN MATERIAL.
+
+Return ONLY valid JSON:
+{
+  "rewritten_text": "the full rewritten material",
+  "changes_summary": "bullet summary of changes applied",
+  "notes_addressed": ["list of note descriptions that were addressed"]
+}`;
+
+      const userPrompt = `EDITORIAL PLAN TO APPLY:\n${plan_text}\n\nMATERIAL:\n${version.plaintext.slice(0, 40000)}`;
+      const raw = await callAI(LOVABLE_API_KEY, BALANCED_MODEL, bundleSystem, userPrompt, 0.3, 12000);
+      const parsed = await parseAIJson(LOVABLE_API_KEY, raw);
+      const rewrittenText = parsed.rewritten_text || version.plaintext;
+
+      // Create new version
+      let newVersion: any = null;
+      for (let _retry = 0; _retry < 3; _retry++) {
+        const { data: maxRow } = await supabase.from("project_document_versions")
+          .select("version_number").eq("document_id", documentId)
+          .order("version_number", { ascending: false }).limit(1).single();
+        const nextVersion = (maxRow?.version_number ?? 0) + 1;
+        const { data: nv, error: vErr } = await supabase.from("project_document_versions").insert({
+          document_id: documentId,
+          version_number: nextVersion,
+          label: `Bundle fix — ${bundle_id || "bundle"}`,
+          plaintext: rewrittenText,
+          created_by: user.id,
+          parent_version_id: versionId,
+          change_summary: parsed.changes_summary || "Bundle fix applied",
+        }).select().single();
+        if (!vErr) { newVersion = nv; break; }
+        if (vErr.code !== "23505") throw vErr;
+      }
+      if (!newVersion) throw new Error("Failed to create version after retries");
+
+      // Mark all included notes as applied
+      if (note_fingerprints && Array.isArray(note_fingerprints) && note_fingerprints.length > 0) {
+        await supabase.from("project_dev_note_state")
+          .update({ status: "applied", last_applied_version_id: newVersion.id, last_version_id: newVersion.id })
+          .eq("project_id", projectId)
+          .in("note_fingerprint", note_fingerprints);
+      }
+
+      const { data: run } = await supabase.from("development_runs").insert({
+        project_id: projectId,
+        document_id: documentId,
+        version_id: newVersion.id,
+        user_id: user.id,
+        run_type: "REWRITE",
+        output_json: {
+          bundle_id: bundle_id || null,
+          changes_summary: parsed.changes_summary || "",
+          source_version_id: versionId,
+          bundle_fix: true,
+        },
+        deliverable_type: effectiveDeliverable,
+        schema_version: SCHEMA_VERSION,
+      }).select().single();
+
+      return new Response(JSON.stringify({ run, newVersion, rewrite: { changes_summary: parsed.changes_summary } }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     throw new Error(`Unknown action: ${action}`);

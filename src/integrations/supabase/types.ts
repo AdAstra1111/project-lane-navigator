@@ -6822,6 +6822,106 @@ export type Database = {
           },
         ]
       }
+      project_dev_note_state: {
+        Row: {
+          anchor: string | null
+          conflicts_with: string[]
+          created_at: string
+          defer_to_doc_type: string | null
+          depends_on: string[]
+          doc_type: string
+          episode_number: number | null
+          first_seen_at: string
+          id: string
+          last_applied_version_id: string | null
+          last_seen_at: string
+          last_version_id: string | null
+          lock_reason: string | null
+          note_cluster_id: string
+          note_fingerprint: string
+          project_id: string
+          scope_json: Json
+          status: string
+          tier: string
+          times_seen: number
+          updated_at: string
+          waive_reason: string | null
+          witness_json: Json | null
+        }
+        Insert: {
+          anchor?: string | null
+          conflicts_with?: string[]
+          created_at?: string
+          defer_to_doc_type?: string | null
+          depends_on?: string[]
+          doc_type: string
+          episode_number?: number | null
+          first_seen_at?: string
+          id?: string
+          last_applied_version_id?: string | null
+          last_seen_at?: string
+          last_version_id?: string | null
+          lock_reason?: string | null
+          note_cluster_id: string
+          note_fingerprint: string
+          project_id: string
+          scope_json?: Json
+          status?: string
+          tier?: string
+          times_seen?: number
+          updated_at?: string
+          waive_reason?: string | null
+          witness_json?: Json | null
+        }
+        Update: {
+          anchor?: string | null
+          conflicts_with?: string[]
+          created_at?: string
+          defer_to_doc_type?: string | null
+          depends_on?: string[]
+          doc_type?: string
+          episode_number?: number | null
+          first_seen_at?: string
+          id?: string
+          last_applied_version_id?: string | null
+          last_seen_at?: string
+          last_version_id?: string | null
+          lock_reason?: string | null
+          note_cluster_id?: string
+          note_fingerprint?: string
+          project_id?: string
+          scope_json?: Json
+          status?: string
+          tier?: string
+          times_seen?: number
+          updated_at?: string
+          waive_reason?: string | null
+          witness_json?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_dev_note_state_last_applied_version_id_fkey"
+            columns: ["last_applied_version_id"]
+            isOneToOne: false
+            referencedRelation: "project_document_versions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_dev_note_state_last_version_id_fkey"
+            columns: ["last_version_id"]
+            isOneToOne: false
+            referencedRelation: "project_document_versions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_dev_note_state_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       project_doc_chunks: {
         Row: {
           chunk_index: number
