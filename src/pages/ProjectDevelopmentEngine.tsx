@@ -1247,6 +1247,14 @@ export default function ProjectDevelopmentEngine() {
                     mutedByDecision={latestNotes?.muted_by_decision ?? []}
                     projectId={projectId}
                     documentId={selectedDocId || undefined}
+                    onDecisionApplied={() => {
+                      invalidateDevEngine(qc, {
+                        projectId,
+                        docId: selectedDocId,
+                        versionId: selectedVersionId,
+                        deep: true,
+                      });
+                    }}
                     onResolveCarriedNote={async (noteId, action, extra) => {
                       const { data: { session } } = await supabase.auth.getSession();
                       if (!session) { toast.error('Not authenticated'); return; }
