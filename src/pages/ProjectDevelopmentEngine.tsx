@@ -1243,6 +1243,9 @@ export default function ProjectDevelopmentEngine() {
                     carriedNotes={carriedNotes}
                     currentDocType={selectedDoc?.doc_type}
                     currentVersionId={selectedVersionId || undefined}
+                    bundles={latestNotes?.bundles || latestAnalysis?.bundles || []}
+                    projectId={projectId}
+                    documentId={selectedDocId || undefined}
                     onResolveCarriedNote={async (noteId, action, extra) => {
                       const { data: { session } } = await supabase.auth.getSession();
                       if (!session) { toast.error('Not authenticated'); return; }
