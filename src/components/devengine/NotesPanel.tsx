@@ -470,7 +470,7 @@ export function NotesPanel({
   resolutionSummary, stabilityStatus, globalDirections,
   hideApplyButton, onDecisionsChange, onCustomDirectionsChange, externalDecisions,
   deferredNotes, carriedNotes, currentDocType, currentVersionId, onResolveCarriedNote,
-  bundles, projectId, documentId,
+  bundles, decisionSets, mutedByDecision, projectId, documentId,
 }: NotesPanelProps) {
   const [polishOpen, setPolishOpen] = useState(false);
   const [deferredOpen, setDeferredOpen] = useState(false);
@@ -570,18 +570,23 @@ export function NotesPanel({
     return !resolvedNoteIds.has(id) && n.status !== 'resolved' && n.status !== 'dismissed';
   });
 
-  // Apply filter
-  const applyFilter = (notes: any[]) => {
-    if (noteFilter === 'all') return notes;
-    if (noteFilter === 'open') return notes.filter(n => !n.state_status || n.state_status === 'open');
-    if (noteFilter === 'hard') return notes.filter(n => n.tier === 'hard');
-    if (noteFilter === 'recurring') return notes.filter(n => (n.times_seen || 1) >= 2);
-    return notes;
+  // Apply muting: hide notes whose fingerprint is in mutedByDecision (open decision exists)
+  const mutedSet = useMemo(() => new Set(mutedByDecision || []), [mutedByDecision]);
+
+  const applyMutingAndFilter = (notes: any[]) => {
+    // First remove muted notes
+    const unmuted = notes.filter(n => !n.note_fingerprint || !mutedSet.has(n.note_fingerprint));
+    // Then apply filter
+    if (noteFilter === 'all') return unmuted;
+    if (noteFilter === 'open') return unmuted.filter(n => !n.state_status || n.state_status === 'open');
+    if (noteFilter === 'hard') return unmuted.filter(n => n.tier === 'hard');
+    if (noteFilter === 'recurring') return unmuted.filter(n => (n.times_seen || 1) >= 2);
+    return unmuted;
   };
 
-  const filteredBlockers = applyFilter(tieredNotes.blockers);
-  const filteredHigh = applyFilter(tieredNotes.high);
-  const filteredPolish = applyFilter(tieredNotes.polish);
+  const filteredBlockers = applyMutingAndFilter(tieredNotes.blockers);
+  const filteredHigh = applyMutingAndFilter(tieredNotes.high);
+  const filteredPolish = applyMutingAndFilter(tieredNotes.polish);
 
   if (allNotes.length === 0 && visibleCarriedNotes.length === 0) return null;
 
