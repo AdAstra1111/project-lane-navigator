@@ -220,7 +220,10 @@ async function upsertNoteState(supabase: any, params: {
   const tier = inferNoteTier(note);
   const scope = extractNoteScope(note, anchor);
   const summary = note.description || note.note || note.id || "";
-  const constraintKey = note.constraint_key || note.note_key || note.id || "";
+  // Fix: constraint_key must not default to note ID — use anchor or category instead
+  const constraintKey = note.constraint_key || note.canon_ref_key ||
+    (note.anchor ? `anchor:${note.anchor}` : null) ||
+    (note.category ? `cat:${note.category}` : "general");
 
   const fingerprint = await makeNoteFingerprint({
     docType,
@@ -508,28 +511,48 @@ async function upsertDecisionSets(
 
     // Upsert into project_dev_decision_state
     try {
-      await supabase.from("project_dev_decision_state").upsert({
-        project_id: projectId,
-        doc_type: docType,
-        episode_number: episodeNumber,
-        decision_id: decisionId,
-        goal: conflict.goal,
-        anchor: noteA.anchor || noteB.anchor || null,
-        scope_json: noteA.scope_json || {},
-        option_json: optionJson,
-        status: "open",
-      }, { onConflict: "project_id,doc_type,episode_number,decision_id", ignoreDuplicates: false });
+      // Check if decision already exists (NULL episode_number breaks standard upsert ON CONFLICT)
+      const existingDecisionQuery = supabase.from("project_dev_decision_state")
+        .select("id, status")
+        .eq("project_id", projectId)
+        .eq("doc_type", docType)
+        .eq("decision_id", decisionId);
+      const { data: existingDecision } = episodeNumber !== null
+        ? await existingDecisionQuery.eq("episode_number", episodeNumber).maybeSingle()
+        : await existingDecisionQuery.is("episode_number", null).maybeSingle();
+
+      if (existingDecision) {
+        // Only re-open if previously superseded; otherwise preserve chosen status
+        if (existingDecision.status === "superseded") {
+          await supabase.from("project_dev_decision_state")
+            .update({ status: "open", option_json: optionJson, goal: conflict.goal })
+            .eq("id", existingDecision.id);
+        }
+        // If already open or chosen, skip — don't overwrite user's choice
+      } else {
+        await supabase.from("project_dev_decision_state").insert({
+          project_id: projectId,
+          doc_type: docType,
+          episode_number: episodeNumber,
+          decision_id: decisionId,
+          goal: conflict.goal,
+          anchor: noteA.anchor || noteB.anchor || null,
+          scope_json: noteA.scope_json || {},
+          option_json: optionJson,
+          status: "open",
+        });
+      }
     } catch (e) {
       console.warn("[dev-engine-v2] Decision set upsert failed (non-fatal):", e);
     }
 
-    // Update conflicts_with on both note states
+    // Strategy 2: only write conflict_json (not conflicts_with) to avoid destructive overwrites
     try {
       await supabase.from("project_dev_note_state")
-        .update({ conflicts_with: [conflict.noteBFingerprint], conflict_json: { reasons: conflict.reasons, score: conflict.score, decision_id: decisionId } })
+        .update({ conflict_json: { reasons: conflict.reasons, score: conflict.score, decision_id: decisionId } })
         .eq("project_id", projectId).eq("note_fingerprint", conflict.noteAFingerprint);
       await supabase.from("project_dev_note_state")
-        .update({ conflicts_with: [conflict.noteAFingerprint], conflict_json: { reasons: conflict.reasons, score: conflict.score, decision_id: decisionId } })
+        .update({ conflict_json: { reasons: conflict.reasons, score: conflict.score, decision_id: decisionId } })
         .eq("project_id", projectId).eq("note_fingerprint", conflict.noteBFingerprint);
     } catch (e) {
       console.warn("[dev-engine-v2] Note conflict_json update failed (non-fatal):", e);
@@ -2086,20 +2109,26 @@ GENERAL RULES:
         const canonHash = hashCanonInputs(bibleText, gridText, "");
         const prevCanonHash = prevStateRow?.canon_hash || null;
 
-        // Resolve episode number if in vertical drama context
+        // Resolve episode number from the document record if available
         const { data: docRow } = await supabase.from("project_documents")
-          .select("doc_type").eq("id", documentId).maybeSingle();
-        const episodeNumber: number | null = null; // notes action is not episode-specific
+          .select("doc_type, episode_number").eq("id", documentId).maybeSingle();
+        // Use episode_number column if document is episode-specific, else null
+        const episodeNumber: number | null = (docRow as any)?.episode_number ?? null;
 
         // Upsert each note state
         for (const note of allTieredNotes) {
           try {
             // Runtime pressure for soft notes
-            if (note.category === "pacing" || (note.description || "").toLowerCase().includes("runtime") || (note.description || "").toLowerCase().includes("length")) {
+            const descLower = (note.description || note.note || "").toLowerCase();
+            if (note.category === "pacing" || descLower.includes("runtime") || descLower.includes("length") || descLower.includes("duration")) {
               note.objective = "runtime";
             }
             note.intent_label = note.objective || note.category || "";
-            note.constraint_key = note.note_key || note.id || "";
+            // Fix: constraint_key must not default to note ID — use anchor/category
+            const inferredAnchor = inferNoteAnchor(note);
+            note.constraint_key = note.constraint_key || note.canon_ref_key ||
+              (inferredAnchor ? `anchor:${inferredAnchor}` : null) ||
+              (note.category ? `cat:${note.category}` : "general");
 
             const result = await upsertNoteState(supabase, {
               projectId,
@@ -2129,9 +2158,11 @@ GENERAL RULES:
               continue;
             }
 
-            // Runtime policy: auto-waive soft runtime notes when escalation score is high
-            if (note.objective === "runtime" && note.tier !== "hard") {
-              const escalationOk = (analysis?.gp_score || 0) >= 70;
+        // Runtime policy: auto-waive soft runtime notes when escalation score is high
+        if (note.objective === "runtime" && note.tier !== "hard") {
+          // Fix: use correct path — analysis may store gp_score at top level or under scores
+          const gpScore = analysis?.gp_score ?? analysis?.scores?.gp ?? analysis?.scores?.gp_score ?? null;
+          const escalationOk = gpScore !== null && gpScore >= 70;
               if (escalationOk && result.state) {
                 try {
                   await supabase.from("project_dev_note_state").update({
