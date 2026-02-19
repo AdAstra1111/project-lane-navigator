@@ -142,9 +142,12 @@ export function useCanonAudit(projectId: string, episodeNumber: number | null) {
       return resp.data;
     },
     onSuccess: (data, variables) => {
-      toast.success(data?.message || 'Fix applied');
-      qc.invalidateQueries({ queryKey: runKey });
+      toast.success(data?.message || 'Fix applied — re-audit to verify');
+      // Only invalidate issues so the applied status renders immediately;
+      // do NOT auto-re-audit — that creates a new run and re-detects the same
+      // issues, making it look like nothing was resolved.
       qc.invalidateQueries({ queryKey: issuesKey });
+      qc.invalidateQueries({ queryKey: runKey });
       qc.invalidateQueries({ queryKey: ['series-episodes', projectId] });
       // Record canon fix to decision ledger
       recordCanonFix({
@@ -154,10 +157,6 @@ export function useCanonAudit(projectId: string, episodeNumber: number | null) {
         episodeNumber: episodeNumber || undefined,
         selectedFixOption: variables.selectedFixOption,
       }).catch(e => console.warn('[decisions] canon fix record failed:', e));
-      // Auto re-audit after fix
-      setTimeout(() => {
-        startAudit.mutate({ episodeVersionId: data?.newScriptId });
-      }, 1000);
     },
     onError: (e: Error) => toast.error(`Fix failed: ${e.message}`),
   });
