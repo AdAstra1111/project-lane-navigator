@@ -157,6 +157,10 @@ export function useCanonAudit(projectId: string, episodeNumber: number | null) {
         episodeNumber: episodeNumber || undefined,
         selectedFixOption: variables.selectedFixOption,
       }).catch(e => console.warn('[decisions] canon fix record failed:', e));
+      // Re-audit after fix so the updated script is checked and applied issues are confirmed
+      setTimeout(() => {
+        startAudit.mutate({ episodeVersionId: data?.newScriptId });
+      }, 1500);
     },
     onError: (e: Error) => toast.error(`Fix failed: ${e.message}`),
   });
