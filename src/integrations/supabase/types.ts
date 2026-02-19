@@ -6822,10 +6822,70 @@ export type Database = {
           },
         ]
       }
+      project_dev_decision_state: {
+        Row: {
+          anchor: string | null
+          chosen_option_id: string | null
+          created_at: string
+          decision_id: string
+          doc_type: string
+          episode_number: number | null
+          goal: string
+          id: string
+          option_json: Json
+          project_id: string
+          scope_json: Json
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          anchor?: string | null
+          chosen_option_id?: string | null
+          created_at?: string
+          decision_id: string
+          doc_type: string
+          episode_number?: number | null
+          goal: string
+          id?: string
+          option_json?: Json
+          project_id: string
+          scope_json?: Json
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          anchor?: string | null
+          chosen_option_id?: string | null
+          created_at?: string
+          decision_id?: string
+          doc_type?: string
+          episode_number?: number | null
+          goal?: string
+          id?: string
+          option_json?: Json
+          project_id?: string
+          scope_json?: Json
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_dev_decision_state_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       project_dev_note_state: {
         Row: {
           anchor: string | null
+          canon_hash: string | null
+          conflict_json: Json | null
+          conflict_resolution_type: string | null
           conflicts_with: string[]
+          constraint_key: string | null
           created_at: string
           defer_to_doc_type: string | null
           depends_on: string[]
@@ -6833,14 +6893,17 @@ export type Database = {
           episode_number: number | null
           first_seen_at: string
           id: string
+          intent_label: string | null
           last_applied_version_id: string | null
           last_seen_at: string
           last_version_id: string | null
           lock_reason: string | null
           note_cluster_id: string
           note_fingerprint: string
+          objective: string | null
           project_id: string
           scope_json: Json
+          severity: number
           status: string
           tier: string
           times_seen: number
@@ -6850,7 +6913,11 @@ export type Database = {
         }
         Insert: {
           anchor?: string | null
+          canon_hash?: string | null
+          conflict_json?: Json | null
+          conflict_resolution_type?: string | null
           conflicts_with?: string[]
+          constraint_key?: string | null
           created_at?: string
           defer_to_doc_type?: string | null
           depends_on?: string[]
@@ -6858,14 +6925,17 @@ export type Database = {
           episode_number?: number | null
           first_seen_at?: string
           id?: string
+          intent_label?: string | null
           last_applied_version_id?: string | null
           last_seen_at?: string
           last_version_id?: string | null
           lock_reason?: string | null
           note_cluster_id: string
           note_fingerprint: string
+          objective?: string | null
           project_id: string
           scope_json?: Json
+          severity?: number
           status?: string
           tier?: string
           times_seen?: number
@@ -6875,7 +6945,11 @@ export type Database = {
         }
         Update: {
           anchor?: string | null
+          canon_hash?: string | null
+          conflict_json?: Json | null
+          conflict_resolution_type?: string | null
           conflicts_with?: string[]
+          constraint_key?: string | null
           created_at?: string
           defer_to_doc_type?: string | null
           depends_on?: string[]
@@ -6883,14 +6957,17 @@ export type Database = {
           episode_number?: number | null
           first_seen_at?: string
           id?: string
+          intent_label?: string | null
           last_applied_version_id?: string | null
           last_seen_at?: string
           last_version_id?: string | null
           lock_reason?: string | null
           note_cluster_id?: string
           note_fingerprint?: string
+          objective?: string | null
           project_id?: string
           scope_json?: Json
+          severity?: number
           status?: string
           tier?: string
           times_seen?: number
