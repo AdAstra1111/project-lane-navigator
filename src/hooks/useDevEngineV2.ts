@@ -4,6 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import type { DeliverableType, DevelopmentBehavior, ConvergenceStatus } from '@/lib/dev-os-config';
 import { computeConvergenceStatus } from '@/lib/dev-os-config';
+import { invalidateDevEngine } from '@/lib/invalidateDevEngine';
 
 // ── Types ──
 
@@ -220,17 +221,13 @@ export function useDevEngineV2(projectId: string | undefined) {
 
   const latestDrift = driftEvents.length > 0 ? driftEvents[0] : null;
 
-  function invalidateAll() {
-    qc.invalidateQueries({ queryKey: ['dev-v2-docs', projectId] });
-    if (selectedDocId) {
-      qc.invalidateQueries({ queryKey: ['dev-v2-versions', selectedDocId] });
-      qc.invalidateQueries({ queryKey: ['dev-v2-doc-runs', selectedDocId] });
-      qc.invalidateQueries({ queryKey: ['dev-v2-convergence', selectedDocId] });
-    }
-    if (selectedVersionId) {
-      qc.invalidateQueries({ queryKey: ['dev-v2-runs', selectedVersionId] });
-      qc.invalidateQueries({ queryKey: ['dev-v2-drift', selectedVersionId] });
-    }
+  function invalidateAll(docId?: string | null, versionId?: string | null) {
+    invalidateDevEngine(qc, {
+      projectId,
+      docId: docId ?? selectedDocId,
+      versionId: versionId ?? selectedVersionId,
+      deep: true,
+    });
   }
 
   // Select document → auto-select latest version

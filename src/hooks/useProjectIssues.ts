@@ -6,6 +6,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { invalidateDevEngine } from '@/lib/invalidateDevEngine';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -104,8 +105,8 @@ export function useProjectIssues(projectId: string | undefined) {
     staleTime: 10_000,
   });
 
-  function invalidate() {
-    qc.invalidateQueries({ queryKey: ['project-issues', projectId] });
+  function invalidate(docId?: string, versionId?: string) {
+    invalidateDevEngine(qc, { projectId, docId, versionId, deep: true });
   }
 
   // Sorted by narrative-first order
@@ -239,7 +240,7 @@ export function useProjectIssues(projectId: string | undefined) {
     },
     onSuccess: (data) => {
       toast.success(`New version v${data.new_version_number as number} created with ${data.applied_count as number} fix(es) applied`);
-      invalidate();
+      invalidate(undefined, (data as any).new_doc_version_id);
     },
     onError: (e: Error) => toast.error(e.message),
   });

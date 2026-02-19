@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { mapDocTypeToLadderStage } from '@/lib/stages/registry';
+import { invalidateDevEngine } from '@/lib/invalidateDevEngine';
 
 export interface PendingDecision {
   id: string;
@@ -158,7 +159,7 @@ export function useAutoRun(projectId: string | undefined) {
       }
     }
     setIsRunning(false);
-    qc.invalidateQueries({ queryKey: ['dev-v2-docs', projectId] });
+    invalidateDevEngine(qc, { projectId, deep: true });
   }, [projectId, qc]);
 
   const runNext = useCallback(async () => {
