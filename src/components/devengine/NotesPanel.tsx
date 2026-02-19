@@ -1,6 +1,6 @@
 /**
- * NotesPanel — Tiered notes with inline decision cards + global directions.
- * Carried-forward notes support: Resolve Now, Apply Fix (AI patch), Dismiss.
+ * NotesPanel — Tiered notes with fingerprint metadata, tier pills, seen count,
+ * witness collapsibles, waive/defer/lock actions, bundle clusters, and filter bar.
  */
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -10,8 +10,14 @@ import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { Zap, ChevronDown, Sparkles, Loader2, CheckCircle2, ArrowRight, Lightbulb, Pencil, Check, X, Wand2 } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+  Zap, ChevronDown, Sparkles, Loader2, CheckCircle2, ArrowRight, Lightbulb,
+  Pencil, Check, X, Wand2, Shield, Eye, Lock, AlertTriangle, Layers
+} from 'lucide-react';
 import { useState, useCallback, useMemo } from 'react';
+import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
 
 const OTHER_OPTION_ID = '__other__';
 
@@ -29,6 +35,17 @@ export interface GlobalDirection {
   why: string;
 }
 
+export interface NoteBundle {
+  bundle_id: string;
+  title: string;
+  note_fingerprints: string[];
+  note_count: number;
+  anchor?: string;
+  recommended_patch_plan: string;
+}
+
+type NoteFilter = 'all' | 'open' | 'hard' | 'recurring';
+
 interface NotesPanelProps {
   allNotes: any[];
   tieredNotes: { blockers: any[]; high: any[]; polish: any[] };
@@ -37,7 +54,7 @@ interface NotesPanelProps {
   onApplyRewrite: (decisions?: Record<string, string>, globalDirections?: GlobalDirection[]) => void;
   isRewriting: boolean;
   isLoading: boolean;
-  resolutionSummary?: { resolved: number; regressed: number } | null;
+  resolutionSummary?: { resolved: number; regressed: number; suppressed?: number } | null;
   stabilityStatus?: string | null;
   globalDirections?: GlobalDirection[];
   hideApplyButton?: boolean;
@@ -49,9 +66,120 @@ interface NotesPanelProps {
   currentDocType?: string;
   currentVersionId?: string;
   onResolveCarriedNote?: (noteId: string, action: 'mark_resolved' | 'dismiss' | 'ai_patch' | 'apply_patch', extra?: any) => Promise<any>;
+  bundles?: NoteBundle[];
+  projectId?: string;
 }
 
-// ── Sub-components ──
+// ── Tier pill ──
+function TierPill({ tier }: { tier?: string }) {
+  if (!tier) return null;
+  const isHard = tier === 'hard';
+  return (
+    <Badge variant="outline" className={`text-[7px] px-1 py-0 font-bold ${isHard ? 'border-red-500/50 text-red-400 bg-red-500/10' : 'border-muted-foreground/30 text-muted-foreground'}`}>
+      {isHard ? <><Shield className="h-2 w-2 mr-0.5 inline" />HARD</> : 'SOFT'}
+    </Badge>
+  );
+}
+
+// ── Seen count badge ──
+function SeenBadge({ timesSeen }: { timesSeen?: number }) {
+  if (!timesSeen || timesSeen <= 1) return null;
+  return (
+    <Badge variant="outline" className="text-[7px] px-1 py-0 border-orange-500/40 text-orange-400 bg-orange-500/10">
+      <Eye className="h-2 w-2 mr-0.5 inline" />Seen {timesSeen}×
+    </Badge>
+  );
+}
+
+// ── Witness collapsible ──
+function WitnessSection({ witness }: { witness: any }) {
+  const [open, setOpen] = useState(false);
+  if (!witness) return null;
+  return (
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <CollapsibleTrigger className="flex items-center gap-1 text-[9px] text-amber-400 hover:text-amber-300 mt-0.5">
+        <ChevronDown className={`h-2.5 w-2.5 transition-transform ${open ? '' : '-rotate-90'}`} />
+        Recurrence evidence
+      </CollapsibleTrigger>
+      <CollapsibleContent className="mt-1 p-1.5 rounded bg-amber-500/5 border border-amber-500/20 space-y-0.5">
+        {witness.excerpt && <p className="text-[8px] text-foreground italic">"{witness.excerpt}"</p>}
+        {witness.location && <p className="text-[8px] text-muted-foreground">Location: {witness.location}</p>}
+        {witness.canon_ref && <p className="text-[8px] text-muted-foreground">Ref: {witness.canon_ref}</p>}
+        {witness.explanation && <p className="text-[8px] text-muted-foreground">{witness.explanation}</p>}
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+// ── Note status action bar ──
+function NoteStateActions({ note, projectId, currentDocType, onStatusChange }: {
+  note: any; projectId?: string; currentDocType?: string; onStatusChange?: () => void;
+}) {
+  const [acting, setActing] = useState(false);
+  const [deferTarget, setDeferTarget] = useState('');
+  const fingerprint = note.note_fingerprint;
+  if (!fingerprint || !projectId) return null;
+
+  const DOC_TYPES = ['concept_brief', 'market_sheet', 'blueprint', 'character_bible', 'beat_sheet', 'script', 'episode_grid', 'season_arc'];
+
+  async function callStatusUpdate(status: string, reason?: string, deferTo?: string) {
+    setActing(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      const fnUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/dev-engine-v2`;
+      await fetch(fnUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({
+          action: 'note_status_update',
+          projectId,
+          note_fingerprint: fingerprint,
+          doc_type: currentDocType || 'unknown',
+          episode_number: note.episode_number ?? null,
+          status,
+          reason,
+          defer_to_doc_type: deferTo,
+        }),
+      });
+      toast.success(`Note ${status}`);
+      onStatusChange?.();
+    } catch {
+      toast.error('Failed to update note status');
+    } finally { setActing(false); }
+  }
+
+  return (
+    <div className="flex items-center gap-1 flex-wrap mt-1 pt-1 border-t border-border/20">
+      <Button variant="ghost" size="sm" className="h-4 text-[8px] px-1 gap-0.5 text-muted-foreground hover:text-amber-400" disabled={acting}
+        onClick={() => callStatusUpdate('waived', 'User waived')}>
+        {acting ? <Loader2 className="h-2 w-2 animate-spin" /> : <X className="h-2 w-2" />}Waive
+      </Button>
+      <Button variant="ghost" size="sm" className="h-4 text-[8px] px-1 gap-0.5 text-muted-foreground hover:text-blue-400" disabled={acting}
+        onClick={() => callStatusUpdate('locked', 'User locked')}>
+        <Lock className="h-2 w-2" />Lock
+      </Button>
+      <div className="flex items-center gap-0.5">
+        <Select value={deferTarget} onValueChange={setDeferTarget}>
+          <SelectTrigger className="h-4 text-[8px] w-24 px-1 border-border/30">
+            <SelectValue placeholder="Defer to…" />
+          </SelectTrigger>
+          <SelectContent>
+            {DOC_TYPES.filter(d => d !== currentDocType).map(d => (
+              <SelectItem key={d} value={d} className="text-[9px]">{d.replace(/_/g, ' ')}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {deferTarget && (
+          <Button variant="ghost" size="sm" className="h-4 text-[8px] px-1 text-blue-400" disabled={acting}
+            onClick={() => { callStatusUpdate('deferred', undefined, deferTarget); setDeferTarget(''); }}>
+            <ArrowRight className="h-2 w-2" />Go
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function InlineDecisionCard({ decisions, recommended, selectedOptionId, onSelect, customDirection, onCustomDirection }: {
   decisions: NoteDecisionOption[];
@@ -107,27 +235,35 @@ function InlineDecisionCard({ decisions, recommended, selectedOptionId, onSelect
   );
 }
 
-function NoteItem({ note, index, checked, onToggle, selectedOptionId, onSelectOption, customDirection, onCustomDirection }: {
+function NoteItem({ note, index, checked, onToggle, selectedOptionId, onSelectOption, customDirection, onCustomDirection, projectId, currentDocType, onStatusChange }: {
   note: any; index: number; checked: boolean; onToggle: () => void;
   selectedOptionId?: string; onSelectOption?: (optionId: string) => void;
   customDirection?: string; onCustomDirection?: (text: string) => void;
+  projectId?: string; currentDocType?: string; onStatusChange?: () => void;
 }) {
+  const [stateActionsOpen, setStateActionsOpen] = useState(false);
   const severityColor = note.severity === 'blocker' ? 'border-destructive/40 bg-destructive/5' : note.severity === 'high' ? 'border-amber-500/40 bg-amber-500/5' : 'border-border/40';
   const severityBadge = note.severity === 'blocker' ? 'bg-destructive/20 text-destructive border-destructive/30' : note.severity === 'high' ? 'bg-amber-500/20 text-amber-400 border-amber-500/30' : 'bg-muted/40 text-muted-foreground border-border/50';
   const label = note.severity === 'blocker' ? '🔴 Blocker' : note.severity === 'high' ? '🟠 High' : '⚪ Polish';
   const hasDecisions = note.decisions && note.decisions.length > 0;
+  const isRecurring = (note.times_seen || 1) >= 2;
+
   return (
     <div className={`rounded border transition-colors ${checked ? severityColor : 'border-border/40 opacity-50'}`}>
       <div className="flex items-start gap-2 p-2 cursor-pointer" onClick={onToggle}>
         <Checkbox checked={checked} onCheckedChange={onToggle} className="mt-0.5 h-3.5 w-3.5" />
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1 mb-0.5">
+          <div className="flex items-center gap-1 mb-0.5 flex-wrap">
             <Badge variant="outline" className={`text-[8px] px-1 py-0 ${severityBadge}`}>{label}</Badge>
             {note.category && <Badge variant="outline" className="text-[8px] px-1 py-0">{note.category}</Badge>}
+            <TierPill tier={note.tier} />
+            <SeenBadge timesSeen={note.times_seen} />
+            {isRecurring && <AlertTriangle className="h-2.5 w-2.5 text-orange-400" />}
             {hasDecisions && <Badge variant="outline" className="text-[7px] px-1 py-0 border-primary/30 text-primary bg-primary/5">{note.decisions.length + 1} options</Badge>}
           </div>
           <p className="text-[10px] text-foreground leading-relaxed">{note.note || note.description}</p>
           {note.why_it_matters && <p className="text-[9px] text-muted-foreground mt-0.5 italic">{note.why_it_matters}</p>}
+          <WitnessSection witness={note.witness_json} />
         </div>
       </div>
       {hasDecisions && checked && onSelectOption && (
@@ -135,6 +271,19 @@ function NoteItem({ note, index, checked, onToggle, selectedOptionId, onSelectOp
           <InlineDecisionCard decisions={note.decisions} recommended={note.recommended}
             selectedOptionId={selectedOptionId} onSelect={onSelectOption}
             customDirection={customDirection} onCustomDirection={onCustomDirection} />
+        </div>
+      )}
+      {/* State actions — waive / defer / lock */}
+      {note.note_fingerprint && checked && (
+        <div className="px-2 pb-1.5">
+          <button className="text-[8px] text-muted-foreground hover:text-foreground flex items-center gap-0.5"
+            onClick={(e) => { e.stopPropagation(); setStateActionsOpen(p => !p); }}>
+            <ChevronDown className={`h-2.5 w-2.5 transition-transform ${stateActionsOpen ? '' : '-rotate-90'}`} />
+            More actions
+          </button>
+          {stateActionsOpen && (
+            <NoteStateActions note={note} projectId={projectId} currentDocType={currentDocType} onStatusChange={onStatusChange} />
+          )}
         </div>
       )}
     </div>
@@ -161,29 +310,88 @@ function GlobalDirectionsBar({ directions }: { directions: GlobalDirection[] }) 
   );
 }
 
-// ── Main Component ──
+function BundlesSection({ bundles, projectId, documentId, versionId, currentDocType, onBundleApplied }: {
+  bundles: NoteBundle[]; projectId?: string; documentId?: string; versionId?: string;
+  currentDocType?: string; onBundleApplied?: () => void;
+}) {
+  const [applying, setApplying] = useState<string | null>(null);
 
+  async function applyBundle(bundle: NoteBundle) {
+    if (!projectId || !documentId || !versionId) { toast.error('No document selected'); return; }
+    setApplying(bundle.bundle_id);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      const fnUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/dev-engine-v2`;
+      const res = await fetch(fnUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({
+          action: 'apply_bundle_fix',
+          projectId, documentId, versionId,
+          bundle_id: bundle.bundle_id,
+          note_fingerprints: bundle.note_fingerprints,
+          plan_text: bundle.recommended_patch_plan,
+        }),
+      });
+      if (res.ok) {
+        toast.success(`Bundle fix applied — new version created`);
+        onBundleApplied?.();
+      } else {
+        toast.error('Bundle fix failed');
+      }
+    } catch { toast.error('Bundle fix failed'); }
+    finally { setApplying(null); }
+  }
+
+  if (!bundles || bundles.length === 0) return null;
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-1 text-[10px] font-semibold text-orange-400">
+        <Layers className="h-3 w-3" />Loop Clusters ({bundles.length})
+      </div>
+      {bundles.map(b => (
+        <div key={b.bundle_id} className="rounded border border-orange-500/30 bg-orange-500/5 p-2 space-y-1">
+          <p className="text-[10px] font-medium text-foreground">{b.title}</p>
+          <p className="text-[9px] text-muted-foreground">{b.recommended_patch_plan.slice(0, 120)}…</p>
+          <div className="flex items-center gap-1">
+            <Badge variant="outline" className="text-[7px] px-1 py-0 text-orange-400 border-orange-500/30">{b.note_count} notes</Badge>
+            <Button size="sm" variant="outline" className="h-5 text-[8px] px-1.5 gap-0.5 border-orange-500/30 text-orange-400 hover:bg-orange-500/10 ml-auto"
+              disabled={applying === b.bundle_id}
+              onClick={() => applyBundle(b)}>
+              {applying === b.bundle_id ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Wand2 className="h-2.5 w-2.5" />}
+              Apply Bundle Fix
+            </Button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Main Component ──
 export function NotesPanel({
   allNotes, tieredNotes, selectedNotes, setSelectedNotes,
   onApplyRewrite, isRewriting, isLoading,
   resolutionSummary, stabilityStatus, globalDirections,
   hideApplyButton, onDecisionsChange, onCustomDirectionsChange, externalDecisions,
   deferredNotes, carriedNotes, currentDocType, currentVersionId, onResolveCarriedNote,
+  bundles, projectId,
 }: NotesPanelProps) {
   const [polishOpen, setPolishOpen] = useState(false);
   const [deferredOpen, setDeferredOpen] = useState(false);
   const [carriedOpen, setCarriedOpen] = useState(true);
   const [selectedDecisions, setSelectedDecisions] = useState<Record<string, string>>({});
   const [customDirections, setCustomDirections] = useState<Record<string, string>>({});
+  const [noteFilter, setNoteFilter] = useState<NoteFilter>('all');
+  const [statusVersion, setStatusVersion] = useState(0); // bump to re-render after status changes
 
-  // Carried-note resolution state
   const [resolvedNoteIds, setResolvedNoteIds] = useState<Set<string>>(new Set());
   const [resolvingNoteId, setResolvingNoteId] = useState<string | null>(null);
   const [patchDialog, setPatchDialog] = useState<{
     noteId: string; noteText: string;
     proposedEdits: Array<{ find: string; replace: string; rationale: string }>;
     summary: string;
-    // Fix Generation Mode fields
     diagnosis?: string;
     affectedScenes?: string[];
     rootCause?: string;
@@ -205,11 +413,7 @@ export function NotesPanel({
   };
 
   const handleSelectOption = useCallback((noteId: string, optionId: string) => {
-    setSelectedDecisions(prev => {
-      const next = { ...prev, [noteId]: prev[noteId] === optionId ? '' : optionId };
-      onDecisionsChange?.(next);
-      return next;
-    });
+    setSelectedDecisions(prev => { const next = { ...prev, [noteId]: prev[noteId] === optionId ? '' : optionId }; onDecisionsChange?.(next); return next; });
   }, [onDecisionsChange]);
 
   const handleCustomDirection = useCallback((noteId: string, text: string) => {
@@ -222,7 +426,6 @@ export function NotesPanel({
     onApplyRewrite(Object.keys(activeDecisions).length > 0 ? activeDecisions : undefined, globalDirections);
   }, [selectedDecisions, onApplyRewrite, globalDirections]);
 
-  // Carried-note action handlers
   const handleMarkResolved = useCallback(async (noteId: string) => {
     if (!onResolveCarriedNote) return;
     setResolvingNoteId(noteId);
@@ -239,18 +442,13 @@ export function NotesPanel({
 
   const handleAIPatch = useCallback(async (noteId: string, noteText: string) => {
     if (!onResolveCarriedNote) return;
-    if (!currentVersionId) {
-      // Show error if no version selected
-      alert('Please select a document version before applying an AI fix.');
-      return;
-    }
+    if (!currentVersionId) { alert('Please select a document version before applying an AI fix.'); return; }
     setResolvingNoteId(noteId);
     try {
       const result = await onResolveCarriedNote(noteId, 'ai_patch');
       if (result?.proposed_edits !== undefined || result?.fix_options !== undefined) {
         setPatchDialog({
-          noteId,
-          noteText,
+          noteId, noteText,
           proposedEdits: result.proposed_edits || [],
           summary: result.summary || '',
           diagnosis: result.diagnosis,
@@ -278,11 +476,25 @@ export function NotesPanel({
     return !resolvedNoteIds.has(id) && n.status !== 'resolved' && n.status !== 'dismissed';
   });
 
+  // Apply filter
+  const applyFilter = (notes: any[]) => {
+    if (noteFilter === 'all') return notes;
+    if (noteFilter === 'open') return notes.filter(n => !n.state_status || n.state_status === 'open');
+    if (noteFilter === 'hard') return notes.filter(n => n.tier === 'hard');
+    if (noteFilter === 'recurring') return notes.filter(n => (n.times_seen || 1) >= 2);
+    return notes;
+  };
+
+  const filteredBlockers = applyFilter(tieredNotes.blockers);
+  const filteredHigh = applyFilter(tieredNotes.high);
+  const filteredPolish = applyFilter(tieredNotes.polish);
+
   if (allNotes.length === 0 && visibleCarriedNotes.length === 0) return null;
 
-  const blockerCount = tieredNotes.blockers.length;
-  const highCount = tieredNotes.high.length;
+  const blockerCount = filteredBlockers.length;
+  const highCount = filteredHigh.length;
   const decisionsCount = Object.values(selectedDecisions).filter(Boolean).length;
+  const hasAnyBundles = bundles && bundles.length > 0;
 
   return (
     <>
@@ -300,10 +512,11 @@ export function NotesPanel({
           </div>
         </CardHeader>
         <CardContent className="px-2 pb-2 space-y-2">
-          {resolutionSummary && (resolutionSummary.resolved > 0 || resolutionSummary.regressed > 0) && (
+          {resolutionSummary && (resolutionSummary.resolved > 0 || resolutionSummary.regressed > 0 || (resolutionSummary.suppressed ?? 0) > 0) && (
             <div className="flex flex-wrap gap-1.5">
               {resolutionSummary.resolved > 0 && <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-[9px]">{resolutionSummary.resolved} Resolved</Badge>}
               {resolutionSummary.regressed > 0 && <Badge className="bg-destructive/20 text-destructive border-destructive/30 text-[9px]">{resolutionSummary.regressed} Regressed</Badge>}
+              {(resolutionSummary.suppressed ?? 0) > 0 && <Badge className="bg-muted/30 text-muted-foreground border-border/40 text-[9px]">{resolutionSummary.suppressed} Suppressed</Badge>}
             </div>
           )}
           {stabilityStatus === 'structurally_stable' && (
@@ -311,57 +524,83 @@ export function NotesPanel({
               <span>✓ Structurally Stable — Refinement Phase</span>
             </div>
           )}
+
+          {/* Bundles section */}
+          {hasAnyBundles && (
+            <BundlesSection bundles={bundles!} projectId={projectId} documentId={undefined} versionId={currentVersionId}
+              currentDocType={currentDocType} onBundleApplied={() => setStatusVersion(v => v + 1)} />
+          )}
+
           <GlobalDirectionsBar directions={globalDirections || []} />
+
+          {/* Filter bar */}
           {allNotes.length > 0 && (
-            <div className="flex gap-1 justify-end">
-              <Button variant="ghost" size="sm" className="text-[10px] h-5 px-1.5" onClick={() => setSelectedNotes(new Set(allNotes.map((_, i) => i)))}>All</Button>
-              <Button variant="ghost" size="sm" className="text-[10px] h-5 px-1.5" onClick={() => setSelectedNotes(new Set())}>None</Button>
+            <div className="flex gap-1 items-center justify-between">
+              <div className="flex gap-0.5">
+                {(['all', 'open', 'hard', 'recurring'] as NoteFilter[]).map(f => (
+                  <button key={f} onClick={() => setNoteFilter(f)}
+                    className={`text-[8px] px-1.5 py-0.5 rounded transition-colors ${noteFilter === f ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:text-foreground'}`}>
+                    {f === 'all' ? 'All' : f === 'open' ? 'Open' : f === 'hard' ? '🔒 Hard' : '🔁 Recurring'}
+                  </button>
+                ))}
+              </div>
+              <div className="flex gap-1">
+                <Button variant="ghost" size="sm" className="text-[10px] h-5 px-1.5" onClick={() => setSelectedNotes(new Set(allNotes.map((_, i) => i)))}>All</Button>
+                <Button variant="ghost" size="sm" className="text-[10px] h-5 px-1.5" onClick={() => setSelectedNotes(new Set())}>None</Button>
+              </div>
             </div>
           )}
 
           <div className="space-y-2">
             {/* Blockers */}
-            {tieredNotes.blockers.length > 0 && (
+            {filteredBlockers.length > 0 && (
               <div className="space-y-1">
-                {tieredNotes.blockers.map((note: any, i: number) => {
+                {filteredBlockers.map((note: any, i: number) => {
                   const noteId = note.id || note.note_key;
                   const ext = externalDecisionMap[noteId];
                   const enrichedNote = ext && !note.decisions?.length ? { ...note, severity: 'blocker', decisions: ext.options, recommended: ext.recommended } : { ...note, severity: 'blocker' };
-                  return <NoteItem key={`b-${i}`} note={enrichedNote} index={i} checked={selectedNotes.has(i)} onToggle={() => toggle(i)} selectedOptionId={selectedDecisions[noteId]} onSelectOption={(optionId) => handleSelectOption(noteId, optionId)} customDirection={customDirections[noteId]} onCustomDirection={(text) => handleCustomDirection(noteId, text)} />;
+                  return <NoteItem key={`b-${i}`} note={enrichedNote} index={i} checked={selectedNotes.has(i)} onToggle={() => toggle(i)}
+                    selectedOptionId={selectedDecisions[noteId]} onSelectOption={(optionId) => handleSelectOption(noteId, optionId)}
+                    customDirection={customDirections[noteId]} onCustomDirection={(text) => handleCustomDirection(noteId, text)}
+                    projectId={projectId} currentDocType={currentDocType} onStatusChange={() => setStatusVersion(v => v + 1)} />;
                 })}
               </div>
             )}
 
             {/* High impact */}
-            {tieredNotes.high.length > 0 && (
+            {filteredHigh.length > 0 && (
               <div className="space-y-1">
-                {tieredNotes.high.map((note: any, i: number) => {
+                {filteredHigh.map((note: any, i: number) => {
                   const idx = blockerCount + i;
                   const noteId = note.id || note.note_key;
                   const ext = externalDecisionMap[noteId];
                   const enrichedNote = ext && !note.decisions?.length ? { ...note, severity: 'high', decisions: ext.options, recommended: ext.recommended } : { ...note, severity: 'high' };
-                  return <NoteItem key={`h-${i}`} note={enrichedNote} index={idx} checked={selectedNotes.has(idx)} onToggle={() => toggle(idx)} selectedOptionId={selectedDecisions[noteId]} onSelectOption={(optionId) => handleSelectOption(noteId, optionId)} customDirection={customDirections[noteId]} onCustomDirection={(text) => handleCustomDirection(noteId, text)} />;
+                  return <NoteItem key={`h-${i}`} note={enrichedNote} index={idx} checked={selectedNotes.has(idx)} onToggle={() => toggle(idx)}
+                    selectedOptionId={selectedDecisions[noteId]} onSelectOption={(optionId) => handleSelectOption(noteId, optionId)}
+                    customDirection={customDirections[noteId]} onCustomDirection={(text) => handleCustomDirection(noteId, text)}
+                    projectId={projectId} currentDocType={currentDocType} onStatusChange={() => setStatusVersion(v => v + 1)} />;
                 })}
               </div>
             )}
 
             {/* Polish */}
-            {tieredNotes.polish.length > 0 && (
+            {filteredPolish.length > 0 && (
               <Collapsible open={polishOpen} onOpenChange={setPolishOpen}>
                 <CollapsibleTrigger className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors w-full py-1">
                   <ChevronDown className={`h-3 w-3 transition-transform ${polishOpen ? 'rotate-0' : '-rotate-90'}`} />
-                  {tieredNotes.polish.length} Polish Notes
+                  {filteredPolish.length} Polish Notes
                 </CollapsibleTrigger>
                 <CollapsibleContent className="space-y-1 mt-1">
-                  {tieredNotes.polish.map((note: any, i: number) => {
+                  {filteredPolish.map((note: any, i: number) => {
                     const idx = blockerCount + highCount + i;
-                    return <NoteItem key={`p-${i}`} note={{ ...note, severity: 'polish' }} index={idx} checked={selectedNotes.has(idx)} onToggle={() => toggle(idx)} />;
+                    return <NoteItem key={`p-${i}`} note={{ ...note, severity: 'polish' }} index={idx} checked={selectedNotes.has(idx)} onToggle={() => toggle(idx)}
+                      projectId={projectId} currentDocType={currentDocType} onStatusChange={() => setStatusVersion(v => v + 1)} />;
                   })}
                 </CollapsibleContent>
               </Collapsible>
             )}
 
-            {/* Carried-forward notes with resolution actions */}
+            {/* Carried-forward notes */}
             {visibleCarriedNotes.length > 0 && (
               <Collapsible open={carriedOpen} onOpenChange={setCarriedOpen}>
                 <CollapsibleTrigger className="flex items-center gap-1 text-[10px] text-primary hover:text-primary/80 transition-colors w-full py-1">
@@ -381,6 +620,8 @@ export function NotesPanel({
                         <div className="flex items-center gap-1 flex-wrap">
                           <Badge variant="outline" className="text-[8px] px-1 py-0 border-primary/30 text-primary">From: {note.source_doc_type || 'earlier'}</Badge>
                           {note.category && <Badge variant="outline" className="text-[8px] px-1 py-0">{note.category}</Badge>}
+                          <TierPill tier={note.tier} />
+                          <SeenBadge timesSeen={note.times_seen} />
                           {note.severity && (
                             <Badge variant="outline" className={`text-[8px] px-1 py-0 ${note.severity === 'blocker' ? 'text-destructive border-destructive/30' : note.severity === 'high' ? 'text-amber-400 border-amber-500/30' : 'text-muted-foreground'}`}>
                               {note.severity}
@@ -389,16 +630,15 @@ export function NotesPanel({
                         </div>
                         <p className="text-[10px] text-foreground leading-relaxed">{noteText}</p>
                         {note.why_it_matters && <p className="text-[9px] text-muted-foreground italic">{note.why_it_matters}</p>}
+                        <WitnessSection witness={note.witness_json} />
                         {canResolve && (
                           <div className="flex items-center gap-1 pt-0.5 flex-wrap">
                             <Button variant="outline" size="sm" className="h-5 text-[9px] px-1.5 gap-0.5 border-emerald-500/30 text-emerald-500 hover:bg-emerald-500/10" onClick={() => handleMarkResolved(noteId)} disabled={isResolving}>
-                              {isResolving ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Check className="h-2.5 w-2.5" />}
-                              Resolve now
+                              {isResolving ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Check className="h-2.5 w-2.5" />}Resolve now
                             </Button>
                             {currentVersionId && (
                               <Button variant="outline" size="sm" className="h-5 text-[9px] px-1.5 gap-0.5 border-sky-500/30 text-sky-400 hover:bg-sky-500/10" onClick={() => handleAIPatch(noteId, noteText)} disabled={isResolving}>
-                                {isResolving ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Wand2 className="h-2.5 w-2.5" />}
-                                Apply fix now
+                                {isResolving ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Wand2 className="h-2.5 w-2.5" />}Apply fix now
                               </Button>
                             )}
                             <Button variant="ghost" size="sm" className="h-5 text-[9px] px-1.5 gap-0.5 text-muted-foreground hover:text-destructive" onClick={() => handleDismiss(noteId)} disabled={isResolving}>
@@ -447,7 +687,7 @@ export function NotesPanel({
         </CardContent>
       </Card>
 
-      {/* AI Fix Generation Mode Dialog */}
+      {/* AI Fix Dialog */}
       <Dialog open={!!patchDialog} onOpenChange={(open) => { if (!open) setPatchDialog(null); }}>
         <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col">
           <DialogHeader>
@@ -458,36 +698,23 @@ export function NotesPanel({
           {patchDialog && (
             <ScrollArea className="flex-1 min-h-0">
               <div className="space-y-3 pr-2">
-                {/* Note being resolved */}
                 <div className="p-2 rounded border border-primary/20 bg-primary/5">
                   <p className="text-[10px] text-muted-foreground font-medium mb-0.5">Note:</p>
                   <p className="text-[10px] text-foreground">{patchDialog.noteText}</p>
                 </div>
-
-                {/* Section 1 — Diagnosis */}
                 {patchDialog.diagnosis && (
                   <div className="space-y-1">
                     <p className="text-[10px] font-semibold text-foreground uppercase tracking-wide">§1 Diagnosis</p>
                     <p className="text-[10px] text-foreground">{patchDialog.diagnosis}</p>
-                    {patchDialog.affectedScenes && patchDialog.affectedScenes.length > 0 && (
-                      <div className="space-y-0.5 mt-1">
-                        {patchDialog.affectedScenes.map((s, i) => (
-                          <p key={i} className="text-[9px] text-muted-foreground pl-2 border-l border-primary/30">• {s}</p>
-                        ))}
-                      </div>
-                    )}
+                    {patchDialog.affectedScenes?.map((s, i) => <p key={i} className="text-[9px] text-muted-foreground pl-2 border-l border-primary/30">• {s}</p>)}
                   </div>
                 )}
-
-                {/* Section 2 — Root Cause */}
                 {patchDialog.rootCause && (
                   <div className="space-y-1">
                     <p className="text-[10px] font-semibold text-foreground uppercase tracking-wide">§2 Root Cause</p>
                     <p className="text-[10px] text-foreground">{patchDialog.rootCause}</p>
                   </div>
                 )}
-
-                {/* Section 3 — Fix Options */}
                 {patchDialog.fixOptions && patchDialog.fixOptions.length > 0 && (
                   <div className="space-y-1.5">
                     <p className="text-[10px] font-semibold text-foreground uppercase tracking-wide">§3 Fix Options ({patchDialog.fixOptions.length})</p>
@@ -495,9 +722,7 @@ export function NotesPanel({
                       <div key={i} className={`rounded border p-2 space-y-1 ${patchDialog.recommendedOption?.patch_name === opt.patch_name ? 'border-sky-500/40 bg-sky-500/5' : 'border-border/40 bg-muted/10'}`}>
                         <div className="flex items-center gap-1.5">
                           <span className="text-[9px] font-bold text-foreground">{opt.patch_name}</span>
-                          {patchDialog.recommendedOption?.patch_name === opt.patch_name && (
-                            <Badge variant="outline" className="text-[7px] px-1 py-0 border-sky-500/40 text-sky-400">Recommended</Badge>
-                          )}
+                          {patchDialog.recommendedOption?.patch_name === opt.patch_name && <Badge variant="outline" className="text-[7px] px-1 py-0 border-sky-500/40 text-sky-400">Recommended</Badge>}
                         </div>
                         <p className="text-[9px] text-muted-foreground"><span className="text-foreground/70 font-medium">Where:</span> {opt.where}</p>
                         <p className="text-[9px] text-muted-foreground"><span className="text-foreground/70 font-medium">What:</span> {opt.what}</p>
@@ -507,45 +732,33 @@ export function NotesPanel({
                     ))}
                   </div>
                 )}
-
-                {/* Section 4 — Recommended Option */}
                 {patchDialog.recommendedOption && (
                   <div className="space-y-1 p-2 rounded border border-emerald-500/30 bg-emerald-500/5">
                     <p className="text-[10px] font-semibold text-emerald-400 uppercase tracking-wide">§4 Recommended Fix</p>
                     <p className="text-[10px] font-medium text-foreground">{patchDialog.recommendedOption.patch_name}</p>
                     <p className="text-[10px] text-muted-foreground">{patchDialog.recommendedOption.rationale}</p>
-                    {patchDialog.recommendedOption.estimated_impact && (
-                      <p className="text-[9px] text-emerald-400 font-medium">Est. impact: {patchDialog.recommendedOption.estimated_impact}</p>
-                    )}
+                    {patchDialog.recommendedOption.estimated_impact && <p className="text-[9px] text-emerald-400 font-medium">Est. impact: {patchDialog.recommendedOption.estimated_impact}</p>}
                   </div>
                 )}
-
-                {/* Proposed Edits */}
                 {patchDialog.proposedEdits.length > 0 ? (
                   <div className="space-y-1.5">
                     <p className="text-[10px] font-semibold text-foreground uppercase tracking-wide">Proposed Edits ({patchDialog.proposedEdits.length})</p>
-                    <div className="space-y-2">
-                      {patchDialog.proposedEdits.map((edit, i) => (
-                        <div key={i} className="rounded border border-border/40 bg-muted/20 p-2 space-y-1">
-                          <p className="text-[9px] text-muted-foreground font-medium">Replace:</p>
-                          <p className="text-[9px] font-mono bg-destructive/10 px-1.5 py-1 rounded line-clamp-3">{edit.find}</p>
-                          <p className="text-[9px] text-muted-foreground font-medium">With:</p>
-                          <p className="text-[9px] font-mono bg-emerald-500/10 px-1.5 py-1 rounded line-clamp-3">{edit.replace}</p>
-                          {edit.rationale && <p className="text-[8px] text-muted-foreground italic">{edit.rationale}</p>}
-                        </div>
-                      ))}
-                    </div>
+                    {patchDialog.proposedEdits.map((edit, i) => (
+                      <div key={i} className="rounded border border-border/40 bg-muted/20 p-2 space-y-1">
+                        <p className="text-[9px] text-muted-foreground font-medium">Replace:</p>
+                        <p className="text-[9px] font-mono bg-destructive/10 px-1.5 py-1 rounded line-clamp-3">{edit.find}</p>
+                        <p className="text-[9px] text-muted-foreground font-medium">With:</p>
+                        <p className="text-[9px] font-mono bg-emerald-500/10 px-1.5 py-1 rounded line-clamp-3">{edit.replace}</p>
+                        {edit.rationale && <p className="text-[8px] text-muted-foreground italic">{edit.rationale}</p>}
+                      </div>
+                    ))}
                   </div>
                 ) : (
                   <div className="p-2 rounded border border-emerald-500/20 bg-emerald-500/5 text-[10px] text-emerald-400">
                     ✓ Note appears already addressed. No edits needed.
                   </div>
                 )}
-
-                {/* Summary */}
-                {patchDialog.summary && (
-                  <p className="text-[9px] text-muted-foreground italic">{patchDialog.summary}</p>
-                )}
+                {patchDialog.summary && <p className="text-[9px] text-muted-foreground italic">{patchDialog.summary}</p>}
               </div>
             </ScrollArea>
           )}
@@ -574,4 +787,3 @@ export function NotesPanel({
     </>
   );
 }
-
