@@ -1266,6 +1266,17 @@ export default function ProjectDevelopmentEngine() {
                         toast.success('Patch applied — new version created');
                         qc.invalidateQueries({ queryKey: ['dev-v2-versions', selectedDocId] });
                       }
+                      // Always refresh runs/notes so resolved/dismissed notes
+                      // disappear from the carried-notes list immediately
+                      qc.invalidateQueries({ queryKey: ['dev-v2-runs', selectedVersionId] });
+                      qc.invalidateQueries({ queryKey: ['dev-v2-runs'] });
+                      qc.invalidateQueries({ queryKey: ['dev-v2-doc-runs', selectedDocId] });
+                      qc.invalidateQueries({ queryKey: ['dev-v2-convergence', selectedDocId] });
+                      // For patch applies, also refresh docs so the new version is visible
+                      if (action === 'apply_patch') {
+                        qc.invalidateQueries({ queryKey: ['dev-v2-docs', projectId] });
+                        qc.invalidateQueries({ queryKey: ['dev-v2-versions'] });
+                      }
                       return result;
                     }}
                   />
