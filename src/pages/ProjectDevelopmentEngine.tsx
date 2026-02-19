@@ -1224,7 +1224,7 @@ export default function ProjectDevelopmentEngine() {
                 if (filteredAll.length === 0) return null;
 
                 return (
-                  <NotesPanel
+                   <NotesPanel
                     allNotes={filteredAll}
                     tieredNotes={filteredTiered}
                     selectedNotes={selectedNotes}
@@ -1243,6 +1243,8 @@ export default function ProjectDevelopmentEngine() {
                     currentDocType={selectedDoc?.doc_type}
                     currentVersionId={selectedVersionId || undefined}
                     bundles={latestNotes?.bundles || latestAnalysis?.bundles || []}
+                    decisionSets={latestNotes?.decision_sets ?? []}
+                    mutedByDecision={latestNotes?.muted_by_decision ?? []}
                     projectId={projectId}
                     documentId={selectedDocId || undefined}
                     onResolveCarriedNote={async (noteId, action, extra) => {

@@ -624,6 +624,17 @@ export function NotesPanel({
             </div>
           )}
 
+          {/* Decision Sets section — above bundles, mutes conflicting notes below */}
+          {decisionSets && decisionSets.length > 0 && (
+            <DecisionSetsSection
+              decisionSets={decisionSets}
+              projectId={projectId}
+              documentId={documentId}
+              versionId={currentVersionId}
+              onDecisionApplied={() => setStatusVersion(v => v + 1)}
+            />
+          )}
+
           {/* Bundles section */}
           {hasAnyBundles && (
             <BundlesSection bundles={bundles!} projectId={projectId} documentId={documentId} versionId={currentVersionId}
