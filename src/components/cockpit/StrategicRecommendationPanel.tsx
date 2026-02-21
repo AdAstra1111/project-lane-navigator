@@ -94,14 +94,17 @@ export function StrategicRecommendationPanel({
                 Confidence {recommendation.confidence}%
               </Badge>
               {(recommendation.risk_flags || []).map((f) => (
-                <Badge key={f} variant="outline">
+                <Badge
+                  key={f}
+                  variant={f === 'HIGH_FRAGILITY' || f === 'HIGH_VOLATILITY' ? 'destructive' : 'outline'}
+                >
                   {f}
                 </Badge>
               ))}
             </div>
 
             {(recommendation.reasons || []).length > 0 && (
-              <div className="rounded-lg border border-white/10 bg-white/5 p-3">
+              <div className="rounded-lg border border-border/40 bg-muted/30 p-3">
                 <div className="text-xs font-semibold mb-2">Reasons</div>
                 <ul className="text-sm list-disc pl-5 space-y-1">
                   {recommendation.reasons.slice(0, 6).map((r, idx) => (
@@ -112,10 +115,24 @@ export function StrategicRecommendationPanel({
             )}
 
             {recommendation.tradeoffs && (
-              <div className="rounded-lg border border-white/10 bg-white/5 p-3">
+              <div className="rounded-lg border border-border/40 bg-muted/30 p-3">
                 <div className="text-xs font-semibold mb-2">Trade-offs</div>
-                <div className="text-xs text-muted-foreground">
-                  {JSON.stringify(recommendation.tradeoffs)}
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                  {recommendation.tradeoffs.composite_delta != null && (
+                    <div>Composite Δ: <span className="font-mono">{recommendation.tradeoffs.composite_delta > 0 ? '+' : ''}{recommendation.tradeoffs.composite_delta}</span></div>
+                  )}
+                  {recommendation.tradeoffs.budget_delta != null && (
+                    <div>Budget Δ: <span className="font-mono">${Math.round(recommendation.tradeoffs.budget_delta).toLocaleString()}</span></div>
+                  )}
+                  {recommendation.tradeoffs.drift_total != null && (
+                    <div>Drift alerts: <span className="font-mono">{recommendation.tradeoffs.drift_total}</span></div>
+                  )}
+                  {recommendation.tradeoffs.fragility_score != null && (
+                    <div>Fragility: <span className="font-mono">{recommendation.tradeoffs.fragility_score}/100</span></div>
+                  )}
+                  {recommendation.tradeoffs.volatility_index != null && (
+                    <div>Volatility: <span className="font-mono">{recommendation.tradeoffs.volatility_index}/100</span></div>
+                  )}
                 </div>
               </div>
             )}

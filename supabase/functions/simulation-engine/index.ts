@@ -2243,6 +2243,22 @@ Deno.serve(async (req) => {
         return data;
       }
 
+      // helper: get latest stress test (within 24h)
+      async function latestStressTest(scenarioId: string) {
+        const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+        const { data, error } = await supabase
+          .from("scenario_stress_tests")
+          .select("fragility_score, volatility_index")
+          .eq("project_id", projectId)
+          .eq("scenario_id", scenarioId)
+          .gte("created_at", cutoff)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (error) throw error;
+        return data as { fragility_score: number; volatility_index: number } | null;
+      }
+
       // helper: drift counts
       async function driftCounts(scenarioId: string) {
         const { data, error } = await supabase
@@ -2318,8 +2334,8 @@ Deno.serve(async (req) => {
         };
       }
 
-      // scoring (0..100) — deterministic
-      function scoreScenario(m: any, drift: any) {
+      // scoring (0..100) — deterministic, now with stress test robustness
+      function scoreScenario(m: any, drift: any, stress: { fragility_score: number; volatility_index: number } | null) {
         let roi = 50;
         if (typeof m.irr === "number") roi = clamp(50 + m.irr * 5);
         else if (typeof m.npv === "number") roi = clamp(50 + (m.npv / 1_000_000) * 5);
@@ -2327,6 +2343,14 @@ Deno.serve(async (req) => {
         let risk = 60;
         if (typeof m.schedule_slip_risk === "number") risk = clamp(100 - m.schedule_slip_risk * 100);
         risk = clamp(risk - drift.warning * 4 - drift.critical * 12);
+
+        // Incorporate stress test robustness into risk score
+        if (stress) {
+          // Lower volatility = better risk score (up to +10)
+          risk = clamp(risk + Math.round((100 - stress.volatility_index) * 0.1));
+          // Lower fragility = better risk score (up to +10)
+          risk = clamp(risk + Math.round((100 - stress.fragility_score) * 0.1));
+        }
 
         let timeline = 50;
         if (typeof m.payback_months === "number") timeline = clamp(100 - m.payback_months * 3);
@@ -2340,15 +2364,18 @@ Deno.serve(async (req) => {
         return { roi, risk, timeline, appetite, composite };
       }
 
-      // 3) Score all scenarios
+      // 3) Score all scenarios (with stress test data)
       const scored: any[] = [];
       for (const s of list) {
-        const proj = await latestProjection(s.id);
-        const drift = await driftCounts(s.id);
+        const [proj, drift, stress] = await Promise.all([
+          latestProjection(s.id),
+          driftCounts(s.id),
+          latestStressTest(s.id),
+        ]);
         const metrics = extractMetrics(s, proj);
-        const scores = scoreScenario(metrics, drift);
+        const scores = scoreScenario(metrics, drift, stress);
 
-        scored.push({ scenarioId: s.id, scenario: s, projection: proj, drift, metrics, scores });
+        scored.push({ scenarioId: s.id, scenario: s, projection: proj, drift, stress, metrics, scores });
       }
 
       // 4) Pick winner (max composite)
@@ -2395,6 +2422,12 @@ Deno.serve(async (req) => {
       if (typeof winner.metrics.platform_appetite_decay === "number" && winner.metrics.platform_appetite_decay > 0.1) {
         riskFlags.push("HIGH_APPETITE_DECAY");
       }
+      // Stress test risk flags
+      if (winner.stress) {
+        if (winner.stress.fragility_score > 70) riskFlags.push("HIGH_FRAGILITY");
+        if (winner.stress.volatility_index > 70) riskFlags.push("HIGH_VOLATILITY");
+        reasons.push(`Robust under stress: fragility ${winner.stress.fragility_score}, volatility ${winner.stress.volatility_index}`);
+      }
 
       const tradeoffs: Record<string, number | null> = {
         budget_delta: baseRow && typeof winner.metrics.budget === "number" && typeof baseRow.metrics.budget === "number"
@@ -2402,6 +2435,8 @@ Deno.serve(async (req) => {
           : null,
         composite_delta: baseRow ? winner.scores.composite - baseRow.scores.composite : null,
         drift_total: winner.drift.total,
+        fragility_score: winner.stress?.fragility_score ?? null,
+        volatility_index: winner.stress?.volatility_index ?? null,
       };
 
       // 7) Upsert scenario_scores for all scenarios
