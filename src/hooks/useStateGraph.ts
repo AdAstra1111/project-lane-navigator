@@ -557,7 +557,14 @@ export function useStateGraph(projectId: string | undefined) {
       invalidateAll();
       toast.success('Scenario overrides merged');
     },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: any) => {
+      const msg = e.message ?? '';
+      if (msg.includes('requires approval')) {
+        toast.error('Approval required (or expired). Request approval again or force merge.');
+      } else {
+        toast.error(msg);
+      }
+    },
   });
 
   // Phase 5.0: Set scenario lock
@@ -659,7 +666,14 @@ export function useStateGraph(projectId: string | undefined) {
       invalidateAll();
       toast.success(vars.approved ? 'Merge approved' : 'Merge rejected');
     },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: any) => {
+      const msg = e.message ?? '';
+      if (msg.includes('Not authorized')) {
+        toast.error(`You're not authorized to approve this merge. ${msg}`);
+      } else {
+        toast.error(msg);
+      }
+    },
   });
 
   const baseline = scenarios.find(s => s.scenario_type === 'baseline');

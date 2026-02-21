@@ -683,6 +683,7 @@ export function ScenarioDiffMergePanel({
                                 risk_score: riskReport.risk_score,
                                 risk_level: riskReport.risk_level,
                                 conflicts: riskReport.conflicts,
+                                paths: Array.from(selected),
                               },
                             });
                           }}
