@@ -5967,6 +5967,73 @@ export type Database = {
           },
         ]
       }
+      project_canon: {
+        Row: {
+          canon_json: Json
+          project_id: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          canon_json?: Json
+          project_id: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          canon_json?: Json
+          project_id?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_canon_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: true
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_canon_versions: {
+        Row: {
+          approved_at: string | null
+          canon_json: Json
+          created_at: string
+          created_by: string | null
+          id: string
+          is_approved: boolean
+          project_id: string
+        }
+        Insert: {
+          approved_at?: string | null
+          canon_json?: Json
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_approved?: boolean
+          project_id: string
+        }
+        Update: {
+          approved_at?: string | null
+          canon_json?: Json
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_approved?: boolean
+          project_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_canon_versions_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       project_cashflow_sources: {
         Row: {
           amount: number

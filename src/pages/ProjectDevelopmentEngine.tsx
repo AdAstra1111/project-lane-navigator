@@ -62,6 +62,7 @@ import { isDocStale } from '@/lib/stale-detection';
 import { invalidateDevEngine } from '@/lib/invalidateDevEngine';
 import { StaleDocBanner } from '@/components/devengine/StaleDocBanner';
 import { DocumentPackagePanel } from '@/components/devengine/DocumentPackagePanel';
+import { CanonicalEditor } from '@/components/devengine/CanonicalEditor';
 import { ProvenancePanel } from '@/components/devengine/ProvenancePanel';
 import { ConnectivityBanner } from '@/components/devengine/ConnectivityBanner';
 import { useDocumentPackage } from '@/hooks/useDocumentPackage';
@@ -1134,6 +1135,7 @@ export default function ProjectDevelopmentEngine() {
               <TabsTrigger value="autorun" className="text-xs">Auto-Run</TabsTrigger>
               <TabsTrigger value="criteria" className="text-xs">Criteria</TabsTrigger>
               <TabsTrigger value="package" className="text-xs">Package</TabsTrigger>
+              <TabsTrigger value="canon" className="text-xs">Canon</TabsTrigger>
               <TabsTrigger value="provenance" className="text-xs">Provenance</TabsTrigger>
               {convergenceHistory.length > 0 && (
                 <TabsTrigger value="timeline" className="text-xs">Timeline ({convergenceHistory.length})</TabsTrigger>
@@ -1441,6 +1443,14 @@ export default function ProjectDevelopmentEngine() {
 
             <TabsContent value="package" className="mt-3">
               <DocumentPackagePanel projectId={projectId} />
+            </TabsContent>
+
+            <TabsContent value="canon" className="mt-3">
+              <Card>
+                <CardContent className="p-4">
+                  <CanonicalEditor projectId={projectId!} />
+                </CardContent>
+              </Card>
             </TabsContent>
 
             <TabsContent value="provenance" className="mt-3">
