@@ -3,7 +3,7 @@
  * Single source of truth: useProjectPackage resolver.
  */
 import { useState } from 'react';
-import { CheckCircle, Clock, AlertCircle, ChevronRight, Share2, Package, Download, FileX } from 'lucide-react';
+import { CheckCircle, Clock, AlertCircle, AlertTriangle, ChevronRight, Share2, Package, Download, FileX } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
@@ -241,15 +241,22 @@ export function DocumentPackagePanel({ projectId }: Props) {
 
             {/* Season scripts */}
             {season_scripts.map(ss => (
-              <PackageItemRow
-                key={ss.document_id}
-                label={ss.season_number ? `Master Script — Season ${ss.season_number}` : 'Master Season Script'}
-                isApproved={ss.is_approved}
-                createdAt={ss.created_at}
-                versionId={ss.version_id}
-                projectTitle={projectTitle}
-                docType="season_master_script"
-              />
+              <div key={ss.document_id}>
+                <PackageItemRow
+                  label={ss.season_number ? `Master Script — Season ${ss.season_number}` : 'Master Season Script'}
+                  isApproved={ss.is_approved}
+                  createdAt={ss.created_at}
+                  versionId={ss.version_id}
+                  projectTitle={projectTitle}
+                  docType="season_master_script"
+                />
+                {ss.is_out_of_date && (
+                  <div className="flex items-center gap-1.5 ml-6 text-[9px] text-[hsl(var(--chart-4))]">
+                    <AlertTriangle className="h-2.5 w-2.5" />
+                    Out of date — episode scripts have changed since last compile
+                  </div>
+                )}
+              </div>
             ))}
           </div>
         </div>

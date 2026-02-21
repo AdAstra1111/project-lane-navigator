@@ -40,6 +40,7 @@ export interface PackageSeasonScript {
   created_at: string;
   is_approved: boolean;
   selected_by: 'approved' | 'latest';
+  is_out_of_date: boolean;
 }
 
 export interface ProjectPackage {
@@ -98,7 +99,7 @@ export function useProjectPackage(projectId: string | undefined) {
       // 2. Fetch all project_documents for this project
       const { data: docs } = await (supabase as any)
         .from('project_documents')
-        .select('id, doc_type, title, latest_version_id, updated_at')
+        .select('id, doc_type, title, latest_version_id, updated_at, is_out_of_date')
         .eq('project_id', projectId);
 
       const allDocs: any[] = docs || [];
@@ -246,6 +247,7 @@ export function useProjectPackage(projectId: string | undefined) {
           created_at: sel.created_at,
           is_approved: sel.is_approved,
           selected_by: sel.selected_by,
+          is_out_of_date: !!doc.is_out_of_date,
         });
       }
       // Sort by season number

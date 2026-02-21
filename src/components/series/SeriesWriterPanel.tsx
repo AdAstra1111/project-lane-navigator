@@ -27,6 +27,9 @@ import { useEpisodeHandoff } from '@/hooks/useEpisodeHandoff';
 import { SeasonHealthDashboard } from '@/components/series/SeasonHealthDashboard';
 import { EpisodeEngagementPanel } from '@/components/series/EpisodeEngagementPanel';
 import { useEpisodeEngagement } from '@/hooks/useEpisodeEngagement';
+import { MasterSeasonScriptPanel } from '@/components/series/MasterSeasonScriptPanel';
+import { CompileSeasonModal } from '@/components/series/CompileSeasonModal';
+import { useMasterSeasonScript } from '@/hooks/useMasterSeasonScript';
 import { SeriesRunControlBar } from '@/components/series/SeriesRunControlBar';
 import { EscalateToDevEngineModal } from '@/components/series/EscalateToDevEngineModal';
 import { Trash2, Undo2, RefreshCw, FlaskConical, ArrowLeftRight } from 'lucide-react';
@@ -477,6 +480,7 @@ export function SeriesWriterPanel({ projectId }: Props) {
 
   const { handoffs, getActiveHandoff, sendToDevEngine, cancelHandoff } = useEpisodeHandoff(projectId);
   const engagement = useEpisodeEngagement();
+  const masterScript = useMasterSeasonScript(projectId, episodes);
 
   const [episodeCount, setEpisodeCount] = useState('10');
   const [readerEpisode, setReaderEpisode] = useState<SeriesEpisode | null>(null);
@@ -489,6 +493,7 @@ export function SeriesWriterPanel({ projectId }: Props) {
   const [hardDeleteConfirmText, setHardDeleteConfirmText] = useState('');
   const [escalateEp, setEscalateEp] = useState<SeriesEpisode | null>(null);
   const [engagementEp, setEngagementEp] = useState<SeriesEpisode | null>(null);
+  const [compileModalOpen, setCompileModalOpen] = useState(false);
 
   const analyzeEngagement = useCallback((ep: SeriesEpisode) => {
     setEngagementEp(ep);
@@ -653,6 +658,19 @@ export function SeriesWriterPanel({ projectId }: Props) {
             </p>
           </div>
         </div>
+      )}
+
+      {/* Master Season Script Panel */}
+      {hasEpisodes && completedCount > 0 && (
+        <MasterSeasonScriptPanel
+          status={masterScript.status}
+          isCompiling={masterScript.compile.isPending}
+          onCompile={() => masterScript.compile.mutate({})}
+          onOpenCompileModal={() => setCompileModalOpen(true)}
+          onOpenMaster={masterScript.status.documentId ? () => {
+            navigate(`/projects/${projectId}/develop?doc=${masterScript.status.documentId}`);
+          } : undefined}
+        />
       )}
 
       {/* Stuck episode banner — visible when episodes are stalled from a previous session */}
@@ -927,6 +945,19 @@ export function SeriesWriterPanel({ projectId }: Props) {
           isSubmitting={sendToDevEngine.isPending}
         />
       )}
+
+      {/* Compile Season Modal */}
+      <CompileSeasonModal
+        open={compileModalOpen}
+        onOpenChange={setCompileModalOpen}
+        projectId={projectId}
+        episodes={episodes}
+        seasonEpisodeCount={canonSnapshot?.season_episode_count || episodes.length}
+        onOpenMaster={(docId, versionId) => {
+          setCompileModalOpen(false);
+          navigate(`/projects/${projectId}/develop?doc=${docId}`);
+        }}
+      />
     </div>
   );
 }
