@@ -3,7 +3,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
-import { ShieldCheck, Check, X, ChevronDown, Inbox } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
+import { ShieldCheck, Check, X, ChevronDown, Inbox, AlertTriangle } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useState } from 'react';
@@ -53,6 +54,7 @@ const RISK_BADGE_VARIANT: Record<string, 'default' | 'secondary' | 'destructive'
 export function MergeApprovalInbox({ projectId, scenarios }: Props) {
   const queryClient = useQueryClient();
   const [noteMap, setNoteMap] = useState<Record<string, string>>({});
+  const [forceConfirm, setForceConfirm] = useState<PendingApproval | null>(null);
 
   const { data: pendingApprovals = [], isLoading } = useQuery({
     queryKey: ['merge-approvals', projectId],
@@ -86,6 +88,7 @@ export function MergeApprovalInbox({ projectId, scenarios }: Props) {
     onSuccess: (_data, vars) => {
       queryClient.invalidateQueries({ queryKey: ['merge-approvals', projectId] });
       queryClient.invalidateQueries({ queryKey: ['decision-events', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['merge-approval-status', projectId] });
       toast.success(vars.approved ? 'Merge approved' : 'Merge rejected');
     },
     onError: (e: any) => {
@@ -114,7 +117,13 @@ export function MergeApprovalInbox({ projectId, scenarios }: Props) {
         body: { action: 'apply_approved_merge', projectId, ...params },
       });
       if (error) throw error;
-      if (data?.error) throw new Error(data.error);
+      if (data?.error) {
+        const err: any = new Error(data.error);
+        err.code = data.code;
+        err.protected_hits = data.protected_hits;
+        err.is_locked = data.is_locked;
+        throw err;
+      }
       return data;
     },
     onSuccess: () => {
@@ -122,9 +131,19 @@ export function MergeApprovalInbox({ projectId, scenarios }: Props) {
       queryClient.invalidateQueries({ queryKey: ['decision-events', projectId] });
       queryClient.invalidateQueries({ queryKey: ['scenarios', projectId] });
       queryClient.invalidateQueries({ queryKey: ['state-graph', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['merge-approval-status', projectId] });
       toast.success('Approved merge applied');
     },
-    onError: (e: any) => toast.error(e.message ?? 'Apply failed'),
+    onError: (e: any) => {
+      const code = e.code ?? '';
+      if (code === 'protected_paths' || code === 'locked') {
+        // Don't toast — force confirm dialog will handle
+      } else if (code === 'force_not_authorized') {
+        toast.error('Not authorized to force apply. Only owners/admins can force.');
+      } else {
+        toast.error(e.message ?? 'Apply failed');
+      }
+    },
   });
 
   const [applyingId, setApplyingId] = useState<string | null>(null);
@@ -144,118 +163,176 @@ export function MergeApprovalInbox({ projectId, scenarios }: Props) {
         sourceScenarioId: item.sourceScenarioId,
         targetScenarioId: item.targetScenarioId,
       });
-    } catch (_) { /* errors handled by individual mutations */ }
+    } catch (err: any) {
+      const code = err.code ?? '';
+      if (code === 'protected_paths' || code === 'locked') {
+        setForceConfirm(item);
+      }
+    }
     setApplyingId(null);
   };
 
+  const handleForceApply = async () => {
+    if (!forceConfirm) return;
+    setApplyingId(forceConfirm.request_event_id);
+    setForceConfirm(null);
+    try {
+      await applyMutation.mutateAsync({
+        sourceScenarioId: forceConfirm.sourceScenarioId,
+        targetScenarioId: forceConfirm.targetScenarioId,
+        force: true,
+      });
+    } catch (_) { /* handled by mutation */ }
+    setApplyingId(null);
+  };
+
+  const cannotApply = (item: PendingApproval) =>
+    !item.has_merge_context && !item.sourceScenarioId;
+
   return (
-    <Card className="border-border/40">
-      <CardHeader className="pb-3">
-        <CardTitle className="text-sm flex items-center gap-2">
-          <Inbox className="h-4 w-4" />
-          Merge Approval Inbox
-          {pendingApprovals.length > 0 && (
-            <Badge variant="destructive" className="text-[10px] ml-1">{pendingApprovals.length} pending</Badge>
+    <>
+      <Card className="border-border/40">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <Inbox className="h-4 w-4" />
+            Merge Approval Inbox
+            {pendingApprovals.length > 0 && (
+              <Badge variant="destructive" className="text-[10px] ml-1">{pendingApprovals.length} pending</Badge>
+            )}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {isLoading && <div className="text-xs text-muted-foreground">Loading…</div>}
+          {!isLoading && pendingApprovals.length === 0 && (
+            <div className="text-xs text-muted-foreground">No pending approval requests.</div>
           )}
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-2">
-        {isLoading && <div className="text-xs text-muted-foreground">Loading…</div>}
-        {!isLoading && pendingApprovals.length === 0 && (
-          <div className="text-xs text-muted-foreground">No pending approval requests.</div>
-        )}
-        {pendingApprovals.map(item => (
-          <Collapsible key={item.request_event_id}>
-            <div className="rounded-md border border-border/30 bg-muted/10">
-              <CollapsibleTrigger className="flex items-center gap-2 w-full px-3 py-2 text-left hover:bg-muted/20 transition-colors">
-                <Badge variant="destructive" className="text-[10px] shrink-0">Pending</Badge>
-                <Badge variant="outline" className="text-[9px] shrink-0 capitalize">{item.domain}</Badge>
-                {item.risk_level && (
-                  <Badge variant={RISK_BADGE_VARIANT[item.risk_level] ?? 'outline'} className="text-[10px] shrink-0">
-                    Risk: {item.risk_level}{item.risk_score != null ? ` (${item.risk_score})` : ''}
-                  </Badge>
-                )}
-                <span className="text-xs font-medium truncate">
-                  → {scenarioName(item.targetScenarioId, scenarios)}
-                </span>
-                {item.sourceScenarioId && (
-                  <span className="text-[10px] text-muted-foreground truncate">
-                    from {scenarioName(item.sourceScenarioId, scenarios)}
+          {pendingApprovals.map(item => (
+            <Collapsible key={item.request_event_id}>
+              <div className="rounded-md border border-border/30 bg-muted/10">
+                <CollapsibleTrigger className="flex items-center gap-2 w-full px-3 py-2 text-left hover:bg-muted/20 transition-colors">
+                  <Badge variant="destructive" className="text-[10px] shrink-0">Pending</Badge>
+                  <Badge variant="outline" className="text-[9px] shrink-0 capitalize">{item.domain}</Badge>
+                  {item.risk_level && (
+                    <Badge variant={RISK_BADGE_VARIANT[item.risk_level] ?? 'outline'} className="text-[10px] shrink-0">
+                      Risk: {item.risk_level}{item.risk_score != null ? ` (${item.risk_score})` : ''}
+                    </Badge>
+                  )}
+                  {!item.has_merge_context && (
+                    <Badge variant="outline" className="text-[9px] shrink-0 text-muted-foreground">no context</Badge>
+                  )}
+                  <span className="text-xs font-medium truncate">
+                    → {scenarioName(item.targetScenarioId, scenarios)}
                   </span>
-                )}
-                <span className="text-[10px] text-muted-foreground ml-auto shrink-0">
-                  {formatTime(item.requested_at)}
-                </span>
-                <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
-              </CollapsibleTrigger>
-
-              <div className="px-3 pb-2 flex items-center gap-2">
-                <Input
-                  className="h-6 text-[10px] flex-1"
-                  placeholder="Decision note (optional)"
-                  value={noteMap[item.request_event_id] ?? ''}
-                  onChange={e => setNoteMap(m => ({ ...m, [item.request_event_id]: e.target.value }))}
-                />
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-6 px-2 text-[10px]"
-                  disabled={decideMutation.isPending || applyingId === item.request_event_id}
-                  onClick={() => decideMutation.mutate({
-                    sourceScenarioId: item.sourceScenarioId,
-                    targetScenarioId: item.targetScenarioId,
-                    approved: true,
-                    note: noteMap[item.request_event_id],
-                  })}
-                >
-                  <Check className="h-3 w-3 mr-0.5" />Approve
-                </Button>
-                <Button
-                  size="sm"
-                  variant="default"
-                  className="h-6 px-2 text-[10px]"
-                  disabled={decideMutation.isPending || applyMutation.isPending || applyingId === item.request_event_id}
-                  onClick={() => handleApproveAndApply(item)}
-                >
-                  {applyingId === item.request_event_id ? '…' : '✓ Approve + Apply'}
-                </Button>
-                <Button
-                  size="sm"
-                  variant="destructive"
-                  className="h-6 px-2 text-[10px]"
-                  disabled={decideMutation.isPending || applyingId === item.request_event_id}
-                  onClick={() => handleReject(item)}
-                >
-                  <X className="h-3 w-3 mr-0.5" />Reject
-                </Button>
-              </div>
-
-              <CollapsibleContent>
-                <div className="px-3 pb-2 pt-1 border-t border-border/20 space-y-1">
-                  <div className="text-[10px] text-muted-foreground">
-                    Conflicts: {item.conflicts_count} · Paths: {item.paths.length}
-                  </div>
-                  {item.paths.length > 0 && (
-                    <div className="text-[10px] text-muted-foreground font-mono space-y-0.5">
-                      {item.paths.slice(0, 12).map(p => (
-                        <div key={p}>{p}</div>
-                      ))}
-                      {item.paths.length > 12 && (
-                        <div className="text-muted-foreground/60">+{item.paths.length - 12} more</div>
-                      )}
-                    </div>
+                  {item.sourceScenarioId && (
+                    <span className="text-[10px] text-muted-foreground truncate">
+                      from {scenarioName(item.sourceScenarioId, scenarios)}
+                    </span>
                   )}
-                  {item.requested_by_user_id && (
-                    <div className="text-[10px] text-muted-foreground">
-                      Requested by: {item.requested_by_user_id.slice(0, 8)}…
-                    </div>
-                  )}
+                  <span className="text-[10px] text-muted-foreground ml-auto shrink-0">
+                    {formatTime(item.requested_at)}
+                  </span>
+                  <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
+                </CollapsibleTrigger>
+
+                <div className="px-3 pb-2 flex items-center gap-2">
+                  <Input
+                    className="h-6 text-[10px] flex-1"
+                    placeholder="Decision note (optional)"
+                    value={noteMap[item.request_event_id] ?? ''}
+                    onChange={e => setNoteMap(m => ({ ...m, [item.request_event_id]: e.target.value }))}
+                  />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-6 px-2 text-[10px]"
+                    disabled={decideMutation.isPending || applyingId === item.request_event_id}
+                    onClick={() => decideMutation.mutate({
+                      sourceScenarioId: item.sourceScenarioId,
+                      targetScenarioId: item.targetScenarioId,
+                      approved: true,
+                      note: noteMap[item.request_event_id],
+                    })}
+                  >
+                    <Check className="h-3 w-3 mr-0.5" />Approve
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="default"
+                    className="h-6 px-2 text-[10px]"
+                    disabled={decideMutation.isPending || applyMutation.isPending || applyingId === item.request_event_id || cannotApply(item)}
+                    title={cannotApply(item) ? 'Missing merge context — cannot auto-apply' : undefined}
+                    onClick={() => handleApproveAndApply(item)}
+                  >
+                    {applyingId === item.request_event_id ? '…' : '✓ Approve + Apply'}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    className="h-6 px-2 text-[10px]"
+                    disabled={decideMutation.isPending || applyingId === item.request_event_id}
+                    onClick={() => handleReject(item)}
+                  >
+                    <X className="h-3 w-3 mr-0.5" />Reject
+                  </Button>
                 </div>
-              </CollapsibleContent>
+
+                <CollapsibleContent>
+                  <div className="px-3 pb-2 pt-1 border-t border-border/20 space-y-1">
+                    <div className="text-[10px] text-muted-foreground">
+                      Conflicts: {item.conflicts_count} · Paths: {item.paths.length}
+                      {item.strategy && <> · Strategy: {item.strategy}</>}
+                    </div>
+                    {item.paths.length > 0 && (
+                      <div className="text-[10px] text-muted-foreground font-mono space-y-0.5">
+                        {item.paths.slice(0, 12).map(p => (
+                          <div key={p}>{p}</div>
+                        ))}
+                        {item.paths.length > 12 && (
+                          <div className="text-muted-foreground/60">+{item.paths.length - 12} more</div>
+                        )}
+                      </div>
+                    )}
+                    {item.requested_by_user_id && (
+                      <div className="text-[10px] text-muted-foreground">
+                        Requested by: {item.requested_by_user_id.slice(0, 8)}…
+                      </div>
+                    )}
+                  </div>
+                </CollapsibleContent>
+              </div>
+            </Collapsible>
+          ))}
+        </CardContent>
+      </Card>
+
+      {/* Force Apply Confirmation Dialog */}
+      <Dialog open={!!forceConfirm} onOpenChange={(open) => { if (!open) setForceConfirm(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-sm flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-destructive" />
+              Force Apply Required
+            </DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              This merge requires force due to locked or protected paths. Only project owners and admins can force apply.
+            </DialogDescription>
+          </DialogHeader>
+          {forceConfirm && (
+            <div className="text-xs space-y-1 py-2">
+              <div>Target: <strong>{scenarioName(forceConfirm.targetScenarioId, scenarios)}</strong></div>
+              <div>Domain: <Badge variant="outline" className="text-[9px] capitalize">{forceConfirm.domain}</Badge></div>
             </div>
-          </Collapsible>
-        ))}
-      </CardContent>
-    </Card>
+          )}
+          <DialogFooter className="gap-2">
+            <Button variant="outline" size="sm" className="text-xs" onClick={() => setForceConfirm(null)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" size="sm" className="text-xs" onClick={handleForceApply}>
+              Force Apply
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

@@ -124,43 +124,38 @@ export function ScenarioDiffMergePanel({
   const [riskReport, setRiskReport] = useState<MergeRiskReport | null>(null);
   const [govScan, setGovScan] = useState<GovernanceScanResult | null>(null);
 
-  // Phase 5.5: Approval status
-  const [approvalStatus, setApprovalStatus] = useState<{ approved: boolean; created_at: string; valid: boolean } | null>(null);
+  // Phase 5.9: Approval status from backend
+  const [approvalStatus, setApprovalStatus] = useState<{
+    pending: boolean;
+    approval_valid_now: boolean;
+    required_domain: string;
+    latest_request?: { at: string; domain: string; paths_count: number; has_merge_context?: boolean; strategy?: string | null };
+    latest_decision?: { at: string; approved: boolean; domain?: string; decided_by?: string; note?: string };
+  } | null>(null);
 
-  // Fetch latest approval decision when requires_approval and source/target change
+  // Fetch approval status when source/target change or after risk evaluation
   useEffect(() => {
-    if (!riskReport?.requires_approval || !sourceId || !targetId) {
+    if (!sourceId || !targetId || sourceId === targetId) {
       setApprovalStatus(null);
       return;
     }
     let cancelled = false;
     (async () => {
       try {
-        const { data } = await supabase
-          .from('scenario_decision_events')
-          .select('payload, created_at')
-          .eq('project_id', projectId)
-          .eq('event_type', 'merge_approval_decided')
-          .eq('scenario_id', targetId)
-          .eq('previous_scenario_id', sourceId)
-          .order('created_at', { ascending: false })
-          .limit(1);
-        if (cancelled || !data || data.length === 0) {
+        const { data } = await supabase.functions.invoke('simulation-engine', {
+          body: { action: 'get_merge_approval_status', projectId, sourceScenarioId: sourceId, targetScenarioId: targetId },
+        });
+        if (cancelled || data?.error) {
           if (!cancelled) setApprovalStatus(null);
           return;
         }
-        const row = data[0];
-        const payload = row.payload as any;
-        const approved = payload?.approved === true;
-        const decidedAt = new Date(row.created_at).getTime();
-        const valid = approved && (Date.now() - decidedAt < 24 * 60 * 60 * 1000);
-        if (!cancelled) setApprovalStatus({ approved, created_at: row.created_at, valid });
+        if (!cancelled) setApprovalStatus(data);
       } catch {
         if (!cancelled) setApprovalStatus(null);
       }
     })();
     return () => { cancelled = true; };
-  }, [riskReport?.requires_approval, sourceId, targetId, projectId]);
+  }, [sourceId, targetId, projectId, riskReport?.requires_approval]);
 
   const computeDiff = async () => {
     if (!sourceId || !targetId || sourceId === targetId) return;
@@ -618,6 +613,27 @@ export function ScenarioDiffMergePanel({
                   </div>
                 )}
 
+                {/* Approval status pill (Phase 5.9) */}
+                {approvalStatus && (approvalStatus.pending || approvalStatus.approval_valid_now || approvalStatus.latest_decision) && !riskReport?.requires_approval && (
+                  <div className="flex items-center gap-2 text-[10px]">
+                    {approvalStatus.pending && (
+                      <Badge variant="secondary" className="text-[10px]">
+                        <Clock className="h-3 w-3 mr-0.5" />Pending approval ({approvalStatus.required_domain})
+                      </Badge>
+                    )}
+                    {approvalStatus.approval_valid_now && !approvalStatus.pending && (
+                      <Badge variant="outline" className="text-[10px] border-primary/40 text-primary">
+                        <CheckCircle className="h-3 w-3 mr-0.5" />Approved ({approvalStatus.required_domain})
+                      </Badge>
+                    )}
+                    {!approvalStatus.pending && !approvalStatus.approval_valid_now && approvalStatus.latest_decision && (
+                      <Badge variant="outline" className="text-[10px] text-muted-foreground">
+                        {approvalStatus.latest_decision.approved ? 'Expired' : 'Rejected'}
+                      </Badge>
+                    )}
+                  </div>
+                )}
+
                 {/* Approval required banner */}
                 {riskReport?.requires_approval && (
                   <div className="rounded border border-destructive/40 bg-destructive/10 px-3 py-2 space-y-2">
@@ -625,38 +641,45 @@ export function ScenarioDiffMergePanel({
                       <ShieldAlert className="h-3.5 w-3.5" />
                       Approval Required — {riskReport.approval_reason ?? 'This merge requires approval before proceeding.'}
                     </div>
-                    {/* Phase 5.5: Approval status line */}
+                    {/* Phase 5.9: Approval status line */}
                     {approvalStatus && (
                       <div className="text-[10px] flex items-center gap-1.5">
-                        {approvalStatus.valid ? (
+                        {approvalStatus.approval_valid_now ? (
                           <>
-                            <CheckCircle className="h-3 w-3 text-green-600" />
-                            <span className="text-green-700 font-medium">Approved — you can merge now (no force needed)</span>
-                            <span className="text-muted-foreground ml-1">
-                              expires {new Date(new Date(approvalStatus.created_at).getTime() + 24*60*60*1000).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
-                            </span>
+                            <CheckCircle className="h-3 w-3 text-primary" />
+                            <span className="text-primary font-medium">Approved — you can merge now (no force needed)</span>
+                            {approvalStatus.latest_decision?.at && (
+                              <span className="text-muted-foreground ml-1">
+                                expires {new Date(new Date(approvalStatus.latest_decision.at).getTime() + 24*60*60*1000).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            )}
                           </>
-                        ) : approvalStatus.approved ? (
+                        ) : approvalStatus.latest_decision?.approved ? (
                           <>
                             <Clock className="h-3 w-3 text-muted-foreground" />
                             <span className="text-muted-foreground">Approval expired — request again or force merge</span>
                           </>
-                        ) : (
+                        ) : approvalStatus.pending ? (
+                          <>
+                            <Clock className="h-3 w-3 text-muted-foreground" />
+                            <span className="text-muted-foreground">Pending approval — awaiting decision</span>
+                          </>
+                        ) : approvalStatus.latest_decision ? (
                           <>
                             <ShieldAlert className="h-3 w-3 text-destructive" />
                             <span className="text-destructive">Approval rejected — request again or force merge</span>
                           </>
-                        )}
+                        ) : null}
                       </div>
                     )}
                     {!approvalStatus && (
                       <div className="text-[10px] text-muted-foreground flex items-center gap-1.5">
                         <Clock className="h-3 w-3" />
-                        Pending approval
+                        No approval requested yet
                       </div>
                     )}
                     <div className="flex gap-2">
-                      {approvalStatus?.valid ? (
+                      {approvalStatus?.approval_valid_now ? (
                         <Button
                           size="sm"
                           variant="default"
