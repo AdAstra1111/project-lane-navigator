@@ -384,20 +384,27 @@ Deno.serve(async (req) => {
 
       if (!scenario) return json({ error: "Scenario not found or not in this project" }, 404);
 
-      // Deactivate all, activate target
-      await supabase.from("project_scenarios")
-        .update({ is_active: false })
-        .eq("project_id", projectId);
+      const cs = scenario.computed_state as unknown as CascadedState | null;
+      if (!cs || !cs.creative_state) {
+        return json({ error: "Scenario has no computed state. Cascade it first or use a different scenario." }, 400);
+      }
 
-      await supabase.from("project_scenarios")
-        .update({ is_active: true })
-        .eq("id", targetScenarioId);
-
-      // Sync canonical state graph to match scenario's computed_state
-      const cs = scenario.computed_state as unknown as CascadedState;
       const bands = generateConfidenceBands(cs);
 
-      await supabase.from("project_state_graphs").update({
+      // Step 1: Deactivate all scenarios for project
+      const { error: deactivateErr } = await supabase.from("project_scenarios")
+        .update({ is_active: false })
+        .eq("project_id", projectId);
+      if (deactivateErr) return json({ error: "Failed to deactivate scenarios: " + deactivateErr.message }, 500);
+
+      // Step 2: Activate target scenario
+      const { error: activateErr } = await supabase.from("project_scenarios")
+        .update({ is_active: true })
+        .eq("id", targetScenarioId);
+      if (activateErr) return json({ error: "Failed to activate scenario: " + activateErr.message }, 500);
+
+      // Step 3: Sync canonical state graph
+      const { error: syncErr } = await supabase.from("project_state_graphs").update({
         ...cs,
         confidence_bands: bands,
         last_cascade_at: new Date().toISOString(),
@@ -405,6 +412,7 @@ Deno.serve(async (req) => {
         active_scenario_set_at: new Date().toISOString(),
         active_scenario_set_by: userId,
       }).eq("project_id", projectId);
+      if (syncErr) return json({ error: "Failed to sync state graph: " + syncErr.message }, 500);
 
       // Fetch updated graph
       const { data: graph } = await supabase
@@ -431,61 +439,82 @@ Deno.serve(async (req) => {
       // Determine which scenario to cascade into
       const targetScenarioId = scenarioId || activeScenarioId;
 
-      const creative: CreativeState = { ...(graph.creative_state as unknown as CreativeState), ...overrides?.creative_state };
-      const cascaded = runFullCascade(creative, overrides || {});
+      if (!targetScenarioId) {
+        return json({ error: "No active scenario set. Initialize first or set an active scenario." }, 400);
+      }
+
+      // Load the target scenario to seed from its computed_state
+      const { data: targetScenario } = await supabase
+        .from("project_scenarios")
+        .select("id, computed_state, is_active")
+        .eq("id", targetScenarioId)
+        .eq("project_id", projectId)
+        .single();
+
+      if (!targetScenario) {
+        return json({ error: "Target scenario not found in this project" }, 404);
+      }
+
+      // Seed creative from the scenario's own computed_state (not canonical graph)
+      const scenarioState = targetScenario.computed_state as unknown as CascadedState | null;
+      const seedCreative: CreativeState = scenarioState?.creative_state
+        ? { ...scenarioState.creative_state, ...overrides?.creative_state }
+        : { ...(graph.creative_state as unknown as CreativeState), ...overrides?.creative_state };
+
+      const cascaded = runFullCascade(seedCreative, overrides || {});
       const bands = generateConfidenceBands(cascaded);
       const coherence = checkCoherence(overrides || {});
 
       // Only update canonical state graph if cascading the active scenario
-      const isActiveScenario = targetScenarioId && targetScenarioId === activeScenarioId;
-      if (!targetScenarioId || isActiveScenario) {
+      const isActiveScenario = targetScenarioId === activeScenarioId;
+      if (isActiveScenario) {
         await syncGraphToState(supabase, projectId, cascaded, bands);
       }
 
-      if (targetScenarioId) {
-        const { data: baseline } = await supabase
-          .from("project_scenarios")
-          .select("computed_state")
-          .eq("project_id", projectId)
-          .eq("scenario_type", "baseline")
-          .single();
+      // Update scenario row
+      const { data: baseline } = await supabase
+        .from("project_scenarios")
+        .select("computed_state")
+        .eq("project_id", projectId)
+        .eq("scenario_type", "baseline")
+        .single();
 
-        const delta = baseline ? computeDelta(baseline.computed_state as unknown as CascadedState, cascaded) : {};
+      const delta = baseline ? computeDelta(baseline.computed_state as unknown as CascadedState, cascaded) : {};
 
-        await supabase.from("project_scenarios").update({
-          computed_state: cascaded,
-          state_overrides: overrides || {},
-          delta_vs_baseline: delta,
-          coherence_flags: coherence,
-        }).eq("id", targetScenarioId);
+      await supabase.from("project_scenarios").update({
+        computed_state: cascaded,
+        state_overrides: overrides || {},
+        delta_vs_baseline: delta,
+        coherence_flags: coherence,
+      }).eq("id", targetScenarioId);
 
-        await supabase.from("scenario_snapshots").insert({
-          scenario_id: targetScenarioId,
-          project_id: projectId,
-          user_id: userId,
-          trigger_reason: "cascade",
-          snapshot_state: cascaded,
-          confidence_bands: bands,
-        });
-      }
+      await supabase.from("scenario_snapshots").insert({
+        scenario_id: targetScenarioId,
+        project_id: projectId,
+        user_id: userId,
+        trigger_reason: "cascade",
+        snapshot_state: cascaded,
+        confidence_bands: bands,
+      });
 
-      // Drift alerts tied to the active scenario context
-      const alertScenarioId = activeScenarioId || targetScenarioId || null;
+      // Drift alerts: ONLY generated when cascading the active scenario
       const alerts: Array<{ alert_type: string; severity: string; layer: string; metric_key: string; current_value: number; threshold: number; message: string }> = [];
-      if (cascaded.production_state.schedule_compression_risk > 7) {
-        alerts.push({ alert_type: "schedule_drift", severity: "warning", layer: "production", metric_key: "schedule_compression_risk", current_value: cascaded.production_state.schedule_compression_risk, threshold: 7, message: "Schedule compression risk exceeds safe threshold" });
-      }
-      if (cascaded.finance_state.capital_stack_stress > 7) {
-        alerts.push({ alert_type: "budget_drift", severity: "warning", layer: "finance", metric_key: "capital_stack_stress", current_value: cascaded.finance_state.capital_stack_stress, threshold: 7, message: "Capital stack stress is elevated" });
-      }
-      if (cascaded.revenue_state.confidence_score < 30) {
-        alerts.push({ alert_type: "revenue_risk", severity: "critical", layer: "revenue", metric_key: "confidence_score", current_value: cascaded.revenue_state.confidence_score, threshold: 30, message: "Revenue confidence below critical threshold" });
-      }
+      if (isActiveScenario && activeScenarioId) {
+        if (cascaded.production_state.schedule_compression_risk > 7) {
+          alerts.push({ alert_type: "schedule_drift", severity: "warning", layer: "production", metric_key: "schedule_compression_risk", current_value: cascaded.production_state.schedule_compression_risk, threshold: 7, message: "Schedule compression risk exceeds safe threshold" });
+        }
+        if (cascaded.finance_state.capital_stack_stress > 7) {
+          alerts.push({ alert_type: "budget_drift", severity: "warning", layer: "finance", metric_key: "capital_stack_stress", current_value: cascaded.finance_state.capital_stack_stress, threshold: 7, message: "Capital stack stress is elevated" });
+        }
+        if (cascaded.revenue_state.confidence_score < 30) {
+          alerts.push({ alert_type: "revenue_risk", severity: "critical", layer: "revenue", metric_key: "confidence_score", current_value: cascaded.revenue_state.confidence_score, threshold: 30, message: "Revenue confidence below critical threshold" });
+        }
 
-      if (alerts.length > 0) {
-        await supabase.from("drift_alerts").insert(alerts.map(a => ({
-          ...a, project_id: projectId, user_id: userId, scenario_id: alertScenarioId,
-        })));
+        if (alerts.length > 0) {
+          await supabase.from("drift_alerts").insert(alerts.map(a => ({
+            ...a, project_id: projectId, user_id: userId, scenario_id: activeScenarioId,
+          })));
+        }
       }
 
       return json({ cascaded, confidence_bands: bands, coherence_flags: coherence, alerts });
