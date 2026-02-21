@@ -732,7 +732,7 @@ export function ScriptStudio({
         return;
       }
 
-      const trimmedScript = text.slice(0, 15000);
+      const trimmedScript = text; // Send full text — backend handles context limits
       let scriptId: string | null = null;
       const { data: existingScripts } = await supabase
         .from('scripts')

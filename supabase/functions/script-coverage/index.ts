@@ -17,7 +17,8 @@ const FORMAT_LABELS: Record<string, string> = {
   "vertical-drama": "Vertical Drama",
 };
 
-const MAX_SCRIPT_CHARS = 12000;
+const DEFAULT_SCRIPT_CHARS = 40000;
+const MAX_SCRIPT_CHARS_CAP = 200000;
 // Use flash model for both passes to stay within edge function time limits
 const COVERAGE_MODEL = "google/gemini-2.5-flash";
 const FAST_MODEL = "google/gemini-2.5-flash";
@@ -39,7 +40,7 @@ async function callAI(apiKey: string, systemPrompt: string, userPrompt: string, 
           { role: "user", content: userPrompt },
         ],
         temperature,
-        max_tokens: 3000,
+        max_tokens: 8000,
       }),
     });
 
@@ -96,7 +97,7 @@ serve(async (req) => {
     }
     const userId = user.id;
 
-    const { projectId, scriptId, promptVersionId, draftLabel, scriptText, format, genres, lane, documentaryMode } = await req.json();
+    const { projectId, scriptId, promptVersionId, draftLabel, scriptText, format, genres, lane, documentaryMode, maxContextChars: reqMaxContext } = await req.json();
 
     if (!scriptText || scriptText.length < 100) {
       return new Response(JSON.stringify({ error: "Script text too short for coverage analysis" }), {
@@ -109,9 +110,13 @@ serve(async (req) => {
 
     const isDocumentary = documentaryMode || ['documentary', 'documentary-series', 'hybrid-documentary'].includes(format);
     const formatLabel = FORMAT_LABELS[format] || "Film";
-    const truncatedScript = scriptText.slice(0, MAX_SCRIPT_CHARS);
+    // Dynamic context: use requested limit or default, capped at safety max
+    const maxChars = typeof reqMaxContext === "number" && reqMaxContext > 0
+      ? Math.min(reqMaxContext, MAX_SCRIPT_CHARS_CAP)
+      : DEFAULT_SCRIPT_CHARS;
+    const truncatedScript = scriptText.slice(0, maxChars);
     const t0 = Date.now();
-    console.log(`[coverage] start, input=${scriptText.length}, truncated=${truncatedScript.length}, documentary=${isDocumentary}`);
+    console.log(`[coverage] start, input=${scriptText.length}, using=${truncatedScript.length}/${maxChars}, documentary=${isDocumentary}`);
 
     // Fetch prompt version
     const adminClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
