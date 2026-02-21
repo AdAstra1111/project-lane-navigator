@@ -197,7 +197,98 @@ function canApproveMerge(
   return false;
 }
 
-// ---- Phase 5.5: Approval decision helpers ----
+// ---- Phase 5.10: Approval thread helper ----
+
+interface ApprovalThread {
+  latestRequest: any | null;
+  latestDecision: { approved: boolean; created_at: string; note?: string; domain?: string } | null;
+  pending: boolean;
+  approval_valid_now: boolean;
+  required_domain: string;
+  has_merge_context: boolean;
+  strategy: string | null;
+}
+
+async function getApprovalThread(
+  supabase: any,
+  projectId: string,
+  sourceId: string | null | undefined,
+  targetId: string,
+): Promise<ApprovalThread> {
+  // Fetch latest request
+  let reqQuery = supabase
+    .from("scenario_decision_events")
+    .select("*")
+    .eq("project_id", projectId)
+    .eq("event_type", "merge_approval_requested")
+    .eq("scenario_id", targetId);
+  reqQuery = filterByPreviousScenarioId(reqQuery, sourceId);
+  const { data: reqEvents } = await reqQuery
+    .order("created_at", { ascending: false })
+    .limit(1);
+  const latestRequest = reqEvents && reqEvents.length > 0 ? reqEvents[0] : null;
+  const reqPayload = latestRequest?.payload as any;
+  const mc = reqPayload?.merge_context;
+
+  // Fetch latest decision
+  let decQuery = supabase
+    .from("scenario_decision_events")
+    .select("payload, created_at")
+    .eq("project_id", projectId)
+    .eq("event_type", "merge_approval_decided")
+    .eq("scenario_id", targetId);
+  decQuery = filterByPreviousScenarioId(decQuery, sourceId);
+  const { data: decEvents } = await decQuery
+    .order("created_at", { ascending: false })
+    .limit(1);
+
+  let latestDecision: ApprovalThread["latestDecision"] = null;
+  if (decEvents && decEvents.length > 0) {
+    const row = decEvents[0];
+    const dp = row.payload as any;
+    latestDecision = {
+      approved: dp?.approved === true,
+      created_at: row.created_at,
+      note: dp?.note ?? undefined,
+      domain: dp?.domain ?? undefined,
+    };
+  }
+
+  // Compute required domain
+  const reqPaths: string[] = reqPayload?.paths ?? mc?.paths ?? [];
+  const requiredDomain = reqPaths.length > 0
+    ? getApprovalDomain(reqPaths)
+    : (latestDecision?.domain ?? reqPayload?.domain ?? "general");
+
+  // Pending = request exists AND (no decision OR decision older than request)
+  const pending = !!latestRequest && (
+    !latestDecision ||
+    new Date(latestDecision.created_at).getTime() < new Date(latestRequest.created_at).getTime()
+  );
+
+  // Valid = decision is approved, not expired, domain matches, AND decision is after request (if request exists)
+  let approval_valid_now = false;
+  if (latestDecision && latestDecision.approved === true) {
+    const decidedAt = new Date(latestDecision.created_at).getTime();
+    const now = Date.now();
+    const notExpired = now - decidedAt <= 24 * 60 * 60 * 1000;
+    const domainMatch = !requiredDomain || !latestDecision.domain || latestDecision.domain === requiredDomain;
+    const afterRequest = !latestRequest || decidedAt >= new Date(latestRequest.created_at).getTime();
+    approval_valid_now = notExpired && domainMatch && afterRequest;
+  }
+
+  return {
+    latestRequest,
+    latestDecision,
+    pending,
+    approval_valid_now,
+    required_domain: requiredDomain,
+    has_merge_context: !!(mc || (reqPaths.length > 0)),
+    strategy: mc?.strategy ?? reqPayload?.strategy ?? null,
+  };
+}
+
+// ---- Legacy helpers kept for backward compat in performMerge ----
 
 async function getLatestApprovalDecision(
   supabase: any,
@@ -205,29 +296,8 @@ async function getLatestApprovalDecision(
   sourceId: string | null | undefined,
   targetId: string,
 ): Promise<{ approved: boolean; created_at: string; note?: string; domain?: string } | null> {
-  try {
-    let query = supabase
-      .from("scenario_decision_events")
-      .select("payload, created_at")
-      .eq("project_id", projectId)
-      .eq("event_type", "merge_approval_decided")
-      .eq("scenario_id", targetId);
-    query = filterByPreviousScenarioId(query, sourceId);
-    const { data, error } = await query
-      .order("created_at", { ascending: false })
-      .limit(1);
-    if (error || !data || data.length === 0) return null;
-    const row = data[0];
-    const payload = row.payload as any;
-    return {
-      approved: payload?.approved === true,
-      created_at: row.created_at,
-      note: payload?.note ?? undefined,
-      domain: payload?.domain ?? undefined,
-    };
-  } catch {
-    return null;
-  }
+  const thread = await getApprovalThread(supabase, projectId, sourceId, targetId);
+  return thread.latestDecision;
 }
 
 function isApprovalValid(
@@ -240,7 +310,6 @@ function isApprovalValid(
   const decidedAt = new Date(decision.created_at).getTime();
   const now = Date.now();
   if (now - decidedAt > ttlHours * 60 * 60 * 1000) return false;
-  // Phase 5.6: domain must match if both are present
   if (requiredDomain && decision.domain && decision.domain !== requiredDomain) return false;
   return true;
 }
@@ -3980,61 +4049,38 @@ Deno.serve(async (req) => {
     }
 
     // ══════════════════════════════════════
-    // ACTION: get_merge_approval_status
+    // ACTION: get_merge_approval_status (Phase 5.10)
     // ══════════════════════════════════════
     if (action === "get_merge_approval_status") {
       const sourceId = body.sourceScenarioId;
       const targetId = body.targetScenarioId;
       if (!targetId) return json({ error: "targetScenarioId required" }, 400);
 
-      // Fetch latest request (NULL-aware filter)
-      let reqQuery = supabase
-        .from("scenario_decision_events")
-        .select("*")
-        .eq("project_id", projectId)
-        .eq("event_type", "merge_approval_requested")
-        .eq("scenario_id", targetId);
-      reqQuery = filterByPreviousScenarioId(reqQuery, sourceId);
-      const { data: reqEvents } = await reqQuery
-        .order("created_at", { ascending: false })
-        .limit(1);
-
-      const latestRequest = reqEvents && reqEvents.length > 0 ? reqEvents[0] : null;
-      const reqPayload = latestRequest?.payload as any;
+      const thread = await getApprovalThread(supabase, projectId, sourceId, targetId);
+      const reqPayload = thread.latestRequest?.payload as any;
       const mc = reqPayload?.merge_context;
 
-      // Fetch latest decision
-      const decision = await getLatestApprovalDecision(supabase, projectId, sourceId, targetId);
-
-      // Compute required domain from request paths
-      const reqPaths: string[] = reqPayload?.paths ?? [];
-      const requiredDomain = reqPaths.length > 0 ? getApprovalDomain(reqPaths) : (decision?.domain ?? "general");
-
-      const approvalValidNow = isApprovalValid(decision ?? null, 24, requiredDomain);
-
-      const isPending = !!latestRequest && (!decision || new Date(decision.created_at).getTime() < new Date(latestRequest.created_at).getTime());
-
       return json({
-        pending: isPending,
-        latest_request: latestRequest ? {
-          at: latestRequest.created_at,
+        pending: thread.pending,
+        latest_request: thread.latestRequest ? {
+          at: thread.latestRequest.created_at,
           domain: reqPayload?.domain ?? "general",
-          paths_count: reqPaths.length,
-          requested_by_user_id: reqPayload?.requested_by_user_id ?? latestRequest.created_by,
-          event_id: latestRequest.id,
-          has_merge_context: !!(mc || (reqPaths.length > 0)),
-          strategy: mc?.strategy ?? reqPayload?.strategy ?? null,
+          paths_count: (reqPayload?.paths ?? []).length,
+          requested_by_user_id: reqPayload?.requested_by_user_id ?? thread.latestRequest.created_by,
+          event_id: thread.latestRequest.id,
+          has_merge_context: thread.has_merge_context,
+          strategy: thread.strategy,
         } : undefined,
-        latest_decision: decision ? {
-          at: decision.created_at,
-          approved: decision.approved,
-          domain: decision.domain,
-          decided_by: (decision as any).decided_by ?? null,
-          note: decision.note ?? null,
+        latest_decision: thread.latestDecision ? {
+          at: thread.latestDecision.created_at,
+          approved: thread.latestDecision.approved,
+          domain: thread.latestDecision.domain,
+          decided_by: null,
+          note: thread.latestDecision.note ?? null,
           event_id: null,
         } : undefined,
-        approval_valid_now: approvalValidNow,
-        required_domain: requiredDomain,
+        approval_valid_now: thread.approval_valid_now,
+        required_domain: thread.required_domain,
       });
     }
 
@@ -4239,23 +4285,24 @@ Deno.serve(async (req) => {
         }
       }
 
-      // Find latest merge_approval_requested event
-      let applyReqQuery = supabase
-        .from("scenario_decision_events")
-        .select("*")
-        .eq("project_id", projectId)
-        .eq("event_type", "merge_approval_requested")
-        .eq("scenario_id", targetId);
-      applyReqQuery = filterByPreviousScenarioId(applyReqQuery, sourceId);
-      const { data: applyReqEvents } = await applyReqQuery
-        .order("created_at", { ascending: false })
-        .limit(1);
+      // Phase 5.10: Use getApprovalThread for correct approval state
+      const thread = await getApprovalThread(supabase, projectId, sourceId, targetId);
 
-      if (!applyReqEvents || applyReqEvents.length === 0) {
+      if (!thread.latestRequest) {
         return json({ error: "No approval request found for this merge", code: "no_request" }, 404);
       }
 
-      const reqEvent = applyReqEvents[0];
+      // Phase 5.10: Approval correctness gate
+      if (!isForce) {
+        if (thread.pending) {
+          return json({ error: "Approval pending — not yet decided", code: "approval_pending" }, 403);
+        }
+        if (!thread.approval_valid_now) {
+          return json({ error: "Approval required or expired", code: "approval_invalid" }, 403);
+        }
+      }
+
+      const reqEvent = thread.latestRequest;
       const reqPayload = reqEvent.payload as any;
       const mc = reqPayload.merge_context ?? {};
       let mergePaths: string[] = (mc.paths ?? reqPayload.paths ?? []).slice(0, 50);
@@ -4279,7 +4326,7 @@ Deno.serve(async (req) => {
 
       const allChanges = diffOverridesDeep(srcOver, tgtOver);
       
-      // Phase 5.9: If mergePaths empty, try to reconstruct from diff
+      // If mergePaths empty, try to reconstruct from diff
       if (mergePaths.length === 0 && allChanges.length > 0) {
         mergePaths = allChanges.map(c => c.path).slice(0, 50);
       }
@@ -4287,9 +4334,7 @@ Deno.serve(async (req) => {
         return json({ error: "No merge context available", code: "no_merge_context" }, 400);
       }
 
-      const pathsToApply = mergePaths.length > 0
-        ? allChanges.filter(c => mergePaths.includes(c.path))
-        : allChanges;
+      const pathsToApply = allChanges.filter(c => mergePaths.includes(c.path));
 
       const protectedPaths: string[] = (tgtScen.protected_paths ?? []) as string[];
       const protectedHits = pathsToApply
@@ -4298,7 +4343,6 @@ Deno.serve(async (req) => {
 
       const applyDomain = getApprovalDomain(pathsToApply.map(c => c.path));
 
-      // Delegate to shared helper (includes approval gate, lock checks, governance, events)
       try {
         const result = await performMerge({
           supabase, projectId, userId,
@@ -4320,10 +4364,11 @@ Deno.serve(async (req) => {
             created_by: userId,
             payload: {
               request_event_id: reqEvent.id,
-              paths_count: pathsToApply.length,
+              domain: applyDomain,
               strategy: mergeStrategy,
               forced: isForce,
-              domain: applyDomain,
+              approval_valid_now_at_apply: thread.approval_valid_now,
+              applied_paths_count: pathsToApply.length,
             },
           });
         } catch (_) { /* non-fatal */ }
