@@ -3282,10 +3282,10 @@ Deno.serve(async (req) => {
 
       // Lock checks
       if (ts.is_locked && !force) {
-        throw Object.assign(new Error("Target scenario is locked"), { httpStatus: 403, body: { error: "Target scenario is locked" } });
+        throw Object.assign(new Error("Target scenario is locked"), { httpStatus: 403, body: { error: "Target scenario is locked", code: "locked", is_locked: true } });
       }
       if (ph.length > 0 && !force) {
-        throw Object.assign(new Error("Protected paths require force"), { httpStatus: 403, body: { error: "Protected paths require force", protected_hits: ph } });
+        throw Object.assign(new Error("Protected paths require force"), { httpStatus: 403, body: { error: "Protected paths require force", code: "protected_paths", protected_hits: ph } });
       }
 
       // Apply changes
@@ -4001,6 +4001,7 @@ Deno.serve(async (req) => {
 
       const latestRequest = reqEvents && reqEvents.length > 0 ? reqEvents[0] : null;
       const reqPayload = latestRequest?.payload as any;
+      const mc = reqPayload?.merge_context;
 
       // Fetch latest decision
       const decision = await getLatestApprovalDecision(supabase, projectId, sourceId, targetId);
@@ -4021,12 +4022,15 @@ Deno.serve(async (req) => {
           paths_count: reqPaths.length,
           requested_by_user_id: reqPayload?.requested_by_user_id ?? latestRequest.created_by,
           event_id: latestRequest.id,
+          has_merge_context: !!(mc || (reqPaths.length > 0)),
+          strategy: mc?.strategy ?? reqPayload?.strategy ?? null,
         } : undefined,
         latest_decision: decision ? {
           at: decision.created_at,
           approved: decision.approved,
           domain: decision.domain,
           decided_by: (decision as any).decided_by ?? null,
+          note: decision.note ?? null,
           event_id: null,
         } : undefined,
         approval_valid_now: approvalValidNow,
@@ -4225,7 +4229,15 @@ Deno.serve(async (req) => {
       const sourceId = body.sourceScenarioId;
       const targetId = body.targetScenarioId;
       const isForce = body.force === true;
-      if (!targetId) return json({ error: "targetScenarioId required" }, 400);
+      if (!targetId) return json({ error: "targetScenarioId required", code: "missing_target" }, 400);
+
+      // Phase 5.9: Force requires owner/admin
+      if (isForce) {
+        const forceRole = await getProjectMembershipRole(supabase, projectId, userId);
+        if (!forceRole.isOwner && !forceRole.isAdmin) {
+          return json({ error: "Not authorized to force apply", code: "force_not_authorized" }, 403);
+        }
+      }
 
       // Find latest merge_approval_requested event
       let applyReqQuery = supabase
@@ -4240,18 +4252,18 @@ Deno.serve(async (req) => {
         .limit(1);
 
       if (!applyReqEvents || applyReqEvents.length === 0) {
-        return json({ error: "No approval request found for this merge" }, 404);
+        return json({ error: "No approval request found for this merge", code: "no_request" }, 404);
       }
 
       const reqEvent = applyReqEvents[0];
       const reqPayload = reqEvent.payload as any;
       const mc = reqPayload.merge_context ?? {};
-      const mergePaths: string[] = (mc.paths ?? reqPayload.paths ?? []).slice(0, 50);
+      let mergePaths: string[] = (mc.paths ?? reqPayload.paths ?? []).slice(0, 50);
       const mergeStrategy: string = mc.strategy ?? reqPayload.strategy ?? "overwrite";
       const effectiveSourceId = sourceId ?? mc.sourceScenarioId ?? reqEvent.previous_scenario_id;
 
       if (!effectiveSourceId) {
-        return json({ error: "Cannot determine source scenario" }, 400);
+        return json({ error: "Cannot determine source scenario", code: "no_source" }, 400);
       }
 
       // Fetch scenarios
@@ -4259,13 +4271,22 @@ Deno.serve(async (req) => {
         supabase.from("project_scenarios").select("id, state_overrides, name").eq("id", effectiveSourceId).eq("project_id", projectId).single(),
         supabase.from("project_scenarios").select("id, state_overrides, name, is_locked, protected_paths, governance, merge_policy, computed_state").eq("id", targetId).eq("project_id", projectId).single(),
       ]);
-      if (!srcScen) return json({ error: "Source scenario not found" }, 404);
-      if (!tgtScen) return json({ error: "Target scenario not found" }, 404);
+      if (!srcScen) return json({ error: "Source scenario not found", code: "not_found" }, 404);
+      if (!tgtScen) return json({ error: "Target scenario not found", code: "not_found" }, 404);
 
       const srcOver = (srcScen.state_overrides ?? {}) as Record<string, unknown>;
       const tgtOver = JSON.parse(JSON.stringify(tgtScen.state_overrides ?? {})) as Record<string, unknown>;
 
       const allChanges = diffOverridesDeep(srcOver, tgtOver);
+      
+      // Phase 5.9: If mergePaths empty, try to reconstruct from diff
+      if (mergePaths.length === 0 && allChanges.length > 0) {
+        mergePaths = allChanges.map(c => c.path).slice(0, 50);
+      }
+      if (mergePaths.length === 0) {
+        return json({ error: "No merge context available", code: "no_merge_context" }, 400);
+      }
+
       const pathsToApply = mergePaths.length > 0
         ? allChanges.filter(c => mergePaths.includes(c.path))
         : allChanges;
@@ -4274,6 +4295,8 @@ Deno.serve(async (req) => {
       const protectedHits = pathsToApply
         .map(c => c.path)
         .filter(p => protectedPaths.some(pp => p === pp || p.startsWith(pp + ".")));
+
+      const applyDomain = getApprovalDomain(pathsToApply.map(c => c.path));
 
       // Delegate to shared helper (includes approval gate, lock checks, governance, events)
       try {
@@ -4300,6 +4323,7 @@ Deno.serve(async (req) => {
               paths_count: pathsToApply.length,
               strategy: mergeStrategy,
               forced: isForce,
+              domain: applyDomain,
             },
           });
         } catch (_) { /* non-fatal */ }

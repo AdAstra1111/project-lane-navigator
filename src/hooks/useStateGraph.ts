@@ -288,7 +288,7 @@ export function useStateGraph(projectId: string | undefined) {
     enabled: !!projectId,
   });
 
-  const invalidateAll = () => {
+  const invalidateAll = (extraSourceId?: string | null, extraTargetId?: string | null) => {
     queryClient.invalidateQueries({ queryKey: ['state-graph', projectId] });
     queryClient.invalidateQueries({ queryKey: ['scenarios', projectId] });
     queryClient.invalidateQueries({ queryKey: ['drift-alerts', projectId] });
@@ -298,6 +298,9 @@ export function useStateGraph(projectId: string | undefined) {
     queryClient.invalidateQueries({ queryKey: ['scenario-stress', projectId] });
     queryClient.invalidateQueries({ queryKey: ['decision-events', projectId] });
     queryClient.invalidateQueries({ queryKey: ['merge-approvals', projectId] });
+    if (extraSourceId !== undefined || extraTargetId !== undefined) {
+      queryClient.invalidateQueries({ queryKey: ['merge-approval-status', projectId] });
+    }
   };
 
   const initialize = useMutation({
@@ -683,7 +686,14 @@ export function useStateGraph(projectId: string | undefined) {
         body: { action: 'apply_approved_merge', projectId, ...params },
       });
       if (error) throw error;
-      if (data?.error) throw new Error(data.error);
+      if (data?.error) {
+        const err: any = new Error(data.error);
+        err.code = data.code;
+        err.domain = data.domain;
+        err.protected_hits = data.protected_hits;
+        err.is_locked = data.is_locked;
+        throw err;
+      }
       return data;
     },
     onSuccess: () => {
@@ -692,17 +702,29 @@ export function useStateGraph(projectId: string | undefined) {
     },
     onError: (e: any) => {
       const msg = e.message ?? '';
-      if (msg.includes('requires approval')) {
-        toast.error('Approval required or expired. Request approval again or force merge.');
-      } else if (msg.includes('locked')) {
-        toast.error('Target scenario is locked. Use force to override.');
-      } else if (msg.includes('Protected paths')) {
-        toast.error('Protected paths require force. Use force to override.');
+      const code = e.code ?? '';
+      if (code === 'force_not_authorized') {
+        toast.error('Not authorized to force apply. Only owners/admins can force.');
+      } else if (code === 'protected_paths' || code === 'locked') {
+        // Don't toast here — let MergeApprovalInbox handle force confirm
+      } else if (msg.includes('requires approval')) {
+        toast.error('Approval required or expired. Request approval again.');
       } else {
         toast.error(msg);
       }
     },
   });
+
+  // Phase 5.9: Get merge approval status
+  const getMergeApprovalStatus = async (sourceScenarioId?: string | null, targetScenarioId?: string) => {
+    if (!projectId || !targetScenarioId) return null;
+    const { data, error } = await supabase.functions.invoke('simulation-engine', {
+      body: { action: 'get_merge_approval_status', projectId, sourceScenarioId, targetScenarioId },
+    });
+    if (error) return null;
+    if (data?.error) return null;
+    return data;
+  };
 
   const baseline = scenarios.find(s => s.scenario_type === 'baseline');
   const activeScenario = scenarios.find(s => s.is_active);
@@ -744,6 +766,7 @@ export function useStateGraph(projectId: string | undefined) {
     requestMergeApproval,
     decideMergeApproval,
     applyApprovedMerge,
+    getMergeApprovalStatus,
     baseline,
     activeScenario,
     recommendedScenario: validRecommended,
