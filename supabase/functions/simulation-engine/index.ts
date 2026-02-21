@@ -2204,211 +2204,243 @@ Deno.serve(async (req) => {
     // ACTION: recommend_scenario
     // ══════════════════════════════════════
     if (action === "recommend_scenario") {
-      // 1) Load all non-archived scenarios
-      const { data: allScenarios, error: scErr } = await supabase
+      if (!projectId) throw new Error("projectId required");
+
+      const baselineScenarioId = body?.baselineScenarioId || null;
+      const activeScenarioId = body?.activeScenarioId || null;
+
+      // 1) Load scenarios
+      const { data: scenarios, error: sErr } = await supabase
         .from("project_scenarios")
-        .select("id, name, scenario_type, computed_state, is_active, is_archived, rank_score")
+        .select("*")
         .eq("project_id", projectId)
-        .eq("is_archived", false);
-      if (scErr) throw scErr;
-      if (!allScenarios || allScenarios.length === 0) {
-        return json({ error: "No scenarios to recommend from" }, 400);
+        .eq("is_archived", false)
+        .order("created_at", { ascending: true });
+
+      if (sErr) throw sErr;
+      const list = scenarios || [];
+      if (list.length === 0) {
+        return json({ error: "No scenarios found for project" }, 200);
       }
 
-      // 2) Determine baseline
-      const baselineScenarioId = body.baselineScenarioId;
-      const baselineScenario = baselineScenarioId
-        ? allScenarios.find((s: any) => s.id === baselineScenarioId)
-        : allScenarios.find((s: any) => s.scenario_type === "baseline");
-      const baselineCS = baselineScenario
-        ? (baselineScenario.computed_state as unknown as CascadedState | null)
-        : null;
+      // 2) Baseline
+      const baseline =
+        (baselineScenarioId ? list.find((s: any) => s.id === baselineScenarioId) : null) ||
+        list.find((s: any) => s.scenario_type === "baseline") ||
+        null;
 
-      // 3) For each scenario, compute metrics + subscores
-      interface ScenarioScore {
-        scenarioId: string;
-        metrics: Record<string, unknown>;
-        scores: Record<string, number>;
-        composite: number;
-      }
-      const scored: ScenarioScore[] = [];
-
-      for (const sc of allScenarios) {
-        const cs = sc.computed_state as unknown as CascadedState | null;
-        if (!cs?.creative_state) continue;
-
-        // Try to get latest projection
-        const { data: proj } = await supabase
+      // helper: get latest projection
+      async function latestProjection(scenarioId: string) {
+        const { data, error } = await supabase
           .from("scenario_projections")
-          .select("assumptions, projection_risk_score, summary, series")
+          .select("*")
           .eq("project_id", projectId)
-          .eq("scenario_id", sc.id)
+          .eq("scenario_id", scenarioId)
           .order("created_at", { ascending: false })
           .limit(1)
           .maybeSingle();
+        if (error) throw error;
+        return data;
+      }
 
-        // Extract metrics from projection or fall back to state
-        const projAssumptions = proj?.assumptions as Record<string, number> | null;
-        const budget = cs.finance_state.budget_estimate;
-        const confidence = cs.revenue_state.confidence_score;
-        const roiBands = cs.revenue_state.roi_probability_bands;
-        const irr: number | null = roiBands ? Math.round((roiBands.mid - roiBands.low) / Math.max(1, roiBands.high - roiBands.low) * 100) / 100 : null;
-        const npv: number | null = budget ? Math.round(budget * (roiBands?.mid ?? 50) / 100) : null;
-        const paybackMonths: number | null = budget && confidence > 0 ? Math.round(budget / (confidence * 1000) * 12) : null;
-        const scheduleMonths: number | null = cs.production_state.estimated_shoot_days
-          ? Math.round(cs.production_state.estimated_shoot_days / 5 * 10) / 10
-          : null;
+      // helper: drift counts
+      async function driftCounts(scenarioId: string) {
+        const { data, error } = await supabase
+          .from("drift_alerts")
+          .select("severity")
+          .eq("project_id", projectId)
+          .eq("scenario_id", scenarioId)
+          .eq("acknowledged", false);
 
-        const metrics: Record<string, unknown> = {
+        if (error) throw error;
+        const items = data || [];
+        const critical = items.filter((x: any) => x.severity === "critical").length;
+        const warning = items.filter((x: any) => x.severity === "warning").length;
+        const info = items.filter((x: any) => x.severity === "info").length;
+        return { critical, warning, info, total: items.length };
+      }
+
+      // helper: clamp
+      const clamp = (n: number, a = 0, b = 100) => Math.max(a, Math.min(b, n));
+      const round = (n: number) => Math.round(n);
+
+      // helper: extract metrics (deterministic; uses projection first)
+      function extractMetrics(s: any, proj: any) {
+        const assumptions = proj?.assumptions || null;
+
+        const irr =
+          proj?.metrics?.irr ??
+          proj?.summary_metrics?.irr ??
+          proj?.summary?.irr ??
+          s?.computed_state?.revenue_state?.irr ??
+          null;
+
+        const npv =
+          proj?.metrics?.npv ??
+          proj?.summary_metrics?.npv ??
+          proj?.summary?.npv ??
+          s?.computed_state?.revenue_state?.npv ??
+          null;
+
+        const payback_months =
+          proj?.metrics?.payback_months ??
+          proj?.summary_metrics?.payback_months ??
+          proj?.summary?.payback_months ??
+          null;
+
+        const schedule_months =
+          proj?.metrics?.schedule_months ??
+          proj?.summary_metrics?.schedule_months ??
+          s?.computed_state?.production_state?.estimated_shoot_days
+            ? Math.round(Number(s.computed_state.production_state.estimated_shoot_days) / 30)
+            : null;
+
+        const budget =
+          proj?.metrics?.budget ??
+          proj?.summary_metrics?.budget ??
+          s?.computed_state?.finance_state?.budget_estimate ??
+          null;
+
+        const inflation_rate = assumptions?.inflation_rate ?? null;
+        const schedule_slip_risk = assumptions?.schedule_slip_risk ?? null;
+        const platform_appetite_decay = assumptions?.platform_appetite_decay ?? null;
+
+        return {
           irr,
           npv,
-          payback_months: paybackMonths,
-          schedule_months: scheduleMonths,
+          payback_months,
+          schedule_months,
           budget,
-          inflation_rate: projAssumptions?.inflation_rate ?? null,
-          schedule_slip_risk: projAssumptions?.schedule_slip_risk ?? null,
-          platform_appetite_decay: projAssumptions?.platform_appetite_decay ?? null,
+          inflation_rate,
+          schedule_slip_risk,
+          platform_appetite_decay,
           has_projection: !!proj,
-          rank_score: sc.rank_score,
         };
-
-        // Compute subscores (0-100)
-        const roiScore = irr != null ? Math.min(100, Math.max(0, irr * 100 + 50)) : (npv != null ? Math.min(100, Math.max(0, npv / 1000000 * 10 + 50)) : 50);
-        const slipRisk = projAssumptions?.schedule_slip_risk ?? cs.production_state.schedule_compression_risk / 10;
-        const driftSens = cs.finance_state.drift_sensitivity;
-        const riskScore = Math.min(100, Math.max(0, 100 - (slipRisk * 50 + driftSens * 5)));
-        const timelineScore = paybackMonths != null && scheduleMonths != null
-          ? Math.min(100, Math.max(0, 100 - (paybackMonths * 2 + scheduleMonths * 3)))
-          : 50;
-        const appetiteDecay = projAssumptions?.platform_appetite_decay ?? 0.05;
-        const appetiteScore = Math.min(100, Math.max(0, 100 - appetiteDecay * 500));
-
-        const composite = Math.round(roiScore * 0.4 + riskScore * 0.3 + timelineScore * 0.2 + appetiteScore * 0.1);
-
-        scored.push({
-          scenarioId: sc.id,
-          metrics,
-          scores: { roi: Math.round(roiScore), risk: Math.round(riskScore), timeline: Math.round(timelineScore), appetite: Math.round(appetiteScore), composite },
-          composite,
-        });
       }
 
-      if (scored.length === 0) {
-        return json({ error: "No scoreable scenarios" }, 400);
+      // scoring (0..100) — deterministic
+      function scoreScenario(m: any, drift: any) {
+        let roi = 50;
+        if (typeof m.irr === "number") roi = clamp(50 + m.irr * 5);
+        else if (typeof m.npv === "number") roi = clamp(50 + (m.npv / 1_000_000) * 5);
+
+        let risk = 60;
+        if (typeof m.schedule_slip_risk === "number") risk = clamp(100 - m.schedule_slip_risk * 100);
+        risk = clamp(risk - drift.warning * 4 - drift.critical * 12);
+
+        let timeline = 50;
+        if (typeof m.payback_months === "number") timeline = clamp(100 - m.payback_months * 3);
+        if (typeof m.schedule_months === "number") timeline = clamp((timeline + (100 - m.schedule_months * 4)) / 2);
+
+        let appetite = 50;
+        if (typeof m.platform_appetite_decay === "number") appetite = clamp(100 - m.platform_appetite_decay * 500);
+
+        const composite = round(roi * 0.4 + risk * 0.3 + timeline * 0.2 + appetite * 0.1);
+
+        return { roi, risk, timeline, appetite, composite };
       }
 
-      // 6) Pick winner
-      scored.sort((a, b) => b.composite - a.composite);
+      // 3) Score all scenarios
+      const scored: any[] = [];
+      for (const s of list) {
+        const proj = await latestProjection(s.id);
+        const drift = await driftCounts(s.id);
+        const metrics = extractMetrics(s, proj);
+        const scores = scoreScenario(metrics, drift);
+
+        scored.push({ scenarioId: s.id, scenario: s, projection: proj, drift, metrics, scores });
+      }
+
+      // 4) Pick winner (max composite)
+      scored.sort((a, b) => (b.scores.composite ?? 0) - (a.scores.composite ?? 0));
       const winner = scored[0];
-      const winnerScenario = allScenarios.find((s: any) => s.id === winner.scenarioId);
 
       // 5) Confidence
       let confidence = 60;
-      if (!baselineCS) confidence -= 10;
-      if (winner.metrics.irr == null && winner.metrics.npv == null) confidence -= 10;
-      if (winner.metrics.has_projection) confidence += 5;
+      if (!baseline) confidence -= 10;
+      if (winner && !winner.metrics.has_projection) confidence -= 10;
+      if (winner && winner.drift.critical > 0) confidence -= 20;
+      confidence = clamp(confidence);
 
-      // Check drift alerts for winner
-      const { data: driftAlerts } = await supabase
-        .from("drift_alerts")
-        .select("severity")
-        .eq("project_id", projectId)
-        .eq("scenario_id", winner.scenarioId)
-        .eq("acknowledged", false);
-
-      if (driftAlerts && driftAlerts.length > 0) {
-        const critCount = driftAlerts.filter((a: any) => a.severity === "critical").length;
-        const warnCount = driftAlerts.filter((a: any) => a.severity === "warning").length;
-        confidence -= Math.min(20, critCount * 10 + warnCount * 5);
-      }
-      confidence = Math.max(0, Math.min(100, confidence));
-
-      // 7) Reasons + tradeoffs
+      // 6) Reasons/tradeoffs vs baseline
       const reasons: string[] = [];
-      const tradeoffs: Record<string, number> = {};
+      const riskFlags: string[] = [];
 
-      if (baselineCS) {
-        const baseScored = scored.find(s => s.scenarioId === baselineScenario!.id);
-        if (baseScored) {
-          const wm = winner.metrics as Record<string, any>;
-          const bm = baseScored.metrics as Record<string, any>;
-          if (wm.irr != null && bm.irr != null && Math.abs(wm.irr - bm.irr) > 0.01) {
-            reasons.push(`IRR ${wm.irr > bm.irr ? "+" : ""}${((wm.irr - bm.irr) * 100).toFixed(0)} pts vs baseline`);
-          }
-          if (wm.npv != null && bm.npv != null && Math.abs(wm.npv - bm.npv) > 10000) {
-            reasons.push(`NPV ${wm.npv > bm.npv ? "+" : ""}$${Math.round((wm.npv - bm.npv) / 1000)}k vs baseline`);
-          }
-          if (wm.payback_months != null && bm.payback_months != null && Math.abs(wm.payback_months - bm.payback_months) > 0.5) {
-            reasons.push(`Payback ${wm.payback_months < bm.payback_months ? "-" : "+"}${Math.abs(Math.round(wm.payback_months - bm.payback_months))} months vs baseline`);
-          }
-          if (wm.schedule_months != null && bm.schedule_months != null && Math.abs(wm.schedule_months - bm.schedule_months) > 0.5) {
-            reasons.push(`Schedule ${wm.schedule_months < bm.schedule_months ? "-" : "+"}${Math.abs(Math.round((wm.schedule_months - bm.schedule_months) * 10) / 10)} months vs baseline`);
-          }
-          if (wm.budget != null && bm.budget != null) {
-            tradeoffs.budget_delta = wm.budget - bm.budget;
-          }
-          if (wm.schedule_months != null && bm.schedule_months != null) {
-            tradeoffs.schedule_delta = Math.round((wm.schedule_months - bm.schedule_months) * 10) / 10;
-          }
-          tradeoffs.risk_delta = Math.round(winner.scores.risk - baseScored.scores.risk);
-          tradeoffs.appetite_delta = Math.round(winner.scores.appetite - baseScored.scores.appetite);
+      const baseRow = baseline ? scored.find((x: any) => x.scenarioId === baseline.id) : null;
+
+      function pushDelta(label: string, delta: number, unit = "", minAbs = 0.01) {
+        if (!Number.isFinite(delta)) return;
+        if (Math.abs(delta) < minAbs) return;
+        const sign = delta > 0 ? "+" : "";
+        reasons.push(`${label} ${sign}${delta}${unit} vs baseline`);
+      }
+
+      if (baseRow) {
+        if (typeof winner.metrics.irr === "number" && typeof baseRow.metrics.irr === "number") {
+          pushDelta("IRR", round((winner.metrics.irr - baseRow.metrics.irr) * 10) / 10, " pts", 0.1);
+        }
+        if (typeof winner.metrics.payback_months === "number" && typeof baseRow.metrics.payback_months === "number") {
+          pushDelta("Payback", round(baseRow.metrics.payback_months - winner.metrics.payback_months), " months", 1);
+        }
+        if (typeof winner.metrics.schedule_months === "number" && typeof baseRow.metrics.schedule_months === "number") {
+          pushDelta("Schedule", round(baseRow.metrics.schedule_months - winner.metrics.schedule_months), " months", 1);
+        }
+        if (typeof winner.metrics.schedule_slip_risk === "number" && typeof baseRow.metrics.schedule_slip_risk === "number") {
+          pushDelta("Slip risk", round((baseRow.metrics.schedule_slip_risk - winner.metrics.schedule_slip_risk) * 100), "%", 1);
         }
       }
-      if (reasons.length === 0) {
-        reasons.push(`Highest composite score: ${winner.composite}/100`);
-      }
 
-      // Risk flags
-      const riskFlags: string[] = [];
-      if (driftAlerts && driftAlerts.some((a: any) => a.severity === "critical")) {
-        riskFlags.push("HIGH_DRIFT");
-      }
-      if (!winner.metrics.has_projection) {
-        riskFlags.push("MISSING_PROJECTION");
-      }
-      const wDecay = winner.metrics.platform_appetite_decay as number | null;
-      if (wDecay != null && wDecay > 0.10) {
+      if (!winner.metrics.has_projection) riskFlags.push("MISSING_PROJECTION");
+      if (winner.drift.critical > 0) riskFlags.push("HIGH_DRIFT");
+      if (typeof winner.metrics.platform_appetite_decay === "number" && winner.metrics.platform_appetite_decay > 0.1) {
         riskFlags.push("HIGH_APPETITE_DECAY");
       }
 
-      // 8) Upsert scenario_scores for all
-      for (const s of scored) {
-        await supabase
-          .from("scenario_scores")
-          .upsert({
-            project_id: projectId,
-            scenario_id: s.scenarioId,
-            metrics: s.metrics,
-            scores: s.scores,
-            as_of: new Date().toISOString(),
-          }, { onConflict: "project_id,scenario_id" });
-      }
+      const tradeoffs: Record<string, number | null> = {
+        budget_delta: baseRow && typeof winner.metrics.budget === "number" && typeof baseRow.metrics.budget === "number"
+          ? winner.metrics.budget - baseRow.metrics.budget
+          : null,
+        composite_delta: baseRow ? winner.scores.composite - baseRow.scores.composite : null,
+        drift_total: winner.drift.total,
+      };
 
-      // 9) Insert recommendation
-      await supabase
-        .from("scenario_recommendations")
-        .insert({
-          project_id: projectId,
-          recommended_scenario_id: winner.scenarioId,
-          confidence,
-          reasons,
-          tradeoffs,
-          risk_flags: riskFlags,
-        });
+      // 7) Upsert scenario_scores for all scenarios
+      const upserts = scored.map((x: any) => ({
+        project_id: projectId,
+        scenario_id: x.scenarioId,
+        as_of: new Date().toISOString(),
+        metrics: x.metrics,
+        scores: x.scores,
+        notes: `roi=${x.scores.roi} risk=${x.scores.risk} timeline=${x.scores.timeline} appetite=${x.scores.appetite}`,
+      }));
 
-      // 10) Return
+      const { error: upErr } = await supabase.from("scenario_scores").upsert(upserts, {
+        onConflict: "project_id,scenario_id",
+      });
+      if (upErr) throw upErr;
+
+      // 8) Insert scenario_recommendations row
+      const { error: recErr } = await supabase.from("scenario_recommendations").insert({
+        project_id: projectId,
+        recommended_scenario_id: winner.scenarioId,
+        confidence,
+        reasons,
+        tradeoffs,
+        risk_flags: riskFlags,
+      });
+      if (recErr) throw recErr;
+
       return json({
         recommendedScenarioId: winner.scenarioId,
-        recommendedScenarioName: winnerScenario?.name ?? null,
         confidence,
-        scoresByScenario: scored.map(s => ({
-          scenarioId: s.scenarioId,
-          scores: s.scores,
-          metrics: s.metrics,
-        })),
         reasons,
         tradeoffs,
         riskFlags,
+        scoresByScenario: scored.map((x: any) => ({
+          scenarioId: x.scenarioId,
+          scores: x.scores,
+          metrics: x.metrics,
+        })),
       });
     }
 
