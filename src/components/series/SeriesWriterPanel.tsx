@@ -23,10 +23,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Card, CardContent } from '@/components/ui/card';
 import { InfoTooltip } from '@/components/InfoTooltip';
 import { useSeriesWriter, type SeriesEpisode, type SeriesProgress } from '@/hooks/useSeriesWriter';
+import { useEpisodeHandoff } from '@/hooks/useEpisodeHandoff';
 import { SeasonHealthDashboard } from '@/components/series/SeasonHealthDashboard';
 import { SeriesRunControlBar } from '@/components/series/SeriesRunControlBar';
-import { Trash2, Undo2, RefreshCw } from 'lucide-react';
+import { EscalateToDevEngineModal } from '@/components/series/EscalateToDevEngineModal';
+import { Trash2, Undo2, RefreshCw, FlaskConical, ArrowLeftRight } from 'lucide-react';
 import { Input } from '@/components/ui/input';
+import { useNavigate } from 'react-router-dom';
 
 interface Props {
   projectId: string;
@@ -39,6 +42,7 @@ const STATUS_STYLES: Record<string, { icon: typeof Circle; color: string; label:
   needs_revision: { icon: AlertTriangle, color: 'text-orange-400', label: 'Needs Revision' },
   error: { icon: AlertTriangle, color: 'text-red-400', label: 'Error' },
   invalidated: { icon: XCircle, color: 'text-red-400', label: 'Invalidated' },
+  in_dev_engine: { icon: FlaskConical, color: 'text-blue-400', label: 'In Dev Engine' },
 };
 
 const PHASE_LABELS: Record<string, string> = {
@@ -207,15 +211,22 @@ interface EpisodeCardProps {
   onRead: () => void;
   onDelete: () => void;
   onReset: () => void;
+  onSendToDevEngine?: () => void;
+  onOpenInDevEngine?: () => void;
+  onCancelHandoff?: () => void;
   isResetting?: boolean;
+  isInDevEngine?: boolean;
+  isReturned?: boolean;
 }
 
-function EpisodeCard({ episode, isActive, isGenerating, disabled, validation, onGenerate, onRead, onDelete, onReset, isResetting }: EpisodeCardProps) {
-  const style = STATUS_STYLES[episode.status] || STATUS_STYLES.pending;
+function EpisodeCard({ episode, isActive, isGenerating, disabled, validation, onGenerate, onRead, onDelete, onReset, onSendToDevEngine, onOpenInDevEngine, onCancelHandoff, isResetting, isInDevEngine, isReturned }: EpisodeCardProps) {
+  const effectiveStatus = isInDevEngine ? 'in_dev_engine' : episode.status;
+  const style = STATUS_STYLES[effectiveStatus] || STATUS_STYLES.pending;
   const Icon = style.icon;
   const phase = (episode.generation_progress as any)?.phase;
 
   const statusBadgeClass =
+    isInDevEngine ? 'border-blue-500/30 text-blue-400' :
     episode.status === 'complete' ? 'border-emerald-500/30 text-emerald-400' :
     episode.status === 'needs_revision' ? 'border-orange-500/30 text-orange-400' :
     episode.status === 'error' || episode.status === 'invalidated' ? 'border-red-500/30 text-red-400' :
@@ -264,8 +275,41 @@ function EpisodeCard({ episode, isActive, isGenerating, disabled, validation, on
 
       {/* Bottom row: action buttons */}
       <div className="flex items-center gap-1.5 px-3 pb-2 flex-wrap">
+        {/* In Dev Engine state — show Open and Cancel */}
+        {isInDevEngine && (
+          <>
+            {onOpenInDevEngine && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 px-2.5 text-xs gap-1 border-blue-500/30 text-blue-400 hover:bg-blue-500/10"
+                onClick={onOpenInDevEngine}
+              >
+                <FlaskConical className="h-3 w-3" /> Open in Dev Engine
+              </Button>
+            )}
+            {onCancelHandoff && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs gap-1 text-muted-foreground hover:text-foreground"
+                onClick={onCancelHandoff}
+              >
+                <XCircle className="h-3 w-3" /> Cancel Handoff
+              </Button>
+            )}
+          </>
+        )}
+
+        {/* Returned badge */}
+        {isReturned && !isInDevEngine && (
+          <Badge variant="outline" className="text-[9px] border-blue-500/30 text-blue-400 bg-blue-500/10">
+            <ArrowLeftRight className="h-2.5 w-2.5 mr-0.5" /> Updated in Dev Engine
+          </Badge>
+        )}
+
         {/* Stop & Reset — for stuck/stalled generating episodes */}
-        {episode.status === 'generating' && (
+        {!isInDevEngine && episode.status === 'generating' && (
           <Button
             variant="outline"
             size="sm"
@@ -281,18 +325,31 @@ function EpisodeCard({ episode, isActive, isGenerating, disabled, validation, on
           </Button>
         )}
 
-        {(episode.status === 'complete' || episode.status === 'needs_revision') && episode.script_id && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 px-2 text-xs gap-1 text-emerald-400 hover:text-emerald-300"
-            onClick={onRead}
-          >
-            <BookOpen className="h-3 w-3" /> Read
-          </Button>
+        {!isInDevEngine && (episode.status === 'complete' || episode.status === 'needs_revision') && episode.script_id && (
+          <>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs gap-1 text-emerald-400 hover:text-emerald-300"
+              onClick={onRead}
+            >
+              <BookOpen className="h-3 w-3" /> Read
+            </Button>
+            {onSendToDevEngine && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs gap-1 text-blue-400 hover:text-blue-300"
+                onClick={onSendToDevEngine}
+                title="Send to Dev Engine for rewriting/testing"
+              >
+                <FlaskConical className="h-3 w-3" /> Dev Engine
+              </Button>
+            )}
+          </>
         )}
 
-        {(episode.status === 'pending' || episode.status === 'invalidated') && !disabled && (
+        {!isInDevEngine && (episode.status === 'pending' || episode.status === 'invalidated') && !disabled && (
           <Button
             variant="outline"
             size="sm"
@@ -304,7 +361,7 @@ function EpisodeCard({ episode, isActive, isGenerating, disabled, validation, on
           </Button>
         )}
 
-        {(episode.status === 'error' || episode.status === 'needs_revision') && (
+        {!isInDevEngine && (episode.status === 'error' || episode.status === 'needs_revision') && (
           <Button
             variant="outline"
             size="sm"
@@ -316,7 +373,7 @@ function EpisodeCard({ episode, isActive, isGenerating, disabled, validation, on
           </Button>
         )}
 
-        {!isGenerating && episode.status !== 'generating' && (
+        {!isInDevEngine && !isGenerating && episode.status !== 'generating' && (
           <Button
             variant="ghost"
             size="sm"
@@ -391,6 +448,7 @@ function ScriptReaderDialog({
 }
 
 export function SeriesWriterPanel({ projectId }: Props) {
+  const navigate = useNavigate();
   const {
     episodes, allEpisodes, deletedEpisodes, showDeleted, setShowDeleted,
     isLoading, canonSnapshot, canonLoading,
@@ -403,6 +461,8 @@ export function SeriesWriterPanel({ projectId }: Props) {
     pauseGeneration, resumeGeneration, stopGeneration,
   } = useSeriesWriter(projectId);
 
+  const { handoffs, getActiveHandoff, sendToDevEngine, cancelHandoff } = useEpisodeHandoff(projectId);
+
   const [episodeCount, setEpisodeCount] = useState('10');
   const [readerEpisode, setReaderEpisode] = useState<SeriesEpisode | null>(null);
   const [readerOpen, setReaderOpen] = useState(false);
@@ -412,6 +472,7 @@ export function SeriesWriterPanel({ projectId }: Props) {
   const [autoRunConfirmOpen, setAutoRunConfirmOpen] = useState(false);
   const [deleteConfirmEp, setDeleteConfirmEp] = useState<SeriesEpisode | null>(null);
   const [hardDeleteConfirmText, setHardDeleteConfirmText] = useState('');
+  const [escalateEp, setEscalateEp] = useState<SeriesEpisode | null>(null);
 
   const hasEpisodes = episodes.length > 0;
   const canGenerate = isCanonValid && !isGenerating;
@@ -665,19 +726,33 @@ export function SeriesWriterPanel({ projectId }: Props) {
               const prevComplete = activeIdx === 0 || activeEpisodes[activeIdx - 1]?.status === 'complete';
               const isNextPending = prevComplete && (ep.status === 'pending' || ep.status === 'error' || ep.status === 'invalidated' || ep.status === 'needs_revision');
               const epValidation = validations.find(v => v.episode_id === ep.id);
+              const activeHandoff = getActiveHandoff(ep.id);
+              const isEpInDevEngine = ep.handoff_status === 'in_dev_engine' || !!activeHandoff;
+              const isEpReturned = ep.handoff_status === 'returned';
               return (
                 <EpisodeCard
                   key={ep.id}
                   episode={ep}
                   isActive={isGenerating && progress.currentEpisode === ep.episode_number}
                   isGenerating={isGenerating}
-                  disabled={!isNextPending || !isCanonValid}
+                  disabled={!isNextPending || !isCanonValid || isEpInDevEngine}
                   validation={epValidation}
                   onGenerate={() => generateOne(ep)}
                   onRead={() => { setReaderEpisode(ep); setReaderOpen(true); }}
                   onDelete={() => setDeleteConfirmEp(ep)}
                   onReset={() => resetStuckEpisode.mutate(ep.id)}
                   isResetting={resetStuckEpisode.isPending && resetStuckEpisode.variables === ep.id}
+                  isInDevEngine={isEpInDevEngine}
+                  isReturned={isEpReturned}
+                  onSendToDevEngine={() => setEscalateEp(ep)}
+                  onOpenInDevEngine={() => {
+                    if (activeHandoff?.dev_engine_doc_id) {
+                      navigate(`/projects/${projectId}/develop?doc=${activeHandoff.dev_engine_doc_id}`);
+                    }
+                  }}
+                  onCancelHandoff={() => {
+                    if (activeHandoff) cancelHandoff.mutate(activeHandoff.id);
+                  }}
                 />
               );
             })}
@@ -784,6 +859,35 @@ export function SeriesWriterPanel({ projectId }: Props) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Escalate to Dev Engine Modal */}
+      {escalateEp && (
+        <EscalateToDevEngineModal
+          open={!!escalateEp}
+          onOpenChange={(v) => { if (!v) setEscalateEp(null); }}
+          episodeNumber={escalateEp.episode_number}
+          episodeTitle={escalateEp.title || `Episode ${escalateEp.episode_number}`}
+          onSubmit={(data) => {
+            sendToDevEngine.mutate({
+              episodeId: escalateEp.id,
+              episodeNumber: escalateEp.episode_number,
+              scriptId: escalateEp.script_id,
+              issueTitle: data.issueTitle,
+              issueDescription: data.issueDescription,
+              desiredOutcome: data.desiredOutcome,
+              contextDocKeys: data.contextDocKeys,
+            }, {
+              onSuccess: (result) => {
+                setEscalateEp(null);
+                if (result?.docId) {
+                  navigate(`/projects/${projectId}/develop?doc=${result.docId}`);
+                }
+              },
+            });
+          }}
+          isSubmitting={sendToDevEngine.isPending}
+        />
+      )}
     </div>
   );
 }
