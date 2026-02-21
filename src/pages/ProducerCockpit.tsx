@@ -17,6 +17,7 @@ import { InvestorModePanel } from '@/components/cockpit/InvestorModePanel';
 import { ScenarioComparisonPanel } from '@/components/cockpit/ScenarioComparisonPanel';
 import { DecisionLogPanel } from '@/components/cockpit/DecisionLogPanel';
 import { ScenarioDiffMergePanel } from '@/components/cockpit/ScenarioDiffMergePanel';
+import { ScenarioLockControls } from '@/components/cockpit/ScenarioLockControls';
 
 import { ArrowLeft, Gauge } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -45,6 +46,7 @@ export default function ProducerCockpit() {
     runStressTest,
     branchFromDecisionEvent,
     mergeScenarioOverrides,
+    setScenarioLock,
     latestStressTest,
     baseline,
     activeScenario,
@@ -140,6 +142,14 @@ export default function ProducerCockpit() {
             activeScenarioId={activeScenario?.id ?? null}
             onMerge={(params) => mergeScenarioOverrides.mutate(params)}
             isMerging={mergeScenarioOverrides.isPending}
+          />
+
+          <ScenarioLockControls
+            projectId={projectId}
+            scenarios={scenarios}
+            activeScenarioId={activeScenario?.id ?? null}
+            onSetLock={(params) => setScenarioLock.mutate(params)}
+            isSaving={setScenarioLock.isPending}
           />
 
           <ActiveScenarioBanner

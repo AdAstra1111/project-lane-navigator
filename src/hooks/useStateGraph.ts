@@ -99,6 +99,10 @@ export interface ProjectScenario {
   rank_breakdown: any;
   ranked_at: string | null;
   is_recommended: boolean;
+  is_locked: boolean;
+  protected_paths: string[];
+  locked_at: string | null;
+  locked_by: string | null;
 }
 
 export interface DriftAlert {
@@ -518,7 +522,7 @@ export function useStateGraph(projectId: string | undefined) {
 
   // Phase 4.9: Merge scenario overrides
   const mergeScenarioOverrides = useMutation({
-    mutationFn: async (params: { sourceScenarioId: string; targetScenarioId: string; paths?: string[]; strategy?: string }) => {
+    mutationFn: async (params: { sourceScenarioId: string; targetScenarioId: string; paths?: string[]; strategy?: string; force?: boolean }) => {
       const { data, error } = await supabase.functions.invoke('simulation-engine', {
         body: { action: 'merge_scenario_overrides', projectId, ...params },
       });
@@ -531,6 +535,22 @@ export function useStateGraph(projectId: string | undefined) {
       toast.success('Scenario overrides merged');
     },
     onError: (e: any) => toast.error(e.message),
+  });
+
+  // Phase 5.0: Set scenario lock
+  const setScenarioLock = useMutation({
+    mutationFn: async (params: { scenarioId: string; isLocked: boolean; protectedPaths?: string[] }) => {
+      const { data, error } = await supabase.functions.invoke('simulation-engine', {
+        body: { action: 'set_scenario_lock', projectId, ...params },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      return data;
+    },
+    onSuccess: () => {
+      invalidateAll();
+      toast.success('Scenario lock updated');
+    },
   });
 
   // Phase 4.1: recompute recommendation
@@ -589,6 +609,7 @@ export function useStateGraph(projectId: string | undefined) {
     branchFromDecisionEvent,
     diffScenarios,
     mergeScenarioOverrides,
+    setScenarioLock,
     baseline,
     activeScenario,
     recommendedScenario: validRecommended,
