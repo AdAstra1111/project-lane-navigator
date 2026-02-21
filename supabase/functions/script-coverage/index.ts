@@ -1148,7 +1148,7 @@ Each note: {"note_id":"N-001","section":"string","category":"${formatNoteCategor
         model: FAST_MODEL,
         project_type: formatLabel,
         lane: lane || null,
-        inputs: { chunk_size: MAX_SCRIPT_CHARS, temperature: [0.2, 0.3] },
+        inputs: { chunk_size: DEFAULT_SCRIPT_CHARS, temperature: [0.2, 0.3] },
         pass_a: passAResult,
         pass_b: passBResult,
         pass_c: "",
