@@ -1,10 +1,11 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
-import { History, ChevronDown } from 'lucide-react';
+import { History, ChevronDown, Play, Zap, GitBranch, Target } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import type { ProjectScenario } from '@/hooks/useStateGraph';
+import type { ProjectScenario, ProjectionAssumptions } from '@/hooks/useStateGraph';
 
 interface DecisionEvent {
   id: string;
@@ -20,6 +21,14 @@ interface DecisionEvent {
 interface Props {
   projectId: string;
   scenarios: ProjectScenario[];
+  onSetActive: (scenarioId: string) => void;
+  isSettingActive: boolean;
+  onRunProjection: (params: { scenarioId?: string; months?: number; assumptions?: ProjectionAssumptions }) => void;
+  isProjecting: boolean;
+  onRunStressTest: (params: { scenarioId: string; months?: number }) => void;
+  isRunningStress: boolean;
+  onBranchFromEvent: (eventId: string) => void;
+  isBranching: boolean;
 }
 
 const EVENT_LABELS: Record<string, string> = {
@@ -27,6 +36,7 @@ const EVENT_LABELS: Record<string, string> = {
   active_scenario_changed: 'Active Changed',
   projection_completed: 'Projection',
   stress_test_completed: 'Stress Test',
+  branch_created: 'Branch Created',
 };
 
 const EVENT_VARIANTS: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
@@ -34,6 +44,7 @@ const EVENT_VARIANTS: Record<string, 'default' | 'secondary' | 'destructive' | '
   active_scenario_changed: 'secondary',
   projection_completed: 'outline',
   stress_test_completed: 'outline',
+  branch_created: 'secondary',
 };
 
 function scenarioName(id: string | null, scenarios: ProjectScenario[]): string {
@@ -49,7 +60,18 @@ function formatTime(iso: string): string {
   });
 }
 
-export function DecisionLogPanel({ projectId, scenarios }: Props) {
+export function DecisionLogPanel({
+  projectId,
+  scenarios,
+  onSetActive,
+  isSettingActive,
+  onRunProjection,
+  isProjecting,
+  onRunStressTest,
+  isRunningStress,
+  onBranchFromEvent,
+  isBranching,
+}: Props) {
   const { data: events = [], isLoading } = useQuery({
     queryKey: ['decision-events', projectId],
     queryFn: async () => {
@@ -64,6 +86,12 @@ export function DecisionLogPanel({ projectId, scenarios }: Props) {
     },
     enabled: !!projectId,
   });
+
+  const handleBranch = (eventId: string) => {
+    if (confirm('Create a new scenario branch from this recommendation snapshot?')) {
+      onBranchFromEvent(eventId);
+    }
+  };
 
   return (
     <Card className="border-border/40">
@@ -114,6 +142,21 @@ export function DecisionLogPanel({ projectId, scenarios }: Props) {
                 </div>
               )}
 
+              {/* Action buttons */}
+              <div className="px-3 pb-2 flex flex-wrap gap-1.5">
+                <EventActions
+                  ev={ev}
+                  onSetActive={onSetActive}
+                  isSettingActive={isSettingActive}
+                  onRunProjection={onRunProjection}
+                  isProjecting={isProjecting}
+                  onRunStressTest={onRunStressTest}
+                  isRunningStress={isRunningStress}
+                  onBranch={handleBranch}
+                  isBranching={isBranching}
+                />
+              </div>
+
               <CollapsibleContent>
                 <div className="px-3 pb-2 pt-1 border-t border-border/20">
                   <pre className="text-[10px] text-muted-foreground whitespace-pre-wrap break-all max-h-40 overflow-auto">
@@ -127,4 +170,75 @@ export function DecisionLogPanel({ projectId, scenarios }: Props) {
       </CardContent>
     </Card>
   );
+}
+
+function EventActions({
+  ev,
+  onSetActive,
+  isSettingActive,
+  onRunProjection,
+  isProjecting,
+  onRunStressTest,
+  isRunningStress,
+  onBranch,
+  isBranching,
+}: {
+  ev: DecisionEvent;
+  onSetActive: (id: string) => void;
+  isSettingActive: boolean;
+  onRunProjection: (params: { scenarioId?: string; months?: number }) => void;
+  isProjecting: boolean;
+  onRunStressTest: (params: { scenarioId: string; months?: number }) => void;
+  isRunningStress: boolean;
+  onBranch: (eventId: string) => void;
+  isBranching: boolean;
+}) {
+  const sid = ev.scenario_id;
+  if (!sid && ev.event_type !== 'recommendation_computed') return null;
+
+  const btnClass = "h-6 px-2 text-[10px]";
+
+  switch (ev.event_type) {
+    case 'recommendation_computed':
+      return (
+        <>
+          {sid && (
+            <>
+              <Button variant="outline" size="sm" className={btnClass} disabled={isSettingActive} onClick={() => onSetActive(sid)}>
+                <Target className="h-3 w-3 mr-1" />Set Active
+              </Button>
+              <Button variant="outline" size="sm" className={btnClass} disabled={isProjecting} onClick={() => onRunProjection({ scenarioId: sid, months: 12 })}>
+                <Play className="h-3 w-3 mr-1" />Project
+              </Button>
+              <Button variant="outline" size="sm" className={btnClass} disabled={isRunningStress} onClick={() => onRunStressTest({ scenarioId: sid, months: 12 })}>
+                <Zap className="h-3 w-3 mr-1" />Stress
+              </Button>
+            </>
+          )}
+          <Button variant="outline" size="sm" className={btnClass} disabled={isBranching} onClick={() => onBranch(ev.id)}>
+            <GitBranch className="h-3 w-3 mr-1" />Branch
+          </Button>
+        </>
+      );
+    case 'active_scenario_changed':
+      return sid ? (
+        <Button variant="outline" size="sm" className={btnClass} disabled={isSettingActive} onClick={() => onSetActive(sid)}>
+          <Target className="h-3 w-3 mr-1" />Set Active
+        </Button>
+      ) : null;
+    case 'projection_completed':
+      return sid ? (
+        <Button variant="outline" size="sm" className={btnClass} disabled={isProjecting} onClick={() => onRunProjection({ scenarioId: sid, months: 12 })}>
+          <Play className="h-3 w-3 mr-1" />Project Again
+        </Button>
+      ) : null;
+    case 'stress_test_completed':
+      return sid ? (
+        <Button variant="outline" size="sm" className={btnClass} disabled={isRunningStress} onClick={() => onRunStressTest({ scenarioId: sid, months: 12 })}>
+          <Zap className="h-3 w-3 mr-1" />Stress Again
+        </Button>
+      ) : null;
+    default:
+      return null;
+  }
 }

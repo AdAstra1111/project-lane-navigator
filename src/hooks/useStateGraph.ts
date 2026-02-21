@@ -487,6 +487,22 @@ export function useStateGraph(projectId: string | undefined) {
     onError: (e: any) => toast.error(e.message),
   });
 
+  // Phase 4.8: Branch from decision event
+  const branchFromDecisionEvent = useMutation({
+    mutationFn: async (params: { eventId: string; nameOverride?: string }) => {
+      const { data, error } = await supabase.functions.invoke('simulation-engine', {
+        body: { action: 'branch_from_decision_event', projectId, eventId: params.eventId, nameOverride: params.nameOverride },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      return data;
+    },
+    onSuccess: () => {
+      invalidateAll();
+      toast.success('Branch scenario created');
+    },
+  });
+
   // Phase 4.1: recompute recommendation
   const recomputeRecommendation = useMutation({
     mutationFn: async (params?: { baselineScenarioId?: string; activeScenarioId?: string }) => {
@@ -540,6 +556,7 @@ export function useStateGraph(projectId: string | undefined) {
     projectForward,
     recomputeRecommendation,
     runStressTest,
+    branchFromDecisionEvent,
     baseline,
     activeScenario,
     recommendedScenario: validRecommended,

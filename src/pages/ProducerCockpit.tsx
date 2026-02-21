@@ -42,6 +42,7 @@ export default function ProducerCockpit() {
     projectForward,
     recomputeRecommendation,
     runStressTest,
+    branchFromDecisionEvent,
     latestStressTest,
     baseline,
     activeScenario,
@@ -205,7 +206,18 @@ export default function ProducerCockpit() {
             activeScenarioId={activeScenario?.id ?? null}
           />
 
-          <DecisionLogPanel projectId={projectId} scenarios={scenarios} />
+          <DecisionLogPanel
+            projectId={projectId}
+            scenarios={scenarios}
+            onSetActive={(id) => setActiveScenario.mutate(id)}
+            isSettingActive={setActiveScenario.isPending}
+            onRunProjection={(params) => projectForward.mutate(params)}
+            isProjecting={projectForward.isPending}
+            onRunStressTest={(params) => runStressTest.mutate(params)}
+            isRunningStress={runStressTest.isPending}
+            onBranchFromEvent={(eventId) => branchFromDecisionEvent.mutate({ eventId })}
+            isBranching={branchFromDecisionEvent.isPending}
+          />
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <EngineSelfTestPanel projectId={projectId} />
