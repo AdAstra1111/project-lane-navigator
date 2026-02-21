@@ -112,18 +112,31 @@ interface ProjectionMetrics {
 function extractMetrics(proj: ScenarioProjection | null | undefined): ProjectionMetrics {
   if (!proj) return { irr: null, npv: null, payback_months: null, schedule_months: null, budget: null, risk_score: null };
 
+  const sm = proj.summary_metrics;
+
+  // Prefer deterministic summary_metrics if available
+  if (sm) {
+    return {
+      irr: sm.irr ?? null,
+      npv: sm.npv ?? null,
+      payback_months: sm.payback_months ?? null,
+      schedule_months: sm.schedule_months ?? proj.months ?? null,
+      budget: sm.budget ?? null,
+      risk_score: sm.projection_risk_score ?? proj.projection_risk_score ?? null,
+    };
+  }
+
+  // Fallback: parse from summary strings (backward compat for old projections)
   const summary = proj.summary as any;
   const series = (proj.series || []) as any[];
   const last = series.length > 0 ? series[series.length - 1] : null;
 
-  // Try to extract from summary bullets or series
   let irr: number | null = null;
   let npv: number | null = null;
   let payback_months: number | null = null;
   let schedule_months: number | null = proj.months ?? null;
   let budget: number | null = last?.budget ?? null;
 
-  // Parse summary strings for IRR / NPV / payback if present
   if (Array.isArray(summary)) {
     for (const s of summary) {
       if (typeof s !== 'string') continue;

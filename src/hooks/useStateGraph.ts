@@ -124,6 +124,19 @@ export interface ScenarioProjection {
   series: any[];
   projection_risk_score: number;
   summary: string[];
+  summary_metrics?: {
+    irr?: number | null;
+    npv?: number | null;
+    payback_months?: number | null;
+    schedule_months?: number | null;
+    budget?: number | null;
+    projection_risk_score?: number | null;
+    composite_score?: number | null;
+    start_budget?: number | null;
+    end_confidence?: number | null;
+    end_downside?: number | null;
+    end_stress?: number | null;
+  } | null;
   created_at: string;
 }
 

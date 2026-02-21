@@ -9126,6 +9126,7 @@ export type Database = {
           scenario_id: string
           series: Json
           summary: Json
+          summary_metrics: Json | null
           user_id: string
         }
         Insert: {
@@ -9138,6 +9139,7 @@ export type Database = {
           scenario_id: string
           series?: Json
           summary?: Json
+          summary_metrics?: Json | null
           user_id: string
         }
         Update: {
@@ -9150,6 +9152,7 @@ export type Database = {
           scenario_id?: string
           series?: Json
           summary?: Json
+          summary_metrics?: Json | null
           user_id?: string
         }
         Relationships: [

@@ -1,0 +1,1 @@
+ALTER TABLE public.scenario_projections ADD COLUMN IF NOT EXISTS summary_metrics jsonb NULL;
