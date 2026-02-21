@@ -86,21 +86,6 @@ export default function ProducerCockpit() {
 
       {stateGraph && (
         <>
-          <InvestorModePanel
-            activeScenario={activeScenario}
-            baseline={baseline}
-            recommendation={recommendation}
-            latestStressTest={latestStressTest}
-          />
-
-          <ActiveScenarioBanner
-            activeScenario={activeScenario}
-            baseline={baseline}
-            stateGraph={stateGraph}
-            onSetBaselineActive={() => baseline && setActiveScenario.mutate(baseline.id)}
-            isPending={setActiveScenario.isPending}
-          />
-
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <StrategicRecommendationPanel
               projectId={projectId}
@@ -120,8 +105,23 @@ export default function ProducerCockpit() {
               isTogglingPin={togglePin.isPending}
             />
 
-            <StateGraphOverview stateGraph={stateGraph} />
+            <InvestorModePanel
+              activeScenario={activeScenario}
+              baseline={baseline}
+              recommendation={recommendation}
+              latestStressTest={latestStressTest}
+            />
           </div>
+
+          <ActiveScenarioBanner
+            activeScenario={activeScenario}
+            baseline={baseline}
+            stateGraph={stateGraph}
+            onSetBaselineActive={() => baseline && setActiveScenario.mutate(baseline.id)}
+            isPending={setActiveScenario.isPending}
+          />
+
+          <StateGraphOverview stateGraph={stateGraph} />
 
           <CascadeSimulator
             stateGraph={stateGraph}
@@ -171,20 +171,20 @@ export default function ProducerCockpit() {
               isProjecting={projectForward.isPending}
             />
 
-            <DriftAlertsPanel
+            <ScenarioStressTestPanel
               projectId={projectId}
               scenarios={scenarios}
               activeScenarioId={activeScenario?.id ?? null}
+              onRunStressTest={(params) => runStressTest.mutate(params)}
+              isRunning={runStressTest.isPending}
+              latestStressTest={latestStressTest}
             />
           </div>
 
-          <ScenarioStressTestPanel
+          <DriftAlertsPanel
             projectId={projectId}
             scenarios={scenarios}
             activeScenarioId={activeScenario?.id ?? null}
-            onRunStressTest={(params) => runStressTest.mutate(params)}
-            isRunning={runStressTest.isPending}
-            latestStressTest={latestStressTest}
           />
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
