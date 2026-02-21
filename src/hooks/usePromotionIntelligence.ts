@@ -6,6 +6,12 @@ import { isSeriesFormat, isVerticalDrama } from '@/lib/format-helpers';
 import type { NextAction } from '@/lib/next-action';
 import { buildSeriesWriterAction, buildPromoteAction, buildNoAction } from '@/lib/next-action';
 import { getVerticalDramaNextStep, DELIVERABLE_LABELS } from '@/lib/dev-os-config';
+import {
+  computePipelineState,
+  isStageValidForFormat,
+  type ExistingDoc,
+} from '@/lib/pipeline-brain';
+import { getLadderForFormat, mapDocTypeToLadderStage, getNextStage } from '@/lib/stages/registry';
 
 // ── Local computation (same algorithm as edge function) for when no sessionId exists ──
 
@@ -233,23 +239,51 @@ function computeLocally(input: PromotionInput): PromotionRecommendation {
     return { recommendation: 'stabilise', next_document: null, readiness_score: readinessScore, confidence, reasons, must_fix_next: mustFixNext, risk_flags: riskFlags, next_action: buildNoAction() };
   }
 
-  // ── Determine next document (format-aware) ──
+  // ── Determine next document (format-aware via Pipeline Brain) ──
   const isVD = isVerticalDrama(projectFormat || '');
   const isSeries = isSeriesFormat(projectFormat || '');
 
   let rawNext: string | null;
   let isSeriesWriterTarget = false;
 
-  if (isVD && existingDocTypes.length > 0) {
-    // Use the vertical drama prerequisite pipeline
-    const vdNext = getVerticalDramaNextStep(existingDocTypes, input.seasonEpisodeCount);
-    rawNext = vdNext.nextStep;
-    isSeriesWriterTarget = rawNext === 'series_writer';
-    if (vdNext.missingPrerequisites.length > 0) {
-      reasons.push(vdNext.reason);
+  if (projectFormat && existingDocTypes.length > 0) {
+    // Use Pipeline Brain for all formats
+    const pipelineDocs: ExistingDoc[] = existingDocTypes.map(dt => ({
+      docType: dt, hasApproved: false, activeVersionId: null,
+    }));
+    const pState = computePipelineState(projectFormat, pipelineDocs, {
+      seasonEpisodeCount: input.seasonEpisodeCount,
+    });
+    const primaryNext = pState.nextSteps.find(s => s.priority === 'primary');
+
+    if (primaryNext?.action === 'enter_series_writer') {
+      rawNext = 'series_writer';
+      isSeriesWriterTarget = true;
+    } else if (primaryNext) {
+      rawNext = primaryNext.docType;
+      // Validate the next step is actually in the pipeline
+      if (!isStageValidForFormat(rawNext, projectFormat)) {
+        rawNext = null;
+        reasons.push(`Computed next stage not valid for ${projectFormat} pipeline`);
+      }
+    } else {
+      rawNext = null;
+    }
+
+    // Add explanation from pipeline state
+    if (primaryNext && primaryNext.reason) {
+      reasons.push(primaryNext.reason);
+    }
+
+    // Check for excluded stages — warn if current doc references them
+    if (pState.excludedStages.length > 0) {
+      const currentMapped = mapDocTypeToLadderStage(currentDocument);
+      if (pState.excludedStages.includes(currentMapped as any)) {
+        reasons.push(`Note: "${currentDocument}" is not part of the ${pState.formatKey} pipeline`);
+      }
     }
   } else {
-    // Generic ladder for all other formats
+    // Fallback: generic ladder for projects without format
     rawNext = nextDoc(doc);
     isSeriesWriterTarget = isSeries && doc === 'draft';
   }
