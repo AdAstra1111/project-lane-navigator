@@ -1,9 +1,6 @@
 /**
  * ActionToolbar — Primary action buttons for the Dev Engine workspace.
- * Includes "Why this step?" display for vertical drama gating.
- * Includes Beat Sheet → Episode Script for vertical_drama.
- * Includes Auto-review toggle (default OFF) — review only fires on explicit click
- * or when autoReviewEnabled is ON and content changes.
+ * Includes Shot List generation entrypoint.
  */
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -12,11 +9,12 @@ import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Play, ArrowRight, RefreshCw, Loader2, AlertTriangle, Info, Film, ShieldCheck } from 'lucide-react';
+import { Play, ArrowRight, RefreshCw, Loader2, AlertTriangle, Info, Film, ShieldCheck, Camera } from 'lucide-react';
 import { DELIVERABLE_LABELS, type DeliverableType } from '@/lib/dev-os-config';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import type { NextAction } from '@/lib/next-action';
 import { renderActionPillText } from '@/lib/next-action';
+import { GenerateShotListModal } from '@/components/shots/GenerateShotListModal';
 
 interface VerticalDramaGating {
   missing_prerequisites: string[];
@@ -65,6 +63,9 @@ interface ActionToolbarProps {
   /** Auto-review on content-change toggle (default OFF) */
   autoReviewEnabled?: boolean;
   onAutoReviewToggle?: (enabled: boolean) => void;
+  /** Shot list generation */
+  selectedDocumentId?: string;
+  selectedVersionId?: string;
 }
 
 export function ActionToolbar({
@@ -83,12 +84,17 @@ export function ActionToolbar({
   nextAction,
   autoReviewEnabled = false,
   onAutoReviewToggle,
+  selectedDocumentId,
+  selectedVersionId,
 }: ActionToolbarProps) {
   const navigate = useNavigate();
   const anyPending = analyzePending || rewritePending || convertPending || generateNotesPending || beatSheetToScriptPending;
   const hasMissingPrereqs = verticalDramaGating && verticalDramaGating.missing_prerequisites.length > 0;
 
   const [episodeNum, setEpisodeNum] = useState('1');
+  const [shotListOpen, setShotListOpen] = useState(false);
+
+  const isScriptDoc = currentDocType && ['script', 'episode_script', 'season_master_script', 'season_script'].includes(currentDocType.toLowerCase().replace(/[\s\-]+/g, '_'));
 
   // Show beat sheet → script button for vertical_drama when on a beat_sheet doc
   const isBeatSheet = currentDocType?.toLowerCase().replace(/[\s\-]+/g, '_') === 'beat_sheet'
@@ -187,6 +193,15 @@ export function ActionToolbar({
           </Button>
         )}
 
+        {/* Shot List — for script docs */}
+        {isScriptDoc && projectId && selectedDocumentId && selectedVersionId && (
+          <Button size="sm" variant="ghost" className="h-8 text-xs gap-1"
+            onClick={() => setShotListOpen(true)}>
+            <Camera className="h-3 w-3" />
+            Shot List
+          </Button>
+        )}
+
         {/* Convert — secondary */}
         <Button size="sm" variant="ghost" className="h-8 text-xs gap-1 ml-auto"
           onClick={onConvert} disabled={anyPending}>
@@ -198,7 +213,6 @@ export function ActionToolbar({
       {/* Beat Sheet → Episode Script for vertical_drama */}
       {showBeatSheetToScript && (
         <div className="flex flex-wrap items-center gap-2 p-2 rounded-lg bg-primary/5 border border-primary/20">
-          {/* Scope indicator */}
           {beatSheetScope && (
             <Badge variant="outline" className={`text-[9px] ${
               beatSheetScope.scope === 'season' ? 'border-amber-500/30 text-amber-400 bg-amber-500/10' :
@@ -210,7 +224,6 @@ export function ActionToolbar({
             </Badge>
           )}
 
-          {/* Episode number selector */}
           <Select value={episodeNum} onValueChange={setEpisodeNum}>
             <SelectTrigger className="h-7 w-24 text-xs">
               <SelectValue placeholder="EP #" />
@@ -224,7 +237,6 @@ export function ActionToolbar({
             </SelectContent>
           </Select>
 
-          {/* Generate button */}
           <Button
             size="sm"
             className="h-8 text-xs gap-1.5"
@@ -254,6 +266,19 @@ export function ActionToolbar({
           <AlertTriangle className="h-3 w-3 shrink-0" />
           {verticalDramaGating!.reason}
         </div>
+      )}
+
+      {/* Shot List Modal */}
+      {projectId && selectedDocumentId && selectedVersionId && (
+        <GenerateShotListModal
+          open={shotListOpen}
+          onOpenChange={setShotListOpen}
+          projectId={projectId}
+          sourceDocumentId={selectedDocumentId}
+          sourceVersionId={selectedVersionId}
+          docType={currentDocType}
+          isVerticalDrama={isVerticalDrama}
+        />
       )}
     </div>
   );

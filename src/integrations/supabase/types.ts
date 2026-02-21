@@ -10954,6 +10954,180 @@ export type Database = {
           },
         ]
       }
+      shot_list_items: {
+        Row: {
+          action: string
+          anchor_ref: Json | null
+          audio_notes: string | null
+          camera_movement: string
+          characters_present: Json | null
+          continuity_notes: string | null
+          created_at: string
+          duration_est_seconds: number | null
+          framing: string
+          id: string
+          location: string | null
+          locked: boolean
+          order_index: number
+          project_id: string
+          props_or_set_notes: string | null
+          scene_heading: string
+          scene_number: string
+          shot_list_id: string
+          shot_number: number
+          shot_type: string
+          time_of_day: string | null
+          updated_at: string
+          vfx_sfx_flags: Json | null
+        }
+        Insert: {
+          action?: string
+          anchor_ref?: Json | null
+          audio_notes?: string | null
+          camera_movement?: string
+          characters_present?: Json | null
+          continuity_notes?: string | null
+          created_at?: string
+          duration_est_seconds?: number | null
+          framing?: string
+          id?: string
+          location?: string | null
+          locked?: boolean
+          order_index?: number
+          project_id: string
+          props_or_set_notes?: string | null
+          scene_heading?: string
+          scene_number?: string
+          shot_list_id: string
+          shot_number?: number
+          shot_type?: string
+          time_of_day?: string | null
+          updated_at?: string
+          vfx_sfx_flags?: Json | null
+        }
+        Update: {
+          action?: string
+          anchor_ref?: Json | null
+          audio_notes?: string | null
+          camera_movement?: string
+          characters_present?: Json | null
+          continuity_notes?: string | null
+          created_at?: string
+          duration_est_seconds?: number | null
+          framing?: string
+          id?: string
+          location?: string | null
+          locked?: boolean
+          order_index?: number
+          project_id?: string
+          props_or_set_notes?: string | null
+          scene_heading?: string
+          scene_number?: string
+          shot_list_id?: string
+          shot_number?: number
+          shot_type?: string
+          time_of_day?: string | null
+          updated_at?: string
+          vfx_sfx_flags?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shot_list_items_shot_list_id_fkey"
+            columns: ["shot_list_id"]
+            isOneToOne: false
+            referencedRelation: "shot_lists"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      shot_list_regens: {
+        Row: {
+          created_at: string
+          created_by: string
+          id: string
+          regen_scope: Json
+          shot_list_id: string
+          source_version_id: string
+          summary: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          id?: string
+          regen_scope?: Json
+          shot_list_id: string
+          source_version_id: string
+          summary?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          id?: string
+          regen_scope?: Json
+          shot_list_id?: string
+          source_version_id?: string
+          summary?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shot_list_regens_shot_list_id_fkey"
+            columns: ["shot_list_id"]
+            isOneToOne: false
+            referencedRelation: "shot_lists"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      shot_lists: {
+        Row: {
+          created_at: string
+          created_by: string
+          episode_number: number | null
+          id: string
+          name: string
+          project_id: string
+          scope: Json
+          source_document_id: string
+          source_version_id: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          episode_number?: number | null
+          id?: string
+          name?: string
+          project_id: string
+          scope?: Json
+          source_document_id: string
+          source_version_id: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          episode_number?: number | null
+          id?: string
+          name?: string
+          project_id?: string
+          scope?: Json
+          source_document_id?: string
+          source_version_id?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shot_lists_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       stage_gates: {
         Row: {
           blockers: string[] | null
