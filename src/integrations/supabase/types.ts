@@ -9963,6 +9963,103 @@ export type Database = {
           },
         ]
       }
+      script_extraction_runs: {
+        Row: {
+          created_at: string
+          error: string | null
+          id: string
+          output: Json | null
+          project_id: string
+          script_version_id: string
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          error?: string | null
+          id?: string
+          output?: Json | null
+          project_id: string
+          script_version_id: string
+          status?: string
+        }
+        Update: {
+          created_at?: string
+          error?: string | null
+          id?: string
+          output?: Json | null
+          project_id?: string
+          script_version_id?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "script_extraction_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "script_extraction_runs_script_version_id_fkey"
+            columns: ["script_version_id"]
+            isOneToOne: false
+            referencedRelation: "project_document_versions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      script_pdf_pages: {
+        Row: {
+          created_at: string
+          document_id: string
+          id: string
+          page_number: number
+          page_text: string
+          project_id: string
+          version_id: string
+        }
+        Insert: {
+          created_at?: string
+          document_id: string
+          id?: string
+          page_number: number
+          page_text?: string
+          project_id: string
+          version_id: string
+        }
+        Update: {
+          created_at?: string
+          document_id?: string
+          id?: string
+          page_number?: number
+          page_text?: string
+          project_id?: string
+          version_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "script_pdf_pages_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "project_documents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "script_pdf_pages_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "script_pdf_pages_version_id_fkey"
+            columns: ["version_id"]
+            isOneToOne: false
+            referencedRelation: "project_document_versions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       script_scenes: {
         Row: {
           beat_summary: string | null
