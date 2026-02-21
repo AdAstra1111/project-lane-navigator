@@ -576,8 +576,7 @@ function maybeEscalatePolicy(
   };
   return { governance: updated, escalated: true };
 }
-
-
+function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
   const parts = path.split(".");
   let cur: unknown = obj;
   for (const p of parts) {
