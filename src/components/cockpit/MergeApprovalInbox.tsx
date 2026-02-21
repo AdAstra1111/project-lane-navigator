@@ -7,7 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { ShieldCheck, Check, X, ChevronDown, Inbox, AlertTriangle } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
 import type { ProjectScenario } from '@/hooks/useStateGraph';
 
@@ -58,6 +58,11 @@ export function MergeApprovalInbox({ projectId, scenarios }: Props) {
   const [noteMap, setNoteMap] = useState<Record<string, string>>({});
   const [forceConfirm, setForceConfirm] = useState<PendingApproval | null>(null);
   const [forceError, setForceError] = useState<any>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => setCurrentUserId(data.user?.id ?? null));
+  }, []);
 
   const { data: pendingApprovals = [], isLoading } = useQuery({
     queryKey: ['merge-approvals', projectId],
@@ -285,6 +290,9 @@ export function MergeApprovalInbox({ projectId, scenarios }: Props) {
                     <span className="text-[10px] text-muted-foreground truncate">
                       from {scenarioName(item.sourceScenarioId, scenarios)}
                     </span>
+                  )}
+                  {currentUserId && item.requested_by_user_id === currentUserId && (
+                    <Badge variant="secondary" className="text-[8px] shrink-0">You</Badge>
                   )}
                   <span className="text-[10px] text-muted-foreground ml-auto shrink-0">
                     {formatTime(item.requested_at)}
