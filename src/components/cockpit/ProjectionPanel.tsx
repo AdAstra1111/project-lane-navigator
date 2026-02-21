@@ -7,21 +7,15 @@ import { Calendar } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import type { ProjectScenario, ScenarioProjection } from '@/hooks/useStateGraph';
+import type { ProjectScenario, ScenarioProjection, ProjectionAssumptions } from '@/hooks/useStateGraph';
 
-interface Assumptions {
-  inflation_rate: number;
-  schedule_slip_risk: number;
-  platform_appetite_decay: number;
-}
-
-const DEFAULT_ASSUMPTIONS: Assumptions = {
+const DEFAULT_ASSUMPTIONS: ProjectionAssumptions = {
   inflation_rate: 0.03,
   schedule_slip_risk: 0.15,
   platform_appetite_decay: 0.05,
 };
 
-function loadAssumptions(projectId: string): Assumptions {
+function loadAssumptions(projectId: string): ProjectionAssumptions {
   try {
     const raw = localStorage.getItem(`iffy:lastProjectionAssumptions:${projectId}`);
     if (raw) {
@@ -32,7 +26,7 @@ function loadAssumptions(projectId: string): Assumptions {
   return { ...DEFAULT_ASSUMPTIONS };
 }
 
-function saveAssumptions(projectId: string, a: Assumptions) {
+function saveAssumptions(projectId: string, a: ProjectionAssumptions) {
   try {
     localStorage.setItem(`iffy:lastProjectionAssumptions:${projectId}`, JSON.stringify(a));
   } catch { /* ignore */ }
@@ -42,7 +36,7 @@ interface Props {
   scenarios: ProjectScenario[];
   activeScenarioId: string | null;
   projectId: string;
-  onRunProjection: (params: { scenarioId?: string; months?: number; assumptions?: Assumptions }) => void;
+  onRunProjection: (params: { scenarioId?: string; months?: number; assumptions?: ProjectionAssumptions }) => void;
   isProjecting: boolean;
 }
 
@@ -64,7 +58,7 @@ export function ProjectionPanel({
     setDecayStr(String(loaded.platform_appetite_decay));
   }, [projectId]);
 
-  const getCurrentAssumptions = useCallback((): Assumptions => {
+  const getCurrentAssumptions = useCallback((): ProjectionAssumptions => {
     const parse = (s: string, fallback: number) => {
       const n = parseFloat(s);
       return isNaN(n) ? fallback : n;
