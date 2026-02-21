@@ -9,6 +9,7 @@ import { AccessDiagnosticPanel } from '@/components/cockpit/AccessDiagnosticPane
 import { ActiveScenarioBanner } from '@/components/cockpit/ActiveScenarioBanner';
 import { OptimizationPanel } from '@/components/cockpit/OptimizationPanel';
 import { ProjectionPanel } from '@/components/cockpit/ProjectionPanel';
+import { EngineSelfTestPanel } from '@/components/cockpit/EngineSelfTestPanel';
 import { ArrowLeft, Gauge } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
@@ -108,6 +109,8 @@ export default function ProducerCockpit() {
               onRunProjection={(params) => projectForward.mutate(params)}
               isProjecting={projectForward.isPending}
             />
+
+            <EngineSelfTestPanel projectId={projectId} />
           </>
         )}
 
