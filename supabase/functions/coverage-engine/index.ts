@@ -88,7 +88,7 @@ Deno.serve(async (req) => {
             episode_grid: "episode_grid", season_arc: "season_arc",
             documentary_outline: "documentary_outline", format_rules: "format_rules",
             episode_script: "episode_script", feature_script: "feature_script",
-            production_draft: "production_draft",
+            production_draft: "production_draft", script_pdf: "feature_script",
           };
 
           const BUNDLE_ROLES: Record<string, string[]> = {
@@ -360,6 +360,7 @@ function resolveRole(version: any, parentDoc: any): string {
     documentary_outline: "documentary_outline", doc_outline: "documentary_outline",
     format_rules: "format_rules",
     script: "feature_script", feature_script: "feature_script",
+    script_pdf: "feature_script",
     pilot_script: "episode_script", episode_script: "episode_script",
     episode_1_script: "episode_script",
     production_draft: "production_draft",
