@@ -1576,7 +1576,7 @@ LANE: ${project?.assigned_lane || "Unknown"} | BUDGET: ${project?.budget_range |
 ${prevContext}${seasonContext}${qualBinding}${signalContext}${lockedDecisionsContext}
 
 MATERIAL (${version.plaintext.length} chars):
-${version.plaintext.slice(0, 65000)}`;
+${version.plaintext.slice(0, 90000)}`;
 
       const raw = await callAI(LOVABLE_API_KEY, PRO_MODEL, systemPrompt, userPrompt, 0.2, 6000);
       const parsed = await parseAIJson(LOVABLE_API_KEY, raw);
