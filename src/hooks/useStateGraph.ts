@@ -53,6 +53,12 @@ export interface RevenueState {
   confidence_score: number;
 }
 
+export interface ConfidenceBands {
+  budget: { low: number; mid: number; high: number };
+  shoot_days: { low: number; mid: number; high: number };
+  confidence: number;
+}
+
 export interface ProjectStateGraph {
   id: string;
   project_id: string;
@@ -61,7 +67,7 @@ export interface ProjectStateGraph {
   production_state: ProductionState;
   finance_state: FinanceState;
   revenue_state: RevenueState;
-  confidence_bands: any;
+  confidence_bands: ConfidenceBands;
   assumption_multipliers: any;
   last_cascade_at: string | null;
 }
@@ -73,6 +79,7 @@ export interface ProjectScenario {
   scenario_type: string;
   is_active: boolean;
   is_archived: boolean;
+  pinned: boolean;
   description: string | null;
   state_overrides: any;
   computed_state: any;
@@ -95,6 +102,8 @@ export interface DriftAlert {
 }
 
 // ---- Hooks ----
+
+const MAX_PINNED = 4;
 
 export function useStateGraph(projectId: string | undefined) {
   const queryClient = useQueryClient();
@@ -125,11 +134,13 @@ export function useStateGraph(projectId: string | undefined) {
         .eq('is_archived', false)
         .order('created_at', { ascending: true });
       if (error) throw error;
-      return (data || []) as ProjectScenario[];
+      return (data || []) as unknown as ProjectScenario[];
     },
     enabled: !!projectId,
   });
 
+  // Drift alerts are producer-only. In future phases these must be
+  // role-filtered so only users with the "producer" role see them.
   const { data: alerts = [] } = useQuery({
     queryKey: ['drift-alerts', projectId],
     queryFn: async () => {
@@ -216,6 +227,43 @@ export function useStateGraph(projectId: string | undefined) {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['drift-alerts', projectId] }),
   });
 
+  const togglePin = useMutation({
+    mutationFn: async (scenarioId: string) => {
+      const target = scenarios.find(s => s.id === scenarioId);
+      if (!target) throw new Error('Scenario not found');
+
+      if (!target.pinned) {
+        const pinnedCount = scenarios.filter(s => s.pinned).length;
+        if (pinnedCount >= MAX_PINNED) {
+          throw new Error(`Maximum ${MAX_PINNED} pinned scenarios allowed`);
+        }
+      }
+
+      const { error } = await supabase
+        .from('project_scenarios')
+        .update({ pinned: !target.pinned })
+        .eq('id', scenarioId);
+      if (error) throw error;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['scenarios', projectId] }),
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  const archiveScenario = useMutation({
+    mutationFn: async (scenarioId: string) => {
+      const { error } = await supabase
+        .from('project_scenarios')
+        .update({ is_archived: true, pinned: false })
+        .eq('id', scenarioId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['scenarios', projectId] });
+      toast.success('Scenario archived');
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
   return {
     stateGraph,
     scenarios,
@@ -226,6 +274,8 @@ export function useStateGraph(projectId: string | undefined) {
     createScenario,
     generateSystemScenarios,
     acknowledgeAlert,
+    togglePin,
+    archiveScenario,
     baseline: scenarios.find(s => s.scenario_type === 'baseline'),
   };
 }

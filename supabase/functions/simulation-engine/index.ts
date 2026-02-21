@@ -12,49 +12,65 @@ interface CreativeState {
   format: string;
   runtime_minutes: number;
   episode_count: number;
-  structural_density: number; // 0-10
-  character_density: number; // 0-10
-  hook_intensity: number; // 0-10
+  structural_density: number;
+  character_density: number;
+  hook_intensity: number;
   tone_classification: string;
   behaviour_mode: string;
 }
 
 interface ExecutionState {
   setup_count: number;
-  coverage_density: number; // 0-10
-  movement_intensity: number; // 0-10
-  lighting_complexity: number; // 0-10
-  night_exterior_ratio: number; // 0-1
-  vfx_stunt_density: number; // 0-10
-  editorial_fragility: number; // 0-10
-  equipment_load_multiplier: number; // 1.0+
+  coverage_density: number;
+  movement_intensity: number;
+  lighting_complexity: number;
+  night_exterior_ratio: number;
+  vfx_stunt_density: number;
+  editorial_fragility: number;
+  equipment_load_multiplier: number;
 }
 
 interface ProductionState {
   estimated_shoot_days: number;
-  crew_intensity_band: string; // 'lean' | 'standard' | 'heavy' | 'premium'
-  schedule_compression_risk: number; // 0-10
-  location_clustering: number; // 0-10
-  weather_exposure: number; // 0-10
-  overtime_probability: number; // 0-1
+  crew_intensity_band: string;
+  schedule_compression_risk: number;
+  location_clustering: number;
+  weather_exposure: number;
+  overtime_probability: number;
 }
 
 interface FinanceState {
   budget_band: string;
   budget_estimate: number;
-  budget_elasticity: number; // 0-10
-  drift_sensitivity: number; // 0-10
-  insurance_load_proxy: number; // 0-10
-  capital_stack_stress: number; // 0-10
+  budget_elasticity: number;
+  drift_sensitivity: number;
+  insurance_load_proxy: number;
+  capital_stack_stress: number;
 }
 
 interface RevenueState {
   roi_probability_bands: { low: number; mid: number; high: number };
-  downside_exposure: number; // 0-10
-  upside_potential: number; // 0-10
-  platform_appetite_strength: number; // 0-10
-  comparable_alignment_delta: number; // -5 to +5
-  confidence_score: number; // 0-100
+  downside_exposure: number;
+  upside_potential: number;
+  platform_appetite_strength: number;
+  comparable_alignment_delta: number;
+  confidence_score: number;
+}
+
+interface CascadedState {
+  creative_state: CreativeState;
+  execution_state: ExecutionState;
+  production_state: ProductionState;
+  finance_state: FinanceState;
+  revenue_state: RevenueState;
+}
+
+interface StateOverrides {
+  creative_state?: Partial<CreativeState>;
+  execution_state?: Partial<ExecutionState>;
+  production_state?: Partial<ProductionState>;
+  finance_state?: Partial<FinanceState>;
+  revenue_state?: Partial<RevenueState>;
 }
 
 // ---- Cascade Logic (deterministic, no LLM) ----
@@ -78,7 +94,7 @@ function cascadeExecutionToProduction(e: ExecutionState): Partial<ProductionStat
   return {
     estimated_shoot_days: Math.round(baseDays * nightPenalty),
     crew_intensity_band: e.equipment_load_multiplier > 1.3 ? "premium" : e.equipment_load_multiplier > 1.15 ? "heavy" : e.equipment_load_multiplier > 1.0 ? "standard" : "lean",
-    schedule_compression_risk: Math.min(10, (e.setup_count / baseDays - 20) * 0.5 + e.vfx_stunt_density * 0.3),
+    schedule_compression_risk: Math.min(10, Math.max(0, (e.setup_count / Math.max(1, baseDays) - 20) * 0.5 + e.vfx_stunt_density * 0.3)),
     overtime_probability: Math.min(1, (e.movement_intensity + e.lighting_complexity) / 20 + e.night_exterior_ratio * 0.2),
   };
 }
@@ -114,8 +130,7 @@ function cascadeFinanceToRevenue(f: FinanceState, creative: CreativeState): Part
   };
 }
 
-function runFullCascade(creative: CreativeState, overrides: Record<string, any> = {}) {
-  // Layer 1 → 2
+function runFullCascade(creative: CreativeState, overrides: StateOverrides = {}): CascadedState {
   const execBase = cascadeCreativeToExecution(creative);
   const execution: ExecutionState = {
     setup_count: 0, coverage_density: 0, movement_intensity: 0,
@@ -125,7 +140,6 @@ function runFullCascade(creative: CreativeState, overrides: Record<string, any> 
     ...overrides.execution_state,
   };
 
-  // Layer 2 → 3
   const prodBase = cascadeExecutionToProduction(execution);
   const production: ProductionState = {
     estimated_shoot_days: 25, crew_intensity_band: "standard",
@@ -134,7 +148,6 @@ function runFullCascade(creative: CreativeState, overrides: Record<string, any> 
     ...overrides.production_state,
   };
 
-  // Layer 3 → 4
   const finBase = cascadeProductionToFinance(production, creative);
   const finance: FinanceState = {
     budget_band: "mid", budget_estimate: 0, budget_elasticity: 5,
@@ -143,7 +156,6 @@ function runFullCascade(creative: CreativeState, overrides: Record<string, any> 
     ...overrides.finance_state,
   };
 
-  // Layer 4 → 5
   const revBase = cascadeFinanceToRevenue(finance, creative);
   const revenue: RevenueState = {
     roi_probability_bands: { low: 30, mid: 50, high: 65 },
@@ -156,7 +168,7 @@ function runFullCascade(creative: CreativeState, overrides: Record<string, any> 
   return { creative_state: creative, execution_state: execution, production_state: production, finance_state: finance, revenue_state: revenue };
 }
 
-function generateConfidenceBands(state: ReturnType<typeof runFullCascade>) {
+function generateConfidenceBands(state: CascadedState) {
   return {
     budget: { low: Math.round(state.finance_state.budget_estimate * 0.85), mid: state.finance_state.budget_estimate, high: Math.round(state.finance_state.budget_estimate * 1.2) },
     shoot_days: { low: Math.max(1, state.production_state.estimated_shoot_days - 5), mid: state.production_state.estimated_shoot_days, high: state.production_state.estimated_shoot_days + 8 },
@@ -164,17 +176,37 @@ function generateConfidenceBands(state: ReturnType<typeof runFullCascade>) {
   };
 }
 
-function computeDelta(baseline: any, computed: any): Record<string, any> {
+/** Diff two number-keyed objects, returning per-key { from, to, delta } */
+function diffNumberObject(from: Record<string, number> | undefined, to: Record<string, number> | undefined): Record<string, { from: number; to: number; delta: number }> | null {
+  if (!from || !to) return null;
+  const result: Record<string, { from: number; to: number; delta: number }> = {};
+  for (const key of new Set([...Object.keys(from), ...Object.keys(to)])) {
+    const fv = typeof from[key] === "number" ? from[key] : 0;
+    const tv = typeof to[key] === "number" ? to[key] : 0;
+    if (fv !== tv) {
+      result[key] = { from: fv, to: tv, delta: +(tv - fv).toFixed(2) };
+    }
+  }
+  return Object.keys(result).length > 0 ? result : null;
+}
+
+function computeDelta(baseline: CascadedState, computed: CascadedState): Record<string, any> {
   const delta: Record<string, any> = {};
-  for (const layer of ["creative_state", "execution_state", "production_state", "finance_state", "revenue_state"]) {
-    const b = baseline[layer] || {};
-    const c = computed[layer] || {};
+  for (const layer of ["creative_state", "execution_state", "production_state", "finance_state", "revenue_state"] as const) {
+    const b = (baseline as any)[layer] || {};
+    const c = (computed as any)[layer] || {};
     const layerDelta: Record<string, any> = {};
     for (const key of new Set([...Object.keys(b), ...Object.keys(c)])) {
-      if (typeof c[key] === "number" && typeof b[key] === "number" && c[key] !== b[key]) {
-        layerDelta[key] = { from: b[key], to: c[key], delta: +(c[key] - b[key]).toFixed(2) };
-      } else if (typeof c[key] === "string" && c[key] !== b[key]) {
-        layerDelta[key] = { from: b[key], to: c[key] };
+      const bv = b[key];
+      const cv = c[key];
+      // Handle nested number objects (e.g. roi_probability_bands)
+      if (typeof cv === "object" && cv !== null && !Array.isArray(cv) && typeof bv === "object" && bv !== null) {
+        const nested = diffNumberObject(bv, cv);
+        if (nested) layerDelta[key] = nested;
+      } else if (typeof cv === "number" && typeof bv === "number" && cv !== bv) {
+        layerDelta[key] = { from: bv, to: cv, delta: +(cv - bv).toFixed(2) };
+      } else if (typeof cv === "string" && cv !== bv) {
+        layerDelta[key] = { from: bv, to: cv };
       }
     }
     if (Object.keys(layerDelta).length > 0) delta[layer] = layerDelta;
@@ -182,19 +214,19 @@ function computeDelta(baseline: any, computed: any): Record<string, any> {
   return delta;
 }
 
-function checkCoherence(overrides: Record<string, any>): string[] {
+function checkCoherence(overrides: StateOverrides): string[] {
   const flags: string[] = [];
   const exec = overrides.execution_state || {};
   const prod = overrides.production_state || {};
   const fin = overrides.finance_state || {};
 
-  if (exec.setup_count > 200 && prod.estimated_shoot_days && prod.estimated_shoot_days < 15) {
+  if ((exec.setup_count ?? 0) > 200 && prod.estimated_shoot_days != null && prod.estimated_shoot_days < 15) {
     flags.push("High setup count with very short schedule — likely unrealistic");
   }
-  if (fin.budget_band === "micro" && exec.vfx_stunt_density > 7) {
+  if (fin.budget_band === "micro" && (exec.vfx_stunt_density ?? 0) > 7) {
     flags.push("Micro budget with high VFX density — funding gap risk");
   }
-  if (prod.overtime_probability > 0.7 && fin.drift_sensitivity < 3) {
+  if ((prod.overtime_probability ?? 0) > 0.7 && (fin.drift_sensitivity ?? 999) < 3) {
     flags.push("High overtime probability but low drift sensitivity — underestimating budget risk");
   }
   return flags;
@@ -205,10 +237,14 @@ function checkCoherence(overrides: Record<string, any>): string[] {
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
+  const json = (data: any, status = 200) =>
+    new Response(JSON.stringify(data), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
   try {
+    // ── Auth: verify JWT and get user ──
     const authHeader = req.headers.get("Authorization");
     if (!authHeader?.startsWith("Bearer ")) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      return json({ error: "Unauthorized" }, 401);
     }
 
     const supabase = createClient(
@@ -217,31 +253,40 @@ Deno.serve(async (req) => {
       { global: { headers: { Authorization: authHeader } } }
     );
 
-    const token = authHeader.replace("Bearer ", "");
-    const { data: claimsData, error: claimsError } = await supabase.auth.getClaims(token);
-    if (claimsError || !claimsData?.claims) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    // Use getUser() for server-side verification (not just claims decode)
+    const { data: { user }, error: userErr } = await supabase.auth.getUser();
+    if (userErr || !user) {
+      return json({ error: "Unauthorized" }, 401);
     }
-    const userId = claimsData.claims.sub as string;
+    const userId = user.id;
 
     const body = await req.json();
-    const { action, projectId, scenarioId, overrides, creativeState } = body;
+    const { action, projectId, scenarioId, overrides, creativeState } = body as {
+      action: string;
+      projectId: string;
+      scenarioId?: string;
+      overrides?: StateOverrides;
+      creativeState?: Partial<CreativeState>;
+    };
 
     if (!projectId) {
-      return new Response(JSON.stringify({ error: "projectId required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      return json({ error: "projectId required" }, 400);
     }
 
-    // Verify project access
-    const { data: project } = await supabase.from("projects").select("id, format, budget_range, tone, genres").eq("id", projectId).single();
+    // ── Access guard: RLS-protected select — returns null for non-members ──
+    // Treat "not found" and "forbidden" identically to avoid leaking existence.
+    const { data: project } = await supabase
+      .from("projects")
+      .select("id, format, budget_range, tone, genres")
+      .eq("id", projectId)
+      .single();
+
     if (!project) {
-      return new Response(JSON.stringify({ error: "Project not found" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      return json({ error: "Project not found or access denied" }, 404);
     }
-
-    const respond = (data: any) => new Response(JSON.stringify(data), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
     // ── ACTION: initialize ──
     if (action === "initialize") {
-      // Build creative state from project metadata
       const creative: CreativeState = {
         format: project.format || "film",
         runtime_minutes: 100,
@@ -257,7 +302,6 @@ Deno.serve(async (req) => {
       const cascaded = runFullCascade(creative);
       const bands = generateConfidenceBands(cascaded);
 
-      // Upsert state graph
       const { data: graph, error: graphErr } = await supabase
         .from("project_state_graphs")
         .upsert({
@@ -273,7 +317,6 @@ Deno.serve(async (req) => {
 
       if (graphErr) throw graphErr;
 
-      // Create baseline scenario if none exists
       const { data: existing } = await supabase
         .from("project_scenarios")
         .select("id")
@@ -298,37 +341,31 @@ Deno.serve(async (req) => {
           .eq("id", existing.id);
       }
 
-      return respond({ stateGraph: graph, cascaded, confidence_bands: bands });
+      return json({ stateGraph: graph, cascaded, confidence_bands: bands });
     }
 
-    // ── ACTION: cascade (recalculate with overrides) ──
+    // ── ACTION: cascade ──
     if (action === "cascade") {
-      // Load current state graph
       const { data: graph } = await supabase
         .from("project_state_graphs")
         .select("*")
         .eq("project_id", projectId)
         .single();
 
-      if (!graph) {
-        return new Response(JSON.stringify({ error: "State graph not initialized" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      }
+      if (!graph) return json({ error: "State graph not initialized" }, 400);
 
-      const creative: CreativeState = { ...graph.creative_state as any, ...overrides?.creative_state };
+      const creative: CreativeState = { ...(graph.creative_state as unknown as CreativeState), ...overrides?.creative_state };
       const cascaded = runFullCascade(creative, overrides || {});
       const bands = generateConfidenceBands(cascaded);
       const coherence = checkCoherence(overrides || {});
 
-      // Update graph
       await supabase.from("project_state_graphs").update({
         ...cascaded,
         confidence_bands: bands,
         last_cascade_at: new Date().toISOString(),
       }).eq("project_id", projectId);
 
-      // If scenarioId provided, update that scenario
       if (scenarioId) {
-        // Get baseline for delta
         const { data: baseline } = await supabase
           .from("project_scenarios")
           .select("computed_state")
@@ -336,7 +373,7 @@ Deno.serve(async (req) => {
           .eq("scenario_type", "baseline")
           .single();
 
-        const delta = baseline ? computeDelta(baseline.computed_state, cascaded) : {};
+        const delta = baseline ? computeDelta(baseline.computed_state as unknown as CascadedState, cascaded) : {};
 
         await supabase.from("project_scenarios").update({
           computed_state: cascaded,
@@ -345,7 +382,6 @@ Deno.serve(async (req) => {
           coherence_flags: coherence,
         }).eq("id", scenarioId);
 
-        // Save snapshot
         await supabase.from("scenario_snapshots").insert({
           scenario_id: scenarioId,
           project_id: projectId,
@@ -356,8 +392,8 @@ Deno.serve(async (req) => {
         });
       }
 
-      // Check drift thresholds
-      const alerts: any[] = [];
+      // Drift threshold checks
+      const alerts: Array<{ alert_type: string; severity: string; layer: string; metric_key: string; current_value: number; threshold: number; message: string }> = [];
       if (cascaded.production_state.schedule_compression_risk > 7) {
         alerts.push({ alert_type: "schedule_drift", severity: "warning", layer: "production", metric_key: "schedule_compression_risk", current_value: cascaded.production_state.schedule_compression_risk, threshold: 7, message: "Schedule compression risk exceeds safe threshold" });
       }
@@ -374,14 +410,13 @@ Deno.serve(async (req) => {
         })));
       }
 
-      return respond({ cascaded, confidence_bands: bands, coherence_flags: coherence, alerts });
+      return json({ cascaded, confidence_bands: bands, coherence_flags: coherence, alerts });
     }
 
     // ── ACTION: create_scenario ──
     if (action === "create_scenario") {
       const { name, description, scenario_type: sType } = body;
 
-      // Load baseline
       const { data: baseline } = await supabase
         .from("project_scenarios")
         .select("computed_state")
@@ -389,13 +424,11 @@ Deno.serve(async (req) => {
         .eq("scenario_type", "baseline")
         .single();
 
-      if (!baseline) {
-        return new Response(JSON.stringify({ error: "Initialize baseline first" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      }
+      if (!baseline) return json({ error: "Initialize baseline first" }, 400);
 
-      const creative = { ...(baseline.computed_state as any).creative_state, ...overrides?.creative_state };
+      const creative: CreativeState = { ...(baseline.computed_state as any).creative_state, ...overrides?.creative_state };
       const cascaded = runFullCascade(creative, overrides || {});
-      const delta = computeDelta(baseline.computed_state, cascaded);
+      const delta = computeDelta(baseline.computed_state as unknown as CascadedState, cascaded);
       const coherence = checkCoherence(overrides || {});
 
       const { data: scenario, error: scErr } = await supabase
@@ -415,8 +448,7 @@ Deno.serve(async (req) => {
         .single();
 
       if (scErr) throw scErr;
-
-      return respond({ scenario, delta, coherence_flags: coherence });
+      return json({ scenario, delta, coherence_flags: coherence });
     }
 
     // ── ACTION: generate_system_scenarios ──
@@ -428,31 +460,32 @@ Deno.serve(async (req) => {
         .eq("scenario_type", "baseline")
         .single();
 
-      if (!baseline) {
-        return new Response(JSON.stringify({ error: "Initialize baseline first" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      }
+      if (!baseline) return json({ error: "Initialize baseline first" }, 400);
 
-      const bc = (baseline.computed_state as any).creative_state;
-      const lanes = [
+      const bc = (baseline.computed_state as any).creative_state as CreativeState;
+      const lanes: Array<{ name: string; description: string; overrides: StateOverrides }> = [
         {
-          name: "Contained Prestige", description: "Minimize production footprint, maximize creative density",
+          name: "Contained Prestige",
+          description: "Minimize production footprint, maximize creative density",
           overrides: { creative_state: { behaviour_mode: "prestige", hook_intensity: Math.min(10, bc.hook_intensity + 1) }, execution_state: { night_exterior_ratio: 0.05, vfx_stunt_density: 1 }, production_state: { location_clustering: 8 } },
         },
         {
-          name: "Premium Commercial Push", description: "Invest in execution for maximum audience reach",
+          name: "Premium Commercial Push",
+          description: "Invest in execution for maximum audience reach",
           overrides: { creative_state: { behaviour_mode: "commercial", hook_intensity: Math.min(10, bc.hook_intensity + 2) }, execution_state: { vfx_stunt_density: 6, movement_intensity: 7 } },
         },
         {
-          name: "Efficiency Optimised", description: "Shortest schedule, tightest budget, fastest delivery",
+          name: "Efficiency Optimised",
+          description: "Shortest schedule, tightest budget, fastest delivery",
           overrides: { creative_state: { behaviour_mode: "efficiency" }, execution_state: { setup_count: Math.round(bc.runtime_minutes * 0.6), night_exterior_ratio: 0.05 }, production_state: { location_clustering: 9 } },
         },
       ];
 
       const results = [];
       for (const lane of lanes) {
-        const creative = { ...bc, ...lane.overrides.creative_state };
+        const creative: CreativeState = { ...bc, ...lane.overrides.creative_state };
         const cascaded = runFullCascade(creative, lane.overrides);
-        const delta = computeDelta(baseline.computed_state, cascaded);
+        const delta = computeDelta(baseline.computed_state as unknown as CascadedState, cascaded);
         const coherence = checkCoherence(lane.overrides);
 
         const { data: sc } = await supabase
@@ -470,12 +503,12 @@ Deno.serve(async (req) => {
         results.push({ scenario: sc, delta, coherence_flags: coherence });
       }
 
-      return respond({ scenarios: results });
+      return json({ scenarios: results });
     }
 
-    return new Response(JSON.stringify({ error: `Unknown action: ${action}` }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    return json({ error: `Unknown action: ${action}` }, 400);
   } catch (err: any) {
     console.error("simulation-engine error:", err);
-    return new Response(JSON.stringify({ error: err.message || "Internal error" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    return json({ error: err.message || "Internal error" }, 500);
   }
 });
