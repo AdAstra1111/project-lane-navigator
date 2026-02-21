@@ -140,6 +140,30 @@ export function getDocDisplayName(
 }
 
 /**
+ * Build a canonical filename for downloads.
+ * Format: "{ProjectTitle} - {DocTypeLabel} - {versionTag} - {date}.{ext}"
+ *
+ * This is the SINGLE SOURCE OF TRUTH for download filenames across the app.
+ */
+export function getCanonicalFilename(opts: {
+  projectTitle: string | null | undefined;
+  docType: string | null | undefined;
+  versionTag?: string;
+  date?: string;
+  ext?: string;
+  descriptor?: string;
+}): string {
+  const sanitize = (s: string) => s.replace(/[^a-zA-Z0-9\s\-]/g, '').trim().replace(/\s+/g, '_');
+  const title = sanitize(opts.projectTitle?.trim() || 'Document');
+  const label = sanitize(getDocTypeLabel(opts.docType));
+  const parts = [title, label];
+  if (opts.descriptor) parts.push(sanitize(opts.descriptor));
+  if (opts.versionTag) parts.push(opts.versionTag);
+  if (opts.date) parts.push(opts.date);
+  return `${parts.join(' - ')}.${opts.ext || 'md'}`;
+}
+
+/**
  * Get a human-readable label for any doc_type.
  * NEVER defaults to "Script" — returns "Document" for unknown types.
  */

@@ -59,18 +59,8 @@ const WORKING_SET_DOC_TYPES = [
 
 const OPTIONAL_WORKING_SET = ['vertical_market_sheet', 'pitch_document'] as const;
 
-const DOC_TYPE_LABELS: Record<string, string> = {
-  format_rules: 'Format Rules',
-  character_bible: 'Character Bible',
-  season_arc: 'Season Arc',
-  episode_grid: 'Episode Grid',
-  vertical_market_sheet: 'Market Sheet (VD)',
-  pitch_document: 'Pitch Document',
-  blueprint: 'Blueprint',
-  script: 'Script',
-  season_master_script: 'Master Season Script',
-  complete_season_script: 'Master Season Script',
-};
+// Use centralized label map — single source of truth
+import { ALL_DOC_TYPE_LABELS as DOC_TYPE_LABELS } from '@/lib/can-promote-to-script';
 
 const EPISODE_STATUS_CONFIG: Record<string, { icon: typeof Circle; color: string; label: string; bg: string }> = {
   pending:    { icon: Circle,        color: 'text-muted-foreground', label: 'Not Started', bg: 'bg-muted/20' },

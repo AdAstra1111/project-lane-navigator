@@ -233,9 +233,13 @@ export function DocumentSidebar({
                 const selectedDocObj = documents.find(d => d.id === selectedDocId);
                 const isLatestForDoc = selectedDocObj && latestVersionMap[selectedDocObj.doc_type] === v.id;
                 const isApprovedVersion = selectedDocId ? approvedVersionMap[selectedDocId] === v.id : false;
+                const versionDisplayName = projectTitle
+                  ? `${projectTitle} — ${getDocTypeLabel(selectedDocObj?.doc_type)} — v${v.version_number}`
+                  : `v${v.version_number}`;
                 return (
+                <Tooltip key={v.id}>
+                  <TooltipTrigger asChild>
                 <div
-                  key={v.id}
                   onClick={() => setSelectedVersionId(v.id)}
                   className={`w-full text-left px-2 py-1.5 rounded text-[10px] transition-colors cursor-pointer ${
                     selectedVersionId === v.id
@@ -251,8 +255,14 @@ export function DocumentSidebar({
                       )}
                       {isApprovedVersion && (
                         <Badge variant="outline" className="text-[7px] px-1 py-0 h-3 border-yellow-500/40 text-yellow-500 bg-yellow-500/10"
-                          aria-label="Approved version">
-                          <ShieldCheck className="h-2.5 w-2.5 mr-0.5" /> Approved
+                          aria-label="Active Approved">
+                          <ShieldCheck className="h-2.5 w-2.5 mr-0.5" /> Active Approved
+                        </Badge>
+                      )}
+                      {!isApprovedVersion && v.approval_status === 'approved' && (
+                        <Badge variant="outline" className="text-[7px] px-1 py-0 h-3 border-yellow-500/20 text-yellow-500/60"
+                          aria-label="Previously approved">
+                          Approved
                         </Badge>
                       )}
                     </span>
@@ -277,6 +287,17 @@ export function DocumentSidebar({
                   </div>
                   {v.change_summary && <span className="text-[8px] block mt-0.5 truncate opacity-70">{v.change_summary}</span>}
                 </div>
+                  </TooltipTrigger>
+                  <TooltipContent side="right" className="text-xs max-w-[280px]">
+                    <p className="font-medium">{versionDisplayName}</p>
+                    <p className="text-muted-foreground text-[10px]">
+                      {new Date(v.created_at).toLocaleString()}
+                      {isApprovedVersion && ' · Active Approved'}
+                      {!isApprovedVersion && v.approval_status === 'approved' && ' · Previously Approved'}
+                    </p>
+                    {v.change_summary && <p className="text-muted-foreground text-[10px] mt-0.5">{v.change_summary}</p>}
+                  </TooltipContent>
+                </Tooltip>
               );
               })}
             </div>

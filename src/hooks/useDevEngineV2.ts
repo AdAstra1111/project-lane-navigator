@@ -123,9 +123,10 @@ export function useDevEngineV2(projectId: string | undefined) {
       if (docIds.length === 0) return {};
       const { data, error } = await (supabase as any)
         .from('project_document_versions')
-        .select('id, document_id')
+        .select('id, document_id, created_at')
         .in('document_id', docIds)
-        .eq('approval_status', 'approved');
+        .eq('approval_status', 'approved')
+        .order('created_at', { ascending: false });
       if (error) throw error;
       const map: Record<string, string> = {};
       for (const v of data || []) {
