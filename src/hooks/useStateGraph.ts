@@ -152,6 +152,21 @@ export interface ScenarioRecommendation {
   created_at: string;
 }
 
+// Phase 4.2 types
+
+export interface ScenarioStressTest {
+  id: string;
+  project_id: string;
+  scenario_id: string;
+  base_projection_id: string | null;
+  grid: any;
+  results: any[];
+  fragility_score: number;
+  volatility_index: number;
+  breakpoints: any;
+  created_at: string;
+}
+
 // ---- Hooks ----
 
 const MAX_PINNED = 4;
@@ -241,6 +256,7 @@ export function useStateGraph(projectId: string | undefined) {
     queryClient.invalidateQueries({ queryKey: ['projection', projectId] });
     queryClient.invalidateQueries({ queryKey: ['scenario-recommendation', projectId] });
     queryClient.invalidateQueries({ queryKey: ['scenario-scores', projectId] });
+    queryClient.invalidateQueries({ queryKey: ['scenario-stress', projectId] });
   };
 
   const initialize = useMutation({
@@ -422,6 +438,41 @@ export function useStateGraph(projectId: string | undefined) {
     onError: (e: any) => toast.error(e.message),
   });
 
+  // Phase 4.2: Stress Testing
+  const { data: latestStressTest = null } = useQuery({
+    queryKey: ['scenario-stress', projectId],
+    queryFn: async () => {
+      if (!projectId) return null;
+      const { data, error } = await supabase
+        .from('scenario_stress_tests')
+        .select('*')
+        .eq('project_id', projectId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return data as unknown as ScenarioStressTest | null;
+    },
+    enabled: !!projectId,
+  });
+
+  const runStressTest = useMutation({
+    mutationFn: async (params: { scenarioId: string; months?: number; sweeps?: any }) => {
+      const { data, error } = await supabase.functions.invoke('simulation-engine', {
+        body: { action: 'stress_test_scenario', projectId, ...params },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      return data;
+    },
+    onSuccess: () => {
+      invalidateAll();
+      queryClient.invalidateQueries({ queryKey: ['scenario-stress', projectId] });
+      toast.success('Stress test complete');
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
   // Phase 4.1: recompute recommendation
   const recomputeRecommendation = useMutation({
     mutationFn: async (params?: { baselineScenarioId?: string; activeScenarioId?: string }) => {
@@ -459,6 +510,7 @@ export function useStateGraph(projectId: string | undefined) {
     scenarios,
     alerts,
     recommendation,
+    latestStressTest,
     isLoading: graphLoading || scenariosLoading || recommendationLoading,
     initialize,
     cascade,
@@ -473,6 +525,7 @@ export function useStateGraph(projectId: string | undefined) {
     applyOptimizedOverrides,
     projectForward,
     recomputeRecommendation,
+    runStressTest,
     baseline,
     activeScenario,
     recommendedScenario: validRecommended,

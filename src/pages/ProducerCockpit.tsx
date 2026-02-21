@@ -12,6 +12,7 @@ import { OptimizationPanel } from '@/components/cockpit/OptimizationPanel';
 import { ProjectionPanel } from '@/components/cockpit/ProjectionPanel';
 import { EngineSelfTestPanel } from '@/components/cockpit/EngineSelfTestPanel';
 import { StrategicRecommendationPanel } from '@/components/cockpit/StrategicRecommendationPanel';
+import { ScenarioStressTestPanel } from '@/components/cockpit/ScenarioStressTestPanel';
 
 import { ArrowLeft, Gauge } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -37,6 +38,8 @@ export default function ProducerCockpit() {
     applyOptimizedOverrides,
     projectForward,
     recomputeRecommendation,
+    runStressTest,
+    latestStressTest,
     baseline,
     activeScenario,
     recommendedScenario,
@@ -166,6 +169,15 @@ export default function ProducerCockpit() {
               activeScenarioId={activeScenario?.id ?? null}
             />
           </div>
+
+          <ScenarioStressTestPanel
+            projectId={projectId}
+            scenarios={scenarios}
+            activeScenarioId={activeScenario?.id ?? null}
+            onRunStressTest={(params) => runStressTest.mutate(params)}
+            isRunning={runStressTest.isPending}
+            latestStressTest={latestStressTest}
+          />
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <EngineSelfTestPanel projectId={projectId} />
