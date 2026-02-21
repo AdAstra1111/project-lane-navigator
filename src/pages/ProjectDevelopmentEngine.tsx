@@ -69,6 +69,7 @@ import { useDocumentPackage } from '@/hooks/useDocumentPackage';
 import { DocAssistantDrawer } from '@/components/devengine/DocAssistantDrawer';
 import { IssuesPanel } from '@/components/devengine/IssuesPanel';
 import { useProjectIssues } from '@/hooks/useProjectIssues';
+import { useDeferredNotes } from '@/hooks/useDeferredNotes';
 
 // ── Main Page ──
 export default function ProjectDevelopmentEngine() {
@@ -206,6 +207,7 @@ export default function ProjectDevelopmentEngine() {
   const { resolveOnEntry, currentResolverHash, resolvedQuals } = useStageResolve(projectId);
   const { propose } = useDecisionCommit(projectId);
   const { packageStatus: packageStatusData, currentResolverHash: pkgResolverHash } = useDocumentPackage(projectId);
+  const deferred = useDeferredNotes(projectId);
 
   // Build a map of doc_type -> latest_version_id for LATEST badges
   const latestVersionMap = useMemo(() => {
@@ -1247,6 +1249,10 @@ export default function ProjectDevelopmentEngine() {
                     onDecisionsChange={setNotesDecisions}
                     onCustomDirectionsChange={setNotesCustomDirections}
                     deferredNotes={deferredNotes}
+                    persistedDeferredNotes={deferred.deferredNotes}
+                    onPinDeferred={(id) => deferred.pinNote.mutate(id)}
+                    onUnpinDeferred={(id) => deferred.unpinNote.mutate(id)}
+                    onDismissDeferred={(id) => deferred.dismissNote.mutate(id)}
                     carriedNotes={carriedNotes}
                     currentDocType={selectedDoc?.doc_type}
                     currentVersionId={selectedVersionId || undefined}
