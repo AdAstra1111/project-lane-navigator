@@ -12,6 +12,15 @@ export interface PendingDecision {
   impact: 'blocking' | 'non_blocking';
 }
 
+export interface AutoRunStageHistoryEntry {
+  doc_type: string;
+  base_version_id: string | null;
+  output_version_id: string | null;
+  started_at: string;
+  completed_at: string | null;
+  status: 'completed' | 'failed' | 'skipped' | 'in_progress';
+}
+
 export interface AutoRunJob {
   id: string;
   user_id: string;
@@ -44,6 +53,14 @@ export interface AutoRunJob {
   follow_latest: boolean;
   resume_document_id: string | null;
   resume_version_id: string | null;
+  // Stage 6.9: pipeline-aware fields
+  pipeline_key: string | null;
+  current_stage_index: number;
+  stage_history: AutoRunStageHistoryEntry[];
+  pinned_inputs: Record<string, string>;
+  last_ui_message: string | null;
+  approval_required_for_doc_type: string | null;
+  pause_reason: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -179,7 +196,11 @@ export function useAutoRun(projectId: string | undefined) {
     setError(null);
     abortRef.current = false;
     try {
-      await callAutoRun('resume', { jobId: job.id, followLatest: followLatest ?? true });
+      await callAutoRun('resume', {
+        jobId: job.id,
+        followLatest: followLatest ?? true,
+        pinned_inputs: job.pinned_inputs || {},
+      });
       runLoop(job.id);
     } catch (e: any) {
       setError(e.message);

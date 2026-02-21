@@ -54,6 +54,7 @@ import type { Decision } from '@/components/devengine/DecisionCard';
 import { usePromotionIntelligence, extractNoteCounts } from '@/hooks/usePromotionIntelligence';
 import { AutoRunMissionControl } from '@/components/devengine/AutoRunMissionControl';
 import { AutoRunBanner } from '@/components/devengine/AutoRunBanner';
+import { AutoRunProgressPanel } from '@/components/devengine/AutoRunProgressPanel';
 import { CriteriaPanel } from '@/components/devengine/CriteriaPanel';
 import { useAutoRunMissionControl } from '@/hooks/useAutoRunMissionControl';
 import { CanonicalQualificationsPanel } from '@/components/devengine/CanonicalQualificationsPanel';
@@ -1408,6 +1409,19 @@ export default function ProjectDevelopmentEngine() {
                   tieredNotes={tieredNotes}
                 />
                 <div className="space-y-3">
+                  {/* Auto-Run Progress Panel */}
+                  {autoRun.activated && autoRun.job && !['completed'].includes(autoRun.job.status) && (
+                    <AutoRunProgressPanel
+                      job={autoRun.job}
+                      format={projectFormat}
+                      isRunning={autoRun.isRunning}
+                      onPause={autoRun.pause}
+                      onResume={autoRun.resume}
+                      onStop={autoRun.stop}
+                      onApproveAndContinue={() => autoRun.approveNext('approve')}
+                      onReject={() => autoRun.approveNext('revise')}
+                    />
+                  )}
                   {/* Pipeline Brain — authoritative next step */}
                   <PipelineNextStepPanel
                     format={projectFormat}
