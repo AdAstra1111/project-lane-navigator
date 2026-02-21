@@ -19,7 +19,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import {
   Lock, Unlock, Download, FileText, RefreshCw, Loader2,
   ChevronDown, ChevronRight, Filter, Camera, AlertTriangle,
-  ArrowLeft, Trash2,
+  ArrowLeft, Trash2, Film,
 } from 'lucide-react';
 import { useShotList, type ShotListItem } from '@/hooks/useShotList';
 import { toast } from 'sonner';
@@ -242,6 +242,13 @@ export default function ShotListPage() {
               <Button variant="outline" size="sm" className="text-xs gap-1" onClick={exportPDF}>
                 <FileText className="h-3 w-3" />PDF
               </Button>
+              {activeShotList && (
+                <Link to={`/projects/${projectId}/storyboards?list=${activeShotList.id}`}>
+                  <Button variant="outline" size="sm" className="text-xs gap-1">
+                    <Film className="h-3 w-3" />Storyboards
+                  </Button>
+                </Link>
+              )}
             </div>
           </div>
 
