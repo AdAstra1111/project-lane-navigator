@@ -167,6 +167,10 @@ export function MergeApprovalInbox({ projectId, scenarios }: Props) {
       const code = err.code ?? '';
       if (code === 'protected_paths' || code === 'locked') {
         setForceConfirm(item);
+      } else if (code === 'approval_pending') {
+        toast.error('Approval not valid yet — still pending decision.');
+      } else if (code === 'approval_invalid') {
+        toast.error('Approval expired or invalid — request again.');
       }
     }
     setApplyingId(null);

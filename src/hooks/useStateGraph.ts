@@ -701,16 +701,17 @@ export function useStateGraph(projectId: string | undefined) {
       toast.success('Approved merge applied');
     },
     onError: (e: any) => {
-      const msg = e.message ?? '';
       const code = e.code ?? '';
       if (code === 'force_not_authorized') {
         toast.error('Not authorized to force apply. Only owners/admins can force.');
       } else if (code === 'protected_paths' || code === 'locked') {
-        // Don't toast here — let MergeApprovalInbox handle force confirm
-      } else if (msg.includes('requires approval')) {
+        // Don't toast — let MergeApprovalInbox handle force confirm
+      } else if (code === 'approval_pending') {
+        toast.error('Approval is still pending — not yet decided.');
+      } else if (code === 'approval_invalid') {
         toast.error('Approval required or expired. Request approval again.');
       } else {
-        toast.error(msg);
+        toast.error(e.message ?? 'Apply failed');
       }
     },
   });

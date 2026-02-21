@@ -52,6 +52,7 @@ export default function ProducerCockpit() {
     scanGovernance,
     evaluateMergeRisk,
     requestMergeApproval,
+    applyApprovedMerge,
     latestStressTest,
     baseline,
     activeScenario,
@@ -164,6 +165,8 @@ export default function ProducerCockpit() {
             isEvaluatingRisk={evaluateMergeRisk.isPending}
             onRequestApproval={(params) => requestMergeApproval.mutate(params)}
             isRequestingApproval={requestMergeApproval.isPending}
+            onApplyApprovedMerge={(params) => applyApprovedMerge.mutate(params)}
+            isApplyingApproved={applyApprovedMerge.isPending}
           />
 
           <ScenarioLockControls

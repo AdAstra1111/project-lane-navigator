@@ -51,6 +51,8 @@ interface Props {
   isEvaluatingRisk: boolean;
   onRequestApproval: (params: { sourceScenarioId?: string; targetScenarioId?: string; scenarioId?: string; riskReport?: any; payload?: any }) => void;
   isRequestingApproval: boolean;
+  onApplyApprovedMerge?: (params: { sourceScenarioId?: string; targetScenarioId: string; force?: boolean }) => void;
+  isApplyingApproved?: boolean;
 }
 
 function formatValue(v: unknown): string {
@@ -83,6 +85,8 @@ export function ScenarioDiffMergePanel({
   isEvaluatingRisk,
   onRequestApproval,
   isRequestingApproval,
+  onApplyApprovedMerge,
+  isApplyingApproved,
 }: Props) {
   const nonArchived = useMemo(() => scenarios.filter(s => !s.is_archived), [scenarios]);
 
@@ -613,23 +617,58 @@ export function ScenarioDiffMergePanel({
                   </div>
                 )}
 
-                {/* Approval status pill (Phase 5.9) */}
+                {/* Approval status pill (Phase 5.10) */}
                 {approvalStatus && (approvalStatus.pending || approvalStatus.approval_valid_now || approvalStatus.latest_decision) && !riskReport?.requires_approval && (
-                  <div className="flex items-center gap-2 text-[10px]">
+                  <div className="flex items-center gap-2 text-[10px] flex-wrap">
                     {approvalStatus.pending && (
                       <Badge variant="secondary" className="text-[10px]">
                         <Clock className="h-3 w-3 mr-0.5" />Pending approval ({approvalStatus.required_domain})
                       </Badge>
                     )}
                     {approvalStatus.approval_valid_now && !approvalStatus.pending && (
-                      <Badge variant="outline" className="text-[10px] border-primary/40 text-primary">
-                        <CheckCircle className="h-3 w-3 mr-0.5" />Approved ({approvalStatus.required_domain})
-                      </Badge>
+                      <>
+                        <Badge variant="outline" className="text-[10px] border-primary/40 text-primary">
+                          <CheckCircle className="h-3 w-3 mr-0.5" />Approved ({approvalStatus.required_domain})
+                        </Badge>
+                        {onApplyApprovedMerge && (
+                          <Button
+                            size="sm"
+                            variant="default"
+                            className="h-6 px-2 text-[10px]"
+                            disabled={isApplyingApproved || isMerging}
+                            onClick={() => onApplyApprovedMerge({ sourceScenarioId: sourceId, targetScenarioId: targetId })}
+                          >
+                            {isApplyingApproved ? 'Applying…' : 'Apply Approved Merge'}
+                          </Button>
+                        )}
+                      </>
                     )}
                     {!approvalStatus.pending && !approvalStatus.approval_valid_now && approvalStatus.latest_decision && (
-                      <Badge variant="outline" className="text-[10px] text-muted-foreground">
-                        {approvalStatus.latest_decision.approved ? 'Expired' : 'Rejected'}
-                      </Badge>
+                      <>
+                        <Badge variant="outline" className="text-[10px] text-muted-foreground">
+                          {approvalStatus.latest_decision.approved ? 'Expired' : 'Rejected'}
+                        </Badge>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-6 px-2 text-[10px]"
+                          disabled={isRequestingApproval}
+                          onClick={() => {
+                            onRequestApproval({
+                              sourceScenarioId: sourceId,
+                              targetScenarioId: targetId,
+                              riskReport: riskReport ? {
+                                risk_score: riskReport.risk_score,
+                                risk_level: riskReport.risk_level,
+                                conflicts: riskReport.conflicts,
+                                paths: Array.from(selected),
+                              } : { paths: Array.from(selected) },
+                            });
+                          }}
+                        >
+                          Request Again
+                        </Button>
+                      </>
                     )}
                   </div>
                 )}
@@ -641,7 +680,6 @@ export function ScenarioDiffMergePanel({
                       <ShieldAlert className="h-3.5 w-3.5" />
                       Approval Required — {riskReport.approval_reason ?? 'This merge requires approval before proceeding.'}
                     </div>
-                    {/* Phase 5.9: Approval status line */}
                     {approvalStatus && (
                       <div className="text-[10px] flex items-center gap-1.5">
                         {approvalStatus.approval_valid_now ? (
@@ -680,18 +718,31 @@ export function ScenarioDiffMergePanel({
                     )}
                     <div className="flex gap-2">
                       {approvalStatus?.approval_valid_now ? (
-                        <Button
-                          size="sm"
-                          variant="default"
-                          className="h-7 px-3 text-[10px]"
-                          disabled={isMerging}
-                          onClick={() => {
-                            setPendingMergeForce(false);
-                            setShowConfirmDialog(true);
-                          }}
-                        >
-                          Merge (Approved)
-                        </Button>
+                        <>
+                          <Button
+                            size="sm"
+                            variant="default"
+                            className="h-7 px-3 text-[10px]"
+                            disabled={isMerging}
+                            onClick={() => {
+                              setPendingMergeForce(false);
+                              setShowConfirmDialog(true);
+                            }}
+                          >
+                            Merge (Approved)
+                          </Button>
+                          {onApplyApprovedMerge && (
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              className="h-7 px-3 text-[10px]"
+                              disabled={isApplyingApproved || isMerging}
+                              onClick={() => onApplyApprovedMerge({ sourceScenarioId: sourceId, targetScenarioId: targetId })}
+                            >
+                              {isApplyingApproved ? 'Applying…' : 'Apply Approved Merge'}
+                            </Button>
+                          )}
+                        </>
                       ) : (
                         <Button
                           size="sm"
