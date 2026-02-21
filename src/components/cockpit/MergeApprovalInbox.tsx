@@ -21,6 +21,8 @@ interface PendingApproval {
   conflicts_count: number;
   paths: string[];
   request_event_id: string;
+  has_merge_context?: boolean;
+  strategy?: string | null;
 }
 
 interface Props {
@@ -106,6 +108,46 @@ export function MergeApprovalInbox({ projectId, scenarios }: Props) {
     });
   };
 
+  const applyMutation = useMutation({
+    mutationFn: async (params: { sourceScenarioId?: string | null; targetScenarioId: string; force?: boolean }) => {
+      const { data, error } = await supabase.functions.invoke('simulation-engine', {
+        body: { action: 'apply_approved_merge', projectId, ...params },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['merge-approvals', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['decision-events', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['scenarios', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['state-graph', projectId] });
+      toast.success('Approved merge applied');
+    },
+    onError: (e: any) => toast.error(e.message ?? 'Apply failed'),
+  });
+
+  const [applyingId, setApplyingId] = useState<string | null>(null);
+
+  const handleApproveAndApply = async (item: PendingApproval) => {
+    setApplyingId(item.request_event_id);
+    try {
+      // Step 1: Approve
+      await decideMutation.mutateAsync({
+        sourceScenarioId: item.sourceScenarioId,
+        targetScenarioId: item.targetScenarioId,
+        approved: true,
+        note: noteMap[item.request_event_id] || 'Approved and applied',
+      });
+      // Step 2: Apply
+      await applyMutation.mutateAsync({
+        sourceScenarioId: item.sourceScenarioId,
+        targetScenarioId: item.targetScenarioId,
+      });
+    } catch (_) { /* errors handled by individual mutations */ }
+    setApplyingId(null);
+  };
+
   return (
     <Card className="border-border/40">
       <CardHeader className="pb-3">
@@ -158,7 +200,7 @@ export function MergeApprovalInbox({ projectId, scenarios }: Props) {
                   size="sm"
                   variant="outline"
                   className="h-6 px-2 text-[10px]"
-                  disabled={decideMutation.isPending}
+                  disabled={decideMutation.isPending || applyingId === item.request_event_id}
                   onClick={() => decideMutation.mutate({
                     sourceScenarioId: item.sourceScenarioId,
                     targetScenarioId: item.targetScenarioId,
@@ -170,9 +212,18 @@ export function MergeApprovalInbox({ projectId, scenarios }: Props) {
                 </Button>
                 <Button
                   size="sm"
+                  variant="default"
+                  className="h-6 px-2 text-[10px]"
+                  disabled={decideMutation.isPending || applyMutation.isPending || applyingId === item.request_event_id}
+                  onClick={() => handleApproveAndApply(item)}
+                >
+                  {applyingId === item.request_event_id ? '…' : '✓ Approve + Apply'}
+                </Button>
+                <Button
+                  size="sm"
                   variant="destructive"
                   className="h-6 px-2 text-[10px]"
-                  disabled={decideMutation.isPending}
+                  disabled={decideMutation.isPending || applyingId === item.request_event_id}
                   onClick={() => handleReject(item)}
                 >
                   <X className="h-3 w-3 mr-0.5" />Reject
