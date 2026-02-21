@@ -555,6 +555,66 @@ function computeRankScore(cs: CascadedState): RankResult | null {
   };
 }
 
+// ---- Metrics Contract ----
+
+const REQUIRED_METRIC_KEYS = [
+  "irr", "npv", "payback_months", "schedule_months",
+  "budget", "projection_risk_score", "composite_score",
+] as const;
+
+interface NormalizedSummaryMetrics {
+  irr: number | null;
+  npv: number | null;
+  payback_months: number | null;
+  schedule_months: number | null;
+  budget: number | null;
+  projection_risk_score: number | null;
+  composite_score: number | null;
+  [key: string]: unknown;
+}
+
+function normalizeSummaryMetrics(
+  input: any,
+  fallback?: { months?: number; projection_risk_score?: number | null },
+): NormalizedSummaryMetrics {
+  const src = (input && typeof input === "object") ? input : {};
+
+  const safeNum = (v: unknown): number | null => {
+    if (v === null || v === undefined) return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+
+  const result: NormalizedSummaryMetrics = {
+    irr: safeNum(src.irr),
+    npv: safeNum(src.npv),
+    payback_months: safeNum(src.payback_months),
+    schedule_months: safeNum(src.schedule_months) ?? (fallback?.months ?? null),
+    budget: safeNum(src.budget),
+    projection_risk_score: safeNum(src.projection_risk_score) ?? (fallback?.projection_risk_score ?? null),
+    composite_score: safeNum(src.composite_score),
+  };
+
+  // Pass through extra keys (start_budget, end_confidence, etc.)
+  for (const k of Object.keys(src)) {
+    if (!(k in result)) {
+      result[k] = src[k];
+    }
+  }
+
+  return result;
+}
+
+function validateMetricsContract(sm: NormalizedSummaryMetrics): string[] {
+  const warnings: string[] = [];
+  for (const key of REQUIRED_METRIC_KEYS) {
+    if (sm[key] === null || sm[key] === undefined) {
+      warnings.push(`missing_${key}`);
+    }
+  }
+  return warnings;
+}
+
 // ---- Shared Forward Projection (deterministic) ----
 
 interface ProjectionAssumptions {
@@ -2167,19 +2227,19 @@ Deno.serve(async (req) => {
       // Compute deterministic summary_metrics from numeric series
       const endPt = result.series[result.series.length - 1];
       const startPt = result.series[0];
-      const summaryMetrics = {
-        irr: null as number | null,
-        npv: null as number | null,
-        payback_months: null as number | null,
+      const summaryMetrics = normalizeSummaryMetrics({
+        irr: null,
+        npv: null,
+        payback_months: null,
         schedule_months: months,
         budget: endPt?.budget_estimate ?? null,
         projection_risk_score: result.projection_risk_score,
-        composite_score: null as number | null,
+        composite_score: null,
         start_budget: startPt?.budget_estimate ?? null,
         end_confidence: endPt?.confidence_score ?? null,
         end_downside: endPt?.downside_exposure ?? null,
         end_stress: endPt?.capital_stack_stress ?? null,
-      };
+      }, { months, projection_risk_score: result.projection_risk_score });
 
       // Persist projection
       const { data: projection, error: insertErr } = await supabase
@@ -2298,40 +2358,53 @@ Deno.serve(async (req) => {
       const clamp = (n: number, a = 0, b = 100) => Math.max(a, Math.min(b, n));
       const round = (n: number) => Math.round(n);
 
-      // helper: extract metrics (deterministic; uses projection first)
+      // helper: extract metrics (deterministic; prefers normalized summary_metrics)
       function extractMetrics(s: any, proj: any) {
         const assumptions = proj?.assumptions || null;
 
+        // If projection has normalized summary_metrics, use it as primary source
+        const sm = proj?.summary_metrics;
+        if (sm && typeof sm === "object") {
+          const normalized = normalizeSummaryMetrics(sm, {
+            months: proj?.months,
+            projection_risk_score: proj?.projection_risk_score,
+          });
+          return {
+            irr: normalized.irr,
+            npv: normalized.npv,
+            payback_months: normalized.payback_months,
+            schedule_months: normalized.schedule_months,
+            budget: normalized.budget ?? s?.computed_state?.finance_state?.budget_estimate ?? null,
+            inflation_rate: assumptions?.inflation_rate ?? null,
+            schedule_slip_risk: assumptions?.schedule_slip_risk ?? null,
+            platform_appetite_decay: assumptions?.platform_appetite_decay ?? null,
+            has_projection: true,
+          };
+        }
+
+        // Fallback: legacy extraction for old projections without summary_metrics
         const irr =
           proj?.metrics?.irr ??
-          proj?.summary_metrics?.irr ??
-          proj?.summary?.irr ??
           s?.computed_state?.revenue_state?.irr ??
           null;
 
         const npv =
           proj?.metrics?.npv ??
-          proj?.summary_metrics?.npv ??
-          proj?.summary?.npv ??
           s?.computed_state?.revenue_state?.npv ??
           null;
 
         const payback_months =
           proj?.metrics?.payback_months ??
-          proj?.summary_metrics?.payback_months ??
-          proj?.summary?.payback_months ??
           null;
 
         const schedule_months =
           proj?.metrics?.schedule_months ??
-          proj?.summary_metrics?.schedule_months ??
-          s?.computed_state?.production_state?.estimated_shoot_days
+          (s?.computed_state?.production_state?.estimated_shoot_days
             ? Math.round(Number(s.computed_state.production_state.estimated_shoot_days) / 30)
-            : null;
+            : null);
 
         const budget =
           proj?.metrics?.budget ??
-          proj?.summary_metrics?.budget ??
           s?.computed_state?.finance_state?.budget_estimate ??
           null;
 
@@ -2483,12 +2556,19 @@ Deno.serve(async (req) => {
       });
       if (recErr) throw recErr;
 
+      // Contract warnings for winner metrics
+      const winnerSm = winner.projection?.summary_metrics;
+      const contractWarnings = winnerSm
+        ? validateMetricsContract(normalizeSummaryMetrics(winnerSm))
+        : ["missing_projection_metrics"];
+
       return json({
         recommendedScenarioId: winner.scenarioId,
         confidence,
         reasons,
         tradeoffs,
         riskFlags,
+        contract_warnings: contractWarnings.length > 0 ? contractWarnings : undefined,
         scoresByScenario: scored.map((x: any) => ({
           scenarioId: x.scenarioId,
           scores: x.scores,
@@ -2537,7 +2617,8 @@ Deno.serve(async (req) => {
         end_budget: number;
         end_downside: number;
         composite: number;
-        summary_metrics: Record<string, unknown>;
+        summary_metrics: NormalizedSummaryMetrics;
+        contract_warnings?: string[];
       }
 
       const results: SweepResult[] = [];
@@ -2578,6 +2659,15 @@ Deno.serve(async (req) => {
 
             composites.push(composite);
             const sweepStartPt = proj.series[0];
+            const sweepMetrics = normalizeSummaryMetrics({
+              schedule_months: months,
+              budget: endPt.budget_estimate,
+              projection_risk_score: proj.projection_risk_score,
+              end_confidence: endPt.confidence_score,
+              end_downside: endPt.downside_exposure,
+              start_budget: sweepStartPt?.budget_estimate ?? null,
+            }, { months, projection_risk_score: proj.projection_risk_score });
+            const sweepWarnings = validateMetricsContract(sweepMetrics);
             results.push({
               inflation_rate: ir,
               schedule_slip_risk: sr,
@@ -2587,14 +2677,8 @@ Deno.serve(async (req) => {
               end_budget: endPt.budget_estimate,
               end_downside: endPt.downside_exposure,
               composite,
-              summary_metrics: {
-                schedule_months: months,
-                budget: endPt.budget_estimate,
-                projection_risk_score: proj.projection_risk_score,
-                end_confidence: endPt.confidence_score,
-                end_downside: endPt.downside_exposure,
-                start_budget: sweepStartPt?.budget_estimate ?? null,
-              },
+              summary_metrics: sweepMetrics,
+              contract_warnings: sweepWarnings.length > 0 ? sweepWarnings : undefined,
             });
           }
         }
