@@ -152,15 +152,32 @@ function isGarbageText(text: string): boolean {
 }
 
 async function extractFromPDF(data: ArrayBuffer): Promise<ExtractionResult> {
-  // Try basic extraction first (fast, works for simple PDFs)
+  // Primary: Use Gemini for reliable extraction from all PDF types
+  console.log(`[extract] Using Gemini as primary PDF extractor`);
+  const geminiResult = await extractPDFWithGemini(data, false);
+
+  if (geminiResult.status === "success" && geminiResult.text.length >= MIN_CHAR_THRESHOLD) {
+    console.log(`[extract] Gemini extraction OK: ${geminiResult.text.length} chars`);
+    return geminiResult;
+  }
+
+  // If Gemini returned some text but below threshold, try OCR mode
+  if (geminiResult.status !== "success" || geminiResult.text.length < MIN_CHAR_THRESHOLD) {
+    console.log(`[extract] Gemini standard extraction insufficient (${geminiResult.text.length} chars), trying OCR mode`);
+    const ocrResult = await extractPDFWithGemini(data, true);
+    if (ocrResult.status === "success" && ocrResult.text.length >= MIN_CHAR_THRESHOLD) {
+      return ocrResult;
+    }
+  }
+
+  // Fallback: basic extraction (for when Gemini is unavailable)
   const bytes = new Uint8Array(data);
   const basicText = basicPDFExtract(bytes);
-
   if (basicText.length >= MIN_CHAR_THRESHOLD && !isGarbageText(basicText)) {
     const wordCount = basicText.split(/\s+/).length;
     const estimatedPages = Math.ceil(wordCount / WORDS_PER_PAGE);
     const isPartial = wordCount > MAX_WORDS;
-    console.log(`[extract] Basic PDF extraction OK: ${basicText.length} chars, ${wordCount} words`);
+    console.log(`[extract] Basic PDF fallback: ${basicText.length} chars, ${wordCount} words`);
     return {
       text: isPartial ? basicText.split(/\s+/).slice(0, MAX_WORDS).join(" ") : basicText,
       totalPages: estimatedPages,
@@ -171,10 +188,12 @@ async function extractFromPDF(data: ArrayBuffer): Promise<ExtractionResult> {
     };
   }
 
-  // Below threshold — this PDF is likely image-based. Use Gemini OCR.
-  const charCount = basicText.length;
-  console.log(`[extract] Basic extraction yielded only ${charCount} chars (threshold: ${MIN_CHAR_THRESHOLD}). Triggering OCR fallback via Gemini vision.`);
-  return extractPDFWithGemini(data, true);
+  // Everything failed
+  return geminiResult.text.length > 0 ? geminiResult : {
+    text: "", totalPages: null, pagesAnalyzed: null,
+    status: "failed", error: "Could not extract readable text from this PDF",
+    sourceType: "pdf_text",
+  };
 }
 
 async function extractFromDOCX(data: ArrayBuffer): Promise<ExtractionResult> {
