@@ -182,3 +182,6 @@ verify_jwt = false
 
 [functions.feature-scene-apply-fix]
 verify_jwt = false
+
+[functions.simulation-engine]
+verify_jwt = false
