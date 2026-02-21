@@ -824,6 +824,10 @@ function isCandidateValid(cascaded: CascadedState): boolean {
   return true;
 }
 
+// ---- Safe Timer (Deno Edge compatible) ----
+
+const now = (): number => (typeof performance !== "undefined" && performance.now ? performance.now() : Date.now());
+
 // ---- Self-Test Suite ----
 
 interface TestResult {
@@ -838,13 +842,13 @@ function runSelfTestSuite(finalSeed: number): {
   tests: TestResult[];
   timings_ms: Record<string, number>;
 } {
-  const t0 = performance.now();
+  const t0 = now();
   const tests: TestResult[] = [];
   const timings: Record<string, number> = {};
 
   // 1) Rank score monotonicity — higher hook_intensity should not decrease rank_score
   {
-    const t1 = performance.now();
+    const t1 = now();
     const baseCreative: CreativeState = {
       format: "film",
       runtime_minutes: 100,
@@ -868,12 +872,12 @@ function runSelfTestSuite(finalSeed: number): {
       ok,
       details: `hook 5 → rank ${r1?.score}, hook 7 → rank ${r2?.score}`,
     });
-    timings["rank_score_monotonicity"] = Math.round(performance.now() - t1);
+    timings["rank_score_monotonicity"] = Math.round(now() - t1);
   }
 
   // 2) Projection trend — budget should increase with positive inflation
   {
-    const t1 = performance.now();
+    const t1 = now();
     const baseCreative: CreativeState = {
       format: "film",
       runtime_minutes: 100,
@@ -898,12 +902,12 @@ function runSelfTestSuite(finalSeed: number): {
       ok,
       details: `start=$${start}, end=$${end}, inflation_rate=0.03`,
     });
-    timings["projection_budget_inflates"] = Math.round(performance.now() - t1);
+    timings["projection_budget_inflates"] = Math.round(now() - t1);
   }
 
   // 3) Lock keys respected — optimizer must not change locked key
   {
-    const t1 = performance.now();
+    const t1 = now();
     const seedCreative: CreativeState = {
       format: "film",
       runtime_minutes: 100,
@@ -985,12 +989,12 @@ function runSelfTestSuite(finalSeed: number): {
         ? "hook_intensity was modified despite lock"
         : "hook_intensity stayed locked across 20 iterations",
     });
-    timings["lock_keys_respected"] = Math.round(performance.now() - t1);
+    timings["lock_keys_respected"] = Math.round(now() - t1);
   }
 
   // 4) Determinism — same seed produces same rank score
   {
-    const t1 = performance.now();
+    const t1 = now();
     const baseCreative: CreativeState = {
       format: "film",
       runtime_minutes: 100,
@@ -1011,12 +1015,12 @@ function runSelfTestSuite(finalSeed: number): {
       ok: !!ok,
       details: `run1=${r1?.score}, run2=${r2?.score}`,
     });
-    timings["determinism_cascade"] = Math.round(performance.now() - t1);
+    timings["determinism_cascade"] = Math.round(now() - t1);
   }
 
   // 5) Deep merge correctness
   {
-    const t1 = performance.now();
+    const t1 = now();
     const base = { a: 1, b: { c: 2, d: 3 }, e: [1, 2] };
     const patch = { b: { c: 99 }, e: [3], f: "new" };
     const merged = deepMerge(base as Record<string, unknown>, patch as Record<string, unknown>);
@@ -1032,10 +1036,10 @@ function runSelfTestSuite(finalSeed: number): {
       ok,
       details: `merged=${JSON.stringify(merged)}`,
     });
-    timings["deep_merge_correctness"] = Math.round(performance.now() - t1);
+    timings["deep_merge_correctness"] = Math.round(now() - t1);
   }
 
-  timings["total"] = Math.round(performance.now() - t0);
+  timings["total"] = Math.round(now() - t0);
 
   return {
     ok: tests.every((t) => t.ok),
