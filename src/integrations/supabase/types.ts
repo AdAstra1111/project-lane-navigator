@@ -8484,6 +8484,9 @@ export type Database = {
       }
       project_state_graphs: {
         Row: {
+          active_scenario_id: string | null
+          active_scenario_set_at: string | null
+          active_scenario_set_by: string | null
           assumption_multipliers: Json
           confidence_bands: Json
           created_at: string
@@ -8499,6 +8502,9 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          active_scenario_id?: string | null
+          active_scenario_set_at?: string | null
+          active_scenario_set_by?: string | null
           assumption_multipliers?: Json
           confidence_bands?: Json
           created_at?: string
@@ -8514,6 +8520,9 @@ export type Database = {
           user_id: string
         }
         Update: {
+          active_scenario_id?: string | null
+          active_scenario_set_at?: string | null
+          active_scenario_set_by?: string | null
           assumption_multipliers?: Json
           confidence_bands?: Json
           created_at?: string
@@ -8529,6 +8538,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "project_state_graphs_active_scenario_id_fkey"
+            columns: ["active_scenario_id"]
+            isOneToOne: false
+            referencedRelation: "project_scenarios"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "project_state_graphs_project_id_fkey"
             columns: ["project_id"]

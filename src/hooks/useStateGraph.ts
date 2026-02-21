@@ -70,6 +70,9 @@ export interface ProjectStateGraph {
   confidence_bands: ConfidenceBands;
   assumption_multipliers: any;
   last_cascade_at: string | null;
+  active_scenario_id: string | null;
+  active_scenario_set_at: string | null;
+  active_scenario_set_by: string | null;
 }
 
 export interface ProjectScenario {
@@ -98,6 +101,7 @@ export interface DriftAlert {
   threshold: number | null;
   message: string;
   acknowledged: boolean;
+  scenario_id: string | null;
   created_at: string;
 }
 
@@ -216,6 +220,22 @@ export function useStateGraph(projectId: string | undefined) {
     onError: (e: any) => toast.error(e.message),
   });
 
+  const setActiveScenario = useMutation({
+    mutationFn: async (targetScenarioId: string) => {
+      const { data, error } = await supabase.functions.invoke('simulation-engine', {
+        body: { action: 'set_active_scenario', projectId, scenarioId: targetScenarioId },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      return data;
+    },
+    onSuccess: () => {
+      invalidateAll();
+      toast.success('Active scenario updated');
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
   const acknowledgeAlert = useMutation({
     mutationFn: async (alertId: string) => {
       const { error } = await supabase
@@ -264,6 +284,9 @@ export function useStateGraph(projectId: string | undefined) {
     onError: (e: any) => toast.error(e.message),
   });
 
+  const baseline = scenarios.find(s => s.scenario_type === 'baseline');
+  const activeScenario = scenarios.find(s => s.is_active);
+
   return {
     stateGraph,
     scenarios,
@@ -273,9 +296,11 @@ export function useStateGraph(projectId: string | undefined) {
     cascade,
     createScenario,
     generateSystemScenarios,
+    setActiveScenario,
     acknowledgeAlert,
     togglePin,
     archiveScenario,
-    baseline: scenarios.find(s => s.scenario_type === 'baseline'),
+    baseline,
+    activeScenario,
   };
 }

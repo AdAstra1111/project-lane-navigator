@@ -5,20 +5,21 @@ import { ScenarioPanel } from '@/components/cockpit/ScenarioPanel';
 import { DriftAlertPanel } from '@/components/cockpit/DriftAlertPanel';
 import { CascadeSimulator } from '@/components/cockpit/CascadeSimulator';
 import { AccessDiagnosticPanel } from '@/components/cockpit/AccessDiagnosticPanel';
+import { ActiveScenarioBanner } from '@/components/cockpit/ActiveScenarioBanner';
 import { ArrowLeft, Gauge } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 /**
  * Producer Cockpit — the primary role-filtered intelligence dashboard.
  * Drift alerts are producer-only and must remain role-filtered in later phases.
- * No other role should see drift alerts until role-based access is implemented.
  */
 export default function ProducerCockpit() {
   const { id: projectId } = useParams<{ id: string }>();
   const {
     stateGraph, scenarios, alerts, isLoading,
     initialize, cascade, createScenario, generateSystemScenarios,
-    acknowledgeAlert, togglePin, archiveScenario, baseline,
+    acknowledgeAlert, togglePin, archiveScenario, setActiveScenario,
+    baseline, activeScenario,
   } = useStateGraph(projectId);
 
   if (!projectId) return null;
@@ -49,6 +50,14 @@ export default function ProducerCockpit() {
 
         {stateGraph && (
           <>
+            <ActiveScenarioBanner
+              activeScenario={activeScenario}
+              baseline={baseline}
+              stateGraph={stateGraph}
+              onSetBaselineActive={() => baseline && setActiveScenario.mutate(baseline.id)}
+              isPending={setActiveScenario.isPending}
+            />
+
             {/* Drift Alerts — producer-only, must be role-filtered in later phases */}
             {alerts.length > 0 && (
               <DriftAlertPanel alerts={alerts} onAcknowledge={(id) => acknowledgeAlert.mutate(id)} />
@@ -69,8 +78,10 @@ export default function ProducerCockpit() {
               onCreateCustom={(name, desc, overrides) => createScenario.mutate({ name, description: desc, overrides })}
               onTogglePin={(id) => togglePin.mutate(id)}
               onArchive={(id) => archiveScenario.mutate(id)}
+              onSetActive={(id) => setActiveScenario.mutate(id)}
               isGenerating={generateSystemScenarios.isPending}
               isCreating={createScenario.isPending}
+              isSettingActive={setActiveScenario.isPending}
             />
           </>
         )}

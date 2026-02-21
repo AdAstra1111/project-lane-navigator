@@ -176,7 +176,6 @@ function generateConfidenceBands(state: CascadedState) {
   };
 }
 
-/** Diff two number-keyed objects, returning per-key { from, to, delta } */
 function diffNumberObject(from: Record<string, number> | undefined, to: Record<string, number> | undefined): Record<string, { from: number; to: number; delta: number }> | null {
   if (!from || !to) return null;
   const result: Record<string, { from: number; to: number; delta: number }> = {};
@@ -199,7 +198,6 @@ function computeDelta(baseline: CascadedState, computed: CascadedState): Record<
     for (const key of new Set([...Object.keys(b), ...Object.keys(c)])) {
       const bv = b[key];
       const cv = c[key];
-      // Handle nested number objects (e.g. roi_probability_bands)
       if (typeof cv === "object" && cv !== null && !Array.isArray(cv) && typeof bv === "object" && bv !== null) {
         const nested = diffNumberObject(bv, cv);
         if (nested) layerDelta[key] = nested;
@@ -232,6 +230,15 @@ function checkCoherence(overrides: StateOverrides): string[] {
   return flags;
 }
 
+/** Apply cascaded state layers + confidence bands to the canonical project_state_graphs row */
+async function syncGraphToState(supabase: any, projectId: string, cascaded: CascadedState, bands: any) {
+  await supabase.from("project_state_graphs").update({
+    ...cascaded,
+    confidence_bands: bands,
+    last_cascade_at: new Date().toISOString(),
+  }).eq("project_id", projectId);
+}
+
 // ---- Request Handler ----
 
 Deno.serve(async (req) => {
@@ -253,7 +260,6 @@ Deno.serve(async (req) => {
       { global: { headers: { Authorization: authHeader } } }
     );
 
-    // Use getUser() for server-side verification (not just claims decode)
     const { data: { user }, error: userErr } = await supabase.auth.getUser();
     if (userErr || !user) {
       return json({ error: "Unauthorized" }, 401);
@@ -273,8 +279,7 @@ Deno.serve(async (req) => {
       return json({ error: "projectId required" }, 400);
     }
 
-    // ── Access guard: RLS-protected select — returns null for non-members ──
-    // Treat "not found" and "forbidden" identically to avoid leaking existence.
+    // ── Access guard: RLS-protected select ──
     const { data: project } = await supabase
       .from("projects")
       .select("id, format, budget_range, tone, genres")
@@ -302,6 +307,47 @@ Deno.serve(async (req) => {
       const cascaded = runFullCascade(creative);
       const bands = generateConfidenceBands(cascaded);
 
+      // Upsert or find baseline scenario
+      const { data: existing } = await supabase
+        .from("project_scenarios")
+        .select("id")
+        .eq("project_id", projectId)
+        .eq("scenario_type", "baseline")
+        .maybeSingle();
+
+      let baselineId: string;
+
+      if (!existing) {
+        // Clear any stale is_active flags first
+        await supabase.from("project_scenarios")
+          .update({ is_active: false })
+          .eq("project_id", projectId);
+
+        const { data: newBaseline, error: bErr } = await supabase.from("project_scenarios").insert({
+          project_id: projectId,
+          user_id: userId,
+          name: "Baseline",
+          scenario_type: "baseline",
+          is_active: true,
+          computed_state: cascaded,
+          state_overrides: {},
+          delta_vs_baseline: {},
+        }).select("id").single();
+
+        if (bErr) throw bErr;
+        baselineId = newBaseline.id;
+      } else {
+        baselineId = existing.id;
+        // Ensure only baseline is active
+        await supabase.from("project_scenarios")
+          .update({ is_active: false })
+          .eq("project_id", projectId);
+        await supabase.from("project_scenarios")
+          .update({ computed_state: cascaded, delta_vs_baseline: {}, is_active: true })
+          .eq("id", baselineId);
+      }
+
+      // Upsert state graph with active scenario
       const { data: graph, error: graphErr } = await supabase
         .from("project_state_graphs")
         .upsert({
@@ -311,37 +357,63 @@ Deno.serve(async (req) => {
           confidence_bands: bands,
           assumption_multipliers: {},
           last_cascade_at: new Date().toISOString(),
+          active_scenario_id: baselineId,
+          active_scenario_set_at: new Date().toISOString(),
+          active_scenario_set_by: userId,
         }, { onConflict: "project_id" })
         .select()
         .single();
 
       if (graphErr) throw graphErr;
 
-      const { data: existing } = await supabase
-        .from("project_scenarios")
-        .select("id")
-        .eq("project_id", projectId)
-        .eq("scenario_type", "baseline")
-        .maybeSingle();
-
-      if (!existing) {
-        await supabase.from("project_scenarios").insert({
-          project_id: projectId,
-          user_id: userId,
-          name: "Baseline",
-          scenario_type: "baseline",
-          is_active: true,
-          computed_state: cascaded,
-          state_overrides: {},
-          delta_vs_baseline: {},
-        });
-      } else {
-        await supabase.from("project_scenarios")
-          .update({ computed_state: cascaded, delta_vs_baseline: {} })
-          .eq("id", existing.id);
-      }
-
       return json({ stateGraph: graph, cascaded, confidence_bands: bands });
+    }
+
+    // ── ACTION: set_active_scenario ──
+    if (action === "set_active_scenario") {
+      const targetScenarioId = body.scenarioId || scenarioId;
+      if (!targetScenarioId) return json({ error: "scenarioId required" }, 400);
+
+      // Confirm scenario belongs to project
+      const { data: scenario } = await supabase
+        .from("project_scenarios")
+        .select("id, computed_state")
+        .eq("id", targetScenarioId)
+        .eq("project_id", projectId)
+        .single();
+
+      if (!scenario) return json({ error: "Scenario not found or not in this project" }, 404);
+
+      // Deactivate all, activate target
+      await supabase.from("project_scenarios")
+        .update({ is_active: false })
+        .eq("project_id", projectId);
+
+      await supabase.from("project_scenarios")
+        .update({ is_active: true })
+        .eq("id", targetScenarioId);
+
+      // Sync canonical state graph to match scenario's computed_state
+      const cs = scenario.computed_state as unknown as CascadedState;
+      const bands = generateConfidenceBands(cs);
+
+      await supabase.from("project_state_graphs").update({
+        ...cs,
+        confidence_bands: bands,
+        last_cascade_at: new Date().toISOString(),
+        active_scenario_id: targetScenarioId,
+        active_scenario_set_at: new Date().toISOString(),
+        active_scenario_set_by: userId,
+      }).eq("project_id", projectId);
+
+      // Fetch updated graph
+      const { data: graph } = await supabase
+        .from("project_state_graphs")
+        .select("*")
+        .eq("project_id", projectId)
+        .single();
+
+      return json({ activeScenarioId: targetScenarioId, stateGraph: graph });
     }
 
     // ── ACTION: cascade ──
@@ -354,18 +426,23 @@ Deno.serve(async (req) => {
 
       if (!graph) return json({ error: "State graph not initialized" }, 400);
 
+      const activeScenarioId = graph.active_scenario_id as string | null;
+
+      // Determine which scenario to cascade into
+      const targetScenarioId = scenarioId || activeScenarioId;
+
       const creative: CreativeState = { ...(graph.creative_state as unknown as CreativeState), ...overrides?.creative_state };
       const cascaded = runFullCascade(creative, overrides || {});
       const bands = generateConfidenceBands(cascaded);
       const coherence = checkCoherence(overrides || {});
 
-      await supabase.from("project_state_graphs").update({
-        ...cascaded,
-        confidence_bands: bands,
-        last_cascade_at: new Date().toISOString(),
-      }).eq("project_id", projectId);
+      // Only update canonical state graph if cascading the active scenario
+      const isActiveScenario = targetScenarioId && targetScenarioId === activeScenarioId;
+      if (!targetScenarioId || isActiveScenario) {
+        await syncGraphToState(supabase, projectId, cascaded, bands);
+      }
 
-      if (scenarioId) {
+      if (targetScenarioId) {
         const { data: baseline } = await supabase
           .from("project_scenarios")
           .select("computed_state")
@@ -380,10 +457,10 @@ Deno.serve(async (req) => {
           state_overrides: overrides || {},
           delta_vs_baseline: delta,
           coherence_flags: coherence,
-        }).eq("id", scenarioId);
+        }).eq("id", targetScenarioId);
 
         await supabase.from("scenario_snapshots").insert({
-          scenario_id: scenarioId,
+          scenario_id: targetScenarioId,
           project_id: projectId,
           user_id: userId,
           trigger_reason: "cascade",
@@ -392,7 +469,8 @@ Deno.serve(async (req) => {
         });
       }
 
-      // Drift threshold checks
+      // Drift alerts tied to the active scenario context
+      const alertScenarioId = activeScenarioId || targetScenarioId || null;
       const alerts: Array<{ alert_type: string; severity: string; layer: string; metric_key: string; current_value: number; threshold: number; message: string }> = [];
       if (cascaded.production_state.schedule_compression_risk > 7) {
         alerts.push({ alert_type: "schedule_drift", severity: "warning", layer: "production", metric_key: "schedule_compression_risk", current_value: cascaded.production_state.schedule_compression_risk, threshold: 7, message: "Schedule compression risk exceeds safe threshold" });
@@ -406,7 +484,7 @@ Deno.serve(async (req) => {
 
       if (alerts.length > 0) {
         await supabase.from("drift_alerts").insert(alerts.map(a => ({
-          ...a, project_id: projectId, user_id: userId, scenario_id: scenarioId || null,
+          ...a, project_id: projectId, user_id: userId, scenario_id: alertScenarioId,
         })));
       }
 
@@ -431,6 +509,7 @@ Deno.serve(async (req) => {
       const delta = computeDelta(baseline.computed_state as unknown as CascadedState, cascaded);
       const coherence = checkCoherence(overrides || {});
 
+      // New scenarios are NOT active by default
       const { data: scenario, error: scErr } = await supabase
         .from("project_scenarios")
         .insert({
@@ -439,6 +518,7 @@ Deno.serve(async (req) => {
           name: name || "Custom Scenario",
           description: description || null,
           scenario_type: sType || "custom",
+          is_active: false,
           state_overrides: overrides || {},
           computed_state: cascaded,
           delta_vs_baseline: delta,
@@ -488,12 +568,14 @@ Deno.serve(async (req) => {
         const delta = computeDelta(baseline.computed_state as unknown as CascadedState, cascaded);
         const coherence = checkCoherence(lane.overrides);
 
+        // System scenarios are NOT active by default
         const { data: sc } = await supabase
           .from("project_scenarios")
           .insert({
             project_id: projectId, user_id: userId,
             name: lane.name, description: lane.description,
             scenario_type: "system",
+            is_active: false,
             state_overrides: lane.overrides, computed_state: cascaded,
             delta_vs_baseline: delta, coherence_flags: coherence,
           })

@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import type { ProjectScenario } from '@/hooks/useStateGraph';
-import { GitBranch, Sparkles, Plus, ChevronDown, ChevronUp, Pin, PinOff, Archive } from 'lucide-react';
+import { GitBranch, Sparkles, Plus, ChevronDown, ChevronUp, Pin, PinOff, Archive, Zap } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 
@@ -14,8 +14,10 @@ interface Props {
   onCreateCustom: (name: string, desc: string, overrides: any) => void;
   onTogglePin: (scenarioId: string) => void;
   onArchive: (scenarioId: string) => void;
+  onSetActive: (scenarioId: string) => void;
   isGenerating: boolean;
   isCreating: boolean;
+  isSettingActive: boolean;
 }
 
 function DeltaChip({ label, delta }: { label: string; delta: { from: number; to: number; delta: number } }) {
@@ -27,7 +29,7 @@ function DeltaChip({ label, delta }: { label: string; delta: { from: number; to:
   );
 }
 
-export function ScenarioPanel({ scenarios, baseline, onGenerateSystem, onCreateCustom, onTogglePin, onArchive, isGenerating, isCreating }: Props) {
+export function ScenarioPanel({ scenarios, baseline, onGenerateSystem, onCreateCustom, onTogglePin, onArchive, onSetActive, isGenerating, isCreating, isSettingActive }: Props) {
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState('');
   const [newDesc, setNewDesc] = useState('');
@@ -77,15 +79,21 @@ export function ScenarioPanel({ scenarios, baseline, onGenerateSystem, onCreateC
           }
 
           return (
-            <div key={sc.id} className={`border rounded-lg p-3 space-y-2 ${sc.pinned ? 'border-primary/40 bg-primary/5' : 'border-border/40'}`}>
+            <div key={sc.id} className={`border rounded-lg p-3 space-y-2 ${sc.is_active ? 'border-primary bg-primary/5 ring-1 ring-primary/30' : sc.pinned ? 'border-primary/40 bg-primary/5' : 'border-border/40'}`}>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 cursor-pointer flex-1" onClick={() => setExpandedId(expanded ? null : sc.id)}>
                   <Badge variant="outline" className="text-[10px]">{sc.scenario_type}</Badge>
+                  {sc.is_active && <Badge className="text-[10px] bg-primary text-primary-foreground">ACTIVE</Badge>}
                   {sc.pinned && <Pin className="h-3 w-3 text-primary" />}
                   <span className="text-sm font-medium">{sc.name}</span>
                   {expanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
                 </div>
                 <div className="flex items-center gap-1">
+                  {!sc.is_active && (
+                    <Button variant="ghost" size="sm" className="h-6 px-2 text-[10px]" onClick={() => onSetActive(sc.id)} disabled={isSettingActive} title="Set as active plan">
+                      <Zap className="h-3 w-3 mr-0.5" /> Set Active
+                    </Button>
+                  )}
                   <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => onTogglePin(sc.id)} title={sc.pinned ? 'Unpin' : 'Pin'}>
                     {sc.pinned ? <PinOff className="h-3 w-3" /> : <Pin className="h-3 w-3" />}
                   </Button>
