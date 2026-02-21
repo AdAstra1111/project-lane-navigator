@@ -186,7 +186,7 @@ function EventActions({
   ev: DecisionEvent;
   onSetActive: (id: string) => void;
   isSettingActive: boolean;
-  onRunProjection: (params: { scenarioId?: string; months?: number }) => void;
+  onRunProjection: (params: { scenarioId?: string; months?: number; assumptions?: ProjectionAssumptions }) => void;
   isProjecting: boolean;
   onRunStressTest: (params: { scenarioId: string; months?: number }) => void;
   isRunningStress: boolean;
