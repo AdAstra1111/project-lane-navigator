@@ -55,6 +55,7 @@ export function MergeApprovalInbox({ projectId, scenarios }: Props) {
   const queryClient = useQueryClient();
   const [noteMap, setNoteMap] = useState<Record<string, string>>({});
   const [forceConfirm, setForceConfirm] = useState<PendingApproval | null>(null);
+  const [forceError, setForceError] = useState<any>(null);
 
   const { data: pendingApprovals = [], isLoading } = useQuery({
     queryKey: ['merge-approvals', projectId],
@@ -69,129 +70,171 @@ export function MergeApprovalInbox({ projectId, scenarios }: Props) {
     enabled: !!projectId,
   });
 
-  const decideMutation = useMutation({
-    mutationFn: async (params: { sourceScenarioId?: string | null; targetScenarioId: string; approved: boolean; note?: string }) => {
+  const invalidateApprovals = () => {
+    queryClient.invalidateQueries({ queryKey: ['merge-approvals', projectId] });
+    queryClient.invalidateQueries({ queryKey: ['decision-events', projectId] });
+    queryClient.invalidateQueries({ queryKey: ['merge-approval-status', projectId] });
+    queryClient.invalidateQueries({ queryKey: ['actionable-approved-merges', projectId] });
+    queryClient.invalidateQueries({ queryKey: ['scenarios', projectId] });
+    queryClient.invalidateQueries({ queryKey: ['state-graph', projectId] });
+  };
+
+  // Approve Only mutation
+  const approveOnlyMutation = useMutation({
+    mutationFn: async (params: { sourceScenarioId?: string | null; targetScenarioId: string; note?: string }) => {
       const { data, error } = await supabase.functions.invoke('simulation-engine', {
         body: {
           action: 'decide_merge_approval',
           projectId,
           sourceScenarioId: params.sourceScenarioId,
           targetScenarioId: params.targetScenarioId,
-          approved: params.approved,
+          approved: true,
           note: params.note,
+          intent: 'approve_only',
         },
       });
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
       return data;
     },
-    onSuccess: (_data, vars) => {
-      queryClient.invalidateQueries({ queryKey: ['merge-approvals', projectId] });
-      queryClient.invalidateQueries({ queryKey: ['decision-events', projectId] });
-      queryClient.invalidateQueries({ queryKey: ['merge-approval-status', projectId] });
-      toast.success(vars.approved ? 'Merge approved' : 'Merge rejected');
+    onSuccess: () => {
+      invalidateApprovals();
+      toast.success('Merge approved');
     },
     onError: (e: any) => {
-      const msg = e.message ?? '';
-      if (msg.includes('Not authorized')) {
-        toast.error(`You're not authorized to approve this merge. ${msg}`);
+      if ((e.message ?? '').includes('Not authorized')) {
+        toast.error(`Not authorized to approve this merge.`);
       } else {
-        toast.error(msg);
+        toast.error(e.message);
+      }
+    },
+  });
+
+  // Approve + Apply mutation (uses decide_merge_approval_and_apply)
+  const approveAndApplyMutation = useMutation({
+    mutationFn: async (params: { sourceScenarioId?: string | null; targetScenarioId: string; note?: string; force?: boolean }) => {
+      const { data, error } = await supabase.functions.invoke('simulation-engine', {
+        body: {
+          action: 'decide_merge_approval_and_apply',
+          projectId,
+          sourceScenarioId: params.sourceScenarioId,
+          targetScenarioId: params.targetScenarioId,
+          note: params.note,
+          apply: params.force ? { force: true } : undefined,
+        },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      return data;
+    },
+    onSuccess: (data) => {
+      invalidateApprovals();
+      if (data?.applied) {
+        toast.success('Merge approved and applied');
+      } else if (data?.apply_error) {
+        const code = data.apply_error.code;
+        if (code === 'protected_paths' || code === 'locked') {
+          // Will be handled by caller to show force dialog
+        } else {
+          toast.error(data.apply_error.error ?? 'Apply failed after approval');
+        }
+      } else {
+        toast.success('Merge approved');
+      }
+    },
+    onError: (e: any) => {
+      if ((e.message ?? '').includes('Not authorized')) {
+        toast.error(`Not authorized to approve this merge.`);
+      } else {
+        toast.error(e.message);
       }
     },
   });
 
   const handleReject = (item: PendingApproval) => {
     const note = noteMap[item.request_event_id] || window.prompt('Rejection reason (optional):') || '';
-    decideMutation.mutate({
-      sourceScenarioId: item.sourceScenarioId,
-      targetScenarioId: item.targetScenarioId,
-      approved: false,
-      note,
-    });
-  };
-
-  const applyMutation = useMutation({
-    mutationFn: async (params: { sourceScenarioId?: string | null; targetScenarioId: string; force?: boolean }) => {
-      const { data, error } = await supabase.functions.invoke('simulation-engine', {
-        body: { action: 'apply_approved_merge', projectId, ...params },
-      });
-      if (error) throw error;
-      if (data?.error) {
-        const err: any = new Error(data.error);
-        err.code = data.code;
-        err.protected_hits = data.protected_hits;
-        err.is_locked = data.is_locked;
-        throw err;
-      }
-      return data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['merge-approvals', projectId] });
-      queryClient.invalidateQueries({ queryKey: ['decision-events', projectId] });
-      queryClient.invalidateQueries({ queryKey: ['scenarios', projectId] });
-      queryClient.invalidateQueries({ queryKey: ['state-graph', projectId] });
-      queryClient.invalidateQueries({ queryKey: ['merge-approval-status', projectId] });
-      toast.success('Approved merge applied');
-    },
-    onError: (e: any) => {
-      const code = e.code ?? '';
-      if (code === 'protected_paths' || code === 'locked') {
-        // Don't toast — force confirm dialog will handle
-      } else if (code === 'force_not_authorized') {
-        toast.error('Not authorized to force apply. Only owners/admins can force.');
+    supabase.functions.invoke('simulation-engine', {
+      body: {
+        action: 'decide_merge_approval',
+        projectId,
+        sourceScenarioId: item.sourceScenarioId,
+        targetScenarioId: item.targetScenarioId,
+        approved: false,
+        note,
+        intent: 'approve_only',
+      },
+    }).then((res) => {
+      if (res.error || res.data?.error) {
+        toast.error(res.data?.error ?? 'Reject failed');
       } else {
-        toast.error(e.message ?? 'Apply failed');
+        invalidateApprovals();
+        toast.success('Merge rejected');
       }
-    },
-  });
+    }).catch(() => toast.error('Reject failed'));
+  };
 
   const [applyingId, setApplyingId] = useState<string | null>(null);
 
   const handleApproveAndApply = async (item: PendingApproval) => {
     setApplyingId(item.request_event_id);
     try {
-      // Step 1: Approve
-      await decideMutation.mutateAsync({
+      const result = await approveAndApplyMutation.mutateAsync({
         sourceScenarioId: item.sourceScenarioId,
         targetScenarioId: item.targetScenarioId,
-        approved: true,
         note: noteMap[item.request_event_id] || 'Approved and applied',
       });
-      // Step 2: Apply
-      await applyMutation.mutateAsync({
-        sourceScenarioId: item.sourceScenarioId,
-        targetScenarioId: item.targetScenarioId,
-      });
-    } catch (err: any) {
-      const code = err.code ?? '';
-      if (code === 'protected_paths' || code === 'locked') {
-        setForceConfirm(item);
-      } else if (code === 'approval_pending') {
-        toast.error('Approval not valid yet — still pending decision.');
-      } else if (code === 'approval_invalid') {
-        toast.error('Approval expired or invalid — request again.');
+      if (result && !result.applied && result.apply_error) {
+        const code = result.apply_error.code;
+        if (code === 'protected_paths' || code === 'locked') {
+          setForceError(result.apply_error);
+          setForceConfirm(item);
+        } else if (code === 'approval_pending') {
+          toast.error('Approval not valid yet — still pending decision.');
+        } else if (code === 'approval_invalid') {
+          toast.error('Approval expired or invalid — request again.');
+        }
       }
-    }
+    } catch (_) { /* handled by mutation */ }
     setApplyingId(null);
   };
 
   const handleForceApply = async () => {
     if (!forceConfirm) return;
     setApplyingId(forceConfirm.request_event_id);
+    const item = forceConfirm;
     setForceConfirm(null);
+    setForceError(null);
     try {
-      await applyMutation.mutateAsync({
-        sourceScenarioId: forceConfirm.sourceScenarioId,
-        targetScenarioId: forceConfirm.targetScenarioId,
-        force: true,
+      const { data, error } = await supabase.functions.invoke('simulation-engine', {
+        body: {
+          action: 'apply_approved_merge',
+          projectId,
+          sourceScenarioId: item.sourceScenarioId,
+          targetScenarioId: item.targetScenarioId,
+          force: true,
+        },
       });
-    } catch (_) { /* handled by mutation */ }
+      if (error) throw error;
+      if (data?.error) {
+        if (data.code === 'force_not_authorized') {
+          toast.error('Not authorized to force apply. Only owners/admins can force.');
+        } else {
+          toast.error(data.error);
+        }
+      } else {
+        invalidateApprovals();
+        toast.success('Force apply successful');
+      }
+    } catch (e: any) {
+      toast.error(e.message ?? 'Force apply failed');
+    }
     setApplyingId(null);
   };
 
   const cannotApply = (item: PendingApproval) =>
     !item.has_merge_context && !item.sourceScenarioId;
+
+  const isBusy = approveOnlyMutation.isPending || approveAndApplyMutation.isPending;
 
   return (
     <>
@@ -249,21 +292,20 @@ export function MergeApprovalInbox({ projectId, scenarios }: Props) {
                     size="sm"
                     variant="outline"
                     className="h-6 px-2 text-[10px]"
-                    disabled={decideMutation.isPending || applyingId === item.request_event_id}
-                    onClick={() => decideMutation.mutate({
+                    disabled={isBusy || applyingId === item.request_event_id}
+                    onClick={() => approveOnlyMutation.mutate({
                       sourceScenarioId: item.sourceScenarioId,
                       targetScenarioId: item.targetScenarioId,
-                      approved: true,
                       note: noteMap[item.request_event_id],
                     })}
                   >
-                    <Check className="h-3 w-3 mr-0.5" />Approve
+                    <Check className="h-3 w-3 mr-0.5" />Approve Only
                   </Button>
                   <Button
                     size="sm"
                     variant="default"
                     className="h-6 px-2 text-[10px]"
-                    disabled={decideMutation.isPending || applyMutation.isPending || applyingId === item.request_event_id || cannotApply(item)}
+                    disabled={isBusy || applyingId === item.request_event_id || cannotApply(item)}
                     title={cannotApply(item) ? 'Missing merge context — cannot auto-apply' : undefined}
                     onClick={() => handleApproveAndApply(item)}
                   >
@@ -273,7 +315,7 @@ export function MergeApprovalInbox({ projectId, scenarios }: Props) {
                     size="sm"
                     variant="destructive"
                     className="h-6 px-2 text-[10px]"
-                    disabled={decideMutation.isPending || applyingId === item.request_event_id}
+                    disabled={isBusy || applyingId === item.request_event_id}
                     onClick={() => handleReject(item)}
                   >
                     <X className="h-3 w-3 mr-0.5" />Reject
@@ -310,7 +352,7 @@ export function MergeApprovalInbox({ projectId, scenarios }: Props) {
       </Card>
 
       {/* Force Apply Confirmation Dialog */}
-      <Dialog open={!!forceConfirm} onOpenChange={(open) => { if (!open) setForceConfirm(null); }}>
+      <Dialog open={!!forceConfirm} onOpenChange={(open) => { if (!open) { setForceConfirm(null); setForceError(null); } }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="text-sm flex items-center gap-2">
@@ -325,10 +367,15 @@ export function MergeApprovalInbox({ projectId, scenarios }: Props) {
             <div className="text-xs space-y-1 py-2">
               <div>Target: <strong>{scenarioName(forceConfirm.targetScenarioId, scenarios)}</strong></div>
               <div>Domain: <Badge variant="outline" className="text-[9px] capitalize">{forceConfirm.domain}</Badge></div>
+              {forceError?.protected_hits?.length > 0 && (
+                <div className="text-[10px] text-destructive">
+                  {forceError.protected_hits.length} protected path(s) affected
+                </div>
+              )}
             </div>
           )}
           <DialogFooter className="gap-2">
-            <Button variant="outline" size="sm" className="text-xs" onClick={() => setForceConfirm(null)}>
+            <Button variant="outline" size="sm" className="text-xs" onClick={() => { setForceConfirm(null); setForceError(null); }}>
               Cancel
             </Button>
             <Button variant="destructive" size="sm" className="text-xs" onClick={handleForceApply}>

@@ -657,7 +657,7 @@ export function useStateGraph(projectId: string | undefined) {
 
   // Phase 5.4: Decide merge approval
   const decideMergeApproval = useMutation({
-    mutationFn: async (params: { sourceScenarioId?: string; targetScenarioId: string; approved: boolean; note?: string }) => {
+    mutationFn: async (params: { sourceScenarioId?: string; targetScenarioId: string; approved: boolean; note?: string; intent?: string; apply?: { force?: boolean } }) => {
       const { data, error } = await supabase.functions.invoke('simulation-engine', {
         body: { action: 'decide_merge_approval', projectId, ...params },
       });
@@ -677,6 +677,27 @@ export function useStateGraph(projectId: string | undefined) {
         toast.error(msg);
       }
     },
+  });
+
+  // Phase 5.11: Decide + apply in one call
+  const decideMergeApprovalAndApply = useMutation({
+    mutationFn: async (params: { sourceScenarioId?: string | null; targetScenarioId: string; note?: string; apply?: { force?: boolean } }) => {
+      const { data, error } = await supabase.functions.invoke('simulation-engine', {
+        body: { action: 'decide_merge_approval_and_apply', projectId, ...params },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      return data;
+    },
+    onSuccess: (data) => {
+      invalidateAll();
+      if (data?.applied) {
+        toast.success('Merge approved and applied');
+      } else {
+        toast.success('Merge approved (apply pending)');
+      }
+    },
+    onError: (e: any) => toast.error(e.message),
   });
 
   // Phase 5.8: Apply approved merge
@@ -705,7 +726,7 @@ export function useStateGraph(projectId: string | undefined) {
       if (code === 'force_not_authorized') {
         toast.error('Not authorized to force apply. Only owners/admins can force.');
       } else if (code === 'protected_paths' || code === 'locked') {
-        // Don't toast — let MergeApprovalInbox handle force confirm
+        // Don't toast — let UI handle force confirm
       } else if (code === 'approval_pending') {
         toast.error('Approval is still pending — not yet decided.');
       } else if (code === 'approval_invalid') {
@@ -766,6 +787,7 @@ export function useStateGraph(projectId: string | undefined) {
     evaluateMergeRisk,
     requestMergeApproval,
     decideMergeApproval,
+    decideMergeApprovalAndApply,
     applyApprovedMerge,
     getMergeApprovalStatus,
     baseline,

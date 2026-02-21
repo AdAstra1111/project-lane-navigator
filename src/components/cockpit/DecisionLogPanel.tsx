@@ -47,6 +47,7 @@ const EVENT_LABELS: Record<string, string> = {
   governance_memory_updated: 'Gov Memory Updated',
   merge_approval_consumed: 'Approval Used',
   merge_applied_from_approval: 'Applied (Approval)',
+  merge_apply_attempted: 'Apply Attempted',
 };
 
 const EVENT_VARIANTS: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
@@ -65,6 +66,7 @@ const EVENT_VARIANTS: Record<string, 'default' | 'secondary' | 'destructive' | '
   governance_memory_updated: 'outline',
   merge_approval_consumed: 'outline',
   merge_applied_from_approval: 'secondary',
+  merge_apply_attempted: 'outline',
 };
 
 function scenarioName(id: string | null, scenarios: ProjectScenario[]): string {
