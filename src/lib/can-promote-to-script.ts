@@ -56,6 +56,7 @@ export const NON_SCRIPT_DOC_TYPES = new Set([
   'doc_premise_brief',
   'research_dossier',
   'other',
+  'document',
 ]);
 
 // ── Comprehensive label map (UI display) ──
@@ -110,6 +111,7 @@ export const ALL_DOC_TYPE_LABELS: Record<string, string> = {
   doc_premise_brief: 'Documentary Premise',
   research_dossier: 'Research Dossier',
   other: 'Document',
+  document: 'Document',
 };
 
 /**
