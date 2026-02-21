@@ -313,13 +313,13 @@ export function useStateGraph(projectId: string | undefined) {
 
   const baseline = scenarios.find(s => s.scenario_type === 'baseline');
   const activeScenario = scenarios.find(s => s.is_active);
-  const recommendedScenario = scenarios.find(s => s.is_recommended)
-    || (scenarios.length > 0 ? scenarios.reduce((best, s) =>
-      (s.rank_score != null && (best.rank_score == null || s.rank_score > best.rank_score)) ? s : best
-    , scenarios[0]) : undefined)
-    || undefined;
-  // Only return recommended if it actually has a rank_score
-  const validRecommended = recommendedScenario?.rank_score != null ? recommendedScenario : undefined;
+  const recommendedScenario = scenarios.find(s => s.is_recommended);
+  const fallbackRecommended = !recommendedScenario
+    ? scenarios
+        .filter(s => s.scenario_type !== 'baseline' && s.rank_score != null)
+        .sort((a, b) => (b.rank_score ?? 0) - (a.rank_score ?? 0))[0]
+    : undefined;
+  const validRecommended = recommendedScenario ?? fallbackRecommended ?? undefined;
 
   return {
     stateGraph,
