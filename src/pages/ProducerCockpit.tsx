@@ -22,9 +22,13 @@ import { GovernanceInsightsPanel } from '@/components/cockpit/GovernanceInsights
 import { MergeApprovalInbox } from '@/components/cockpit/MergeApprovalInbox';
 import { ActionableApprovedMergesPanel } from '@/components/cockpit/ActionableApprovedMergesPanel';
 import { YourApprovalNotificationsPanel } from '@/components/cockpit/YourApprovalNotificationsPanel';
+import { NotificationInbox } from '@/components/governance/NotificationInbox';
 
-import { ArrowLeft, Gauge } from 'lucide-react';
+import { ArrowLeft, Gauge, Bell } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { useQuery } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
 
 export default function ProducerCockpit() {
   const { id: projectId } = useParams<{ id: string }>();
@@ -63,6 +67,20 @@ export default function ProducerCockpit() {
 
   const [optimizeResult, setOptimizeResult] = useState<any>(null);
 
+  // Unread notification count
+  const { data: unreadCount = 0 } = useQuery({
+    queryKey: ['governance-notifications-count', projectId],
+    queryFn: async () => {
+      const { data } = await supabase.functions.invoke('simulation-engine', {
+        body: { action: 'list_notifications', projectId, includeRead: false },
+      });
+      return (data?.notifications ?? []).length;
+    },
+    enabled: !!projectId && !!stateGraph,
+    refetchInterval: 25000,
+    refetchIntervalInBackground: false,
+  });
+
   if (!projectId) return null;
 
   return (
@@ -82,6 +100,12 @@ export default function ProducerCockpit() {
               <div className="text-sm font-semibold">Producer Cockpit</div>
               <div className="text-xs text-muted-foreground">Project: {projectId}</div>
             </div>
+            {unreadCount > 0 && (
+              <Badge variant="destructive" className="text-[10px] ml-2 flex items-center gap-1">
+                <Bell className="h-3 w-3" />
+                {unreadCount}
+              </Badge>
+            )}
           </div>
         </div>
       </div>
@@ -264,6 +288,11 @@ export default function ProducerCockpit() {
             isRunningStress={runStressTest.isPending}
             onBranchFromEvent={(eventId) => branchFromDecisionEvent.mutate({ eventId })}
             isBranching={branchFromDecisionEvent.isPending}
+          />
+
+          <NotificationInbox
+            projectId={projectId}
+            scenarios={scenarios}
           />
 
           <YourApprovalNotificationsPanel

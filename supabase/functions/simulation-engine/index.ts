@@ -72,6 +72,102 @@ interface StateOverrides {
   finance_state?: Partial<FinanceState>;
   revenue_state?: Partial<RevenueState>;
 }
+// ---- Notification Helpers (Phase 5.14) ----
+
+async function getNotificationRecipients(
+  sb: any, projectId: string, domain: string, requestedByUserId: string,
+): Promise<string[]> {
+  const { data: project } = await sb.from("projects").select("user_id").eq("id", projectId).single();
+  const ownerId = project?.user_id;
+  const { data: collabs } = await sb
+    .from("project_collaborators")
+    .select("user_id, role")
+    .eq("project_id", projectId)
+    .eq("status", "accepted");
+
+  const recipients = new Set<string>();
+  if (ownerId) recipients.add(ownerId);
+  for (const c of (collabs ?? [])) {
+    const r = (c.role ?? "").toLowerCase();
+    if (r === "viewer") continue;
+    if (domain === "finance" && r !== "admin" && r !== "owner") continue;
+    recipients.add(c.user_id);
+  }
+  // Exclude requester unless they're the only one
+  if (recipients.size > 1) recipients.delete(requestedByUserId);
+  return Array.from(recipients);
+}
+
+async function shouldSendNotification(
+  sb: any, projectId: string, kind: string, threadKey: string, ttlMinutes = 30,
+): Promise<boolean> {
+  const cutoff = new Date(Date.now() - ttlMinutes * 60 * 1000).toISOString();
+  const { data } = await sb
+    .from("scenario_decision_events")
+    .select("id")
+    .eq("project_id", projectId)
+    .eq("event_type", "notification_sent")
+    .gte("created_at", cutoff)
+    .limit(50);
+  // Check payload in-memory (can't filter JSONB in select easily)
+  // Re-fetch with payload for recent ones
+  if (!data || data.length === 0) return true;
+  const { data: full } = await sb
+    .from("scenario_decision_events")
+    .select("payload")
+    .eq("project_id", projectId)
+    .eq("event_type", "notification_sent")
+    .gte("created_at", cutoff)
+    .order("created_at", { ascending: false })
+    .limit(50);
+  for (const ev of (full ?? [])) {
+    const p = ev.payload as any;
+    if (p?.kind === kind && p?.thread_key === threadKey) return false;
+  }
+  return true;
+}
+
+async function emitNotificationEvent(
+  sb: any, projectId: string, scenarioId: string, previousScenarioId: string | null,
+  userId: string, kind: string, threadKey: string, domain: string,
+  recipientUserIds: string[], reason: string, relatedEventId: string,
+) {
+  try {
+    await sb.from("scenario_decision_events").insert({
+      project_id: projectId,
+      event_type: "notification_sent",
+      scenario_id: scenarioId,
+      previous_scenario_id: previousScenarioId,
+      created_by: userId,
+      payload: {
+        kind,
+        thread_key: threadKey,
+        targetScenarioId: scenarioId,
+        sourceScenarioId: previousScenarioId,
+        domain,
+        recipient_user_ids: recipientUserIds,
+        reason,
+        related_event_id: relatedEventId,
+        created_at_iso: new Date().toISOString(),
+      },
+    });
+  } catch (_) { /* non-fatal */ }
+}
+
+async function maybeEmitNotification(
+  sb: any, projectId: string, scenarioId: string, previousScenarioId: string | null,
+  userId: string, kind: string, domain: string, reason: string, relatedEventId: string,
+) {
+  const threadKey = `${previousScenarioId ?? "null"}::${scenarioId}`;
+  const shouldSend = await shouldSendNotification(sb, projectId, kind, threadKey);
+  if (!shouldSend) return;
+  const recipients = await getNotificationRecipients(sb, projectId, domain, userId);
+  if (recipients.length === 0) return;
+  await emitNotificationEvent(
+    sb, projectId, scenarioId, previousScenarioId, userId,
+    kind, threadKey, domain, recipients, reason, relatedEventId,
+  );
+}
 
 // ---- Helpers ----
 
@@ -1829,6 +1925,14 @@ Deno.serve(async (req) => {
             applied_paths_count: pathsToApply.length,
           },
         });
+      } catch (_) { /* non-fatal */ }
+
+      // Phase 5.14: emit notification for merge applied from approval
+      try {
+        await maybeEmitNotification(
+          sb, pid, tid, effectiveSourceId, uid,
+          "merge_applied_from_approval", applyDomain, "applied", reqEvent.id,
+        );
       } catch (_) { /* non-fatal */ }
 
       // Log successful attempt event
@@ -4406,6 +4510,13 @@ Deno.serve(async (req) => {
             },
           },
         });
+        // Phase 5.14: emit notification for approval requested
+        try {
+          await maybeEmitNotification(
+            supabase, projectId, targetId, sourceId ?? null, userId,
+            "merge_approval_requested", domain, "requires_approval", targetId,
+          );
+        } catch (_) { /* non-fatal */ }
       } catch (e: unknown) {
         console.warn("decision_event_insert_failed", "merge_approval_requested", projectId, e instanceof Error ? e.message : e);
       }
@@ -4478,6 +4589,14 @@ Deno.serve(async (req) => {
       if (insertErr) {
         throw new Error("Failed to record approval decision: " + insertErr.message);
       }
+
+      // Phase 5.14: emit notification for approval decided
+      try {
+        await maybeEmitNotification(
+          supabase, projectId, targetId, sourceId ?? null, userId,
+          "merge_approval_decided", domain, approved ? "approved" : "rejected", targetId,
+        );
+      } catch (_) { /* non-fatal */ }
 
       // Phase 5.11: If intent includes apply and approved, attempt apply
       if (approved && (intent === "approve_and_apply" || intent === "approve_and_auto_apply")) {
@@ -4796,6 +4915,78 @@ Deno.serve(async (req) => {
       }
 
       return json({ items });
+    }
+
+    // ══════════════════════════════════════
+    // ACTION: list_notifications (Phase 5.14)
+    // ══════════════════════════════════════
+    if (action === "list_notifications") {
+      const includeRead = body.includeRead === true;
+      const { data: notifEvents } = await supabase
+        .from("scenario_decision_events")
+        .select("*")
+        .eq("project_id", projectId)
+        .eq("event_type", "notification_sent")
+        .order("created_at", { ascending: false })
+        .limit(200);
+
+      let readSet = new Set<string>();
+      if (!includeRead) {
+        const { data: readEvents } = await supabase
+          .from("scenario_decision_events")
+          .select("payload")
+          .eq("project_id", projectId)
+          .eq("event_type", "notification_read")
+          .eq("created_by", userId)
+          .order("created_at", { ascending: false })
+          .limit(200);
+        for (const r of (readEvents ?? [])) {
+          const ids = (r.payload as any)?.notification_ids ?? [];
+          for (const nid of ids) readSet.add(nid);
+        }
+      }
+
+      const notifications: any[] = [];
+      for (const ev of (notifEvents ?? [])) {
+        const p = ev.payload as any;
+        if (!p?.recipient_user_ids?.includes(userId)) continue;
+        if (!includeRead && readSet.has(ev.id)) continue;
+        notifications.push({
+          id: ev.id,
+          created_at: ev.created_at,
+          kind: p.kind,
+          domain: p.domain ?? "general",
+          thread_key: p.thread_key,
+          sourceScenarioId: p.sourceScenarioId ?? ev.previous_scenario_id,
+          targetScenarioId: p.targetScenarioId ?? ev.scenario_id,
+          related_event_id: p.related_event_id,
+          reason: p.reason,
+        });
+      }
+
+      return json({ notifications: notifications.slice(0, 100) });
+    }
+
+    // ══════════════════════════════════════
+    // ACTION: mark_notifications_read (Phase 5.14)
+    // ══════════════════════════════════════
+    if (action === "mark_notifications_read") {
+      const notificationIds: string[] = body.notificationIds ?? body.notification_ids ?? [];
+      if (notificationIds.length === 0) return json({ marked: 0 });
+
+      await supabase.from("scenario_decision_events").insert({
+        project_id: projectId,
+        event_type: "notification_read",
+        scenario_id: null,
+        previous_scenario_id: null,
+        created_by: userId,
+        payload: {
+          notification_ids: notificationIds,
+          read_at_iso: new Date().toISOString(),
+        },
+      });
+
+      return json({ marked: notificationIds.length });
     }
 
     return json({ error: `Unknown action: ${action}` }, 400);
