@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useStateGraph } from '@/hooks/useStateGraph';
+
 import { StateGraphOverview } from '@/components/cockpit/StateGraphOverview';
 import { ScenarioPanel } from '@/components/cockpit/ScenarioPanel';
 import { DriftAlertsPanel } from '@/components/cockpit/DriftAlertsPanel';
@@ -11,18 +12,34 @@ import { OptimizationPanel } from '@/components/cockpit/OptimizationPanel';
 import { ProjectionPanel } from '@/components/cockpit/ProjectionPanel';
 import { EngineSelfTestPanel } from '@/components/cockpit/EngineSelfTestPanel';
 import { StrategicRecommendationPanel } from '@/components/cockpit/StrategicRecommendationPanel';
+
 import { ArrowLeft, Gauge } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 export default function ProducerCockpit() {
   const { id: projectId } = useParams<{ id: string }>();
+
   const {
-    stateGraph, scenarios, alerts, recommendation, isLoading,
-    initialize, cascade, createScenario, generateSystemScenarios,
-    togglePin, archiveScenario, setActiveScenario,
-    rankScenarios, optimizeScenario, applyOptimizedOverrides, projectForward,
+    stateGraph,
+    scenarios,
+    alerts,
+    recommendation,
+    isLoading,
+    initialize,
+    cascade,
+    createScenario,
+    generateSystemScenarios,
+    togglePin,
+    archiveScenario,
+    setActiveScenario,
+    rankScenarios,
+    optimizeScenario,
+    applyOptimizedOverrides,
+    projectForward,
     recomputeRecommendation,
-    baseline, activeScenario, recommendedScenario,
+    baseline,
+    activeScenario,
+    recommendedScenario,
   } = useStateGraph(projectId);
 
   const [optimizeResult, setOptimizeResult] = useState<any>(null);
@@ -30,98 +47,111 @@ export default function ProducerCockpit() {
   if (!projectId) return null;
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <header className="border-b border-border/40 px-6 py-4 flex items-center gap-4">
-        <Link to={`/projects/${projectId}`}>
-          <Button variant="ghost" size="sm"><ArrowLeft className="h-4 w-4 mr-1" /> Project</Button>
-        </Link>
-        <Gauge className="h-5 w-5 text-primary" />
-        <h1 className="text-lg font-semibold">Producer Cockpit</h1>
-      </header>
+    <div className="p-6 space-y-6">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <Button asChild variant="outline" size="sm">
+            <Link to="/projects">
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back
+            </Link>
+          </Button>
 
-      <main className="max-w-7xl mx-auto p-6 space-y-6">
-        {!isLoading && !stateGraph && (
-          <div className="border border-dashed border-border rounded-lg p-8 text-center space-y-4">
-            <h2 className="text-xl font-medium">Initialize Project State Graph</h2>
-            <p className="text-muted-foreground text-sm max-w-lg mx-auto">
-              Build the 5-layer lifecycle model for this project. This creates the canonical state graph
-              that drives all simulation, scenario, and drift intelligence.
-            </p>
-            <Button onClick={() => initialize.mutate({})} disabled={initialize.isPending}>
-              {initialize.isPending ? 'Initializing…' : 'Initialize State Graph'}
-            </Button>
+          <div className="flex items-center gap-2">
+            <Gauge className="h-5 w-5" />
+            <div>
+              <div className="text-sm font-semibold">Producer Cockpit</div>
+              <div className="text-xs text-muted-foreground">Project: {projectId}</div>
+            </div>
           </div>
-        )}
+        </div>
+      </div>
 
-        {stateGraph && (
-          <>
-            <ActiveScenarioBanner
-              activeScenario={activeScenario}
-              baseline={baseline}
-              stateGraph={stateGraph}
-              onSetBaselineActive={() => baseline && setActiveScenario.mutate(baseline.id)}
-              isPending={setActiveScenario.isPending}
-            />
+      {!isLoading && !stateGraph && (
+        <div className="rounded-xl border border-white/10 bg-black/30 p-4 space-y-3">
+          <div className="text-sm font-semibold">Initialize Project State Graph</div>
+          <div className="text-xs text-muted-foreground">
+            Build the 5-layer lifecycle model for this project. This creates the canonical state graph
+            that drives all simulation, scenario, and drift intelligence.
+          </div>
+          <Button onClick={() => initialize.mutate({})} disabled={initialize.isPending}>
+            {initialize.isPending ? 'Initializing…' : 'Initialize State Graph'}
+          </Button>
+        </div>
+      )}
 
+      {stateGraph && (
+        <>
+          <ActiveScenarioBanner
+            activeScenario={activeScenario}
+            baseline={baseline}
+            stateGraph={stateGraph}
+            onSetBaselineActive={() => baseline && setActiveScenario.mutate(baseline.id)}
+            isPending={setActiveScenario.isPending}
+          />
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <StrategicRecommendationPanel
               projectId={projectId}
               scenarios={scenarios}
               activeScenarioId={activeScenario?.id ?? null}
-              recommendation={recommendation ?? null}
+              recommendation={recommendation}
+              onRecompute={() =>
+                recomputeRecommendation.mutate({
+                  baselineScenarioId: baseline?.id,
+                  activeScenarioId: activeScenario?.id,
+                })
+              }
               isRecomputing={recomputeRecommendation.isPending}
-              onRecompute={() => recomputeRecommendation.mutate({
-                baselineScenarioId: baseline?.id,
-                activeScenarioId: activeScenario?.id,
-              })}
               onSetActive={(id) => setActiveScenario.mutate(id)}
-              onTogglePin={(id) => togglePin.mutate(id)}
               isSettingActive={setActiveScenario.isPending}
+              onTogglePin={(id) => togglePin.mutate(id)}
               isTogglingPin={togglePin.isPending}
             />
 
-            <DriftAlertsPanel
-              projectId={projectId}
-              scenarios={scenarios}
-              activeScenarioId={activeScenario?.id ?? null}
-            />
-
             <StateGraphOverview stateGraph={stateGraph} />
+          </div>
 
-            <CascadeSimulator
-              stateGraph={stateGraph}
-              onCascade={(overrides, scenarioId) => cascade.mutate({ overrides, scenarioId })}
-              isPending={cascade.isPending}
-            />
+          <CascadeSimulator
+            stateGraph={stateGraph}
+            onCascade={(overrides, scenarioId) => cascade.mutate({ overrides, scenarioId })}
+            isPending={cascade.isPending}
+          />
 
-            <ScenarioPanel
-              scenarios={scenarios}
-              baseline={baseline}
-              recommendedScenario={recommendedScenario}
-              onGenerateSystem={() => generateSystemScenarios.mutate()}
-              onCreateCustom={(name, desc, overrides) => createScenario.mutate({ name, description: desc, overrides })}
-              onTogglePin={(id) => togglePin.mutate(id)}
-              onArchive={(id) => archiveScenario.mutate(id)}
-              onSetActive={(id) => setActiveScenario.mutate(id)}
-              onRankScenarios={() => rankScenarios.mutate()}
-              isGenerating={generateSystemScenarios.isPending}
-              isCreating={createScenario.isPending}
-              isSettingActive={setActiveScenario.isPending}
-              isRanking={rankScenarios.isPending}
-            />
+          <ScenarioPanel
+            scenarios={scenarios}
+            baseline={baseline}
+            recommendedScenario={recommendedScenario}
+            onGenerateSystem={() => generateSystemScenarios.mutate()}
+            onCreateCustom={(name, desc, overrides) =>
+              createScenario.mutate({ name, description: desc, overrides })
+            }
+            onTogglePin={(id) => togglePin.mutate(id)}
+            onArchive={(id) => archiveScenario.mutate(id)}
+            onSetActive={(id) => setActiveScenario.mutate(id)}
+            onRankScenarios={() => rankScenarios.mutate()}
+            isGenerating={generateSystemScenarios.isPending}
+            isCreating={createScenario.isPending}
+            isSettingActive={setActiveScenario.isPending}
+            isRanking={rankScenarios.isPending}
+          />
 
-            <OptimizationPanel
-              scenarios={scenarios}
-              activeScenarioId={activeScenario?.id ?? null}
-              onOptimize={async (params) => {
-                const result = await optimizeScenario.mutateAsync(params);
-                setOptimizeResult(result);
-              }}
-              onApply={(scenarioId, overrides) => applyOptimizedOverrides.mutate({ scenarioId, overrides })}
-              optimizeResult={optimizeResult}
-              isOptimizing={optimizeScenario.isPending}
-              isApplying={applyOptimizedOverrides.isPending}
-            />
+          <OptimizationPanel
+            scenarios={scenarios}
+            activeScenarioId={activeScenario?.id ?? null}
+            onOptimize={async (params) => {
+              const result = await optimizeScenario.mutateAsync(params);
+              setOptimizeResult(result);
+            }}
+            onApply={(scenarioId, overrides) =>
+              applyOptimizedOverrides.mutate({ scenarioId, overrides })
+            }
+            optimizeResult={optimizeResult}
+            isOptimizing={optimizeScenario.isPending}
+            isApplying={applyOptimizedOverrides.isPending}
+          />
 
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <ProjectionPanel
               scenarios={scenarios}
               activeScenarioId={activeScenario?.id ?? null}
@@ -130,12 +160,19 @@ export default function ProducerCockpit() {
               isProjecting={projectForward.isPending}
             />
 
-            <EngineSelfTestPanel projectId={projectId} />
-          </>
-        )}
+            <DriftAlertsPanel
+              projectId={projectId}
+              scenarios={scenarios}
+              activeScenarioId={activeScenario?.id ?? null}
+            />
+          </div>
 
-        <AccessDiagnosticPanel />
-      </main>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <EngineSelfTestPanel projectId={projectId} />
+            <AccessDiagnosticPanel />
+          </div>
+        </>
+      )}
     </div>
   );
 }
