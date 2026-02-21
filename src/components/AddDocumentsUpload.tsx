@@ -278,7 +278,7 @@ export function AddDocumentsUpload({ existingCount, onUpload, isUploading }: Add
               <SelectTrigger className="w-full">
                 <SelectValue placeholder="Select document type…" />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className="z-[9999] max-h-[300px]" position="popper" sideOffset={4}>
                 {UPLOAD_DOC_TYPE_OPTIONS.map(opt => (
                   <SelectItem key={opt.value} value={opt.value} className="text-sm">
                     {opt.label}
