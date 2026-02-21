@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { GitMerge, ArrowRightLeft } from 'lucide-react';
+import { GitMerge, ArrowRightLeft, ShieldAlert } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import type { ProjectScenario } from '@/hooks/useStateGraph';
 
@@ -21,11 +21,21 @@ interface DiffResult {
   truncated: boolean;
 }
 
+interface MergePreview {
+  targetScenarioId: string;
+  sourceScenarioId: string;
+  strategy: string;
+  paths_applied: string[];
+  protected_hits: string[];
+  would_change_count: number;
+  is_locked: boolean;
+}
+
 interface Props {
   projectId: string;
   scenarios: ProjectScenario[];
   activeScenarioId: string | null;
-  onMerge: (params: { sourceScenarioId: string; targetScenarioId: string; paths?: string[]; strategy?: string }) => void;
+  onMerge: (params: { sourceScenarioId: string; targetScenarioId: string; paths?: string[]; strategy?: string; force?: boolean }) => void;
   isMerging: boolean;
 }
 
@@ -58,12 +68,15 @@ export function ScenarioDiffMergePanel({ projectId, scenarios, activeScenarioId,
   const [diffError, setDiffError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [strategy, setStrategy] = useState<string>('overwrite');
+  const [preview, setPreview] = useState<MergePreview | null>(null);
+  const [isPreviewing, setIsPreviewing] = useState(false);
 
   const computeDiff = async () => {
     if (!sourceId || !targetId || sourceId === targetId) return;
     setIsDiffing(true);
     setDiffError(null);
     setDiff(null);
+    setPreview(null);
     try {
       const { data, error } = await supabase.functions.invoke('simulation-engine', {
         body: { action: 'diff_scenarios', projectId, aScenarioId: sourceId, bScenarioId: targetId },
@@ -80,14 +93,45 @@ export function ScenarioDiffMergePanel({ projectId, scenarios, activeScenarioId,
     }
   };
 
+  const runPreview = async () => {
+    if (!diff || selected.size === 0) return;
+    setIsPreviewing(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('simulation-engine', {
+        body: {
+          action: 'merge_scenario_overrides',
+          projectId,
+          sourceScenarioId: sourceId,
+          targetScenarioId: targetId,
+          paths: Array.from(selected),
+          strategy,
+          preview: true,
+        },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      setPreview(data as MergePreview);
+    } catch (e: any) {
+      setDiffError(e.message ?? 'Preview failed');
+    } finally {
+      setIsPreviewing(false);
+    }
+  };
+
   const handleMerge = () => {
     if (!diff || selected.size === 0) return;
-    if (!confirm(`Merge ${selected.size} override(s) from source into target using "${strategy}" strategy?`)) return;
+    const needsForce = preview && (preview.is_locked || preview.protected_hits.length > 0);
+    if (needsForce) {
+      if (!confirm(`This merge touches ${preview.protected_hits.length} protected path(s) and/or a locked scenario. Proceed with force?`)) return;
+    } else {
+      if (!confirm(`Merge ${selected.size} override(s) from source into target using "${strategy}" strategy?`)) return;
+    }
     onMerge({
       sourceScenarioId: sourceId,
       targetScenarioId: targetId,
       paths: Array.from(selected),
       strategy,
+      force: needsForce ? true : undefined,
     });
   };
 
@@ -101,12 +145,17 @@ export function ScenarioDiffMergePanel({ projectId, scenarios, activeScenarioId,
     return s?.name ?? id.slice(0, 8);
   };
 
+  const targetScenario = nonArchived.find(s => s.id === targetId);
+
   return (
     <Card className="border-border/40">
       <CardHeader className="pb-3">
         <CardTitle className="text-sm flex items-center gap-2">
           <GitMerge className="h-4 w-4" />
           Scenario Diff &amp; Merge
+          {targetScenario?.is_locked && (
+            <Badge variant="destructive" className="text-[10px] ml-2">🔒 Target Locked</Badge>
+          )}
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -118,7 +167,7 @@ export function ScenarioDiffMergePanel({ projectId, scenarios, activeScenarioId,
               <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
               <SelectContent>
                 {nonArchived.map(s => (
-                  <SelectItem key={s.id} value={s.id} className="text-xs">{s.name}</SelectItem>
+                  <SelectItem key={s.id} value={s.id} className="text-xs">{s.name}{s.is_locked ? ' 🔒' : ''}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -130,7 +179,7 @@ export function ScenarioDiffMergePanel({ projectId, scenarios, activeScenarioId,
               <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
               <SelectContent>
                 {nonArchived.map(s => (
-                  <SelectItem key={s.id} value={s.id} className="text-xs">{s.name}</SelectItem>
+                  <SelectItem key={s.id} value={s.id} className="text-xs">{s.name}{s.is_locked ? ' 🔒' : ''}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -177,26 +226,51 @@ export function ScenarioDiffMergePanel({ projectId, scenarios, activeScenarioId,
                       </tr>
                     </thead>
                     <tbody>
-                      {diff.changes.map(c => (
-                        <tr key={c.path} className="border-b border-border/10 hover:bg-muted/10">
-                          <td className="px-2 py-1">
-                            <Checkbox
-                              checked={selected.has(c.path)}
-                              onCheckedChange={(checked) => {
-                                const next = new Set(selected);
-                                checked ? next.add(c.path) : next.delete(c.path);
-                                setSelected(next);
-                              }}
-                            />
-                          </td>
-                          <td className="px-2 py-1 font-mono text-[10px]">{c.path}</td>
-                          <td className="px-2 py-1 text-foreground">{formatValue(c.a)}</td>
-                          <td className="px-2 py-1 text-muted-foreground">{formatValue(c.b)}</td>
-                        </tr>
-                      ))}
+                      {diff.changes.map(c => {
+                        const isProtected = targetScenario?.protected_paths?.some(
+                          pp => c.path === pp || c.path.startsWith(pp + '.')
+                        );
+                        return (
+                          <tr key={c.path} className={`border-b border-border/10 hover:bg-muted/10 ${isProtected ? 'bg-destructive/5' : ''}`}>
+                            <td className="px-2 py-1">
+                              <Checkbox
+                                checked={selected.has(c.path)}
+                                onCheckedChange={(checked) => {
+                                  const next = new Set(selected);
+                                  checked ? next.add(c.path) : next.delete(c.path);
+                                  setSelected(next);
+                                }}
+                              />
+                            </td>
+                            <td className="px-2 py-1 font-mono text-[10px]">
+                              {c.path}
+                              {isProtected && <ShieldAlert className="inline h-3 w-3 ml-1 text-destructive" />}
+                            </td>
+                            <td className="px-2 py-1 text-foreground">{formatValue(c.a)}</td>
+                            <td className="px-2 py-1 text-muted-foreground">{formatValue(c.b)}</td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
+
+                {/* Preview summary */}
+                {preview && (
+                  <div className="text-xs flex items-center gap-2 flex-wrap">
+                    <span className="text-muted-foreground">
+                      Would apply <strong>{preview.would_change_count}</strong> path(s)
+                    </span>
+                    {preview.protected_hits.length > 0 && (
+                      <Badge variant="destructive" className="text-[10px]">
+                        {preview.protected_hits.length} protected
+                      </Badge>
+                    )}
+                    {preview.is_locked && (
+                      <Badge variant="destructive" className="text-[10px]">🔒 Locked</Badge>
+                    )}
+                  </div>
+                )}
 
                 {/* Merge controls */}
                 <div className="flex flex-wrap items-center gap-3">
@@ -210,6 +284,15 @@ export function ScenarioDiffMergePanel({ projectId, scenarios, activeScenarioId,
                       </SelectContent>
                     </Select>
                   </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8 text-xs mt-4"
+                    disabled={isPreviewing || selected.size === 0}
+                    onClick={runPreview}
+                  >
+                    {isPreviewing ? 'Previewing…' : 'Preview Merge'}
+                  </Button>
                   <Button
                     size="sm"
                     className="h-8 text-xs mt-4"

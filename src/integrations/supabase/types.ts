@@ -8194,11 +8194,15 @@ export type Database = {
           id: string
           is_active: boolean
           is_archived: boolean
+          is_locked: boolean
           is_recommended: boolean
+          locked_at: string | null
+          locked_by: string | null
           name: string
           override_log: Json
           pinned: boolean
           project_id: string
+          protected_paths: string[]
           rank_breakdown: Json | null
           rank_score: number | null
           ranked_at: string | null
@@ -8216,11 +8220,15 @@ export type Database = {
           id?: string
           is_active?: boolean
           is_archived?: boolean
+          is_locked?: boolean
           is_recommended?: boolean
+          locked_at?: string | null
+          locked_by?: string | null
           name?: string
           override_log?: Json
           pinned?: boolean
           project_id: string
+          protected_paths?: string[]
           rank_breakdown?: Json | null
           rank_score?: number | null
           ranked_at?: string | null
@@ -8238,11 +8246,15 @@ export type Database = {
           id?: string
           is_active?: boolean
           is_archived?: boolean
+          is_locked?: boolean
           is_recommended?: boolean
+          locked_at?: string | null
+          locked_by?: string | null
           name?: string
           override_log?: Json
           pinned?: boolean
           project_id?: string
+          protected_paths?: string[]
           rank_breakdown?: Json | null
           rank_score?: number | null
           ranked_at?: string | null

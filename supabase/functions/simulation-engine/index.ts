@@ -3080,10 +3080,12 @@ Deno.serve(async (req) => {
 
       const selectedPaths: string[] | undefined = body.paths;
       const strategy: string = body.strategy ?? "overwrite";
+      const isPreview: boolean = body.preview === true;
+      const isForce: boolean = body.force === true;
 
       const [{ data: srcScen }, { data: tgtScen }] = await Promise.all([
         supabase.from("project_scenarios").select("id, state_overrides, name").eq("id", sourceId).eq("project_id", projectId).single(),
-        supabase.from("project_scenarios").select("id, state_overrides, name").eq("id", targetId).eq("project_id", projectId).single(),
+        supabase.from("project_scenarios").select("id, state_overrides, name, is_locked, protected_paths").eq("id", targetId).eq("project_id", projectId).single(),
       ]);
       if (!srcScen) return json({ error: "Source scenario not found" }, 404);
       if (!tgtScen) return json({ error: "Target scenario not found" }, 404);
@@ -3095,6 +3097,33 @@ Deno.serve(async (req) => {
       const pathsToApply = selectedPaths
         ? allChanges.filter(c => selectedPaths.includes(c.path))
         : allChanges;
+
+      // Check protected paths
+      const protectedPaths: string[] = (tgtScen.protected_paths ?? []) as string[];
+      const protectedHits = pathsToApply
+        .map(c => c.path)
+        .filter(p => protectedPaths.some(pp => p === pp || p.startsWith(pp + ".")));
+
+      // Preview mode
+      if (isPreview) {
+        return json({
+          targetScenarioId: targetId,
+          sourceScenarioId: sourceId,
+          strategy,
+          paths_applied: pathsToApply.map(c => c.path),
+          protected_hits: protectedHits,
+          would_change_count: pathsToApply.length,
+          is_locked: !!(tgtScen as any).is_locked,
+        });
+      }
+
+      // Lock checks
+      if ((tgtScen as any).is_locked && !isForce) {
+        return json({ error: "Target scenario is locked" }, 403);
+      }
+      if (protectedHits.length > 0 && !isForce) {
+        return json({ error: "Protected paths require force", protected_hits: protectedHits }, 403);
+      }
 
       for (const change of pathsToApply) {
         const srcVal = getNestedValue(srcOver, change.path);
@@ -3144,6 +3173,8 @@ Deno.serve(async (req) => {
             sourceScenarioId: sourceId,
             targetScenarioId: targetId,
             change_count: pathsToApply.length,
+            forced: isForce,
+            protected_hits: protectedHits,
           },
         });
       } catch (e: unknown) {
@@ -3155,6 +3186,50 @@ Deno.serve(async (req) => {
         paths_applied: pathsToApply.map(c => c.path),
         change_count: pathsToApply.length,
       });
+    }
+
+    // ══════════════════════════════════════
+    // ACTION: set_scenario_lock
+    // ══════════════════════════════════════
+    if (action === "set_scenario_lock") {
+      const lockScenarioId = body.scenarioId;
+      if (!lockScenarioId) return json({ error: "scenarioId required" }, 400);
+      const isLocked: boolean = !!body.isLocked;
+      const protectedPaths: string[] = Array.isArray(body.protectedPaths)
+        ? body.protectedPaths.filter((p: unknown) => typeof p === "string" && p.trim().length > 0).map((p: string) => p.trim())
+        : [];
+
+      const updatePayload: Record<string, unknown> = {
+        is_locked: isLocked,
+        protected_paths: protectedPaths,
+        locked_at: isLocked ? new Date().toISOString() : null,
+        locked_by: isLocked ? userId : null,
+      };
+
+      const { error: lockErr } = await supabase
+        .from("project_scenarios")
+        .update(updatePayload)
+        .eq("id", lockScenarioId)
+        .eq("project_id", projectId);
+      if (lockErr) throw lockErr;
+
+      // Decision event
+      try {
+        await supabase.from("scenario_decision_events").insert({
+          project_id: projectId,
+          event_type: "scenario_lock_changed",
+          scenario_id: lockScenarioId,
+          created_by: userId,
+          payload: {
+            is_locked: isLocked,
+            protected_paths_count: protectedPaths.length,
+          },
+        });
+      } catch (e: unknown) {
+        console.warn("decision_event_insert_failed", "scenario_lock_changed", projectId, e instanceof Error ? e.message : e);
+      }
+
+      return json({ scenarioId: lockScenarioId, is_locked: isLocked, protected_paths: protectedPaths });
     }
 
     return json({ error: `Unknown action: ${action}` }, 400);
