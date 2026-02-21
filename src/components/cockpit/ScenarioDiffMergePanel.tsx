@@ -49,7 +49,7 @@ interface Props {
   isScanningGovernance: boolean;
   onEvaluateMergeRisk: (params: { sourceScenarioId: string; targetScenarioId: string; paths?: string[]; strategy?: string; force?: boolean }) => Promise<MergeRiskReport>;
   isEvaluatingRisk: boolean;
-  onRequestApproval: (params: { scenarioId: string; payload?: any }) => void;
+  onRequestApproval: (params: { sourceScenarioId?: string; targetScenarioId?: string; scenarioId?: string; riskReport?: any; payload?: any }) => void;
   isRequestingApproval: boolean;
 }
 
@@ -239,14 +239,11 @@ export function ScenarioDiffMergePanel({
     if (riskReport?.requires_approval && !pendingMergeForce) {
       setShowConfirmDialog(false);
       onRequestApproval({
-        scenarioId: targetId,
-        payload: {
-          sourceScenarioId: sourceId,
-          targetScenarioId: targetId,
-          paths: Array.from(selected),
-          strategy,
-          risk_level: riskReport.risk_level,
+        sourceScenarioId: sourceId,
+        targetScenarioId: targetId,
+        riskReport: {
           risk_score: riskReport.risk_score,
+          risk_level: riskReport.risk_level,
           conflicts: riskReport.conflicts,
         },
       });
@@ -583,7 +580,49 @@ export function ScenarioDiffMergePanel({
                   </div>
                 )}
 
-                {/* Merge controls */}
+                {/* Approval required banner */}
+                {riskReport?.requires_approval && (
+                  <div className="rounded border border-destructive/40 bg-destructive/10 px-3 py-2 space-y-2">
+                    <div className="text-xs font-medium text-destructive flex items-center gap-1.5">
+                      <ShieldAlert className="h-3.5 w-3.5" />
+                      Approval Required — {riskReport.approval_reason ?? 'This merge requires approval before proceeding.'}
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        className="h-7 px-3 text-[10px]"
+                        disabled={isRequestingApproval}
+                        onClick={() => {
+                          onRequestApproval({
+                            sourceScenarioId: sourceId,
+                            targetScenarioId: targetId,
+                            riskReport: {
+                              risk_score: riskReport.risk_score,
+                              risk_level: riskReport.risk_level,
+                              conflicts: riskReport.conflicts,
+                            },
+                          });
+                        }}
+                      >
+                        {isRequestingApproval ? 'Requesting…' : 'Request Approval'}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 px-3 text-[10px]"
+                        disabled={isMerging}
+                        onClick={() => {
+                          setPendingMergeForce(true);
+                          setShowConfirmDialog(true);
+                        }}
+                      >
+                        Force Merge
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
                 <div className="flex flex-wrap items-center gap-3">
                   <div className="space-y-1">
                     <label className="text-[10px] text-muted-foreground font-medium">Strategy</label>
