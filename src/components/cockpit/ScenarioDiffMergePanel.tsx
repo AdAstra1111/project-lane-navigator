@@ -188,11 +188,6 @@ export function ScenarioDiffMergePanel({
   const executemerge = () => {
     setShowConfirmDialog(false);
 
-    // Warn about edited rows
-    if (editedRows.size > 0) {
-      if (!confirm('Edited rows cannot be applied until a backend action is added. Continue merge without applying edits?')) return;
-    }
-
     onMerge({
       sourceScenarioId: sourceId,
       targetScenarioId: targetId,
