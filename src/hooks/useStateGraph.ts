@@ -127,6 +127,31 @@ export interface ScenarioProjection {
   created_at: string;
 }
 
+// Phase 4.1 types
+
+export interface ScenarioScoreRow {
+  id: string;
+  project_id: string;
+  scenario_id: string;
+  as_of: string;
+  metrics: any;
+  scores: any;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ScenarioRecommendation {
+  id: string;
+  project_id: string;
+  recommended_scenario_id: string;
+  confidence: number;
+  reasons: string[];
+  tradeoffs: any;
+  risk_flags: string[];
+  created_at: string;
+}
+
 // ---- Hooks ----
 
 const MAX_PINNED = 4;
@@ -191,15 +216,35 @@ export function useStateGraph(projectId: string | undefined) {
     enabled: !!projectId,
   });
 
+  // Phase 4.1: latest recommendation
+  const { data: recommendation = null, isLoading: recommendationLoading } = useQuery({
+    queryKey: ['scenario-recommendation', projectId],
+    queryFn: async () => {
+      if (!projectId) return null;
+      const { data, error } = await supabase
+        .from('scenario_recommendations')
+        .select('*')
+        .eq('project_id', projectId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return data as unknown as ScenarioRecommendation | null;
+    },
+    enabled: !!projectId,
+  });
+
   const invalidateAll = () => {
     queryClient.invalidateQueries({ queryKey: ['state-graph', projectId] });
     queryClient.invalidateQueries({ queryKey: ['scenarios', projectId] });
     queryClient.invalidateQueries({ queryKey: ['drift-alerts', projectId] });
     queryClient.invalidateQueries({ queryKey: ['projection', projectId] });
+    queryClient.invalidateQueries({ queryKey: ['scenario-recommendation', projectId] });
+    queryClient.invalidateQueries({ queryKey: ['scenario-scores', projectId] });
   };
 
   const initialize = useMutation({
-    mutationFn: async (creativeState?: Partial<CreativeState>) => {
+    mutationFn: async (creativeState?: Partial<any>) => {
       const { data, error } = await supabase.functions.invoke('simulation-engine', {
         body: { action: 'initialize', projectId, creativeState },
       });
@@ -377,6 +422,28 @@ export function useStateGraph(projectId: string | undefined) {
     onError: (e: any) => toast.error(e.message),
   });
 
+  // Phase 4.1: recompute recommendation
+  const recomputeRecommendation = useMutation({
+    mutationFn: async (params?: { baselineScenarioId?: string; activeScenarioId?: string }) => {
+      const { data, error } = await supabase.functions.invoke('simulation-engine', {
+        body: {
+          action: 'recommend_scenario',
+          projectId,
+          ...(params?.baselineScenarioId ? { baselineScenarioId: params.baselineScenarioId } : {}),
+          ...(params?.activeScenarioId ? { activeScenarioId: params.activeScenarioId } : {}),
+        },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      return data;
+    },
+    onSuccess: () => {
+      invalidateAll();
+      toast.success('Recommendation updated');
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
   const baseline = scenarios.find(s => s.scenario_type === 'baseline');
   const activeScenario = scenarios.find(s => s.is_active);
   const recommendedScenario = scenarios.find(s => s.is_recommended);
@@ -391,7 +458,8 @@ export function useStateGraph(projectId: string | undefined) {
     stateGraph,
     scenarios,
     alerts,
-    isLoading: graphLoading || scenariosLoading,
+    recommendation,
+    isLoading: graphLoading || scenariosLoading || recommendationLoading,
     initialize,
     cascade,
     createScenario,
@@ -404,6 +472,7 @@ export function useStateGraph(projectId: string | undefined) {
     optimizeScenario,
     applyOptimizedOverrides,
     projectForward,
+    recomputeRecommendation,
     baseline,
     activeScenario,
     recommendedScenario: validRecommended,
