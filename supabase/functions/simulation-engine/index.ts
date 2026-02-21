@@ -2629,6 +2629,16 @@ Deno.serve(async (req) => {
         }
       }
 
+      // Build scenario snapshot for replay/branching
+      const winnerScenario = winner.scenario;
+      const scenarioSnapshot = {
+        recommended_scenario_id: winner.scenarioId,
+        recommended_scenario_name: winnerScenario?.name ?? null,
+        recommended_state_overrides: winnerScenario?.state_overrides ?? {},
+        baseline_scenario_id: baselineScenarioId ?? null,
+        active_scenario_id: activeScenarioId ?? null,
+      };
+
       // Decision event: recommendation_computed
       try {
         await supabase.from("scenario_decision_events").insert({
@@ -2644,6 +2654,7 @@ Deno.serve(async (req) => {
             riskFlags,
             contract_warnings: contractWarnings.length > 0 ? contractWarnings : undefined,
             change_reasons: changeReasons.length > 0 ? changeReasons.slice(0, 3) : undefined,
+            scenario_snapshot: scenarioSnapshot,
             scoresByScenario: scored.map((x: any) => ({
               scenarioId: x.scenarioId,
               composite: x.scores.composite,
@@ -2862,6 +2873,99 @@ Deno.serve(async (req) => {
         fragility_score: fragilityScore,
         breakpoints,
       });
+    }
+
+    // ══════════════════════════════════════
+    // ACTION: branch_from_decision_event
+    // ══════════════════════════════════════
+    if (action === "branch_from_decision_event") {
+      const eventId = body.eventId;
+      if (!eventId) return json({ error: "eventId required" }, 400);
+
+      const { data: evt, error: evtErr } = await supabase
+        .from("scenario_decision_events")
+        .select("*")
+        .eq("id", eventId)
+        .eq("project_id", projectId)
+        .single();
+      if (evtErr || !evt) return json({ error: "Decision event not found" }, 404);
+      if (evt.event_type !== "recommendation_computed")
+        return json({ error: "Only recommendation_computed events can be branched" }, 400);
+
+      const payload = evt.payload as any;
+      const snapshot = payload?.scenario_snapshot;
+      if (!snapshot)
+        return json({ error: "Event has no scenario_snapshot (pre-4.8 event)" }, 400);
+
+      const overrides = snapshot.recommended_state_overrides ?? {};
+      const changeReasons: string[] = payload.change_reasons ?? [];
+      const confidence: number = payload.confidence ?? 0;
+      const evtDate = new Date(evt.created_at);
+      const dateStr = `${evtDate.getFullYear()}-${String(evtDate.getMonth() + 1).padStart(2, "0")}-${String(evtDate.getDate()).padStart(2, "0")} ${String(evtDate.getHours()).padStart(2, "0")}:${String(evtDate.getMinutes()).padStart(2, "0")}`;
+      const reasonTag = changeReasons.length > 0 ? changeReasons[0].replace(/_/g, " ") : "snapshot";
+      const name = body.nameOverride || `Branch — ${dateStr} — ${reasonTag}`;
+      const description = `Branched from decision ${eventId}. Confidence ${confidence}. ${changeReasons.length > 0 ? "Reasons: " + changeReasons.join(", ") : ""}`.trim();
+
+      const { data: newScenario, error: insErr } = await supabase
+        .from("project_scenarios")
+        .insert({
+          project_id: projectId,
+          name,
+          description,
+          scenario_type: "custom",
+          pinned: false,
+          is_active: false,
+          is_archived: false,
+          state_overrides: overrides,
+        })
+        .select("id")
+        .single();
+      if (insErr) throw insErr;
+
+      const newScenarioId = newScenario.id;
+
+      // Cascade overrides to compute state for the new scenario
+      const { data: graph } = await supabase
+        .from("project_state_graphs")
+        .select("*")
+        .eq("project_id", projectId)
+        .single();
+      if (graph) {
+        const baseState: CascadedState = {
+          creative_state: graph.creative_state as unknown as CreativeState,
+          execution_state: graph.execution_state as unknown as ExecutionState,
+          production_state: graph.production_state as unknown as ProductionState,
+          finance_state: graph.finance_state as unknown as FinanceState,
+          revenue_state: graph.revenue_state as unknown as RevenueState,
+        };
+        const merged = deepMerge(baseState as unknown as Record<string, unknown>, overrides ?? {}) as unknown as CascadedState;
+        const cascaded = cascadeAll(merged);
+        await supabase
+          .from("project_scenarios")
+          .update({ computed_state: cascaded as any })
+          .eq("id", newScenarioId);
+      }
+
+      // Decision event: branch_created
+      try {
+        await supabase.from("scenario_decision_events").insert({
+          project_id: projectId,
+          event_type: "branch_created",
+          scenario_id: newScenarioId,
+          previous_scenario_id: snapshot.recommended_scenario_id ?? null,
+          created_by: userId,
+          payload: {
+            source_event_id: eventId,
+            source_event_type: evt.event_type,
+            change_reasons: changeReasons,
+            confidence,
+          },
+        });
+      } catch (e: unknown) {
+        console.warn("decision_event_insert_failed", "branch_created", projectId, e instanceof Error ? e.message : e);
+      }
+
+      return json({ newScenarioId });
     }
 
     return json({ error: `Unknown action: ${action}` }, 400);
