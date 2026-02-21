@@ -13,7 +13,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   Zap, ChevronDown, Sparkles, Loader2, CheckCircle2, ArrowRight, Lightbulb,
-  Pencil, Check, X, Wand2, Shield, Eye, Lock, AlertTriangle, Layers
+  Pencil, Check, X, Wand2, Shield, Eye, Lock, AlertTriangle, Layers, Pin, Clock,
 } from 'lucide-react';
 import { useState, useCallback, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
@@ -84,6 +84,10 @@ interface NotesPanelProps {
   onCustomDirectionsChange?: (customDirections: Record<string, string>) => void;
   externalDecisions?: Array<{ note_id: string; options: NoteDecisionOption[]; recommended_option_id?: string; recommended?: string }>;
   deferredNotes?: any[];
+  persistedDeferredNotes?: any[];
+  onPinDeferred?: (noteId: string) => void;
+  onUnpinDeferred?: (noteId: string) => void;
+  onDismissDeferred?: (noteId: string) => void;
   carriedNotes?: any[];
   currentDocType?: string;
   currentVersionId?: string;
@@ -471,7 +475,8 @@ export function NotesPanel({
   onApplyRewrite, isRewriting, isLoading,
   resolutionSummary, stabilityStatus, globalDirections,
   hideApplyButton, onDecisionsChange, onCustomDirectionsChange, externalDecisions,
-  deferredNotes, carriedNotes, currentDocType, currentVersionId, onResolveCarriedNote,
+  deferredNotes, persistedDeferredNotes, onPinDeferred, onUnpinDeferred, onDismissDeferred,
+  carriedNotes, currentDocType, currentVersionId, onResolveCarriedNote,
   bundles, decisionSets, mutedByDecision, projectId, documentId, onDecisionApplied,
 }: NotesPanelProps) {
   const [polishOpen, setPolishOpen] = useState(false);
@@ -768,26 +773,81 @@ export function NotesPanel({
               </Collapsible>
             )}
 
-            {/* Deferred notes */}
+            {/* Deferred notes — from current run */}
             {deferredNotes && deferredNotes.length > 0 && (
               <Collapsible open={deferredOpen} onOpenChange={setDeferredOpen}>
                 <CollapsibleTrigger className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors w-full py-1">
                   <ChevronDown className={`h-3 w-3 transition-transform ${deferredOpen ? 'rotate-0' : '-rotate-90'}`} />
+                  <Clock className="h-3 w-3" />
                   {deferredNotes.length} Deferred
                   <span className="text-[8px] text-muted-foreground ml-1">(for later docs)</span>
                 </CollapsibleTrigger>
                 <CollapsibleContent className="space-y-1 mt-1">
                   {deferredNotes.map((note: any, i: number) => (
                     <div key={`def-${i}`} className="rounded border border-border/30 bg-muted/10 p-2 opacity-70">
-                      <div className="flex items-center gap-1 mb-0.5">
-                        <Badge variant="outline" className="text-[8px] px-1 py-0">→ {note.target_deliverable_type || 'later'}</Badge>
+                      <div className="flex items-center gap-1 mb-0.5 flex-wrap">
+                        <Badge variant="outline" className="text-[8px] px-1 py-0">→ {(note.target_deliverable_type || 'later').replace(/_/g, ' ')}</Badge>
                         <Badge variant="outline" className="text-[8px] px-1 py-0 text-muted-foreground">{note.apply_timing === 'next_doc' ? 'Next Doc' : 'Later'}</Badge>
                         {note.category && <Badge variant="outline" className="text-[8px] px-1 py-0">{note.category}</Badge>}
+                        {note.severity && <Badge variant="outline" className={`text-[8px] px-1 py-0 ${note.severity === 'blocker' ? 'text-destructive border-destructive/30' : note.severity === 'high' ? 'text-amber-400 border-amber-500/30' : 'text-muted-foreground'}`}>{note.severity}</Badge>}
                       </div>
                       <p className="text-[10px] text-foreground">{note.description || note.note}</p>
                       {note.defer_reason && <p className="text-[9px] text-muted-foreground mt-0.5 italic">↳ {note.defer_reason}</p>}
+                      <p className="text-[8px] text-muted-foreground/70 mt-0.5">
+                        <Clock className="h-2 w-2 inline mr-0.5" />
+                        Will reappear when working on {(note.target_deliverable_type || 'later stage').replace(/_/g, ' ')}
+                      </p>
                     </div>
                   ))}
+                </CollapsibleContent>
+              </Collapsible>
+            )}
+
+            {/* Persisted deferred notes — from DB with pin/dismiss actions */}
+            {persistedDeferredNotes && persistedDeferredNotes.length > 0 && (
+              <Collapsible>
+                <CollapsibleTrigger className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors w-full py-1">
+                  <ChevronDown className="h-3 w-3" />
+                  <Pin className="h-3 w-3" />
+                  {persistedDeferredNotes.length} Saved Deferred Notes
+                </CollapsibleTrigger>
+                <CollapsibleContent className="space-y-1 mt-1">
+                  {persistedDeferredNotes.map((note: any) => {
+                    const nj = note.note_json || {};
+                    return (
+                      <div key={note.id} className={`rounded border p-2 ${note.pinned ? 'border-primary/30 bg-primary/5' : 'border-border/30 bg-muted/10 opacity-70'}`}>
+                        <div className="flex items-center gap-1 mb-0.5 flex-wrap">
+                          <Badge variant="outline" className="text-[8px] px-1 py-0">→ {(note.target_deliverable_type || 'later').replace(/_/g, ' ')}</Badge>
+                          {note.pinned && <Badge variant="outline" className="text-[7px] px-1 py-0 border-primary/40 text-primary bg-primary/10"><Pin className="h-2 w-2 mr-0.5 inline" />Pinned</Badge>}
+                          {note.severity && <Badge variant="outline" className={`text-[8px] px-1 py-0 ${note.severity === 'blocker' ? 'text-destructive border-destructive/30' : note.severity === 'high' ? 'text-amber-400 border-amber-500/30' : 'text-muted-foreground'}`}>{note.severity}</Badge>}
+                          {note.category && <Badge variant="outline" className="text-[8px] px-1 py-0">{note.category}</Badge>}
+                        </div>
+                        <p className="text-[10px] text-foreground">{nj.description || nj.note || note.note_key}</p>
+                        {nj.why_it_matters && <p className="text-[9px] text-muted-foreground mt-0.5 italic">{nj.why_it_matters}</p>}
+                        <p className="text-[8px] text-muted-foreground/70 mt-0.5">
+                          <Clock className="h-2 w-2 inline mr-0.5" />
+                          Will reappear when working on {(note.target_deliverable_type || 'later stage').replace(/_/g, ' ')}
+                        </p>
+                        <div className="flex items-center gap-1 mt-1 pt-1 border-t border-border/20">
+                          {!note.pinned && onPinDeferred && (
+                            <Button variant="ghost" size="sm" className="h-4 text-[8px] px-1 gap-0.5 text-primary hover:text-primary/80" onClick={() => onPinDeferred(note.id)}>
+                              <Pin className="h-2 w-2" />Pin / Show now
+                            </Button>
+                          )}
+                          {note.pinned && onUnpinDeferred && (
+                            <Button variant="ghost" size="sm" className="h-4 text-[8px] px-1 gap-0.5 text-muted-foreground" onClick={() => onUnpinDeferred(note.id)}>
+                              <X className="h-2 w-2" />Unpin
+                            </Button>
+                          )}
+                          {onDismissDeferred && (
+                            <Button variant="ghost" size="sm" className="h-4 text-[8px] px-1 gap-0.5 text-muted-foreground hover:text-destructive" onClick={() => onDismissDeferred(note.id)}>
+                              <X className="h-2 w-2" />Dismiss
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </CollapsibleContent>
               </Collapsible>
             )}

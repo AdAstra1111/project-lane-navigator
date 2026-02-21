@@ -1678,6 +1678,10 @@ ${version.plaintext.slice(0, maxContextChars)}`;
               status: "open",
               last_checked_at: new Date().toISOString(),
               last_seen_in_doc_type: effectiveDeliverable,
+              severity: dn.severity || "high",
+              category: dn.category || null,
+              due_when: { when_doc_type_active: dn.target_deliverable_type || null },
+              suggested_fixes: dn.suggested_fixes || null,
             }, { onConflict: "project_id,note_key,target_deliverable_type" });
           } catch (e) {
             console.warn("[dev-engine-v2] Failed to persist deferred note:", e);

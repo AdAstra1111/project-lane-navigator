@@ -6836,57 +6836,72 @@ export type Database = {
       }
       project_deferred_notes: {
         Row: {
+          category: string | null
           created_at: string
           created_by: string
+          due_when: Json | null
           id: string
           last_checked_at: string | null
           last_seen_in_doc_type: string | null
           note_json: Json
           note_key: string
+          pinned: boolean
           project_id: string
           resolution_method: string | null
           resolution_summary: string | null
           resolved_at: string | null
           resolved_in_stage: string | null
+          severity: string | null
           source_doc_type: string
           source_version_id: string | null
           status: string
+          suggested_fixes: Json | null
           target_deliverable_type: string
         }
         Insert: {
+          category?: string | null
           created_at?: string
           created_by: string
+          due_when?: Json | null
           id?: string
           last_checked_at?: string | null
           last_seen_in_doc_type?: string | null
           note_json?: Json
           note_key?: string
+          pinned?: boolean
           project_id: string
           resolution_method?: string | null
           resolution_summary?: string | null
           resolved_at?: string | null
           resolved_in_stage?: string | null
+          severity?: string | null
           source_doc_type?: string
           source_version_id?: string | null
           status?: string
+          suggested_fixes?: Json | null
           target_deliverable_type?: string
         }
         Update: {
+          category?: string | null
           created_at?: string
           created_by?: string
+          due_when?: Json | null
           id?: string
           last_checked_at?: string | null
           last_seen_in_doc_type?: string | null
           note_json?: Json
           note_key?: string
+          pinned?: boolean
           project_id?: string
           resolution_method?: string | null
           resolution_summary?: string | null
           resolved_at?: string | null
           resolved_in_stage?: string | null
+          severity?: string | null
           source_doc_type?: string
           source_version_id?: string | null
           status?: string
+          suggested_fixes?: Json | null
           target_deliverable_type?: string
         }
         Relationships: [
