@@ -76,7 +76,7 @@ async function fetchProjectContext(sb: any, projectId: string) {
     if (doc) {
       const { data: ver } = await sb.from("project_document_versions")
         .select("plaintext").eq("document_id", doc.id).order("version_number", { ascending: false }).limit(1).single();
-      if (ver?.plaintext) docs[dt] = ver.plaintext.slice(0, 8000);
+      if (ver?.plaintext) docs[dt] = ver.plaintext;
     }
   }
   return { project, docs };

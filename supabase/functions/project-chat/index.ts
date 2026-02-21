@@ -71,7 +71,7 @@ FINANCE SCENARIOS: ${(financeRes.data || []).map((f: any) => `${f.scenario_name}
 DEALS (${(dealsRes.data || []).length}): ${(dealsRes.data || []).map((d: any) => `${d.buyer_name} - ${d.territory} - ${d.deal_type} - $${d.minimum_guarantee} (${d.status})`).join("; ")}
 
 DOCUMENTS: ${(docsRes.data || []).map((d: any) => d.file_name).join(", ")}
-${(docsRes.data || []).filter((d: any) => d.extracted_text).map((d: any) => `--- ${d.file_name} ---\n${(d.extracted_text || "").slice(0, 2000)}`).join("\n")}
+${(docsRes.data || []).filter((d: any) => d.extracted_text).map((d: any) => `--- ${d.file_name} ---\n${d.extracted_text || ""}`).join("\n")}
     `.trim();
 
     // Call AI with streaming

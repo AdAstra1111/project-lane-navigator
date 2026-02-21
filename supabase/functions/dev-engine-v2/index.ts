@@ -1372,7 +1372,7 @@ serve(async (req) => {
     // ══════════════════════════════════════════════
     if (action === "analyze") {
       const { projectId, documentId, versionId, deliverableType, developmentBehavior, format: reqFormat, strategicPriority, developmentStage, analysisMode, previousVersionId, productionType, maxContextChars: reqMaxContext } = body;
-      const DEFAULT_CONTEXT_CHARS = 40000;
+      const DEFAULT_CONTEXT_CHARS = 200000;
       const maxContextChars = typeof reqMaxContext === "number" && reqMaxContext > 0 ? Math.min(reqMaxContext, 200000) : DEFAULT_CONTEXT_CHARS;
 
       if (!projectId || !documentId || !versionId) throw new Error("projectId, documentId, versionId required");
@@ -2018,7 +2018,7 @@ GENERAL RULES:
 - Do NOT re-raise previously resolved issues as blockers.
 - If an existing note_key persists, use the same key — do NOT rephrase under a new key.${antiRepeatRule}`;
 
-      const userPrompt = `ANALYSIS:\n${JSON.stringify(analysis)}\n\nMATERIAL (${version.plaintext.length} chars total):\n${version.plaintext.slice(0, 40000)}`;
+      const userPrompt = `ANALYSIS:\n${JSON.stringify(analysis)}\n\nMATERIAL (${version.plaintext.length} chars total):\n${version.plaintext}`;
       const raw = await callAI(LOVABLE_API_KEY, PRO_MODEL, notesSystem, userPrompt, 0.25, 6000);
       const parsed = await parseAIJson(LOVABLE_API_KEY, raw);
 
@@ -2364,7 +2364,7 @@ ANALYSIS SUMMARY:\n${analysis?.executive_snapshot || analysis?.verdict || "No an
 
 NOTES REQUIRING DECISIONS:\n${JSON.stringify(notesForPrompt)}
 
-MATERIAL (first 8000 chars):\n${version.plaintext.slice(0, 8000)}`;
+MATERIAL:\n${version.plaintext}`;
 
       const raw = await callAI(LOVABLE_API_KEY, PRO_MODEL, optionsSystem, userPrompt, 0.3, 6000);
       const parsed = await parseAIJson(LOVABLE_API_KEY, raw);
@@ -2757,7 +2757,7 @@ Format: ${rq.format}.`;
 TARGET FORMAT: ${targetOutput}
 PROTECT (non-negotiable creative DNA):\n${JSON.stringify(protectItems || [])}
 ${qualBindingBlock}
-MATERIAL:\n${version.plaintext.slice(0, 20000)}`;
+MATERIAL:\n${version.plaintext}`;
 
       const normalizedTarget = (targetOutput || "").toUpperCase().replace(/\s+/g, "_");
       const isDraftScript = targetOutput === "DRAFT_SCRIPT" || normalizedTarget === "SCRIPT" || normalizedTarget === "DRAFT_SCRIPT";
@@ -2902,7 +2902,7 @@ TARGET PAGES: ${targetPages || 100}
 PROTECT (non-negotiable creative DNA): ${JSON.stringify(protectItems || [])}
 
 MATERIAL (${version.plaintext.length} chars):
-${version.plaintext.slice(0, 25000)}`;
+${version.plaintext}`;
 
       const raw = await callAI(LOVABLE_API_KEY, PRO_MODEL, SCRIPT_PLAN_SYSTEM, userPrompt, 0.25, 8000);
       const parsed = await parseAIJson(LOVABLE_API_KEY, raw);
@@ -3951,13 +3951,13 @@ Return ONLY valid JSON matching this schema:
           if (snapshot.character_bible_version_id) {
             const { data: cbVer } = await supabase.from("project_document_versions")
               .select("plaintext").eq("id", snapshot.character_bible_version_id).single();
-            if (cbVer?.plaintext) canonContext += `CHARACTER BIBLE:\n${cbVer.plaintext.slice(0, 2000)}\n\n`;
+            if (cbVer?.plaintext) canonContext += `CHARACTER BIBLE:\n${cbVer.plaintext}\n\n`;
           }
           // Fetch episode grid
           if (snapshot.episode_grid_version_id) {
             const { data: gridVer } = await supabase.from("project_document_versions")
               .select("plaintext").eq("id", snapshot.episode_grid_version_id).single();
-            if (gridVer?.plaintext) canonContext += `EPISODE GRID:\n${gridVer.plaintext.slice(0, 2000)}\n\n`;
+            if (gridVer?.plaintext) canonContext += `EPISODE GRID:\n${gridVer.plaintext}\n\n`;
           }
         }
       }
@@ -4001,7 +4001,7 @@ Return ONLY valid JSON:
 
 Overall score = average of all 5 dimension scores. Passed = overall_score >= 65 AND no blocker issues.`;
 
-      const userPrompt = `${canonContext ? `CANON CONTEXT:\n${canonContext}\n` : ""}${prevEpisodeText ? `PREVIOUS EPISODE (for escalation check):\n${prevEpisodeText}\n\n` : ""}EPISODE ${episodeNumber} SCRIPT TO VALIDATE:\n${scriptText.slice(0, 8000)}`;
+      const userPrompt = `${canonContext ? `CANON CONTEXT:\n${canonContext}\n` : ""}${prevEpisodeText ? `PREVIOUS EPISODE (for escalation check):\n${prevEpisodeText}\n\n` : ""}EPISODE ${episodeNumber} SCRIPT TO VALIDATE:\n${scriptText}`;
 
       const raw = await callAI(LOVABLE_API_KEY, FAST_MODEL, VALIDATION_SYSTEM, userPrompt, 0.1, 2000);
       let result: any;
@@ -4078,12 +4078,12 @@ Overall score = average of all 5 dimension scores. Passed = overall_score >= 65 
         if (snapshot?.character_bible_version_id) {
           const { data: cb } = await supabase.from("project_document_versions")
             .select("plaintext").eq("id", snapshot.character_bible_version_id).single();
-          if (cb?.plaintext) canonContext += `CHARACTER BIBLE:\n${cb.plaintext.slice(0, 2000)}\n\n`;
+          if (cb?.plaintext) canonContext += `CHARACTER BIBLE:\n${cb.plaintext}\n\n`;
         }
         if (snapshot?.episode_grid_version_id) {
           const { data: grid } = await supabase.from("project_document_versions")
             .select("plaintext").eq("id", snapshot.episode_grid_version_id).single();
-          if (grid?.plaintext) canonContext += `EPISODE GRID:\n${grid.plaintext.slice(0, 2000)}\n\n`;
+          if (grid?.plaintext) canonContext += `EPISODE GRID:\n${grid.plaintext}\n\n`;
         }
       }
 
@@ -4160,7 +4160,7 @@ RULES:
 - Recommendations must be LOCAL fixes: sharpen hooks, add micro-conflict, reduce exposition, insert emotional turns, sharpen cliffhangers.
 - If retention < 60 or cliffhanger < 60 or confusion_risk > 70, include at least one HIGH severity recommendation.`;
 
-      const userPrompt = `${prevScriptText ? `PREVIOUS EPISODE (for escalation comparison):\n${prevScriptText}\n\n` : ""}EPISODE ${episodeNumber} SCRIPT:\n${scriptText.slice(0, 10000)}`;
+      const userPrompt = `${prevScriptText ? `PREVIOUS EPISODE (for escalation comparison):\n${prevScriptText}\n\n` : ""}EPISODE ${episodeNumber} SCRIPT:\n${scriptText}`;
 
       const raw = await callAI(LOVABLE_API_KEY, FAST_MODEL, METRICS_SYSTEM, userPrompt, 0.2, 3000);
       let result: any;

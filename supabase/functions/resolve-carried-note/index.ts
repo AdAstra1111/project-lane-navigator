@@ -223,7 +223,7 @@ REQUIREMENTS:
 ${noteText}
 
 CURRENT DOCUMENT (${verDocType}):
-${docText.slice(0, 12000)}
+${docText}
 
 Enter Fix Generation Mode. Diagnose the note, identify affected scenes with evidence, provide 3–5 distinct patch options, then choose the strongest recommended fix and generate the proposed_edits for it.`;
 

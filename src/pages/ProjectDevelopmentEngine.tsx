@@ -185,7 +185,7 @@ export default function ProjectDevelopmentEngine() {
   const [pendingStageAction, setPendingStageAction] = useState<(() => void) | null>(null);
   const [driftOverrideOpen, setDriftOverrideOpen] = useState(false);
   const [timelineOpen, setTimelineOpen] = useState(false);
-  const [largeDocConfirm, setLargeDocConfirm] = useState<{ charCount: number } | null>(null);
+  
 
   const {
     documents, docsLoading, versions, versionsLoading,
@@ -443,9 +443,7 @@ export default function ProjectDevelopmentEngine() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [latestAnalysis, latestNotes, documents]);
 
-  const DEFAULT_CONTEXT_CHARS = 40000;
-
-  const runAnalysisWithContext = (maxContextChars?: number) => {
+  const runAnalysisWithContext = () => {
     const prevVersion = versions.length > 1 ? versions[versions.length - 2] : null;
     analyze.mutate({
       deliverableType: selectedDeliverableType,
@@ -455,7 +453,6 @@ export default function ProjectDevelopmentEngine() {
       episode_target_duration_min_seconds: (isVerticalDrama || isSeriesFormat) ? effectiveEpisodeDurationMin : undefined,
       episode_target_duration_max_seconds: (isVerticalDrama || isSeriesFormat) ? effectiveEpisodeDurationMax : undefined,
       previousVersionId: prevVersion?.id,
-      ...(maxContextChars ? { maxContextChars } : {}),
     }, {
       onSuccess: (analysisResult: any) => {
         generateNotes.mutate(analysisResult);
@@ -464,14 +461,6 @@ export default function ProjectDevelopmentEngine() {
   };
 
   const handleRunEngine = () => {
-    const docText = selectedVersion?.plaintext || selectedDoc?.plaintext || selectedDoc?.extracted_text || '';
-    const charCount = docText.length;
-
-    if (charCount > DEFAULT_CONTEXT_CHARS) {
-      setLargeDocConfirm({ charCount });
-      return;
-    }
-
     runAnalysisWithContext();
   };
 
@@ -1554,28 +1543,6 @@ export default function ProjectDevelopmentEngine() {
         </DialogContent>
       </Dialog>
 
-      {/* Large document confirmation dialog */}
-      <AlertDialog open={!!largeDocConfirm} onOpenChange={(open) => { if (!open) setLargeDocConfirm(null); }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Large Document Detected</AlertDialogTitle>
-            <AlertDialogDescription>
-              This document is {largeDocConfirm ? Math.round(largeDocConfirm.charCount / 1000) : 0}k characters — larger than the default analysis window ({Math.round(DEFAULT_CONTEXT_CHARS / 1000)}k chars). 
-              The analysis may take longer and use more credits. Would you like to proceed with the full document?
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setLargeDocConfirm(null)}>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={() => {
-              const charCount = largeDocConfirm?.charCount || DEFAULT_CONTEXT_CHARS;
-              setLargeDocConfirm(null);
-              runAnalysisWithContext(charCount);
-            }}>
-              Analyse Full Document
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </PageTransition>
   );
 }
