@@ -675,7 +675,12 @@ Deno.serve(async (req) => {
       }
 
       if (ranked.length === 0) {
-        return json({ recommendedScenarioId: null, rankedCount: 0, top5: [], updatedAt: null, message: "No rankable scenarios" });
+        const now = new Date().toISOString();
+        // Clear stale recommendations even if nothing is rankable
+        await supabase.from("project_scenarios")
+          .update({ is_recommended: false })
+          .eq("project_id", projectId);
+        return json({ recommendedScenarioId: null, rankedCount: 0, top5: [], updatedAt: now, message: "No rankable scenarios" });
       }
 
       ranked.sort((a, b) => b.score - a.score);
@@ -697,7 +702,7 @@ Deno.serve(async (req) => {
             rank_score: r.score,
             rank_breakdown: r.breakdown,
             ranked_at: now,
-          }).eq("id", r.id)
+          }).eq("id", r.id).eq("project_id", projectId)
         ));
         const failed = results.find(r => r.error);
         if (failed?.error) return json({ error: "Failed to update rank: " + failed.error.message }, 500);
@@ -706,7 +711,8 @@ Deno.serve(async (req) => {
       // Step 3: Set winner as recommended
       const { error: recErr } = await supabase.from("project_scenarios")
         .update({ is_recommended: true })
-        .eq("id", winnerId);
+        .eq("id", winnerId)
+        .eq("project_id", projectId);
       if (recErr) return json({ error: "Failed to set recommended: " + recErr.message }, 500);
 
       return json({
