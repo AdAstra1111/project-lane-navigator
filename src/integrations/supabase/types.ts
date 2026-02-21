@@ -8964,6 +8964,51 @@ export type Database = {
           },
         ]
       }
+      script_blueprints: {
+        Row: {
+          blueprint_json: Json
+          created_at: string
+          created_by: string | null
+          id: string
+          project_id: string
+          source_document_version_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          blueprint_json?: Json
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          project_id: string
+          source_document_version_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          blueprint_json?: Json
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          project_id?: string
+          source_document_version_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "script_blueprints_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "script_blueprints_source_document_version_id_fkey"
+            columns: ["source_document_version_id"]
+            isOneToOne: false
+            referencedRelation: "project_document_versions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       script_scenes: {
         Row: {
           beat_summary: string | null
@@ -9022,6 +9067,188 @@ export type Database = {
             columns: ["script_id"]
             isOneToOne: false
             referencedRelation: "scripts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      script_unit_links: {
+        Row: {
+          blueprint_id: string | null
+          created_at: string
+          from_unit_id: string
+          id: string
+          link_type: string
+          note: string | null
+          project_id: string
+          strength: number
+          to_unit_id: string
+        }
+        Insert: {
+          blueprint_id?: string | null
+          created_at?: string
+          from_unit_id: string
+          id?: string
+          link_type: string
+          note?: string | null
+          project_id: string
+          strength?: number
+          to_unit_id: string
+        }
+        Update: {
+          blueprint_id?: string | null
+          created_at?: string
+          from_unit_id?: string
+          id?: string
+          link_type?: string
+          note?: string | null
+          project_id?: string
+          strength?: number
+          to_unit_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "script_unit_links_blueprint_id_fkey"
+            columns: ["blueprint_id"]
+            isOneToOne: false
+            referencedRelation: "script_blueprints"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "script_unit_links_from_unit_id_fkey"
+            columns: ["from_unit_id"]
+            isOneToOne: false
+            referencedRelation: "script_units"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "script_unit_links_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "script_unit_links_to_unit_id_fkey"
+            columns: ["to_unit_id"]
+            isOneToOne: false
+            referencedRelation: "script_units"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      script_unit_versions: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          plaintext: string
+          unit_id: string
+          unit_json: Json
+          version_number: number
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          plaintext: string
+          unit_id: string
+          unit_json?: Json
+          version_number: number
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          plaintext?: string
+          unit_id?: string
+          unit_json?: Json
+          version_number?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "script_unit_versions_unit_id_fkey"
+            columns: ["unit_id"]
+            isOneToOne: false
+            referencedRelation: "script_units"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      script_units: {
+        Row: {
+          blueprint_id: string | null
+          created_at: string
+          created_by: string | null
+          id: string
+          location: string | null
+          order_index: number
+          page_estimate: number | null
+          parent_unit_id: string | null
+          plaintext: string
+          project_id: string
+          slugline: string | null
+          time_of_day: string | null
+          title: string | null
+          unit_json: Json
+          unit_type: string
+          updated_at: string
+        }
+        Insert: {
+          blueprint_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          location?: string | null
+          order_index?: number
+          page_estimate?: number | null
+          parent_unit_id?: string | null
+          plaintext?: string
+          project_id: string
+          slugline?: string | null
+          time_of_day?: string | null
+          title?: string | null
+          unit_json?: Json
+          unit_type: string
+          updated_at?: string
+        }
+        Update: {
+          blueprint_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          location?: string | null
+          order_index?: number
+          page_estimate?: number | null
+          parent_unit_id?: string | null
+          plaintext?: string
+          project_id?: string
+          slugline?: string | null
+          time_of_day?: string | null
+          title?: string | null
+          unit_json?: Json
+          unit_type?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "script_units_blueprint_id_fkey"
+            columns: ["blueprint_id"]
+            isOneToOne: false
+            referencedRelation: "script_blueprints"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "script_units_parent_unit_id_fkey"
+            columns: ["parent_unit_id"]
+            isOneToOne: false
+            referencedRelation: "script_units"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "script_units_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
             referencedColumns: ["id"]
           },
         ]
@@ -9105,6 +9332,45 @@ export type Database = {
             columns: ["script_id"]
             isOneToOne: false
             referencedRelation: "scripts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      script_world_state: {
+        Row: {
+          blueprint_id: string | null
+          id: string
+          project_id: string
+          state_json: Json
+          updated_at: string
+        }
+        Insert: {
+          blueprint_id?: string | null
+          id?: string
+          project_id: string
+          state_json?: Json
+          updated_at?: string
+        }
+        Update: {
+          blueprint_id?: string | null
+          id?: string
+          project_id?: string
+          state_json?: Json
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "script_world_state_blueprint_id_fkey"
+            columns: ["blueprint_id"]
+            isOneToOne: false
+            referencedRelation: "script_blueprints"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "script_world_state_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: true
+            referencedRelation: "projects"
             referencedColumns: ["id"]
           },
         ]

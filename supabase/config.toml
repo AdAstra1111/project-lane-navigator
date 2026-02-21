@@ -170,3 +170,15 @@ verify_jwt = false
 
 [functions.season-package]
 verify_jwt = false
+
+[functions.feature-script-ingest]
+verify_jwt = false
+
+[functions.feature-blueprint-build]
+verify_jwt = false
+
+[functions.feature-scene-analyse]
+verify_jwt = false
+
+[functions.feature-scene-apply-fix]
+verify_jwt = false
