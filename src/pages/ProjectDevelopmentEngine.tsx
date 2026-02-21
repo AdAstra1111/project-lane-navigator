@@ -70,6 +70,8 @@ import { DocAssistantDrawer } from '@/components/devengine/DocAssistantDrawer';
 import { IssuesPanel } from '@/components/devengine/IssuesPanel';
 import { useProjectIssues } from '@/hooks/useProjectIssues';
 import { useDeferredNotes } from '@/hooks/useDeferredNotes';
+import { useEpisodeHandoff } from '@/hooks/useEpisodeHandoff';
+import { EpisodeHandoffBanner } from '@/components/devengine/EpisodeHandoffBanner';
 
 // ── Main Page ──
 export default function ProjectDevelopmentEngine() {
@@ -208,6 +210,13 @@ export default function ProjectDevelopmentEngine() {
   const { propose } = useDecisionCommit(projectId);
   const { packageStatus: packageStatusData, currentResolverHash: pkgResolverHash } = useDocumentPackage(projectId);
   const deferred = useDeferredNotes(projectId);
+  const episodeHandoff = useEpisodeHandoff(projectId || '');
+
+  // Find active handoff for the currently selected document
+  const activeHandoffForDoc = useMemo(() => {
+    if (!selectedDocId) return null;
+    return episodeHandoff.handoffs.find(h => h.dev_engine_doc_id === selectedDocId) || null;
+  }, [selectedDocId, episodeHandoff.handoffs]);
 
   // Build a map of doc_type -> latest_version_id for LATEST badges
   const latestVersionMap = useMemo(() => {
@@ -957,7 +966,25 @@ export default function ProjectDevelopmentEngine() {
                     />
                   )}
 
-                  {/* Action toolbar — Run Review, Auto-review toggle, Promote, Convert */}
+                  {/* Episode handoff banner */}
+                  {activeHandoffForDoc && (
+                    <EpisodeHandoffBanner
+                      handoffId={activeHandoffForDoc.id}
+                      episodeNumber={activeHandoffForDoc.episode_number}
+                      issueTitle={activeHandoffForDoc.issue_title}
+                      versions={versions.map(v => ({
+                        id: v.id,
+                        version_number: v.version_number,
+                        change_summary: v.change_summary,
+                        created_at: v.created_at,
+                      }))}
+                      onReturn={(hId, vId) => episodeHandoff.returnToSeriesWriter.mutate({ handoffId: hId, versionId: vId })}
+                      onCancel={(hId) => episodeHandoff.cancelHandoff.mutate(hId)}
+                      isReturning={episodeHandoff.returnToSeriesWriter.isPending}
+                      isCancelling={episodeHandoff.cancelHandoff.isPending}
+                    />
+                  )}
+
                   <ActionToolbar
                     projectId={projectId}
                     hasAnalysis={!!latestAnalysis}

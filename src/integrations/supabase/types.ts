@@ -3721,6 +3721,112 @@ export type Database = {
           },
         ]
       }
+      episode_handoffs: {
+        Row: {
+          cancelled_at: string | null
+          context_doc_keys: string[] | null
+          created_at: string
+          created_by: string
+          desired_outcome: string | null
+          dev_engine_doc_id: string | null
+          dev_engine_version_id: string | null
+          episode_id: string
+          episode_number: number
+          from_script_id: string | null
+          id: string
+          issue_description: string | null
+          issue_title: string | null
+          project_id: string
+          return_script_id: string | null
+          returned_at: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          cancelled_at?: string | null
+          context_doc_keys?: string[] | null
+          created_at?: string
+          created_by: string
+          desired_outcome?: string | null
+          dev_engine_doc_id?: string | null
+          dev_engine_version_id?: string | null
+          episode_id: string
+          episode_number: number
+          from_script_id?: string | null
+          id?: string
+          issue_description?: string | null
+          issue_title?: string | null
+          project_id: string
+          return_script_id?: string | null
+          returned_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          cancelled_at?: string | null
+          context_doc_keys?: string[] | null
+          created_at?: string
+          created_by?: string
+          desired_outcome?: string | null
+          dev_engine_doc_id?: string | null
+          dev_engine_version_id?: string | null
+          episode_id?: string
+          episode_number?: number
+          from_script_id?: string | null
+          id?: string
+          issue_description?: string | null
+          issue_title?: string | null
+          project_id?: string
+          return_script_id?: string | null
+          returned_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "episode_handoffs_dev_engine_doc_id_fkey"
+            columns: ["dev_engine_doc_id"]
+            isOneToOne: false
+            referencedRelation: "project_documents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "episode_handoffs_dev_engine_version_id_fkey"
+            columns: ["dev_engine_version_id"]
+            isOneToOne: false
+            referencedRelation: "project_document_versions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "episode_handoffs_episode_id_fkey"
+            columns: ["episode_id"]
+            isOneToOne: false
+            referencedRelation: "series_episodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "episode_handoffs_from_script_id_fkey"
+            columns: ["from_script_id"]
+            isOneToOne: false
+            referencedRelation: "scripts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "episode_handoffs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "episode_handoffs_return_script_id_fkey"
+            columns: ["return_script_id"]
+            isOneToOne: false
+            referencedRelation: "scripts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       episode_patch_runs: {
         Row: {
           applied_at: string | null
@@ -10374,6 +10480,7 @@ export type Database = {
           depends_on_hash: string | null
           episode_number: number
           generation_progress: Json | null
+          handoff_status: string | null
           id: string
           is_deleted: boolean
           is_season_template: boolean
@@ -10401,6 +10508,7 @@ export type Database = {
           depends_on_hash?: string | null
           episode_number: number
           generation_progress?: Json | null
+          handoff_status?: string | null
           id?: string
           is_deleted?: boolean
           is_season_template?: boolean
@@ -10428,6 +10536,7 @@ export type Database = {
           depends_on_hash?: string | null
           episode_number?: number
           generation_progress?: Json | null
+          handoff_status?: string | null
           id?: string
           is_deleted?: boolean
           is_season_template?: boolean

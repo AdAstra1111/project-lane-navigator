@@ -26,6 +26,7 @@ export interface SeriesEpisode {
   deleted_at: string | null;
   deleted_by: string | null;
   delete_reason: string | null;
+  handoff_status: string | null;
   created_at: string;
   updated_at: string;
 }
