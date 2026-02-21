@@ -143,17 +143,25 @@ export function useStateGraph(projectId: string | undefined) {
     enabled: !!projectId,
   });
 
-  // Drift alerts are producer-only. In future phases these must be
-  // role-filtered so only users with the "producer" role see them.
+  // Drift alerts filtered to the active scenario only.
+  // Re-fetches when stateGraph.active_scenario_id changes.
+  const activeScenarioIdForAlerts = stateGraph?.active_scenario_id ?? null;
+
   const { data: alerts = [] } = useQuery({
-    queryKey: ['drift-alerts', projectId],
+    queryKey: ['drift-alerts', projectId, activeScenarioIdForAlerts],
     queryFn: async () => {
       if (!projectId) return [];
-      const { data, error } = await supabase
+      let query = supabase
         .from('drift_alerts')
         .select('*')
         .eq('project_id', projectId)
-        .eq('acknowledged', false)
+        .eq('acknowledged', false);
+
+      if (activeScenarioIdForAlerts) {
+        query = query.eq('scenario_id', activeScenarioIdForAlerts);
+      }
+
+      const { data, error } = await query
         .order('created_at', { ascending: false })
         .limit(20);
       if (error) throw error;
