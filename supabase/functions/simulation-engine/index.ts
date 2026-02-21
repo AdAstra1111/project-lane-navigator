@@ -239,6 +239,197 @@ async function syncGraphToState(supabase: any, projectId: string, cascaded: Casc
   }).eq("project_id", projectId);
 }
 
+// ---- Shared Rank Scoring (used by rank_scenarios + optimize_scenario) ----
+
+const budgetPenaltyMap: Record<string, number> = { micro: 0, low: 1, mid: 2, "mid-high": 3, high: 4 };
+
+interface RankResult {
+  score: number;
+  breakdown: Record<string, number>;
+}
+
+function computeRankScore(cs: CascadedState): RankResult | null {
+  if (!cs?.revenue_state || !cs?.finance_state || !cs?.production_state) return null;
+
+  const confidence = cs.revenue_state.confidence_score ?? 50;
+  const downside = cs.revenue_state.downside_exposure ?? 5;
+  const drift = cs.finance_state.drift_sensitivity ?? 5;
+  const stress = cs.finance_state.capital_stack_stress ?? 5;
+  const scheduleRisk = cs.production_state.schedule_compression_risk ?? 5;
+  const appetite = cs.revenue_state.platform_appetite_strength ?? 5;
+  const budgetBand = cs.finance_state.budget_band ?? "mid";
+  const budgetPenalty = budgetPenaltyMap[budgetBand] ?? 2;
+
+  const confidenceComponent = confidence * 0.45;
+  const appetiteComponent = (appetite * 10) * 0.20;
+  const downsideComponent = ((10 - downside) * 10) * 0.10;
+  const stressComponent = ((10 - stress) * 10) * 0.10;
+  const driftComponent = ((10 - drift) * 10) * 0.10;
+  const scheduleComponent = ((10 - scheduleRisk) * 10) * 0.05;
+  const penalty = budgetPenalty * 2;
+
+  const raw = confidenceComponent + appetiteComponent + downsideComponent + stressComponent + driftComponent + scheduleComponent - penalty;
+  const score = Math.round(Math.max(0, Math.min(100, raw)) * 10) / 10;
+
+  return {
+    score,
+    breakdown: {
+      confidence: Math.round(confidenceComponent * 10) / 10,
+      appetite: Math.round(appetiteComponent * 10) / 10,
+      downside_safety: Math.round(downsideComponent * 10) / 10,
+      stress_safety: Math.round(stressComponent * 10) / 10,
+      drift_safety: Math.round(driftComponent * 10) / 10,
+      schedule_safety: Math.round(scheduleComponent * 10) / 10,
+      budget_penalty: -penalty,
+      final_score: score,
+    },
+  };
+}
+
+// ---- Shared Forward Projection (deterministic) ----
+
+interface ProjectionAssumptions {
+  inflation_rate: number;
+  schedule_slip_risk: number;
+  platform_appetite_decay: number;
+}
+
+interface MonthlyPoint {
+  month: number;
+  budget_estimate: number;
+  confidence_score: number;
+  downside_exposure: number;
+  capital_stack_stress: number;
+  schedule_compression_risk: number;
+}
+
+interface ProjectionResult {
+  series: MonthlyPoint[];
+  projection_risk_score: number;
+  summary: string[];
+}
+
+function runForwardProjection(
+  cs: CascadedState,
+  months: number,
+  assumptions: ProjectionAssumptions,
+): ProjectionResult {
+  const series: MonthlyPoint[] = [];
+  let budget = cs.finance_state.budget_estimate;
+  let confidence = cs.revenue_state.confidence_score;
+  let downside = cs.revenue_state.downside_exposure;
+  let stress = cs.finance_state.capital_stack_stress;
+  let scheduleRisk = cs.production_state.schedule_compression_risk;
+  const driftSens = cs.finance_state.drift_sensitivity;
+  const hookInt = cs.creative_state.hook_intensity;
+
+  // Month 0 = current state
+  series.push({
+    month: 0,
+    budget_estimate: Math.round(budget),
+    confidence_score: Math.round(confidence * 10) / 10,
+    downside_exposure: Math.round(downside * 100) / 100,
+    capital_stack_stress: Math.round(stress * 100) / 100,
+    schedule_compression_risk: Math.round(scheduleRisk * 100) / 100,
+  });
+
+  for (let m = 1; m <= months; m++) {
+    // Budget inflates with drift sensitivity amplification
+    budget *= 1 + assumptions.inflation_rate * (1 + driftSens / 10);
+
+    // Confidence decay
+    const baseDecay =
+      assumptions.platform_appetite_decay * 100 * (stress / 10)
+      + assumptions.schedule_slip_risk * 100 * (scheduleRisk / 10);
+    // Slight recovery if hook is high and stress is low
+    const hookRecovery = hookInt > 7 && stress < 4 ? 0.5 : hookInt > 5 && stress < 6 ? 0.2 : 0;
+    confidence = Math.max(0, Math.min(100, confidence - baseDecay + hookRecovery));
+
+    // Downside exposure rises with drift and schedule risk
+    downside = Math.min(10, downside + (driftSens * 0.02 + scheduleRisk * 0.015) * assumptions.schedule_slip_risk * 10);
+
+    // Stress creeps up slightly with inflation
+    stress = Math.min(10, stress + assumptions.inflation_rate * 0.5);
+
+    // Schedule risk creeps with slip probability
+    scheduleRisk = Math.min(10, scheduleRisk + assumptions.schedule_slip_risk * 0.3);
+
+    series.push({
+      month: m,
+      budget_estimate: Math.round(budget),
+      confidence_score: Math.round(confidence * 10) / 10,
+      downside_exposure: Math.round(downside * 100) / 100,
+      capital_stack_stress: Math.round(stress * 100) / 100,
+      schedule_compression_risk: Math.round(scheduleRisk * 100) / 100,
+    });
+  }
+
+  const endState = series[series.length - 1];
+  const startState = series[0];
+
+  // Projection risk score: composite of end-state deterioration (0-100)
+  const confidenceDrop = Math.max(0, startState.confidence_score - endState.confidence_score);
+  const budgetInflation = ((endState.budget_estimate - startState.budget_estimate) / Math.max(1, startState.budget_estimate)) * 100;
+  const downsideGrowth = (endState.downside_exposure - startState.downside_exposure) * 10;
+
+  const projectionRiskScore = Math.round(
+    Math.min(100, Math.max(0,
+      confidenceDrop * 0.4
+      + budgetInflation * 0.3
+      + downsideGrowth * 0.2
+      + endState.capital_stack_stress * 1.0
+    )) * 10
+  ) / 10;
+
+  // Summary bullets
+  const summaryBullets: string[] = [];
+  summaryBullets.push(`Confidence trend: ${confidenceDrop > 0 ? 'down' : 'stable'} ${Math.abs(Math.round(confidenceDrop))}pts over ${months}mo`);
+  summaryBullets.push(`Budget inflation: +${budgetInflation.toFixed(1)}% ($${(startState.budget_estimate / 1e6).toFixed(1)}M → $${(endState.budget_estimate / 1e6).toFixed(1)}M)`);
+
+  if (endState.downside_exposure > 7) {
+    summaryBullets.push("Main driver of risk: high downside exposure at projection end");
+  } else if (endState.capital_stack_stress > 7) {
+    summaryBullets.push("Main driver of risk: capital stack stress accumulation");
+  } else if (confidenceDrop > 15) {
+    summaryBullets.push("Main driver of risk: significant confidence erosion");
+  } else {
+    summaryBullets.push("Risk profile: moderate — within manageable bounds");
+  }
+
+  return { series, projection_risk_score: projectionRiskScore, summary: summaryBullets };
+}
+
+// ---- Drift Alert Generation (shared) ----
+
+function generateDriftAlerts(cascaded: CascadedState): Array<{
+  alert_type: string; severity: string; layer: string;
+  metric_key: string; current_value: number; threshold: number; message: string;
+}> {
+  const alerts: typeof generateDriftAlerts extends (...args: any) => infer R ? R : never = [];
+  if (cascaded.production_state.schedule_compression_risk > 7) {
+    alerts.push({ alert_type: "schedule_drift", severity: "warning", layer: "production", metric_key: "schedule_compression_risk", current_value: cascaded.production_state.schedule_compression_risk, threshold: 7, message: "Schedule compression risk exceeds safe threshold" });
+  }
+  if (cascaded.finance_state.capital_stack_stress > 7) {
+    alerts.push({ alert_type: "budget_drift", severity: "warning", layer: "finance", metric_key: "capital_stack_stress", current_value: cascaded.finance_state.capital_stack_stress, threshold: 7, message: "Capital stack stress is elevated" });
+  }
+  if (cascaded.revenue_state.confidence_score < 30) {
+    alerts.push({ alert_type: "revenue_risk", severity: "critical", layer: "revenue", metric_key: "confidence_score", current_value: cascaded.revenue_state.confidence_score, threshold: 30, message: "Revenue confidence below critical threshold" });
+  }
+  return alerts;
+}
+
+// ---- Seeded PRNG (Mulberry32) for reproducibility ----
+
+function mulberry32(seed: number) {
+  let s = seed | 0;
+  return () => {
+    s = (s + 0x6D2B79F5) | 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
 // ---- Request Handler ----
 
 Deno.serve(async (req) => {
@@ -307,7 +498,6 @@ Deno.serve(async (req) => {
       const cascaded = runFullCascade(creative);
       const bands = generateConfidenceBands(cascaded);
 
-      // Upsert or find baseline scenario
       const { data: existing } = await supabase
         .from("project_scenarios")
         .select("id")
@@ -318,7 +508,6 @@ Deno.serve(async (req) => {
       let baselineId: string;
 
       if (!existing) {
-        // Clear any stale is_active flags first
         await supabase.from("project_scenarios")
           .update({ is_active: false })
           .eq("project_id", projectId);
@@ -338,7 +527,6 @@ Deno.serve(async (req) => {
         baselineId = newBaseline.id;
       } else {
         baselineId = existing.id;
-        // Ensure only baseline is active
         await supabase.from("project_scenarios")
           .update({ is_active: false })
           .eq("project_id", projectId);
@@ -347,7 +535,6 @@ Deno.serve(async (req) => {
           .eq("id", baselineId);
       }
 
-      // Upsert state graph with active scenario
       const { data: graph, error: graphErr } = await supabase
         .from("project_state_graphs")
         .upsert({
@@ -374,7 +561,6 @@ Deno.serve(async (req) => {
       const targetScenarioId = body.scenarioId || scenarioId;
       if (!targetScenarioId) return json({ error: "scenarioId required" }, 400);
 
-      // Confirm scenario belongs to project
       const { data: scenario } = await supabase
         .from("project_scenarios")
         .select("id, computed_state")
@@ -391,19 +577,16 @@ Deno.serve(async (req) => {
 
       const bands = generateConfidenceBands(cs);
 
-      // Step 1: Deactivate all scenarios for project
       const { error: deactivateErr } = await supabase.from("project_scenarios")
         .update({ is_active: false })
         .eq("project_id", projectId);
       if (deactivateErr) return json({ error: "Failed to deactivate scenarios: " + deactivateErr.message }, 500);
 
-      // Step 2: Activate target scenario
       const { error: activateErr } = await supabase.from("project_scenarios")
         .update({ is_active: true })
         .eq("id", targetScenarioId);
       if (activateErr) return json({ error: "Failed to activate scenario: " + activateErr.message }, 500);
 
-      // Step 3: Sync canonical state graph
       const { error: syncErr } = await supabase.from("project_state_graphs").update({
         ...cs,
         confidence_bands: bands,
@@ -414,7 +597,6 @@ Deno.serve(async (req) => {
       }).eq("project_id", projectId);
       if (syncErr) return json({ error: "Failed to sync state graph: " + syncErr.message }, 500);
 
-      // Fetch updated graph
       const { data: graph } = await supabase
         .from("project_state_graphs")
         .select("*")
@@ -435,15 +617,12 @@ Deno.serve(async (req) => {
       if (!graph) return json({ error: "State graph not initialized" }, 400);
 
       const activeScenarioId = graph.active_scenario_id as string | null;
-
-      // Determine which scenario to cascade into
       const targetScenarioId = scenarioId || activeScenarioId;
 
       if (!targetScenarioId) {
         return json({ error: "No active scenario set. Initialize first or set an active scenario." }, 400);
       }
 
-      // Load the target scenario to seed from its computed_state
       const { data: targetScenario } = await supabase
         .from("project_scenarios")
         .select("id, computed_state, is_active")
@@ -455,7 +634,6 @@ Deno.serve(async (req) => {
         return json({ error: "Target scenario not found in this project" }, 404);
       }
 
-      // Seed creative from the scenario's own computed_state (not canonical graph)
       const scenarioState = targetScenario.computed_state as unknown as CascadedState | null;
       const seedCreative: CreativeState = scenarioState?.creative_state
         ? { ...scenarioState.creative_state, ...overrides?.creative_state }
@@ -465,13 +643,11 @@ Deno.serve(async (req) => {
       const bands = generateConfidenceBands(cascaded);
       const coherence = checkCoherence(overrides || {});
 
-      // Only update canonical state graph if cascading the active scenario
       const isActiveScenario = targetScenarioId === activeScenarioId;
       if (isActiveScenario) {
         await syncGraphToState(supabase, projectId, cascaded, bands);
       }
 
-      // Update scenario row
       const { data: baseline } = await supabase
         .from("project_scenarios")
         .select("computed_state")
@@ -498,23 +674,11 @@ Deno.serve(async (req) => {
       });
 
       // Drift alerts: ONLY generated when cascading the active scenario
-      const alerts: Array<{ alert_type: string; severity: string; layer: string; metric_key: string; current_value: number; threshold: number; message: string }> = [];
-      if (isActiveScenario && activeScenarioId) {
-        if (cascaded.production_state.schedule_compression_risk > 7) {
-          alerts.push({ alert_type: "schedule_drift", severity: "warning", layer: "production", metric_key: "schedule_compression_risk", current_value: cascaded.production_state.schedule_compression_risk, threshold: 7, message: "Schedule compression risk exceeds safe threshold" });
-        }
-        if (cascaded.finance_state.capital_stack_stress > 7) {
-          alerts.push({ alert_type: "budget_drift", severity: "warning", layer: "finance", metric_key: "capital_stack_stress", current_value: cascaded.finance_state.capital_stack_stress, threshold: 7, message: "Capital stack stress is elevated" });
-        }
-        if (cascaded.revenue_state.confidence_score < 30) {
-          alerts.push({ alert_type: "revenue_risk", severity: "critical", layer: "revenue", metric_key: "confidence_score", current_value: cascaded.revenue_state.confidence_score, threshold: 30, message: "Revenue confidence below critical threshold" });
-        }
-
-        if (alerts.length > 0) {
-          await supabase.from("drift_alerts").insert(alerts.map(a => ({
-            ...a, project_id: projectId, user_id: userId, scenario_id: activeScenarioId,
-          })));
-        }
+      const alerts = isActiveScenario && activeScenarioId ? generateDriftAlerts(cascaded) : [];
+      if (alerts.length > 0 && activeScenarioId) {
+        await supabase.from("drift_alerts").insert(alerts.map(a => ({
+          ...a, project_id: projectId, user_id: userId, scenario_id: activeScenarioId,
+        })));
       }
 
       return json({ cascaded, confidence_bands: bands, coherence_flags: coherence, alerts });
@@ -538,7 +702,6 @@ Deno.serve(async (req) => {
       const delta = computeDelta(baseline.computed_state as unknown as CascadedState, cascaded);
       const coherence = checkCoherence(overrides || {});
 
-      // New scenarios are NOT active by default
       const { data: scenario, error: scErr } = await supabase
         .from("project_scenarios")
         .insert({
@@ -597,7 +760,6 @@ Deno.serve(async (req) => {
         const delta = computeDelta(baseline.computed_state as unknown as CascadedState, cascaded);
         const coherence = checkCoherence(lane.overrides);
 
-        // System scenarios are NOT active by default
         const { data: sc } = await supabase
           .from("project_scenarios")
           .insert({
@@ -630,53 +792,19 @@ Deno.serve(async (req) => {
         return json({ recommendedScenarioId: null, rankedCount: 0, top5: [], updatedAt: null, message: "No rankable scenarios" });
       }
 
-      const budgetPenaltyMap: Record<string, number> = { micro: 0, low: 1, mid: 2, "mid-high": 3, high: 4 };
-
-      interface RankResult { id: string; name: string; score: number; breakdown: Record<string, number> }
-      const ranked: RankResult[] = [];
+      interface ScoredScenario { id: string; name: string; score: number; breakdown: Record<string, number> }
+      const ranked: ScoredScenario[] = [];
 
       for (const sc of allScenarios) {
         const cs = sc.computed_state as unknown as CascadedState | null;
-        if (!cs?.revenue_state || !cs?.finance_state || !cs?.production_state) continue;
-
-        const confidence = cs.revenue_state.confidence_score ?? 50;
-        const downside = cs.revenue_state.downside_exposure ?? 5;
-        const drift = cs.finance_state.drift_sensitivity ?? 5;
-        const stress = cs.finance_state.capital_stack_stress ?? 5;
-        const scheduleRisk = cs.production_state.schedule_compression_risk ?? 5;
-        const appetite = cs.revenue_state.platform_appetite_strength ?? 5;
-        const budgetBand = cs.finance_state.budget_band ?? "mid";
-        const budgetPenalty = budgetPenaltyMap[budgetBand] ?? 2;
-
-        const confidenceComponent = confidence * 0.45;
-        const appetiteComponent = (appetite * 10) * 0.20;
-        const downsideComponent = ((10 - downside) * 10) * 0.10;
-        const stressComponent = ((10 - stress) * 10) * 0.10;
-        const driftComponent = ((10 - drift) * 10) * 0.10;
-        const scheduleComponent = ((10 - scheduleRisk) * 10) * 0.05;
-        const penalty = budgetPenalty * 2;
-
-        const raw = confidenceComponent + appetiteComponent + downsideComponent + stressComponent + driftComponent + scheduleComponent - penalty;
-        const score = Math.round(Math.max(0, Math.min(100, raw)) * 10) / 10;
-
-        ranked.push({
-          id: sc.id, name: sc.name, score,
-          breakdown: {
-            confidence: Math.round(confidenceComponent * 10) / 10,
-            appetite: Math.round(appetiteComponent * 10) / 10,
-            downside_safety: Math.round(downsideComponent * 10) / 10,
-            stress_safety: Math.round(stressComponent * 10) / 10,
-            drift_safety: Math.round(driftComponent * 10) / 10,
-            schedule_safety: Math.round(scheduleComponent * 10) / 10,
-            budget_penalty: -penalty,
-            final_score: score,
-          },
-        });
+        if (!cs) continue;
+        const rank = computeRankScore(cs);
+        if (!rank) continue;
+        ranked.push({ id: sc.id, name: sc.name, score: rank.score, breakdown: rank.breakdown });
       }
 
       if (ranked.length === 0) {
         const now = new Date().toISOString();
-        // Clear stale recommendations even if nothing is rankable
         await supabase.from("project_scenarios")
           .update({ is_recommended: false })
           .eq("project_id", projectId);
@@ -687,13 +815,11 @@ Deno.serve(async (req) => {
       const now = new Date().toISOString();
       const winnerId = ranked[0].id;
 
-      // Step 1: Clear is_recommended for all scenarios in project
       const { error: clearErr } = await supabase.from("project_scenarios")
         .update({ is_recommended: false })
         .eq("project_id", projectId);
       if (clearErr) return json({ error: "Failed to clear recommended flags: " + clearErr.message }, 500);
 
-      // Step 2: Update rank fields for ranked scenarios (parallel, cap 10)
       const batchSize = 10;
       for (let i = 0; i < ranked.length; i += batchSize) {
         const batch = ranked.slice(i, i + batchSize);
@@ -708,7 +834,6 @@ Deno.serve(async (req) => {
         if (failed?.error) return json({ error: "Failed to update rank: " + failed.error.message }, 500);
       }
 
-      // Step 3: Set winner as recommended
       const { error: recErr } = await supabase.from("project_scenarios")
         .update({ is_recommended: true })
         .eq("id", winnerId)
@@ -722,6 +847,330 @@ Deno.serve(async (req) => {
         top5: ranked.slice(0, 5),
         updatedAt: now,
       });
+    }
+
+    // ── ACTION: optimize_scenario ──
+    if (action === "optimize_scenario") {
+      const { data: graph } = await supabase
+        .from("project_state_graphs")
+        .select("active_scenario_id")
+        .eq("project_id", projectId)
+        .single();
+
+      if (!graph) return json({ error: "State graph not initialized" }, 400);
+
+      const targetId = body.scenarioId || graph.active_scenario_id;
+      if (!targetId) return json({ error: "No scenario specified and no active scenario" }, 400);
+
+      const { data: targetScenario } = await supabase
+        .from("project_scenarios")
+        .select("id, computed_state, state_overrides, scenario_type")
+        .eq("id", targetId)
+        .eq("project_id", projectId)
+        .single();
+
+      if (!targetScenario) return json({ error: "Scenario not found in this project" }, 404);
+
+      const seedState = targetScenario.computed_state as unknown as CascadedState | null;
+      if (!seedState?.creative_state) return json({ error: "Scenario has no computed state" }, 400);
+
+      const maxIterations = Math.min(body.maxIterations ?? 60, 200);
+      const horizonMonths: number = body.horizonMonths ?? 12;
+      const searchMode: string = body.search ?? "random";
+      const lockKeys: string[] = body.lockKeys ?? [];
+      const objective: string = body.objective ?? "rank_score_with_projection";
+
+      const projAssumptions: ProjectionAssumptions = {
+        inflation_rate: 0.03,
+        schedule_slip_risk: 0.15,
+        platform_appetite_decay: 0.05,
+      };
+
+      // Allowlist of tunable keys with [min, max, step]
+      const tunableCreative: Record<string, [number, number, number]> = {
+        hook_intensity: [1, 10, 0.5],
+        structural_density: [1, 10, 0.5],
+        character_density: [1, 10, 0.5],
+        runtime_minutes: [30, 240, 10],
+        episode_count: [1, 200, 1],
+      };
+      const tunableExecution: Record<string, [number, number, number]> = {
+        night_exterior_ratio: [0, 1, 0.05],
+        vfx_stunt_density: [0, 10, 0.5],
+      };
+      const tunableProduction: Record<string, [number, number, number]> = {
+        location_clustering: [1, 10, 0.5],
+        weather_exposure: [0, 10, 0.5],
+      };
+      const behaviourModes = ["market", "prestige", "commercial", "efficiency"];
+
+      // Build seed creative for reference
+      const seedCreative = seedState.creative_state;
+
+      // Deterministic PRNG seeded from scenario hash
+      const seedHash = targetId.split("").reduce((a, c) => ((a << 5) - a + c.charCodeAt(0)) | 0, 0);
+      const rng = mulberry32(Math.abs(seedHash));
+
+      interface Candidate {
+        overrides: StateOverrides;
+        cascaded: CascadedState;
+        rank_score: number;
+        projection: ProjectionResult;
+        objective_score: number;
+        breakdown: Record<string, number>;
+      }
+
+      const candidates: Candidate[] = [];
+
+      for (let i = 0; i < maxIterations; i++) {
+        const creativeOverrides: Partial<CreativeState> = {};
+        const executionOverrides: Partial<ExecutionState> = {};
+        const productionOverrides: Partial<ProductionState> = {};
+
+        if (searchMode === "random") {
+          // Randomly perturb 2-4 keys
+          const allKeys = [
+            ...Object.keys(tunableCreative).map(k => ["creative", k] as const),
+            ...Object.keys(tunableExecution).map(k => ["execution", k] as const),
+            ...Object.keys(tunableProduction).map(k => ["production", k] as const),
+            ["creative", "behaviour_mode"] as const,
+          ].filter(([, k]) => !lockKeys.includes(k));
+
+          const numChanges = 2 + Math.floor(rng() * 3);
+          const shuffled = [...allKeys].sort(() => rng() - 0.5).slice(0, numChanges);
+
+          for (const [layer, key] of shuffled) {
+            if (key === "behaviour_mode") {
+              (creativeOverrides as any).behaviour_mode = behaviourModes[Math.floor(rng() * behaviourModes.length)];
+              continue;
+            }
+            if (layer === "creative" && tunableCreative[key]) {
+              const [min, max, step] = tunableCreative[key];
+              const steps = Math.round((max - min) / step);
+              (creativeOverrides as any)[key] = min + Math.round(rng() * steps) * step;
+            } else if (layer === "execution" && tunableExecution[key]) {
+              const [min, max, step] = tunableExecution[key];
+              const steps = Math.round((max - min) / step);
+              (executionOverrides as any)[key] = min + Math.round(rng() * steps) * step;
+            } else if (layer === "production" && tunableProduction[key]) {
+              const [min, max, step] = tunableProduction[key];
+              const steps = Math.round((max - min) / step);
+              (productionOverrides as any)[key] = min + Math.round(rng() * steps) * step;
+            }
+          }
+        } else {
+          // Grid: systematic sweep on iteration index
+          const allKeys = [
+            ...Object.keys(tunableCreative),
+            ...Object.keys(tunableExecution),
+            ...Object.keys(tunableProduction),
+          ].filter(k => !lockKeys.includes(k));
+
+          if (allKeys.length > 0) {
+            const keyIdx = i % allKeys.length;
+            const key = allKeys[keyIdx];
+            const stepInKey = Math.floor(i / allKeys.length);
+
+            if (tunableCreative[key]) {
+              const [min, max, step] = tunableCreative[key];
+              const totalSteps = Math.round((max - min) / step);
+              const val = min + (stepInKey % (totalSteps + 1)) * step;
+              (creativeOverrides as any)[key] = Math.min(max, val);
+            } else if (tunableExecution[key]) {
+              const [min, max, step] = tunableExecution[key];
+              const totalSteps = Math.round((max - min) / step);
+              const val = min + (stepInKey % (totalSteps + 1)) * step;
+              (executionOverrides as any)[key] = Math.min(max, val);
+            } else if (tunableProduction[key]) {
+              const [min, max, step] = tunableProduction[key];
+              const totalSteps = Math.round((max - min) / step);
+              const val = min + (stepInKey % (totalSteps + 1)) * step;
+              (productionOverrides as any)[key] = Math.min(max, val);
+            }
+          }
+        }
+
+        const candidateOverrides: StateOverrides = {
+          ...(Object.keys(creativeOverrides).length > 0 ? { creative_state: creativeOverrides } : {}),
+          ...(Object.keys(executionOverrides).length > 0 ? { execution_state: executionOverrides } : {}),
+          ...(Object.keys(productionOverrides).length > 0 ? { production_state: productionOverrides } : {}),
+        };
+
+        const mergedCreative: CreativeState = { ...seedCreative, ...creativeOverrides };
+        const cascaded = runFullCascade(mergedCreative, candidateOverrides);
+        const rank = computeRankScore(cascaded);
+        if (!rank) continue;
+
+        const projection = runForwardProjection(cascaded, horizonMonths, projAssumptions);
+
+        // Trend bonus: positive if confidence holds well
+        const trendBonus = projection.series.length > 1
+          ? Math.max(0, (projection.series[projection.series.length - 1].confidence_score - 30) * 0.05)
+          : 0;
+
+        let objectiveScore: number;
+        if (objective === "rank_score") {
+          objectiveScore = rank.score;
+        } else {
+          objectiveScore = Math.round((rank.score - projection.projection_risk_score * 0.25 + trendBonus) * 10) / 10;
+        }
+
+        candidates.push({
+          overrides: candidateOverrides,
+          cascaded,
+          rank_score: rank.score,
+          projection,
+          objective_score: objectiveScore,
+          breakdown: rank.breakdown,
+        });
+      }
+
+      // Sort by objective score desc, take top 5
+      candidates.sort((a, b) => b.objective_score - a.objective_score);
+      const top5 = candidates.slice(0, 5).map(c => ({
+        overrides: c.overrides,
+        cascaded: c.cascaded,
+        rank_score: c.rank_score,
+        projection_risk_score: c.projection.projection_risk_score,
+        projection_summary: c.projection.summary,
+        objective_score: c.objective_score,
+        breakdown: c.breakdown,
+      }));
+
+      return json({
+        candidates: top5,
+        iterations: maxIterations,
+        objective,
+        horizonMonths,
+        searchMode,
+      });
+    }
+
+    // ── ACTION: apply_optimized_overrides ──
+    if (action === "apply_optimized_overrides") {
+      const targetId = body.scenarioId;
+      if (!targetId) return json({ error: "scenarioId required" }, 400);
+      if (!overrides) return json({ error: "overrides required" }, 400);
+
+      const { data: graph } = await supabase
+        .from("project_state_graphs")
+        .select("active_scenario_id")
+        .eq("project_id", projectId)
+        .single();
+      if (!graph) return json({ error: "State graph not initialized" }, 400);
+
+      const { data: targetScenario } = await supabase
+        .from("project_scenarios")
+        .select("id, computed_state, scenario_type")
+        .eq("id", targetId)
+        .eq("project_id", projectId)
+        .single();
+
+      if (!targetScenario) return json({ error: "Scenario not found in this project" }, 404);
+
+      const seedState = targetScenario.computed_state as unknown as CascadedState | null;
+      if (!seedState?.creative_state) return json({ error: "Scenario has no computed state" }, 400);
+
+      const mergedCreative: CreativeState = { ...seedState.creative_state, ...overrides.creative_state };
+      const cascaded = runFullCascade(mergedCreative, overrides);
+      const bands = generateConfidenceBands(cascaded);
+
+      // Load baseline for delta
+      const { data: baseline } = await supabase
+        .from("project_scenarios")
+        .select("computed_state")
+        .eq("project_id", projectId)
+        .eq("scenario_type", "baseline")
+        .single();
+
+      const delta = baseline ? computeDelta(baseline.computed_state as unknown as CascadedState, cascaded) : {};
+
+      // Update scenario
+      const { error: updateErr } = await supabase.from("project_scenarios").update({
+        state_overrides: overrides,
+        computed_state: cascaded,
+        delta_vs_baseline: delta,
+      }).eq("id", targetId).eq("project_id", projectId);
+      if (updateErr) return json({ error: "Failed to update scenario: " + updateErr.message }, 500);
+
+      // Snapshot
+      await supabase.from("scenario_snapshots").insert({
+        scenario_id: targetId,
+        project_id: projectId,
+        user_id: userId,
+        trigger_reason: "optimize_apply",
+        snapshot_state: cascaded,
+        confidence_bands: bands,
+      });
+
+      // If active scenario, sync canonical graph + drift alerts
+      const isActive = targetId === graph.active_scenario_id;
+      if (isActive) {
+        await syncGraphToState(supabase, projectId, cascaded, bands);
+        const alerts = generateDriftAlerts(cascaded);
+        if (alerts.length > 0) {
+          await supabase.from("drift_alerts").insert(alerts.map(a => ({
+            ...a, project_id: projectId, user_id: userId, scenario_id: targetId,
+          })));
+        }
+      }
+
+      return json({ cascaded, confidence_bands: bands, delta, isActiveScenarioUpdated: isActive });
+    }
+
+    // ── ACTION: project_forward ──
+    if (action === "project_forward") {
+      const { data: graph } = await supabase
+        .from("project_state_graphs")
+        .select("active_scenario_id")
+        .eq("project_id", projectId)
+        .single();
+
+      if (!graph) return json({ error: "State graph not initialized" }, 400);
+
+      const targetId = body.scenarioId || graph.active_scenario_id;
+      if (!targetId) return json({ error: "No scenario specified and no active scenario" }, 400);
+
+      const { data: targetScenario } = await supabase
+        .from("project_scenarios")
+        .select("id, computed_state")
+        .eq("id", targetId)
+        .eq("project_id", projectId)
+        .single();
+
+      if (!targetScenario) return json({ error: "Scenario not found in this project" }, 404);
+
+      const cs = targetScenario.computed_state as unknown as CascadedState | null;
+      if (!cs?.creative_state) return json({ error: "Scenario has no computed state" }, 400);
+
+      const months = body.months ?? 12;
+      const assumptions: ProjectionAssumptions = {
+        inflation_rate: body.assumptions?.inflation_rate ?? 0.03,
+        schedule_slip_risk: body.assumptions?.schedule_slip_risk ?? 0.15,
+        platform_appetite_decay: body.assumptions?.platform_appetite_decay ?? 0.05,
+      };
+
+      const result = runForwardProjection(cs, months, assumptions);
+
+      // Persist projection
+      const { data: projection, error: insertErr } = await supabase
+        .from("scenario_projections")
+        .insert({
+          project_id: projectId,
+          scenario_id: targetId,
+          user_id: userId,
+          months,
+          assumptions,
+          series: result.series,
+          projection_risk_score: result.projection_risk_score,
+          summary: result.summary,
+        })
+        .select()
+        .single();
+
+      if (insertErr) return json({ error: "Failed to save projection: " + insertErr.message }, 500);
+
+      return json({ projection, series: result.series, projection_risk_score: result.projection_risk_score, summary: result.summary });
     }
 
     return json({ error: `Unknown action: ${action}` }, 400);
