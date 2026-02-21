@@ -51,21 +51,34 @@ export function ProjectionPanel({
 }: Props) {
   const [targetId, setTargetId] = useState<string>(activeScenarioId || '');
   const [months, setMonths] = useState<string>('12');
-  const [assumptions, setAssumptions] = useState<Assumptions>(() => loadAssumptions(projectId));
+
+  // Use string state for inputs so partial typing like "0." works
+  const [inflStr, setInflStr] = useState<string>('');
+  const [slipStr, setSlipStr] = useState<string>('');
+  const [decayStr, setDecayStr] = useState<string>('');
 
   useEffect(() => {
-    setAssumptions(loadAssumptions(projectId));
+    const loaded = loadAssumptions(projectId);
+    setInflStr(String(loaded.inflation_rate));
+    setSlipStr(String(loaded.schedule_slip_risk));
+    setDecayStr(String(loaded.platform_appetite_decay));
   }, [projectId]);
 
-  const updateAssumption = useCallback((key: keyof Assumptions, value: string) => {
-    const num = parseFloat(value);
-    if (isNaN(num)) return;
-    setAssumptions(prev => {
-      const next = { ...prev, [key]: num };
-      saveAssumptions(projectId, next);
-      return next;
-    });
-  }, [projectId]);
+  const getCurrentAssumptions = useCallback((): Assumptions => {
+    const parse = (s: string, fallback: number) => {
+      const n = parseFloat(s);
+      return isNaN(n) ? fallback : n;
+    };
+    return {
+      inflation_rate: parse(inflStr, DEFAULT_ASSUMPTIONS.inflation_rate),
+      schedule_slip_risk: parse(slipStr, DEFAULT_ASSUMPTIONS.schedule_slip_risk),
+      platform_appetite_decay: parse(decayStr, DEFAULT_ASSUMPTIONS.platform_appetite_decay),
+    };
+  }, [inflStr, slipStr, decayStr]);
+
+  const persistAssumptions = useCallback(() => {
+    saveAssumptions(projectId, getCurrentAssumptions());
+  }, [projectId, getCurrentAssumptions]);
 
   const nonBaseline = scenarios.filter(s => s.scenario_type !== 'baseline' && !s.is_archived);
 
@@ -87,6 +100,12 @@ export function ProjectionPanel({
     enabled: !!projectId && !!targetId,
   });
 
+  const handleRun = () => {
+    const assumptions = getCurrentAssumptions();
+    persistAssumptions();
+    onRunProjection({ scenarioId: targetId || undefined, months: parseInt(months), assumptions });
+  };
+
   return (
     <div className="space-y-4">
       <Card className="border-border/40">
@@ -94,11 +113,7 @@ export function ProjectionPanel({
           <CardTitle className="text-sm flex items-center gap-2">
             <Calendar className="h-4 w-4" /> Forward Projection
           </CardTitle>
-          <Button
-            size="sm"
-            onClick={() => onRunProjection({ scenarioId: targetId || undefined, months: parseInt(months), assumptions })}
-            disabled={isProjecting || !targetId}
-          >
+          <Button size="sm" onClick={handleRun} disabled={isProjecting || !targetId}>
             {isProjecting ? 'Projecting…' : `Run ${months}-month Projection`}
           </Button>
         </CardHeader>
@@ -131,36 +146,36 @@ export function ProjectionPanel({
             <div className="space-y-1">
               <label className="text-xs text-muted-foreground">Inflation Rate</label>
               <Input
-                type="number"
-                step="0.01"
-                min="0"
-                max="0.2"
-                value={assumptions.inflation_rate}
-                onChange={e => updateAssumption('inflation_rate', e.target.value)}
+                type="text"
+                inputMode="decimal"
+                value={inflStr}
+                onChange={e => setInflStr(e.target.value)}
+                onBlur={persistAssumptions}
+                placeholder="0.03"
                 className="h-8 text-xs font-mono"
               />
             </div>
             <div className="space-y-1">
               <label className="text-xs text-muted-foreground">Schedule Slip Risk</label>
               <Input
-                type="number"
-                step="0.05"
-                min="0"
-                max="1"
-                value={assumptions.schedule_slip_risk}
-                onChange={e => updateAssumption('schedule_slip_risk', e.target.value)}
+                type="text"
+                inputMode="decimal"
+                value={slipStr}
+                onChange={e => setSlipStr(e.target.value)}
+                onBlur={persistAssumptions}
+                placeholder="0.15"
                 className="h-8 text-xs font-mono"
               />
             </div>
             <div className="space-y-1">
               <label className="text-xs text-muted-foreground">Appetite Decay</label>
               <Input
-                type="number"
-                step="0.01"
-                min="0"
-                max="0.3"
-                value={assumptions.platform_appetite_decay}
-                onChange={e => updateAssumption('platform_appetite_decay', e.target.value)}
+                type="text"
+                inputMode="decimal"
+                value={decayStr}
+                onChange={e => setDecayStr(e.target.value)}
+                onBlur={persistAssumptions}
+                placeholder="0.05"
                 className="h-8 text-xs font-mono"
               />
             </div>

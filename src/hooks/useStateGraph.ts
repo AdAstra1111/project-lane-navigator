@@ -326,9 +326,10 @@ export function useStateGraph(projectId: string | undefined) {
 
   // Phase 3: Optimizer
   const optimizeScenario = useMutation({
-    mutationFn: async (params: { scenarioId?: string; objective?: string; maxIterations?: number; horizonMonths?: number; searchMode?: string; lockKeys?: string[] }) => {
+    mutationFn: async (params: { scenarioId?: string; objective?: string; maxIterations?: number; horizonMonths?: number; searchMode?: string; lockKeys?: string[]; seed?: string }) => {
+      const { searchMode, ...rest } = params;
       const { data, error } = await supabase.functions.invoke('simulation-engine', {
-        body: { action: 'optimize_scenario', projectId, ...params },
+        body: { action: 'optimize_scenario', projectId, ...rest, ...(searchMode ? { search: searchMode } : {}) },
       });
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
@@ -357,7 +358,7 @@ export function useStateGraph(projectId: string | undefined) {
   const projectForward = useMutation({
     mutationFn: async (params: { scenarioId?: string; months?: number; assumptions?: any }) => {
       const { data, error } = await supabase.functions.invoke('simulation-engine', {
-        body: { action: 'project_forward', projectId, ...params },
+        body: { action: 'project_forward', projectId, scenarioId: params.scenarioId, months: params.months, assumptions: params.assumptions },
       });
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
