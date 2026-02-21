@@ -64,7 +64,7 @@ export default function ProducerCockpit() {
             <DriftAlertsPanel
               projectId={projectId}
               scenarios={scenarios}
-              activeScenarioId={stateGraph.active_scenario_id}
+              activeScenarioId={activeScenario?.id ?? null}
             />
 
             <StateGraphOverview stateGraph={stateGraph} />
@@ -93,7 +93,7 @@ export default function ProducerCockpit() {
 
             <OptimizationPanel
               scenarios={scenarios}
-              activeScenarioId={stateGraph.active_scenario_id}
+              activeScenarioId={activeScenario?.id ?? null}
               onOptimize={async (params) => {
                 const result = await optimizeScenario.mutateAsync(params);
                 setOptimizeResult(result);
@@ -106,7 +106,7 @@ export default function ProducerCockpit() {
 
             <ProjectionPanel
               scenarios={scenarios}
-              activeScenarioId={stateGraph.active_scenario_id}
+              activeScenarioId={activeScenario?.id ?? null}
               projectId={projectId}
               onRunProjection={(params) => projectForward.mutate(params)}
               isProjecting={projectForward.isPending}
