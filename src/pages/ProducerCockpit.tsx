@@ -15,7 +15,7 @@ import { Button } from '@/components/ui/button';
 export default function ProducerCockpit() {
   const { id: projectId } = useParams<{ id: string }>();
   const {
-    stateGraph, scenarios, alerts, latestProjection, isLoading,
+    stateGraph, scenarios, alerts, isLoading,
     initialize, cascade, createScenario, generateSystemScenarios,
     acknowledgeAlert, togglePin, archiveScenario, setActiveScenario,
     rankScenarios, optimizeScenario, applyOptimizedOverrides, projectForward,
@@ -104,7 +104,7 @@ export default function ProducerCockpit() {
             <ProjectionPanel
               scenarios={scenarios}
               activeScenarioId={stateGraph.active_scenario_id}
-              latestProjection={latestProjection}
+              projectId={projectId}
               onRunProjection={(params) => projectForward.mutate(params)}
               isProjecting={projectForward.isPending}
             />

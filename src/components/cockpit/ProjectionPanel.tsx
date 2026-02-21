@@ -4,29 +4,43 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { ScenarioProjectionChart } from './ScenarioProjectionChart';
 import { Calendar } from 'lucide-react';
 import { useState } from 'react';
-import type { ProjectScenario } from '@/hooks/useStateGraph';
-
-interface ProjectionData {
-  series: any[];
-  projection_risk_score: number;
-  summary: string[];
-}
+import { useQuery } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
+import type { ProjectScenario, ScenarioProjection } from '@/hooks/useStateGraph';
 
 interface Props {
   scenarios: ProjectScenario[];
   activeScenarioId: string | null;
-  latestProjection: ProjectionData | null;
+  projectId: string;
   onRunProjection: (params: { scenarioId?: string; months?: number }) => void;
   isProjecting: boolean;
 }
 
 export function ProjectionPanel({
-  scenarios, activeScenarioId, latestProjection, onRunProjection, isProjecting,
+  scenarios, activeScenarioId, projectId, onRunProjection, isProjecting,
 }: Props) {
   const [targetId, setTargetId] = useState<string>(activeScenarioId || '');
   const [months, setMonths] = useState<string>('12');
 
   const nonBaseline = scenarios.filter(s => s.scenario_type !== 'baseline' && !s.is_archived);
+
+  const { data: latestProjection = null } = useQuery({
+    queryKey: ['projection', projectId, targetId],
+    queryFn: async () => {
+      if (!projectId || !targetId) return null;
+      const { data, error } = await supabase
+        .from('scenario_projections')
+        .select('*')
+        .eq('project_id', projectId)
+        .eq('scenario_id', targetId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return data as unknown as ScenarioProjection | null;
+    },
+    enabled: !!projectId && !!targetId,
+  });
 
   return (
     <div className="space-y-4">
