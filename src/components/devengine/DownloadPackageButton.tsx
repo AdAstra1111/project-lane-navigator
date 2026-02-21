@@ -146,19 +146,43 @@ export function DownloadPackageButton({ projectId, format, pkg }: Props) {
         (versions || []).map((v: any) => [v.id, v.plaintext || ''])
       );
 
-      // Build ZIP in ladder order
+      // Folder mapping for ZIP structure
+      const FOLDER_MAP: Record<string, string> = {
+        season_master_script: '01_Season_Scripts',
+        idea: '02_Idea',
+        concept_brief: '03_Concept_Brief',
+        market_sheet: '04_Market_Sheet',
+        vertical_market_sheet: '04_Market_Sheet',
+        blueprint: '05_Blueprint',
+        architecture: '06_Architecture',
+        character_bible: '07_Character_Bible',
+        beat_sheet: '08_Beat_Sheet',
+        script: '09_Script',
+        production_draft: '10_Production_Draft',
+        deck: '11_Deck',
+        documentary_outline: '12_Documentary_Outline',
+        format_rules: '05_Format_Rules',
+        season_arc: '06_Season_Arc',
+        episode_grid: '07_Episode_Grid',
+        vertical_episode_beats: '08_Episode_Beats',
+      };
+
+      const projectName = (pkg.projectTitle || 'Package').replace(/[^a-zA-Z0-9\s-]/g, '').trim().replace(/\s+/g, '_').slice(0, 40);
+      const dateStr = new Date().toISOString().slice(0, 10);
+
+      // Build ZIP in ladder order with folder structure
       let orderIdx = 1;
       for (const docType of ladder) {
         if (docType === 'season_master_script') {
-          // Handle season scripts
           for (const ss of filteredSeasonScripts) {
             const text = plaintextMap.get(ss.version_id);
             if (!text) continue;
-            const prefix = String(orderIdx).padStart(2, '0');
+            const folder = FOLDER_MAP.season_master_script;
             const statusSuffix = ss.is_approved ? 'APPROVED' : 'DRAFT';
-            const seasonTag = ss.season_number ? `_s${ss.season_number}` : '';
-            const fileName = `${prefix}_season_master_script${seasonTag}_${statusSuffix}.md`;
-            zip.file(fileName, text);
+            const seasonTag = ss.season_number ? `_S${ss.season_number}` : '';
+            const shortId = ss.version_id.slice(0, 8);
+            const fileName = `${projectName} - Master Season Script${seasonTag} - v${shortId} - ${statusSuffix}.md`;
+            zip.file(`${folder}/${fileName}`, text);
             metaDocs.push({
               order_index: orderIdx,
               doc_type: 'season_master_script',
@@ -166,7 +190,7 @@ export function DownloadPackageButton({ projectId, format, pkg }: Props) {
               doc_id: ss.document_id,
               version_id: ss.version_id,
               approved: ss.is_approved,
-              file_name: fileName,
+              file_name: `${folder}/${fileName}`,
             });
             orderIdx++;
             docCount++;
@@ -180,10 +204,11 @@ export function DownloadPackageButton({ projectId, format, pkg }: Props) {
         const text = plaintextMap.get(deliverable.version_id);
         if (!text) continue;
 
-        const prefix = String(orderIdx).padStart(2, '0');
+        const folder = FOLDER_MAP[docType] || `${String(orderIdx).padStart(2, '0')}_${docType.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()).replace(/\s/g, '_')}`;
         const statusSuffix = deliverable.is_approved ? 'APPROVED' : 'DRAFT';
-        const fileName = `${prefix}_${docType}_${statusSuffix}.md`;
-        zip.file(fileName, text);
+        const shortId = deliverable.version_id.slice(0, 8);
+        const fileName = `${projectName} - ${deliverable.label} - v${shortId} - ${statusSuffix}.md`;
+        zip.file(`${folder}/${fileName}`, text);
         metaDocs.push({
           order_index: orderIdx,
           doc_type: docType,
@@ -191,7 +216,7 @@ export function DownloadPackageButton({ projectId, format, pkg }: Props) {
           doc_id: deliverable.document_id,
           version_id: deliverable.version_id,
           approved: deliverable.is_approved,
-          file_name: fileName,
+          file_name: `${folder}/${fileName}`,
         });
         orderIdx++;
         docCount++;
@@ -215,7 +240,8 @@ export function DownloadPackageButton({ projectId, format, pkg }: Props) {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${(pkg.projectTitle || 'package').replace(/[^a-zA-Z0-9\s-]/g, '').trim().replace(/\s+/g, '_').slice(0, 40)}_${new Date().toISOString().slice(0, 10)}.zip`;
+      const pName = (pkg.projectTitle || 'package').replace(/[^a-zA-Z0-9\s-]/g, '').trim().replace(/\s+/g, '_').slice(0, 40);
+      a.download = `${pName} - Project Package - ${new Date().toISOString().slice(0, 10)}.zip`;
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 5000);
       toast.success(`Quick ZIP ready — ${docCount} documents`);

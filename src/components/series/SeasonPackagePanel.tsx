@@ -189,7 +189,7 @@ export function SeasonPackagePanel({ projectId, episodeCount, completedEpisodeCo
       refetchExisting();
     } catch (e: any) {
       setError(e.message || 'Unknown error');
-      toast.error(e.message || 'Failed to generate season package');
+      toast.error(e.message || 'Failed to generate project package');
     } finally {
       setIsGenerating(false);
     }
