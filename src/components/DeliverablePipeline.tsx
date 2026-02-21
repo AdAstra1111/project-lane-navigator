@@ -6,7 +6,7 @@
 
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
-import { DELIVERABLE_PIPELINE_ORDER, VERTICAL_DRAMA_PIPELINE_ORDER, DELIVERABLE_LABELS, type DeliverableType } from '@/lib/dev-os-config';
+import { DELIVERABLE_PIPELINE_ORDER, VERTICAL_DRAMA_PIPELINE_ORDER, DELIVERABLE_LABELS, getDeliverableLabel, type DeliverableType } from '@/lib/dev-os-config';
 
 export type PipelineStageStatus = 'not_started' | 'in_progress' | 'converged';
 
@@ -15,6 +15,7 @@ interface Props {
   activeDeliverable?: DeliverableType | null;
   onStageClick?: (deliverable: DeliverableType) => void;
   isVerticalDrama?: boolean;
+  projectFormat?: string | null;
 }
 
 const STATUS_STYLES: Record<PipelineStageStatus, string> = {
@@ -23,7 +24,7 @@ const STATUS_STYLES: Record<PipelineStageStatus, string> = {
   converged: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
 };
 
-export function DeliverablePipeline({ stageStatuses, activeDeliverable, onStageClick, isVerticalDrama }: Props) {
+export function DeliverablePipeline({ stageStatuses, activeDeliverable, onStageClick, isVerticalDrama, projectFormat }: Props) {
   const order = isVerticalDrama ? VERTICAL_DRAMA_PIPELINE_ORDER : DELIVERABLE_PIPELINE_ORDER;
 
   return (
@@ -43,7 +44,7 @@ export function DeliverablePipeline({ stageStatuses, activeDeliverable, onStageC
               )}
               onClick={() => onStageClick?.(dt)}
             >
-              {DELIVERABLE_LABELS[dt]}
+              {getDeliverableLabel(dt, projectFormat)}
             </Badge>
           </div>
         );

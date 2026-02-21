@@ -34,7 +34,7 @@ import { useSeasonTemplate } from '@/hooks/useSeasonTemplate';
 import { canPromoteToScript, getDocDisplayName } from '@/lib/can-promote-to-script';
 import { DocumentExportDropdown } from '@/components/DocumentExportDropdown';
 import { FeatureLengthGuardrails } from '@/components/FeatureLengthGuardrails';
-import { type DevelopmentBehavior, BEHAVIOR_LABELS, BEHAVIOR_COLORS, DELIVERABLE_LABELS, defaultDeliverableForDocType, type DeliverableType } from '@/lib/dev-os-config';
+import { type DevelopmentBehavior, BEHAVIOR_LABELS, BEHAVIOR_COLORS, DELIVERABLE_LABELS, getDeliverableLabel, defaultDeliverableForDocType, type DeliverableType } from '@/lib/dev-os-config';
 import { isSeriesFormat as checkSeriesFormat } from '@/lib/format-helpers';
 import { DeliverablePipeline, type PipelineStageStatus } from '@/components/DeliverablePipeline';
 import { StagePlanPanel } from '@/components/stages/StagePlanPanel';
@@ -717,7 +717,7 @@ export default function ProjectDevelopmentEngine() {
                 {normalizedFormat}
               </Badge>
               <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/30">
-                {DELIVERABLE_LABELS[selectedDeliverableType]}
+                {getDeliverableLabel(selectedDeliverableType, normalizedFormat)}
               </Badge>
               <DocAssistantDrawer
                 projectId={projectId}
@@ -752,7 +752,7 @@ export default function ProjectDevelopmentEngine() {
 
           {/* ═══ PIPELINE ═══ */}
           <DeliverablePipeline stageStatuses={pipelineStatuses} activeDeliverable={selectedDeliverableType}
-            onStageClick={(dt) => setSelectedDeliverableType(dt)} isVerticalDrama={isVerticalDrama} />
+            onStageClick={(dt) => setSelectedDeliverableType(dt)} isVerticalDrama={isVerticalDrama} projectFormat={normalizedFormat} />
 
           {/* ═══ STAGE PLAN PANEL (drift verification) ═══ */}
           {(project as any)?.format && (

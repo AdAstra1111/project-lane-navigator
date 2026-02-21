@@ -48,6 +48,31 @@ export const DELIVERABLE_LABELS: Record<DeliverableType, string> = {
   series_writer: 'Series Writer',
 };
 
+/**
+ * Film/feature-specific label overrides.
+ * These stages exist in film ladders but should NOT use series terminology.
+ */
+const FILM_LABEL_OVERRIDES: Partial<Record<DeliverableType, string>> = {
+  blueprint: 'Blueprint',
+  architecture: 'Architecture',
+  beat_sheet: 'Beat Sheet',
+};
+
+const NON_SERIES_FORMATS = new Set(['film', 'feature', 'short', 'documentary', 'hybrid-documentary']);
+
+/**
+ * Get the display label for a deliverable type, adjusted for the project's format.
+ * Film/feature projects get neutral labels (e.g. "Blueprint" not "Season Blueprint").
+ */
+export function getDeliverableLabel(deliverable: string, format?: string | null): string {
+  const normalizedFormat = (format || '').toLowerCase().replace(/_/g, '-');
+  if (!normalizedFormat || NON_SERIES_FORMATS.has(normalizedFormat)) {
+    const override = FILM_LABEL_OVERRIDES[deliverable as DeliverableType];
+    if (override) return override;
+  }
+  return (DELIVERABLE_LABELS as Record<string, string>)[deliverable] || deliverable;
+}
+
 export const DELIVERABLE_PIPELINE_ORDER: DeliverableType[] = [
   'idea',
   'concept_brief',

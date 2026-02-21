@@ -16,13 +16,17 @@ import {
   getLadderForFormat, getNextStage, normalizeFormatKey,
   runStageRegistrySelfTest,
 } from '@/lib/stages/registry';
-import { DELIVERABLE_LABELS } from '@/lib/dev-os-config';
+import { DELIVERABLE_LABELS, getDeliverableLabel } from '@/lib/dev-os-config';
 
 interface Props {
   projectFormat: string;
   currentDocType?: string | null;
   existingDocTypes?: string[];
   className?: string;
+}
+
+function labelFor(stage: string, format: string): string {
+  return getDeliverableLabel(stage, format);
 }
 
 export function StagePlanPanel({ projectFormat, currentDocType, existingDocTypes = [], className }: Props) {
@@ -89,7 +93,7 @@ export function StagePlanPanel({ projectFormat, currentDocType, existingDocTypes
           <div>
             <span className="text-[9px] text-muted-foreground uppercase tracking-wide mr-1.5">Next:</span>
             <span className="text-[10px] font-medium text-primary">
-              {(DELIVERABLE_LABELS as any)[nextStage] || nextStage}
+              {labelFor(nextStage, projectFormat)}
             </span>
           </div>
         </div>
@@ -102,7 +106,7 @@ export function StagePlanPanel({ projectFormat, currentDocType, existingDocTypes
             const isCurrent = stage === currentDocType;
             const isCompleted = existingDocTypes.includes(stage) && !isCurrent;
             const isFuture = !existingDocTypes.includes(stage) && !isCurrent;
-            const label = (DELIVERABLE_LABELS as any)[stage] || stage;
+            const label = labelFor(stage, projectFormat);
 
             return (
               <div
