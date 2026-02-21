@@ -395,6 +395,12 @@ export function ScenarioDiffMergePanel({
               riskThreshold={targetScenario.governance?.merge_policy?.risk_threshold}
             />
           )}
+          {targetScenario?.governance?.merge_policy?.require_owner_admin && (
+            <Badge variant="destructive" className="text-[9px]">Owner/Admin only</Badge>
+          )}
+          {targetScenario?.governance?.merge_policy?.allow_self_approve === false && targetScenario?.governance?.merge_policy?.require_approval && (
+            <Badge variant="outline" className="text-[9px]">No self-approve</Badge>
+          )}
           {riskReport && (
             <Badge variant={RISK_BADGE_VARIANT[riskReport.risk_level] ?? 'outline'} className="text-[10px]">
               Risk: {riskReport.risk_level} ({riskReport.risk_score})
@@ -678,7 +684,10 @@ export function ScenarioDiffMergePanel({
                   <div className="rounded border border-destructive/40 bg-destructive/10 px-3 py-2 space-y-2">
                     <div className="text-xs font-medium text-destructive flex items-center gap-1.5">
                       <ShieldAlert className="h-3.5 w-3.5" />
-                      Approval Required — {riskReport.approval_reason ?? 'This merge requires approval before proceeding.'}
+                      {targetScenario?.governance?.merge_policy?.require_owner_admin
+                        ? 'Owner/Admin Approval Required'
+                        : 'Approval Required'}
+                      {' — '}{riskReport.approval_reason ?? 'This merge requires approval before proceeding.'}
                     </div>
                     {approvalStatus && (
                       <div className="text-[10px] flex items-center gap-1.5">

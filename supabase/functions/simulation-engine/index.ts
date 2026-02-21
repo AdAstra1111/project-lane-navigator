@@ -192,9 +192,16 @@ function canApproveMerge(
   mergePolicy?: Record<string, unknown>,
 ): boolean {
   if (role.isOwner || role.isAdmin) return true;
+  // Phase 5.13: require_owner_admin blocks non-admin for all domains
+  if (mergePolicy?.require_owner_admin === true) return false;
   if (domain === "finance") return false;
   if (mergePolicy?.allow_self_approve === true) return true;
   return false;
+}
+
+// Phase 5.13: Approval thread key helper
+function getApprovalThreadKey(sourceId: string | null | undefined, targetId: string): string {
+  return `${sourceId ?? "null"}::${targetId}`;
 }
 
 // ---- Phase 5.10: Approval thread helper ----
@@ -721,6 +728,8 @@ interface NormalizedGovernance {
   merge_policy?: {
     require_approval?: boolean;
     risk_threshold?: number;
+    allow_self_approve?: boolean;
+    require_owner_admin?: boolean;
   };
   last_governance_scan_at?: string;
   last_governance_scan_by?: string;
@@ -761,18 +770,43 @@ function maybeEscalatePolicy(
   governance: NormalizedGovernance,
   score: number,
   recentHighRiskCount: number,
-): { governance: NormalizedGovernance; escalated: boolean } {
-  const shouldEscalate = score < 50 || recentHighRiskCount >= 3;
-  if (!shouldEscalate) return { governance, escalated: false };
+  escalationInputs?: { forced_count_last10?: number; protected_hit_count_last10?: number; drift_critical?: number },
+): { governance: NormalizedGovernance; escalated: boolean; reason?: string } {
+  const ei = escalationInputs ?? {};
+  const forcedCount = ei.forced_count_last10 ?? 0;
+  const protectedHitCount = ei.protected_hit_count_last10 ?? 0;
+  const driftCritical = ei.drift_critical ?? 0;
+
+  // Phase 5.13: Deterministic escalation rules
+  const needsApproval = score < 50 || recentHighRiskCount >= 3 || forcedCount >= 2 || protectedHitCount >= 2 || driftCritical >= 1;
+  const needsOwnerAdmin = forcedCount >= 4 || driftCritical >= 2;
+
+  if (!needsApproval && !needsOwnerAdmin) return { governance, escalated: false };
 
   const updated = { ...governance };
   const existingPolicy = updated.merge_policy ?? {};
-  updated.merge_policy = {
-    ...existingPolicy,
-    require_approval: true,
-    risk_threshold: Math.min(existingPolicy.risk_threshold ?? 100, 40),
-  };
-  return { governance: updated, escalated: true };
+  const newPolicy = { ...existingPolicy };
+
+  let reason = "";
+  if (needsApproval) {
+    // Never loosen — only tighten
+    if (!newPolicy.require_approval) {
+      newPolicy.require_approval = true;
+      reason += "require_approval set; ";
+    }
+    if (newPolicy.allow_self_approve !== false) {
+      newPolicy.allow_self_approve = false;
+      reason += "allow_self_approve disabled; ";
+    }
+    newPolicy.risk_threshold = Math.min(existingPolicy.risk_threshold ?? 100, 40);
+  }
+  if (needsOwnerAdmin && !newPolicy.require_owner_admin) {
+    newPolicy.require_owner_admin = true;
+    reason += "require_owner_admin set; ";
+  }
+
+  updated.merge_policy = newPolicy;
+  return { governance: updated, escalated: reason.length > 0, reason: reason || undefined };
 }
 function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
   const parts = path.split(".");
@@ -3574,8 +3608,14 @@ Deno.serve(async (req) => {
             governance_confidence_score: newScore,
           };
 
+          // Phase 5.13: Compute escalation inputs from recent outcomes
+          const forcedCountLast10 = recentOutcomes.filter(o => o.forced).length;
+          const protectedHitCountLast10 = recentOutcomes.filter(o => (o.paths ?? []).length > 0 && o.forced).length;
           const recentHighRisk = outcomes.slice(-5).filter(o => (o.risk_score ?? 0) >= 70 || o.forced).length;
-          const { governance: escalatedGov, escalated } = maybeEscalatePolicy(updatedGov, newScore, recentHighRisk);
+          const { governance: escalatedGov, escalated, reason: escalationReason } = maybeEscalatePolicy(
+            updatedGov, newScore, recentHighRisk,
+            { forced_count_last10: forcedCountLast10, protected_hit_count_last10: protectedHitCountLast10, drift_critical: driftCritical },
+          );
           updatedGov = escalatedGov;
 
           await sb
@@ -3588,7 +3628,11 @@ Deno.serve(async (req) => {
               await sb.from("scenario_decision_events").insert({
                 project_id: pid, event_type: "governance_policy_escalated",
                 scenario_id: tid, created_by: uid,
-                payload: { score: newScore, recentHighRiskCount: recentHighRisk, new_policy: updatedGov.merge_policy },
+                payload: {
+                  reason: escalationReason, score: newScore, recentHighRiskCount: recentHighRisk,
+                  forced_count_last10: forcedCountLast10, protected_hit_count_last10: protectedHitCountLast10,
+                  drift_critical: driftCritical, old_policy: gov.merge_policy, new_policy: updatedGov.merge_policy,
+                },
               });
             } catch (_) { /* non-fatal */ }
           }
@@ -4151,6 +4195,12 @@ Deno.serve(async (req) => {
           request_event_id: latestReq.id,
           has_merge_context: !!(mc || (payload.paths && payload.paths.length > 0)),
           strategy: mc?.strategy ?? payload.strategy ?? null,
+          thread_key: key,
+          // Phase 5.13: count requests in last 30m for this thread
+          batched_count_last30m: group.requests.filter((r: any) => {
+            const age = Date.now() - new Date(r.created_at).getTime();
+            return age <= 30 * 60 * 1000;
+          }).length,
         });
       }
 
@@ -4279,6 +4329,58 @@ Deno.serve(async (req) => {
 
       const domain = reqPaths.length > 0 ? getApprovalDomain(reqPaths) : (riskReport.domain ?? "general");
 
+      // Phase 5.13: Batch rule — deduplicate requests within 30 minutes
+      const thread = await getApprovalThread(supabase, projectId, sourceId, targetId);
+      if (thread.latestRequest && thread.pending) {
+        const reqAge = Date.now() - new Date(thread.latestRequest.created_at).getTime();
+        if (reqAge <= 30 * 60 * 1000) {
+          return json({
+            requested: true,
+            batched: true,
+            request_event_id: thread.latestRequest.id,
+            domain,
+            has_merge_context: thread.has_merge_context,
+          });
+        }
+      }
+
+      // Phase 5.13: Run escalation check before inserting request
+      try {
+        const { data: tgtScenEsc } = await supabase
+          .from("project_scenarios")
+          .select("governance, merge_policy, protected_paths")
+          .eq("id", targetId).eq("project_id", projectId).single();
+        if (tgtScenEsc) {
+          const gov = normalizeGovernance(tgtScenEsc.governance);
+          const outcomes = gov.risk_memory.merge_outcomes.slice(-10);
+          const forcedCount = outcomes.filter(o => o.forced).length;
+          const protHitCount = outcomes.filter(o => o.forced && (o.paths ?? []).length > 0).length;
+          const { data: driftData } = await supabase
+            .from("drift_alerts").select("severity")
+            .eq("project_id", projectId).eq("scenario_id", targetId).eq("acknowledged", false);
+          const driftCritical = (driftData ?? []).filter((d: any) => d.severity === "critical").length;
+          const recentHighRisk = gov.risk_memory.merge_outcomes.slice(-5).filter(o => (o.risk_score ?? 0) >= 70 || o.forced).length;
+          const score = gov.governance_confidence_score ?? 100;
+          const { governance: escalatedGov, escalated, reason: escReason } = maybeEscalatePolicy(
+            gov, score, recentHighRisk,
+            { forced_count_last10: forcedCount, protected_hit_count_last10: protHitCount, drift_critical: driftCritical },
+          );
+          if (escalated) {
+            await supabase.from("project_scenarios")
+              .update({ governance: escalatedGov as any, merge_policy: escalatedGov.merge_policy ?? {} })
+              .eq("id", targetId);
+            try {
+              await supabase.from("scenario_decision_events").insert({
+                project_id: projectId, event_type: "governance_policy_escalated",
+                scenario_id: targetId, created_by: userId,
+                payload: { reason: escReason, score, old_policy: gov.merge_policy, new_policy: escalatedGov.merge_policy,
+                  forced_count_last10: forcedCount, protected_hit_count_last10: protHitCount, drift_critical: driftCritical },
+              });
+            } catch (_) { /* non-fatal */ }
+          }
+        }
+      } catch { /* best-effort escalation */ }
+
       // Decision event (non-fatal)
       try {
         await supabase.from("scenario_decision_events").insert({
@@ -4308,7 +4410,7 @@ Deno.serve(async (req) => {
         console.warn("decision_event_insert_failed", "merge_approval_requested", projectId, e instanceof Error ? e.message : e);
       }
 
-      return json({ requested: true, domain });
+      return json({ requested: true, batched: false, domain, has_merge_context: reqPaths.length > 0 });
     }
 
     // ══════════════════════════════════════
