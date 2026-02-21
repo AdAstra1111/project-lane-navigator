@@ -11228,6 +11228,133 @@ export type Database = {
           },
         ]
       }
+      storyboard_boards: {
+        Row: {
+          action_notes: string | null
+          aspect_ratio: string
+          camera_notes: string | null
+          composition_notes: string | null
+          created_at: string
+          framing_notes: string | null
+          id: string
+          image_asset_path: string | null
+          image_source: string | null
+          locked: boolean
+          panel_text: string
+          project_id: string
+          scene_number: string
+          shot_list_id: string
+          shot_list_item_id: string
+          shot_number: number
+          updated_at: string
+        }
+        Insert: {
+          action_notes?: string | null
+          aspect_ratio?: string
+          camera_notes?: string | null
+          composition_notes?: string | null
+          created_at?: string
+          framing_notes?: string | null
+          id?: string
+          image_asset_path?: string | null
+          image_source?: string | null
+          locked?: boolean
+          panel_text?: string
+          project_id: string
+          scene_number?: string
+          shot_list_id: string
+          shot_list_item_id: string
+          shot_number?: number
+          updated_at?: string
+        }
+        Update: {
+          action_notes?: string | null
+          aspect_ratio?: string
+          camera_notes?: string | null
+          composition_notes?: string | null
+          created_at?: string
+          framing_notes?: string | null
+          id?: string
+          image_asset_path?: string | null
+          image_source?: string | null
+          locked?: boolean
+          panel_text?: string
+          project_id?: string
+          scene_number?: string
+          shot_list_id?: string
+          shot_list_item_id?: string
+          shot_number?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "storyboard_boards_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "storyboard_boards_shot_list_id_fkey"
+            columns: ["shot_list_id"]
+            isOneToOne: false
+            referencedRelation: "shot_lists"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "storyboard_boards_shot_list_item_id_fkey"
+            columns: ["shot_list_item_id"]
+            isOneToOne: false
+            referencedRelation: "shot_list_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      storyboard_exports: {
+        Row: {
+          created_at: string
+          created_by: string
+          export_type: string
+          id: string
+          project_id: string
+          shot_list_id: string
+          storage_path: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          export_type?: string
+          id?: string
+          project_id: string
+          shot_list_id: string
+          storage_path?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          export_type?: string
+          id?: string
+          project_id?: string
+          shot_list_id?: string
+          storage_path?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "storyboard_exports_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "storyboard_exports_shot_list_id_fkey"
+            columns: ["shot_list_id"]
+            isOneToOne: false
+            referencedRelation: "shot_lists"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       subscriptions: {
         Row: {
           cancel_at_period_end: boolean
