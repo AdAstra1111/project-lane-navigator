@@ -293,7 +293,8 @@ serve(async (req) => {
     const { data: { user }, error: userError } = await supabase.auth.getUser();
     if (userError || !user) throw new Error("Not authenticated");
 
-    const { projectId, documentPaths: rawPaths } = await req.json();
+    const body = await req.json();
+    const { projectId, documentPaths: rawPaths } = body;
     if (!projectId || !rawPaths?.length) {
       throw new Error("Missing projectId or documentPaths");
     }
@@ -409,6 +410,9 @@ serve(async (req) => {
       console.log(`[extract] ${fileName}: source=${result.sourceType}, chars=${charCount}, status=${ingestionStatus}`);
     }
 
+    // Read the doc_type passed from the client (single source of truth)
+    const docType = body.docType || "document";
+
     // Save document records to DB (upsert by file_path)
     for (const doc of docResults) {
       const { data: existing } = await adminClient
@@ -426,6 +430,7 @@ serve(async (req) => {
         error_message: doc.error_message,
         ingestion_source: doc.source_type,
         char_count: doc.char_count,
+        doc_type: docType,
       };
 
       if (existing) {

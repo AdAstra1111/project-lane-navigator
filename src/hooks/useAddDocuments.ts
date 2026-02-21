@@ -35,24 +35,19 @@ export function useAddDocuments(projectId: string | undefined) {
       const uploadResults = await uploadToStorage(files, user.id);
       const documentPaths = uploadResults.map(r => r.path);
 
-      // 2. Call edge function to extract text and save records
+      // Resolve the effective doc_type to pass to the edge function
+      const effectiveDocType = docType
+        || (scriptInfo?.isLatestDraft ? 'script_latest' : undefined)
+        || (scriptInfo && !scriptInfo.isLatestDraft ? 'script_older' : undefined)
+        || 'document';
+
+      // 2. Call edge function to extract text and save records (with doc_type)
       const { data, error } = await supabase.functions.invoke('extract-documents', {
-        body: { projectId, documentPaths },
+        body: { projectId, documentPaths, docType: effectiveDocType },
       });
 
       if (error) throw new Error(error.message || 'Document extraction failed');
       if (data?.error) throw new Error(data.error);
-
-      // 2b. If a doc_type was specified, update the documents
-      if (docType) {
-        for (const r of uploadResults) {
-          await supabase
-            .from('project_documents')
-            .update({ doc_type: docType } as any)
-            .eq('project_id', projectId)
-            .eq('file_path', r.path);
-        }
-      }
 
       // 3. If script detected, create project_scripts record
       if (scriptInfo) {
