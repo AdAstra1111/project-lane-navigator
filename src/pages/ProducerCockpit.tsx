@@ -153,6 +153,12 @@ export default function ProducerCockpit() {
             isUpdatingProtected={setScenarioLock.isPending}
             onSetLock={(params) => setScenarioLock.mutate(params)}
             isSavingLock={setScenarioLock.isPending}
+            onScanGovernance={(params) => scanGovernance.mutateAsync(params)}
+            isScanningGovernance={scanGovernance.isPending}
+            onEvaluateMergeRisk={(params) => evaluateMergeRisk.mutateAsync(params)}
+            isEvaluatingRisk={evaluateMergeRisk.isPending}
+            onRequestApproval={(params) => requestMergeApproval.mutate(params)}
+            isRequestingApproval={requestMergeApproval.isPending}
           />
 
           <ScenarioLockControls

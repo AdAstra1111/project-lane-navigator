@@ -3232,6 +3232,318 @@ Deno.serve(async (req) => {
       return json({ scenarioId: lockScenarioId, is_locked: isLocked, protected_paths: protectedPaths });
     }
 
+    // ══════════════════════════════════════
+    // ACTION: scan_override_governance
+    // ══════════════════════════════════════
+    if (action === "scan_override_governance") {
+      const govScenarioId = body.scenarioId;
+      if (!govScenarioId) return json({ error: "scenarioId required" }, 400);
+
+      const { data: govScen } = await supabase
+        .from("project_scenarios")
+        .select("id, computed_state, state_overrides, governance, is_locked, protected_paths")
+        .eq("id", govScenarioId)
+        .eq("project_id", projectId)
+        .single();
+      if (!govScen) return json({ error: "Scenario not found" }, 404);
+
+      // Always-critical paths
+      const suggestedProtected: string[] = [
+        "creative_state.format",
+        "creative_state.runtime_minutes",
+        "creative_state.episode_count",
+        "finance_state.budget_band",
+        "finance_state.budget_estimate",
+        "production_state.estimated_shoot_days",
+      ];
+
+      // Check drift alerts for this scenario
+      const { data: driftAlerts } = await supabase
+        .from("drift_alerts")
+        .select("metric_key")
+        .eq("project_id", projectId)
+        .eq("scenario_id", govScenarioId)
+        .eq("acknowledged", false);
+
+      const driftMetricPathMap: Record<string, string> = {
+        budget_estimate: "finance_state.budget_estimate",
+        estimated_shoot_days: "production_state.estimated_shoot_days",
+        schedule_compression_risk: "production_state.schedule_compression_risk",
+        platform_appetite_strength: "revenue_state.platform_appetite_strength",
+        confidence_score: "revenue_state.confidence_score",
+      };
+
+      if (driftAlerts) {
+        for (const alert of driftAlerts) {
+          const mapped = driftMetricPathMap[alert.metric_key];
+          if (mapped && !suggestedProtected.includes(mapped)) {
+            suggestedProtected.push(mapped);
+          }
+        }
+      }
+
+      // Critical paths = paths that exist in overrides AND are in suggested list
+      const overrides = (govScen.state_overrides ?? {}) as Record<string, unknown>;
+      const criticalPaths: string[] = [];
+      for (const sp of suggestedProtected) {
+        const val = getNestedValue(overrides, sp);
+        if (val !== null && val !== undefined) {
+          criticalPaths.push(sp);
+        }
+      }
+
+      // Risk hotspots: paths with high-drift metric keys
+      const riskHotspots: string[] = (driftAlerts ?? [])
+        .map((a: any) => driftMetricPathMap[a.metric_key])
+        .filter((p: string | undefined): p is string => !!p);
+
+      // Persist governance data
+      const governanceData = {
+        ...(govScen.governance ?? {}),
+        suggested_protected_paths: suggestedProtected,
+        critical_paths: criticalPaths,
+        last_governance_scan_at: new Date().toISOString(),
+        last_governance_scan_by: userId,
+      };
+
+      const shouldApply = body.apply === true && !(govScen as any).is_locked;
+
+      if (shouldApply) {
+        await supabase
+          .from("project_scenarios")
+          .update({ governance: governanceData })
+          .eq("id", govScenarioId)
+          .eq("project_id", projectId);
+      }
+
+      // Decision event
+      try {
+        await supabase.from("scenario_decision_events").insert({
+          project_id: projectId,
+          event_type: "governance_scanned",
+          scenario_id: govScenarioId,
+          created_by: userId,
+          payload: {
+            suggested_count: suggestedProtected.length,
+            critical_count: criticalPaths.length,
+            risk_hotspot_count: riskHotspots.length,
+            applied: shouldApply,
+          },
+        });
+      } catch (e: unknown) {
+        console.warn("decision_event_insert_failed", "governance_scanned", projectId, e instanceof Error ? e.message : e);
+      }
+
+      return json({
+        scenarioId: govScenarioId,
+        suggested_protected_paths: suggestedProtected,
+        critical_paths: criticalPaths,
+        risk_hotspots: riskHotspots,
+        updated: shouldApply,
+      });
+    }
+
+    // ══════════════════════════════════════
+    // ACTION: evaluate_merge_risk
+    // ══════════════════════════════════════
+    if (action === "evaluate_merge_risk") {
+      const srcId = body.sourceScenarioId;
+      const tgtId = body.targetScenarioId;
+      const evalPaths: string[] = body.paths ?? [];
+      const evalStrategy: string = body.strategy ?? "overwrite";
+      const evalForce: boolean = body.force === true;
+
+      if (!srcId || !tgtId) return json({ error: "sourceScenarioId and targetScenarioId required" }, 400);
+
+      const [{ data: srcScen }, { data: tgtScen }] = await Promise.all([
+        supabase.from("project_scenarios").select("id, state_overrides, computed_state, name").eq("id", srcId).eq("project_id", projectId).single(),
+        supabase.from("project_scenarios").select("id, state_overrides, computed_state, name, is_locked, protected_paths, governance, merge_policy").eq("id", tgtId).eq("project_id", projectId).single(),
+      ]);
+      if (!srcScen) return json({ error: "Source scenario not found" }, 404);
+      if (!tgtScen) return json({ error: "Target scenario not found" }, 404);
+
+      const srcOver = (srcScen.state_overrides ?? {}) as Record<string, unknown>;
+      const tgtOver = JSON.parse(JSON.stringify(tgtScen.state_overrides ?? {})) as Record<string, unknown>;
+      const protPaths: string[] = ((tgtScen as any).protected_paths ?? []) as string[];
+      const governance = (tgtScen as any).governance ?? {};
+      const mergePolicy = (tgtScen as any).merge_policy ?? {};
+      const criticalPaths: string[] = governance.critical_paths ?? [];
+
+      // Compute which paths would be applied
+      const allChanges = diffOverridesDeep(srcOver, tgtOver);
+      const pathsToApply = evalPaths.length > 0
+        ? allChanges.filter(c => evalPaths.includes(c.path))
+        : allChanges;
+
+      const protectedHits = pathsToApply
+        .map(c => c.path)
+        .filter(p => protPaths.some(pp => p === pp || p.startsWith(pp + ".")));
+
+      const criticalHits = pathsToApply
+        .map(c => c.path)
+        .filter(p => criticalPaths.some(cp => p === cp || p.startsWith(cp + ".")));
+
+      // Risk scoring
+      let riskScore = 10;
+      const affectedDomains = new Set<string>();
+      for (const c of pathsToApply) {
+        const domain = c.path.split(".")[0];
+        affectedDomains.add(domain);
+      }
+      if (affectedDomains.has("finance_state") || affectedDomains.has("production_state")) riskScore += 25;
+      const touchesRuntime = pathsToApply.some(c => c.path === "creative_state.runtime_minutes" || c.path === "creative_state.episode_count");
+      if (touchesRuntime) riskScore += 20;
+      if ((tgtScen as any).is_locked) riskScore += 20;
+      if (protectedHits.length > 0) riskScore += 15;
+      if (pathsToApply.length > 12) riskScore += 10;
+
+      // Conflict detection via cascade
+      const conflicts: { type: string; message: string; paths: string[] }[] = [];
+
+      const tgtCs = tgtScen.computed_state as unknown as CascadedState | null;
+      if (tgtCs?.creative_state) {
+        // Simulate merge
+        const mergedOverrides = JSON.parse(JSON.stringify(tgtOver));
+        for (const change of pathsToApply) {
+          const srcVal = getNestedValue(srcOver, change.path);
+          if (evalStrategy === "fill_missing") {
+            const curVal = getNestedValue(mergedOverrides, change.path);
+            if (curVal !== null && curVal !== undefined) continue;
+          }
+          setNestedValue(mergedOverrides, change.path, srcVal);
+        }
+
+        // Run cascade on merged result
+        const { data: graph } = await supabase
+          .from("project_state_graphs")
+          .select("creative_state")
+          .eq("project_id", projectId)
+          .single();
+
+        if (graph) {
+          const mergedCreative: CreativeState = {
+            ...(graph.creative_state as unknown as CreativeState),
+            ...((mergedOverrides as any).creative_state ?? {}),
+          };
+          const postMerge = runFullCascade(mergedCreative, mergedOverrides as StateOverrides);
+
+          // Check conflicts
+          if (postMerge.finance_state.budget_estimate > tgtCs.finance_state.budget_estimate &&
+              postMerge.revenue_state.platform_appetite_strength < tgtCs.revenue_state.platform_appetite_strength) {
+            conflicts.push({
+              type: "economics_misalignment",
+              message: "Budget increases but platform appetite decreases",
+              paths: pathsToApply.filter(c => c.path.startsWith("finance_state") || c.path.startsWith("creative_state")).map(c => c.path),
+            });
+          }
+          if (postMerge.production_state.estimated_shoot_days > tgtCs.production_state.estimated_shoot_days &&
+              postMerge.production_state.schedule_compression_risk > tgtCs.production_state.schedule_compression_risk) {
+            conflicts.push({
+              type: "schedule_stress",
+              message: "Shoot days increase and schedule compression risk rises",
+              paths: pathsToApply.filter(c => c.path.startsWith("production_state") || c.path.startsWith("execution_state")).map(c => c.path),
+            });
+          }
+          if (postMerge.revenue_state.downside_exposure > tgtCs.revenue_state.downside_exposure &&
+              postMerge.revenue_state.confidence_score < tgtCs.revenue_state.confidence_score) {
+            conflicts.push({
+              type: "risk_confidence_drop",
+              message: "Downside exposure increases while confidence drops",
+              paths: pathsToApply.filter(c => c.path.startsWith("revenue_state") || c.path.startsWith("finance_state")).map(c => c.path),
+            });
+          }
+        }
+      }
+
+      const riskLevel = riskScore < 25 ? "low" : riskScore < 45 ? "medium" : riskScore < 70 ? "high" : "critical";
+
+      const requiresApproval =
+        riskLevel === "high" || riskLevel === "critical" ||
+        conflicts.length >= 2 ||
+        criticalHits.length > 0 ||
+        mergePolicy.require_approval === true;
+
+      const recommendedActions: string[] = [];
+      if (protectedHits.length > 0) recommendedActions.push("Review protected paths or force intentionally");
+      if (conflicts.some(c => c.type === "schedule_stress")) recommendedActions.push("Consider reducing execution complexity or adjusting schedule assumptions");
+      if (conflicts.some(c => c.type === "economics_misalignment")) recommendedActions.push("Review budget vs platform appetite alignment");
+      if (conflicts.some(c => c.type === "risk_confidence_drop")) recommendedActions.push("Assess downside exposure before committing");
+
+      const result = {
+        risk_score: Math.min(100, riskScore),
+        risk_level: riskLevel,
+        conflicts,
+        affected_domains: Array.from(affectedDomains),
+        recommended_actions: recommendedActions,
+        requires_approval: requiresApproval,
+        approval_reason: requiresApproval
+          ? (criticalHits.length > 0 ? "Touches critical governance paths" : riskLevel === "critical" ? "Critical risk level" : conflicts.length >= 2 ? "Multiple conflicts detected" : mergePolicy.require_approval ? "Merge policy requires approval" : "High risk")
+          : undefined,
+        protected_hits: protectedHits,
+        critical_hits: criticalHits,
+      };
+
+      // Decision event
+      try {
+        await supabase.from("scenario_decision_events").insert({
+          project_id: projectId,
+          event_type: "merge_risk_evaluated",
+          scenario_id: tgtId,
+          previous_scenario_id: srcId,
+          created_by: userId,
+          payload: {
+            risk_score: result.risk_score,
+            risk_level: result.risk_level,
+            conflict_count: conflicts.length,
+            requires_approval: result.requires_approval,
+          },
+        });
+      } catch (e: unknown) {
+        console.warn("decision_event_insert_failed", "merge_risk_evaluated", projectId, e instanceof Error ? e.message : e);
+      }
+
+      return json(result);
+    }
+
+    // ══════════════════════════════════════
+    // ACTION: request_merge_approval
+    // ══════════════════════════════════════
+    if (action === "request_merge_approval") {
+      const approvalScenarioId = body.scenarioId;
+      if (!approvalScenarioId) return json({ error: "scenarioId required" }, 400);
+
+      const { data: approval, error: apprErr } = await supabase
+        .from("scenario_merge_approvals")
+        .insert({
+          project_id: projectId,
+          scenario_id: approvalScenarioId,
+          requested_by: userId,
+          status: "pending",
+          payload: body.payload ?? null,
+        })
+        .select()
+        .single();
+      if (apprErr) throw apprErr;
+
+      // Decision event
+      try {
+        await supabase.from("scenario_decision_events").insert({
+          project_id: projectId,
+          event_type: "merge_approval_requested",
+          scenario_id: approvalScenarioId,
+          created_by: userId,
+          payload: {
+            approval_id: approval.id,
+            risk_level: body.payload?.risk_level ?? null,
+          },
+        });
+      } catch (e: unknown) {
+        console.warn("decision_event_insert_failed", "merge_approval_requested", projectId, e instanceof Error ? e.message : e);
+      }
+
+      return json({ approval });
+    }
+
     return json({ error: `Unknown action: ${action}` }, 400);
   } catch (err: unknown) {
     const message =

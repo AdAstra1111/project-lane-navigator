@@ -103,6 +103,28 @@ export interface ProjectScenario {
   protected_paths: string[];
   locked_at: string | null;
   locked_by: string | null;
+  governance: any;
+  merge_policy: any;
+}
+
+export interface MergeRiskReport {
+  risk_score: number;
+  risk_level: string;
+  conflicts: { type: string; message: string; paths: string[] }[];
+  affected_domains: string[];
+  recommended_actions: string[];
+  requires_approval: boolean;
+  approval_reason?: string;
+  protected_hits: string[];
+  critical_hits: string[];
+}
+
+export interface GovernanceScanResult {
+  scenarioId: string;
+  suggested_protected_paths: string[];
+  critical_paths: string[];
+  risk_hotspots: string[];
+  updated: boolean;
 }
 
 export interface DriftAlert {
@@ -275,6 +297,7 @@ export function useStateGraph(projectId: string | undefined) {
     queryClient.invalidateQueries({ queryKey: ['scenario-scores', projectId] });
     queryClient.invalidateQueries({ queryKey: ['scenario-stress', projectId] });
     queryClient.invalidateQueries({ queryKey: ['decision-events', projectId] });
+    queryClient.invalidateQueries({ queryKey: ['merge-approvals', projectId] });
   };
 
   const initialize = useMutation({
@@ -575,6 +598,53 @@ export function useStateGraph(projectId: string | undefined) {
     onError: (e: any) => toast.error(e.message),
   });
 
+  // Phase 5.2: Governance scan
+  const scanGovernance = useMutation({
+    mutationFn: async (params: { scenarioId: string; apply?: boolean }) => {
+      const { data, error } = await supabase.functions.invoke('simulation-engine', {
+        body: { action: 'scan_override_governance', projectId, ...params },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      return data as GovernanceScanResult;
+    },
+    onSuccess: () => {
+      invalidateAll();
+      toast.success('Governance scan complete');
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  // Phase 5.2: Evaluate merge risk
+  const evaluateMergeRisk = useMutation({
+    mutationFn: async (params: { sourceScenarioId: string; targetScenarioId: string; paths?: string[]; strategy?: string; force?: boolean }) => {
+      const { data, error } = await supabase.functions.invoke('simulation-engine', {
+        body: { action: 'evaluate_merge_risk', projectId, ...params },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      return data as MergeRiskReport;
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  // Phase 5.2: Request merge approval
+  const requestMergeApproval = useMutation({
+    mutationFn: async (params: { scenarioId: string; payload?: any }) => {
+      const { data, error } = await supabase.functions.invoke('simulation-engine', {
+        body: { action: 'request_merge_approval', projectId, ...params },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      return data;
+    },
+    onSuccess: () => {
+      invalidateAll();
+      toast.success('Approval requested');
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
   const baseline = scenarios.find(s => s.scenario_type === 'baseline');
   const activeScenario = scenarios.find(s => s.is_active);
   const recommendedScenario = scenarios.find(s => s.is_recommended);
@@ -610,6 +680,9 @@ export function useStateGraph(projectId: string | undefined) {
     diffScenarios,
     mergeScenarioOverrides,
     setScenarioLock,
+    scanGovernance,
+    evaluateMergeRisk,
+    requestMergeApproval,
     baseline,
     activeScenario,
     recommendedScenario: validRecommended,
