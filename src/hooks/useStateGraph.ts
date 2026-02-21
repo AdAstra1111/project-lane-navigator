@@ -185,27 +185,6 @@ export function useStateGraph(projectId: string | undefined) {
     enabled: !!projectId,
   });
 
-  // Latest projection for active scenario
-  const activeScenarioId = stateGraph?.active_scenario_id ?? null;
-
-  const { data: latestProjection = null } = useQuery({
-    queryKey: ['projection', projectId, activeScenarioId],
-    queryFn: async () => {
-      if (!projectId || !activeScenarioId) return null;
-      const { data, error } = await supabase
-        .from('scenario_projections')
-        .select('*')
-        .eq('project_id', projectId)
-        .eq('scenario_id', activeScenarioId)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (error) throw error;
-      return data as unknown as ScenarioProjection | null;
-    },
-    enabled: !!projectId && !!activeScenarioId,
-  });
-
   const invalidateAll = () => {
     queryClient.invalidateQueries({ queryKey: ['state-graph', projectId] });
     queryClient.invalidateQueries({ queryKey: ['scenarios', projectId] });
@@ -405,7 +384,6 @@ export function useStateGraph(projectId: string | undefined) {
     stateGraph,
     scenarios,
     alerts,
-    latestProjection,
     isLoading: graphLoading || scenariosLoading,
     initialize,
     cascade,

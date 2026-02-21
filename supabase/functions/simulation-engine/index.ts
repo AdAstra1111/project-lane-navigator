@@ -401,11 +401,13 @@ function runForwardProjection(
 
 // ---- Drift Alert Generation (shared) ----
 
-function generateDriftAlerts(cascaded: CascadedState): Array<{
+type DriftAlertItem = {
   alert_type: string; severity: string; layer: string;
   metric_key: string; current_value: number; threshold: number; message: string;
-}> {
-  const alerts: typeof generateDriftAlerts extends (...args: any) => infer R ? R : never = [];
+};
+
+function generateDriftAlerts(cascaded: CascadedState): DriftAlertItem[] {
+  const alerts: DriftAlertItem[] = [];
   if (cascaded.production_state.schedule_compression_risk > 7) {
     alerts.push({ alert_type: "schedule_drift", severity: "warning", layer: "production", metric_key: "schedule_compression_risk", current_value: cascaded.production_state.schedule_compression_risk, threshold: 7, message: "Schedule compression risk exceeds safe threshold" });
   }
@@ -416,6 +418,22 @@ function generateDriftAlerts(cascaded: CascadedState): Array<{
     alerts.push({ alert_type: "revenue_risk", severity: "critical", layer: "revenue", metric_key: "confidence_score", current_value: cascaded.revenue_state.confidence_score, threshold: 30, message: "Revenue confidence below critical threshold" });
   }
   return alerts;
+}
+
+// ---- Deep Merge Helper ----
+
+function deepMerge<T extends Record<string, any>>(base: T, patch: Record<string, any>): T {
+  const result = { ...base } as any;
+  for (const key of Object.keys(patch)) {
+    const bv = base[key];
+    const pv = patch[key];
+    if (bv && pv && typeof bv === "object" && typeof pv === "object" && !Array.isArray(bv) && !Array.isArray(pv)) {
+      result[key] = deepMerge(bv, pv);
+    } else {
+      result[key] = pv;
+    }
+  }
+  return result;
 }
 
 // ---- Seeded PRNG (Mulberry32) for reproducibility ----
@@ -871,8 +889,15 @@ Deno.serve(async (req) => {
 
       if (!targetScenario) return json({ error: "Scenario not found in this project" }, 404);
 
+      // Guard: refuse baseline unless explicitly allowed
+      if (targetScenario.scenario_type === "baseline" && body.allowBaseline !== true) {
+        return json({ error: "Refusing to optimize baseline without allowBaseline=true" }, 400);
+      }
+
       const seedState = targetScenario.computed_state as unknown as CascadedState | null;
       if (!seedState?.creative_state) return json({ error: "Scenario has no computed state" }, 400);
+
+      const baseOverrides: StateOverrides = (targetScenario.state_overrides as StateOverrides) ?? {};
 
       const maxIterations = Math.min(body.maxIterations ?? 60, 200);
       const horizonMonths: number = body.horizonMonths ?? 12;
@@ -930,16 +955,17 @@ Deno.serve(async (req) => {
         if (searchMode === "random") {
           // Randomly perturb 2-4 keys
           const allKeys = [
-            ...Object.keys(tunableCreative).map(k => ["creative", k] as const),
-            ...Object.keys(tunableExecution).map(k => ["execution", k] as const),
-            ...Object.keys(tunableProduction).map(k => ["production", k] as const),
-            ["creative", "behaviour_mode"] as const,
-          ].filter(([, k]) => !lockKeys.includes(k));
+            ...Object.keys(tunableCreative).map(k => ["creative", "creative_state." + k] as const),
+            ...Object.keys(tunableExecution).map(k => ["execution", "execution_state." + k] as const),
+            ...Object.keys(tunableProduction).map(k => ["production", "production_state." + k] as const),
+            ["creative", "creative_state.behaviour_mode"] as const,
+          ].filter(([, path]) => !lockKeys.includes(path));
 
           const numChanges = 2 + Math.floor(rng() * 3);
           const shuffled = [...allKeys].sort(() => rng() - 0.5).slice(0, numChanges);
 
-          for (const [layer, key] of shuffled) {
+          for (const [layer, path] of shuffled) {
+            const key = path.split(".")[1];
             if (key === "behaviour_mode") {
               (creativeOverrides as any).behaviour_mode = behaviourModes[Math.floor(rng() * behaviourModes.length)];
               continue;
@@ -960,43 +986,47 @@ Deno.serve(async (req) => {
           }
         } else {
           // Grid: systematic sweep on iteration index
-          const allKeys = [
-            ...Object.keys(tunableCreative),
-            ...Object.keys(tunableExecution),
-            ...Object.keys(tunableProduction),
-          ].filter(k => !lockKeys.includes(k));
+          const allGridKeys = [
+            ...Object.keys(tunableCreative).map(k => ({ key: k, path: "creative_state." + k, layer: "creative" })),
+            ...Object.keys(tunableExecution).map(k => ({ key: k, path: "execution_state." + k, layer: "execution" })),
+            ...Object.keys(tunableProduction).map(k => ({ key: k, path: "production_state." + k, layer: "production" })),
+          ].filter(e => !lockKeys.includes(e.path));
+          const allKeys = allGridKeys;
 
           if (allKeys.length > 0) {
             const keyIdx = i % allKeys.length;
-            const key = allKeys[keyIdx];
+            const entry = allKeys[keyIdx];
             const stepInKey = Math.floor(i / allKeys.length);
 
-            if (tunableCreative[key]) {
-              const [min, max, step] = tunableCreative[key];
+            if (entry.layer === "creative" && tunableCreative[entry.key]) {
+              const [min, max, step] = tunableCreative[entry.key];
               const totalSteps = Math.round((max - min) / step);
               const val = min + (stepInKey % (totalSteps + 1)) * step;
-              (creativeOverrides as any)[key] = Math.min(max, val);
-            } else if (tunableExecution[key]) {
-              const [min, max, step] = tunableExecution[key];
+              (creativeOverrides as any)[entry.key] = Math.min(max, val);
+            } else if (entry.layer === "execution" && tunableExecution[entry.key]) {
+              const [min, max, step] = tunableExecution[entry.key];
               const totalSteps = Math.round((max - min) / step);
               const val = min + (stepInKey % (totalSteps + 1)) * step;
-              (executionOverrides as any)[key] = Math.min(max, val);
-            } else if (tunableProduction[key]) {
-              const [min, max, step] = tunableProduction[key];
+              (executionOverrides as any)[entry.key] = Math.min(max, val);
+            } else if (entry.layer === "production" && tunableProduction[entry.key]) {
+              const [min, max, step] = tunableProduction[entry.key];
               const totalSteps = Math.round((max - min) / step);
               const val = min + (stepInKey % (totalSteps + 1)) * step;
-              (productionOverrides as any)[key] = Math.min(max, val);
+              (productionOverrides as any)[entry.key] = Math.min(max, val);
             }
           }
         }
 
-        const candidateOverrides: StateOverrides = {
+        const candidateDelta: StateOverrides = {
           ...(Object.keys(creativeOverrides).length > 0 ? { creative_state: creativeOverrides } : {}),
           ...(Object.keys(executionOverrides).length > 0 ? { execution_state: executionOverrides } : {}),
           ...(Object.keys(productionOverrides).length > 0 ? { production_state: productionOverrides } : {}),
         };
 
-        const mergedCreative: CreativeState = { ...seedCreative, ...creativeOverrides };
+        // Merge with existing scenario overrides
+        const candidateOverrides: StateOverrides = deepMerge(baseOverrides, candidateDelta);
+
+        const mergedCreative: CreativeState = { ...seedCreative, ...candidateOverrides.creative_state };
         const cascaded = runFullCascade(mergedCreative, candidateOverrides);
         const rank = computeRankScore(cascaded);
         if (!rank) continue;
