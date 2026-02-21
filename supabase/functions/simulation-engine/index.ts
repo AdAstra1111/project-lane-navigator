@@ -2164,6 +2164,23 @@ Deno.serve(async (req) => {
 
       const result = runForwardProjection(cs, months, assumptions);
 
+      // Compute deterministic summary_metrics from numeric series
+      const endPt = result.series[result.series.length - 1];
+      const startPt = result.series[0];
+      const summaryMetrics = {
+        irr: null as number | null,
+        npv: null as number | null,
+        payback_months: null as number | null,
+        schedule_months: months,
+        budget: endPt?.budget_estimate ?? null,
+        projection_risk_score: result.projection_risk_score,
+        composite_score: null as number | null,
+        start_budget: startPt?.budget_estimate ?? null,
+        end_confidence: endPt?.confidence_score ?? null,
+        end_downside: endPt?.downside_exposure ?? null,
+        end_stress: endPt?.capital_stack_stress ?? null,
+      };
+
       // Persist projection
       const { data: projection, error: insertErr } = await supabase
         .from("scenario_projections")
@@ -2176,6 +2193,7 @@ Deno.serve(async (req) => {
           series: result.series,
           projection_risk_score: result.projection_risk_score,
           summary: result.summary,
+          summary_metrics: summaryMetrics,
         })
         .select()
         .single();
@@ -2519,6 +2537,7 @@ Deno.serve(async (req) => {
         end_budget: number;
         end_downside: number;
         composite: number;
+        summary_metrics: Record<string, unknown>;
       }
 
       const results: SweepResult[] = [];
@@ -2558,6 +2577,7 @@ Deno.serve(async (req) => {
             );
 
             composites.push(composite);
+            const sweepStartPt = proj.series[0];
             results.push({
               inflation_rate: ir,
               schedule_slip_risk: sr,
@@ -2567,6 +2587,14 @@ Deno.serve(async (req) => {
               end_budget: endPt.budget_estimate,
               end_downside: endPt.downside_exposure,
               composite,
+              summary_metrics: {
+                schedule_months: months,
+                budget: endPt.budget_estimate,
+                projection_risk_score: proj.projection_risk_score,
+                end_confidence: endPt.confidence_score,
+                end_downside: endPt.downside_exposure,
+                start_budget: sweepStartPt?.budget_estimate ?? null,
+              },
             });
           }
         }
