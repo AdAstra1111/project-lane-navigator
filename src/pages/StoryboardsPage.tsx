@@ -1,5 +1,6 @@
 /**
  * StoryboardsPage — Scene strip / grid view of storyboard panels for a shot list.
+ * Enhanced with visual reference controls (character/location refs, style presets, continuity lock).
  */
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
@@ -13,14 +14,20 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Label } from '@/components/ui/label';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
   Lock, Unlock, Download, Loader2, ImagePlus, Upload,
-  ArrowLeft, LayoutGrid, List, Film, Sparkles, Camera,
+  ArrowLeft, LayoutGrid, List, Film, Sparkles, Palette,
+  ChevronDown, Link2, Shield,
 } from 'lucide-react';
 import { useShotList } from '@/hooks/useShotList';
 import { useStoryboards, type StoryboardBoard } from '@/hooks/useStoryboards';
+import { useVisualReferences, type VisualReferenceSet } from '@/hooks/useVisualReferences';
 import { toast } from 'sonner';
 import jsPDF from 'jspdf';
 
@@ -40,6 +47,7 @@ export default function StoryboardsPage() {
 
   const { items: shotItems, itemsLoading } = useShotList(projectId, shotListId);
   const { boards, isLoading, autoCreate, updateBoard, uploadImage, toggleLock, getImageUrl } = useStoryboards(projectId, shotListId);
+  const { characters, locations, styles, defaultStyle } = useVisualReferences(projectId);
 
   // Auto-create boards when shot items arrive
   const didAutoCreate = useRef(false);
@@ -80,7 +88,6 @@ export default function StoryboardsPage() {
     const doc = new jsPDF({ orientation: 'landscape' });
     const date = new Date().toISOString().slice(0, 10);
 
-    // Cover page
     doc.setFontSize(24);
     doc.text(project?.title || 'Project', 148, 80, { align: 'center' });
     doc.setFontSize(14);
@@ -89,7 +96,6 @@ export default function StoryboardsPage() {
     doc.text(date, 148, 108, { align: 'center' });
     doc.text(`${boards.length} panels · ${scenes.length} scenes`, 148, 116, { align: 'center' });
 
-    // Group by scene
     const grouped = new Map<string, StoryboardBoard[]>();
     for (const b of boards) {
       const arr = grouped.get(b.scene_number) || [];
@@ -111,43 +117,32 @@ export default function StoryboardsPage() {
 
       for (const panel of scenePanels) {
         const x = 14 + col * (panelW + 10);
-
-        // Panel box
         doc.setDrawColor(180);
         doc.rect(x, y, panelW, panelH);
-
-        // Image placeholder area
         const imgW = 50;
         doc.setFillColor(240, 240, 240);
         doc.rect(x + 1, y + 1, imgW, panelH - 2, 'F');
-
+        doc.setFontSize(7);
         if (panel.image_asset_path) {
-          doc.setFontSize(7);
           doc.text('[Image]', x + imgW / 2, y + panelH / 2, { align: 'center' });
         } else {
-          doc.setFontSize(7);
           doc.setTextColor(160);
           doc.text('No image', x + imgW / 2, y + panelH / 2, { align: 'center' });
           doc.setTextColor(0);
         }
-
-        // Text area
         const textX = x + imgW + 4;
         doc.setFontSize(8);
         doc.setFont('helvetica', 'bold');
         doc.text(`Shot ${panel.shot_number}`, textX, y + 6);
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(7);
-
         const lines = doc.splitTextToSize(panel.panel_text || '', panelW - imgW - 8);
         doc.text(lines.slice(0, 5), textX, y + 12);
-
         if (panel.camera_notes) {
           doc.setTextColor(100);
           doc.text(`Cam: ${panel.camera_notes}`.slice(0, 60), textX, y + panelH - 6);
           doc.setTextColor(0);
         }
-
         col++;
         if (col >= 2) {
           col = 0;
@@ -191,6 +186,11 @@ export default function StoryboardsPage() {
               )}
             </div>
             <div className="flex items-center gap-2">
+              <Link to={`/projects/${projectId}/visual-references`}>
+                <Button variant="outline" size="sm" className="text-xs gap-1">
+                  <Palette className="h-3 w-3" />References
+                </Button>
+              </Link>
               <Tabs value={viewMode} onValueChange={v => setViewMode(v as any)}>
                 <TabsList className="h-7">
                   <TabsTrigger value="strip" className="text-xs h-6 px-2 gap-1">
@@ -264,6 +264,10 @@ export default function StoryboardsPage() {
                       <StoryboardPanel
                         key={board.id}
                         board={board}
+                        characters={characters}
+                        locations={locations}
+                        styles={styles}
+                        defaultStyle={defaultStyle}
                         onUpdate={(updates) => updateBoard.mutate({ boardId: board.id, updates })}
                         onUpload={(file) => uploadImage.mutate({ boardId: board.id, file })}
                         onToggleLock={() => toggleLock.mutate({ boardIds: [board.id], locked: !board.locked })}
@@ -293,11 +297,15 @@ export default function StoryboardsPage() {
   );
 }
 
-// ── Strip Panel ──
+// ── Strip Panel (with ref controls) ──
 function StoryboardPanel({
-  board, onUpdate, onUpload, onToggleLock, getImageUrl,
+  board, characters, locations, styles, defaultStyle, onUpdate, onUpload, onToggleLock, getImageUrl,
 }: {
   board: StoryboardBoard;
+  characters: VisualReferenceSet[];
+  locations: VisualReferenceSet[];
+  styles: VisualReferenceSet[];
+  defaultStyle: VisualReferenceSet | null;
   onUpdate: (updates: Partial<StoryboardBoard>) => void;
   onUpload: (file: File) => void;
   onToggleLock: () => void;
@@ -305,6 +313,7 @@ function StoryboardPanel({
 }) {
   const [imgUrl, setImgUrl] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const [refsOpen, setRefsOpen] = useState(false);
 
   useEffect(() => {
     if (board.image_asset_path) {
@@ -319,6 +328,25 @@ function StoryboardPanel({
   };
 
   const isVertical = board.aspect_ratio === '9:16';
+  const selectedCharRefs = (board.character_refs || []) as string[];
+  const selectedLocRefs = (board.location_refs || []) as string[];
+  const selectedStyleId = board.style_preset_id || defaultStyle?.id || '';
+
+  const toggleCharRef = (id: string) => {
+    if (board.continuity_lock) return;
+    const next = selectedCharRefs.includes(id)
+      ? selectedCharRefs.filter(r => r !== id)
+      : [...selectedCharRefs, id];
+    onUpdate({ character_refs: next });
+  };
+
+  const toggleLocRef = (id: string) => {
+    if (board.continuity_lock) return;
+    const next = selectedLocRefs.includes(id)
+      ? selectedLocRefs.filter(r => r !== id)
+      : [...selectedLocRefs, id];
+    onUpdate({ location_refs: next });
+  };
 
   return (
     <Card className={`${board.locked ? 'border-[hsl(var(--chart-4)/0.3)]' : ''}`}>
@@ -351,6 +379,11 @@ function StoryboardPanel({
                     <Lock className="h-2 w-2" />Locked
                   </Badge>
                 )}
+                {board.continuity_lock && (
+                  <Badge variant="outline" className="text-[8px] gap-0.5 border-primary/30 text-primary">
+                    <Shield className="h-2 w-2" />Continuity
+                  </Badge>
+                )}
               </div>
               <div className="flex items-center gap-1">
                 <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFile} />
@@ -370,6 +403,14 @@ function StoryboardPanel({
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent className="text-xs">AI generation coming soon</TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => onUpdate({ continuity_lock: !board.continuity_lock })}>
+                        <Shield className={`h-3 w-3 ${board.continuity_lock ? 'text-primary' : ''}`} />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent className="text-xs">{board.continuity_lock ? 'Unlock continuity' : 'Lock continuity refs'}</TooltipContent>
                   </Tooltip>
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -410,6 +451,111 @@ function StoryboardPanel({
                 className="h-6 text-[10px]"
               />
             </div>
+
+            {/* Visual References controls */}
+            <Collapsible open={refsOpen} onOpenChange={setRefsOpen}>
+              <CollapsibleTrigger className="flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors">
+                <ChevronDown className={`h-2.5 w-2.5 transition-transform ${refsOpen ? '' : '-rotate-90'}`} />
+                <Link2 className="h-2.5 w-2.5" />
+                Visual References
+                {selectedCharRefs.length + selectedLocRefs.length > 0 && (
+                  <Badge variant="outline" className="text-[7px] px-1 h-3">{selectedCharRefs.length + selectedLocRefs.length}</Badge>
+                )}
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <div className="mt-2 space-y-2 bg-muted/20 rounded-md p-2">
+                  {/* Style preset */}
+                  <div className="flex items-center gap-2">
+                    <Label className="text-[9px] text-muted-foreground w-12 shrink-0">Style</Label>
+                    <Select
+                      value={selectedStyleId}
+                      onValueChange={v => onUpdate({ style_preset_id: v || null })}
+                    >
+                      <SelectTrigger className="h-6 text-[10px] flex-1">
+                        <SelectValue placeholder="Default" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="" className="text-xs">None</SelectItem>
+                        {styles.map(s => (
+                          <SelectItem key={s.id} value={s.id} className="text-xs">
+                            {s.name}{s.is_default ? ' ★' : ''}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Character refs */}
+                  {characters.length > 0 && (
+                    <div className="flex items-start gap-2">
+                      <Label className="text-[9px] text-muted-foreground w-12 shrink-0 pt-0.5">Chars</Label>
+                      <div className="flex flex-wrap gap-1.5">
+                        {characters.map(c => {
+                          const sel = selectedCharRefs.includes(c.id);
+                          return (
+                            <button
+                              key={c.id}
+                              onClick={() => toggleCharRef(c.id)}
+                              disabled={board.continuity_lock}
+                              className={`text-[9px] px-1.5 py-0.5 rounded-full border transition-colors ${
+                                sel
+                                  ? 'bg-primary/15 border-primary/30 text-primary'
+                                  : 'border-border/50 text-muted-foreground hover:border-border'
+                              } ${board.continuity_lock ? 'opacity-60 cursor-not-allowed' : ''}`}
+                            >
+                              {c.name}{c.locked ? ' 🔒' : ''}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Location refs */}
+                  {locations.length > 0 && (
+                    <div className="flex items-start gap-2">
+                      <Label className="text-[9px] text-muted-foreground w-12 shrink-0 pt-0.5">Locs</Label>
+                      <div className="flex flex-wrap gap-1.5">
+                        {locations.map(l => {
+                          const sel = selectedLocRefs.includes(l.id);
+                          return (
+                            <button
+                              key={l.id}
+                              onClick={() => toggleLocRef(l.id)}
+                              disabled={board.continuity_lock}
+                              className={`text-[9px] px-1.5 py-0.5 rounded-full border transition-colors ${
+                                sel
+                                  ? 'bg-primary/15 border-primary/30 text-primary'
+                                  : 'border-border/50 text-muted-foreground hover:border-border'
+                              } ${board.continuity_lock ? 'opacity-60 cursor-not-allowed' : ''}`}
+                            >
+                              {l.name}{l.locked ? ' 🔒' : ''}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Seeds (advanced) */}
+                  <div className="flex items-center gap-2">
+                    <Label className="text-[9px] text-muted-foreground w-12 shrink-0">Seeds</Label>
+                    <Input
+                      value={board.scene_seed || ''}
+                      onChange={e => onUpdate({ scene_seed: e.target.value || null })}
+                      placeholder="Scene seed…"
+                      className="h-5 text-[9px] flex-1"
+                    />
+                    <Input
+                      value={board.board_seed || ''}
+                      onChange={e => onUpdate({ board_seed: e.target.value || null })}
+                      placeholder="Board seed…"
+                      className="h-5 text-[9px] flex-1"
+                    />
+                  </div>
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
           </div>
         </div>
       </CardContent>
@@ -463,7 +609,10 @@ function StoryboardGridCard({
       </div>
       <CardContent className="p-2">
         <div className="flex items-center justify-between">
-          <Badge variant="outline" className="text-[8px]">SC {board.scene_number} / {board.shot_number}</Badge>
+          <div className="flex items-center gap-1">
+            <Badge variant="outline" className="text-[8px]">SC {board.scene_number} / {board.shot_number}</Badge>
+            {board.continuity_lock && <Shield className="h-2 w-2 text-primary" />}
+          </div>
           <button onClick={onToggleLock} className="text-muted-foreground hover:text-foreground">
             {board.locked ? <Lock className="h-2.5 w-2.5 text-[hsl(var(--chart-4))]" /> : <Unlock className="h-2.5 w-2.5" />}
           </button>

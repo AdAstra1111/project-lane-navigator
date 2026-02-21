@@ -11232,58 +11232,76 @@ export type Database = {
         Row: {
           action_notes: string | null
           aspect_ratio: string
+          board_seed: string | null
           camera_notes: string | null
+          character_refs: Json | null
           composition_notes: string | null
+          continuity_lock: boolean
           created_at: string
           framing_notes: string | null
           id: string
           image_asset_path: string | null
           image_source: string | null
+          location_refs: Json | null
           locked: boolean
           panel_text: string
           project_id: string
           scene_number: string
+          scene_seed: string | null
           shot_list_id: string
           shot_list_item_id: string
           shot_number: number
+          style_preset_id: string | null
           updated_at: string
         }
         Insert: {
           action_notes?: string | null
           aspect_ratio?: string
+          board_seed?: string | null
           camera_notes?: string | null
+          character_refs?: Json | null
           composition_notes?: string | null
+          continuity_lock?: boolean
           created_at?: string
           framing_notes?: string | null
           id?: string
           image_asset_path?: string | null
           image_source?: string | null
+          location_refs?: Json | null
           locked?: boolean
           panel_text?: string
           project_id: string
           scene_number?: string
+          scene_seed?: string | null
           shot_list_id: string
           shot_list_item_id: string
           shot_number?: number
+          style_preset_id?: string | null
           updated_at?: string
         }
         Update: {
           action_notes?: string | null
           aspect_ratio?: string
+          board_seed?: string | null
           camera_notes?: string | null
+          character_refs?: Json | null
           composition_notes?: string | null
+          continuity_lock?: boolean
           created_at?: string
           framing_notes?: string | null
           id?: string
           image_asset_path?: string | null
           image_source?: string | null
+          location_refs?: Json | null
           locked?: boolean
           panel_text?: string
           project_id?: string
           scene_number?: string
+          scene_seed?: string | null
           shot_list_id?: string
           shot_list_item_id?: string
           shot_number?: number
+          style_preset_id?: string | null
           updated_at?: string
         }
         Relationships: [
@@ -11968,6 +11986,107 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "vfx_shots_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      visual_reference_assets: {
+        Row: {
+          created_at: string
+          created_by: string
+          height: number | null
+          id: string
+          mime_type: string
+          project_id: string
+          reference_set_id: string
+          storage_path: string
+          width: number | null
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          height?: number | null
+          id?: string
+          mime_type?: string
+          project_id: string
+          reference_set_id: string
+          storage_path?: string
+          width?: number | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          height?: number | null
+          id?: string
+          mime_type?: string
+          project_id?: string
+          reference_set_id?: string
+          storage_path?: string
+          width?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "visual_reference_assets_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "visual_reference_assets_reference_set_id_fkey"
+            columns: ["reference_set_id"]
+            isOneToOne: false
+            referencedRelation: "visual_reference_sets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      visual_reference_sets: {
+        Row: {
+          created_at: string
+          created_by: string
+          data: Json | null
+          description: string | null
+          id: string
+          is_default: boolean
+          locked: boolean
+          name: string
+          project_id: string
+          ref_type: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          data?: Json | null
+          description?: string | null
+          id?: string
+          is_default?: boolean
+          locked?: boolean
+          name?: string
+          project_id: string
+          ref_type?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          data?: Json | null
+          description?: string | null
+          id?: string
+          is_default?: boolean
+          locked?: boolean
+          name?: string
+          project_id?: string
+          ref_type?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "visual_reference_sets_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"
