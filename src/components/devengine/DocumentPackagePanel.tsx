@@ -13,7 +13,7 @@ import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { PackageBar } from '@/components/devengine/PackageBar';
 import { DownloadPackageButton } from '@/components/devengine/DownloadPackageButton';
 import { ShareWithModal } from '@/components/devengine/ShareWithModal';
-import { ALL_DOC_TYPE_LABELS } from '@/lib/can-promote-to-script';
+import { ALL_DOC_TYPE_LABELS, getCanonicalFilename } from '@/lib/can-promote-to-script';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
@@ -31,8 +31,9 @@ function getLabel(docType: string): string {
 }
 
 /** Individual package item row with download + approved date */
-function PackageItemRow({ label, isApproved, createdAt, versionId }: {
+function PackageItemRow({ label, isApproved, createdAt, versionId, projectTitle, docType }: {
   label: string; isApproved: boolean; createdAt: string; versionId: string;
+  projectTitle?: string; docType?: string;
 }) {
   const [downloading, setDownloading] = useState(false);
 
@@ -53,7 +54,12 @@ function PackageItemRow({ label, isApproved, createdAt, versionId }: {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${label.replace(/[^a-zA-Z0-9\s-]/g, '').trim().replace(/\s+/g, '_')}.md`;
+      a.download = getCanonicalFilename({
+        projectTitle,
+        docType,
+        versionTag: `v${versionId.slice(0, 8)}`,
+        date: new Date().toISOString().slice(0, 10),
+      });
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 3000);
     } catch {
@@ -228,6 +234,8 @@ export function DocumentPackagePanel({ projectId }: Props) {
                 isApproved={doc.is_approved}
                 createdAt={doc.created_at}
                 versionId={doc.version_id}
+                projectTitle={projectTitle}
+                docType={doc.deliverable_type}
               />
             ))}
 
@@ -239,6 +247,8 @@ export function DocumentPackagePanel({ projectId }: Props) {
                 isApproved={ss.is_approved}
                 createdAt={ss.created_at}
                 versionId={ss.version_id}
+                projectTitle={projectTitle}
+                docType="season_master_script"
               />
             ))}
           </div>
