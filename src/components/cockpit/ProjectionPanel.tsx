@@ -17,19 +17,21 @@ const DEFAULT_ASSUMPTIONS: ProjectionAssumptions = {
 
 function loadAssumptions(projectId: string): ProjectionAssumptions {
   try {
-    const raw = localStorage.getItem(`iffy:lastProjectionAssumptions:${projectId}`);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      return { ...DEFAULT_ASSUMPTIONS, ...parsed };
-    }
-  } catch { /* ignore */ }
-  return { ...DEFAULT_ASSUMPTIONS };
+    const raw = localStorage.getItem(`iffy:assumptions:${projectId}`);
+    if (!raw) return DEFAULT_ASSUMPTIONS;
+    const parsed = JSON.parse(raw);
+    return {
+      inflation_rate: Number(parsed.inflation_rate ?? DEFAULT_ASSUMPTIONS.inflation_rate),
+      schedule_slip_risk: Number(parsed.schedule_slip_risk ?? DEFAULT_ASSUMPTIONS.schedule_slip_risk),
+      platform_appetite_decay: Number(parsed.platform_appetite_decay ?? DEFAULT_ASSUMPTIONS.platform_appetite_decay),
+    };
+  } catch {
+    return DEFAULT_ASSUMPTIONS;
+  }
 }
 
 function saveAssumptions(projectId: string, a: ProjectionAssumptions) {
-  try {
-    localStorage.setItem(`iffy:lastProjectionAssumptions:${projectId}`, JSON.stringify(a));
-  } catch { /* ignore */ }
+  localStorage.setItem(`iffy:assumptions:${projectId}`, JSON.stringify(a));
 }
 
 interface Props {
@@ -61,7 +63,7 @@ export function ProjectionPanel({
   const getCurrentAssumptions = useCallback((): ProjectionAssumptions => {
     const parse = (s: string, fallback: number) => {
       const n = parseFloat(s);
-      return isNaN(n) ? fallback : n;
+      return Number.isFinite(n) ? n : fallback;
     };
     return {
       inflation_rate: parse(inflStr, DEFAULT_ASSUMPTIONS.inflation_rate),
