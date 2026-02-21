@@ -1,18 +1,48 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ScenarioProjectionChart } from './ScenarioProjectionChart';
 import { Calendar } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import type { ProjectScenario, ScenarioProjection } from '@/hooks/useStateGraph';
+
+interface Assumptions {
+  inflation_rate: number;
+  schedule_slip_risk: number;
+  platform_appetite_decay: number;
+}
+
+const DEFAULT_ASSUMPTIONS: Assumptions = {
+  inflation_rate: 0.03,
+  schedule_slip_risk: 0.15,
+  platform_appetite_decay: 0.05,
+};
+
+function loadAssumptions(projectId: string): Assumptions {
+  try {
+    const raw = localStorage.getItem(`iffy:lastProjectionAssumptions:${projectId}`);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return { ...DEFAULT_ASSUMPTIONS, ...parsed };
+    }
+  } catch { /* ignore */ }
+  return { ...DEFAULT_ASSUMPTIONS };
+}
+
+function saveAssumptions(projectId: string, a: Assumptions) {
+  try {
+    localStorage.setItem(`iffy:lastProjectionAssumptions:${projectId}`, JSON.stringify(a));
+  } catch { /* ignore */ }
+}
 
 interface Props {
   scenarios: ProjectScenario[];
   activeScenarioId: string | null;
   projectId: string;
-  onRunProjection: (params: { scenarioId?: string; months?: number }) => void;
+  onRunProjection: (params: { scenarioId?: string; months?: number; assumptions?: Assumptions }) => void;
   isProjecting: boolean;
 }
 
@@ -21,6 +51,21 @@ export function ProjectionPanel({
 }: Props) {
   const [targetId, setTargetId] = useState<string>(activeScenarioId || '');
   const [months, setMonths] = useState<string>('12');
+  const [assumptions, setAssumptions] = useState<Assumptions>(() => loadAssumptions(projectId));
+
+  useEffect(() => {
+    setAssumptions(loadAssumptions(projectId));
+  }, [projectId]);
+
+  const updateAssumption = useCallback((key: keyof Assumptions, value: string) => {
+    const num = parseFloat(value);
+    if (isNaN(num)) return;
+    setAssumptions(prev => {
+      const next = { ...prev, [key]: num };
+      saveAssumptions(projectId, next);
+      return next;
+    });
+  }, [projectId]);
 
   const nonBaseline = scenarios.filter(s => s.scenario_type !== 'baseline' && !s.is_archived);
 
@@ -51,13 +96,13 @@ export function ProjectionPanel({
           </CardTitle>
           <Button
             size="sm"
-            onClick={() => onRunProjection({ scenarioId: targetId || undefined, months: parseInt(months) })}
+            onClick={() => onRunProjection({ scenarioId: targetId || undefined, months: parseInt(months), assumptions })}
             disabled={isProjecting || !targetId}
           >
             {isProjecting ? 'Projecting…' : `Run ${months}-month Projection`}
           </Button>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
           <div className="flex gap-3">
             <div className="space-y-1 flex-1">
               <label className="text-xs text-muted-foreground">Scenario</label>
@@ -79,6 +124,45 @@ export function ProjectionPanel({
                   <SelectItem value="12">12 months</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-3">
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">Inflation Rate</label>
+              <Input
+                type="number"
+                step="0.01"
+                min="0"
+                max="0.2"
+                value={assumptions.inflation_rate}
+                onChange={e => updateAssumption('inflation_rate', e.target.value)}
+                className="h-8 text-xs font-mono"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">Schedule Slip Risk</label>
+              <Input
+                type="number"
+                step="0.05"
+                min="0"
+                max="1"
+                value={assumptions.schedule_slip_risk}
+                onChange={e => updateAssumption('schedule_slip_risk', e.target.value)}
+                className="h-8 text-xs font-mono"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">Appetite Decay</label>
+              <Input
+                type="number"
+                step="0.01"
+                min="0"
+                max="0.3"
+                value={assumptions.platform_appetite_decay}
+                onChange={e => updateAssumption('platform_appetite_decay', e.target.value)}
+                className="h-8 text-xs font-mono"
+              />
             </div>
           </div>
         </CardContent>

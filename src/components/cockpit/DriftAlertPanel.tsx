@@ -2,11 +2,13 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import type { DriftAlert } from '@/hooks/useStateGraph';
-import { AlertTriangle, Check } from 'lucide-react';
+import { AlertTriangle, Check, Trash2 } from 'lucide-react';
 
 interface Props {
   alerts: DriftAlert[];
   onAcknowledge: (alertId: string) => void;
+  onClearAll?: () => void;
+  isClearingAll?: boolean;
 }
 
 const severityColors: Record<string, string> = {
@@ -15,13 +17,27 @@ const severityColors: Record<string, string> = {
   critical: 'bg-rose-500/10 text-rose-400 border-rose-500/30',
 };
 
-export function DriftAlertPanel({ alerts, onAcknowledge }: Props) {
+export function DriftAlertPanel({ alerts, onAcknowledge, onClearAll, isClearingAll }: Props) {
+  if (alerts.length === 0) return null;
+
   return (
     <Card className="border-amber-500/30 bg-amber-500/5">
-      <CardHeader className="pb-2">
+      <CardHeader className="pb-2 flex flex-row items-center justify-between">
         <CardTitle className="text-sm flex items-center gap-2 text-amber-400">
           <AlertTriangle className="h-4 w-4" /> Drift Alerts ({alerts.length})
         </CardTitle>
+        {onClearAll && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 text-xs text-muted-foreground hover:text-destructive"
+            onClick={onClearAll}
+            disabled={isClearingAll}
+          >
+            <Trash2 className="h-3 w-3 mr-1" />
+            {isClearingAll ? 'Clearing…' : 'Clear All'}
+          </Button>
+        )}
       </CardHeader>
       <CardContent className="space-y-2">
         {alerts.map(a => (
