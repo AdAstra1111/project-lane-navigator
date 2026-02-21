@@ -1,13 +1,13 @@
 /**
  * DocumentPackagePanel — Project Package UI.
  * Single source of truth: useProjectPackage resolver.
- * "Season Package" renamed to "Project Package".
  */
 import { useState } from 'react';
-import { CheckCircle, Clock, AlertCircle, ChevronRight, Share2, Package } from 'lucide-react';
+import { CheckCircle, Clock, AlertCircle, ChevronRight, Share2, Package, Download, FileX } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useProjectPackage } from '@/hooks/useProjectPackage';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { PackageBar } from '@/components/devengine/PackageBar';
@@ -27,6 +27,77 @@ function getLabel(docType: string): string {
   return (
     ALL_DOC_TYPE_LABELS[docType] ??
     docType.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+  );
+}
+
+/** Individual package item row with download + approved date */
+function PackageItemRow({ label, isApproved, createdAt, versionId }: {
+  label: string; isApproved: boolean; createdAt: string; versionId: string;
+}) {
+  const [downloading, setDownloading] = useState(false);
+
+  const handleDownload = async () => {
+    setDownloading(true);
+    try {
+      const { data: ver } = await (supabase as any)
+        .from('project_document_versions')
+        .select('plaintext')
+        .eq('id', versionId)
+        .single();
+      const text = ver?.plaintext;
+      if (!text) {
+        toast.error('File content not available for download');
+        return;
+      }
+      const blob = new Blob([text], { type: 'text/markdown' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${label.replace(/[^a-zA-Z0-9\s-]/g, '').trim().replace(/\s+/g, '_')}.md`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 3000);
+    } catch {
+      toast.error('Download failed');
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-2 py-1 px-1.5 rounded hover:bg-muted/50 text-xs group">
+      {isApproved ? (
+        <CheckCircle className="h-3.5 w-3.5 text-[hsl(var(--chart-2))] shrink-0" />
+      ) : (
+        <Clock className="h-3.5 w-3.5 text-[hsl(var(--chart-4))] shrink-0" />
+      )}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="flex-1 text-foreground truncate">{label}</span>
+        </TooltipTrigger>
+        <TooltipContent side="top" className="text-xs">
+          <p>{label}</p>
+          {createdAt && <p className="text-muted-foreground text-[10px]">{new Date(createdAt).toLocaleDateString()}</p>}
+        </TooltipContent>
+      </Tooltip>
+      <Badge
+        variant="outline"
+        className={
+          isApproved
+            ? 'text-[9px] border-[hsl(var(--chart-2)/0.4)] text-[hsl(var(--chart-2))] bg-[hsl(var(--chart-2)/0.08)]'
+            : 'text-[9px] border-[hsl(var(--chart-4)/0.4)] text-[hsl(var(--chart-4))] bg-[hsl(var(--chart-4)/0.08)]'
+        }
+      >
+        {isApproved ? 'Approved' : 'Latest'}
+      </Badge>
+      <button
+        onClick={handleDownload}
+        disabled={downloading}
+        className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded text-muted-foreground hover:text-foreground"
+        aria-label={`Download ${label}`}
+      >
+        <Download className="h-3 w-3" />
+      </button>
+    </div>
   );
 }
 
@@ -109,6 +180,7 @@ export function DocumentPackagePanel({ projectId }: Props) {
   const canProgress = totalRequired > 0 && deliverables.every(d => d.is_approved);
 
   return (
+    <TooltipProvider delayDuration={200}>
     <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
@@ -150,54 +222,24 @@ export function DocumentPackagePanel({ projectId }: Props) {
           </p>
           <div className="space-y-0.5">
             {deliverables.map(doc => (
-              <div
+              <PackageItemRow
                 key={doc.deliverable_type}
-                className="flex items-center gap-2 py-1 px-1.5 rounded hover:bg-muted/50 text-xs"
-              >
-                {doc.is_approved ? (
-                  <CheckCircle className="h-3.5 w-3.5 text-[hsl(var(--chart-2))] shrink-0" />
-                ) : (
-                  <Clock className="h-3.5 w-3.5 text-[hsl(var(--chart-4))] shrink-0" />
-                )}
-                <span className="flex-1 text-foreground">{doc.label}</span>
-                <Badge
-                  variant="outline"
-                  className={
-                    doc.is_approved
-                      ? 'text-[9px] border-[hsl(var(--chart-2)/0.4)] text-[hsl(var(--chart-2))] bg-[hsl(var(--chart-2)/0.08)]'
-                      : 'text-[9px] border-[hsl(var(--chart-4)/0.4)] text-[hsl(var(--chart-4))] bg-[hsl(var(--chart-4)/0.08)]'
-                  }
-                >
-                  {doc.is_approved ? 'Approved' : 'Latest'}
-                </Badge>
-              </div>
+                label={doc.label}
+                isApproved={doc.is_approved}
+                createdAt={doc.created_at}
+                versionId={doc.version_id}
+              />
             ))}
 
             {/* Season scripts */}
             {season_scripts.map(ss => (
-              <div
+              <PackageItemRow
                 key={ss.document_id}
-                className="flex items-center gap-2 py-1 px-1.5 rounded hover:bg-muted/50 text-xs"
-              >
-                {ss.is_approved ? (
-                  <CheckCircle className="h-3.5 w-3.5 text-[hsl(var(--chart-2))] shrink-0" />
-                ) : (
-                  <Clock className="h-3.5 w-3.5 text-[hsl(var(--chart-4))] shrink-0" />
-                )}
-                <span className="flex-1 text-foreground">
-                  {ss.season_number ? `Master Script — Season ${ss.season_number}` : 'Master Season Script'}
-                </span>
-                <Badge
-                  variant="outline"
-                  className={
-                    ss.is_approved
-                      ? 'text-[9px] border-[hsl(var(--chart-2)/0.4)] text-[hsl(var(--chart-2))] bg-[hsl(var(--chart-2)/0.08)]'
-                      : 'text-[9px] border-[hsl(var(--chart-4)/0.4)] text-[hsl(var(--chart-4))] bg-[hsl(var(--chart-4)/0.08)]'
-                  }
-                >
-                  {ss.is_approved ? 'Approved' : 'Latest'}
-                </Badge>
-              </div>
+                label={ss.season_number ? `Master Script — Season ${ss.season_number}` : 'Master Season Script'}
+                isApproved={ss.is_approved}
+                createdAt={ss.created_at}
+                versionId={ss.version_id}
+              />
             ))}
           </div>
         </div>
@@ -266,5 +308,6 @@ export function DocumentPackagePanel({ projectId }: Props) {
         />
       )}
     </div>
+    </TooltipProvider>
   );
 }
