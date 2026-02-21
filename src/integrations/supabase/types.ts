@@ -8196,6 +8196,7 @@ export type Database = {
           is_archived: boolean
           name: string
           override_log: Json
+          pinned: boolean
           project_id: string
           scenario_type: string
           state_overrides: Json
@@ -8213,6 +8214,7 @@ export type Database = {
           is_archived?: boolean
           name?: string
           override_log?: Json
+          pinned?: boolean
           project_id: string
           scenario_type?: string
           state_overrides?: Json
@@ -8230,6 +8232,7 @@ export type Database = {
           is_archived?: boolean
           name?: string
           override_log?: Json
+          pinned?: boolean
           project_id?: string
           scenario_type?: string
           state_overrides?: Json

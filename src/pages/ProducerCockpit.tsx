@@ -7,11 +7,17 @@ import { CascadeSimulator } from '@/components/cockpit/CascadeSimulator';
 import { ArrowLeft, Gauge } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
+/**
+ * Producer Cockpit — the primary role-filtered intelligence dashboard.
+ * Drift alerts are producer-only and must remain role-filtered in later phases.
+ * No other role should see drift alerts until role-based access is implemented.
+ */
 export default function ProducerCockpit() {
   const { id: projectId } = useParams<{ id: string }>();
   const {
     stateGraph, scenarios, alerts, isLoading,
-    initialize, cascade, createScenario, generateSystemScenarios, acknowledgeAlert, baseline,
+    initialize, cascade, createScenario, generateSystemScenarios,
+    acknowledgeAlert, togglePin, archiveScenario, baseline,
   } = useStateGraph(projectId);
 
   if (!projectId) return null;
@@ -27,7 +33,6 @@ export default function ProducerCockpit() {
       </header>
 
       <main className="max-w-7xl mx-auto p-6 space-y-6">
-        {/* Initialize if no state graph */}
         {!isLoading && !stateGraph && (
           <div className="border border-dashed border-border rounded-lg p-8 text-center space-y-4">
             <h2 className="text-xl font-medium">Initialize Project State Graph</h2>
@@ -43,27 +48,26 @@ export default function ProducerCockpit() {
 
         {stateGraph && (
           <>
-            {/* Drift Alerts */}
+            {/* Drift Alerts — producer-only, must be role-filtered in later phases */}
             {alerts.length > 0 && (
               <DriftAlertPanel alerts={alerts} onAcknowledge={(id) => acknowledgeAlert.mutate(id)} />
             )}
 
-            {/* State Graph Overview */}
             <StateGraphOverview stateGraph={stateGraph} />
 
-            {/* Cascade Simulator */}
             <CascadeSimulator
               stateGraph={stateGraph}
               onCascade={(overrides, scenarioId) => cascade.mutate({ overrides, scenarioId })}
               isPending={cascade.isPending}
             />
 
-            {/* Scenarios */}
             <ScenarioPanel
               scenarios={scenarios}
               baseline={baseline}
               onGenerateSystem={() => generateSystemScenarios.mutate()}
               onCreateCustom={(name, desc, overrides) => createScenario.mutate({ name, description: desc, overrides })}
+              onTogglePin={(id) => togglePin.mutate(id)}
+              onArchive={(id) => archiveScenario.mutate(id)}
               isGenerating={generateSystemScenarios.isPending}
               isCreating={createScenario.isPending}
             />
