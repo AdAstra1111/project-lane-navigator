@@ -8638,6 +8638,138 @@ export type Database = {
           },
         ]
       }
+      project_share_pack_events: {
+        Row: {
+          created_at: string
+          event_type: string
+          id: string
+          link_id: string
+          metadata: Json | null
+        }
+        Insert: {
+          created_at?: string
+          event_type?: string
+          id?: string
+          link_id: string
+          metadata?: Json | null
+        }
+        Update: {
+          created_at?: string
+          event_type?: string
+          id?: string
+          link_id?: string
+          metadata?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_share_pack_events_link_id_fkey"
+            columns: ["link_id"]
+            isOneToOne: false
+            referencedRelation: "project_share_pack_links"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_share_pack_links: {
+        Row: {
+          created_at: string
+          created_by: string
+          download_count: number
+          expires_at: string | null
+          id: string
+          is_revoked: boolean
+          max_downloads: number | null
+          password_hash: string | null
+          share_pack_id: string
+          token: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          download_count?: number
+          expires_at?: string | null
+          id?: string
+          is_revoked?: boolean
+          max_downloads?: number | null
+          password_hash?: string | null
+          share_pack_id: string
+          token?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          download_count?: number
+          expires_at?: string | null
+          id?: string
+          is_revoked?: boolean
+          max_downloads?: number | null
+          password_hash?: string | null
+          share_pack_id?: string
+          token?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_share_pack_links_share_pack_id_fkey"
+            columns: ["share_pack_id"]
+            isOneToOne: false
+            referencedRelation: "project_share_packs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_share_packs: {
+        Row: {
+          created_at: string
+          created_by: string
+          id: string
+          include_contents: boolean
+          include_cover: boolean
+          name: string
+          pack_type: string
+          project_id: string
+          selection: Json
+          updated_at: string
+          watermark_enabled: boolean
+          watermark_text: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          id?: string
+          include_contents?: boolean
+          include_cover?: boolean
+          name?: string
+          pack_type?: string
+          project_id: string
+          selection?: Json
+          updated_at?: string
+          watermark_enabled?: boolean
+          watermark_text?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          id?: string
+          include_contents?: boolean
+          include_cover?: boolean
+          name?: string
+          pack_type?: string
+          project_id?: string
+          selection?: Json
+          updated_at?: string
+          watermark_enabled?: boolean
+          watermark_text?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_share_packs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       project_shares: {
         Row: {
           created_at: string

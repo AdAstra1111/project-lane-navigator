@@ -3,7 +3,7 @@
  * Single source of truth: useProjectPackage resolver.
  */
 import { useState } from 'react';
-import { CheckCircle, Clock, AlertCircle, AlertTriangle, ChevronRight, Share2, Package, Download, FileX } from 'lucide-react';
+import { CheckCircle, Clock, AlertCircle, AlertTriangle, ChevronRight, Share2, Package, Download, FileX, Briefcase } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
@@ -13,6 +13,7 @@ import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { PackageBar } from '@/components/devengine/PackageBar';
 import { DownloadPackageButton } from '@/components/devengine/DownloadPackageButton';
 import { ShareWithModal } from '@/components/devengine/ShareWithModal';
+import { SharePackBuilder } from '@/components/devengine/SharePackBuilder';
 import { ALL_DOC_TYPE_LABELS, getCanonicalFilename } from '@/lib/can-promote-to-script';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
@@ -109,6 +110,7 @@ function PackageItemRow({ label, isApproved, createdAt, versionId, projectTitle,
 
 export function DocumentPackagePanel({ projectId }: Props) {
   const [shareOpen, setShareOpen] = useState(false);
+  const [sharePackOpen, setSharePackOpen] = useState(false);
   const qc = useQueryClient();
 
   const { pkg, isLoading } = useProjectPackage(projectId);
@@ -291,6 +293,17 @@ export function DocumentPackagePanel({ projectId }: Props) {
           Share Package
         </Button>
 
+        {/* Investor/Buyer Pack */}
+        <Button
+          variant="outline"
+          size="sm"
+          className="text-xs gap-1"
+          onClick={() => setSharePackOpen(true)}
+        >
+          <Briefcase className="h-3 w-3" />
+          Investor/Buyer Pack
+        </Button>
+
         {/* Finalize & Progress */}
         <ConfirmDialog
           title="Finalize & Progress"
@@ -322,6 +335,15 @@ export function DocumentPackagePanel({ projectId }: Props) {
           projectId={projectId}
           projectTitle={projectTitle}
           pkg={pkg}
+        />
+      )}
+
+      {/* Share Pack Builder */}
+      {projectId && (
+        <SharePackBuilder
+          open={sharePackOpen}
+          onOpenChange={setSharePackOpen}
+          projectId={projectId}
         />
       )}
     </div>
