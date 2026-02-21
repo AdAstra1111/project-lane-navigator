@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useStateGraph } from '@/hooks/useStateGraph';
-import { useScenarioRecommendation } from '@/hooks/useScenarioRecommendation';
 import { StateGraphOverview } from '@/components/cockpit/StateGraphOverview';
 import { ScenarioPanel } from '@/components/cockpit/ScenarioPanel';
 import { DriftAlertsPanel } from '@/components/cockpit/DriftAlertsPanel';
@@ -18,16 +17,13 @@ import { Button } from '@/components/ui/button';
 export default function ProducerCockpit() {
   const { id: projectId } = useParams<{ id: string }>();
   const {
-    stateGraph, scenarios, isLoading,
+    stateGraph, scenarios, alerts, recommendation, isLoading,
     initialize, cascade, createScenario, generateSystemScenarios,
     togglePin, archiveScenario, setActiveScenario,
     rankScenarios, optimizeScenario, applyOptimizedOverrides, projectForward,
+    recomputeRecommendation,
     baseline, activeScenario, recommendedScenario,
   } = useStateGraph(projectId);
-
-  const {
-    recommendation, isLoading: recLoading, computeRecommendation,
-  } = useScenarioRecommendation(projectId);
 
   const [optimizeResult, setOptimizeResult] = useState<any>(null);
 
@@ -72,9 +68,9 @@ export default function ProducerCockpit() {
               scenarios={scenarios}
               activeScenarioId={activeScenario?.id ?? null}
               recommendation={recommendation ?? null}
-              isLoading={recLoading}
-              isComputing={computeRecommendation.isPending}
-              onRecompute={() => computeRecommendation.mutate({
+              isLoading={isLoading}
+              isComputing={recomputeRecommendation.isPending}
+              onRecompute={() => recomputeRecommendation.mutate({
                 baselineScenarioId: baseline?.id,
                 activeScenarioId: activeScenario?.id,
               })}
