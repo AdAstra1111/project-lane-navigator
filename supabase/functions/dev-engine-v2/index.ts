@@ -1371,7 +1371,9 @@ serve(async (req) => {
     // ANALYZE — strict routing: deliverable → format → behavior
     // ══════════════════════════════════════════════
     if (action === "analyze") {
-      const { projectId, documentId, versionId, deliverableType, developmentBehavior, format: reqFormat, strategicPriority, developmentStage, analysisMode, previousVersionId, productionType } = body;
+      const { projectId, documentId, versionId, deliverableType, developmentBehavior, format: reqFormat, strategicPriority, developmentStage, analysisMode, previousVersionId, productionType, maxContextChars: reqMaxContext } = body;
+      const DEFAULT_CONTEXT_CHARS = 40000;
+      const maxContextChars = typeof reqMaxContext === "number" && reqMaxContext > 0 ? Math.min(reqMaxContext, 200000) : DEFAULT_CONTEXT_CHARS;
 
       if (!projectId || !documentId || !versionId) throw new Error("projectId, documentId, versionId required");
       if (!deliverableType) throw new Error("deliverableType is required — select a deliverable type before analyzing");
@@ -1576,7 +1578,7 @@ LANE: ${project?.assigned_lane || "Unknown"} | BUDGET: ${project?.budget_range |
 ${prevContext}${seasonContext}${qualBinding}${signalContext}${lockedDecisionsContext}
 
 MATERIAL (${version.plaintext.length} chars):
-${version.plaintext.slice(0, 90000)}`;
+${version.plaintext.slice(0, maxContextChars)}`;
 
       const raw = await callAI(LOVABLE_API_KEY, PRO_MODEL, systemPrompt, userPrompt, 0.2, 6000);
       const parsed = await parseAIJson(LOVABLE_API_KEY, raw);
