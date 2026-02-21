@@ -4,6 +4,7 @@ import { StateGraphOverview } from '@/components/cockpit/StateGraphOverview';
 import { ScenarioPanel } from '@/components/cockpit/ScenarioPanel';
 import { DriftAlertPanel } from '@/components/cockpit/DriftAlertPanel';
 import { CascadeSimulator } from '@/components/cockpit/CascadeSimulator';
+import { AccessDiagnosticPanel } from '@/components/cockpit/AccessDiagnosticPanel';
 import { ArrowLeft, Gauge } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
@@ -73,6 +74,8 @@ export default function ProducerCockpit() {
             />
           </>
         )}
+
+        <AccessDiagnosticPanel />
       </main>
     </div>
   );
