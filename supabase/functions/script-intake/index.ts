@@ -1,4 +1,3 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const corsHeaders = {
@@ -61,10 +60,9 @@ async function verifyUser(req: Request) {
     Deno.env.get("SUPABASE_ANON_KEY")!,
     { global: { headers: { Authorization: authHeader } } }
   );
-  const token = authHeader.replace("Bearer ", "");
-  const { data, error } = await anonClient.auth.getClaims(token);
-  if (error || !data?.claims) throw new Error("Unauthorized");
-  return data.claims.sub as string;
+  const { data: { user }, error } = await anonClient.auth.getUser();
+  if (error || !user) throw new Error("Unauthorized");
+  return user.id;
 }
 
 /* ── action: ingest_pdf ── */
@@ -597,7 +595,7 @@ async function saveBackfilledDoc(
 }
 
 /* ── main handler ── */
-serve(async (req) => {
+Deno.serve(async (req) => {
   if (req.method === "OPTIONS")
     return new Response(null, { headers: corsHeaders });
 
