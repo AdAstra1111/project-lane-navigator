@@ -1,4 +1,5 @@
-import { useState, type MouseEvent } from 'react';
+import { useState } from 'react';
+import type { MouseEvent as ReactMouseEvent } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -150,18 +151,18 @@ export function ScenarioPanel({
                 <div className="flex items-center gap-1">
                   {!sc.is_active && (
                     <Button variant="ghost" size="sm" className="h-6 px-2 text-[10px]"
-                      onClick={(e: MouseEvent) => { e.stopPropagation(); onSetActive(sc.id); }}
+                      onClick={(e: ReactMouseEvent<HTMLButtonElement>) => { e.stopPropagation(); onSetActive(sc.id); }}
                       disabled={isSettingActive} title="Set as active plan">
                       <Zap className="h-3 w-3 mr-0.5" /> Set Active
                     </Button>
                   )}
                   <Button variant="ghost" size="sm" className="h-6 w-6 p-0"
-                    onClick={(e: MouseEvent) => { e.stopPropagation(); onTogglePin(sc.id); }}
+                    onClick={(e: ReactMouseEvent<HTMLButtonElement>) => { e.stopPropagation(); onTogglePin(sc.id); }}
                     title={sc.pinned ? 'Unpin' : 'Pin'}>
                     {sc.pinned ? <PinOff className="h-3 w-3" /> : <Pin className="h-3 w-3" />}
                   </Button>
                   <Button variant="ghost" size="sm" className="h-6 w-6 p-0"
-                    onClick={(e: MouseEvent) => { e.stopPropagation(); onArchive(sc.id); }}
+                    onClick={(e: ReactMouseEvent<HTMLButtonElement>) => { e.stopPropagation(); onArchive(sc.id); }}
                     title="Archive">
                     <Archive className="h-3 w-3" />
                   </Button>
