@@ -2,10 +2,11 @@
  * Note Targeting Helpers — shared logic for determining target doc type,
  * deferral status, and due_when for notes.
  * 
- * Used by both frontend (display logic) and can be mirrored in backend.
+ * Uses Pipeline Brain as the authoritative pipeline source.
  */
 
 import ladderData from '../../supabase/_shared/stage-ladders.json';
+import { isStageValidForFormat } from '@/lib/pipeline-brain';
 
 const FORMAT_LADDERS: Record<string, string[]> = ladderData.FORMAT_LADDERS as any;
 const DOC_TYPE_ALIASES: Record<string, string> = ladderData.DOC_TYPE_ALIASES as any;

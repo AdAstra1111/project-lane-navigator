@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { toast } from 'sonner';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useParams, Link, useSearchParams } from 'react-router-dom';
+import { useParams, Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { Header } from '@/components/Header';
 import { PageTransition } from '@/components/PageTransition';
@@ -47,6 +47,8 @@ import { NotesPanel } from '@/components/devengine/NotesPanel';
 import { ConvergencePanel } from '@/components/devengine/ConvergencePanel';
 import { DriftBanner } from '@/components/devengine/DriftBanner';
 import { PromotionIntelligenceCard } from '@/components/devengine/PromotionIntelligenceCard';
+import { PipelineNextStepPanel } from '@/components/devengine/PipelineNextStepPanel';
+import type { ExistingDoc } from '@/lib/pipeline-brain';
 import { DecisionModePanel } from '@/components/devengine/DecisionModePanel';
 import type { Decision } from '@/components/devengine/DecisionCard';
 import { usePromotionIntelligence, extractNoteCounts } from '@/hooks/usePromotionIntelligence';
@@ -1405,19 +1407,44 @@ export default function ProjectDevelopmentEngine() {
                   convergenceStatus={convergenceStatus}
                   tieredNotes={tieredNotes}
                 />
-                <div id="approval-queue-anchor">
-                  <PromotionIntelligenceCard
-                    data={promotionIntel.data}
-                    isLoading={promotionIntel.isLoading}
-                    jobId={autoRun.job?.id}
-                    onJobRefresh={() => autoRun.runNext?.()}
-                    onScrollToDecisions={() => {
-                      const el = document.getElementById('decision-panel-anchor');
-                      el?.scrollIntoView({ behavior: 'smooth' });
+                <div className="space-y-3">
+                  {/* Pipeline Brain — authoritative next step */}
+                  <PipelineNextStepPanel
+                    format={projectFormat}
+                    existingDocs={(documents || []).map((d: any) => ({
+                      docType: d.doc_type || 'idea',
+                      hasApproved: !!(approvedVersionMap as any)?.[d.doc_type],
+                      activeVersionId: (approvedVersionMap as any)?.[d.doc_type]?.id || null,
+                    } as ExistingDoc))}
+                    criteria={{
+                      episodeCount: effectiveSeasonEpisodes,
+                      episodeLengthMin: effectiveEpisodeDurationMin,
+                      episodeLengthMax: effectiveEpisodeDurationMax,
+                      seasonEpisodeCount: effectiveSeasonEpisodes,
                     }}
-                    onPromote={handlePromote}
-                    onReReview={handleRunEngine}
+                    deferredNoteCount={deferred.deferredNotes.filter(n => n.status === 'deferred').length}
+                    onNavigateToStage={(docType) => {
+                      const doc = documents?.find((d: any) => d.doc_type === docType);
+                      if (doc) selectDocument(doc.id);
+                    }}
+                    onEnterSeriesWriter={() => {
+                      window.location.href = `/projects/${projectId}/advanced?tab=series`;
+                    }}
                   />
+                  <div id="approval-queue-anchor">
+                    <PromotionIntelligenceCard
+                      data={promotionIntel.data}
+                      isLoading={promotionIntel.isLoading}
+                      jobId={autoRun.job?.id}
+                      onJobRefresh={() => autoRun.runNext?.()}
+                      onScrollToDecisions={() => {
+                        const el = document.getElementById('decision-panel-anchor');
+                        el?.scrollIntoView({ behavior: 'smooth' });
+                      }}
+                      onPromote={handlePromote}
+                      onReReview={handleRunEngine}
+                    />
+                  </div>
                 </div>
               </div>
             </TabsContent>
