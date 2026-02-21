@@ -79,13 +79,9 @@ async function ingestPdf(
   const arrayBuffer = await fileData.arrayBuffer();
   const bytes = new Uint8Array(arrayBuffer);
 
-  // Use Gemini to extract text per page from the PDF
-  // Per-byte loop avoids call stack overflow on large files
-  let binaryStr = "";
-  for (let i = 0; i < bytes.length; i++) {
-    binaryStr += String.fromCharCode(bytes[i]);
-  }
-  const base64Pdf = btoa(binaryStr);
+  // Use Deno's native base64 encoding to avoid call stack overflow on large files
+  const { encode: b64encode } = await import("https://deno.land/std@0.224.0/encoding/base64.ts");
+  const base64Pdf = b64encode(bytes);
 
   const extractionResult = await callLLM(
     [
