@@ -270,6 +270,7 @@ export function useStateGraph(projectId: string | undefined) {
     queryClient.invalidateQueries({ queryKey: ['scenario-recommendation', projectId] });
     queryClient.invalidateQueries({ queryKey: ['scenario-scores', projectId] });
     queryClient.invalidateQueries({ queryKey: ['scenario-stress', projectId] });
+    queryClient.invalidateQueries({ queryKey: ['decision-events', projectId] });
   };
 
   const initialize = useMutation({

@@ -9115,6 +9115,61 @@ export type Database = {
         }
         Relationships: []
       }
+      scenario_decision_events: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          event_type: string
+          id: string
+          payload: Json
+          previous_scenario_id: string | null
+          project_id: string
+          scenario_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          event_type: string
+          id?: string
+          payload?: Json
+          previous_scenario_id?: string | null
+          project_id: string
+          scenario_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          event_type?: string
+          id?: string
+          payload?: Json
+          previous_scenario_id?: string | null
+          project_id?: string
+          scenario_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scenario_decision_events_previous_scenario_id_fkey"
+            columns: ["previous_scenario_id"]
+            isOneToOne: false
+            referencedRelation: "project_scenarios"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scenario_decision_events_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scenario_decision_events_scenario_id_fkey"
+            columns: ["scenario_id"]
+            isOneToOne: false
+            referencedRelation: "project_scenarios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       scenario_projections: {
         Row: {
           assumptions: Json
