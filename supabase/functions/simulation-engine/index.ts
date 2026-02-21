@@ -617,6 +617,98 @@ Deno.serve(async (req) => {
       return json({ scenarios: results });
     }
 
+    // ── ACTION: rank_scenarios ──
+    if (action === "rank_scenarios") {
+      const { data: allScenarios, error: fetchErr } = await supabase
+        .from("project_scenarios")
+        .select("id, name, scenario_type, computed_state, is_archived")
+        .eq("project_id", projectId)
+        .eq("is_archived", false);
+
+      if (fetchErr) throw fetchErr;
+      if (!allScenarios || allScenarios.length === 0) {
+        return json({ error: "No scenarios to rank" }, 400);
+      }
+
+      const budgetPenaltyMap: Record<string, number> = { micro: 0, low: 1, mid: 2, "mid-high": 3, high: 4 };
+
+      interface RankResult { id: string; name: string; score: number; breakdown: Record<string, number> }
+      const ranked: RankResult[] = [];
+
+      for (const sc of allScenarios) {
+        const cs = sc.computed_state as unknown as CascadedState | null;
+        if (!cs?.revenue_state || !cs?.finance_state || !cs?.production_state) continue;
+
+        const confidence = cs.revenue_state.confidence_score ?? 50;
+        const downside = cs.revenue_state.downside_exposure ?? 5;
+        const drift = cs.finance_state.drift_sensitivity ?? 5;
+        const stress = cs.finance_state.capital_stack_stress ?? 5;
+        const scheduleRisk = cs.production_state.schedule_compression_risk ?? 5;
+        const appetite = cs.revenue_state.platform_appetite_strength ?? 5;
+        const budgetBand = cs.finance_state.budget_band ?? "mid";
+        const budgetPenalty = budgetPenaltyMap[budgetBand] ?? 2;
+
+        const confidenceComponent = confidence * 0.45;
+        const appetiteComponent = (appetite * 10) * 0.20;
+        const downsideComponent = ((10 - downside) * 10) * 0.10;
+        const stressComponent = ((10 - stress) * 10) * 0.10;
+        const driftComponent = ((10 - drift) * 10) * 0.10;
+        const scheduleComponent = ((10 - scheduleRisk) * 10) * 0.05;
+        const penalty = budgetPenalty * 2;
+
+        const raw = confidenceComponent + appetiteComponent + downsideComponent + stressComponent + driftComponent + scheduleComponent - penalty;
+        const score = Math.round(Math.max(0, Math.min(100, raw)) * 10) / 10;
+
+        ranked.push({
+          id: sc.id,
+          name: sc.name,
+          score,
+          breakdown: {
+            confidence: Math.round(confidenceComponent * 10) / 10,
+            appetite: Math.round(appetiteComponent * 10) / 10,
+            downside_safety: Math.round(downsideComponent * 10) / 10,
+            stress_safety: Math.round(stressComponent * 10) / 10,
+            drift_safety: Math.round(driftComponent * 10) / 10,
+            schedule_safety: Math.round(scheduleComponent * 10) / 10,
+            budget_penalty: -penalty,
+            final_score: score,
+          },
+        });
+      }
+
+      ranked.sort((a, b) => b.score - a.score);
+
+      const now = new Date().toISOString();
+
+      // Clear all recommended flags
+      await supabase.from("project_scenarios")
+        .update({ is_recommended: false, rank_score: null, rank_breakdown: null, ranked_at: null })
+        .eq("project_id", projectId);
+
+      // Update each ranked scenario
+      for (const r of ranked) {
+        await supabase.from("project_scenarios").update({
+          rank_score: r.score,
+          rank_breakdown: r.breakdown,
+          ranked_at: now,
+        }).eq("id", r.id);
+      }
+
+      // Set top as recommended
+      if (ranked.length > 0) {
+        await supabase.from("project_scenarios").update({
+          is_recommended: true,
+        }).eq("id", ranked[0].id);
+      }
+
+      return json({
+        recommendedScenarioId: ranked[0]?.id || null,
+        rankedCount: ranked.length,
+        top5: ranked.slice(0, 5),
+        updatedAt: now,
+      });
+    }
+
     return json({ error: `Unknown action: ${action}` }, 400);
   } catch (err: any) {
     console.error("simulation-engine error:", err);

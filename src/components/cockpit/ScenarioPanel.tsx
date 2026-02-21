@@ -3,21 +3,24 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import type { ProjectScenario } from '@/hooks/useStateGraph';
-import { GitBranch, Sparkles, Plus, ChevronDown, ChevronUp, Pin, PinOff, Archive, Zap } from 'lucide-react';
+import { GitBranch, Sparkles, Plus, ChevronDown, ChevronUp, Pin, PinOff, Archive, Zap, Trophy, BarChart3 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 
 interface Props {
   scenarios: ProjectScenario[];
   baseline: ProjectScenario | undefined;
+  recommendedScenario: ProjectScenario | undefined;
   onGenerateSystem: () => void;
   onCreateCustom: (name: string, desc: string, overrides: any) => void;
   onTogglePin: (scenarioId: string) => void;
   onArchive: (scenarioId: string) => void;
   onSetActive: (scenarioId: string) => void;
+  onRankScenarios: () => void;
   isGenerating: boolean;
   isCreating: boolean;
   isSettingActive: boolean;
+  isRanking: boolean;
 }
 
 function DeltaChip({ label, delta }: { label: string; delta: { from: number; to: number; delta: number } }) {
@@ -29,7 +32,24 @@ function DeltaChip({ label, delta }: { label: string; delta: { from: number; to:
   );
 }
 
-export function ScenarioPanel({ scenarios, baseline, onGenerateSystem, onCreateCustom, onTogglePin, onArchive, onSetActive, isGenerating, isCreating, isSettingActive }: Props) {
+function RankBreakdown({ breakdown }: { breakdown: Record<string, number> }) {
+  return (
+    <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-[10px] text-muted-foreground font-mono pt-1">
+      {Object.entries(breakdown).map(([key, val]) => (
+        <div key={key} className="flex justify-between">
+          <span>{key.replace(/_/g, ' ')}</span>
+          <span className={val < 0 ? 'text-destructive' : ''}>{val > 0 ? '+' : ''}{val}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function ScenarioPanel({
+  scenarios, baseline, recommendedScenario,
+  onGenerateSystem, onCreateCustom, onTogglePin, onArchive, onSetActive, onRankScenarios,
+  isGenerating, isCreating, isSettingActive, isRanking,
+}: Props) {
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState('');
   const [newDesc, setNewDesc] = useState('');
@@ -38,6 +58,8 @@ export function ScenarioPanel({ scenarios, baseline, onGenerateSystem, onCreateC
   const systemScenarios = scenarios.filter(s => s.scenario_type === 'system');
   const nonBaseline = scenarios.filter(s => s.scenario_type !== 'baseline');
 
+  const showSetRecommendedActive = recommendedScenario && !recommendedScenario.is_active;
+
   return (
     <Card className="border-border/40">
       <CardHeader className="flex flex-row items-center justify-between">
@@ -45,6 +67,10 @@ export function ScenarioPanel({ scenarios, baseline, onGenerateSystem, onCreateC
           <GitBranch className="h-4 w-4" /> Scenarios
         </CardTitle>
         <div className="flex gap-2">
+          <Button size="sm" variant="outline" onClick={onRankScenarios} disabled={isRanking || scenarios.length < 2}>
+            <BarChart3 className="h-3 w-3 mr-1" />
+            {isRanking ? 'Ranking…' : 'Rank Scenarios'}
+          </Button>
           {systemScenarios.length === 0 && (
             <Button size="sm" variant="outline" onClick={onGenerateSystem} disabled={isGenerating}>
               <Sparkles className="h-3 w-3 mr-1" />
@@ -57,6 +83,23 @@ export function ScenarioPanel({ scenarios, baseline, onGenerateSystem, onCreateC
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
+        {/* Set Recommended Active prompt */}
+        {showSetRecommendedActive && (
+          <div className="flex items-center justify-between border border-primary/30 bg-primary/5 rounded-lg px-3 py-2">
+            <div className="flex items-center gap-2 text-xs">
+              <Trophy className="h-3.5 w-3.5 text-primary" />
+              <span className="font-medium">Recommended:</span>
+              <span className="text-muted-foreground">{recommendedScenario.name}</span>
+              <span className="font-mono text-primary">{recommendedScenario.rank_score?.toFixed(1)}</span>
+            </div>
+            <Button size="sm" variant="default" className="h-6 px-2 text-[10px]"
+              onClick={() => onSetActive(recommendedScenario.id)}
+              disabled={isSettingActive}>
+              <Zap className="h-3 w-3 mr-0.5" /> Set Recommended Active
+            </Button>
+          </div>
+        )}
+
         {showCreate && (
           <div className="border border-border rounded-lg p-3 space-y-2">
             <Input placeholder="Scenario name" value={newName} onChange={e => setNewName(e.target.value)} />
@@ -84,8 +127,12 @@ export function ScenarioPanel({ scenarios, baseline, onGenerateSystem, onCreateC
                 <div className="flex items-center gap-2 cursor-pointer flex-1" onClick={() => setExpandedId(expanded ? null : sc.id)}>
                   <Badge variant="outline" className="text-[10px]">{sc.scenario_type}</Badge>
                   {sc.is_active && <Badge className="text-[10px] bg-primary text-primary-foreground">ACTIVE</Badge>}
+                  {sc.is_recommended && <Badge className="text-[10px] bg-amber-500/20 text-amber-400 border-amber-500/30" variant="outline"><Trophy className="h-2.5 w-2.5 mr-0.5" />REC</Badge>}
                   {sc.pinned && <Pin className="h-3 w-3 text-primary" />}
                   <span className="text-sm font-medium">{sc.name}</span>
+                  {sc.rank_score != null && (
+                    <span className="text-[10px] font-mono text-muted-foreground ml-1">{sc.rank_score.toFixed(1)}</span>
+                  )}
                   {expanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
                 </div>
                 <div className="flex items-center gap-1">
@@ -116,6 +163,9 @@ export function ScenarioPanel({ scenarios, baseline, onGenerateSystem, onCreateC
                     <DeltaChip key={key} label={key} delta={d} />
                   ))}
                 </div>
+              )}
+              {expanded && sc.rank_breakdown && (
+                <RankBreakdown breakdown={sc.rank_breakdown} />
               )}
             </div>
           );
