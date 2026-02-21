@@ -109,6 +109,18 @@ export interface DriftAlert {
   created_at: string;
 }
 
+export interface ScenarioProjection {
+  id: string;
+  project_id: string;
+  scenario_id: string;
+  months: number;
+  assumptions: any;
+  series: any[];
+  projection_risk_score: number;
+  summary: string[];
+  created_at: string;
+}
+
 // ---- Hooks ----
 
 const MAX_PINNED = 4;
@@ -173,10 +185,32 @@ export function useStateGraph(projectId: string | undefined) {
     enabled: !!projectId,
   });
 
+  // Latest projection for active scenario
+  const activeScenarioId = stateGraph?.active_scenario_id ?? null;
+
+  const { data: latestProjection = null } = useQuery({
+    queryKey: ['projection', projectId, activeScenarioId],
+    queryFn: async () => {
+      if (!projectId || !activeScenarioId) return null;
+      const { data, error } = await supabase
+        .from('scenario_projections')
+        .select('*')
+        .eq('project_id', projectId)
+        .eq('scenario_id', activeScenarioId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return data as unknown as ScenarioProjection | null;
+    },
+    enabled: !!projectId && !!activeScenarioId,
+  });
+
   const invalidateAll = () => {
     queryClient.invalidateQueries({ queryKey: ['state-graph', projectId] });
     queryClient.invalidateQueries({ queryKey: ['scenarios', projectId] });
     queryClient.invalidateQueries({ queryKey: ['drift-alerts', projectId] });
+    queryClient.invalidateQueries({ queryKey: ['projection', projectId] });
   };
 
   const initialize = useMutation({
@@ -311,6 +345,52 @@ export function useStateGraph(projectId: string | undefined) {
     onError: (e: any) => toast.error(e.message),
   });
 
+  // Phase 3: Optimizer
+  const optimizeScenario = useMutation({
+    mutationFn: async (params: { scenarioId?: string; objective?: string; maxIterations?: number; horizonMonths?: number }) => {
+      const { data, error } = await supabase.functions.invoke('simulation-engine', {
+        body: { action: 'optimize_scenario', projectId, ...params },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      return data;
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  const applyOptimizedOverrides = useMutation({
+    mutationFn: async (params: { scenarioId: string; overrides: any }) => {
+      const { data, error } = await supabase.functions.invoke('simulation-engine', {
+        body: { action: 'apply_optimized_overrides', projectId, ...params },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      return data;
+    },
+    onSuccess: () => {
+      invalidateAll();
+      toast.success('Optimized overrides applied');
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  // Phase 3: Forward Projection
+  const projectForward = useMutation({
+    mutationFn: async (params: { scenarioId?: string; months?: number; assumptions?: any }) => {
+      const { data, error } = await supabase.functions.invoke('simulation-engine', {
+        body: { action: 'project_forward', projectId, ...params },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      return data;
+    },
+    onSuccess: () => {
+      invalidateAll();
+      toast.success('Projection complete');
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
   const baseline = scenarios.find(s => s.scenario_type === 'baseline');
   const activeScenario = scenarios.find(s => s.is_active);
   const recommendedScenario = scenarios.find(s => s.is_recommended);
@@ -325,6 +405,7 @@ export function useStateGraph(projectId: string | undefined) {
     stateGraph,
     scenarios,
     alerts,
+    latestProjection,
     isLoading: graphLoading || scenariosLoading,
     initialize,
     cascade,
@@ -335,6 +416,9 @@ export function useStateGraph(projectId: string | undefined) {
     acknowledgeAlert,
     togglePin,
     archiveScenario,
+    optimizeScenario,
+    applyOptimizedOverrides,
+    projectForward,
     baseline,
     activeScenario,
     recommendedScenario: validRecommended,

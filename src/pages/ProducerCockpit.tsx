@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useStateGraph } from '@/hooks/useStateGraph';
 import { StateGraphOverview } from '@/components/cockpit/StateGraphOverview';
@@ -6,18 +7,22 @@ import { DriftAlertPanel } from '@/components/cockpit/DriftAlertPanel';
 import { CascadeSimulator } from '@/components/cockpit/CascadeSimulator';
 import { AccessDiagnosticPanel } from '@/components/cockpit/AccessDiagnosticPanel';
 import { ActiveScenarioBanner } from '@/components/cockpit/ActiveScenarioBanner';
+import { OptimizationPanel } from '@/components/cockpit/OptimizationPanel';
+import { ProjectionPanel } from '@/components/cockpit/ProjectionPanel';
 import { ArrowLeft, Gauge } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 export default function ProducerCockpit() {
   const { id: projectId } = useParams<{ id: string }>();
   const {
-    stateGraph, scenarios, alerts, isLoading,
+    stateGraph, scenarios, alerts, latestProjection, isLoading,
     initialize, cascade, createScenario, generateSystemScenarios,
     acknowledgeAlert, togglePin, archiveScenario, setActiveScenario,
-    rankScenarios,
+    rankScenarios, optimizeScenario, applyOptimizedOverrides, projectForward,
     baseline, activeScenario, recommendedScenario,
   } = useStateGraph(projectId);
+
+  const [optimizeResult, setOptimizeResult] = useState<any>(null);
 
   if (!projectId) return null;
 
@@ -81,6 +86,27 @@ export default function ProducerCockpit() {
               isCreating={createScenario.isPending}
               isSettingActive={setActiveScenario.isPending}
               isRanking={rankScenarios.isPending}
+            />
+
+            <OptimizationPanel
+              scenarios={scenarios}
+              activeScenarioId={stateGraph.active_scenario_id}
+              onOptimize={async (params) => {
+                const result = await optimizeScenario.mutateAsync(params);
+                setOptimizeResult(result);
+              }}
+              onApply={(scenarioId, overrides) => applyOptimizedOverrides.mutate({ scenarioId, overrides })}
+              optimizeResult={optimizeResult}
+              isOptimizing={optimizeScenario.isPending}
+              isApplying={applyOptimizedOverrides.isPending}
+            />
+
+            <ProjectionPanel
+              scenarios={scenarios}
+              activeScenarioId={stateGraph.active_scenario_id}
+              latestProjection={latestProjection}
+              onRunProjection={(params) => projectForward.mutate(params)}
+              isProjecting={projectForward.isPending}
             />
           </>
         )}

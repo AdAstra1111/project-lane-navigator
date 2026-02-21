@@ -9115,6 +9115,60 @@ export type Database = {
         }
         Relationships: []
       }
+      scenario_projections: {
+        Row: {
+          assumptions: Json
+          created_at: string
+          id: string
+          months: number
+          project_id: string
+          projection_risk_score: number
+          scenario_id: string
+          series: Json
+          summary: Json
+          user_id: string
+        }
+        Insert: {
+          assumptions?: Json
+          created_at?: string
+          id?: string
+          months?: number
+          project_id: string
+          projection_risk_score?: number
+          scenario_id: string
+          series?: Json
+          summary?: Json
+          user_id: string
+        }
+        Update: {
+          assumptions?: Json
+          created_at?: string
+          id?: string
+          months?: number
+          project_id?: string
+          projection_risk_score?: number
+          scenario_id?: string
+          series?: Json
+          summary?: Json
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scenario_projections_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scenario_projections_scenario_id_fkey"
+            columns: ["scenario_id"]
+            isOneToOne: false
+            referencedRelation: "project_scenarios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       scenario_snapshots: {
         Row: {
           confidence_bands: Json
