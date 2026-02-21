@@ -7448,6 +7448,8 @@ export type Database = {
           file_path: string
           id: string
           ingestion_source: string | null
+          is_out_of_date: boolean | null
+          last_compiled_at: string | null
           latest_export_path: string | null
           latest_version_id: string | null
           needs_reconcile: boolean
@@ -7473,6 +7475,8 @@ export type Database = {
           file_path: string
           id?: string
           ingestion_source?: string | null
+          is_out_of_date?: boolean | null
+          last_compiled_at?: string | null
           latest_export_path?: string | null
           latest_version_id?: string | null
           needs_reconcile?: boolean
@@ -7498,6 +7502,8 @@ export type Database = {
           file_path?: string
           id?: string
           ingestion_source?: string | null
+          is_out_of_date?: boolean | null
+          last_compiled_at?: string | null
           latest_export_path?: string | null
           latest_version_id?: string | null
           needs_reconcile?: boolean
@@ -10279,6 +10285,50 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "scripts_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      season_master_compilations: {
+        Row: {
+          compiled_at: string
+          compiled_by: string
+          created_at: string
+          episode_manifest: Json
+          id: string
+          master_document_id: string
+          master_version_id: string
+          project_id: string
+          source: string
+        }
+        Insert: {
+          compiled_at?: string
+          compiled_by: string
+          created_at?: string
+          episode_manifest?: Json
+          id?: string
+          master_document_id: string
+          master_version_id: string
+          project_id: string
+          source?: string
+        }
+        Update: {
+          compiled_at?: string
+          compiled_by?: string
+          created_at?: string
+          episode_manifest?: Json
+          id?: string
+          master_document_id?: string
+          master_version_id?: string
+          project_id?: string
+          source?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "season_master_compilations_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"
