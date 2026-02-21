@@ -136,7 +136,19 @@ function basicPDFExtract(bytes: Uint8Array): string {
 function isGarbageText(text: string): boolean {
   if (text.length < 100) return true;
   const printable = text.replace(/[^\x20-\x7E\n\r\t]/g, "");
-  return printable.length / text.length < 0.5;
+  if (printable.length / text.length < 0.5) return true;
+
+  // Detect raw PDF stream data (ASCII85/Flate encoded) that passed printable check
+  const streamPatterns = /endstream|endobj|\/Filter|\/FlateDecode|ASCII85Decode|>>\s*stream/gi;
+  const streamMatches = text.match(streamPatterns);
+  if (streamMatches && streamMatches.length > 3) return true;
+
+  // Check for actual natural-language words (at least 10% of tokens should be real words)
+  const words = text.split(/\s+/).filter(w => w.length >= 3);
+  const realWords = words.filter(w => /^[a-zA-Z'-]+$/.test(w));
+  if (words.length > 20 && realWords.length / words.length < 0.15) return true;
+
+  return false;
 }
 
 async function extractFromPDF(data: ArrayBuffer): Promise<ExtractionResult> {
