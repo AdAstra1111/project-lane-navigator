@@ -623,31 +623,53 @@ export function ScenarioDiffMergePanel({
                   </div>
                 )}
 
-                {/* Approval status pill (Phase 5.10) */}
+                {/* Approval status pill (Phase 5.10 + 5.12) */}
                 {approvalStatus && (approvalStatus.pending || approvalStatus.approval_valid_now || approvalStatus.latest_decision) && !riskReport?.requires_approval && (
                   <div className="flex items-center gap-2 text-[10px] flex-wrap">
                     {approvalStatus.pending && (
-                      <Badge variant="secondary" className="text-[10px]">
-                        <Clock className="h-3 w-3 mr-0.5" />Pending approval ({approvalStatus.required_domain})
-                      </Badge>
+                      <>
+                        <Badge variant="secondary" className="text-[10px]">
+                          <Clock className="h-3 w-3 mr-0.5" />Pending approval ({approvalStatus.required_domain})
+                        </Badge>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-6 px-2 text-[10px]"
+                          onClick={() => {
+                            setApprovalStatus(null);
+                            supabase.functions.invoke('simulation-engine', {
+                              body: { action: 'get_merge_approval_status', projectId, sourceScenarioId: sourceId, targetScenarioId: targetId },
+                            }).then(({ data }) => {
+                              if (data && !data.error) setApprovalStatus(data);
+                            });
+                          }}
+                        >
+                          Refresh
+                        </Button>
+                      </>
                     )}
                     {approvalStatus.approval_valid_now && !approvalStatus.pending && (
-                      <>
-                        <Badge variant="outline" className="text-[10px] border-primary/40 text-primary">
-                          <CheckCircle className="h-3 w-3 mr-0.5" />Approved ({approvalStatus.required_domain})
-                        </Badge>
+                      <div className="w-full rounded border border-primary/30 bg-primary/5 px-3 py-2 flex items-center gap-2 flex-wrap">
+                        <CheckCircle className="h-3.5 w-3.5 text-primary shrink-0" />
+                        <span className="text-xs font-medium text-primary">Approved — Apply Now</span>
+                        <Badge variant="outline" className="text-[9px] capitalize">{approvalStatus.required_domain}</Badge>
+                        {approvalStatus.latest_decision?.at && (
+                          <span className="text-[10px] text-muted-foreground">
+                            expires {new Date(new Date(approvalStatus.latest_decision.at).getTime() + 24*60*60*1000).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        )}
                         {onApplyApprovedMerge && (
                           <Button
                             size="sm"
                             variant="default"
-                            className="h-6 px-2 text-[10px]"
+                            className="h-6 px-2 text-[10px] ml-auto"
                             disabled={isApplyingApproved || isMerging}
                             onClick={() => onApplyApprovedMerge({ sourceScenarioId: sourceId, targetScenarioId: targetId })}
                           >
                             {isApplyingApproved ? 'Applying…' : 'Apply Approved Merge'}
                           </Button>
                         )}
-                      </>
+                      </div>
                     )}
                     {!approvalStatus.pending && !approvalStatus.approval_valid_now && approvalStatus.latest_decision && (
                       <>

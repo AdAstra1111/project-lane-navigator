@@ -4670,6 +4670,134 @@ Deno.serve(async (req) => {
       return json({ actionable });
     }
 
+    // ══════════════════════════════════════
+    // ACTION: list_requester_notifications (Phase 5.12)
+    // ══════════════════════════════════════
+    if (action === "list_requester_notifications") {
+      const limit = body.limit ?? 25;
+      const hoursBack = body.hoursBack ?? 72;
+      const cutoff = new Date(Date.now() - hoursBack * 60 * 60 * 1000).toISOString();
+
+      const { data: events } = await supabase
+        .from("scenario_decision_events")
+        .select("*")
+        .eq("project_id", projectId)
+        .in("event_type", ["merge_approval_requested", "merge_approval_decided"])
+        .gte("created_at", cutoff)
+        .order("created_at", { ascending: false })
+        .limit(200);
+
+      const evts = events ?? [];
+      const groups: Record<string, { requests: any[]; decisions: any[] }> = {};
+      for (const ev of evts) {
+        const src = ev.previous_scenario_id ?? "null";
+        const tgt = ev.scenario_id ?? "null";
+        if (tgt === "null") continue;
+        const key = `${src}::${tgt}`;
+        if (!groups[key]) groups[key] = { requests: [], decisions: [] };
+        if (ev.event_type === "merge_approval_requested") groups[key].requests.push(ev);
+        else groups[key].decisions.push(ev);
+      }
+
+      const notifications: any[] = [];
+      for (const [key, group] of Object.entries(groups)) {
+        if (group.requests.length === 0 || group.decisions.length === 0) continue;
+        const latestReq = group.requests[0];
+        const latestDec = group.decisions[0];
+        const reqPayload = latestReq.payload as any;
+        const decPayload = latestDec.payload as any;
+        // Only notify requester
+        if ((reqPayload?.requested_by_user_id ?? latestReq.created_by) !== userId) continue;
+        // Decision must be after request
+        if (new Date(latestDec.created_at).getTime() < new Date(latestReq.created_at).getTime()) continue;
+
+        const [src, tgt] = key.split("::");
+        const mc = reqPayload?.merge_context;
+        const hasMergeContext = !!(mc || (reqPayload?.paths?.length > 0));
+        const approved = decPayload?.approved === true;
+        const decidedAt = new Date(latestDec.created_at).getTime();
+        const notExpired = Date.now() - decidedAt <= 24 * 60 * 60 * 1000;
+        const approvalValidNow = approved && notExpired;
+
+        notifications.push({
+          sourceScenarioId: src === "null" ? null : src,
+          targetScenarioId: tgt,
+          requested_at: latestReq.created_at,
+          decided_at: latestDec.created_at,
+          approved,
+          domain: decPayload?.domain ?? reqPayload?.domain ?? "general",
+          note: decPayload?.note ?? null,
+          strategy: mc?.strategy ?? reqPayload?.strategy ?? null,
+          has_merge_context: hasMergeContext,
+          approval_valid_now: approvalValidNow,
+          apply_ready: approvalValidNow && hasMergeContext,
+          request_event_id: latestReq.id,
+        });
+      }
+
+      notifications.sort((a: any, b: any) => new Date(b.decided_at).getTime() - new Date(a.decided_at).getTime());
+      return json({ notifications: notifications.slice(0, limit) });
+    }
+
+    // ══════════════════════════════════════
+    // ACTION: list_actionable_approved_merges_for_user (Phase 5.12)
+    // ══════════════════════════════════════
+    if (action === "list_actionable_approved_merges_for_user") {
+      const { data: events } = await supabase
+        .from("scenario_decision_events")
+        .select("*")
+        .eq("project_id", projectId)
+        .in("event_type", ["merge_approval_requested", "merge_approval_decided", "merge_applied_from_approval"])
+        .order("created_at", { ascending: false })
+        .limit(500);
+
+      const evts = events ?? [];
+      const groups: Record<string, { requests: any[]; decisions: any[]; applied: any[] }> = {};
+      for (const ev of evts) {
+        const src = ev.previous_scenario_id ?? "null";
+        const tgt = ev.scenario_id ?? "null";
+        if (tgt === "null") continue;
+        const key = `${src}::${tgt}`;
+        if (!groups[key]) groups[key] = { requests: [], decisions: [], applied: [] };
+        if (ev.event_type === "merge_approval_requested") groups[key].requests.push(ev);
+        else if (ev.event_type === "merge_approval_decided") groups[key].decisions.push(ev);
+        else if (ev.event_type === "merge_applied_from_approval") groups[key].applied.push(ev);
+      }
+
+      const items: any[] = [];
+      for (const [key, group] of Object.entries(groups)) {
+        if (group.requests.length === 0 || group.decisions.length === 0) continue;
+        const latestReq = group.requests[0];
+        const latestDec = group.decisions[0];
+        const reqPayload = latestReq.payload as any;
+        const decPayload = latestDec.payload as any;
+        // Only for current user's requests
+        if ((reqPayload?.requested_by_user_id ?? latestReq.created_by) !== userId) continue;
+        if (decPayload?.approved !== true) continue;
+        const decidedAt = new Date(latestDec.created_at).getTime();
+        if (Date.now() - decidedAt > 24 * 60 * 60 * 1000) continue; // expired
+        if (decidedAt < new Date(latestReq.created_at).getTime()) continue;
+        // Check if already applied
+        const latestApplied = group.applied.length > 0 ? group.applied[0] : null;
+        if (latestApplied && new Date(latestApplied.created_at).getTime() >= decidedAt) continue;
+        const mc = reqPayload?.merge_context;
+        if (!mc && !(reqPayload?.paths?.length > 0)) continue;
+        const [src, tgt] = key.split("::");
+        items.push({
+          sourceScenarioId: src === "null" ? null : src,
+          targetScenarioId: tgt,
+          approved_at: latestDec.created_at,
+          domain: decPayload?.domain ?? reqPayload?.domain ?? "general",
+          strategy: mc?.strategy ?? reqPayload?.strategy ?? "overwrite",
+          request_event_id: latestReq.id,
+          paths_count: (mc?.paths ?? reqPayload?.paths ?? []).length,
+          expires_at: new Date(decidedAt + 24 * 60 * 60 * 1000).toISOString(),
+        });
+      }
+
+      return json({ items });
+    }
+
     return json({ error: `Unknown action: ${action}` }, 400);
   } catch (err: unknown) {
     const message =
