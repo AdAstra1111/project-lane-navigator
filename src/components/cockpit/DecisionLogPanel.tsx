@@ -1,0 +1,130 @@
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
+import { History, ChevronDown } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
+import type { ProjectScenario } from '@/hooks/useStateGraph';
+
+interface DecisionEvent {
+  id: string;
+  project_id: string;
+  event_type: string;
+  scenario_id: string | null;
+  previous_scenario_id: string | null;
+  payload: any;
+  created_at: string;
+  created_by: string | null;
+}
+
+interface Props {
+  projectId: string;
+  scenarios: ProjectScenario[];
+}
+
+const EVENT_LABELS: Record<string, string> = {
+  recommendation_computed: 'Recommendation',
+  active_scenario_changed: 'Active Changed',
+  projection_completed: 'Projection',
+  stress_test_completed: 'Stress Test',
+};
+
+const EVENT_VARIANTS: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
+  recommendation_computed: 'default',
+  active_scenario_changed: 'secondary',
+  projection_completed: 'outline',
+  stress_test_completed: 'outline',
+};
+
+function scenarioName(id: string | null, scenarios: ProjectScenario[]): string {
+  if (!id) return '—';
+  const s = scenarios.find(sc => sc.id === id);
+  return s?.name ?? id.slice(0, 8);
+}
+
+function formatTime(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleString(undefined, {
+    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+  });
+}
+
+export function DecisionLogPanel({ projectId, scenarios }: Props) {
+  const { data: events = [], isLoading } = useQuery({
+    queryKey: ['decision-events', projectId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('scenario_decision_events')
+        .select('*')
+        .eq('project_id', projectId)
+        .order('created_at', { ascending: false })
+        .limit(20);
+      if (error) throw error;
+      return (data || []) as DecisionEvent[];
+    },
+    enabled: !!projectId,
+  });
+
+  return (
+    <Card className="border-border/40">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-sm flex items-center gap-2">
+          <History className="h-4 w-4" />
+          Decision Log
+          {events.length > 0 && (
+            <Badge variant="secondary" className="text-[10px] ml-auto">{events.length}</Badge>
+          )}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {isLoading && <div className="text-xs text-muted-foreground">Loading…</div>}
+        {!isLoading && events.length === 0 && (
+          <div className="text-xs text-muted-foreground">No decision events recorded yet.</div>
+        )}
+        {events.map(ev => (
+          <Collapsible key={ev.id}>
+            <div className="rounded-md border border-border/30 bg-muted/10">
+              <CollapsibleTrigger className="flex items-center gap-2 w-full px-3 py-2 text-left hover:bg-muted/20 transition-colors">
+                <Badge variant={EVENT_VARIANTS[ev.event_type] ?? 'outline'} className="text-[10px] shrink-0">
+                  {EVENT_LABELS[ev.event_type] ?? ev.event_type}
+                </Badge>
+                <span className="text-xs font-medium truncate">
+                  {scenarioName(ev.scenario_id, scenarios)}
+                </span>
+                {ev.previous_scenario_id && ev.previous_scenario_id !== ev.scenario_id && (
+                  <span className="text-[10px] text-muted-foreground truncate">
+                    ← {scenarioName(ev.previous_scenario_id, scenarios)}
+                  </span>
+                )}
+                <span className="text-[10px] text-muted-foreground ml-auto shrink-0">
+                  {formatTime(ev.created_at)}
+                </span>
+                <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground transition-transform duration-200 [&[data-state=open]]:rotate-180" />
+              </CollapsibleTrigger>
+
+              {/* Why changed bullets */}
+              {ev.event_type === 'recommendation_computed' && ev.payload?.change_reasons?.length > 0 && (
+                <div className="px-3 pb-1.5">
+                  <div className="text-[10px] text-muted-foreground font-medium mb-0.5">Why changed:</div>
+                  <ul className="list-disc list-inside text-[10px] text-muted-foreground space-y-0.5">
+                    {(ev.payload.change_reasons as string[]).map((r: string) => (
+                      <li key={r}>{r.replace(/_/g, ' ')}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              <CollapsibleContent>
+                <div className="px-3 pb-2 pt-1 border-t border-border/20">
+                  <pre className="text-[10px] text-muted-foreground whitespace-pre-wrap break-all max-h-40 overflow-auto">
+                    {JSON.stringify(ev.payload, null, 2)}
+                  </pre>
+                </div>
+              </CollapsibleContent>
+            </div>
+          </Collapsible>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}

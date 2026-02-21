@@ -15,6 +15,7 @@ import { StrategicRecommendationPanel } from '@/components/cockpit/StrategicReco
 import { ScenarioStressTestPanel } from '@/components/cockpit/ScenarioStressTestPanel';
 import { InvestorModePanel } from '@/components/cockpit/InvestorModePanel';
 import { ScenarioComparisonPanel } from '@/components/cockpit/ScenarioComparisonPanel';
+import { DecisionLogPanel } from '@/components/cockpit/DecisionLogPanel';
 
 import { ArrowLeft, Gauge } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -203,6 +204,8 @@ export default function ProducerCockpit() {
             scenarios={scenarios}
             activeScenarioId={activeScenario?.id ?? null}
           />
+
+          <DecisionLogPanel projectId={projectId} scenarios={scenarios} />
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <EngineSelfTestPanel projectId={projectId} />

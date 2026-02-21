@@ -1285,9 +1285,17 @@ Deno.serve(async (req) => {
       if (!targetScenarioId)
         return json({ error: "scenarioId required" }, 400);
 
+      // Capture previous active before deactivation
+      const { data: prevGraphSnap } = await supabase
+        .from("project_state_graphs")
+        .select("active_scenario_id")
+        .eq("project_id", projectId)
+        .single();
+      const previousActiveId = prevGraphSnap?.active_scenario_id ?? null;
+
       const { data: scenario } = await supabase
         .from("project_scenarios")
-        .select("id, computed_state")
+        .select("id, name, computed_state")
         .eq("id", targetScenarioId)
         .eq("project_id", projectId)
         .single();
@@ -1351,11 +1359,27 @@ Deno.serve(async (req) => {
           500,
         );
 
+
+
       const { data: graph } = await supabase
         .from("project_state_graphs")
         .select("*")
         .eq("project_id", projectId)
         .single();
+
+      // Decision event: active_scenario_changed
+      if (targetScenarioId !== previousActiveId) {
+        await supabase.from("scenario_decision_events").insert({
+          project_id: projectId,
+          event_type: "active_scenario_changed",
+          scenario_id: targetScenarioId,
+          previous_scenario_id: previousActiveId,
+          created_by: userId,
+          payload: {
+            scenario_name: scenario?.name ?? null,
+          },
+        });
+      }
 
       return json({
         activeScenarioId: targetScenarioId,
@@ -2267,6 +2291,19 @@ Deno.serve(async (req) => {
           500,
         );
 
+      // Decision event: projection_completed
+      await supabase.from("scenario_decision_events").insert({
+        project_id: projectId,
+        event_type: "projection_completed",
+        scenario_id: targetId,
+        created_by: userId,
+        payload: {
+          months,
+          summary_metrics: summaryMetrics,
+          projection_risk_score: result.projection_risk_score,
+        },
+      });
+
       return json({
         projection,
         series: result.series,
@@ -2562,6 +2599,53 @@ Deno.serve(async (req) => {
         ? validateMetricsContract(normalizeSummaryMetrics(winnerSm))
         : ["missing_projection_metrics"];
 
+      // Get previous recommendation for change_reasons
+      const { data: prevRec } = await supabase
+        .from("scenario_recommendations")
+        .select("recommended_scenario_id")
+        .eq("project_id", projectId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const prevRecScenarioId = prevRec?.recommended_scenario_id ?? null;
+
+      // Compute deterministic change_reasons
+      const changeReasons: string[] = [];
+      if (prevRecScenarioId && prevRecScenarioId !== winner.scenarioId) {
+        const prevRow = scored.find((x: any) => x.scenarioId === prevRecScenarioId);
+        if (prevRow) {
+          if (winner.scores.roi > prevRow.scores.roi) changeReasons.push("roi_improved");
+          if (winner.scores.risk > prevRow.scores.risk) changeReasons.push("robustness_preferred");
+          if (winner.drift.critical < prevRow.drift.critical) changeReasons.push("drift_improved");
+          if (winner.scores.timeline > prevRow.scores.timeline) changeReasons.push("timeline_improved");
+        }
+      }
+
+      // Decision event: recommendation_computed
+      await supabase.from("scenario_decision_events").insert({
+        project_id: projectId,
+        event_type: "recommendation_computed",
+        scenario_id: winner.scenarioId,
+        previous_scenario_id: prevRecScenarioId,
+        created_by: userId,
+        payload: {
+          confidence,
+          reasons,
+          tradeoffs,
+          riskFlags,
+          contract_warnings: contractWarnings.length > 0 ? contractWarnings : undefined,
+          change_reasons: changeReasons.length > 0 ? changeReasons.slice(0, 3) : undefined,
+          scoresByScenario: scored.map((x: any) => ({
+            scenarioId: x.scenarioId,
+            composite: x.scores.composite,
+            roi: x.scores.roi,
+            risk: x.scores.risk,
+            timeline: x.scores.timeline,
+            appetite: x.scores.appetite,
+          })),
+        },
+      });
+
       return json({
         recommendedScenarioId: winner.scenarioId,
         confidence,
@@ -2738,6 +2822,20 @@ Deno.serve(async (req) => {
           breakpoints,
         });
       if (insertErr) throw insertErr;
+
+      // Decision event: stress_test_completed
+      await supabase.from("scenario_decision_events").insert({
+        project_id: projectId,
+        event_type: "stress_test_completed",
+        scenario_id: targetScenarioId,
+        created_by: userId,
+        payload: {
+          fragility_score: fragilityScore,
+          volatility_index: volatilityIndex,
+          breakpoints,
+          sweep_count: results.length,
+        },
+      });
 
       return json({
         scenarioId: targetScenarioId,
