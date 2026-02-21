@@ -782,6 +782,7 @@ export default function ProjectDevelopmentEngine() {
                 latestVersionMap={latestVersionMap}
                 approvedVersionMap={approvedVersionMap}
                 projectTitle={(project as any)?.title || ''}
+                onOpenPackage={() => setIntelligenceTab('package')}
               />
 
               {/* Feature Script Pipeline — only for features */}

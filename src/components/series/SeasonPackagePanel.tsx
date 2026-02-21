@@ -1,7 +1,8 @@
 /**
  * SeasonPackagePanel — Generates and manages the Complete Season Script deliverable.
  *
- * Assembles an Approved Pack from all project documents, then either:
+ * Part of the Project Package system. Assembles an Approved Pack from all
+ * project documents, then either:
  *  - Compiles existing episode scripts (Path A: scripts exist)
  *  - Generates episode scripts from beats/grid/arc via LLM (Path B: no scripts)
  *

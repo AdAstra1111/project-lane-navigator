@@ -10,7 +10,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Plus, ClipboardPaste, GitBranch, Loader2, Trash2, ShieldCheck, GripVertical } from 'lucide-react';
+import { Plus, ClipboardPaste, GitBranch, Loader2, Trash2, ShieldCheck, GripVertical, Package } from 'lucide-react';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { DELIVERABLE_LABELS } from '@/lib/dev-os-config';
 
@@ -46,12 +46,14 @@ interface DocumentSidebarProps {
   approvedVersionMap?: Record<string, string>;
   /** Current project title — used to prefix display names */
   projectTitle?: string;
+  /** Callback to navigate to the Package tab */
+  onOpenPackage?: () => void;
 }
 
 export function DocumentSidebar({
   documents, docsLoading, selectedDocId, selectDocument, deleteDocument, deleteVersion,
   versions, selectedVersionId, setSelectedVersionId, createPaste, latestVersionMap = {},
-  approvedVersionMap = {}, projectTitle = '',
+  approvedVersionMap = {}, projectTitle = '', onOpenPackage,
 }: DocumentSidebarProps) {
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteTitle, setPasteTitle] = useState('');
@@ -203,6 +205,19 @@ export function DocumentSidebar({
           </div>
         </CardContent>
       </Card>
+
+      {/* Project Package shortcut */}
+      {onOpenPackage && (
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-full text-xs gap-1.5 h-7 justify-start"
+          onClick={onOpenPackage}
+        >
+          <Package className="h-3 w-3 text-primary" />
+          Project Package
+        </Button>
+      )}
 
       {/* Versions */}
       {selectedDocId && versions.length > 0 && (
