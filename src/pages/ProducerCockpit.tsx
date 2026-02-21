@@ -9,17 +9,14 @@ import { ActiveScenarioBanner } from '@/components/cockpit/ActiveScenarioBanner'
 import { ArrowLeft, Gauge } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
-/**
- * Producer Cockpit — the primary role-filtered intelligence dashboard.
- * Drift alerts are producer-only and must remain role-filtered in later phases.
- */
 export default function ProducerCockpit() {
   const { id: projectId } = useParams<{ id: string }>();
   const {
     stateGraph, scenarios, alerts, isLoading,
     initialize, cascade, createScenario, generateSystemScenarios,
     acknowledgeAlert, togglePin, archiveScenario, setActiveScenario,
-    baseline, activeScenario,
+    rankScenarios,
+    baseline, activeScenario, recommendedScenario,
   } = useStateGraph(projectId);
 
   if (!projectId) return null;
@@ -58,7 +55,6 @@ export default function ProducerCockpit() {
               isPending={setActiveScenario.isPending}
             />
 
-            {/* Drift Alerts — producer-only, must be role-filtered in later phases */}
             {alerts.length > 0 && (
               <DriftAlertPanel alerts={alerts} onAcknowledge={(id) => acknowledgeAlert.mutate(id)} />
             )}
@@ -74,14 +70,17 @@ export default function ProducerCockpit() {
             <ScenarioPanel
               scenarios={scenarios}
               baseline={baseline}
+              recommendedScenario={recommendedScenario}
               onGenerateSystem={() => generateSystemScenarios.mutate()}
               onCreateCustom={(name, desc, overrides) => createScenario.mutate({ name, description: desc, overrides })}
               onTogglePin={(id) => togglePin.mutate(id)}
               onArchive={(id) => archiveScenario.mutate(id)}
               onSetActive={(id) => setActiveScenario.mutate(id)}
+              onRankScenarios={() => rankScenarios.mutate()}
               isGenerating={generateSystemScenarios.isPending}
               isCreating={createScenario.isPending}
               isSettingActive={setActiveScenario.isPending}
+              isRanking={rankScenarios.isPending}
             />
           </>
         )}

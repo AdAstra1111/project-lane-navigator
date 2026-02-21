@@ -89,6 +89,10 @@ export interface ProjectScenario {
   delta_vs_baseline: any;
   coherence_flags: string[];
   created_at: string;
+  rank_score: number | null;
+  rank_breakdown: any;
+  ranked_at: string | null;
+  is_recommended: boolean;
 }
 
 export interface DriftAlert {
@@ -144,7 +148,6 @@ export function useStateGraph(projectId: string | undefined) {
   });
 
   // Drift alerts filtered to the active scenario only.
-  // Re-fetches when stateGraph.active_scenario_id changes.
   const activeScenarioIdForAlerts = stateGraph?.active_scenario_id ?? null;
 
   const { data: alerts = [] } = useQuery({
@@ -244,6 +247,22 @@ export function useStateGraph(projectId: string | undefined) {
     onError: (e: any) => toast.error(e.message),
   });
 
+  const rankScenarios = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.functions.invoke('simulation-engine', {
+        body: { action: 'rank_scenarios', projectId },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      return data;
+    },
+    onSuccess: () => {
+      invalidateAll();
+      toast.success('Scenarios ranked');
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
   const acknowledgeAlert = useMutation({
     mutationFn: async (alertId: string) => {
       const { error } = await supabase
@@ -294,6 +313,7 @@ export function useStateGraph(projectId: string | undefined) {
 
   const baseline = scenarios.find(s => s.scenario_type === 'baseline');
   const activeScenario = scenarios.find(s => s.is_active);
+  const recommendedScenario = scenarios.find(s => s.is_recommended);
 
   return {
     stateGraph,
@@ -305,10 +325,12 @@ export function useStateGraph(projectId: string | undefined) {
     createScenario,
     generateSystemScenarios,
     setActiveScenario,
+    rankScenarios,
     acknowledgeAlert,
     togglePin,
     archiveScenario,
     baseline,
     activeScenario,
+    recommendedScenario,
   };
 }
