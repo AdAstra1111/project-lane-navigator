@@ -142,6 +142,17 @@ export default function ProducerCockpit() {
             activeScenarioId={activeScenario?.id ?? null}
             onMerge={(params) => mergeScenarioOverrides.mutate(params)}
             isMerging={mergeScenarioOverrides.isPending}
+            onUpdateProtectedPaths={(params) => {
+              const scenario = scenarios.find(s => s.id === params.scenarioId);
+              setScenarioLock.mutate({
+                scenarioId: params.scenarioId,
+                isLocked: scenario?.is_locked ?? false,
+                protectedPaths: params.protectedPaths,
+              });
+            }}
+            isUpdatingProtected={setScenarioLock.isPending}
+            onSetLock={(params) => setScenarioLock.mutate(params)}
+            isSavingLock={setScenarioLock.isPending}
           />
 
           <ScenarioLockControls
