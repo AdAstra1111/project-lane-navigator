@@ -32,10 +32,19 @@ function DeltaChip({ label, delta }: { label: string; delta: { from: number; to:
   );
 }
 
-function RankBreakdown({ breakdown }: { breakdown: Record<string, number> }) {
+function RankBreakdown({ breakdown }: { breakdown: unknown }) {
+  if (!breakdown || typeof breakdown !== 'object') return null;
+  const entries = Object.entries(breakdown as Record<string, unknown>)
+    .filter(([, v]) => typeof v === 'number')
+    .map(([k, v]) => [k, v as number] as const)
+    .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
+    .slice(0, 5);
+
+  if (entries.length === 0) return null;
+
   return (
     <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-[10px] text-muted-foreground font-mono pt-1">
-      {Object.entries(breakdown).map(([key, val]) => (
+      {entries.map(([key, val]) => (
         <div key={key} className="flex justify-between">
           <span>{key.replace(/_/g, ' ')}</span>
           <span className={val < 0 ? 'text-destructive' : ''}>{val > 0 ? '+' : ''}{val}</span>
@@ -44,6 +53,8 @@ function RankBreakdown({ breakdown }: { breakdown: Record<string, number> }) {
     </div>
   );
 }
+
+function stopProp(e: React.MouseEvent) { e.stopPropagation(); }
 
 export function ScenarioPanel({
   scenarios, baseline, recommendedScenario,
@@ -83,14 +94,13 @@ export function ScenarioPanel({
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
-        {/* Set Recommended Active prompt */}
         {showSetRecommendedActive && (
           <div className="flex items-center justify-between border border-primary/30 bg-primary/5 rounded-lg px-3 py-2">
             <div className="flex items-center gap-2 text-xs">
               <Trophy className="h-3.5 w-3.5 text-primary" />
               <span className="font-medium">Recommended:</span>
               <span className="text-muted-foreground">{recommendedScenario.name}</span>
-              <span className="font-mono text-primary">{recommendedScenario.rank_score?.toFixed(1)}</span>
+              <Badge variant="outline" className="text-[10px] font-mono">Score: {recommendedScenario.rank_score?.toFixed(1)}</Badge>
             </div>
             <Button size="sm" variant="default" className="h-6 px-2 text-[10px]"
               onClick={() => onSetActive(recommendedScenario.id)}
@@ -127,15 +137,19 @@ export function ScenarioPanel({
                 <div className="flex items-center gap-2 cursor-pointer flex-1" onClick={() => setExpandedId(expanded ? null : sc.id)}>
                   <Badge variant="outline" className="text-[10px]">{sc.scenario_type}</Badge>
                   {sc.is_active && <Badge className="text-[10px] bg-primary text-primary-foreground">ACTIVE</Badge>}
-                  {sc.is_recommended && <Badge className="text-[10px] bg-amber-500/20 text-amber-400 border-amber-500/30" variant="outline"><Trophy className="h-2.5 w-2.5 mr-0.5" />REC</Badge>}
+                  {sc.is_recommended && (
+                    <Badge variant="outline" className="text-[10px] border-primary/40 text-primary">
+                      <Trophy className="h-2.5 w-2.5 mr-0.5" />REC
+                    </Badge>
+                  )}
                   {sc.pinned && <Pin className="h-3 w-3 text-primary" />}
                   <span className="text-sm font-medium">{sc.name}</span>
                   {sc.rank_score != null && (
-                    <span className="text-[10px] font-mono text-muted-foreground ml-1">{sc.rank_score.toFixed(1)}</span>
+                    <Badge variant="secondary" className="text-[10px] font-mono">Score: {sc.rank_score.toFixed(1)}</Badge>
                   )}
                   {expanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
                 </div>
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1" onClick={stopProp}>
                   {!sc.is_active && (
                     <Button variant="ghost" size="sm" className="h-6 px-2 text-[10px]" onClick={() => onSetActive(sc.id)} disabled={isSettingActive} title="Set as active plan">
                       <Zap className="h-3 w-3 mr-0.5" /> Set Active

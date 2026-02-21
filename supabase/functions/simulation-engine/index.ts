@@ -627,7 +627,7 @@ Deno.serve(async (req) => {
 
       if (fetchErr) throw fetchErr;
       if (!allScenarios || allScenarios.length === 0) {
-        return json({ error: "No scenarios to rank" }, 400);
+        return json({ recommendedScenarioId: null, rankedCount: 0, top5: [], updatedAt: null, message: "No rankable scenarios" });
       }
 
       const budgetPenaltyMap: Record<string, number> = { micro: 0, low: 1, mid: 2, "mid-high": 3, high: 4 };
@@ -660,9 +660,7 @@ Deno.serve(async (req) => {
         const score = Math.round(Math.max(0, Math.min(100, raw)) * 10) / 10;
 
         ranked.push({
-          id: sc.id,
-          name: sc.name,
-          score,
+          id: sc.id, name: sc.name, score,
           breakdown: {
             confidence: Math.round(confidenceComponent * 10) / 10,
             appetite: Math.round(appetiteComponent * 10) / 10,
@@ -676,33 +674,44 @@ Deno.serve(async (req) => {
         });
       }
 
+      if (ranked.length === 0) {
+        return json({ recommendedScenarioId: null, rankedCount: 0, top5: [], updatedAt: null, message: "No rankable scenarios" });
+      }
+
       ranked.sort((a, b) => b.score - a.score);
-
       const now = new Date().toISOString();
+      const winnerId = ranked[0].id;
 
-      // Clear all recommended flags
-      await supabase.from("project_scenarios")
-        .update({ is_recommended: false, rank_score: null, rank_breakdown: null, ranked_at: null })
+      // Step 1: Clear is_recommended for all scenarios in project
+      const { error: clearErr } = await supabase.from("project_scenarios")
+        .update({ is_recommended: false })
         .eq("project_id", projectId);
+      if (clearErr) return json({ error: "Failed to clear recommended flags: " + clearErr.message }, 500);
 
-      // Update each ranked scenario
-      for (const r of ranked) {
-        await supabase.from("project_scenarios").update({
-          rank_score: r.score,
-          rank_breakdown: r.breakdown,
-          ranked_at: now,
-        }).eq("id", r.id);
+      // Step 2: Update rank fields for ranked scenarios (parallel, cap 10)
+      const batchSize = 10;
+      for (let i = 0; i < ranked.length; i += batchSize) {
+        const batch = ranked.slice(i, i + batchSize);
+        const results = await Promise.all(batch.map(r =>
+          supabase.from("project_scenarios").update({
+            rank_score: r.score,
+            rank_breakdown: r.breakdown,
+            ranked_at: now,
+          }).eq("id", r.id)
+        ));
+        const failed = results.find(r => r.error);
+        if (failed?.error) return json({ error: "Failed to update rank: " + failed.error.message }, 500);
       }
 
-      // Set top as recommended
-      if (ranked.length > 0) {
-        await supabase.from("project_scenarios").update({
-          is_recommended: true,
-        }).eq("id", ranked[0].id);
-      }
+      // Step 3: Set winner as recommended
+      const { error: recErr } = await supabase.from("project_scenarios")
+        .update({ is_recommended: true })
+        .eq("id", winnerId);
+      if (recErr) return json({ error: "Failed to set recommended: " + recErr.message }, 500);
 
       return json({
-        recommendedScenarioId: ranked[0]?.id || null,
+        recommendedScenarioId: winnerId,
+        winner: { id: ranked[0].id, name: ranked[0].name, score: ranked[0].score },
         rankedCount: ranked.length,
         top5: ranked.slice(0, 5),
         updatedAt: now,
