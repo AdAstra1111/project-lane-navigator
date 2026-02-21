@@ -326,7 +326,7 @@ export function useStateGraph(projectId: string | undefined) {
 
   // Phase 3: Optimizer
   const optimizeScenario = useMutation({
-    mutationFn: async (params: { scenarioId?: string; objective?: string; maxIterations?: number; horizonMonths?: number }) => {
+    mutationFn: async (params: { scenarioId?: string; objective?: string; maxIterations?: number; horizonMonths?: number; searchMode?: string; lockKeys?: string[] }) => {
       const { data, error } = await supabase.functions.invoke('simulation-engine', {
         body: { action: 'optimize_scenario', projectId, ...params },
       });

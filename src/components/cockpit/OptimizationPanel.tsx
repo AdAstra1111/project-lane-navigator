@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Wand2, AlertTriangle, Check } from 'lucide-react';
 import type { ProjectScenario } from '@/hooks/useStateGraph';
@@ -23,6 +24,8 @@ interface Props {
     objective?: string;
     maxIterations?: number;
     horizonMonths?: number;
+    searchMode?: string;
+    lockKeys?: string[];
   }) => void;
   onApply: (scenarioId: string, overrides: any) => void;
   optimizeResult: { candidates: OptimizationCandidate[] } | null;
@@ -38,9 +41,27 @@ export function OptimizationPanel({
   const [objective, setObjective] = useState<string>('rank_score_with_projection');
   const [iterations, setIterations] = useState<string>('60');
   const [horizon, setHorizon] = useState<string>('12');
+  const [searchMode, setSearchMode] = useState<string>('random');
+  const [lockKeysInput, setLockKeysInput] = useState<string>('');
 
   const nonBaseline = scenarios.filter(s => s.scenario_type !== 'baseline' && !s.is_archived);
   const isActiveTarget = targetScenarioId === activeScenarioId;
+
+  const handleRun = () => {
+    const lockKeys = lockKeysInput
+      .split(',')
+      .map(k => k.trim())
+      .filter(Boolean);
+
+    onOptimize({
+      scenarioId: targetScenarioId || undefined,
+      objective,
+      maxIterations: parseInt(iterations),
+      horizonMonths: parseInt(horizon),
+      searchMode,
+      lockKeys: lockKeys.length > 0 ? lockKeys : undefined,
+    });
+  };
 
   return (
     <Card className="border-border/40">
@@ -50,19 +71,14 @@ export function OptimizationPanel({
         </CardTitle>
         <Button
           size="sm"
-          onClick={() => onOptimize({
-            scenarioId: targetScenarioId || undefined,
-            objective,
-            maxIterations: parseInt(iterations),
-            horizonMonths: parseInt(horizon) as 6 | 12,
-          })}
+          onClick={handleRun}
           disabled={isOptimizing || !targetScenarioId}
         >
           {isOptimizing ? 'Optimizing…' : 'Run Optimizer'}
         </Button>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
           <div className="space-y-1">
             <label className="text-xs text-muted-foreground">Target Scenario</label>
             <Select value={targetScenarioId} onValueChange={setTargetScenarioId}>
@@ -85,6 +101,16 @@ export function OptimizationPanel({
             </Select>
           </div>
           <div className="space-y-1">
+            <label className="text-xs text-muted-foreground">Search Mode</label>
+            <Select value={searchMode} onValueChange={setSearchMode}>
+              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="random">Random</SelectItem>
+                <SelectItem value="grid">Grid</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
             <label className="text-xs text-muted-foreground">Iterations</label>
             <Select value={iterations} onValueChange={setIterations}>
               <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
@@ -92,6 +118,7 @@ export function OptimizationPanel({
                 <SelectItem value="30">30</SelectItem>
                 <SelectItem value="60">60</SelectItem>
                 <SelectItem value="120">120</SelectItem>
+                <SelectItem value="200">200</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -105,6 +132,15 @@ export function OptimizationPanel({
               </SelectContent>
             </Select>
           </div>
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground">Lock Keys (comma-sep)</label>
+            <Input
+              value={lockKeysInput}
+              onChange={e => setLockKeysInput(e.target.value)}
+              placeholder="e.g. hook_intensity, vfx_stunt_density"
+              className="h-8 text-xs font-mono"
+            />
+          </div>
         </div>
 
         {isActiveTarget && (
@@ -116,11 +152,13 @@ export function OptimizationPanel({
 
         {optimizeResult && optimizeResult.candidates.length > 0 && (
           <div className="space-y-2">
-            <p className="text-xs text-muted-foreground font-medium">Top Candidates</p>
-            {optimizeResult.candidates.map((c, idx) => (
+            <p className="text-xs text-muted-foreground font-medium">
+              Top {Math.min(5, optimizeResult.candidates.length)} Candidates
+            </p>
+            {optimizeResult.candidates.slice(0, 5).map((c, idx) => (
               <div key={idx} className="border border-border/40 rounded-lg p-3 space-y-2">
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <Badge variant="outline" className="text-[10px] font-mono">#{idx + 1}</Badge>
                     <Badge variant="secondary" className="text-[10px] font-mono">
                       Obj: {c.objective_score.toFixed(1)}
