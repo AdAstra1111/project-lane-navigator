@@ -48,6 +48,7 @@ const EVENT_LABELS: Record<string, string> = {
   merge_approval_consumed: 'Approval Used',
   merge_applied_from_approval: 'Applied (Approval)',
   merge_apply_attempted: 'Apply Attempted',
+  approval_pending_blocked: 'Approval Blocked',
 };
 
 const EVENT_VARIANTS: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
@@ -67,6 +68,7 @@ const EVENT_VARIANTS: Record<string, 'default' | 'secondary' | 'destructive' | '
   merge_approval_consumed: 'outline',
   merge_applied_from_approval: 'secondary',
   merge_apply_attempted: 'outline',
+  approval_pending_blocked: 'destructive',
 };
 
 function scenarioName(id: string | null, scenarios: ProjectScenario[]): string {

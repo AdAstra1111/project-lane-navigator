@@ -24,6 +24,8 @@ interface PendingApproval {
   request_event_id: string;
   has_merge_context?: boolean;
   strategy?: string | null;
+  thread_key?: string;
+  batched_count_last30m?: number;
 }
 
 interface Props {
@@ -97,9 +99,13 @@ export function MergeApprovalInbox({ projectId, scenarios }: Props) {
       if (data?.error) throw new Error(data.error);
       return data;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       invalidateApprovals();
-      toast.success('Merge approved');
+      if (data?.batched) {
+        toast.info('Already requested recently — batched into existing request.');
+      } else {
+        toast.success('Merge approved');
+      }
     },
     onError: (e: any) => {
       if ((e.message ?? '').includes('Not authorized')) {
@@ -270,6 +276,11 @@ export function MergeApprovalInbox({ projectId, scenarios }: Props) {
                   <span className="text-xs font-medium truncate">
                     → {scenarioName(item.targetScenarioId, scenarios)}
                   </span>
+                  {(item.batched_count_last30m ?? 0) > 1 && (
+                    <Badge variant="outline" className="text-[9px] shrink-0">
+                      {item.batched_count_last30m} req in 30m
+                    </Badge>
+                  )}
                   {item.sourceScenarioId && (
                     <span className="text-[10px] text-muted-foreground truncate">
                       from {scenarioName(item.sourceScenarioId, scenarios)}
