@@ -628,9 +628,9 @@ export function useStateGraph(projectId: string | undefined) {
     onError: (e: any) => toast.error(e.message),
   });
 
-  // Phase 5.2: Request merge approval
+  // Phase 5.4: Request merge approval
   const requestMergeApproval = useMutation({
-    mutationFn: async (params: { scenarioId: string; payload?: any }) => {
+    mutationFn: async (params: { sourceScenarioId?: string; targetScenarioId?: string; scenarioId?: string; riskReport?: any; payload?: any }) => {
       const { data, error } = await supabase.functions.invoke('simulation-engine', {
         body: { action: 'request_merge_approval', projectId, ...params },
       });
@@ -641,6 +641,23 @@ export function useStateGraph(projectId: string | undefined) {
     onSuccess: () => {
       invalidateAll();
       toast.success('Approval requested');
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  // Phase 5.4: Decide merge approval
+  const decideMergeApproval = useMutation({
+    mutationFn: async (params: { sourceScenarioId?: string; targetScenarioId: string; approved: boolean; note?: string }) => {
+      const { data, error } = await supabase.functions.invoke('simulation-engine', {
+        body: { action: 'decide_merge_approval', projectId, ...params },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      return data;
+    },
+    onSuccess: (_data, vars) => {
+      invalidateAll();
+      toast.success(vars.approved ? 'Merge approved' : 'Merge rejected');
     },
     onError: (e: any) => toast.error(e.message),
   });
@@ -683,6 +700,7 @@ export function useStateGraph(projectId: string | undefined) {
     scanGovernance,
     evaluateMergeRisk,
     requestMergeApproval,
+    decideMergeApproval,
     baseline,
     activeScenario,
     recommendedScenario: validRecommended,

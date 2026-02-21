@@ -3163,7 +3163,7 @@ Deno.serve(async (req) => {
 
       const [{ data: srcScen }, { data: tgtScen }] = await Promise.all([
         supabase.from("project_scenarios").select("id, state_overrides, name").eq("id", sourceId).eq("project_id", projectId).single(),
-        supabase.from("project_scenarios").select("id, state_overrides, name, is_locked, protected_paths").eq("id", targetId).eq("project_id", projectId).single(),
+        supabase.from("project_scenarios").select("id, state_overrides, name, is_locked, protected_paths, governance, merge_policy").eq("id", targetId).eq("project_id", projectId).single(),
       ]);
       if (!srcScen) return json({ error: "Source scenario not found" }, 404);
       if (!tgtScen) return json({ error: "Target scenario not found" }, 404);
@@ -3193,6 +3193,12 @@ Deno.serve(async (req) => {
           would_change_count: pathsToApply.length,
           is_locked: !!(tgtScen as any).is_locked,
         });
+      }
+
+      // Approval gate (Phase 5.4): check merge_policy.require_approval
+      const tgtMergePolicy = (tgtScen as any).merge_policy ?? (normalizeGovernance((tgtScen as any).governance).merge_policy ?? {});
+      if (tgtMergePolicy.require_approval === true && !isForce) {
+        return json({ error: "Merge requires approval", requires_approval: true }, 403);
       }
 
       // Lock checks
@@ -3772,39 +3778,62 @@ Deno.serve(async (req) => {
     // ACTION: request_merge_approval
     // ══════════════════════════════════════
     if (action === "request_merge_approval") {
-      const approvalScenarioId = body.scenarioId;
-      if (!approvalScenarioId) return json({ error: "scenarioId required" }, 400);
+      const sourceId = body.sourceScenarioId;
+      const targetId = body.targetScenarioId ?? body.scenarioId;
+      if (!targetId) return json({ error: "targetScenarioId or scenarioId required" }, 400);
+      const riskReport = body.riskReport ?? body.payload ?? {};
 
-      const { data: approval, error: apprErr } = await supabase
-        .from("scenario_merge_approvals")
-        .insert({
-          project_id: projectId,
-          scenario_id: approvalScenarioId,
-          requested_by: userId,
-          status: "pending",
-          payload: body.payload ?? null,
-        })
-        .select()
-        .single();
-      if (apprErr) throw apprErr;
-
-      // Decision event
+      // Decision event (non-fatal)
       try {
         await supabase.from("scenario_decision_events").insert({
           project_id: projectId,
           event_type: "merge_approval_requested",
-          scenario_id: approvalScenarioId,
+          scenario_id: targetId,
+          previous_scenario_id: sourceId ?? null,
           created_by: userId,
           payload: {
-            approval_id: approval.id,
-            risk_level: body.payload?.risk_level ?? null,
+            risk_score: riskReport.risk_score ?? null,
+            risk_level: riskReport.risk_level ?? null,
+            conflicts_count: riskReport.conflicts?.length ?? riskReport.conflicts_count ?? 0,
+            requested_at: new Date().toISOString(),
           },
         });
       } catch (e: unknown) {
         console.warn("decision_event_insert_failed", "merge_approval_requested", projectId, e instanceof Error ? e.message : e);
       }
 
-      return json({ approval });
+      return json({ requested: true });
+    }
+
+    // ══════════════════════════════════════
+    // ACTION: decide_merge_approval
+    // ══════════════════════════════════════
+    if (action === "decide_merge_approval") {
+      const sourceId = body.sourceScenarioId;
+      const targetId = body.targetScenarioId;
+      const approved: boolean = body.approved === true;
+      const note: string | undefined = body.note;
+      if (!targetId) return json({ error: "targetScenarioId required" }, 400);
+
+      // Decision event (non-fatal)
+      try {
+        await supabase.from("scenario_decision_events").insert({
+          project_id: projectId,
+          event_type: "merge_approval_decided",
+          scenario_id: targetId,
+          previous_scenario_id: sourceId ?? null,
+          created_by: userId,
+          payload: {
+            approved,
+            decided_at: new Date().toISOString(),
+            note: note ?? null,
+          },
+        });
+      } catch (e: unknown) {
+        console.warn("decision_event_insert_failed", "merge_approval_decided", projectId, e instanceof Error ? e.message : e);
+      }
+
+      return json({ approved });
     }
 
     return json({ error: `Unknown action: ${action}` }, 400);
