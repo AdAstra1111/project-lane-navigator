@@ -94,8 +94,8 @@ Deno.serve(async (req) => {
           const BUNDLE_ROLES: Record<string, string[]> = {
             PACKAGE: ["concept", "market", "deck", "blueprint", "character_bible", "episode_script", "feature_script", "episode_grid", "season_arc", "format_rules", "documentary_outline"],
             NARRATIVE: ["feature_script", "episode_script", "episode_grid", "season_arc", "blueprint", "character_bible"],
-            COMMERCIAL: ["market", "deck", "concept"],
-            DOCU_REALITY: ["documentary_outline", "deck", "market", "concept"],
+            COMMERCIAL: ["market", "deck", "concept", "feature_script", "episode_script"],
+            DOCU_REALITY: ["documentary_outline", "deck", "market", "concept", "feature_script"],
           };
           const desiredRoles = new Set(BUNDLE_ROLES[bundleKey || "PACKAGE"] || BUNDLE_ROLES.PACKAGE);
 
@@ -393,8 +393,8 @@ function buildRoleMap(
   const BUNDLE_ROLES: Record<string, string[]> = {
     PACKAGE: ["concept", "market", "deck", "blueprint", "character_bible", "episode_script", "feature_script", "episode_grid", "season_arc", "format_rules", "documentary_outline"],
     NARRATIVE: ["feature_script", "episode_script", "episode_grid", "season_arc", "blueprint", "character_bible"],
-    COMMERCIAL: ["market", "deck", "concept"],
-    DOCU_REALITY: ["documentary_outline", "deck", "market", "concept"],
+    COMMERCIAL: ["market", "deck", "concept", "feature_script", "episode_script"],
+    DOCU_REALITY: ["documentary_outline", "deck", "market", "concept", "feature_script"],
   };
 
   const desiredRoles = BUNDLE_ROLES[bundleKey || "PACKAGE"] || BUNDLE_ROLES.PACKAGE;
