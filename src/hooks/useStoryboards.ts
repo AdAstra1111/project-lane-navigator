@@ -23,6 +23,12 @@ export interface StoryboardBoard {
   image_asset_path: string | null;
   image_source: string | null;
   locked: boolean;
+  character_refs: string[] | null;
+  location_refs: string[] | null;
+  style_preset_id: string | null;
+  scene_seed: string | null;
+  board_seed: string | null;
+  continuity_lock: boolean;
   created_at: string;
   updated_at: string;
 }

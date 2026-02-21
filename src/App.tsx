@@ -63,6 +63,7 @@ const ProducerCockpit = lazy(() => import("./pages/ProducerCockpit"));
 const SharePackView = lazy(() => import("./pages/SharePackView"));
 const ShotListPage = lazy(() => import("./pages/ShotListPage"));
 const StoryboardsPage = lazy(() => import("./pages/StoryboardsPage"));
+const VisualReferencesPage = lazy(() => import("./pages/VisualReferencesPage"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient({
@@ -133,6 +134,7 @@ const AnimatedRoutes = () => {
           <Route path="/projects/:id/cockpit" element={<ProtectedRoute><ProducerCockpit /></ProtectedRoute>} />
           <Route path="/projects/:id/shot-list" element={<ProtectedRoute><ShotListPage /></ProtectedRoute>} />
           <Route path="/projects/:id/storyboards" element={<ProtectedRoute><StoryboardsPage /></ProtectedRoute>} />
+          <Route path="/projects/:id/visual-references" element={<ProtectedRoute><VisualReferencesPage /></ProtectedRoute>} />
           <Route path="/invite" element={<AcceptInvite />} />
           <Route path="/share/pack/:token" element={<SharePackView />} />
           <Route path="*" element={<NotFound />} />
