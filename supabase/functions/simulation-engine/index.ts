@@ -1709,6 +1709,117 @@ Deno.serve(async (req) => {
         );
 
 
+    // ══════════════════════════════════════
+    // SHARED HELPER: applyFromLatestApprovalRequest (Phase 5.11)
+    // ══════════════════════════════════════
+    async function applyFromLatestApprovalRequest(opts: {
+      sb: any; projectId: string; userId: string;
+      sourceId?: string | null; targetId: string; force?: boolean;
+    }) {
+      const { sb, projectId: pid, userId: uid, sourceId: sid, targetId: tid, force } = opts;
+      const isForce = force === true;
+
+      const thread = await getApprovalThread(sb, pid, sid, tid);
+      if (!thread.latestRequest) {
+        throw Object.assign(new Error("No approval request found"), { httpStatus: 404, body: { error: "No approval request found", code: "no_request" } });
+      }
+
+      if (!isForce) {
+        if (thread.pending) {
+          throw Object.assign(new Error("Approval pending"), { httpStatus: 403, body: { error: "Approval pending", code: "approval_pending" } });
+        }
+        if (!thread.approval_valid_now) {
+          throw Object.assign(new Error("Approval required or expired"), { httpStatus: 403, body: { error: "Approval required or expired", code: "approval_invalid" } });
+        }
+      }
+
+      const reqEvent = thread.latestRequest;
+      const reqPayload = reqEvent.payload as any;
+      const mc = reqPayload.merge_context ?? {};
+      let mergePaths: string[] = (mc.paths ?? reqPayload.paths ?? []).slice(0, 50);
+      const mergeStrategy: string = mc.strategy ?? reqPayload.strategy ?? "overwrite";
+      const effectiveSourceId = sid ?? mc.sourceScenarioId ?? reqEvent.previous_scenario_id;
+
+      if (!effectiveSourceId) {
+        throw Object.assign(new Error("Cannot determine source scenario"), { httpStatus: 400, body: { error: "Cannot determine source scenario", code: "no_source" } });
+      }
+
+      const [{ data: srcScen }, { data: tgtScen }] = await Promise.all([
+        sb.from("project_scenarios").select("id, state_overrides, name").eq("id", effectiveSourceId).eq("project_id", pid).single(),
+        sb.from("project_scenarios").select("id, state_overrides, name, is_locked, protected_paths, governance, merge_policy, computed_state").eq("id", tid).eq("project_id", pid).single(),
+      ]);
+      if (!srcScen) throw Object.assign(new Error("Source scenario not found"), { httpStatus: 404, body: { error: "Source scenario not found", code: "not_found" } });
+      if (!tgtScen) throw Object.assign(new Error("Target scenario not found"), { httpStatus: 404, body: { error: "Target scenario not found", code: "not_found" } });
+
+      const srcOver = (srcScen.state_overrides ?? {}) as Record<string, unknown>;
+      const tgtOver = JSON.parse(JSON.stringify(tgtScen.state_overrides ?? {})) as Record<string, unknown>;
+      const allChanges = diffOverridesDeep(srcOver, tgtOver);
+
+      if (mergePaths.length === 0 && allChanges.length > 0) {
+        mergePaths = allChanges.map(c => c.path).slice(0, 50);
+      }
+      if (mergePaths.length === 0) {
+        throw Object.assign(new Error("No merge context available"), { httpStatus: 400, body: { error: "No merge context available", code: "no_merge_context" } });
+      }
+
+      const pathsToApply = allChanges.filter(c => mergePaths.includes(c.path));
+      const protectedPaths: string[] = (tgtScen.protected_paths ?? []) as string[];
+      const protectedHits = pathsToApply
+        .map(c => c.path)
+        .filter(p => protectedPaths.some(pp => p === pp || p.startsWith(pp + ".")));
+      const applyDomain = getApprovalDomain(pathsToApply.map(c => c.path));
+
+      const result = await performMerge({
+        supabase: sb, projectId: pid, userId: uid,
+        sourceId: effectiveSourceId, targetId: tid,
+        pathsToApply, protectedHits,
+        strategy: mergeStrategy, isForce,
+        srcOver, tgtOver, tgtScen,
+        extraEventPayload: { applied_from_approval: true, request_event_id: reqEvent.id },
+      });
+
+      // Log merge_applied_from_approval event
+      try {
+        await sb.from("scenario_decision_events").insert({
+          project_id: pid,
+          event_type: "merge_applied_from_approval",
+          scenario_id: tid,
+          previous_scenario_id: effectiveSourceId,
+          created_by: uid,
+          payload: {
+            request_event_id: reqEvent.id,
+            domain: applyDomain,
+            strategy: mergeStrategy,
+            forced: isForce,
+            approval_valid_now_at_apply: thread.approval_valid_now,
+            applied_paths_count: pathsToApply.length,
+          },
+        });
+      } catch (_) { /* non-fatal */ }
+
+      // Log successful attempt event
+      try {
+        await sb.from("scenario_decision_events").insert({
+          project_id: pid,
+          event_type: "merge_apply_attempted",
+          scenario_id: tid,
+          previous_scenario_id: effectiveSourceId,
+          created_by: uid,
+          payload: {
+            request_event_id: reqEvent.id,
+            intent: "apply",
+            forced: isForce,
+            success: true,
+            domain: applyDomain,
+            strategy: mergeStrategy,
+            paths_count: pathsToApply.length,
+          },
+        });
+      } catch (_) { /* non-fatal */ }
+
+      return result;
+    }
+
 
       const { data: graph } = await supabase
         .from("project_state_graphs")
@@ -4201,19 +4312,19 @@ Deno.serve(async (req) => {
     }
 
     // ══════════════════════════════════════
-    // ACTION: decide_merge_approval
+    // ACTION: decide_merge_approval (Phase 5.11: intent + optional apply)
     // ══════════════════════════════════════
     if (action === "decide_merge_approval") {
       const sourceId = body.sourceScenarioId;
       const targetId = body.targetScenarioId;
       const approved: boolean = body.approved === true;
       const note: string | undefined = body.note;
+      const intent: string = body.intent ?? "approve_only";
       if (!targetId) return json({ error: "targetScenarioId required" }, 400);
 
       // Phase 5.6: Compute domain from paths
       let decidePaths: string[] = body.paths ?? [];
       if (decidePaths.length === 0 && sourceId) {
-        // Recompute from scenario overrides
         try {
           const [{ data: srcS }, { data: tgtS }] = await Promise.all([
             supabase.from("project_scenarios").select("state_overrides").eq("id", sourceId).eq("project_id", projectId).single(),
@@ -4239,7 +4350,7 @@ Deno.serve(async (req) => {
         .single();
       const mergePolicy = (tgtScenForPolicy?.data as any)?.merge_policy ?? (normalizeGovernance((tgtScenForPolicy?.data as any)?.governance).merge_policy ?? {});
 
-      if (!canApproveMerge(role, domain, mergePolicy)) {
+      if (approved && !canApproveMerge(role, domain, mergePolicy)) {
         return json({ error: "Not authorized to approve this merge", domain }, 403);
       }
 
@@ -4259,13 +4370,116 @@ Deno.serve(async (req) => {
           paths: decidePaths.slice(0, 50),
           sourceScenarioId: sourceId ?? null,
           targetScenarioId: targetId,
+          intent,
         },
       });
       if (insertErr) {
         throw new Error("Failed to record approval decision: " + insertErr.message);
       }
 
+      // Phase 5.11: If intent includes apply and approved, attempt apply
+      if (approved && (intent === "approve_and_apply" || intent === "approve_and_auto_apply")) {
+        const applyForce = body.apply?.force === true;
+        if (applyForce) {
+          if (!role.isOwner && !role.isAdmin) {
+            return json({ approved: true, applied: false, apply_error: { code: "force_not_authorized", error: "Not authorized to force apply" } });
+          }
+        }
+
+        try {
+          const applyResult = await applyFromLatestApprovalRequest({
+            sb: supabase, projectId, userId, sourceId, targetId, force: applyForce,
+          });
+          return json({ approved: true, applied: true, applied_result: applyResult, domain });
+        } catch (applyErr: any) {
+          const errBody = applyErr.body ?? { code: applyErr.code ?? "apply_failed", error: applyErr.message ?? "Apply failed" };
+          // Log attempt
+          try {
+            await supabase.from("scenario_decision_events").insert({
+              project_id: projectId,
+              event_type: "merge_apply_attempted",
+              scenario_id: targetId,
+              previous_scenario_id: sourceId ?? null,
+              created_by: userId,
+              payload: { intent, forced: applyForce, success: false, error_code: errBody.code, error_message: errBody.error, domain },
+            });
+          } catch (_) { /* non-fatal */ }
+          return json({ approved: true, applied: false, apply_error: errBody, domain });
+        }
+      }
+
       return json({ approved, domain });
+    }
+
+    // ══════════════════════════════════════
+    // ACTION: decide_merge_approval_and_apply (Phase 5.11 thin wrapper)
+    // ══════════════════════════════════════
+    if (action === "decide_merge_approval_and_apply") {
+      // Rewrite body to use decide_merge_approval with intent
+      body.intent = "approve_and_apply";
+      body.approved = true;
+      // Fall through handled by redirecting:
+      const sourceId = body.sourceScenarioId;
+      const targetId = body.targetScenarioId;
+      const note = body.note;
+      if (!targetId) return json({ error: "targetScenarioId required" }, 400);
+
+      let decidePaths: string[] = body.paths ?? [];
+      if (decidePaths.length === 0 && sourceId) {
+        try {
+          const [{ data: srcS }, { data: tgtS }] = await Promise.all([
+            supabase.from("project_scenarios").select("state_overrides").eq("id", sourceId).eq("project_id", projectId).single(),
+            supabase.from("project_scenarios").select("state_overrides, merge_policy, governance").eq("id", targetId).eq("project_id", projectId).single(),
+          ]);
+          if (srcS && tgtS) {
+            const changes = diffOverridesDeep(
+              (srcS.state_overrides ?? {}) as Record<string, unknown>,
+              (tgtS.state_overrides ?? {}) as Record<string, unknown>,
+            );
+            decidePaths = changes.map(c => c.path).slice(0, 50);
+          }
+        } catch { /* best effort */ }
+      }
+      const domain = decidePaths.length > 0 ? getApprovalDomain(decidePaths) : (body.domain ?? "general");
+
+      const role = await getProjectMembershipRole(supabase, projectId, userId);
+      const tgtScenForPolicy = await supabase
+        .from("project_scenarios").select("merge_policy, governance")
+        .eq("id", targetId).eq("project_id", projectId).single();
+      const mergePolicy = (tgtScenForPolicy?.data as any)?.merge_policy ?? (normalizeGovernance((tgtScenForPolicy?.data as any)?.governance).merge_policy ?? {});
+
+      if (!canApproveMerge(role, domain, mergePolicy)) {
+        return json({ error: "Not authorized to approve this merge", domain }, 403);
+      }
+
+      // Insert decision
+      const { error: insertErr } = await supabase.from("scenario_decision_events").insert({
+        project_id: projectId, event_type: "merge_approval_decided",
+        scenario_id: targetId, previous_scenario_id: sourceId ?? null, created_by: userId,
+        payload: { approved: true, decided_at: new Date().toISOString(), note: note ?? null, domain, decided_by: userId, intent: "approve_and_apply" },
+      });
+      if (insertErr) throw new Error("Failed to record approval decision: " + insertErr.message);
+
+      // Attempt apply
+      const applyForce = body.apply?.force === true;
+      if (applyForce && !role.isOwner && !role.isAdmin) {
+        return json({ approved: true, applied: false, apply_error: { code: "force_not_authorized", error: "Not authorized to force apply" } });
+      }
+
+      try {
+        const applyResult = await applyFromLatestApprovalRequest({ sb: supabase, projectId, userId, sourceId, targetId, force: applyForce });
+        return json({ approved: true, applied: true, applied_result: applyResult, domain });
+      } catch (applyErr: any) {
+        const errBody = applyErr.body ?? { code: applyErr.code ?? "apply_failed", error: applyErr.message ?? "Apply failed" };
+        try {
+          await supabase.from("scenario_decision_events").insert({
+            project_id: projectId, event_type: "merge_apply_attempted",
+            scenario_id: targetId, previous_scenario_id: sourceId ?? null, created_by: userId,
+            payload: { intent: "approve_and_apply", forced: applyForce, success: false, error_code: errBody.code, error_message: errBody.error, domain },
+          });
+        } catch (_) { /* non-fatal */ }
+        return json({ approved: true, applied: false, apply_error: errBody, domain });
+      }
     }
 
     // ══════════════════════════════════════
@@ -4285,94 +4499,10 @@ Deno.serve(async (req) => {
         }
       }
 
-      // Phase 5.10: Use getApprovalThread for correct approval state
-      const thread = await getApprovalThread(supabase, projectId, sourceId, targetId);
-
-      if (!thread.latestRequest) {
-        return json({ error: "No approval request found for this merge", code: "no_request" }, 404);
-      }
-
-      // Phase 5.10: Approval correctness gate
-      if (!isForce) {
-        if (thread.pending) {
-          return json({ error: "Approval pending — not yet decided", code: "approval_pending" }, 403);
-        }
-        if (!thread.approval_valid_now) {
-          return json({ error: "Approval required or expired", code: "approval_invalid" }, 403);
-        }
-      }
-
-      const reqEvent = thread.latestRequest;
-      const reqPayload = reqEvent.payload as any;
-      const mc = reqPayload.merge_context ?? {};
-      let mergePaths: string[] = (mc.paths ?? reqPayload.paths ?? []).slice(0, 50);
-      const mergeStrategy: string = mc.strategy ?? reqPayload.strategy ?? "overwrite";
-      const effectiveSourceId = sourceId ?? mc.sourceScenarioId ?? reqEvent.previous_scenario_id;
-
-      if (!effectiveSourceId) {
-        return json({ error: "Cannot determine source scenario", code: "no_source" }, 400);
-      }
-
-      // Fetch scenarios
-      const [{ data: srcScen }, { data: tgtScen }] = await Promise.all([
-        supabase.from("project_scenarios").select("id, state_overrides, name").eq("id", effectiveSourceId).eq("project_id", projectId).single(),
-        supabase.from("project_scenarios").select("id, state_overrides, name, is_locked, protected_paths, governance, merge_policy, computed_state").eq("id", targetId).eq("project_id", projectId).single(),
-      ]);
-      if (!srcScen) return json({ error: "Source scenario not found", code: "not_found" }, 404);
-      if (!tgtScen) return json({ error: "Target scenario not found", code: "not_found" }, 404);
-
-      const srcOver = (srcScen.state_overrides ?? {}) as Record<string, unknown>;
-      const tgtOver = JSON.parse(JSON.stringify(tgtScen.state_overrides ?? {})) as Record<string, unknown>;
-
-      const allChanges = diffOverridesDeep(srcOver, tgtOver);
-      
-      // If mergePaths empty, try to reconstruct from diff
-      if (mergePaths.length === 0 && allChanges.length > 0) {
-        mergePaths = allChanges.map(c => c.path).slice(0, 50);
-      }
-      if (mergePaths.length === 0) {
-        return json({ error: "No merge context available", code: "no_merge_context" }, 400);
-      }
-
-      const pathsToApply = allChanges.filter(c => mergePaths.includes(c.path));
-
-      const protectedPaths: string[] = (tgtScen.protected_paths ?? []) as string[];
-      const protectedHits = pathsToApply
-        .map(c => c.path)
-        .filter(p => protectedPaths.some(pp => p === pp || p.startsWith(pp + ".")));
-
-      const applyDomain = getApprovalDomain(pathsToApply.map(c => c.path));
-
       try {
-        const result = await performMerge({
-          supabase, projectId, userId,
-          sourceId: effectiveSourceId, targetId,
-          pathsToApply, protectedHits,
-          strategy: mergeStrategy, isForce,
-          srcOver, tgtOver,
-          tgtScen,
-          extraEventPayload: { applied_from_approval: true, request_event_id: reqEvent.id },
+        const result = await applyFromLatestApprovalRequest({
+          sb: supabase, projectId, userId, sourceId, targetId, force: isForce,
         });
-
-        // Log merge_applied_from_approval event
-        try {
-          await supabase.from("scenario_decision_events").insert({
-            project_id: projectId,
-            event_type: "merge_applied_from_approval",
-            scenario_id: targetId,
-            previous_scenario_id: effectiveSourceId,
-            created_by: userId,
-            payload: {
-              request_event_id: reqEvent.id,
-              domain: applyDomain,
-              strategy: mergeStrategy,
-              forced: isForce,
-              approval_valid_now_at_apply: thread.approval_valid_now,
-              applied_paths_count: pathsToApply.length,
-            },
-          });
-        } catch (_) { /* non-fatal */ }
-
         return json(result);
       } catch (mergeErr: any) {
         if (mergeErr.httpStatus) {
@@ -4380,6 +4510,62 @@ Deno.serve(async (req) => {
         }
         throw mergeErr;
       }
+    }
+
+    // ══════════════════════════════════════
+    // ACTION: list_actionable_approved_merges (Phase 5.11)
+    // ══════════════════════════════════════
+    if (action === "list_actionable_approved_merges") {
+      const { data: events } = await supabase
+        .from("scenario_decision_events")
+        .select("*")
+        .eq("project_id", projectId)
+        .in("event_type", ["merge_approval_requested", "merge_approval_decided", "merge_applied_from_approval"])
+        .order("created_at", { ascending: false })
+        .limit(500);
+
+      const evts = events ?? [];
+      const groups: Record<string, { requests: any[]; decisions: any[]; applied: any[] }> = {};
+      for (const ev of evts) {
+        const src = ev.previous_scenario_id ?? "null";
+        const tgt = ev.scenario_id ?? "null";
+        if (tgt === "null") continue;
+        const key = `${src}::${tgt}`;
+        if (!groups[key]) groups[key] = { requests: [], decisions: [], applied: [] };
+        if (ev.event_type === "merge_approval_requested") groups[key].requests.push(ev);
+        else if (ev.event_type === "merge_approval_decided") groups[key].decisions.push(ev);
+        else if (ev.event_type === "merge_applied_from_approval") groups[key].applied.push(ev);
+      }
+
+      const actionable: any[] = [];
+      for (const [key, group] of Object.entries(groups)) {
+        if (group.requests.length === 0 || group.decisions.length === 0) continue;
+        const latestReq = group.requests[0];
+        const latestDec = group.decisions[0];
+        const latestDecPayload = latestDec.payload as any;
+        if (latestDecPayload?.approved !== true) continue;
+        const decidedAt = new Date(latestDec.created_at).getTime();
+        if (Date.now() - decidedAt > 24 * 60 * 60 * 1000) continue; // expired
+        if (decidedAt < new Date(latestReq.created_at).getTime()) continue; // stale decision
+        // Check if already applied after this decision
+        const latestApplied = group.applied.length > 0 ? group.applied[0] : null;
+        if (latestApplied && new Date(latestApplied.created_at).getTime() >= decidedAt) continue;
+        const reqPayload = latestReq.payload as any;
+        const mc = reqPayload?.merge_context;
+        if (!mc && !(reqPayload?.paths?.length > 0)) continue; // no merge context
+        const [src, tgt] = key.split("::");
+        actionable.push({
+          sourceScenarioId: src === "null" ? null : src,
+          targetScenarioId: tgt,
+          approved_at: latestDec.created_at,
+          domain: latestDecPayload.domain ?? reqPayload?.domain ?? "general",
+          strategy: mc?.strategy ?? reqPayload?.strategy ?? "overwrite",
+          request_event_id: latestReq.id,
+          paths_count: (mc?.paths ?? reqPayload?.paths ?? []).length,
+        });
+      }
+
+      return json({ actionable });
     }
 
     return json({ error: `Unknown action: ${action}` }, 400);
