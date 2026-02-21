@@ -37,6 +37,7 @@ const EVENT_LABELS: Record<string, string> = {
   projection_completed: 'Projection',
   stress_test_completed: 'Stress Test',
   branch_created: 'Branch Created',
+  scenario_merged: 'Merged',
 };
 
 const EVENT_VARIANTS: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
@@ -45,6 +46,7 @@ const EVENT_VARIANTS: Record<string, 'default' | 'secondary' | 'destructive' | '
   projection_completed: 'outline',
   stress_test_completed: 'outline',
   branch_created: 'secondary',
+  scenario_merged: 'secondary',
 };
 
 function scenarioName(id: string | null, scenarios: ProjectScenario[]): string {

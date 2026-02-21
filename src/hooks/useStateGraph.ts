@@ -503,6 +503,36 @@ export function useStateGraph(projectId: string | undefined) {
     },
   });
 
+  // Phase 4.9: Diff scenarios
+  const diffScenarios = useMutation({
+    mutationFn: async (params: { aScenarioId: string; bScenarioId: string }) => {
+      const { data, error } = await supabase.functions.invoke('simulation-engine', {
+        body: { action: 'diff_scenarios', projectId, ...params },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      return data;
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  // Phase 4.9: Merge scenario overrides
+  const mergeScenarioOverrides = useMutation({
+    mutationFn: async (params: { sourceScenarioId: string; targetScenarioId: string; paths?: string[]; strategy?: string }) => {
+      const { data, error } = await supabase.functions.invoke('simulation-engine', {
+        body: { action: 'merge_scenario_overrides', projectId, ...params },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      return data;
+    },
+    onSuccess: () => {
+      invalidateAll();
+      toast.success('Scenario overrides merged');
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
   // Phase 4.1: recompute recommendation
   const recomputeRecommendation = useMutation({
     mutationFn: async (params?: { baselineScenarioId?: string; activeScenarioId?: string }) => {
@@ -557,6 +587,8 @@ export function useStateGraph(projectId: string | undefined) {
     recomputeRecommendation,
     runStressTest,
     branchFromDecisionEvent,
+    diffScenarios,
+    mergeScenarioOverrides,
     baseline,
     activeScenario,
     recommendedScenario: validRecommended,

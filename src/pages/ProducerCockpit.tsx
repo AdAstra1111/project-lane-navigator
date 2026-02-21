@@ -16,6 +16,7 @@ import { ScenarioStressTestPanel } from '@/components/cockpit/ScenarioStressTest
 import { InvestorModePanel } from '@/components/cockpit/InvestorModePanel';
 import { ScenarioComparisonPanel } from '@/components/cockpit/ScenarioComparisonPanel';
 import { DecisionLogPanel } from '@/components/cockpit/DecisionLogPanel';
+import { ScenarioDiffMergePanel } from '@/components/cockpit/ScenarioDiffMergePanel';
 
 import { ArrowLeft, Gauge } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -43,6 +44,7 @@ export default function ProducerCockpit() {
     recomputeRecommendation,
     runStressTest,
     branchFromDecisionEvent,
+    mergeScenarioOverrides,
     latestStressTest,
     baseline,
     activeScenario,
@@ -130,6 +132,14 @@ export default function ProducerCockpit() {
             isProjecting={projectForward.isPending}
             onRunStressTest={(params) => runStressTest.mutate(params)}
             isRunningStress={runStressTest.isPending}
+          />
+
+          <ScenarioDiffMergePanel
+            projectId={projectId}
+            scenarios={scenarios}
+            activeScenarioId={activeScenario?.id ?? null}
+            onMerge={(params) => mergeScenarioOverrides.mutate(params)}
+            isMerging={mergeScenarioOverrides.isPending}
           />
 
           <ActiveScenarioBanner
