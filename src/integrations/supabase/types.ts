@@ -3312,6 +3312,75 @@ export type Database = {
           },
         ]
       }
+      drift_alerts: {
+        Row: {
+          acknowledged: boolean
+          acknowledged_at: string | null
+          alert_type: string
+          created_at: string
+          current_value: number | null
+          id: string
+          layer: string
+          message: string
+          metric_key: string
+          previous_value: number | null
+          project_id: string
+          scenario_id: string | null
+          severity: string
+          threshold: number | null
+          user_id: string
+        }
+        Insert: {
+          acknowledged?: boolean
+          acknowledged_at?: string | null
+          alert_type: string
+          created_at?: string
+          current_value?: number | null
+          id?: string
+          layer: string
+          message: string
+          metric_key: string
+          previous_value?: number | null
+          project_id: string
+          scenario_id?: string | null
+          severity?: string
+          threshold?: number | null
+          user_id: string
+        }
+        Update: {
+          acknowledged?: boolean
+          acknowledged_at?: string | null
+          alert_type?: string
+          created_at?: string
+          current_value?: number | null
+          id?: string
+          layer?: string
+          message?: string
+          metric_key?: string
+          previous_value?: number | null
+          project_id?: string
+          scenario_id?: string | null
+          severity?: string
+          threshold?: number | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "drift_alerts_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "drift_alerts_scenario_id_fkey"
+            columns: ["scenario_id"]
+            isOneToOne: false
+            referencedRelation: "project_scenarios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       edit_versions: {
         Row: {
           created_at: string
@@ -8115,6 +8184,68 @@ export type Database = {
           },
         ]
       }
+      project_scenarios: {
+        Row: {
+          coherence_flags: Json
+          computed_state: Json
+          created_at: string
+          delta_vs_baseline: Json
+          description: string | null
+          id: string
+          is_active: boolean
+          is_archived: boolean
+          name: string
+          override_log: Json
+          project_id: string
+          scenario_type: string
+          state_overrides: Json
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          coherence_flags?: Json
+          computed_state?: Json
+          created_at?: string
+          delta_vs_baseline?: Json
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          is_archived?: boolean
+          name?: string
+          override_log?: Json
+          project_id: string
+          scenario_type?: string
+          state_overrides?: Json
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          coherence_flags?: Json
+          computed_state?: Json
+          created_at?: string
+          delta_vs_baseline?: Json
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          is_archived?: boolean
+          name?: string
+          override_log?: Json
+          project_id?: string
+          scenario_type?: string
+          state_overrides?: Json
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_scenarios_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       project_scenes: {
         Row: {
           cast_members: string[]
@@ -8343,6 +8474,62 @@ export type Database = {
             foreignKeyName: "project_signal_matches_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_state_graphs: {
+        Row: {
+          assumption_multipliers: Json
+          confidence_bands: Json
+          created_at: string
+          creative_state: Json
+          execution_state: Json
+          finance_state: Json
+          id: string
+          last_cascade_at: string | null
+          production_state: Json
+          project_id: string
+          revenue_state: Json
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          assumption_multipliers?: Json
+          confidence_bands?: Json
+          created_at?: string
+          creative_state?: Json
+          execution_state?: Json
+          finance_state?: Json
+          id?: string
+          last_cascade_at?: string | null
+          production_state?: Json
+          project_id: string
+          revenue_state?: Json
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          assumption_multipliers?: Json
+          confidence_bands?: Json
+          created_at?: string
+          creative_state?: Json
+          execution_state?: Json
+          finance_state?: Json
+          id?: string
+          last_cascade_at?: string | null
+          production_state?: Json
+          project_id?: string
+          revenue_state?: Json
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_state_graphs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: true
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -8896,6 +9083,57 @@ export type Database = {
           triggers?: Json
         }
         Relationships: []
+      }
+      scenario_snapshots: {
+        Row: {
+          confidence_bands: Json
+          created_at: string
+          delta_vs_previous: Json
+          id: string
+          project_id: string
+          scenario_id: string
+          snapshot_state: Json
+          trigger_reason: string
+          user_id: string
+        }
+        Insert: {
+          confidence_bands?: Json
+          created_at?: string
+          delta_vs_previous?: Json
+          id?: string
+          project_id: string
+          scenario_id: string
+          snapshot_state?: Json
+          trigger_reason?: string
+          user_id: string
+        }
+        Update: {
+          confidence_bands?: Json
+          created_at?: string
+          delta_vs_previous?: Json
+          id?: string
+          project_id?: string
+          scenario_id?: string
+          snapshot_state?: Json
+          trigger_reason?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scenario_snapshots_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scenario_snapshots_scenario_id_fkey"
+            columns: ["scenario_id"]
+            isOneToOne: false
+            referencedRelation: "project_scenarios"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       scene_schedule: {
         Row: {

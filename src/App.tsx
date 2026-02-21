@@ -59,6 +59,7 @@ const DevelopmentEngine = lazy(() => import("./pages/DevelopmentEngine"));
 const ProjectDevelopmentEngine = lazy(() => import("./pages/ProjectDevelopmentEngine"));
 const SeriesWriterPage = lazy(() => import("./pages/SeriesWriter"));
 const FeatureScript = lazy(() => import("./pages/FeatureScript"));
+const ProducerCockpit = lazy(() => import("./pages/ProducerCockpit"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient({
@@ -126,6 +127,7 @@ const AnimatedRoutes = () => {
           <Route path="/projects/:id/development" element={<ProtectedRoute><ProjectDevelopmentEngine /></ProtectedRoute>} />
           <Route path="/projects/:id/series-writer" element={<ProtectedRoute><SeriesWriterPage /></ProtectedRoute>} />
           <Route path="/projects/:id/feature-script" element={<ProtectedRoute><FeatureScript /></ProtectedRoute>} />
+          <Route path="/projects/:id/cockpit" element={<ProtectedRoute><ProducerCockpit /></ProtectedRoute>} />
           <Route path="/invite" element={<AcceptInvite />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
