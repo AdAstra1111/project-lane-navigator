@@ -131,9 +131,21 @@ export function DecisionLogPanel({
           <Collapsible key={ev.id}>
             <div className="rounded-md border border-border/30 bg-muted/10">
               <CollapsibleTrigger className="flex items-center gap-2 w-full px-3 py-2 text-left hover:bg-muted/20 transition-colors">
-                <Badge variant={EVENT_VARIANTS[ev.event_type] ?? 'outline'} className="text-[10px] shrink-0">
-                  {EVENT_LABELS[ev.event_type] ?? ev.event_type}
+                <Badge variant={
+                  ev.event_type === 'merge_approval_decided'
+                    ? (ev.payload?.approved ? 'default' : 'destructive')
+                    : (EVENT_VARIANTS[ev.event_type] ?? 'outline')
+                } className="text-[10px] shrink-0">
+                  {ev.event_type === 'merge_approval_decided'
+                    ? (ev.payload?.approved ? 'Approved' : 'Rejected')
+                    : (EVENT_LABELS[ev.event_type] ?? ev.event_type)}
                 </Badge>
+                {/* Phase 5.6: Domain badge */}
+                {ev.payload?.domain && (
+                  <Badge variant="outline" className="text-[9px] shrink-0 capitalize">
+                    {ev.payload.domain}
+                  </Badge>
+                )}
                 <span className="text-xs font-medium truncate">
                   {scenarioName(ev.scenario_id, scenarios)}
                 </span>

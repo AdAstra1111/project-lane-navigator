@@ -127,12 +127,84 @@ function resolveSeed(
 
 // ---- Approval decision helpers (Phase 5.5) ----
 
+// ---- Phase 5.6: Role-based approval helpers ----
+
+interface ProjectMembershipRole {
+  isOwner: boolean;
+  isAdmin: boolean;
+  permissions: string[];
+}
+
+async function getProjectMembershipRole(
+  supabase: any,
+  projectId: string,
+  userId: string,
+): Promise<ProjectMembershipRole> {
+  // Check if user is project owner
+  const { data: project } = await supabase
+    .from("projects")
+    .select("user_id")
+    .eq("id", projectId)
+    .single();
+
+  if (project && project.user_id === userId) {
+    return { isOwner: true, isAdmin: true, permissions: ["*"] };
+  }
+
+  // Check project_collaborators for role
+  const { data: collab } = await supabase
+    .from("project_collaborators")
+    .select("role, status")
+    .eq("project_id", projectId)
+    .eq("user_id", userId)
+    .eq("status", "accepted")
+    .single();
+
+  if (collab) {
+    const role = (collab.role ?? "").toLowerCase();
+    const isAdmin = role === "admin" || role === "owner" || role === "editor";
+    return { isOwner: false, isAdmin, permissions: isAdmin ? ["approve_all"] : [] };
+  }
+
+  // Fallback: not a member / viewer
+  return { isOwner: false, isAdmin: false, permissions: [] };
+}
+
+function getApprovalDomain(paths: string[]): string {
+  for (const p of paths) {
+    if (p.startsWith("finance_state.")) return "finance";
+  }
+  for (const p of paths) {
+    if (p.startsWith("production_state.")) return "production";
+  }
+  for (const p of paths) {
+    if (p.startsWith("revenue_state.")) return "revenue";
+  }
+  for (const p of paths) {
+    if (p.startsWith("creative_state.")) return "creative";
+  }
+  return "general";
+}
+
+function canApproveMerge(
+  role: ProjectMembershipRole,
+  domain: string,
+  mergePolicy?: Record<string, unknown>,
+): boolean {
+  if (role.isOwner || role.isAdmin) return true;
+  if (domain === "finance") return false;
+  if (mergePolicy?.allow_self_approve === true) return true;
+  return false;
+}
+
+// ---- Phase 5.5: Approval decision helpers ----
+
 async function getLatestApprovalDecision(
   supabase: any,
   projectId: string,
   sourceId: string,
   targetId: string,
-): Promise<{ approved: boolean; created_at: string; note?: string } | null> {
+): Promise<{ approved: boolean; created_at: string; note?: string; domain?: string } | null> {
   try {
     const { data, error } = await supabase
       .from("scenario_decision_events")
@@ -150,6 +222,7 @@ async function getLatestApprovalDecision(
       approved: payload?.approved === true,
       created_at: row.created_at,
       note: payload?.note ?? undefined,
+      domain: payload?.domain ?? undefined,
     };
   } catch {
     return null;
@@ -157,14 +230,17 @@ async function getLatestApprovalDecision(
 }
 
 function isApprovalValid(
-  decision: { approved: boolean; created_at: string } | null,
+  decision: { approved: boolean; created_at: string; domain?: string } | null,
   ttlHours = 24,
+  requiredDomain?: string,
 ): boolean {
   if (!decision) return false;
   if (decision.approved !== true) return false;
   const decidedAt = new Date(decision.created_at).getTime();
   const now = Date.now();
   if (now - decidedAt > ttlHours * 60 * 60 * 1000) return false;
+  // Phase 5.6: domain must match if both are present
+  if (requiredDomain && decision.domain && decision.domain !== requiredDomain) return false;
   return true;
 }
 
@@ -3238,17 +3314,18 @@ Deno.serve(async (req) => {
         });
       }
 
-      // Approval gate (Phase 5.4 + 5.5): check merge_policy.require_approval with TTL unlock
+      // Approval gate (Phase 5.4 + 5.5 + 5.6): check merge_policy.require_approval with TTL unlock + domain match
       const tgtMergePolicy = (tgtScen as any).merge_policy ?? (normalizeGovernance((tgtScen as any).governance).merge_policy ?? {});
+      const mergeDomain = getApprovalDomain(pathsToApply.map(c => c.path));
       let approvalBypassed = false;
-      let approvalDecisionUsed: { approved: boolean; created_at: string; note?: string } | null = null;
+      let approvalDecisionUsed: { approved: boolean; created_at: string; note?: string; domain?: string } | null = null;
       if (tgtMergePolicy.require_approval === true && !isForce) {
         const decision = await getLatestApprovalDecision(supabase, projectId, sourceId, targetId);
-        if (isApprovalValid(decision, 24)) {
+        if (isApprovalValid(decision, 24, mergeDomain)) {
           approvalBypassed = true;
           approvalDecisionUsed = decision;
         } else {
-          return json({ error: "Merge requires approval", requires_approval: true, approval_valid: false }, 403);
+          return json({ error: "Merge requires approval", requires_approval: true, approval_valid: false, domain: mergeDomain }, 403);
         }
       }
 
@@ -3851,6 +3928,8 @@ Deno.serve(async (req) => {
       const targetId = body.targetScenarioId ?? body.scenarioId;
       if (!targetId) return json({ error: "targetScenarioId or scenarioId required" }, 400);
       const riskReport = body.riskReport ?? body.payload ?? {};
+      const reqPaths: string[] = (riskReport.paths ?? body.paths ?? []).slice(0, 50);
+      const domain = reqPaths.length > 0 ? getApprovalDomain(reqPaths) : (riskReport.domain ?? "general");
 
       // Decision event (non-fatal)
       try {
@@ -3865,13 +3944,16 @@ Deno.serve(async (req) => {
             risk_level: riskReport.risk_level ?? null,
             conflicts_count: riskReport.conflicts?.length ?? riskReport.conflicts_count ?? 0,
             requested_at: new Date().toISOString(),
+            domain,
+            paths: reqPaths,
+            requested_by_user_id: userId,
           },
         });
       } catch (e: unknown) {
         console.warn("decision_event_insert_failed", "merge_approval_requested", projectId, e instanceof Error ? e.message : e);
       }
 
-      return json({ requested: true });
+      return json({ requested: true, domain });
     }
 
     // ══════════════════════════════════════
@@ -3884,27 +3966,62 @@ Deno.serve(async (req) => {
       const note: string | undefined = body.note;
       if (!targetId) return json({ error: "targetScenarioId required" }, 400);
 
-      // Decision event (non-fatal)
-      try {
-        await supabase.from("scenario_decision_events").insert({
-          project_id: projectId,
-          event_type: "merge_approval_decided",
-          scenario_id: targetId,
-          previous_scenario_id: sourceId ?? null,
-          created_by: userId,
-          payload: {
-            approved,
-            decided_at: new Date().toISOString(),
-            note: note ?? null,
-            sourceScenarioId: sourceId ?? null,
-            targetScenarioId: targetId,
-          },
-        });
-      } catch (e: unknown) {
-        console.warn("decision_event_insert_failed", "merge_approval_decided", projectId, e instanceof Error ? e.message : e);
+      // Phase 5.6: Compute domain from paths
+      let decidePaths: string[] = body.paths ?? [];
+      if (decidePaths.length === 0 && sourceId) {
+        // Recompute from scenario overrides
+        try {
+          const [{ data: srcS }, { data: tgtS }] = await Promise.all([
+            supabase.from("project_scenarios").select("state_overrides").eq("id", sourceId).eq("project_id", projectId).single(),
+            supabase.from("project_scenarios").select("state_overrides, merge_policy, governance").eq("id", targetId).eq("project_id", projectId).single(),
+          ]);
+          if (srcS && tgtS) {
+            const srcO = (srcS.state_overrides ?? {}) as Record<string, unknown>;
+            const tgtO = (tgtS.state_overrides ?? {}) as Record<string, unknown>;
+            const changes = diffOverridesDeep(srcO, tgtO);
+            decidePaths = changes.map(c => c.path).slice(0, 50);
+          }
+        } catch { /* best effort */ }
+      }
+      const domain = decidePaths.length > 0 ? getApprovalDomain(decidePaths) : (body.domain ?? "general");
+
+      // Phase 5.6: Role-based authorization check
+      const role = await getProjectMembershipRole(supabase, projectId, userId);
+      const tgtScenForPolicy = await supabase
+        .from("project_scenarios")
+        .select("merge_policy, governance")
+        .eq("id", targetId)
+        .eq("project_id", projectId)
+        .single();
+      const mergePolicy = (tgtScenForPolicy?.data as any)?.merge_policy ?? (normalizeGovernance((tgtScenForPolicy?.data as any)?.governance).merge_policy ?? {});
+
+      if (!canApproveMerge(role, domain, mergePolicy)) {
+        return json({ error: "Not authorized to approve this merge", domain }, 403);
       }
 
-      return json({ approved });
+      // Decision event — hard gate: fail if insert fails
+      const { error: insertErr } = await supabase.from("scenario_decision_events").insert({
+        project_id: projectId,
+        event_type: "merge_approval_decided",
+        scenario_id: targetId,
+        previous_scenario_id: sourceId ?? null,
+        created_by: userId,
+        payload: {
+          approved,
+          decided_at: new Date().toISOString(),
+          note: note ?? null,
+          domain,
+          decided_by: userId,
+          paths: decidePaths.slice(0, 50),
+          sourceScenarioId: sourceId ?? null,
+          targetScenarioId: targetId,
+        },
+      });
+      if (insertErr) {
+        throw new Error("Failed to record approval decision: " + insertErr.message);
+      }
+
+      return json({ approved, domain });
     }
 
     return json({ error: `Unknown action: ${action}` }, 400);
