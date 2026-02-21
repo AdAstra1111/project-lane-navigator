@@ -14,6 +14,7 @@ import { EngineSelfTestPanel } from '@/components/cockpit/EngineSelfTestPanel';
 import { StrategicRecommendationPanel } from '@/components/cockpit/StrategicRecommendationPanel';
 import { ScenarioStressTestPanel } from '@/components/cockpit/ScenarioStressTestPanel';
 import { InvestorModePanel } from '@/components/cockpit/InvestorModePanel';
+import { ScenarioComparisonPanel } from '@/components/cockpit/ScenarioComparisonPanel';
 
 import { ArrowLeft, Gauge } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -112,6 +113,22 @@ export default function ProducerCockpit() {
               latestStressTest={latestStressTest}
             />
           </div>
+
+          <ScenarioComparisonPanel
+            projectId={projectId}
+            scenarios={scenarios}
+            baselineScenarioId={baseline?.id ?? null}
+            activeScenarioId={activeScenario?.id ?? null}
+            recommendedScenarioId={recommendedScenario?.id ?? null}
+            onSetActive={(id) => setActiveScenario.mutate(id)}
+            isSettingActive={setActiveScenario.isPending}
+            onTogglePin={(id) => togglePin.mutate(id)}
+            isTogglingPin={togglePin.isPending}
+            onRunProjection={(params) => projectForward.mutate(params)}
+            isProjecting={projectForward.isPending}
+            onRunStressTest={(params) => runStressTest.mutate(params)}
+            isRunningStress={runStressTest.isPending}
+          />
 
           <ActiveScenarioBanner
             activeScenario={activeScenario}
