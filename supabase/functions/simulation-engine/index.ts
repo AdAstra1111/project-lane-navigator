@@ -498,7 +498,86 @@ function deepEqual(a: unknown, b: unknown): boolean {
   return false;
 }
 
-function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
+// ---- Governance Helpers (Phase 5.3) ----
+
+interface NormalizedGovernance {
+  critical_paths: string[];
+  suggested_protected_paths: string[];
+  risk_memory: {
+    path_weights: Record<string, number>;
+    merge_outcomes: Array<{
+      at: string;
+      sourceScenarioId?: string;
+      targetScenarioId?: string;
+      risk_score?: number;
+      required_approval?: boolean;
+      forced?: boolean;
+      paths?: string[];
+      drift_critical?: number;
+      drift_warning?: number;
+      confidence_before?: number;
+      confidence_after?: number;
+    }>;
+  };
+  governance_confidence_score: number | null;
+  merge_policy?: {
+    require_approval?: boolean;
+    risk_threshold?: number;
+  };
+  last_governance_scan_at?: string;
+  last_governance_scan_by?: string;
+}
+
+function normalizeGovernance(g: unknown): NormalizedGovernance {
+  const raw = (g && typeof g === "object" && !Array.isArray(g)) ? g as Record<string, unknown> : {};
+  const rm = (raw.risk_memory && typeof raw.risk_memory === "object" && !Array.isArray(raw.risk_memory)) ? raw.risk_memory as Record<string, unknown> : {};
+  return {
+    critical_paths: Array.isArray(raw.critical_paths) ? raw.critical_paths as string[] : [],
+    suggested_protected_paths: Array.isArray(raw.suggested_protected_paths) ? raw.suggested_protected_paths as string[] : [],
+    risk_memory: {
+      path_weights: (rm.path_weights && typeof rm.path_weights === "object" && !Array.isArray(rm.path_weights)) ? rm.path_weights as Record<string, number> : {},
+      merge_outcomes: Array.isArray(rm.merge_outcomes) ? rm.merge_outcomes : [],
+    },
+    governance_confidence_score: typeof raw.governance_confidence_score === "number" ? raw.governance_confidence_score : null,
+    merge_policy: (raw.merge_policy && typeof raw.merge_policy === "object") ? raw.merge_policy as NormalizedGovernance["merge_policy"] : undefined,
+    last_governance_scan_at: typeof raw.last_governance_scan_at === "string" ? raw.last_governance_scan_at : undefined,
+    last_governance_scan_by: typeof raw.last_governance_scan_by === "string" ? raw.last_governance_scan_by : undefined,
+  };
+}
+
+function computeGovernanceConfidence(params: {
+  protected_paths_count: number;
+  approvals_required_last10: number;
+  unacknowledged_drift_alerts_count: number;
+  risk_score_last: number;
+}): number {
+  let score = 100;
+  score -= 5 * params.protected_paths_count;
+  score -= 3 * params.approvals_required_last10;
+  score -= 1 * params.unacknowledged_drift_alerts_count;
+  score -= (params.risk_score_last / 10);
+  return Math.max(0, Math.min(100, Math.round(score)));
+}
+
+function maybeEscalatePolicy(
+  governance: NormalizedGovernance,
+  score: number,
+  recentHighRiskCount: number,
+): { governance: NormalizedGovernance; escalated: boolean } {
+  const shouldEscalate = score < 50 || recentHighRiskCount >= 3;
+  if (!shouldEscalate) return { governance, escalated: false };
+
+  const updated = { ...governance };
+  const existingPolicy = updated.merge_policy ?? {};
+  updated.merge_policy = {
+    ...existingPolicy,
+    require_approval: true,
+    risk_threshold: Math.min(existingPolicy.risk_threshold ?? 100, 40),
+  };
+  return { governance: updated, escalated: true };
+}
+
+
   const parts = path.split(".");
   let cur: unknown = obj;
   for (const p of parts) {
@@ -3142,6 +3221,7 @@ Deno.serve(async (req) => {
       if (updErr) throw updErr;
 
       // Recompute computed_state
+      let postMergeCs: CascadedState | null = null;
       const { data: graph } = await supabase
         .from("project_state_graphs")
         .select("*")
@@ -3153,13 +3233,146 @@ Deno.serve(async (req) => {
           ...((tgtOver as any).creative_state ?? {}),
         };
         const cascaded = runFullCascade(creative, tgtOver as StateOverrides);
+        postMergeCs = cascaded;
         await supabase
           .from("project_scenarios")
           .update({ computed_state: cascaded as any })
           .eq("id", targetId);
       }
 
-      // Decision event
+      // Phase 5.3: Update governance risk memory
+      try {
+        // Re-fetch target scenario to get current governance
+        const { data: updatedTgt } = await supabase
+          .from("project_scenarios")
+          .select("governance, computed_state, protected_paths")
+          .eq("id", targetId)
+          .single();
+
+        if (updatedTgt) {
+          const gov = normalizeGovernance(updatedTgt.governance);
+
+          // Get drift counts for confidence calculation
+          const { data: driftData } = await supabase
+            .from("drift_alerts")
+            .select("severity")
+            .eq("project_id", projectId)
+            .eq("scenario_id", targetId)
+            .eq("acknowledged", false);
+          const driftCritical = (driftData ?? []).filter((d: any) => d.severity === "critical").length;
+          const driftWarning = (driftData ?? []).filter((d: any) => d.severity === "warning").length;
+
+          // Compute confidence before/after from computed_state
+          const preMergeCs = tgtScen.computed_state as unknown as CascadedState | null;
+          const confidenceBefore = preMergeCs?.revenue_state?.confidence_score ?? null;
+          const confidenceAfter = postMergeCs?.revenue_state?.confidence_score ?? null;
+
+          // Update path_weights
+          const pathWeights = { ...gov.risk_memory.path_weights };
+          const appliedPaths = pathsToApply.map(c => c.path);
+          for (const p of appliedPaths) {
+            const current = pathWeights[p] ?? 0;
+            let increment = 0;
+            if (isForce) increment += 2;
+            if (protectedHits.includes(p)) increment += 2;
+            if (confidenceBefore !== null && confidenceAfter !== null && confidenceAfter < confidenceBefore) increment += 2;
+            if (driftCritical > 0 || driftWarning > 0) increment += 3;
+            if (increment > 0) {
+              pathWeights[p] = Math.min(20, current + increment);
+            }
+          }
+
+          // Append merge outcome (keep last 20)
+          const mergeOutcome = {
+            at: new Date().toISOString(),
+            sourceScenarioId: sourceId,
+            targetScenarioId: targetId,
+            risk_score: undefined as number | undefined,
+            required_approval: false,
+            forced: isForce,
+            paths: appliedPaths.slice(0, 20),
+            drift_critical: driftCritical,
+            drift_warning: driftWarning,
+            confidence_before: confidenceBefore ?? undefined,
+            confidence_after: confidenceAfter ?? undefined,
+          };
+          const outcomes = [...gov.risk_memory.merge_outcomes, mergeOutcome].slice(-20);
+
+          // Recompute governance confidence
+          const protCount = ((updatedTgt.protected_paths ?? []) as string[]).length;
+          const recentOutcomes = outcomes.slice(-10);
+          const approvalsReq = recentOutcomes.filter(o => o.required_approval).length;
+          const lastRisk = recentOutcomes.length > 0 ? (recentOutcomes[recentOutcomes.length - 1].risk_score ?? 0) : 0;
+          const newScore = computeGovernanceConfidence({
+            protected_paths_count: protCount,
+            approvals_required_last10: approvalsReq,
+            unacknowledged_drift_alerts_count: (driftData ?? []).length,
+            risk_score_last: lastRisk,
+          });
+
+          let updatedGov: NormalizedGovernance = {
+            ...gov,
+            risk_memory: { path_weights: pathWeights, merge_outcomes: outcomes },
+            governance_confidence_score: newScore,
+          };
+
+          // Check for escalation
+          const recentHighRisk = outcomes.slice(-5).filter(o => (o.risk_score ?? 0) >= 70 || o.forced).length;
+          const { governance: escalatedGov, escalated } = maybeEscalatePolicy(updatedGov, newScore, recentHighRisk);
+          updatedGov = escalatedGov;
+
+          // Persist governance
+          await supabase
+            .from("project_scenarios")
+            .update({ governance: updatedGov as any, merge_policy: updatedGov.merge_policy ?? {} })
+            .eq("id", targetId);
+
+          // Log escalation event if escalated
+          if (escalated) {
+            try {
+              await supabase.from("scenario_decision_events").insert({
+                project_id: projectId,
+                event_type: "governance_policy_escalated",
+                scenario_id: targetId,
+                created_by: userId,
+                payload: {
+                  score: newScore,
+                  recentHighRiskCount: recentHighRisk,
+                  new_policy: updatedGov.merge_policy,
+                },
+              });
+            } catch (_) { /* non-fatal */ }
+          }
+
+          // Log governance_memory_updated event
+          const topWeightsChanged = appliedPaths
+            .filter(p => pathWeights[p] > 0)
+            .sort((a, b) => (pathWeights[b] ?? 0) - (pathWeights[a] ?? 0))
+            .slice(0, 8)
+            .map(p => ({ path: p, new_weight: pathWeights[p] }));
+
+          try {
+            await supabase.from("scenario_decision_events").insert({
+              project_id: projectId,
+              event_type: "governance_memory_updated",
+              scenario_id: targetId,
+              previous_scenario_id: sourceId,
+              created_by: userId,
+              payload: {
+                paths_count: appliedPaths.length,
+                forced: isForce,
+                required_approval: false,
+                score: newScore,
+                top_weighted_paths_changed: topWeightsChanged,
+              },
+            });
+          } catch (_) { /* non-fatal */ }
+        }
+      } catch (govErr) {
+        console.warn("governance_memory_update_failed", govErr instanceof Error ? govErr.message : govErr);
+      }
+
+      // Decision event: scenario_merged
       try {
         await supabase.from("scenario_decision_events").insert({
           project_id: projectId,
@@ -3297,11 +3510,34 @@ Deno.serve(async (req) => {
         .map((a: any) => driftMetricPathMap[a.metric_key])
         .filter((p: string | undefined): p is string => !!p);
 
+      // Normalize existing governance
+      const existingGov = normalizeGovernance((govScen as any).governance);
+
+      // Compute governance confidence score
+      const unackDriftCount = (driftAlerts ?? []).length;
+      const protPathsCount = ((govScen as any).protected_paths ?? []).length;
+      const recentOutcomes = existingGov.risk_memory.merge_outcomes.slice(-10);
+      const approvalsRequired = recentOutcomes.filter(o => o.required_approval).length;
+      const lastRiskScore = recentOutcomes.length > 0 ? (recentOutcomes[recentOutcomes.length - 1].risk_score ?? 0) : 0;
+      const governanceConfidenceScore = computeGovernanceConfidence({
+        protected_paths_count: protPathsCount,
+        approvals_required_last10: approvalsRequired,
+        unacknowledged_drift_alerts_count: unackDriftCount,
+        risk_score_last: lastRiskScore,
+      });
+
+      // Top risky paths
+      const topRiskyPaths = Object.entries(existingGov.risk_memory.path_weights)
+        .sort(([, a], [, b]) => b - a)
+        .slice(0, 10)
+        .map(([path, weight]) => ({ path, weight }));
+
       // Persist governance data
       const governanceData = {
-        ...(govScen.governance ?? {}),
+        ...existingGov,
         suggested_protected_paths: suggestedProtected,
         critical_paths: criticalPaths,
+        governance_confidence_score: governanceConfidenceScore,
         last_governance_scan_at: new Date().toISOString(),
         last_governance_scan_by: userId,
       };
@@ -3327,6 +3563,7 @@ Deno.serve(async (req) => {
             suggested_count: suggestedProtected.length,
             critical_count: criticalPaths.length,
             risk_hotspot_count: riskHotspots.length,
+            governance_confidence_score: governanceConfidenceScore,
             applied: shouldApply,
           },
         });
@@ -3339,6 +3576,9 @@ Deno.serve(async (req) => {
         suggested_protected_paths: suggestedProtected,
         critical_paths: criticalPaths,
         risk_hotspots: riskHotspots,
+        governance_confidence_score: governanceConfidenceScore,
+        top_risky_paths: topRiskyPaths,
+        merge_policy: existingGov.merge_policy ?? {},
         updated: shouldApply,
       });
     }
@@ -3365,7 +3605,7 @@ Deno.serve(async (req) => {
       const srcOver = (srcScen.state_overrides ?? {}) as Record<string, unknown>;
       const tgtOver = JSON.parse(JSON.stringify(tgtScen.state_overrides ?? {})) as Record<string, unknown>;
       const protPaths: string[] = ((tgtScen as any).protected_paths ?? []) as string[];
-      const governance = (tgtScen as any).governance ?? {};
+      const governance = normalizeGovernance((tgtScen as any).governance);
       const mergePolicy = (tgtScen as any).merge_policy ?? {};
       const criticalPaths: string[] = governance.critical_paths ?? [];
 
@@ -3397,12 +3637,34 @@ Deno.serve(async (req) => {
       if (protectedHits.length > 0) riskScore += 15;
       if (pathsToApply.length > 12) riskScore += 10;
 
+      // Phase 5.3: Add risk memory weighting
+      const riskMemoryHits: Array<{ path: string; weight: number }> = [];
+      const pathWeights = governance.risk_memory.path_weights;
+      for (const c of pathsToApply) {
+        let matchWeight = 0;
+        // Exact match
+        if (pathWeights[c.path]) {
+          matchWeight = pathWeights[c.path];
+        } else {
+          // Prefix match
+          for (const [storedPath, w] of Object.entries(pathWeights)) {
+            if (c.path.startsWith(storedPath + ".") || storedPath.startsWith(c.path + ".")) {
+              matchWeight = Math.max(matchWeight, w);
+            }
+          }
+        }
+        if (matchWeight > 0) {
+          riskScore += Math.min(5, matchWeight);
+          riskMemoryHits.push({ path: c.path, weight: matchWeight });
+        }
+      }
+      riskMemoryHits.sort((a, b) => b.weight - a.weight);
+
       // Conflict detection via cascade
       const conflicts: { type: string; message: string; paths: string[] }[] = [];
 
       const tgtCs = tgtScen.computed_state as unknown as CascadedState | null;
       if (tgtCs?.creative_state) {
-        // Simulate merge
         const mergedOverrides = JSON.parse(JSON.stringify(tgtOver));
         for (const change of pathsToApply) {
           const srcVal = getNestedValue(srcOver, change.path);
@@ -3413,7 +3675,6 @@ Deno.serve(async (req) => {
           setNestedValue(mergedOverrides, change.path, srcVal);
         }
 
-        // Run cascade on merged result
         const { data: graph } = await supabase
           .from("project_state_graphs")
           .select("creative_state")
@@ -3427,7 +3688,6 @@ Deno.serve(async (req) => {
           };
           const postMerge = runFullCascade(mergedCreative, mergedOverrides as StateOverrides);
 
-          // Check conflicts
           if (postMerge.finance_state.budget_estimate > tgtCs.finance_state.budget_estimate &&
               postMerge.revenue_state.platform_appetite_strength < tgtCs.revenue_state.platform_appetite_strength) {
             conflicts.push({
@@ -3481,6 +3741,8 @@ Deno.serve(async (req) => {
           : undefined,
         protected_hits: protectedHits,
         critical_hits: criticalHits,
+        risk_memory_hits: riskMemoryHits.slice(0, 8),
+        governance_confidence_score: governance.governance_confidence_score,
       };
 
       // Decision event
@@ -3496,6 +3758,8 @@ Deno.serve(async (req) => {
             risk_level: result.risk_level,
             conflict_count: conflicts.length,
             requires_approval: result.requires_approval,
+            risk_memory_hits_count: riskMemoryHits.length,
+            governance_confidence_score: governance.governance_confidence_score,
           },
         });
       } catch (e: unknown) {

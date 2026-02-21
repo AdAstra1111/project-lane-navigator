@@ -18,6 +18,7 @@ import { ScenarioComparisonPanel } from '@/components/cockpit/ScenarioComparison
 import { DecisionLogPanel } from '@/components/cockpit/DecisionLogPanel';
 import { ScenarioDiffMergePanel } from '@/components/cockpit/ScenarioDiffMergePanel';
 import { ScenarioLockControls } from '@/components/cockpit/ScenarioLockControls';
+import { GovernanceInsightsPanel } from '@/components/cockpit/GovernanceInsightsPanel';
 
 import { ArrowLeft, Gauge } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -258,6 +259,13 @@ export default function ProducerCockpit() {
             onBranchFromEvent={(eventId) => branchFromDecisionEvent.mutate({ eventId })}
             isBranching={branchFromDecisionEvent.isPending}
           />
+
+          <GovernanceInsightsPanel
+            projectId={projectId}
+            scenarios={scenarios}
+            activeScenarioId={activeScenario?.id ?? null}
+          />
+
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <EngineSelfTestPanel projectId={projectId} />

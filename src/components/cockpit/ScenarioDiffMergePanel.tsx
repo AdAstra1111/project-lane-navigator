@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { GitMerge, ArrowRightLeft, ShieldAlert, Shield, ShieldOff, Pencil, Lock, ScanSearch, AlertTriangle } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { GovernanceBadge } from './GovernanceBadge';
 import type { ProjectScenario, MergeRiskReport, GovernanceScanResult } from '@/hooks/useStateGraph';
 
 interface DiffChange {
@@ -351,6 +352,14 @@ export function ScenarioDiffMergePanel({
               <Shield className="h-3 w-3 mr-0.5" />
               {targetScenario!.protected_paths.length} protected
             </Badge>
+          )}
+          {targetScenario && (
+            <GovernanceBadge
+              score={targetScenario.governance?.governance_confidence_score ?? null}
+              protectedPathsCount={targetScenario.protected_paths?.length ?? 0}
+              requireApproval={targetScenario.governance?.merge_policy?.require_approval}
+              riskThreshold={targetScenario.governance?.merge_policy?.risk_threshold}
+            />
           )}
           {riskReport && (
             <Badge variant={RISK_BADGE_VARIANT[riskReport.risk_level] ?? 'outline'} className="text-[10px]">
