@@ -80,7 +80,14 @@ async function ingestPdf(
   const bytes = new Uint8Array(arrayBuffer);
 
   // Use Gemini to extract text per page from the PDF
-  const base64Pdf = btoa(String.fromCharCode(...bytes));
+  // Chunk the conversion to avoid stack overflow on large files
+  let binaryStr = "";
+  const chunkSize = 8192;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, i + chunkSize);
+    binaryStr += String.fromCharCode(...chunk);
+  }
+  const base64Pdf = btoa(binaryStr);
 
   const extractionResult = await callLLM(
     [
