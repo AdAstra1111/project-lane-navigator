@@ -281,7 +281,7 @@ export function useDevEngineV2(projectId: string | undefined) {
   }
 
   const analyze = useMutation({
-    mutationFn: async (params: { productionType?: string; strategicPriority?: string; developmentStage?: string; analysisMode?: string; previousVersionId?: string; deliverableType?: DeliverableType; developmentBehavior?: DevelopmentBehavior; format?: string; episodeTargetDurationSeconds?: number; episode_target_duration_min_seconds?: number; episode_target_duration_max_seconds?: number }) => {
+    mutationFn: async (params: { productionType?: string; strategicPriority?: string; developmentStage?: string; analysisMode?: string; previousVersionId?: string; deliverableType?: DeliverableType; developmentBehavior?: DevelopmentBehavior; format?: string; episodeTargetDurationSeconds?: number; episode_target_duration_min_seconds?: number; episode_target_duration_max_seconds?: number; maxContextChars?: number }) => {
       if (!selectedDocId || !documents.find(d => d.id === selectedDocId)) throw new Error('Document not found — please select a valid document');
       // Re-verify document still exists in DB (guards against stale cache after deletion)
       const { data: docCheck } = await (supabase as any).from('project_documents').select('id').eq('id', selectedDocId).maybeSingle();

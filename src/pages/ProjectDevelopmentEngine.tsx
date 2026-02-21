@@ -15,6 +15,7 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Progress } from '@/components/ui/progress';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -184,6 +185,7 @@ export default function ProjectDevelopmentEngine() {
   const [pendingStageAction, setPendingStageAction] = useState<(() => void) | null>(null);
   const [driftOverrideOpen, setDriftOverrideOpen] = useState(false);
   const [timelineOpen, setTimelineOpen] = useState(false);
+  const [largeDocConfirm, setLargeDocConfirm] = useState<{ charCount: number } | null>(null);
 
   const {
     documents, docsLoading, versions, versionsLoading,
@@ -441,8 +443,9 @@ export default function ProjectDevelopmentEngine() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [latestAnalysis, latestNotes, documents]);
 
-  // Handlers
-  const handleRunEngine = () => {
+  const DEFAULT_CONTEXT_CHARS = 40000;
+
+  const runAnalysisWithContext = (maxContextChars?: number) => {
     const prevVersion = versions.length > 1 ? versions[versions.length - 2] : null;
     analyze.mutate({
       deliverableType: selectedDeliverableType,
@@ -452,11 +455,24 @@ export default function ProjectDevelopmentEngine() {
       episode_target_duration_min_seconds: (isVerticalDrama || isSeriesFormat) ? effectiveEpisodeDurationMin : undefined,
       episode_target_duration_max_seconds: (isVerticalDrama || isSeriesFormat) ? effectiveEpisodeDurationMax : undefined,
       previousVersionId: prevVersion?.id,
+      ...(maxContextChars ? { maxContextChars } : {}),
     }, {
       onSuccess: (analysisResult: any) => {
         generateNotes.mutate(analysisResult);
       },
     });
+  };
+
+  const handleRunEngine = () => {
+    const docText = selectedVersion?.plaintext || selectedDoc?.plaintext || selectedDoc?.extracted_text || '';
+    const charCount = docText.length;
+
+    if (charCount > DEFAULT_CONTEXT_CHARS) {
+      setLargeDocConfirm({ charCount });
+      return;
+    }
+
+    runAnalysisWithContext();
   };
 
   const handleRewrite = (decisions?: Record<string, string>, globalDirections?: any[]) => {
@@ -1537,6 +1553,29 @@ export default function ProjectDevelopmentEngine() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Large document confirmation dialog */}
+      <AlertDialog open={!!largeDocConfirm} onOpenChange={(open) => { if (!open) setLargeDocConfirm(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Large Document Detected</AlertDialogTitle>
+            <AlertDialogDescription>
+              This document is {largeDocConfirm ? Math.round(largeDocConfirm.charCount / 1000) : 0}k characters — larger than the default analysis window ({Math.round(DEFAULT_CONTEXT_CHARS / 1000)}k chars). 
+              The analysis may take longer and use more credits. Would you like to proceed with the full document?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setLargeDocConfirm(null)}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => {
+              const charCount = largeDocConfirm?.charCount || DEFAULT_CONTEXT_CHARS;
+              setLargeDocConfirm(null);
+              runAnalysisWithContext(charCount);
+            }}>
+              Analyse Full Document
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </PageTransition>
   );
 }
