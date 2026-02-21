@@ -1,10 +1,9 @@
 import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useStateGraph } from '@/hooks/useStateGraph';
 import { StateGraphOverview } from '@/components/cockpit/StateGraphOverview';
 import { ScenarioPanel } from '@/components/cockpit/ScenarioPanel';
-import { DriftAlertPanel } from '@/components/cockpit/DriftAlertPanel';
+import { DriftAlertsPanel } from '@/components/cockpit/DriftAlertsPanel';
 import { CascadeSimulator } from '@/components/cockpit/CascadeSimulator';
 import { AccessDiagnosticPanel } from '@/components/cockpit/AccessDiagnosticPanel';
 import { ActiveScenarioBanner } from '@/components/cockpit/ActiveScenarioBanner';
@@ -13,43 +12,18 @@ import { ProjectionPanel } from '@/components/cockpit/ProjectionPanel';
 import { EngineSelfTestPanel } from '@/components/cockpit/EngineSelfTestPanel';
 import { ArrowLeft, Gauge } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { supabase } from '@/integrations/supabase/client';
-import { toast } from 'sonner';
 
 export default function ProducerCockpit() {
   const { id: projectId } = useParams<{ id: string }>();
-  const queryClient = useQueryClient();
   const {
-    stateGraph, scenarios, alerts, isLoading,
+    stateGraph, scenarios, isLoading,
     initialize, cascade, createScenario, generateSystemScenarios,
-    acknowledgeAlert, togglePin, archiveScenario, setActiveScenario,
+    togglePin, archiveScenario, setActiveScenario,
     rankScenarios, optimizeScenario, applyOptimizedOverrides, projectForward,
     baseline, activeScenario, recommendedScenario,
   } = useStateGraph(projectId);
 
   const [optimizeResult, setOptimizeResult] = useState<any>(null);
-
-  const clearAllAlerts = useMutation({
-    mutationFn: async () => {
-      if (!projectId) return;
-      const scenarioId = stateGraph?.active_scenario_id;
-      let query = supabase
-        .from('drift_alerts')
-        .update({ acknowledged: true, acknowledged_at: new Date().toISOString() })
-        .eq('project_id', projectId)
-        .eq('acknowledged', false);
-      if (scenarioId) {
-        query = query.eq('scenario_id', scenarioId);
-      }
-      const { error } = await query;
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['drift-alerts', projectId] });
-      toast.success('All alerts cleared');
-    },
-    onError: (e: any) => toast.error(e.message),
-  });
 
   if (!projectId) return null;
 
@@ -87,11 +61,10 @@ export default function ProducerCockpit() {
               isPending={setActiveScenario.isPending}
             />
 
-            <DriftAlertPanel
-              alerts={alerts}
-              onAcknowledge={(id) => acknowledgeAlert.mutate(id)}
-              onClearAll={() => clearAllAlerts.mutate()}
-              isClearingAll={clearAllAlerts.isPending}
+            <DriftAlertsPanel
+              projectId={projectId}
+              scenarios={scenarios}
+              activeScenarioId={stateGraph.active_scenario_id}
             />
 
             <StateGraphOverview stateGraph={stateGraph} />
