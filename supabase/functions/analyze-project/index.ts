@@ -28,6 +28,25 @@ interface ExtractionResult {
   error: string | null;
 }
 
+// ---- GARBAGE DETECTION ----
+function isGarbageText(text: string): boolean {
+  if (text.length < 100) return true;
+  const printable = text.replace(/[^\x20-\x7E\n\r\t]/g, "");
+  if (printable.length / text.length < 0.5) return true;
+
+  // Detect raw PDF stream data (ASCII85/Flate encoded)
+  const streamPatterns = /endstream|endobj|\/Filter|\/FlateDecode|ASCII85Decode|>>\s*stream/gi;
+  const streamMatches = text.match(streamPatterns);
+  if (streamMatches && streamMatches.length > 3) return true;
+
+  // Check for actual natural-language words (at least 15% of tokens should be real words)
+  const words = text.split(/\s+/).filter(w => w.length >= 3);
+  const realWords = words.filter(w => /^[a-zA-Z'-]+$/.test(w));
+  if (words.length > 20 && realWords.length / words.length < 0.15) return true;
+
+  return false;
+}
+
 // ---- TEXT EXTRACTION ----
 
 function basicPDFExtract(bytes: Uint8Array): string {
@@ -462,12 +481,15 @@ serve(async (req) => {
 
       const preExtractedMap = new Map<string, any>();
       for (const row of (preExtracted || [])) {
-        // Accept pre-extracted text OR plaintext as cached source
-        const usableText = (row.extracted_text && (row.char_count || 0) >= 500)
+        // Accept pre-extracted text OR plaintext as cached source — but reject garbage
+        const candidateText = (row.extracted_text && (row.char_count || 0) >= 500)
           ? row.extracted_text
           : (row.plaintext && row.plaintext.length >= 50) ? row.plaintext : null;
+        const usableText = candidateText && !isGarbageText(candidateText) ? candidateText : null;
         if (usableText) {
           preExtractedMap.set(row.file_path, { ...row, _usable_text: usableText });
+        } else if (candidateText) {
+          console.warn(`[analyze] Cached text for ${row.file_name} failed garbage check (${candidateText.length} chars) — will re-extract`);
         }
       }
 
@@ -548,6 +570,14 @@ serve(async (req) => {
         }
 
         const result = await extractTextFromFile(fileData, fileName);
+
+        // Reject garbage text from fresh extraction
+        if (result.text && isGarbageText(result.text)) {
+          console.warn(`[analyze] Fresh extraction for ${fileName} produced garbage (${result.text.length} chars) — marking as failed`);
+          result.text = "";
+          result.status = "failed";
+          result.error = "Extracted text appears to be raw PDF data rather than readable content. Try re-uploading or exporting as a text-based PDF.";
+        }
 
         docResults.push({
           file_name: fileName,
