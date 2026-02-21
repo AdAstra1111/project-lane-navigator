@@ -8191,6 +8191,7 @@ export type Database = {
           created_at: string
           delta_vs_baseline: Json
           description: string | null
+          governance: Json | null
           id: string
           is_active: boolean
           is_archived: boolean
@@ -8198,6 +8199,7 @@ export type Database = {
           is_recommended: boolean
           locked_at: string | null
           locked_by: string | null
+          merge_policy: Json | null
           name: string
           override_log: Json
           pinned: boolean
@@ -8217,6 +8219,7 @@ export type Database = {
           created_at?: string
           delta_vs_baseline?: Json
           description?: string | null
+          governance?: Json | null
           id?: string
           is_active?: boolean
           is_archived?: boolean
@@ -8224,6 +8227,7 @@ export type Database = {
           is_recommended?: boolean
           locked_at?: string | null
           locked_by?: string | null
+          merge_policy?: Json | null
           name?: string
           override_log?: Json
           pinned?: boolean
@@ -8243,6 +8247,7 @@ export type Database = {
           created_at?: string
           delta_vs_baseline?: Json
           description?: string | null
+          governance?: Json | null
           id?: string
           is_active?: boolean
           is_archived?: boolean
@@ -8250,6 +8255,7 @@ export type Database = {
           is_recommended?: boolean
           locked_at?: string | null
           locked_by?: string | null
+          merge_policy?: Json | null
           name?: string
           override_log?: Json
           pinned?: boolean
@@ -9175,6 +9181,60 @@ export type Database = {
           },
           {
             foreignKeyName: "scenario_decision_events_scenario_id_fkey"
+            columns: ["scenario_id"]
+            isOneToOne: false
+            referencedRelation: "project_scenarios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      scenario_merge_approvals: {
+        Row: {
+          decision_note: string | null
+          id: string
+          payload: Json | null
+          project_id: string
+          requested_at: string
+          requested_by: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          scenario_id: string
+          status: string
+        }
+        Insert: {
+          decision_note?: string | null
+          id?: string
+          payload?: Json | null
+          project_id: string
+          requested_at?: string
+          requested_by?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          scenario_id: string
+          status?: string
+        }
+        Update: {
+          decision_note?: string | null
+          id?: string
+          payload?: Json | null
+          project_id?: string
+          requested_at?: string
+          requested_by?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          scenario_id?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scenario_merge_approvals_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scenario_merge_approvals_scenario_id_fkey"
             columns: ["scenario_id"]
             isOneToOne: false
             referencedRelation: "project_scenarios"

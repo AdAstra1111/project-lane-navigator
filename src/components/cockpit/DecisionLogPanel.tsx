@@ -39,6 +39,10 @@ const EVENT_LABELS: Record<string, string> = {
   branch_created: 'Branch Created',
   scenario_merged: 'Merged',
   scenario_lock_changed: 'Lock Changed',
+  governance_scanned: 'Governance Scan',
+  merge_risk_evaluated: 'Risk Evaluated',
+  merge_approval_requested: 'Approval Requested',
+  merge_approval_decided: 'Approval Decided',
 };
 
 const EVENT_VARIANTS: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
@@ -49,6 +53,10 @@ const EVENT_VARIANTS: Record<string, 'default' | 'secondary' | 'destructive' | '
   branch_created: 'secondary',
   scenario_merged: 'secondary',
   scenario_lock_changed: 'outline',
+  governance_scanned: 'outline',
+  merge_risk_evaluated: 'secondary',
+  merge_approval_requested: 'destructive',
+  merge_approval_decided: 'default',
 };
 
 function scenarioName(id: string | null, scenarios: ProjectScenario[]): string {

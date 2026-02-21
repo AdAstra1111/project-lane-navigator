@@ -6,9 +6,10 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { GitMerge, ArrowRightLeft, ShieldAlert, Shield, ShieldOff, Pencil, Lock } from 'lucide-react';
+import { GitMerge, ArrowRightLeft, ShieldAlert, Shield, ShieldOff, Pencil, Lock, ScanSearch, AlertTriangle } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
-import type { ProjectScenario } from '@/hooks/useStateGraph';
+import { toast } from 'sonner';
+import type { ProjectScenario, MergeRiskReport, GovernanceScanResult } from '@/hooks/useStateGraph';
 
 interface DiffChange {
   path: string;
@@ -43,6 +44,12 @@ interface Props {
   isUpdatingProtected: boolean;
   onSetLock: (params: { scenarioId: string; isLocked: boolean; protectedPaths?: string[] }) => void;
   isSavingLock: boolean;
+  onScanGovernance: (params: { scenarioId: string; apply?: boolean }) => Promise<GovernanceScanResult>;
+  isScanningGovernance: boolean;
+  onEvaluateMergeRisk: (params: { sourceScenarioId: string; targetScenarioId: string; paths?: string[]; strategy?: string; force?: boolean }) => Promise<MergeRiskReport>;
+  isEvaluatingRisk: boolean;
+  onRequestApproval: (params: { scenarioId: string; payload?: any }) => void;
+  isRequestingApproval: boolean;
 }
 
 function formatValue(v: unknown): string {
@@ -51,6 +58,13 @@ function formatValue(v: unknown): string {
   if (typeof v === 'string') return v;
   return JSON.stringify(v);
 }
+
+const RISK_BADGE_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
+  low: 'outline',
+  medium: 'secondary',
+  high: 'destructive',
+  critical: 'destructive',
+};
 
 export function ScenarioDiffMergePanel({
   projectId,
@@ -62,6 +76,12 @@ export function ScenarioDiffMergePanel({
   isUpdatingProtected,
   onSetLock,
   isSavingLock,
+  onScanGovernance,
+  isScanningGovernance,
+  onEvaluateMergeRisk,
+  isEvaluatingRisk,
+  onRequestApproval,
+  isRequestingApproval,
 }: Props) {
   const nonArchived = useMemo(() => scenarios.filter(s => !s.is_archived), [scenarios]);
 
@@ -99,6 +119,10 @@ export function ScenarioDiffMergePanel({
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [pendingMergeForce, setPendingMergeForce] = useState(false);
 
+  // Phase 5.2: Risk report + governance
+  const [riskReport, setRiskReport] = useState<MergeRiskReport | null>(null);
+  const [govScan, setGovScan] = useState<GovernanceScanResult | null>(null);
+
   const computeDiff = async () => {
     if (!sourceId || !targetId || sourceId === targetId) return;
     setIsDiffing(true);
@@ -106,6 +130,7 @@ export function ScenarioDiffMergePanel({
     setDiff(null);
     setPreview(null);
     setEditedRows(new Map());
+    setRiskReport(null);
     try {
       const { data, error } = await supabase.functions.invoke('simulation-engine', {
         body: { action: 'diff_scenarios', projectId, aScenarioId: sourceId, bScenarioId: targetId },
@@ -140,6 +165,17 @@ export function ScenarioDiffMergePanel({
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
       setPreview(data as MergePreview);
+
+      // Auto-evaluate risk
+      try {
+        const risk = await onEvaluateMergeRisk({
+          sourceScenarioId: sourceId,
+          targetScenarioId: targetId,
+          paths: Array.from(selected),
+          strategy,
+        });
+        setRiskReport(risk);
+      } catch (_) { /* non-fatal */ }
     } catch (e: any) {
       setDiffError(e.message ?? 'Preview failed');
     } finally {
@@ -169,6 +205,18 @@ export function ScenarioDiffMergePanel({
         if (data?.error) throw new Error(data.error);
         const p = data as MergePreview;
         setPreview(p);
+
+        // Auto-evaluate risk
+        try {
+          const risk = await onEvaluateMergeRisk({
+            sourceScenarioId: sourceId,
+            targetScenarioId: targetId,
+            paths: Array.from(selected),
+            strategy,
+          });
+          setRiskReport(risk);
+        } catch (_) { /* non-fatal */ }
+
         const needsForce = p.is_locked || p.protected_hits.length > 0;
         setPendingMergeForce(needsForce);
         setShowConfirmDialog(true);
@@ -183,9 +231,27 @@ export function ScenarioDiffMergePanel({
     const needsForce = preview.is_locked || preview.protected_hits.length > 0;
     setPendingMergeForce(needsForce);
     setShowConfirmDialog(true);
-  }, [diff, selected, preview, projectId, sourceId, targetId, strategy]);
+  }, [diff, selected, preview, projectId, sourceId, targetId, strategy, onEvaluateMergeRisk]);
 
   const executemerge = () => {
+    // If approval required and not forcing, request approval instead
+    if (riskReport?.requires_approval && !pendingMergeForce) {
+      setShowConfirmDialog(false);
+      onRequestApproval({
+        scenarioId: targetId,
+        payload: {
+          sourceScenarioId: sourceId,
+          targetScenarioId: targetId,
+          paths: Array.from(selected),
+          strategy,
+          risk_level: riskReport.risk_level,
+          risk_score: riskReport.risk_score,
+          conflicts: riskReport.conflicts,
+        },
+      });
+      return;
+    }
+
     setShowConfirmDialog(false);
 
     onMerge({
@@ -253,6 +319,22 @@ export function ScenarioDiffMergePanel({
     setEditPath(null);
   };
 
+  const handleScanGovernance = async () => {
+    if (!targetId) return;
+    try {
+      const result = await onScanGovernance({ scenarioId: targetId, apply: true });
+      setGovScan(result);
+    } catch (_) { /* handled by hook */ }
+  };
+
+  const applyGovernanceSuggestions = () => {
+    if (!govScan || !targetScenario) return;
+    const current = targetScenario.protected_paths ?? [];
+    const merged = [...new Set([...current, ...govScan.suggested_protected_paths])];
+    onUpdateProtectedPaths({ scenarioId: targetId, protectedPaths: merged });
+    toast.success(`Applied ${govScan.suggested_protected_paths.length} suggested paths`);
+  };
+
   const editingChange = diff?.changes.find(c => c.path === editPath);
 
   return (
@@ -268,6 +350,11 @@ export function ScenarioDiffMergePanel({
             <Badge variant="outline" className="text-[10px]">
               <Shield className="h-3 w-3 mr-0.5" />
               {targetScenario!.protected_paths.length} protected
+            </Badge>
+          )}
+          {riskReport && (
+            <Badge variant={RISK_BADGE_VARIANT[riskReport.risk_level] ?? 'outline'} className="text-[10px]">
+              Risk: {riskReport.risk_level} ({riskReport.risk_score})
             </Badge>
           )}
         </CardTitle>
@@ -311,6 +398,41 @@ export function ScenarioDiffMergePanel({
 
         {diffError && <div className="text-xs text-destructive">{diffError}</div>}
 
+        {/* Governance Bar */}
+        {diff && (
+          <div className="flex items-center gap-2 flex-wrap rounded border border-border/30 bg-muted/10 px-3 py-2">
+            <ScanSearch className="h-3.5 w-3.5 text-muted-foreground" />
+            <span className="text-[10px] text-muted-foreground font-medium">Governance</span>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-6 px-2 text-[10px]"
+              disabled={isScanningGovernance || !targetId}
+              onClick={handleScanGovernance}
+            >
+              {isScanningGovernance ? 'Scanning…' : 'Scan Governance'}
+            </Button>
+            {govScan && (
+              <>
+                <Badge variant="outline" className="text-[10px]">{govScan.suggested_protected_paths.length} suggested</Badge>
+                <Badge variant="outline" className="text-[10px]">{govScan.critical_paths.length} critical</Badge>
+                {govScan.risk_hotspots.length > 0 && (
+                  <Badge variant="destructive" className="text-[10px]">{govScan.risk_hotspots.length} hotspots</Badge>
+                )}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-6 px-2 text-[10px]"
+                  disabled={isUpdatingProtected}
+                  onClick={applyGovernanceSuggestions}
+                >
+                  Apply as Protected
+                </Button>
+              </>
+            )}
+          </div>
+        )}
+
         {/* Diff table */}
         {diff && (
           <div className="space-y-3">
@@ -352,6 +474,7 @@ export function ScenarioDiffMergePanel({
                       {diff.changes.map(c => {
                         const prot = isPathProtected(c.path);
                         const edited = editedRows.has(c.path);
+                        const isCritical = govScan?.critical_paths?.includes(c.path);
                         return (
                           <tr key={c.path} className={`border-b border-border/10 hover:bg-muted/10 ${prot ? 'bg-destructive/5' : ''}`}>
                             <td className="px-2 py-1">
@@ -367,6 +490,7 @@ export function ScenarioDiffMergePanel({
                             <td className="px-2 py-1 font-mono text-[10px]">
                               {c.path}
                               {prot && <ShieldAlert className="inline h-3 w-3 ml-1 text-destructive" />}
+                              {isCritical && <AlertTriangle className="inline h-3 w-3 ml-1 text-destructive" />}
                               {edited && <Badge variant="secondary" className="text-[8px] ml-1 py-0">Edited</Badge>}
                             </td>
                             <td className="px-2 py-1 text-foreground">{formatValue(c.a)}</td>
@@ -420,6 +544,36 @@ export function ScenarioDiffMergePanel({
                   </div>
                 )}
 
+                {/* Risk summary */}
+                {riskReport && (
+                  <div className="rounded border border-border/30 bg-muted/10 px-3 py-2 space-y-1.5">
+                    <div className="flex items-center gap-2">
+                      <AlertTriangle className="h-3.5 w-3.5 text-muted-foreground" />
+                      <span className="text-[10px] font-medium">Merge Risk Assessment</span>
+                      <Badge variant={RISK_BADGE_VARIANT[riskReport.risk_level] ?? 'outline'} className="text-[10px]">
+                        {riskReport.risk_level} ({riskReport.risk_score}/100)
+                      </Badge>
+                      {riskReport.requires_approval && (
+                        <Badge variant="destructive" className="text-[10px]">Approval Required</Badge>
+                      )}
+                    </div>
+                    {riskReport.conflicts.length > 0 && (
+                      <ul className="text-[10px] text-muted-foreground list-disc list-inside">
+                        {riskReport.conflicts.map((c, i) => (
+                          <li key={i}><strong>{c.type}:</strong> {c.message}</li>
+                        ))}
+                      </ul>
+                    )}
+                    {riskReport.recommended_actions.length > 0 && (
+                      <div className="text-[10px] text-muted-foreground">
+                        {riskReport.recommended_actions.map((a, i) => (
+                          <div key={i}>→ {a}</div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* Merge controls */}
                 <div className="flex flex-wrap items-center gap-3">
                   <div className="space-y-1">
@@ -449,7 +603,7 @@ export function ScenarioDiffMergePanel({
                       size="sm"
                       variant="outline"
                       className="h-8 text-xs"
-                      disabled={isPreviewing || selected.size === 0}
+                      disabled={isPreviewing || isEvaluatingRisk || selected.size === 0}
                       onClick={runPreview}
                     >
                       {isPreviewing ? 'Previewing…' : 'Preview Merge'}
@@ -493,6 +647,32 @@ export function ScenarioDiffMergePanel({
                 <div>Would change: <strong>{preview.would_change_count}</strong> path(s)</div>
               )}
             </div>
+
+            {/* Risk report in dialog */}
+            {riskReport && (
+              <div className="space-y-1">
+                <div className="text-xs flex items-center gap-2">
+                  <span className="font-medium">Risk:</span>
+                  <Badge variant={RISK_BADGE_VARIANT[riskReport.risk_level] ?? 'outline'} className="text-[10px]">
+                    {riskReport.risk_level} ({riskReport.risk_score}/100)
+                  </Badge>
+                </div>
+                {riskReport.conflicts.length > 0 && (
+                  <ul className="text-[10px] text-muted-foreground list-disc list-inside">
+                    {riskReport.conflicts.map((c, i) => (
+                      <li key={i}><strong>{c.type}:</strong> {c.message}</li>
+                    ))}
+                  </ul>
+                )}
+                {riskReport.requires_approval && (
+                  <div className="text-[10px] text-destructive font-medium flex items-center gap-1">
+                    <AlertTriangle className="h-3 w-3" />
+                    {riskReport.approval_reason ?? 'Approval required for this merge'}
+                  </div>
+                )}
+              </div>
+            )}
+
             {preview && preview.protected_hits.length > 0 && (
               <div className="space-y-1">
                 <div className="text-xs font-medium text-destructive flex items-center gap-1">
@@ -524,19 +704,31 @@ export function ScenarioDiffMergePanel({
             <Button variant="outline" size="sm" className="text-xs" onClick={() => setShowConfirmDialog(false)}>
               Cancel
             </Button>
-            <Button
-              size="sm"
-              className="text-xs"
-              variant={pendingMergeForce ? 'destructive' : 'default'}
-              disabled={isMerging}
-              onClick={executemerge}
-            >
-              {isMerging
-                ? 'Merging…'
-                : pendingMergeForce
-                  ? 'Proceed (Force Merge)'
-                  : 'Proceed (Merge)'}
-            </Button>
+            {riskReport?.requires_approval && !pendingMergeForce ? (
+              <Button
+                size="sm"
+                className="text-xs"
+                variant="destructive"
+                disabled={isRequestingApproval}
+                onClick={executemerge}
+              >
+                {isRequestingApproval ? 'Requesting…' : 'Request Approval'}
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                className="text-xs"
+                variant={pendingMergeForce ? 'destructive' : 'default'}
+                disabled={isMerging}
+                onClick={executemerge}
+              >
+                {isMerging
+                  ? 'Merging…'
+                  : pendingMergeForce
+                    ? 'Proceed (Force Merge)'
+                    : 'Proceed (Merge)'}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
