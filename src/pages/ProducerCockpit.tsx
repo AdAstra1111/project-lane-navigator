@@ -68,8 +68,7 @@ export default function ProducerCockpit() {
               scenarios={scenarios}
               activeScenarioId={activeScenario?.id ?? null}
               recommendation={recommendation ?? null}
-              isLoading={isLoading}
-              isComputing={recomputeRecommendation.isPending}
+              isRecomputing={recomputeRecommendation.isPending}
               onRecompute={() => recomputeRecommendation.mutate({
                 baselineScenarioId: baseline?.id,
                 activeScenarioId: activeScenario?.id,
@@ -77,6 +76,7 @@ export default function ProducerCockpit() {
               onSetActive={(id) => setActiveScenario.mutate(id)}
               onTogglePin={(id) => togglePin.mutate(id)}
               isSettingActive={setActiveScenario.isPending}
+              isTogglingPin={togglePin.isPending}
             />
 
             <DriftAlertsPanel
