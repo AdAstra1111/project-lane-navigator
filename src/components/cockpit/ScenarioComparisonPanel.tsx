@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { GitCompareArrows, Pin, CheckCircle2, Play, FlaskConical } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { ScenarioDataHealthBadge } from '@/components/cockpit/ScenarioDataHealthBadge';
 import type {
   ProjectScenario,
   ScenarioProjection,
@@ -152,6 +153,16 @@ function extractMetrics(proj: ScenarioProjection | null | undefined): Projection
   return { irr, npv, payback_months, schedule_months, budget, risk_score: proj.projection_risk_score ?? null };
 }
 
+// ---- contract helpers ----
+
+const REQUIRED_METRICS_KEYS = ['irr', 'npv', 'payback_months', 'schedule_months', 'budget', 'projection_risk_score', 'composite_score'] as const;
+
+function metricsKeysPresent(sm: unknown): boolean {
+  if (!sm || typeof sm !== 'object') return false;
+  const obj = sm as Record<string, unknown>;
+  return REQUIRED_METRICS_KEYS.every(k => k in obj);
+}
+
 // ---- display helpers ----
 
 function fmtNum(n: number | null | undefined, prefix = '', suffix = ''): string {
@@ -203,11 +214,15 @@ function ScenarioCard({
   const m = extractMetrics(projection ?? null);
   const isActive = scenario.id === activeScenarioId;
 
+  const hasProjection = !!projection;
+  const hasStress = !!stress;
+  const mc = hasProjection && metricsKeysPresent((projection as any)?.summary_metrics);
+
   return (
     <Card className="border-border/40">
       <CardContent className="p-4 space-y-3">
         {/* Header */}
-        <div className="space-y-1">
+        <div className="space-y-1.5">
           <div className="text-sm font-semibold truncate">{scenario.name}</div>
           <div className="flex flex-wrap gap-1">
             {tags.map(t => (
@@ -216,6 +231,13 @@ function ScenarioCard({
               </Badge>
             ))}
           </div>
+          <ScenarioDataHealthBadge
+            hasProjection={hasProjection}
+            hasStressTest={hasStress}
+            metricsComplete={mc}
+            driftCritical={drift.critical}
+            driftWarning={drift.warning}
+          />
         </div>
 
         {/* Projection metrics */}
