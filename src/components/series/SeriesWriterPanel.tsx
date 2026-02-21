@@ -3,12 +3,12 @@
  * Displays canon status, season progress, validation results, and episode grid.
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { toast } from 'sonner';
 import {
   Layers, Play, CheckCircle2, Circle, Loader2, AlertTriangle,
   Plus, Pen, ChevronDown, Sparkles, BookOpen, Lock, Shield,
-  Zap, RotateCcw, XCircle, ArrowRight,
+  Zap, RotateCcw, XCircle, ArrowRight, Activity,
 } from 'lucide-react';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -25,6 +25,8 @@ import { InfoTooltip } from '@/components/InfoTooltip';
 import { useSeriesWriter, type SeriesEpisode, type SeriesProgress } from '@/hooks/useSeriesWriter';
 import { useEpisodeHandoff } from '@/hooks/useEpisodeHandoff';
 import { SeasonHealthDashboard } from '@/components/series/SeasonHealthDashboard';
+import { EpisodeEngagementPanel } from '@/components/series/EpisodeEngagementPanel';
+import { useEpisodeEngagement } from '@/hooks/useEpisodeEngagement';
 import { SeriesRunControlBar } from '@/components/series/SeriesRunControlBar';
 import { EscalateToDevEngineModal } from '@/components/series/EscalateToDevEngineModal';
 import { Trash2, Undo2, RefreshCw, FlaskConical, ArrowLeftRight } from 'lucide-react';
@@ -211,6 +213,7 @@ interface EpisodeCardProps {
   onRead: () => void;
   onDelete: () => void;
   onReset: () => void;
+  onAnalyzeEngagement?: () => void;
   onSendToDevEngine?: () => void;
   onOpenInDevEngine?: () => void;
   onCancelHandoff?: () => void;
@@ -219,7 +222,7 @@ interface EpisodeCardProps {
   isReturned?: boolean;
 }
 
-function EpisodeCard({ episode, isActive, isGenerating, disabled, validation, onGenerate, onRead, onDelete, onReset, onSendToDevEngine, onOpenInDevEngine, onCancelHandoff, isResetting, isInDevEngine, isReturned }: EpisodeCardProps) {
+function EpisodeCard({ episode, isActive, isGenerating, disabled, validation, onGenerate, onRead, onDelete, onReset, onAnalyzeEngagement, onSendToDevEngine, onOpenInDevEngine, onCancelHandoff, isResetting, isInDevEngine, isReturned }: EpisodeCardProps) {
   const effectiveStatus = isInDevEngine ? 'in_dev_engine' : episode.status;
   const style = STATUS_STYLES[effectiveStatus] || STATUS_STYLES.pending;
   const Icon = style.icon;
@@ -346,6 +349,17 @@ function EpisodeCard({ episode, isActive, isGenerating, disabled, validation, on
                 <FlaskConical className="h-3 w-3" /> Dev Engine
               </Button>
             )}
+            {onAnalyzeEngagement && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs gap-1 text-primary hover:text-primary/80"
+                onClick={onAnalyzeEngagement}
+                title="Analyze tension curve, beat density, and retention"
+              >
+                <Activity className="h-3 w-3" /> Engage
+              </Button>
+            )}
           </>
         )}
 
@@ -462,6 +476,7 @@ export function SeriesWriterPanel({ projectId }: Props) {
   } = useSeriesWriter(projectId);
 
   const { handoffs, getActiveHandoff, sendToDevEngine, cancelHandoff } = useEpisodeHandoff(projectId);
+  const engagement = useEpisodeEngagement();
 
   const [episodeCount, setEpisodeCount] = useState('10');
   const [readerEpisode, setReaderEpisode] = useState<SeriesEpisode | null>(null);
@@ -473,6 +488,16 @@ export function SeriesWriterPanel({ projectId }: Props) {
   const [deleteConfirmEp, setDeleteConfirmEp] = useState<SeriesEpisode | null>(null);
   const [hardDeleteConfirmText, setHardDeleteConfirmText] = useState('');
   const [escalateEp, setEscalateEp] = useState<SeriesEpisode | null>(null);
+  const [engagementEp, setEngagementEp] = useState<SeriesEpisode | null>(null);
+
+  const analyzeEngagement = useCallback((ep: SeriesEpisode) => {
+    setEngagementEp(ep);
+    engagement.analyze({
+      projectId,
+      episodeNumber: ep.episode_number,
+      mode: 'script',
+    });
+  }, [projectId, engagement.analyze]);
 
   const hasEpisodes = episodes.length > 0;
   const canGenerate = isCanonValid && !isGenerating;
@@ -744,6 +769,7 @@ export function SeriesWriterPanel({ projectId }: Props) {
                   isResetting={resetStuckEpisode.isPending && resetStuckEpisode.variables === ep.id}
                   isInDevEngine={isEpInDevEngine}
                   isReturned={isEpReturned}
+                  onAnalyzeEngagement={() => analyzeEngagement(ep)}
                   onSendToDevEngine={() => setEscalateEp(ep)}
                   onOpenInDevEngine={() => {
                     if (activeHandoff?.dev_engine_doc_id) {
@@ -772,7 +798,20 @@ export function SeriesWriterPanel({ projectId }: Props) {
         />
       )}
 
-      {/* Script Reader */}
+      {/* Episode Engagement Analysis */}
+      {engagementEp && (
+        <div className="space-y-1">
+          <p className="text-xs text-muted-foreground">
+            Engagement: EP {String(engagementEp.episode_number).padStart(2, '0')} — {engagementEp.title || `Episode ${engagementEp.episode_number}`}
+          </p>
+          <EpisodeEngagementPanel
+            result={engagement.result}
+            isAnalyzing={engagement.isAnalyzing}
+            onAnalyze={() => analyzeEngagement(engagementEp)}
+          />
+        </div>
+      )}
+
       <ScriptReaderDialog
         episode={readerEpisode}
         open={readerOpen}
