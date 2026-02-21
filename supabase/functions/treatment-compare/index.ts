@@ -23,8 +23,8 @@ serve(async (req) => {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
 
-    const treatmentSnippet = treatmentText.slice(0, 30000);
-    const scriptSnippet = scriptText.slice(0, 30000);
+    const treatmentSnippet = treatmentText;
+    const scriptSnippet = scriptText;
 
     const ctx = projectContext || {};
     const contextBlock = [

@@ -36,12 +36,8 @@ function extractExcerpt(docText: string, anchor: string | null): string {
       return prefix + docText.slice(start, end) + suffix;
     }
   }
-  // Fallback: beginning + middle + end
-  const len = docText.length;
-  const head = docText.slice(0, 1400);
-  const mid = docText.slice(Math.floor(len / 2) - 400, Math.floor(len / 2) + 400);
-  const tail = docText.slice(Math.max(0, len - 800));
-  return `[START]\n${head}\n\n[MIDDLE]\n${mid}\n\n[END]\n${tail}`;
+  // Send the full document text for comprehensive verification
+  return docText;
 }
 
 Deno.serve(async (req) => {

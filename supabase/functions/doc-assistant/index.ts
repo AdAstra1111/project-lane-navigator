@@ -225,7 +225,7 @@ Preserve all content not affected by the change.
 Maintain the document's existing style and format.`;
 
       const draft = await callAI(apiKey, PRO_MODEL, systemPrompt,
-        `CURRENT DOCUMENT:\n${docText.slice(0, 30000)}\n${spanNote}\n\nPROPOSED CHANGE:\n${proposalText}`,
+        `CURRENT DOCUMENT:\n${docText}\n${spanNote}\n\nPROPOSED CHANGE:\n${proposalText}`,
         0.3, 12000);
 
       // Create draft version
@@ -319,7 +319,7 @@ Check for:
 5. Which other doc types would need updates if this change is applied`;
 
       const testResult = await callAI(apiKey, MODEL, systemPrompt,
-        `ORIGINAL (${proposal.target_doc_type}):\n${currentText.slice(0, 15000)}\n\nPROPOSED REVISION:\n${draftText.slice(0, 15000)}\n\nCHANGE INTENT: ${proposal.proposal_text}`,
+        `ORIGINAL (${proposal.target_doc_type}):\n${currentText}\n\nPROPOSED REVISION:\n${draftText}\n\nCHANGE INTENT: ${proposal.proposal_text}`,
         0.2, 4000);
 
       let report: any;

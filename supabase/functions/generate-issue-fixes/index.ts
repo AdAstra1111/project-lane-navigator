@@ -88,8 +88,8 @@ Each fix option must include:
 
 Return JSON: { "fixes": [ { "issue_id": "...", "options": [...] } ] }`;
 
-    const userPrompt = `Document excerpt (first 3000 chars):
-${current_text.slice(0, 3000)}
+    const userPrompt = `Full document text:
+${current_text}
 
 Issues requiring fix options:
 ${issueList}

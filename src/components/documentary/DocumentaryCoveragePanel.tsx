@@ -157,8 +157,7 @@ export function DocumentaryCoveragePanel({ projectId, projectTitle, format: fmt,
       const combinedText = (docs || [])
         .filter((d: any) => d.extracted_text && (d.char_count || 0) > 200)
         .map((d: any) => `--- ${d.file_name} ---\n${d.extracted_text}`)
-        .join('\n\n')
-        .slice(0, 30000);
+        .join('\n\n');
 
       if (!combinedText || combinedText.length < 500) {
         toast.error('Not enough document text for analysis. Upload and extract documents first.');

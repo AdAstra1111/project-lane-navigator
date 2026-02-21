@@ -1067,7 +1067,7 @@ Deno.serve(async (req) => {
           next_doc_type: job.pending_next_doc_type,
           approval_type: job.approval_type,
           char_count: docText.length,
-          text: docText.slice(0, 50000),
+          text: docText,
           preview: docText.slice(0, 500),
         },
       });

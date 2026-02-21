@@ -200,8 +200,8 @@ FORMAT: ${format || 'Unknown'}
 GENRES: ${(genres || []).join(', ') || 'N/A'}
 LANE: ${lane || 'N/A'}
 BUDGET: ${budget || 'Not specified'}
-${greenlightSummary ? `\nGREENLIGHT SUMMARY:\n${greenlightSummary.slice(0, 2000)}` : ''}
-${coverageSummary ? `\nCOVERAGE SUMMARY:\n${coverageSummary.slice(0, 2000)}` : ''}
+${greenlightSummary ? `\nGREENLIGHT SUMMARY:\n${greenlightSummary}` : ''}
+${coverageSummary ? `\nCOVERAGE SUMMARY:\n${coverageSummary}` : ''}
 ${characterBlock}
 
 Run the full packaging & attachment intelligence analysis. Return JSON only.`;

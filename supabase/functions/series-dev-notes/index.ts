@@ -150,10 +150,10 @@ Deno.serve(async (req) => {
       }
 
       // ── Build canon pack blocks ──
-      const bibleBlock = coreDocs.characterBible ? `\n## CHARACTER BIBLE\n${coreDocs.characterBible.slice(0, 5000)}` : "";
-      const arcBlock = coreDocs.seasonArc ? `\n## SEASON ARC\n${coreDocs.seasonArc.slice(0, 3000)}` : "";
-      const gridBlock = coreDocs.episodeGrid ? `\n## EPISODE GRID\n${coreDocs.episodeGrid.slice(0, 4000)}` : "";
-      const formatBlock = coreDocs.formatRules ? `\n## FORMAT RULES\n${coreDocs.formatRules.slice(0, 2000)}` : "";
+      const bibleBlock = coreDocs.characterBible ? `\n## CHARACTER BIBLE\n${coreDocs.characterBible}` : "";
+      const arcBlock = coreDocs.seasonArc ? `\n## SEASON ARC\n${coreDocs.seasonArc}` : "";
+      const gridBlock = coreDocs.episodeGrid ? `\n## EPISODE GRID\n${coreDocs.episodeGrid}` : "";
+      const formatBlock = coreDocs.formatRules ? `\n## FORMAT RULES\n${coreDocs.formatRules}` : "";
       const priorCanonBlock = canonContext ? `\n## PRIOR EPISODE CANON (do not contradict)\n${canonContext}` : "";
 
       // ── Structured Episode Reviewer System Prompt ──
@@ -246,7 +246,7 @@ RULES:
       const userPrompt = `${bibleBlock}${arcBlock}${gridBlock}${formatBlock}
 
 ## EPISODE ${episodeNumber} SCRIPT (TARGET — REVIEW THIS ONLY)
-${scriptText.slice(0, 12000)}`;
+${scriptText}`;
 
       log("Calling AI for structured episode review...");
       const result = await callLLM({

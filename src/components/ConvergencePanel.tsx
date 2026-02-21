@@ -91,7 +91,7 @@ export function ConvergencePanel({
         body: {
           projectId, projectTitle, format, genres, lane, budget,
           scoringGrid, riskFlags,
-          coverageSummary: coverageSummary?.slice(0, 3000),
+          coverageSummary,
           strategicPriority, developmentStage, analysisMode,
           previousCreativeScore: lastScore?.creative_integrity_score,
           previousGreenlightScore: lastScore?.greenlight_probability,
