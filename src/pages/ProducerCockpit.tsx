@@ -19,6 +19,7 @@ import { DecisionLogPanel } from '@/components/cockpit/DecisionLogPanel';
 import { ScenarioDiffMergePanel } from '@/components/cockpit/ScenarioDiffMergePanel';
 import { ScenarioLockControls } from '@/components/cockpit/ScenarioLockControls';
 import { GovernanceInsightsPanel } from '@/components/cockpit/GovernanceInsightsPanel';
+import { MergeApprovalInbox } from '@/components/cockpit/MergeApprovalInbox';
 
 import { ArrowLeft, Gauge } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -258,6 +259,11 @@ export default function ProducerCockpit() {
             isRunningStress={runStressTest.isPending}
             onBranchFromEvent={(eventId) => branchFromDecisionEvent.mutate({ eventId })}
             isBranching={branchFromDecisionEvent.isPending}
+          />
+
+          <MergeApprovalInbox
+            projectId={projectId}
+            scenarios={scenarios}
           />
 
           <GovernanceInsightsPanel

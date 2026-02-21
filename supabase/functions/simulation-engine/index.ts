@@ -3921,6 +3921,166 @@ Deno.serve(async (req) => {
     }
 
     // ══════════════════════════════════════
+    // ACTION: list_pending_merge_approvals
+    // ══════════════════════════════════════
+    if (action === "list_pending_merge_approvals") {
+      const filterScenarioId = body.scenarioId ?? null;
+
+      const { data: events, error: evErr } = await supabase
+        .from("scenario_decision_events")
+        .select("*")
+        .eq("project_id", projectId)
+        .in("event_type", ["merge_approval_requested", "merge_approval_decided"])
+        .order("created_at", { ascending: false })
+        .limit(200);
+      if (evErr) throw evErr;
+
+      // Group by sourceId::targetId
+      const groups: Record<string, { requests: any[]; decisions: any[] }> = {};
+      for (const ev of (events ?? [])) {
+        const src = ev.previous_scenario_id ?? "null";
+        const tgt = ev.scenario_id ?? "null";
+        if (filterScenarioId && tgt !== filterScenarioId) continue;
+        const key = `${src}::${tgt}`;
+        if (!groups[key]) groups[key] = { requests: [], decisions: [] };
+        if (ev.event_type === "merge_approval_requested") groups[key].requests.push(ev);
+        else groups[key].decisions.push(ev);
+      }
+
+      const pending: any[] = [];
+      for (const [key, group] of Object.entries(groups)) {
+        if (group.requests.length === 0) continue;
+        const latestReq = group.requests[0]; // already sorted desc
+        const latestDec = group.decisions.length > 0 ? group.decisions[0] : null;
+        // Pending if no decision or decision is older than request
+        if (latestDec && new Date(latestDec.created_at).getTime() >= new Date(latestReq.created_at).getTime()) continue;
+        const payload = latestReq.payload ?? {};
+        const [src, tgt] = key.split("::");
+        pending.push({
+          sourceScenarioId: src === "null" ? null : src,
+          targetScenarioId: tgt === "null" ? null : tgt,
+          requested_at: latestReq.created_at,
+          requested_by_user_id: payload.requested_by_user_id ?? latestReq.created_by ?? null,
+          domain: payload.domain ?? "general",
+          risk_score: payload.risk_score ?? null,
+          risk_level: payload.risk_level ?? null,
+          conflicts_count: payload.conflicts_count ?? 0,
+          paths: (payload.paths ?? []).slice(0, 50),
+          request_event_id: latestReq.id,
+        });
+      }
+
+      // Sort by requested_at desc
+      pending.sort((a: any, b: any) => new Date(b.requested_at).getTime() - new Date(a.requested_at).getTime());
+
+      return json({ pending });
+    }
+
+    // ══════════════════════════════════════
+    // ACTION: get_merge_approval_status
+    // ══════════════════════════════════════
+    if (action === "get_merge_approval_status") {
+      const sourceId = body.sourceScenarioId;
+      const targetId = body.targetScenarioId;
+      if (!targetId) return json({ error: "targetScenarioId required" }, 400);
+
+      // Fetch latest request
+      const { data: reqEvents } = await supabase
+        .from("scenario_decision_events")
+        .select("*")
+        .eq("project_id", projectId)
+        .eq("event_type", "merge_approval_requested")
+        .eq("scenario_id", targetId)
+        .eq("previous_scenario_id", sourceId ?? "")
+        .order("created_at", { ascending: false })
+        .limit(1);
+
+      const latestRequest = reqEvents && reqEvents.length > 0 ? reqEvents[0] : null;
+      const reqPayload = latestRequest?.payload as any;
+
+      // Fetch latest decision
+      const decision = await getLatestApprovalDecision(supabase, projectId, sourceId ?? "", targetId);
+
+      // Compute required domain from request paths
+      const reqPaths: string[] = reqPayload?.paths ?? [];
+      const requiredDomain = reqPaths.length > 0 ? getApprovalDomain(reqPaths) : (decision?.domain ?? "general");
+
+      const approvalValidNow = isApprovalValid(decision ?? null, 24, requiredDomain);
+
+      const isPending = !!latestRequest && (!decision || new Date(decision.created_at).getTime() < new Date(latestRequest.created_at).getTime());
+
+      return json({
+        pending: isPending,
+        latest_request: latestRequest ? {
+          at: latestRequest.created_at,
+          domain: reqPayload?.domain ?? "general",
+          paths_count: reqPaths.length,
+          requested_by_user_id: reqPayload?.requested_by_user_id ?? latestRequest.created_by,
+          event_id: latestRequest.id,
+        } : undefined,
+        latest_decision: decision ? {
+          at: decision.created_at,
+          approved: decision.approved,
+          domain: decision.domain,
+          decided_by: (decision as any).decided_by ?? null,
+          event_id: null,
+        } : undefined,
+        approval_valid_now: approvalValidNow,
+        required_domain: requiredDomain,
+      });
+    }
+
+    // ══════════════════════════════════════
+    // ACTION: revoke_merge_approval_request
+    // ══════════════════════════════════════
+    if (action === "revoke_merge_approval_request") {
+      const sourceId = body.sourceScenarioId;
+      const targetId = body.targetScenarioId;
+      const note = body.note ?? "revoked";
+      if (!targetId) return json({ error: "targetScenarioId required" }, 400);
+
+      // Only requester or owner/admin can revoke
+      const role = await getProjectMembershipRole(supabase, projectId, userId);
+
+      if (!role.isOwner && !role.isAdmin) {
+        // Check if requester
+        const { data: reqEvents } = await supabase
+          .from("scenario_decision_events")
+          .select("payload, created_by")
+          .eq("project_id", projectId)
+          .eq("event_type", "merge_approval_requested")
+          .eq("scenario_id", targetId)
+          .order("created_at", { ascending: false })
+          .limit(1);
+        const reqBy = (reqEvents?.[0]?.payload as any)?.requested_by_user_id ?? reqEvents?.[0]?.created_by;
+        if (reqBy !== userId) {
+          return json({ error: "Not authorized to revoke this approval request" }, 403);
+        }
+      }
+
+      // Insert rejection event to clear pending status
+      const { error: insertErr } = await supabase.from("scenario_decision_events").insert({
+        project_id: projectId,
+        event_type: "merge_approval_decided",
+        scenario_id: targetId,
+        previous_scenario_id: sourceId ?? null,
+        created_by: userId,
+        payload: {
+          approved: false,
+          decided_at: new Date().toISOString(),
+          note: `revoked: ${note}`,
+          domain: "general",
+          decided_by: userId,
+          sourceScenarioId: sourceId ?? null,
+          targetScenarioId: targetId,
+        },
+      });
+      if (insertErr) throw new Error("Failed to revoke: " + insertErr.message);
+
+      return json({ revoked: true });
+    }
+
+    // ══════════════════════════════════════
     // ACTION: request_merge_approval
     // ══════════════════════════════════════
     if (action === "request_merge_approval") {
