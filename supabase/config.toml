@@ -194,3 +194,6 @@ verify_jwt = false
 
 [functions.generate-shot-list]
 verify_jwt = false
+
+[functions.script-intake]
+verify_jwt = false

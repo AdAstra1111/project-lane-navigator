@@ -95,6 +95,21 @@ export function DevelopmentStage({
         </Button>
       </div>
 
+      {/* Script Intake link */}
+      <div className="flex items-center justify-between glass-card rounded-xl px-4 py-3">
+        <div className="flex items-center gap-2">
+          <FileText className="h-4 w-4 text-primary" />
+          <span className="text-sm text-muted-foreground">
+            Upload a screenplay PDF for full coverage + backfill documents
+          </span>
+        </div>
+        <Button variant="outline" size="sm" className="gap-1.5" asChild>
+          <Link to={`/projects/${projectId}/script-intake`}>
+            <FileText className="h-3.5 w-3.5" />Script Intake
+          </Link>
+        </Button>
+      </div>
+
       {/* Script Studio — 2-column read-only layout */}
       {(hasDocuments || hasScript) && (
         <ScriptStudio
