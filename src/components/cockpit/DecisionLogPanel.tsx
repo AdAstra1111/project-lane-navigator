@@ -43,6 +43,8 @@ const EVENT_LABELS: Record<string, string> = {
   merge_risk_evaluated: 'Risk Evaluated',
   merge_approval_requested: 'Approval Requested',
   merge_approval_decided: 'Approval Decided',
+  governance_policy_escalated: 'Policy Escalated',
+  governance_memory_updated: 'Gov Memory Updated',
 };
 
 const EVENT_VARIANTS: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
@@ -57,6 +59,8 @@ const EVENT_VARIANTS: Record<string, 'default' | 'secondary' | 'destructive' | '
   merge_risk_evaluated: 'secondary',
   merge_approval_requested: 'destructive',
   merge_approval_decided: 'default',
+  governance_policy_escalated: 'destructive',
+  governance_memory_updated: 'outline',
 };
 
 function scenarioName(id: string | null, scenarios: ProjectScenario[]): string {
