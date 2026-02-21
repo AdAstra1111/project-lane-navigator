@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { useState, useCallback, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { NoteResolutionDrawer, type NoteForResolution } from './NoteResolutionDrawer';
 import { toast } from 'sonner';
 
 const OTHER_OPTION_ID = '__other__';
@@ -266,11 +267,12 @@ function InlineDecisionCard({ decisions, recommended, selectedOptionId, onSelect
   );
 }
 
-function NoteItem({ note, index, checked, onToggle, selectedOptionId, onSelectOption, customDirection, onCustomDirection, projectId, currentDocType, onStatusChange }: {
+function NoteItem({ note, index, checked, onToggle, selectedOptionId, onSelectOption, customDirection, onCustomDirection, projectId, currentDocType, onStatusChange, onOpenResolution }: {
   note: any; index: number; checked: boolean; onToggle: () => void;
   selectedOptionId?: string; onSelectOption?: (optionId: string) => void;
   customDirection?: string; onCustomDirection?: (text: string) => void;
   projectId?: string; currentDocType?: string; onStatusChange?: () => void;
+  onOpenResolution?: (note: NoteForResolution) => void;
 }) {
   const [stateActionsOpen, setStateActionsOpen] = useState(false);
   const severityColor = note.severity === 'blocker' ? 'border-destructive/40 bg-destructive/5' : note.severity === 'high' ? 'border-amber-500/40 bg-amber-500/5' : 'border-border/40';
@@ -304,16 +306,38 @@ function NoteItem({ note, index, checked, onToggle, selectedOptionId, onSelectOp
             customDirection={customDirection} onCustomDirection={onCustomDirection} />
         </div>
       )}
-      {/* State actions — waive / defer / lock */}
-      {note.note_fingerprint && checked && (
-        <div className="px-2 pb-1.5">
-          <button className="text-[8px] text-muted-foreground hover:text-foreground flex items-center gap-0.5"
-            onClick={(e) => { e.stopPropagation(); setStateActionsOpen(p => !p); }}>
-            <ChevronDown className={`h-2.5 w-2.5 transition-transform ${stateActionsOpen ? '' : '-rotate-90'}`} />
-            More actions
-          </button>
-          {stateActionsOpen && (
-            <NoteStateActions note={note} projectId={projectId} currentDocType={currentDocType} onStatusChange={onStatusChange} />
+      {/* State actions — waive / defer / lock + Fix button */}
+      {checked && (
+        <div className="px-2 pb-1.5 flex items-center gap-1 flex-wrap">
+          {onOpenResolution && (
+            <Button variant="outline" size="sm" className="h-5 text-[9px] px-1.5 gap-0.5 border-primary/30 text-primary hover:bg-primary/10"
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenResolution({
+                  id: note.note_fingerprint || `note-${index}`,
+                  source: 'regular',
+                  summary: note.note || note.description || '',
+                  detail: note.why_it_matters || note.detail || '',
+                  category: note.category,
+                  severity: note.severity,
+                  target_doc_type: currentDocType,
+                  note_data: note,
+                });
+              }}>
+              <Wand2 className="h-2.5 w-2.5" />Fix
+            </Button>
+          )}
+          {note.note_fingerprint && (
+            <>
+              <button className="text-[8px] text-muted-foreground hover:text-foreground flex items-center gap-0.5"
+                onClick={(e) => { e.stopPropagation(); setStateActionsOpen(p => !p); }}>
+                <ChevronDown className={`h-2.5 w-2.5 transition-transform ${stateActionsOpen ? '' : '-rotate-90'}`} />
+                More actions
+              </button>
+              {stateActionsOpen && (
+                <NoteStateActions note={note} projectId={projectId} currentDocType={currentDocType} onStatusChange={onStatusChange} />
+              )}
+            </>
           )}
         </div>
       )}
@@ -484,6 +508,8 @@ export function NotesPanel({
   const [carriedOpen, setCarriedOpen] = useState(true);
   const [selectedDecisions, setSelectedDecisions] = useState<Record<string, string>>({});
   const [customDirections, setCustomDirections] = useState<Record<string, string>>({});
+  const [resolutionNote, setResolutionNote] = useState<NoteForResolution | null>(null);
+  const [resolutionOpen, setResolutionOpen] = useState(false);
   const [noteFilter, setNoteFilter] = useState<NoteFilter>('all');
   const [statusVersion, setStatusVersion] = useState(0); // bump to re-render after status changes
 
@@ -682,7 +708,8 @@ export function NotesPanel({
                   return <NoteItem key={`b-${i}`} note={enrichedNote} index={i} checked={selectedNotes.has(i)} onToggle={() => toggle(i)}
                     selectedOptionId={selectedDecisions[noteId]} onSelectOption={(optionId) => handleSelectOption(noteId, optionId)}
                     customDirection={customDirections[noteId]} onCustomDirection={(text) => handleCustomDirection(noteId, text)}
-                    projectId={projectId} currentDocType={currentDocType} onStatusChange={() => setStatusVersion(v => v + 1)} />;
+                    projectId={projectId} currentDocType={currentDocType} onStatusChange={() => setStatusVersion(v => v + 1)}
+                    onOpenResolution={(n) => { setResolutionNote(n); setResolutionOpen(true); }} />;
                 })}
               </div>
             )}
@@ -698,7 +725,8 @@ export function NotesPanel({
                   return <NoteItem key={`h-${i}`} note={enrichedNote} index={idx} checked={selectedNotes.has(idx)} onToggle={() => toggle(idx)}
                     selectedOptionId={selectedDecisions[noteId]} onSelectOption={(optionId) => handleSelectOption(noteId, optionId)}
                     customDirection={customDirections[noteId]} onCustomDirection={(text) => handleCustomDirection(noteId, text)}
-                    projectId={projectId} currentDocType={currentDocType} onStatusChange={() => setStatusVersion(v => v + 1)} />;
+                    projectId={projectId} currentDocType={currentDocType} onStatusChange={() => setStatusVersion(v => v + 1)}
+                    onOpenResolution={(n) => { setResolutionNote(n); setResolutionOpen(true); }} />;
                 })}
               </div>
             )}
@@ -714,7 +742,8 @@ export function NotesPanel({
                   {filteredPolish.map((note: any, i: number) => {
                     const idx = blockerCount + highCount + i;
                     return <NoteItem key={`p-${i}`} note={{ ...note, severity: 'polish' }} index={idx} checked={selectedNotes.has(idx)} onToggle={() => toggle(idx)}
-                      projectId={projectId} currentDocType={currentDocType} onStatusChange={() => setStatusVersion(v => v + 1)} />;
+                      projectId={projectId} currentDocType={currentDocType} onStatusChange={() => setStatusVersion(v => v + 1)}
+                      onOpenResolution={(n) => { setResolutionNote(n); setResolutionOpen(true); }} />;
                   })}
                 </CollapsibleContent>
               </Collapsible>
@@ -753,12 +782,29 @@ export function NotesPanel({
                         <WitnessSection witness={note.witness_json} />
                         {canResolve && (
                           <div className="flex items-center gap-1 pt-0.5 flex-wrap">
+                            <Button variant="outline" size="sm" className="h-5 text-[9px] px-1.5 gap-0.5 border-primary/30 text-primary hover:bg-primary/10"
+                              onClick={() => {
+                                setResolutionNote({
+                                  id: noteId,
+                                  source: 'carried',
+                                  summary: noteText,
+                                  detail: note.why_it_matters || note.detail || '',
+                                  category: note.category,
+                                  severity: note.severity,
+                                  target_doc_type: note.target_deliverable_type || currentDocType,
+                                  source_doc_type: note.source_doc_type,
+                                  note_data: note,
+                                });
+                                setResolutionOpen(true);
+                              }} disabled={isResolving}>
+                              <Wand2 className="h-2.5 w-2.5" />Fix options
+                            </Button>
                             <Button variant="outline" size="sm" className="h-5 text-[9px] px-1.5 gap-0.5 border-emerald-500/30 text-emerald-500 hover:bg-emerald-500/10" onClick={() => handleMarkResolved(noteId)} disabled={isResolving}>
-                              {isResolving ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Check className="h-2.5 w-2.5" />}Resolve now
+                              {isResolving ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Check className="h-2.5 w-2.5" />}Resolve
                             </Button>
                             {currentVersionId && (
                               <Button variant="outline" size="sm" className="h-5 text-[9px] px-1.5 gap-0.5 border-sky-500/30 text-sky-400 hover:bg-sky-500/10" onClick={() => handleAIPatch(noteId, noteText)} disabled={isResolving}>
-                                {isResolving ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Wand2 className="h-2.5 w-2.5" />}Apply fix now
+                                {isResolving ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Wand2 className="h-2.5 w-2.5" />}Quick patch
                               </Button>
                             )}
                             <Button variant="ghost" size="sm" className="h-5 text-[9px] px-1.5 gap-0.5 text-muted-foreground hover:text-destructive" onClick={() => handleDismiss(noteId)} disabled={isResolving}>
@@ -959,6 +1005,26 @@ export function NotesPanel({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Unified Note Resolution Drawer */}
+      <NoteResolutionDrawer
+        open={resolutionOpen}
+        onOpenChange={setResolutionOpen}
+        note={resolutionNote}
+        projectId={projectId || ''}
+        currentVersionId={currentVersionId}
+        onApplied={(result) => {
+          toast.success(`Fix applied → v${result.new_version_number}${result.approved ? ' (approved)' : ''}`);
+          if (resolutionNote?.id) setResolvedNoteIds(prev => new Set([...prev, resolutionNote.id!]));
+          onDecisionApplied?.();
+        }}
+        onResolved={(noteId) => {
+          handleMarkResolved(noteId);
+        }}
+        onDeferred={onDismissDeferred ? (noteId) => {
+          onDismissDeferred(noteId);
+        } : undefined}
+      />
     </>
   );
 }
