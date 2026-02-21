@@ -10,6 +10,13 @@ import {
   AlertDialogDescription,
   AlertDialogFooter,
 } from '@/components/ui/alert-dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 
 const ACCEPTED_EXTENSIONS = ['.pdf', '.txt', '.md', '.docx', '.doc', '.fdx', '.fountain'];
@@ -23,25 +30,22 @@ const ACCEPTED_TYPES = [
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const MAX_FILES = 5;
 
-const SCRIPT_EXTENSIONS = ['pdf', 'fdx', 'fountain', 'docx', 'doc', 'txt'];
-
-function looksLikeScript(fileName: string): boolean {
-  const ext = fileName.split('.').pop()?.toLowerCase() || '';
-  if (!SCRIPT_EXTENSIONS.includes(ext)) return false;
-  const lower = fileName.toLowerCase();
-  // Heuristic: if it contains script-related keywords, it's likely a script
-  const scriptKeywords = ['script', 'screenplay', 'draft', 'teleplay', 'pilot', 'episode'];
-  if (scriptKeywords.some(k => lower.includes(k))) return true;
-  // .fdx and .fountain are always scripts
-  if (ext === 'fdx' || ext === 'fountain') return true;
-  // For PDF/DOCX, we'll ask the user
-  return true;
-}
-
-interface ScriptDetection {
-  files: File[];
-  scriptFiles: File[];
-}
+/** Document types the user can pick from when classifying uploads */
+const UPLOAD_DOC_TYPE_OPTIONS: { value: string; label: string }[] = [
+  { value: 'script_latest', label: 'Script — Latest Draft' },
+  { value: 'script_older', label: 'Script — Older Draft' },
+  { value: 'treatment', label: 'Treatment' },
+  { value: 'outline', label: 'Outline' },
+  { value: 'beat_sheet', label: 'Beat Sheet' },
+  { value: 'character_bible', label: 'Character Bible' },
+  { value: 'pitch_document', label: 'Pitch Document' },
+  { value: 'one_pager', label: 'One-Pager' },
+  { value: 'deck', label: 'Deck / Lookbook' },
+  { value: 'budget_topline', label: 'Budget' },
+  { value: 'production_plan', label: 'Production Plan / Schedule' },
+  { value: 'research_dossier', label: 'Research / Reference' },
+  { value: 'document', label: 'Other Document' },
+];
 
 interface AddDocumentsUploadProps {
   existingCount: number;
@@ -54,7 +58,8 @@ export function AddDocumentsUpload({ existingCount, onUpload, isUploading }: Add
   const [isDragging, setIsDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isExpanded, setIsExpanded] = useState(false);
-  const [scriptDialog, setScriptDialog] = useState<ScriptDetection | null>(null);
+  const [classifyDialog, setClassifyDialog] = useState<File[] | null>(null);
+  const [selectedDocType, setSelectedDocType] = useState<string>('');
 
   const maxNew = MAX_FILES - existingCount;
 
@@ -95,40 +100,26 @@ export function AddDocumentsUpload({ existingCount, onUpload, isUploading }: Add
 
   const handleSubmit = () => {
     if (files.length === 0) return;
-    
-    // Check if any uploaded files look like scripts
-    const scriptFiles = files.filter(f => looksLikeScript(f.name));
-    
-    if (scriptFiles.length > 0) {
-      setScriptDialog({ files, scriptFiles });
+    // Always ask for classification
+    setClassifyDialog([...files]);
+    setSelectedDocType('');
+  };
+
+  const handleClassifyConfirm = () => {
+    if (!classifyDialog || !selectedDocType) return;
+
+    if (selectedDocType === 'script_latest') {
+      const scriptFileNames = classifyDialog.map(f => f.name);
+      onUpload(classifyDialog, { isLatestDraft: true, scriptFiles: scriptFileNames });
+    } else if (selectedDocType === 'script_older') {
+      const scriptFileNames = classifyDialog.map(f => f.name);
+      onUpload(classifyDialog, { isLatestDraft: false, scriptFiles: scriptFileNames });
     } else {
-      onUpload(files);
-      setFiles([]);
-      setIsExpanded(false);
+      onUpload(classifyDialog, undefined, selectedDocType);
     }
-  };
 
-  const handleScriptResponse = (isLatestDraft: boolean) => {
-    if (!scriptDialog) return;
-    const scriptFileNames = scriptDialog.scriptFiles.map(f => f.name);
-    onUpload(scriptDialog.files, { isLatestDraft, scriptFiles: scriptFileNames });
-    setScriptDialog(null);
-    setFiles([]);
-    setIsExpanded(false);
-  };
-
-  const handleNotAScript = () => {
-    if (!scriptDialog) return;
-    onUpload(scriptDialog.files);
-    setScriptDialog(null);
-    setFiles([]);
-    setIsExpanded(false);
-  };
-
-  const handleTreatmentUpload = () => {
-    if (!scriptDialog) return;
-    onUpload(scriptDialog.files, undefined, 'treatment');
-    setScriptDialog(null);
+    setClassifyDialog(null);
+    setSelectedDocType('');
     setFiles([]);
     setIsExpanded(false);
   };
@@ -263,8 +254,8 @@ export function AddDocumentsUpload({ existingCount, onUpload, isUploading }: Add
         </div>
       </motion.div>
 
-      {/* Script Detection Dialog */}
-      <AlertDialog open={!!scriptDialog} onOpenChange={(open) => { if (!open) setScriptDialog(null); }}>
+      {/* Document Classification Dialog */}
+      <AlertDialog open={!!classifyDialog} onOpenChange={(open) => { if (!open) { setClassifyDialog(null); setSelectedDocType(''); } }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2">
@@ -273,27 +264,35 @@ export function AddDocumentsUpload({ existingCount, onUpload, isUploading }: Add
             </AlertDialogTitle>
             <AlertDialogDescription className="space-y-2">
               <span className="block">
-                {scriptDialog?.scriptFiles.length === 1
-                  ? `"${scriptDialog.scriptFiles[0].name}" looks like a script or treatment.`
-                  : `${scriptDialog?.scriptFiles.length} files look like scripts or treatments.`}
+                {classifyDialog?.length === 1
+                  ? `Classify "${classifyDialog[0].name}" so it's routed correctly.`
+                  : `Classify ${classifyDialog?.length} files so they're routed correctly.`}
               </span>
               <span className="block text-xs">
-                Labelling correctly helps IFFY route analysis and enables comparison tools.
+                Correct labelling helps route analysis and enables comparison tools.
               </span>
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter className="flex-col sm:flex-row gap-2">
-            <Button variant="outline" size="sm" onClick={handleNotAScript}>
-              Just a Document
+          <div className="py-2">
+            <Select value={selectedDocType} onValueChange={setSelectedDocType}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Select document type…" />
+              </SelectTrigger>
+              <SelectContent>
+                {UPLOAD_DOC_TYPE_OPTIONS.map(opt => (
+                  <SelectItem key={opt.value} value={opt.value} className="text-sm">
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <AlertDialogFooter>
+            <Button variant="ghost" size="sm" onClick={() => { setClassifyDialog(null); setSelectedDocType(''); }}>
+              Cancel
             </Button>
-            <Button variant="secondary" size="sm" onClick={() => handleTreatmentUpload()}>
-              It's a Treatment
-            </Button>
-            <Button variant="secondary" size="sm" onClick={() => handleScriptResponse(false)}>
-              Older Script Draft
-            </Button>
-            <Button size="sm" onClick={() => handleScriptResponse(true)}>
-              Latest Script Draft
+            <Button size="sm" disabled={!selectedDocType} onClick={handleClassifyConfirm}>
+              Upload
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
