@@ -1,29 +1,27 @@
-import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useMemo, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AlertTriangle, Trash2 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import type { ProjectScenario } from '@/hooks/useStateGraph';
 
-interface DriftAlert {
+type DriftAlert = {
   id: string;
-  alert_type: string;
-  severity: string;
+  project_id: string;
+  scenario_id: string;
+  severity: 'info' | 'warning' | 'critical' | string;
+  message: string;
   layer: string;
   metric_key: string;
-  current_value: number | null;
-  threshold: number | null;
-  message: string;
+  current_value: number | string | null;
   acknowledged: boolean;
-  scenario_id: string | null;
   created_at: string;
-}
+};
 
-const severityColors: Record<string, string> = {
+const SEVERITY_STYLES: Record<string, string> = {
   info: 'bg-sky-500/10 text-sky-400 border-sky-500/30',
   warning: 'bg-amber-500/10 text-amber-400 border-amber-500/30',
   critical: 'bg-rose-500/10 text-rose-400 border-rose-500/30',
@@ -37,9 +35,16 @@ interface Props {
 
 export function DriftAlertsPanel({ projectId, scenarios, activeScenarioId }: Props) {
   const queryClient = useQueryClient();
-  const [selectedScenarioId, setSelectedScenarioId] = useState<string>(activeScenarioId || '');
+  const scenarioOptions = useMemo(
+    () => scenarios.filter((s) => !s.is_archived),
+    [scenarios],
+  );
 
-  const scenarioOptions = scenarios.filter(s => !s.is_archived);
+  const [selectedScenarioId, setSelectedScenarioId] = useState(activeScenarioId || '');
+
+  useEffect(() => {
+    if (activeScenarioId) setSelectedScenarioId(activeScenarioId);
+  }, [activeScenarioId]);
 
   const { data: alerts = [], isLoading } = useQuery({
     queryKey: ['drift-alerts-panel', projectId, selectedScenarioId],
@@ -89,7 +94,7 @@ export function DriftAlertsPanel({ projectId, scenarios, activeScenarioId }: Pro
               <SelectValue placeholder="Select scenario…" />
             </SelectTrigger>
             <SelectContent>
-              {scenarioOptions.map(s => (
+              {scenarioOptions.map((s) => (
                 <SelectItem key={s.id} value={s.id}>
                   {s.name}{s.is_active ? ' (Active)' : ''}
                 </SelectItem>
@@ -120,17 +125,20 @@ export function DriftAlertsPanel({ projectId, scenarios, activeScenarioId }: Pro
         {selectedScenarioId && !isLoading && alerts.length === 0 && (
           <p className="text-xs text-muted-foreground text-center py-4">No active drift alerts for this scenario.</p>
         )}
-        {alerts.map(a => (
-          <div key={a.id} className="flex items-start gap-2 text-xs">
-            <Badge variant="outline" className={`shrink-0 text-[10px] ${severityColors[a.severity] || ''}`}>
-              {a.severity}
-            </Badge>
-            <div className="min-w-0">
-              <p className="font-medium">{a.message}</p>
-              <p className="text-muted-foreground">{a.layer} · {a.metric_key} = {a.current_value}</p>
+        <div className="space-y-2">
+          {alerts.map((a) => (
+            <div
+              key={a.id}
+              className={`rounded-lg border p-2 ${SEVERITY_STYLES[a.severity] || 'border-border bg-muted/50 text-foreground'}`}
+            >
+              <div className="text-[11px] uppercase tracking-wide opacity-80">{a.severity}</div>
+              <div className="text-xs font-medium">{a.message}</div>
+              <div className="text-[11px] opacity-80">
+                {a.layer} · {a.metric_key} = {String(a.current_value)}
+              </div>
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
       </CardContent>
     </Card>
   );
