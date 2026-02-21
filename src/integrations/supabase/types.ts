@@ -9169,6 +9169,99 @@ export type Database = {
           },
         ]
       }
+      scenario_recommendations: {
+        Row: {
+          confidence: number
+          created_at: string
+          id: string
+          project_id: string
+          reasons: Json
+          recommended_scenario_id: string
+          risk_flags: Json
+          tradeoffs: Json
+        }
+        Insert: {
+          confidence?: number
+          created_at?: string
+          id?: string
+          project_id: string
+          reasons?: Json
+          recommended_scenario_id: string
+          risk_flags?: Json
+          tradeoffs?: Json
+        }
+        Update: {
+          confidence?: number
+          created_at?: string
+          id?: string
+          project_id?: string
+          reasons?: Json
+          recommended_scenario_id?: string
+          risk_flags?: Json
+          tradeoffs?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scenario_recommendations_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scenario_recommendations_recommended_scenario_id_fkey"
+            columns: ["recommended_scenario_id"]
+            isOneToOne: false
+            referencedRelation: "project_scenarios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      scenario_scores: {
+        Row: {
+          as_of: string
+          id: string
+          metrics: Json
+          notes: string | null
+          project_id: string
+          scenario_id: string
+          scores: Json
+        }
+        Insert: {
+          as_of?: string
+          id?: string
+          metrics?: Json
+          notes?: string | null
+          project_id: string
+          scenario_id: string
+          scores?: Json
+        }
+        Update: {
+          as_of?: string
+          id?: string
+          metrics?: Json
+          notes?: string | null
+          project_id?: string
+          scenario_id?: string
+          scores?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scenario_scores_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scenario_scores_scenario_id_fkey"
+            columns: ["scenario_id"]
+            isOneToOne: false
+            referencedRelation: "project_scenarios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       scenario_snapshots: {
         Row: {
           confidence_bands: Json

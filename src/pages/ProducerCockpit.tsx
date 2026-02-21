@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useStateGraph } from '@/hooks/useStateGraph';
+import { useScenarioRecommendation } from '@/hooks/useScenarioRecommendation';
 import { StateGraphOverview } from '@/components/cockpit/StateGraphOverview';
 import { ScenarioPanel } from '@/components/cockpit/ScenarioPanel';
 import { DriftAlertsPanel } from '@/components/cockpit/DriftAlertsPanel';
@@ -10,6 +11,7 @@ import { ActiveScenarioBanner } from '@/components/cockpit/ActiveScenarioBanner'
 import { OptimizationPanel } from '@/components/cockpit/OptimizationPanel';
 import { ProjectionPanel } from '@/components/cockpit/ProjectionPanel';
 import { EngineSelfTestPanel } from '@/components/cockpit/EngineSelfTestPanel';
+import { StrategicRecommendationPanel } from '@/components/cockpit/StrategicRecommendationPanel';
 import { ArrowLeft, Gauge } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
@@ -22,6 +24,10 @@ export default function ProducerCockpit() {
     rankScenarios, optimizeScenario, applyOptimizedOverrides, projectForward,
     baseline, activeScenario, recommendedScenario,
   } = useStateGraph(projectId);
+
+  const {
+    recommendation, isLoading: recLoading, computeRecommendation,
+  } = useScenarioRecommendation(projectId);
 
   const [optimizeResult, setOptimizeResult] = useState<any>(null);
 
@@ -59,6 +65,22 @@ export default function ProducerCockpit() {
               stateGraph={stateGraph}
               onSetBaselineActive={() => baseline && setActiveScenario.mutate(baseline.id)}
               isPending={setActiveScenario.isPending}
+            />
+
+            <StrategicRecommendationPanel
+              projectId={projectId}
+              scenarios={scenarios}
+              activeScenarioId={activeScenario?.id ?? null}
+              recommendation={recommendation ?? null}
+              isLoading={recLoading}
+              isComputing={computeRecommendation.isPending}
+              onRecompute={() => computeRecommendation.mutate({
+                baselineScenarioId: baseline?.id,
+                activeScenarioId: activeScenario?.id,
+              })}
+              onSetActive={(id) => setActiveScenario.mutate(id)}
+              onTogglePin={(id) => togglePin.mutate(id)}
+              isSettingActive={setActiveScenario.isPending}
             />
 
             <DriftAlertsPanel
