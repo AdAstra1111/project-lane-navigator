@@ -30,7 +30,7 @@ export function EpisodePackagePanel({ lockedEpisodeCount, totalEpisodes, onExpor
       <CardHeader className="pb-2 px-4 pt-3">
         <CardTitle className="text-xs font-semibold flex items-center gap-1.5">
           <Package className="h-3.5 w-3.5 text-primary" />
-          Season Package
+          Project Package
           <Badge variant="outline" className="text-[8px] ml-auto">
             {lockedEpisodeCount}/{totalEpisodes} packaged
           </Badge>

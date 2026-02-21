@@ -1241,7 +1241,7 @@ export default function SeriesWriter() {
                   />
                 </div>
 
-                {/* ── Season Package: Complete Season Script ── */}
+                {/* ── Project Package: Complete Season Script ── */}
                 <SeasonPackagePanel
                   projectId={projectId}
                   episodeCount={seasonEpisodeCount || episodes.length}
