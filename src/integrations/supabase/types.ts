@@ -110,10 +110,12 @@ export type Database = {
         Row: {
           allow_defaults: boolean
           approval_payload: Json | null
+          approval_required_for_doc_type: string | null
           approval_type: string | null
           awaiting_approval: boolean
           created_at: string | null
           current_document: string
+          current_stage_index: number | null
           error: string | null
           follow_latest: boolean
           id: string
@@ -123,17 +125,22 @@ export type Database = {
           last_gp: number | null
           last_readiness: number | null
           last_risk_flags: Json | null
+          last_ui_message: string | null
           max_stage_loops: number
           max_total_steps: number
           mode: string
+          pause_reason: string | null
           pending_decisions: Json | null
           pending_doc_id: string | null
           pending_doc_type: string | null
           pending_next_doc_type: string | null
           pending_version_id: string | null
+          pinned_inputs: Json | null
+          pipeline_key: string | null
           project_id: string
           resume_document_id: string | null
           resume_version_id: string | null
+          stage_history: Json | null
           stage_loop_count: number
           start_document: string
           status: string
@@ -146,10 +153,12 @@ export type Database = {
         Insert: {
           allow_defaults?: boolean
           approval_payload?: Json | null
+          approval_required_for_doc_type?: string | null
           approval_type?: string | null
           awaiting_approval?: boolean
           created_at?: string | null
           current_document: string
+          current_stage_index?: number | null
           error?: string | null
           follow_latest?: boolean
           id?: string
@@ -159,17 +168,22 @@ export type Database = {
           last_gp?: number | null
           last_readiness?: number | null
           last_risk_flags?: Json | null
+          last_ui_message?: string | null
           max_stage_loops?: number
           max_total_steps?: number
           mode?: string
+          pause_reason?: string | null
           pending_decisions?: Json | null
           pending_doc_id?: string | null
           pending_doc_type?: string | null
           pending_next_doc_type?: string | null
           pending_version_id?: string | null
+          pinned_inputs?: Json | null
+          pipeline_key?: string | null
           project_id: string
           resume_document_id?: string | null
           resume_version_id?: string | null
+          stage_history?: Json | null
           stage_loop_count?: number
           start_document: string
           status?: string
@@ -182,10 +196,12 @@ export type Database = {
         Update: {
           allow_defaults?: boolean
           approval_payload?: Json | null
+          approval_required_for_doc_type?: string | null
           approval_type?: string | null
           awaiting_approval?: boolean
           created_at?: string | null
           current_document?: string
+          current_stage_index?: number | null
           error?: string | null
           follow_latest?: boolean
           id?: string
@@ -195,17 +211,22 @@ export type Database = {
           last_gp?: number | null
           last_readiness?: number | null
           last_risk_flags?: Json | null
+          last_ui_message?: string | null
           max_stage_loops?: number
           max_total_steps?: number
           mode?: string
+          pause_reason?: string | null
           pending_decisions?: Json | null
           pending_doc_id?: string | null
           pending_doc_type?: string | null
           pending_next_doc_type?: string | null
           pending_version_id?: string | null
+          pinned_inputs?: Json | null
+          pipeline_key?: string | null
           project_id?: string
           resume_document_id?: string | null
           resume_version_id?: string | null
+          stage_history?: Json | null
           stage_loop_count?: number
           start_document?: string
           status?: string
