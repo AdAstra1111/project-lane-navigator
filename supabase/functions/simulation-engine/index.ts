@@ -448,6 +448,79 @@ function computeDelta(
   return delta;
 }
 
+// ---- Deep override diff helpers ----
+
+interface OverrideDiffChange {
+  path: string;
+  a: unknown;
+  b: unknown;
+}
+
+function diffOverridesDeep(
+  a: Record<string, unknown>,
+  b: Record<string, unknown>,
+  prefix = "",
+): OverrideDiffChange[] {
+  const changes: OverrideDiffChange[] = [];
+  const allKeys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  for (const key of allKeys) {
+    const path = prefix ? `${prefix}.${key}` : key;
+    const av = a[key] ?? null;
+    const bv = b[key] ?? null;
+    if (isPlainObject(av) && isPlainObject(bv)) {
+      changes.push(...diffOverridesDeep(av as Record<string, unknown>, bv as Record<string, unknown>, path));
+    } else if (!deepEqual(av, bv)) {
+      changes.push({ path, a: av, b: bv });
+    }
+  }
+  return changes;
+}
+
+function deepEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (a === null || b === null) return false;
+  if (typeof a !== typeof b) return false;
+  if (typeof a === "number" && typeof b === "number") return a === b;
+  if (typeof a === "string" && typeof b === "string") return a === b;
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (a.length !== b.length) return false;
+    return a.every((v, i) => deepEqual(v, b[i]));
+  }
+  if (isPlainObject(a) && isPlainObject(b)) {
+    const aObj = a as Record<string, unknown>;
+    const bObj = b as Record<string, unknown>;
+    const keys = new Set([...Object.keys(aObj), ...Object.keys(bObj)]);
+    for (const k of keys) {
+      if (!deepEqual(aObj[k], bObj[k])) return false;
+    }
+    return true;
+  }
+  return false;
+}
+
+function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
+  const parts = path.split(".");
+  let cur: unknown = obj;
+  for (const p of parts) {
+    if (cur === null || cur === undefined || typeof cur !== "object") return undefined;
+    cur = (cur as Record<string, unknown>)[p];
+  }
+  return cur ?? null;
+}
+
+function setNestedValue(obj: Record<string, unknown>, path: string, value: unknown): void {
+  const parts = path.split(".");
+  let cur = obj;
+  for (let i = 0; i < parts.length - 1; i++) {
+    const p = parts[i];
+    if (!isPlainObject(cur[p])) {
+      cur[p] = {};
+    }
+    cur = cur[p] as Record<string, unknown>;
+  }
+  cur[parts[parts.length - 1]] = value;
+}
+
 function checkCoherence(overrides: StateOverrides): string[] {
   const flags: string[] = [];
   const exec = overrides.execution_state || {};
@@ -2966,6 +3039,122 @@ Deno.serve(async (req) => {
       }
 
       return json({ newScenarioId });
+    }
+
+    // ══════════════════════════════════════
+    // ACTION: diff_scenarios
+    // ══════════════════════════════════════
+    if (action === "diff_scenarios") {
+      const aId = body.aScenarioId;
+      const bId = body.bScenarioId;
+      if (!aId || !bId) return json({ error: "aScenarioId and bScenarioId required" }, 400);
+
+      const [{ data: scenA }, { data: scenB }] = await Promise.all([
+        supabase.from("project_scenarios").select("id, state_overrides").eq("id", aId).eq("project_id", projectId).single(),
+        supabase.from("project_scenarios").select("id, state_overrides").eq("id", bId).eq("project_id", projectId).single(),
+      ]);
+      if (!scenA) return json({ error: "Scenario A not found" }, 404);
+      if (!scenB) return json({ error: "Scenario B not found" }, 404);
+
+      const overA = (scenA.state_overrides ?? {}) as Record<string, unknown>;
+      const overB = (scenB.state_overrides ?? {}) as Record<string, unknown>;
+
+      const changes = diffOverridesDeep(overA, overB);
+      const truncated = changes.length > 300;
+      return json({
+        aScenarioId: aId,
+        bScenarioId: bId,
+        changes: truncated ? changes.slice(0, 300) : changes,
+        truncated,
+      });
+    }
+
+    // ══════════════════════════════════════
+    // ACTION: merge_scenario_overrides
+    // ══════════════════════════════════════
+    if (action === "merge_scenario_overrides") {
+      const sourceId = body.sourceScenarioId;
+      const targetId = body.targetScenarioId;
+      if (!sourceId || !targetId) return json({ error: "sourceScenarioId and targetScenarioId required" }, 400);
+      if (sourceId === targetId) return json({ error: "Source and target must differ" }, 400);
+
+      const selectedPaths: string[] | undefined = body.paths;
+      const strategy: string = body.strategy ?? "overwrite";
+
+      const [{ data: srcScen }, { data: tgtScen }] = await Promise.all([
+        supabase.from("project_scenarios").select("id, state_overrides, name").eq("id", sourceId).eq("project_id", projectId).single(),
+        supabase.from("project_scenarios").select("id, state_overrides, name").eq("id", targetId).eq("project_id", projectId).single(),
+      ]);
+      if (!srcScen) return json({ error: "Source scenario not found" }, 404);
+      if (!tgtScen) return json({ error: "Target scenario not found" }, 404);
+
+      const srcOver = (srcScen.state_overrides ?? {}) as Record<string, unknown>;
+      const tgtOver = JSON.parse(JSON.stringify(tgtScen.state_overrides ?? {})) as Record<string, unknown>;
+
+      const allChanges = diffOverridesDeep(srcOver, tgtOver);
+      const pathsToApply = selectedPaths
+        ? allChanges.filter(c => selectedPaths.includes(c.path))
+        : allChanges;
+
+      for (const change of pathsToApply) {
+        const srcVal = getNestedValue(srcOver, change.path);
+        if (strategy === "fill_missing") {
+          const curVal = getNestedValue(tgtOver, change.path);
+          if (curVal !== null && curVal !== undefined) continue;
+        }
+        setNestedValue(tgtOver, change.path, srcVal);
+      }
+
+      // Persist updated overrides
+      const { error: updErr } = await supabase
+        .from("project_scenarios")
+        .update({ state_overrides: tgtOver })
+        .eq("id", targetId);
+      if (updErr) throw updErr;
+
+      // Recompute computed_state
+      const { data: graph } = await supabase
+        .from("project_state_graphs")
+        .select("*")
+        .eq("project_id", projectId)
+        .single();
+      if (graph) {
+        const creative = {
+          ...(graph.creative_state as unknown as CreativeState),
+          ...((tgtOver as any).creative_state ?? {}),
+        };
+        const cascaded = runFullCascade(creative, tgtOver as StateOverrides);
+        await supabase
+          .from("project_scenarios")
+          .update({ computed_state: cascaded as any })
+          .eq("id", targetId);
+      }
+
+      // Decision event
+      try {
+        await supabase.from("scenario_decision_events").insert({
+          project_id: projectId,
+          event_type: "scenario_merged",
+          scenario_id: targetId,
+          previous_scenario_id: sourceId,
+          created_by: userId,
+          payload: {
+            paths_applied: pathsToApply.map(c => c.path),
+            strategy,
+            sourceScenarioId: sourceId,
+            targetScenarioId: targetId,
+            change_count: pathsToApply.length,
+          },
+        });
+      } catch (e: unknown) {
+        console.warn("decision_event_insert_failed", "scenario_merged", projectId, e instanceof Error ? e.message : e);
+      }
+
+      return json({
+        targetScenarioId: targetId,
+        paths_applied: pathsToApply.map(c => c.path),
+        change_count: pathsToApply.length,
+      });
     }
 
     return json({ error: `Unknown action: ${action}` }, 400);
