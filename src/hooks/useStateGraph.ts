@@ -4,6 +4,12 @@ import { toast } from 'sonner';
 
 // ---- Types ----
 
+export type ProjectionAssumptions = {
+  inflation_rate: number;
+  schedule_slip_risk: number;
+  platform_appetite_decay: number;
+};
+
 export interface CreativeState {
   format: string;
   runtime_minutes: number;
@@ -356,7 +362,7 @@ export function useStateGraph(projectId: string | undefined) {
 
   // Phase 3: Forward Projection
   const projectForward = useMutation({
-    mutationFn: async (params: { scenarioId?: string; months?: number; assumptions?: any }) => {
+    mutationFn: async (params: { scenarioId?: string; months?: number; assumptions?: ProjectionAssumptions }) => {
       const { data, error } = await supabase.functions.invoke('simulation-engine', {
         body: { action: 'project_forward', projectId, scenarioId: params.scenarioId, months: params.months, assumptions: params.assumptions },
       });
