@@ -826,7 +826,7 @@ function isCandidateValid(cascaded: CascadedState): boolean {
 
 // ---- Safe Timer (Deno Edge compatible) ----
 
-const now = (): number => (typeof performance !== "undefined" && performance.now ? performance.now() : Date.now());
+const now = (): number => globalThis.performance?.now?.() ?? Date.now();
 
 // ---- Self-Test Suite ----
 
