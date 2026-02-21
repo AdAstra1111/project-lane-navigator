@@ -202,17 +202,18 @@ function canApproveMerge(
 async function getLatestApprovalDecision(
   supabase: any,
   projectId: string,
-  sourceId: string,
+  sourceId: string | null | undefined,
   targetId: string,
 ): Promise<{ approved: boolean; created_at: string; note?: string; domain?: string } | null> {
   try {
-    const { data, error } = await supabase
+    let query = supabase
       .from("scenario_decision_events")
       .select("payload, created_at")
       .eq("project_id", projectId)
       .eq("event_type", "merge_approval_decided")
-      .eq("scenario_id", targetId)
-      .eq("previous_scenario_id", sourceId)
+      .eq("scenario_id", targetId);
+    query = filterByPreviousScenarioId(query, sourceId);
+    const { data, error } = await query
       .order("created_at", { ascending: false })
       .limit(1);
     if (error || !data || data.length === 0) return null;
@@ -242,6 +243,15 @@ function isApprovalValid(
   // Phase 5.6: domain must match if both are present
   if (requiredDomain && decision.domain && decision.domain !== requiredDomain) return false;
   return true;
+}
+
+// ---- NULL-aware previous_scenario_id filter helper ----
+
+function filterByPreviousScenarioId(query: any, sourceId: string | null | undefined) {
+  if (!sourceId) {
+    return query.is("previous_scenario_id", null);
+  }
+  return query.eq("previous_scenario_id", sourceId);
 }
 
 // ---- Lock key normalization ----
@@ -3239,6 +3249,224 @@ Deno.serve(async (req) => {
     }
 
     // ══════════════════════════════════════
+    // SHARED HELPER: performMerge
+    // ══════════════════════════════════════
+    async function performMerge(opts: {
+      supabase: any; projectId: string; userId: string;
+      sourceId: string; targetId: string;
+      pathsToApply: { path: string; a: unknown; b: unknown }[];
+      protectedHits: string[];
+      strategy: string; isForce: boolean;
+      srcOver: Record<string, unknown>; tgtOver: Record<string, unknown>;
+      tgtScen: any;
+      extraEventPayload?: Record<string, unknown>;
+    }) {
+      const { supabase: sb, projectId: pid, userId: uid, sourceId: sid, targetId: tid,
+        pathsToApply: pta, protectedHits: ph, strategy: strat, isForce: force,
+        srcOver: so, tgtOver: to, tgtScen: ts, extraEventPayload } = opts;
+
+      // Approval gate
+      const tgtMergePolicy = ts.merge_policy ?? (normalizeGovernance(ts.governance).merge_policy ?? {});
+      const mergeDomain = getApprovalDomain(pta.map(c => c.path));
+      let approvalBypassed = false;
+      let approvalDecisionUsed: { approved: boolean; created_at: string; note?: string; domain?: string } | null = null;
+      if (tgtMergePolicy.require_approval === true && !force) {
+        const decision = await getLatestApprovalDecision(sb, pid, sid, tid);
+        if (isApprovalValid(decision, 24, mergeDomain)) {
+          approvalBypassed = true;
+          approvalDecisionUsed = decision;
+        } else {
+          throw Object.assign(new Error("Merge requires approval"), { httpStatus: 403, body: { error: "Merge requires approval", requires_approval: true, approval_valid: false, domain: mergeDomain } });
+        }
+      }
+
+      // Lock checks
+      if (ts.is_locked && !force) {
+        throw Object.assign(new Error("Target scenario is locked"), { httpStatus: 403, body: { error: "Target scenario is locked" } });
+      }
+      if (ph.length > 0 && !force) {
+        throw Object.assign(new Error("Protected paths require force"), { httpStatus: 403, body: { error: "Protected paths require force", protected_hits: ph } });
+      }
+
+      // Apply changes
+      for (const change of pta) {
+        const srcVal = getNestedValue(so, change.path);
+        if (strat === "fill_missing") {
+          const curVal = getNestedValue(to, change.path);
+          if (curVal !== null && curVal !== undefined) continue;
+        }
+        setNestedValue(to, change.path, srcVal);
+      }
+
+      // Persist updated overrides
+      const { error: updErr } = await sb
+        .from("project_scenarios")
+        .update({ state_overrides: to })
+        .eq("id", tid);
+      if (updErr) throw updErr;
+
+      // Recompute computed_state
+      let postMergeCs: CascadedState | null = null;
+      const { data: graph } = await sb
+        .from("project_state_graphs")
+        .select("*")
+        .eq("project_id", pid)
+        .single();
+      if (graph) {
+        const creative = {
+          ...(graph.creative_state as unknown as CreativeState),
+          ...((to as any).creative_state ?? {}),
+        };
+        const cascaded = runFullCascade(creative, to as StateOverrides);
+        postMergeCs = cascaded;
+        await sb
+          .from("project_scenarios")
+          .update({ computed_state: cascaded as any })
+          .eq("id", tid);
+      }
+
+      // Governance risk memory update
+      try {
+        const { data: updatedTgt } = await sb
+          .from("project_scenarios")
+          .select("governance, computed_state, protected_paths")
+          .eq("id", tid)
+          .single();
+
+        if (updatedTgt) {
+          const gov = normalizeGovernance(updatedTgt.governance);
+          const { data: driftData } = await sb
+            .from("drift_alerts")
+            .select("severity")
+            .eq("project_id", pid)
+            .eq("scenario_id", tid)
+            .eq("acknowledged", false);
+          const driftCritical = (driftData ?? []).filter((d: any) => d.severity === "critical").length;
+          const driftWarning = (driftData ?? []).filter((d: any) => d.severity === "warning").length;
+
+          const preMergeCs = ts.computed_state as unknown as CascadedState | null;
+          const confidenceBefore = preMergeCs?.revenue_state?.confidence_score ?? null;
+          const confidenceAfter = postMergeCs?.revenue_state?.confidence_score ?? null;
+
+          const pathWeights = { ...gov.risk_memory.path_weights };
+          const appliedPaths = pta.map(c => c.path);
+          for (const p of appliedPaths) {
+            const current = pathWeights[p] ?? 0;
+            let increment = 0;
+            if (force) increment += 2;
+            if (ph.includes(p)) increment += 2;
+            if (confidenceBefore !== null && confidenceAfter !== null && confidenceAfter < confidenceBefore) increment += 2;
+            if (driftCritical > 0 || driftWarning > 0) increment += 3;
+            if (increment > 0) {
+              pathWeights[p] = Math.min(20, current + increment);
+            }
+          }
+
+          const mergeOutcome = {
+            at: new Date().toISOString(),
+            sourceScenarioId: sid,
+            targetScenarioId: tid,
+            risk_score: undefined as number | undefined,
+            required_approval: approvalBypassed,
+            forced: force,
+            paths: appliedPaths.slice(0, 20),
+            drift_critical: driftCritical,
+            drift_warning: driftWarning,
+            confidence_before: confidenceBefore ?? undefined,
+            confidence_after: confidenceAfter ?? undefined,
+          };
+          const outcomes = [...gov.risk_memory.merge_outcomes, mergeOutcome].slice(-20);
+
+          const protCount = ((updatedTgt.protected_paths ?? []) as string[]).length;
+          const recentOutcomes = outcomes.slice(-10);
+          const approvalsReq = recentOutcomes.filter(o => o.required_approval).length;
+          const lastRisk = recentOutcomes.length > 0 ? (recentOutcomes[recentOutcomes.length - 1].risk_score ?? 0) : 0;
+          const newScore = computeGovernanceConfidence({
+            protected_paths_count: protCount,
+            approvals_required_last10: approvalsReq,
+            unacknowledged_drift_alerts_count: (driftData ?? []).length,
+            risk_score_last: lastRisk,
+          });
+
+          let updatedGov: NormalizedGovernance = {
+            ...gov,
+            risk_memory: { path_weights: pathWeights, merge_outcomes: outcomes },
+            governance_confidence_score: newScore,
+          };
+
+          const recentHighRisk = outcomes.slice(-5).filter(o => (o.risk_score ?? 0) >= 70 || o.forced).length;
+          const { governance: escalatedGov, escalated } = maybeEscalatePolicy(updatedGov, newScore, recentHighRisk);
+          updatedGov = escalatedGov;
+
+          await sb
+            .from("project_scenarios")
+            .update({ governance: updatedGov as any, merge_policy: updatedGov.merge_policy ?? {} })
+            .eq("id", tid);
+
+          if (escalated) {
+            try {
+              await sb.from("scenario_decision_events").insert({
+                project_id: pid, event_type: "governance_policy_escalated",
+                scenario_id: tid, created_by: uid,
+                payload: { score: newScore, recentHighRiskCount: recentHighRisk, new_policy: updatedGov.merge_policy },
+              });
+            } catch (_) { /* non-fatal */ }
+          }
+
+          const topWeightsChanged = appliedPaths
+            .filter(p => pathWeights[p] > 0)
+            .sort((a, b) => (pathWeights[b] ?? 0) - (pathWeights[a] ?? 0))
+            .slice(0, 8)
+            .map(p => ({ path: p, new_weight: pathWeights[p] }));
+
+          try {
+            await sb.from("scenario_decision_events").insert({
+              project_id: pid, event_type: "governance_memory_updated",
+              scenario_id: tid, previous_scenario_id: sid, created_by: uid,
+              payload: { paths_count: appliedPaths.length, forced: force, required_approval: approvalBypassed, score: newScore, top_weighted_paths_changed: topWeightsChanged },
+            });
+          } catch (_) { /* non-fatal */ }
+        }
+      } catch (govErr) {
+        console.warn("governance_memory_update_failed", govErr instanceof Error ? govErr.message : govErr);
+      }
+
+      // Decision event: merge_approval_consumed
+      if (approvalBypassed && approvalDecisionUsed) {
+        try {
+          await sb.from("scenario_decision_events").insert({
+            project_id: pid, event_type: "merge_approval_consumed",
+            scenario_id: tid, previous_scenario_id: sid, created_by: uid,
+            payload: { approved_at: approvalDecisionUsed.created_at, ttl_hours: 24 },
+          });
+        } catch (_) { /* non-fatal */ }
+      }
+
+      // Decision event: scenario_merged
+      try {
+        await sb.from("scenario_decision_events").insert({
+          project_id: pid, event_type: "scenario_merged",
+          scenario_id: tid, previous_scenario_id: sid, created_by: uid,
+          payload: {
+            paths_applied: pta.map(c => c.path), strategy: strat,
+            sourceScenarioId: sid, targetScenarioId: tid,
+            change_count: pta.length, forced: force,
+            approval_bypassed: approvalBypassed, protected_hits: ph,
+            ...(extraEventPayload ?? {}),
+          },
+        });
+      } catch (e: unknown) {
+        console.warn("decision_event_insert_failed", "scenario_merged", pid, e instanceof Error ? e.message : e);
+      }
+
+      return {
+        targetScenarioId: tid,
+        paths_applied: pta.map(c => c.path),
+        change_count: pta.length,
+      };
+    }
+
+    // ══════════════════════════════════════
     // ACTION: diff_scenarios
     // ══════════════════════════════════════
     if (action === "diff_scenarios") {
@@ -3314,242 +3542,15 @@ Deno.serve(async (req) => {
         });
       }
 
-      // Approval gate (Phase 5.4 + 5.5 + 5.6): check merge_policy.require_approval with TTL unlock + domain match
-      const tgtMergePolicy = (tgtScen as any).merge_policy ?? (normalizeGovernance((tgtScen as any).governance).merge_policy ?? {});
-      const mergeDomain = getApprovalDomain(pathsToApply.map(c => c.path));
-      let approvalBypassed = false;
-      let approvalDecisionUsed: { approved: boolean; created_at: string; note?: string; domain?: string } | null = null;
-      if (tgtMergePolicy.require_approval === true && !isForce) {
-        const decision = await getLatestApprovalDecision(supabase, projectId, sourceId, targetId);
-        if (isApprovalValid(decision, 24, mergeDomain)) {
-          approvalBypassed = true;
-          approvalDecisionUsed = decision;
-        } else {
-          return json({ error: "Merge requires approval", requires_approval: true, approval_valid: false, domain: mergeDomain }, 403);
-        }
-      }
-
-      // Lock checks
-      if ((tgtScen as any).is_locked && !isForce) {
-        return json({ error: "Target scenario is locked" }, 403);
-      }
-      if (protectedHits.length > 0 && !isForce) {
-        return json({ error: "Protected paths require force", protected_hits: protectedHits }, 403);
-      }
-
-      for (const change of pathsToApply) {
-        const srcVal = getNestedValue(srcOver, change.path);
-        if (strategy === "fill_missing") {
-          const curVal = getNestedValue(tgtOver, change.path);
-          if (curVal !== null && curVal !== undefined) continue;
-        }
-        setNestedValue(tgtOver, change.path, srcVal);
-      }
-
-      // Persist updated overrides
-      const { error: updErr } = await supabase
-        .from("project_scenarios")
-        .update({ state_overrides: tgtOver })
-        .eq("id", targetId);
-      if (updErr) throw updErr;
-
-      // Recompute computed_state
-      let postMergeCs: CascadedState | null = null;
-      const { data: graph } = await supabase
-        .from("project_state_graphs")
-        .select("*")
-        .eq("project_id", projectId)
-        .single();
-      if (graph) {
-        const creative = {
-          ...(graph.creative_state as unknown as CreativeState),
-          ...((tgtOver as any).creative_state ?? {}),
-        };
-        const cascaded = runFullCascade(creative, tgtOver as StateOverrides);
-        postMergeCs = cascaded;
-        await supabase
-          .from("project_scenarios")
-          .update({ computed_state: cascaded as any })
-          .eq("id", targetId);
-      }
-
-      // Phase 5.3: Update governance risk memory
-      try {
-        // Re-fetch target scenario to get current governance
-        const { data: updatedTgt } = await supabase
-          .from("project_scenarios")
-          .select("governance, computed_state, protected_paths")
-          .eq("id", targetId)
-          .single();
-
-        if (updatedTgt) {
-          const gov = normalizeGovernance(updatedTgt.governance);
-
-          // Get drift counts for confidence calculation
-          const { data: driftData } = await supabase
-            .from("drift_alerts")
-            .select("severity")
-            .eq("project_id", projectId)
-            .eq("scenario_id", targetId)
-            .eq("acknowledged", false);
-          const driftCritical = (driftData ?? []).filter((d: any) => d.severity === "critical").length;
-          const driftWarning = (driftData ?? []).filter((d: any) => d.severity === "warning").length;
-
-          // Compute confidence before/after from computed_state
-          const preMergeCs = tgtScen.computed_state as unknown as CascadedState | null;
-          const confidenceBefore = preMergeCs?.revenue_state?.confidence_score ?? null;
-          const confidenceAfter = postMergeCs?.revenue_state?.confidence_score ?? null;
-
-          // Update path_weights
-          const pathWeights = { ...gov.risk_memory.path_weights };
-          const appliedPaths = pathsToApply.map(c => c.path);
-          for (const p of appliedPaths) {
-            const current = pathWeights[p] ?? 0;
-            let increment = 0;
-            if (isForce) increment += 2;
-            if (protectedHits.includes(p)) increment += 2;
-            if (confidenceBefore !== null && confidenceAfter !== null && confidenceAfter < confidenceBefore) increment += 2;
-            if (driftCritical > 0 || driftWarning > 0) increment += 3;
-            if (increment > 0) {
-              pathWeights[p] = Math.min(20, current + increment);
-            }
-          }
-
-          // Append merge outcome (keep last 20)
-          const mergeOutcome = {
-            at: new Date().toISOString(),
-            sourceScenarioId: sourceId,
-            targetScenarioId: targetId,
-            risk_score: undefined as number | undefined,
-            required_approval: false,
-            forced: isForce,
-            paths: appliedPaths.slice(0, 20),
-            drift_critical: driftCritical,
-            drift_warning: driftWarning,
-            confidence_before: confidenceBefore ?? undefined,
-            confidence_after: confidenceAfter ?? undefined,
-          };
-          const outcomes = [...gov.risk_memory.merge_outcomes, mergeOutcome].slice(-20);
-
-          // Recompute governance confidence
-          const protCount = ((updatedTgt.protected_paths ?? []) as string[]).length;
-          const recentOutcomes = outcomes.slice(-10);
-          const approvalsReq = recentOutcomes.filter(o => o.required_approval).length;
-          const lastRisk = recentOutcomes.length > 0 ? (recentOutcomes[recentOutcomes.length - 1].risk_score ?? 0) : 0;
-          const newScore = computeGovernanceConfidence({
-            protected_paths_count: protCount,
-            approvals_required_last10: approvalsReq,
-            unacknowledged_drift_alerts_count: (driftData ?? []).length,
-            risk_score_last: lastRisk,
-          });
-
-          let updatedGov: NormalizedGovernance = {
-            ...gov,
-            risk_memory: { path_weights: pathWeights, merge_outcomes: outcomes },
-            governance_confidence_score: newScore,
-          };
-
-          // Check for escalation
-          const recentHighRisk = outcomes.slice(-5).filter(o => (o.risk_score ?? 0) >= 70 || o.forced).length;
-          const { governance: escalatedGov, escalated } = maybeEscalatePolicy(updatedGov, newScore, recentHighRisk);
-          updatedGov = escalatedGov;
-
-          // Persist governance
-          await supabase
-            .from("project_scenarios")
-            .update({ governance: updatedGov as any, merge_policy: updatedGov.merge_policy ?? {} })
-            .eq("id", targetId);
-
-          // Log escalation event if escalated
-          if (escalated) {
-            try {
-              await supabase.from("scenario_decision_events").insert({
-                project_id: projectId,
-                event_type: "governance_policy_escalated",
-                scenario_id: targetId,
-                created_by: userId,
-                payload: {
-                  score: newScore,
-                  recentHighRiskCount: recentHighRisk,
-                  new_policy: updatedGov.merge_policy,
-                },
-              });
-            } catch (_) { /* non-fatal */ }
-          }
-
-          // Log governance_memory_updated event
-          const topWeightsChanged = appliedPaths
-            .filter(p => pathWeights[p] > 0)
-            .sort((a, b) => (pathWeights[b] ?? 0) - (pathWeights[a] ?? 0))
-            .slice(0, 8)
-            .map(p => ({ path: p, new_weight: pathWeights[p] }));
-
-          try {
-            await supabase.from("scenario_decision_events").insert({
-              project_id: projectId,
-              event_type: "governance_memory_updated",
-              scenario_id: targetId,
-              previous_scenario_id: sourceId,
-              created_by: userId,
-              payload: {
-                paths_count: appliedPaths.length,
-                forced: isForce,
-                required_approval: false,
-                score: newScore,
-                top_weighted_paths_changed: topWeightsChanged,
-              },
-            });
-          } catch (_) { /* non-fatal */ }
-        }
-      } catch (govErr) {
-        console.warn("governance_memory_update_failed", govErr instanceof Error ? govErr.message : govErr);
-      }
-
-      // Decision event: merge_approval_consumed (Phase 5.5)
-      if (approvalBypassed && approvalDecisionUsed) {
-        try {
-          await supabase.from("scenario_decision_events").insert({
-            project_id: projectId,
-            event_type: "merge_approval_consumed",
-            scenario_id: targetId,
-            previous_scenario_id: sourceId,
-            created_by: userId,
-            payload: {
-              approved_at: approvalDecisionUsed.created_at,
-              ttl_hours: 24,
-            },
-          });
-        } catch (_) { /* non-fatal */ }
-      }
-
-      // Decision event: scenario_merged
-      try {
-        await supabase.from("scenario_decision_events").insert({
-          project_id: projectId,
-          event_type: "scenario_merged",
-          scenario_id: targetId,
-          previous_scenario_id: sourceId,
-          created_by: userId,
-          payload: {
-            paths_applied: pathsToApply.map(c => c.path),
-            strategy,
-            sourceScenarioId: sourceId,
-            targetScenarioId: targetId,
-            change_count: pathsToApply.length,
-            forced: isForce,
-            approval_bypassed: approvalBypassed,
-            protected_hits: protectedHits,
-          },
-        });
-      } catch (e: unknown) {
-        console.warn("decision_event_insert_failed", "scenario_merged", projectId, e instanceof Error ? e.message : e);
-      }
-
-      return json({
-        targetScenarioId: targetId,
-        paths_applied: pathsToApply.map(c => c.path),
-        change_count: pathsToApply.length,
-      });
+      // Delegate to shared helper
+      return json(await performMerge({
+        supabase, projectId, userId,
+        sourceId, targetId,
+        pathsToApply, protectedHits,
+        strategy, isForce,
+        srcOver, tgtOver,
+        tgtScen,
+      }));
     }
 
     // ══════════════════════════════════════
@@ -3940,6 +3941,7 @@ Deno.serve(async (req) => {
       for (const ev of (events ?? [])) {
         const src = ev.previous_scenario_id ?? "null";
         const tgt = ev.scenario_id ?? "null";
+        if (tgt === "null") continue; // skip invalid items
         if (filterScenarioId && tgt !== filterScenarioId) continue;
         const key = `${src}::${tgt}`;
         if (!groups[key]) groups[key] = { requests: [], decisions: [] };
@@ -3952,13 +3954,13 @@ Deno.serve(async (req) => {
         if (group.requests.length === 0) continue;
         const latestReq = group.requests[0]; // already sorted desc
         const latestDec = group.decisions.length > 0 ? group.decisions[0] : null;
-        // Pending if no decision or decision is older than request
         if (latestDec && new Date(latestDec.created_at).getTime() >= new Date(latestReq.created_at).getTime()) continue;
         const payload = latestReq.payload ?? {};
         const [src, tgt] = key.split("::");
+        const mc = payload.merge_context;
         pending.push({
           sourceScenarioId: src === "null" ? null : src,
-          targetScenarioId: tgt === "null" ? null : tgt,
+          targetScenarioId: tgt,
           requested_at: latestReq.created_at,
           requested_by_user_id: payload.requested_by_user_id ?? latestReq.created_by ?? null,
           domain: payload.domain ?? "general",
@@ -3967,10 +3969,11 @@ Deno.serve(async (req) => {
           conflicts_count: payload.conflicts_count ?? 0,
           paths: (payload.paths ?? []).slice(0, 50),
           request_event_id: latestReq.id,
+          has_merge_context: !!(mc || (payload.paths && payload.paths.length > 0)),
+          strategy: mc?.strategy ?? payload.strategy ?? null,
         });
       }
 
-      // Sort by requested_at desc
       pending.sort((a: any, b: any) => new Date(b.requested_at).getTime() - new Date(a.requested_at).getTime());
 
       return json({ pending });
@@ -3984,14 +3987,15 @@ Deno.serve(async (req) => {
       const targetId = body.targetScenarioId;
       if (!targetId) return json({ error: "targetScenarioId required" }, 400);
 
-      // Fetch latest request
-      const { data: reqEvents } = await supabase
+      // Fetch latest request (NULL-aware filter)
+      let reqQuery = supabase
         .from("scenario_decision_events")
         .select("*")
         .eq("project_id", projectId)
         .eq("event_type", "merge_approval_requested")
-        .eq("scenario_id", targetId)
-        .eq("previous_scenario_id", sourceId ?? "")
+        .eq("scenario_id", targetId);
+      reqQuery = filterByPreviousScenarioId(reqQuery, sourceId);
+      const { data: reqEvents } = await reqQuery
         .order("created_at", { ascending: false })
         .limit(1);
 
@@ -3999,7 +4003,7 @@ Deno.serve(async (req) => {
       const reqPayload = latestRequest?.payload as any;
 
       // Fetch latest decision
-      const decision = await getLatestApprovalDecision(supabase, projectId, sourceId ?? "", targetId);
+      const decision = await getLatestApprovalDecision(supabase, projectId, sourceId, targetId);
 
       // Compute required domain from request paths
       const reqPaths: string[] = reqPayload?.paths ?? [];
@@ -4039,26 +4043,30 @@ Deno.serve(async (req) => {
       const note = body.note ?? "revoked";
       if (!targetId) return json({ error: "targetScenarioId required" }, 400);
 
-      // Only requester or owner/admin can revoke
       const role = await getProjectMembershipRole(supabase, projectId, userId);
 
+      // Fetch latest request to get domain and check requester
+      let revokeReqQuery = supabase
+        .from("scenario_decision_events")
+        .select("payload, created_by")
+        .eq("project_id", projectId)
+        .eq("event_type", "merge_approval_requested")
+        .eq("scenario_id", targetId);
+      revokeReqQuery = filterByPreviousScenarioId(revokeReqQuery, sourceId);
+      const { data: revokeReqEvents } = await revokeReqQuery
+        .order("created_at", { ascending: false })
+        .limit(1);
+      const revokeReqPayload = (revokeReqEvents?.[0]?.payload as any) ?? {};
+      const revokeReqPaths: string[] = revokeReqPayload.paths ?? [];
+      const revokeDomain = revokeReqPaths.length > 0 ? getApprovalDomain(revokeReqPaths) : (revokeReqPayload.domain ?? "general");
+
       if (!role.isOwner && !role.isAdmin) {
-        // Check if requester
-        const { data: reqEvents } = await supabase
-          .from("scenario_decision_events")
-          .select("payload, created_by")
-          .eq("project_id", projectId)
-          .eq("event_type", "merge_approval_requested")
-          .eq("scenario_id", targetId)
-          .order("created_at", { ascending: false })
-          .limit(1);
-        const reqBy = (reqEvents?.[0]?.payload as any)?.requested_by_user_id ?? reqEvents?.[0]?.created_by;
+        const reqBy = revokeReqPayload.requested_by_user_id ?? revokeReqEvents?.[0]?.created_by;
         if (reqBy !== userId) {
           return json({ error: "Not authorized to revoke this approval request" }, 403);
         }
       }
 
-      // Insert rejection event to clear pending status
       const { error: insertErr } = await supabase.from("scenario_decision_events").insert({
         project_id: projectId,
         event_type: "merge_approval_decided",
@@ -4069,7 +4077,7 @@ Deno.serve(async (req) => {
           approved: false,
           decided_at: new Date().toISOString(),
           note: `revoked: ${note}`,
-          domain: "general",
+          domain: revokeDomain,
           decided_by: userId,
           sourceScenarioId: sourceId ?? null,
           targetScenarioId: targetId,
@@ -4088,7 +4096,26 @@ Deno.serve(async (req) => {
       const targetId = body.targetScenarioId ?? body.scenarioId;
       if (!targetId) return json({ error: "targetScenarioId or scenarioId required" }, 400);
       const riskReport = body.riskReport ?? body.payload ?? {};
-      const reqPaths: string[] = (riskReport.paths ?? body.paths ?? []).slice(0, 50);
+      let reqPaths: string[] = (riskReport.paths ?? body.paths ?? []).slice(0, 50);
+      const reqStrategy: string = riskReport.strategy ?? body.strategy ?? "overwrite";
+
+      // Best-effort path computation if paths missing
+      if (reqPaths.length === 0 && sourceId && targetId) {
+        try {
+          const [{ data: srcS }, { data: tgtS }] = await Promise.all([
+            supabase.from("project_scenarios").select("state_overrides").eq("id", sourceId).eq("project_id", projectId).single(),
+            supabase.from("project_scenarios").select("state_overrides").eq("id", targetId).eq("project_id", projectId).single(),
+          ]);
+          if (srcS && tgtS) {
+            const changes = diffOverridesDeep(
+              (srcS.state_overrides ?? {}) as Record<string, unknown>,
+              (tgtS.state_overrides ?? {}) as Record<string, unknown>,
+            );
+            reqPaths = changes.map(c => c.path).slice(0, 50);
+          }
+        } catch { /* best effort */ }
+      }
+
       const domain = reqPaths.length > 0 ? getApprovalDomain(reqPaths) : (riskReport.domain ?? "general");
 
       // Decision event (non-fatal)
@@ -4107,6 +4134,13 @@ Deno.serve(async (req) => {
             domain,
             paths: reqPaths,
             requested_by_user_id: userId,
+            merge_context: {
+              sourceScenarioId: sourceId ?? null,
+              targetScenarioId: targetId,
+              paths: reqPaths,
+              strategy: reqStrategy,
+              requested_force_allowed: true,
+            },
           },
         });
       } catch (e: unknown) {
@@ -4182,6 +4216,101 @@ Deno.serve(async (req) => {
       }
 
       return json({ approved, domain });
+    }
+
+    // ══════════════════════════════════════
+    // ACTION: apply_approved_merge
+    // ══════════════════════════════════════
+    if (action === "apply_approved_merge") {
+      const sourceId = body.sourceScenarioId;
+      const targetId = body.targetScenarioId;
+      const isForce = body.force === true;
+      if (!targetId) return json({ error: "targetScenarioId required" }, 400);
+
+      // Find latest merge_approval_requested event
+      let applyReqQuery = supabase
+        .from("scenario_decision_events")
+        .select("*")
+        .eq("project_id", projectId)
+        .eq("event_type", "merge_approval_requested")
+        .eq("scenario_id", targetId);
+      applyReqQuery = filterByPreviousScenarioId(applyReqQuery, sourceId);
+      const { data: applyReqEvents } = await applyReqQuery
+        .order("created_at", { ascending: false })
+        .limit(1);
+
+      if (!applyReqEvents || applyReqEvents.length === 0) {
+        return json({ error: "No approval request found for this merge" }, 404);
+      }
+
+      const reqEvent = applyReqEvents[0];
+      const reqPayload = reqEvent.payload as any;
+      const mc = reqPayload.merge_context ?? {};
+      const mergePaths: string[] = (mc.paths ?? reqPayload.paths ?? []).slice(0, 50);
+      const mergeStrategy: string = mc.strategy ?? reqPayload.strategy ?? "overwrite";
+      const effectiveSourceId = sourceId ?? mc.sourceScenarioId ?? reqEvent.previous_scenario_id;
+
+      if (!effectiveSourceId) {
+        return json({ error: "Cannot determine source scenario" }, 400);
+      }
+
+      // Fetch scenarios
+      const [{ data: srcScen }, { data: tgtScen }] = await Promise.all([
+        supabase.from("project_scenarios").select("id, state_overrides, name").eq("id", effectiveSourceId).eq("project_id", projectId).single(),
+        supabase.from("project_scenarios").select("id, state_overrides, name, is_locked, protected_paths, governance, merge_policy, computed_state").eq("id", targetId).eq("project_id", projectId).single(),
+      ]);
+      if (!srcScen) return json({ error: "Source scenario not found" }, 404);
+      if (!tgtScen) return json({ error: "Target scenario not found" }, 404);
+
+      const srcOver = (srcScen.state_overrides ?? {}) as Record<string, unknown>;
+      const tgtOver = JSON.parse(JSON.stringify(tgtScen.state_overrides ?? {})) as Record<string, unknown>;
+
+      const allChanges = diffOverridesDeep(srcOver, tgtOver);
+      const pathsToApply = mergePaths.length > 0
+        ? allChanges.filter(c => mergePaths.includes(c.path))
+        : allChanges;
+
+      const protectedPaths: string[] = (tgtScen.protected_paths ?? []) as string[];
+      const protectedHits = pathsToApply
+        .map(c => c.path)
+        .filter(p => protectedPaths.some(pp => p === pp || p.startsWith(pp + ".")));
+
+      // Delegate to shared helper (includes approval gate, lock checks, governance, events)
+      try {
+        const result = await performMerge({
+          supabase, projectId, userId,
+          sourceId: effectiveSourceId, targetId,
+          pathsToApply, protectedHits,
+          strategy: mergeStrategy, isForce,
+          srcOver, tgtOver,
+          tgtScen,
+          extraEventPayload: { applied_from_approval: true, request_event_id: reqEvent.id },
+        });
+
+        // Log merge_applied_from_approval event
+        try {
+          await supabase.from("scenario_decision_events").insert({
+            project_id: projectId,
+            event_type: "merge_applied_from_approval",
+            scenario_id: targetId,
+            previous_scenario_id: effectiveSourceId,
+            created_by: userId,
+            payload: {
+              request_event_id: reqEvent.id,
+              paths_count: pathsToApply.length,
+              strategy: mergeStrategy,
+              forced: isForce,
+            },
+          });
+        } catch (_) { /* non-fatal */ }
+
+        return json(result);
+      } catch (mergeErr: any) {
+        if (mergeErr.httpStatus) {
+          return json(mergeErr.body ?? { error: mergeErr.message }, mergeErr.httpStatus);
+        }
+        throw mergeErr;
+      }
     }
 
     return json({ error: `Unknown action: ${action}` }, 400);

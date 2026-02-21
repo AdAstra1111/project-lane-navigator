@@ -676,6 +676,34 @@ export function useStateGraph(projectId: string | undefined) {
     },
   });
 
+  // Phase 5.8: Apply approved merge
+  const applyApprovedMerge = useMutation({
+    mutationFn: async (params: { sourceScenarioId?: string | null; targetScenarioId: string; force?: boolean }) => {
+      const { data, error } = await supabase.functions.invoke('simulation-engine', {
+        body: { action: 'apply_approved_merge', projectId, ...params },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      return data;
+    },
+    onSuccess: () => {
+      invalidateAll();
+      toast.success('Approved merge applied');
+    },
+    onError: (e: any) => {
+      const msg = e.message ?? '';
+      if (msg.includes('requires approval')) {
+        toast.error('Approval required or expired. Request approval again or force merge.');
+      } else if (msg.includes('locked')) {
+        toast.error('Target scenario is locked. Use force to override.');
+      } else if (msg.includes('Protected paths')) {
+        toast.error('Protected paths require force. Use force to override.');
+      } else {
+        toast.error(msg);
+      }
+    },
+  });
+
   const baseline = scenarios.find(s => s.scenario_type === 'baseline');
   const activeScenario = scenarios.find(s => s.is_active);
   const recommendedScenario = scenarios.find(s => s.is_recommended);
@@ -715,6 +743,7 @@ export function useStateGraph(projectId: string | undefined) {
     evaluateMergeRisk,
     requestMergeApproval,
     decideMergeApproval,
+    applyApprovedMerge,
     baseline,
     activeScenario,
     recommendedScenario: validRecommended,
