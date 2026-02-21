@@ -13,6 +13,7 @@ import { ProjectionPanel } from '@/components/cockpit/ProjectionPanel';
 import { EngineSelfTestPanel } from '@/components/cockpit/EngineSelfTestPanel';
 import { StrategicRecommendationPanel } from '@/components/cockpit/StrategicRecommendationPanel';
 import { ScenarioStressTestPanel } from '@/components/cockpit/ScenarioStressTestPanel';
+import { InvestorModePanel } from '@/components/cockpit/InvestorModePanel';
 
 import { ArrowLeft, Gauge } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -85,6 +86,13 @@ export default function ProducerCockpit() {
 
       {stateGraph && (
         <>
+          <InvestorModePanel
+            activeScenario={activeScenario}
+            baseline={baseline}
+            recommendation={recommendation}
+            latestStressTest={latestStressTest}
+          />
+
           <ActiveScenarioBanner
             activeScenario={activeScenario}
             baseline={baseline}
