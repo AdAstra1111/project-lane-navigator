@@ -170,7 +170,7 @@ Deno.serve(async (req) => {
       const title = parent?.title || parent?.file_name || v.deliverable_type || "Document";
       docRoles.push({ versionId: v.id, role, title });
 
-      const text = (v.plaintext || "").slice(0, 15000); // Cap per doc
+      const text = (v.plaintext || "").slice(0, 80000); // Allow full documents
       docContextParts.push(`--- DOCUMENT [${v.id}] role="${role}" title="${title}" ---\n${text}\n--- END ---`);
     }
 
@@ -211,7 +211,7 @@ Produce the coverage analysis JSON now.`;
       system: systemPrompt,
       user: userPrompt,
       temperature: 0.2,
-      maxTokens: 8000,
+      maxTokens: 12000,
     });
 
     // Parse output
