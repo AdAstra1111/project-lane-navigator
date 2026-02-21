@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -6,7 +6,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { GitMerge, ArrowRightLeft, ShieldAlert, Shield, ShieldOff, Pencil, Lock, ScanSearch, AlertTriangle } from 'lucide-react';
+import { GitMerge, ArrowRightLeft, ShieldAlert, Shield, ShieldOff, Pencil, Lock, ScanSearch, AlertTriangle, CheckCircle, Clock } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { GovernanceBadge } from './GovernanceBadge';
@@ -123,6 +123,44 @@ export function ScenarioDiffMergePanel({
   // Phase 5.2: Risk report + governance
   const [riskReport, setRiskReport] = useState<MergeRiskReport | null>(null);
   const [govScan, setGovScan] = useState<GovernanceScanResult | null>(null);
+
+  // Phase 5.5: Approval status
+  const [approvalStatus, setApprovalStatus] = useState<{ approved: boolean; created_at: string; valid: boolean } | null>(null);
+
+  // Fetch latest approval decision when requires_approval and source/target change
+  useEffect(() => {
+    if (!riskReport?.requires_approval || !sourceId || !targetId) {
+      setApprovalStatus(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data } = await supabase
+          .from('scenario_decision_events')
+          .select('payload, created_at')
+          .eq('project_id', projectId)
+          .eq('event_type', 'merge_approval_decided')
+          .eq('scenario_id', targetId)
+          .eq('previous_scenario_id', sourceId)
+          .order('created_at', { ascending: false })
+          .limit(1);
+        if (cancelled || !data || data.length === 0) {
+          if (!cancelled) setApprovalStatus(null);
+          return;
+        }
+        const row = data[0];
+        const payload = row.payload as any;
+        const approved = payload?.approved === true;
+        const decidedAt = new Date(row.created_at).getTime();
+        const valid = approved && (Date.now() - decidedAt < 24 * 60 * 60 * 1000);
+        if (!cancelled) setApprovalStatus({ approved, created_at: row.created_at, valid });
+      } catch {
+        if (!cancelled) setApprovalStatus(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [riskReport?.requires_approval, sourceId, targetId, projectId]);
 
   const computeDiff = async () => {
     if (!sourceId || !targetId || sourceId === targetId) return;
@@ -587,26 +625,71 @@ export function ScenarioDiffMergePanel({
                       <ShieldAlert className="h-3.5 w-3.5" />
                       Approval Required — {riskReport.approval_reason ?? 'This merge requires approval before proceeding.'}
                     </div>
+                    {/* Phase 5.5: Approval status line */}
+                    {approvalStatus && (
+                      <div className="text-[10px] flex items-center gap-1.5">
+                        {approvalStatus.valid ? (
+                          <>
+                            <CheckCircle className="h-3 w-3 text-green-600" />
+                            <span className="text-green-700 font-medium">Approved — you can merge now (no force needed)</span>
+                            <span className="text-muted-foreground ml-1">
+                              expires {new Date(new Date(approvalStatus.created_at).getTime() + 24*60*60*1000).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          </>
+                        ) : approvalStatus.approved ? (
+                          <>
+                            <Clock className="h-3 w-3 text-muted-foreground" />
+                            <span className="text-muted-foreground">Approval expired — request again or force merge</span>
+                          </>
+                        ) : (
+                          <>
+                            <ShieldAlert className="h-3 w-3 text-destructive" />
+                            <span className="text-destructive">Approval rejected — request again or force merge</span>
+                          </>
+                        )}
+                      </div>
+                    )}
+                    {!approvalStatus && (
+                      <div className="text-[10px] text-muted-foreground flex items-center gap-1.5">
+                        <Clock className="h-3 w-3" />
+                        Pending approval
+                      </div>
+                    )}
                     <div className="flex gap-2">
-                      <Button
-                        size="sm"
-                        variant="destructive"
-                        className="h-7 px-3 text-[10px]"
-                        disabled={isRequestingApproval}
-                        onClick={() => {
-                          onRequestApproval({
-                            sourceScenarioId: sourceId,
-                            targetScenarioId: targetId,
-                            riskReport: {
-                              risk_score: riskReport.risk_score,
-                              risk_level: riskReport.risk_level,
-                              conflicts: riskReport.conflicts,
-                            },
-                          });
-                        }}
-                      >
-                        {isRequestingApproval ? 'Requesting…' : 'Request Approval'}
-                      </Button>
+                      {approvalStatus?.valid ? (
+                        <Button
+                          size="sm"
+                          variant="default"
+                          className="h-7 px-3 text-[10px]"
+                          disabled={isMerging}
+                          onClick={() => {
+                            setPendingMergeForce(false);
+                            setShowConfirmDialog(true);
+                          }}
+                        >
+                          Merge (Approved)
+                        </Button>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          className="h-7 px-3 text-[10px]"
+                          disabled={isRequestingApproval}
+                          onClick={() => {
+                            onRequestApproval({
+                              sourceScenarioId: sourceId,
+                              targetScenarioId: targetId,
+                              riskReport: {
+                                risk_score: riskReport.risk_score,
+                                risk_level: riskReport.risk_level,
+                                conflicts: riskReport.conflicts,
+                              },
+                            });
+                          }}
+                        >
+                          {isRequestingApproval ? 'Requesting…' : 'Request Approval'}
+                        </Button>
+                      )}
                       <Button
                         size="sm"
                         variant="outline"

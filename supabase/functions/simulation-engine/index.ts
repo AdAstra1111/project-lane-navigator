@@ -125,6 +125,49 @@ function resolveSeed(
   return hashStringToInt32(fallback) || 1;
 }
 
+// ---- Approval decision helpers (Phase 5.5) ----
+
+async function getLatestApprovalDecision(
+  supabase: any,
+  projectId: string,
+  sourceId: string,
+  targetId: string,
+): Promise<{ approved: boolean; created_at: string; note?: string } | null> {
+  try {
+    const { data, error } = await supabase
+      .from("scenario_decision_events")
+      .select("payload, created_at")
+      .eq("project_id", projectId)
+      .eq("event_type", "merge_approval_decided")
+      .eq("scenario_id", targetId)
+      .eq("previous_scenario_id", sourceId)
+      .order("created_at", { ascending: false })
+      .limit(1);
+    if (error || !data || data.length === 0) return null;
+    const row = data[0];
+    const payload = row.payload as any;
+    return {
+      approved: payload?.approved === true,
+      created_at: row.created_at,
+      note: payload?.note ?? undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function isApprovalValid(
+  decision: { approved: boolean; created_at: string } | null,
+  ttlHours = 24,
+): boolean {
+  if (!decision) return false;
+  if (decision.approved !== true) return false;
+  const decidedAt = new Date(decision.created_at).getTime();
+  const now = Date.now();
+  if (now - decidedAt > ttlHours * 60 * 60 * 1000) return false;
+  return true;
+}
+
 // ---- Lock key normalization ----
 
 const LAYER_KEY_MAP: Record<string, string> = {};
@@ -3195,10 +3238,18 @@ Deno.serve(async (req) => {
         });
       }
 
-      // Approval gate (Phase 5.4): check merge_policy.require_approval
+      // Approval gate (Phase 5.4 + 5.5): check merge_policy.require_approval with TTL unlock
       const tgtMergePolicy = (tgtScen as any).merge_policy ?? (normalizeGovernance((tgtScen as any).governance).merge_policy ?? {});
+      let approvalBypassed = false;
+      let approvalDecisionUsed: { approved: boolean; created_at: string; note?: string } | null = null;
       if (tgtMergePolicy.require_approval === true && !isForce) {
-        return json({ error: "Merge requires approval", requires_approval: true }, 403);
+        const decision = await getLatestApprovalDecision(supabase, projectId, sourceId, targetId);
+        if (isApprovalValid(decision, 24)) {
+          approvalBypassed = true;
+          approvalDecisionUsed = decision;
+        } else {
+          return json({ error: "Merge requires approval", requires_approval: true, approval_valid: false }, 403);
+        }
       }
 
       // Lock checks
@@ -3377,6 +3428,23 @@ Deno.serve(async (req) => {
         console.warn("governance_memory_update_failed", govErr instanceof Error ? govErr.message : govErr);
       }
 
+      // Decision event: merge_approval_consumed (Phase 5.5)
+      if (approvalBypassed && approvalDecisionUsed) {
+        try {
+          await supabase.from("scenario_decision_events").insert({
+            project_id: projectId,
+            event_type: "merge_approval_consumed",
+            scenario_id: targetId,
+            previous_scenario_id: sourceId,
+            created_by: userId,
+            payload: {
+              approved_at: approvalDecisionUsed.created_at,
+              ttl_hours: 24,
+            },
+          });
+        } catch (_) { /* non-fatal */ }
+      }
+
       // Decision event: scenario_merged
       try {
         await supabase.from("scenario_decision_events").insert({
@@ -3392,6 +3460,7 @@ Deno.serve(async (req) => {
             targetScenarioId: targetId,
             change_count: pathsToApply.length,
             forced: isForce,
+            approval_bypassed: approvalBypassed,
             protected_hits: protectedHits,
           },
         });
@@ -3827,6 +3896,8 @@ Deno.serve(async (req) => {
             approved,
             decided_at: new Date().toISOString(),
             note: note ?? null,
+            sourceScenarioId: sourceId ?? null,
+            targetScenarioId: targetId,
           },
         });
       } catch (e: unknown) {
