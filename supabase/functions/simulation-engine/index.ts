@@ -2444,6 +2444,165 @@ Deno.serve(async (req) => {
       });
     }
 
+    // ══════════════════════════════════════
+    // ACTION: stress_test_scenario
+    // ══════════════════════════════════════
+    if (action === "stress_test_scenario") {
+      const targetScenarioId = body.scenarioId || scenarioId;
+      if (!targetScenarioId)
+        return json({ error: "scenarioId required" }, 400);
+
+      const { data: targetScenario } = await supabase
+        .from("project_scenarios")
+        .select("id, computed_state")
+        .eq("id", targetScenarioId)
+        .eq("project_id", projectId)
+        .single();
+
+      if (!targetScenario)
+        return json({ error: "Scenario not found in this project" }, 404);
+
+      const cs = targetScenario.computed_state as unknown as CascadedState | null;
+      if (!cs?.creative_state)
+        return json({ error: "Scenario has no computed state" }, 400);
+
+      const months = body.months ?? 12;
+      const sweeps = body.sweeps ?? {};
+      const inflationRates: number[] = sweeps.inflation_rates ?? [0.02, 0.04, 0.06, 0.08];
+      const slipRisks: number[] = sweeps.schedule_slip_risks ?? [0.10, 0.20, 0.30, 0.40];
+      const appetiteDecays: number[] = sweeps.appetite_decays ?? [0.05, 0.10, 0.15];
+
+      const grid = { inflation_rates: inflationRates, schedule_slip_risks: slipRisks, appetite_decays: appetiteDecays };
+
+      // Run sweep
+      interface SweepResult {
+        inflation_rate: number;
+        schedule_slip_risk: number;
+        platform_appetite_decay: number;
+        projection_risk_score: number;
+        end_confidence: number;
+        end_budget: number;
+        end_downside: number;
+        composite: number;
+      }
+
+      const results: SweepResult[] = [];
+      const composites: number[] = [];
+
+      // Compute a baseline composite for breakpoint detection
+      const baselineAssumptions: ProjectionAssumptions = {
+        inflation_rate: inflationRates[0],
+        schedule_slip_risk: slipRisks[0],
+        platform_appetite_decay: appetiteDecays[0],
+      };
+      const baseProj = runForwardProjection(cs, months, baselineAssumptions);
+      const baseEnd = baseProj.series[baseProj.series.length - 1];
+      const baseComposite = Math.round(
+        (baseEnd.confidence_score * 0.4 +
+         (10 - baseEnd.downside_exposure) * 10 * 0.3 +
+         (10 - baseEnd.capital_stack_stress) * 10 * 0.2 +
+         (10 - baseEnd.schedule_compression_risk) * 10 * 0.1)
+      );
+
+      for (const ir of inflationRates) {
+        for (const sr of slipRisks) {
+          for (const ad of appetiteDecays) {
+            const assumptions: ProjectionAssumptions = {
+              inflation_rate: ir,
+              schedule_slip_risk: sr,
+              platform_appetite_decay: ad,
+            };
+            const proj = runForwardProjection(cs, months, assumptions);
+            const endPt = proj.series[proj.series.length - 1];
+
+            const composite = Math.round(
+              (endPt.confidence_score * 0.4 +
+               (10 - endPt.downside_exposure) * 10 * 0.3 +
+               (10 - endPt.capital_stack_stress) * 10 * 0.2 +
+               (10 - endPt.schedule_compression_risk) * 10 * 0.1)
+            );
+
+            composites.push(composite);
+            results.push({
+              inflation_rate: ir,
+              schedule_slip_risk: sr,
+              platform_appetite_decay: ad,
+              projection_risk_score: proj.projection_risk_score,
+              end_confidence: endPt.confidence_score,
+              end_budget: endPt.budget_estimate,
+              end_downside: endPt.downside_exposure,
+              composite,
+            });
+          }
+        }
+      }
+
+      // Volatility index: normalized standard deviation of composites (0..100)
+      const mean = composites.reduce((a, b) => a + b, 0) / composites.length;
+      const variance = composites.reduce((a, b) => a + (b - mean) ** 2, 0) / composites.length;
+      const stddev = Math.sqrt(variance);
+      const volatilityIndex = Math.round(Math.min(100, stddev * 2));
+
+      // Fragility score: how quickly results degrade as assumptions worsen
+      // Sort results by worsening assumptions (sum of rates)
+      const sorted = [...results].sort(
+        (a, b) =>
+          (a.inflation_rate + a.schedule_slip_risk + a.platform_appetite_decay) -
+          (b.inflation_rate + b.schedule_slip_risk + b.platform_appetite_decay)
+      );
+      const firstQuarter = sorted.slice(0, Math.max(1, Math.floor(sorted.length / 4)));
+      const lastQuarter = sorted.slice(-Math.max(1, Math.floor(sorted.length / 4)));
+      const avgFirst = firstQuarter.reduce((a, b) => a + b.composite, 0) / firstQuarter.length;
+      const avgLast = lastQuarter.reduce((a, b) => a + b.composite, 0) / lastQuarter.length;
+      const fragilityScore = Math.round(Math.min(100, Math.max(0, (avgFirst - avgLast) * 1.5)));
+
+      // Breakpoints: first points where composite drops below 45 or below baseline
+      const breakpoints: Record<string, unknown> = {};
+      const belowThreshold = results.find((r) => r.composite < 45);
+      if (belowThreshold) {
+        breakpoints.below_45 = {
+          inflation_rate: belowThreshold.inflation_rate,
+          schedule_slip_risk: belowThreshold.schedule_slip_risk,
+          platform_appetite_decay: belowThreshold.platform_appetite_decay,
+          composite: belowThreshold.composite,
+        };
+      }
+      const belowBaseline = results.find((r) => r.composite < baseComposite);
+      if (belowBaseline) {
+        breakpoints.below_baseline = {
+          inflation_rate: belowBaseline.inflation_rate,
+          schedule_slip_risk: belowBaseline.schedule_slip_risk,
+          platform_appetite_decay: belowBaseline.platform_appetite_decay,
+          composite: belowBaseline.composite,
+          baseline_composite: baseComposite,
+        };
+      }
+
+      // Persist
+      const { error: insertErr } = await supabase
+        .from("scenario_stress_tests")
+        .insert({
+          project_id: projectId,
+          scenario_id: targetScenarioId,
+          grid,
+          results,
+          fragility_score: fragilityScore,
+          volatility_index: volatilityIndex,
+          breakpoints,
+        });
+      if (insertErr) throw insertErr;
+
+      return json({
+        scenarioId: targetScenarioId,
+        months,
+        grid,
+        results,
+        volatility_index: volatilityIndex,
+        fragility_score: fragilityScore,
+        breakpoints,
+      });
+    }
+
     return json({ error: `Unknown action: ${action}` }, 400);
   } catch (err: unknown) {
     const message =

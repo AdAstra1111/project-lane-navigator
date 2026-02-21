@@ -9313,6 +9313,67 @@ export type Database = {
           },
         ]
       }
+      scenario_stress_tests: {
+        Row: {
+          base_projection_id: string | null
+          breakpoints: Json
+          created_at: string
+          fragility_score: number
+          grid: Json
+          id: string
+          project_id: string
+          results: Json
+          scenario_id: string
+          volatility_index: number
+        }
+        Insert: {
+          base_projection_id?: string | null
+          breakpoints?: Json
+          created_at?: string
+          fragility_score?: number
+          grid?: Json
+          id?: string
+          project_id: string
+          results?: Json
+          scenario_id: string
+          volatility_index?: number
+        }
+        Update: {
+          base_projection_id?: string | null
+          breakpoints?: Json
+          created_at?: string
+          fragility_score?: number
+          grid?: Json
+          id?: string
+          project_id?: string
+          results?: Json
+          scenario_id?: string
+          volatility_index?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scenario_stress_tests_base_projection_id_fkey"
+            columns: ["base_projection_id"]
+            isOneToOne: false
+            referencedRelation: "scenario_projections"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scenario_stress_tests_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scenario_stress_tests_scenario_id_fkey"
+            columns: ["scenario_id"]
+            isOneToOne: false
+            referencedRelation: "project_scenarios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       scene_schedule: {
         Row: {
           call_time: string | null
