@@ -5740,6 +5740,194 @@ export type Database = {
         }
         Relationships: []
       }
+      note_option_sets: {
+        Row: {
+          created_at: string
+          created_by: string
+          direction: Json | null
+          id: string
+          option_set_index: number
+          options: Json
+          pinned_constraints: Json | null
+          thread_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string
+          direction?: Json | null
+          id?: string
+          option_set_index: number
+          options: Json
+          pinned_constraints?: Json | null
+          thread_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          direction?: Json | null
+          id?: string
+          option_set_index?: number
+          options?: Json
+          pinned_constraints?: Json | null
+          thread_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "note_option_sets_thread_id_fkey"
+            columns: ["thread_id"]
+            isOneToOne: false
+            referencedRelation: "note_threads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      note_thread_messages: {
+        Row: {
+          content: string
+          created_at: string
+          created_by: string
+          id: string
+          meta: Json | null
+          role: string
+          thread_id: string
+        }
+        Insert: {
+          content: string
+          created_at?: string
+          created_by?: string
+          id?: string
+          meta?: Json | null
+          role: string
+          thread_id: string
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          created_by?: string
+          id?: string
+          meta?: Json | null
+          role?: string
+          thread_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "note_thread_messages_thread_id_fkey"
+            columns: ["thread_id"]
+            isOneToOne: false
+            referencedRelation: "note_threads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      note_thread_state: {
+        Row: {
+          direction: Json
+          last_generated_set: number | null
+          pinned_constraints: Json
+          selected_option: Json | null
+          synthesis: Json | null
+          thread_id: string
+          updated_at: string
+          updated_by: string
+        }
+        Insert: {
+          direction?: Json
+          last_generated_set?: number | null
+          pinned_constraints?: Json
+          selected_option?: Json | null
+          synthesis?: Json | null
+          thread_id: string
+          updated_at?: string
+          updated_by?: string
+        }
+        Update: {
+          direction?: Json
+          last_generated_set?: number | null
+          pinned_constraints?: Json
+          selected_option?: Json | null
+          synthesis?: Json | null
+          thread_id?: string
+          updated_at?: string
+          updated_by?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "note_thread_state_thread_id_fkey"
+            columns: ["thread_id"]
+            isOneToOne: true
+            referencedRelation: "note_threads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      note_threads: {
+        Row: {
+          created_at: string
+          created_by: string
+          document_id: string
+          id: string
+          note_hash: string
+          note_snapshot: Json | null
+          project_id: string
+          status: string
+          updated_at: string
+          version_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string
+          document_id: string
+          id?: string
+          note_hash: string
+          note_snapshot?: Json | null
+          project_id: string
+          status?: string
+          updated_at?: string
+          version_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          document_id?: string
+          id?: string
+          note_hash?: string
+          note_snapshot?: Json | null
+          project_id?: string
+          status?: string
+          updated_at?: string
+          version_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "note_threads_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "project_documents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "note_threads_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "note_threads_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "note_threads_version_id_fkey"
+            columns: ["version_id"]
+            isOneToOne: false
+            referencedRelation: "project_document_versions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       notifications: {
         Row: {
           body: string
