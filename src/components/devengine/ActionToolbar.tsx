@@ -10,7 +10,7 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Play, ArrowRight, RefreshCw, Loader2, AlertTriangle, Info, Film, ShieldCheck, Camera } from 'lucide-react';
-import { DELIVERABLE_LABELS, type DeliverableType } from '@/lib/dev-os-config';
+import { DELIVERABLE_LABELS, type DeliverableType, getDeliverableLabel } from '@/lib/dev-os-config';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import type { NextAction } from '@/lib/next-action';
 import { renderActionPillText } from '@/lib/next-action';
@@ -66,6 +66,8 @@ interface ActionToolbarProps {
   /** Shot list generation */
   selectedDocumentId?: string;
   selectedVersionId?: string;
+  /** Project format for format-aware labels */
+  format?: string | null;
 }
 
 export function ActionToolbar({
@@ -86,6 +88,7 @@ export function ActionToolbar({
   onAutoReviewToggle,
   selectedDocumentId,
   selectedVersionId,
+  format,
 }: ActionToolbarProps) {
   const navigate = useNavigate();
   const anyPending = analyzePending || rewritePending || convertPending || generateNotesPending || beatSheetToScriptPending;
@@ -146,7 +149,7 @@ export function ActionToolbar({
               ? renderActionPillText(nextAction)
               : isVerticalDrama && nextBestDocument === 'script'
                 ? 'Enter Series Writer'
-                : nextBestDocument ? `Promote: ${DELIVERABLE_LABELS[nextBestDocument as DeliverableType] || nextBestDocument}` : 'Promote'}
+                : nextBestDocument ? `Promote: ${getDeliverableLabel(nextBestDocument, format)}` : 'Promote'}
             {hasUnresolvedDrift && <AlertTriangle className="h-3 w-3 text-amber-400" />}
           </Button>
         )}
@@ -206,7 +209,7 @@ export function ActionToolbar({
         <Button size="sm" variant="ghost" className="h-8 text-xs gap-1 ml-auto"
           onClick={onConvert} disabled={anyPending}>
           {convertPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <ArrowRight className="h-3 w-3" />}
-          Convert → {DELIVERABLE_LABELS[selectedDeliverableType]}
+          Convert → {getDeliverableLabel(selectedDeliverableType, format)}
         </Button>
       </div>
 
