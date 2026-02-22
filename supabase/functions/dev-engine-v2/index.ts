@@ -2720,7 +2720,7 @@ MATERIAL TO REWRITE:\n${fullText}`;
 
     // ── REWRITE-ASSEMBLE (chunked rewrite step 3) ──
     if (action === "rewrite-assemble") {
-      const { projectId, documentId, versionId, planRunId, assembledText, rewriteModeSelected, rewriteProbe } = body;
+      const { projectId, documentId, versionId, planRunId, assembledText, rewriteModeSelected, rewriteModeEffective, rewriteModeReason, rewriteModeDebug, rewriteProbe } = body;
       if (!projectId || !documentId || !versionId || !assembledText) throw new Error("projectId, documentId, versionId, assembledText required");
 
       function estimateRuntimeMinutes(text: string, mode: string) {
@@ -2788,6 +2788,9 @@ MATERIAL TO REWRITE:\n${fullText}`;
         output_json: {
           rewrite_mode_used: "chunk",
           rewrite_mode_selected: rewriteModeSelected || "auto",
+          rewrite_mode_effective: rewriteModeEffective || "chunk",
+          rewrite_mode_reason: rewriteModeReason || "auto_probe_chunk",
+          rewrite_mode_debug: rewriteModeDebug || null,
           rewrite_probe: rewriteProbe || null,
           rewritten_text: `[${assembledText.length} chars]`,
           changes_summary: `Full chunked rewrite. Applied ${notesCount} notes.`,
@@ -11321,7 +11324,7 @@ CRITICAL:
 
     // ── ASSEMBLE REWRITTEN SCRIPT ──
     if (action === "assemble_rewritten_script") {
-      const { projectId, sourceDocId, sourceVersionId, rewriteModeSelected, rewriteProbe } = body;
+      const { projectId, sourceDocId, sourceVersionId, rewriteModeSelected, rewriteModeEffective, rewriteModeReason, rewriteModeDebug, rewriteProbe } = body;
       if (!projectId || !sourceDocId || !sourceVersionId) throw new Error("projectId, sourceDocId, sourceVersionId required");
 
       // Check all done
@@ -11390,6 +11393,9 @@ CRITICAL:
           rewrite_mode: "scene",
           rewrite_mode_used: "scene",
           rewrite_mode_selected: rewriteModeSelected || "auto",
+          rewrite_mode_effective: rewriteModeEffective || "scene",
+          rewrite_mode_reason: rewriteModeReason || "auto_probe_scene",
+          rewrite_mode_debug: rewriteModeDebug || null,
           rewrite_probe: rewriteProbe || null,
           scenes_count: outputs.length,
           rewritten_text: `[${assembledText.length} chars]`,
