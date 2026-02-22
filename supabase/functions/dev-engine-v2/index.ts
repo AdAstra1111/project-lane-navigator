@@ -2647,10 +2647,7 @@ MATERIAL TO REWRITE:\n${fullText}`;
 
       let runtimeWarning: string | null = null;
       if (hardMin && newMins < hardMin - 2) {
-        throw new Error(
-          `Script too short for feature: ~${Math.round(newMins)} mins (words=${newWords}). ` +
-          `Hard floor is ${hardMin} mins. Generate a fuller feature draft.`
-        );
+        runtimeWarning = `Script is short for feature: ~${Math.round(newMins)} mins (words=${newWords}). Hard floor is ${hardMin} mins. Consider expanding.`;
       } else if (hardMin && newMins < hardMin) {
         runtimeWarning = `Draft is near the hard floor: ~${Math.round(newMins)} mins (floor: ${hardMin}). Consider expanding.`;
       }
@@ -3048,10 +3045,9 @@ Write these scenes NOW in proper screenplay format. Output ONLY screenplay text.
       const sHardMin = (projRow as any)?.min_runtime_hard_floor ?? null;
       const { words: sWords, minutes: sMins } = estimateScriptRuntime(assembledText, sMode);
 
+      let sRuntimeWarning: string | null = null;
       if (sHardMin && sMins < sHardMin - 2) {
-        throw new Error(
-          `Script too short for feature: ~${Math.round(sMins)} mins (words=${sWords}). Hard floor is ${sHardMin} mins.`
-        );
+        sRuntimeWarning = `Script is short for feature: ~${Math.round(sMins)} mins (words=${sWords}). Hard floor is ${sHardMin} mins. Consider expanding.`;
       }
 
       const { error: vErr } = await supabase.from("project_document_versions")
@@ -3083,7 +3079,7 @@ Write these scenes NOW in proper screenplay format. Output ONLY screenplay text.
       }).select().single();
 
       return new Response(JSON.stringify({
-        run, wordCount, pageEstimate, scriptDocId, scriptVersionId,
+        run, wordCount, pageEstimate, scriptDocId, scriptVersionId, runtimeWarning: sRuntimeWarning,
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
