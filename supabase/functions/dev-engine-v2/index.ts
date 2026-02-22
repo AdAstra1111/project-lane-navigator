@@ -10955,7 +10955,15 @@ CRITICAL:
         .eq("is_active", true)
         .order("order_key", { ascending: true });
 
-      let scenes: Array<{ scene_number: number; scene_id: string | null; heading: string; scene_graph_version_id: string | null }> = [];
+      interface EnqueueScene {
+        scene_number: number;
+        scene_id: string | null;
+        heading: string;
+        scene_graph_version_id: string | null;
+        prev_summary: string;
+        next_summary: string;
+      }
+      let scenes: EnqueueScene[] = [];
 
       if (sceneOrder && sceneOrder.length >= 3) {
         // Get latest version for each scene (any status, latest by version_number)
@@ -10973,13 +10981,19 @@ CRITICAL:
           }
         }
 
+        // Build scenes with prev/next summaries computed once
+        const orderedVersions = sceneOrder.map(s => latestVersionMap.get(s.scene_id));
         scenes = sceneOrder.map((s, i) => {
-          const ver = latestVersionMap.get(s.scene_id);
+          const ver = orderedVersions[i];
+          const prevVer = i > 0 ? orderedVersions[i - 1] : null;
+          const nextVer = i < sceneOrder.length - 1 ? orderedVersions[i + 1] : null;
           return {
             scene_number: i + 1,
             scene_id: s.scene_id,
             heading: ver?.slugline || `SCENE ${i + 1}`,
             scene_graph_version_id: ver?.id || null,
+            prev_summary: prevVer ? `${prevVer.slugline || ""}: ${prevVer.summary || ""}`.trim().substring(0, 500) : "",
+            next_summary: nextVer ? `${nextVer.slugline || ""}: ${nextVer.summary || ""}`.trim().substring(0, 500) : "",
           };
         });
       } else {
@@ -11000,15 +11014,27 @@ CRITICAL:
           });
         }
 
-        scenes = boundaries.map((b, i) => ({
-          scene_number: i + 1,
-          scene_id: null,
-          heading: b.heading.substring(0, 200),
-          scene_graph_version_id: null,
-        }));
+        // Compute prev/next summaries from plaintext boundaries
+        scenes = boundaries.map((b, i) => {
+          const start = b.index;
+          const end = boundaries[i + 1]?.index ?? text.length;
+          const sceneText = text.substring(start, end).trim();
+          const prevStart = i > 0 ? boundaries[i - 1].index : -1;
+          const prevEnd = start;
+          const nextStart = boundaries[i + 1]?.index ?? -1;
+          const nextEnd = boundaries[i + 2]?.index ?? text.length;
+          return {
+            scene_number: i + 1,
+            scene_id: null,
+            heading: b.heading.substring(0, 200),
+            scene_graph_version_id: null,
+            prev_summary: prevStart >= 0 ? text.substring(prevStart, prevEnd).trim().substring(0, 300) : "",
+            next_summary: nextStart >= 0 ? text.substring(nextStart, nextEnd).trim().substring(0, 300) : "",
+          };
+        });
       }
 
-      // Insert all jobs using onConflict for idempotency
+      // Insert all jobs — use plain insert; catch unique violation gracefully
       const jobRows = scenes.map(s => ({
         project_id: projectId,
         user_id: user.id,
@@ -11019,6 +11045,8 @@ CRITICAL:
         scene_number: s.scene_number,
         scene_heading: s.heading,
         scene_graph_version_id: s.scene_graph_version_id,
+        prev_summary: s.prev_summary,
+        next_summary: s.next_summary,
         status: "queued",
         attempts: 0,
         max_attempts: 3,
@@ -11026,9 +11054,25 @@ CRITICAL:
         protect_items: protectItems || [],
       }));
 
-      const { error: insertErr } = await supabase.from("rewrite_jobs")
-        .upsert(jobRows, { onConflict: "source_version_id,scene_number", ignoreDuplicates: true });
-      if (insertErr) throw insertErr;
+      const { error: insertErr } = await supabase.from("rewrite_jobs").insert(jobRows);
+      if (insertErr) {
+        // 23505 = unique violation — jobs already exist (race condition with idempotency check)
+        if (insertErr.code === "23505") {
+          const { data: existing } = await supabase.from("rewrite_jobs")
+            .select("id, status").eq("project_id", projectId).eq("source_version_id", sourceVersionId);
+          const counts = { total: (existing || []).length, queued: 0, running: 0, done: 0, failed: 0 };
+          for (const j of (existing || [])) {
+            if (j.status === "queued") counts.queued++;
+            else if (j.status === "running") counts.running++;
+            else if (j.status === "done") counts.done++;
+            else if (j.status === "failed") counts.failed++;
+          }
+          return new Response(JSON.stringify({ totalScenes: counts.total, ...counts, alreadyExists: true }), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        throw insertErr;
+      }
 
       console.log(`[scene-rewrite] Enqueued ${scenes.length} scene rewrite jobs for version ${sourceVersionId}, rewrite_mode=scene`);
 
@@ -11042,105 +11086,55 @@ CRITICAL:
       const { projectId, sourceVersionId } = body;
       if (!projectId || !sourceVersionId) throw new Error("projectId, sourceVersionId required");
 
-      // Step 1: Check if output already exists for a queued job (idempotency)
-      const { data: candidates } = await supabase.from("rewrite_jobs")
-        .select("id, scene_number")
-        .eq("project_id", projectId)
-        .eq("source_version_id", sourceVersionId)
-        .eq("status", "queued")
-        .order("scene_number", { ascending: true })
-        .limit(1);
+      // Atomic claim via RPC (FOR UPDATE SKIP LOCKED, attempts+1)
+      const { data: claimedRows, error: claimErr } = await supabase.rpc("claim_next_rewrite_job", {
+        p_project_id: projectId,
+        p_source_version_id: sourceVersionId,
+      });
 
-      if (!candidates || candidates.length === 0) {
+      if (claimErr) {
+        console.error("[scene-rewrite] Claim RPC error:", claimErr);
+        throw claimErr;
+      }
+
+      const job = claimedRows?.[0];
+      if (!job) {
         return new Response(JSON.stringify({ processed: false, reason: "no_queued_jobs" }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
 
-      const candidateId = candidates[0].id;
-      const candidateSceneNum = candidates[0].scene_number;
-
-      // Check if output already exists (scene was processed in a previous attempt)
+      // Idempotency: check if output already exists for this scene
       const { data: existingOutput } = await supabase.from("rewrite_scene_outputs")
         .select("id")
         .eq("source_version_id", sourceVersionId)
-        .eq("scene_number", candidateSceneNum)
+        .eq("scene_number", job.scene_number)
         .maybeSingle();
 
       if (existingOutput) {
-        // Output exists — mark job done and skip
         await supabase.from("rewrite_jobs").update({
           status: "done", finished_at: new Date().toISOString(), error: null,
-        }).eq("id", candidateId);
-        return new Response(JSON.stringify({ processed: true, scene_number: candidateSceneNum, status: "done", skipped: true }), {
+        }).eq("id", job.id);
+        return new Response(JSON.stringify({ processed: true, scene_number: job.scene_number, status: "done", skipped: true }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-
-      // Step 2: Optimistic claim — increment attempts in the claim itself
-      const now = new Date().toISOString();
-      const { data: claimedRow, error: claimErr } = await supabase.from("rewrite_jobs")
-        .update({ status: "running", claimed_at: now, attempts: candidates[0].scene_number ? (await supabase.from("rewrite_jobs").select("attempts").eq("id", candidateId).single()).data?.attempts + 1 || 1 : 1 })
-        .eq("id", candidateId)
-        .eq("status", "queued") // optimistic lock: only succeeds if still queued
-        .select("*")
-        .maybeSingle();
-
-      if (!claimedRow) {
-        // Another worker claimed it
-        return new Response(JSON.stringify({ processed: false, reason: "claim_lost" }), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-
-      const job = claimedRow;
 
       try {
         // Get scene text — bound to exact snapshot via scene_graph_version_id
         let sceneText = "";
-        let prevSummary = "";
-        let nextSummary = "";
 
         if (job.scene_graph_version_id) {
           // Fetch by exact version ID (no drift)
           const { data: sv } = await supabase.from("scene_graph_versions")
-            .select("content, summary, slugline")
+            .select("content")
             .eq("id", job.scene_graph_version_id)
             .single();
           sceneText = sv?.content || "";
-
-          // Get prev/next scene summaries
-          const { data: allOrder } = await supabase.from("scene_graph_order")
-            .select("scene_id, order_key")
-            .eq("project_id", projectId)
-            .eq("is_active", true)
-            .order("order_key", { ascending: true });
-
-          if (allOrder) {
-            const idx = allOrder.findIndex(o => o.scene_id === job.scene_id);
-            if (idx > 0) {
-              const { data: pv } = await supabase.from("scene_graph_versions")
-                .select("summary, slugline")
-                .eq("scene_id", allOrder[idx - 1].scene_id)
-                .order("version_number", { ascending: false })
-                .limit(1)
-                .single();
-              prevSummary = pv ? `${pv.slugline || ""}: ${pv.summary || ""}`.trim() : "";
-            }
-            if (idx < allOrder.length - 1) {
-              const { data: nv } = await supabase.from("scene_graph_versions")
-                .select("summary, slugline")
-                .eq("scene_id", allOrder[idx + 1].scene_id)
-                .order("version_number", { ascending: false })
-                .limit(1)
-                .single();
-              nextSummary = nv ? `${nv.slugline || ""}: ${nv.summary || ""}`.trim() : "";
-            }
-          }
         } else if (job.scene_id) {
           // Fallback: scene_id but no pinned version (legacy jobs)
           const { data: sv } = await supabase.from("scene_graph_versions")
-            .select("content, summary, slugline")
+            .select("content")
             .eq("scene_id", job.scene_id)
             .order("version_number", { ascending: false })
             .limit(1)
@@ -11162,22 +11156,15 @@ CRITICAL:
           const start = boundaries[sceneIdx] ?? 0;
           const end = boundaries[sceneIdx + 1] ?? fullText.length;
           sceneText = fullText.substring(start, end).trim();
-
-          // Prev/next: just grab first 300 chars as summary
-          if (sceneIdx > 0) {
-            const pStart = boundaries[sceneIdx - 1] ?? 0;
-            prevSummary = fullText.substring(pStart, start).trim().substring(0, 300);
-          }
-          if (sceneIdx < boundaries.length - 1) {
-            const nStart = boundaries[sceneIdx + 1] ?? end;
-            const nEnd = boundaries[sceneIdx + 2] ?? fullText.length;
-            nextSummary = fullText.substring(nStart, nEnd).trim().substring(0, 300);
-          }
         }
 
         if (!sceneText || sceneText.trim().length === 0) {
           throw new Error(`Scene ${job.scene_number} has no text`);
         }
+
+        // Use stored prev/next summaries (no re-querying scene_graph_order)
+        const prevSummary = job.prev_summary || "";
+        const nextSummary = job.next_summary || "";
 
         const notesContext = (job.approved_notes as any[])?.length
           ? `APPROVED NOTES TO APPLY:\n${JSON.stringify(job.approved_notes)}\n\n`
@@ -11192,11 +11179,11 @@ CRITICAL:
 
         const scenePrompt = `${protectContext}${notesContext}${contextBlock ? contextBlock + "\n\n" : ""}SCENE ${job.scene_number} (${job.scene_heading || "untitled"}) — Rewrite this scene applying the notes while preserving dramatic beats and formatting:\n\n${sceneText}`;
 
-        // Cap max_tokens based on scene size: ~1.3x input tokens, min 800, max 4000
+        // Cap max_tokens: ~1.3x input tokens, clamped 600–2500
         const estimatedInputTokens = Math.ceil(sceneText.length / 4);
-        const maxOutputTokens = Math.min(4000, Math.max(800, Math.ceil(estimatedInputTokens * 1.3)));
+        const maxOutputTokens = Math.min(2500, Math.max(600, Math.ceil(estimatedInputTokens * 1.3)));
 
-        console.log(`[scene-rewrite] Processing scene ${job.scene_number} (${sceneText.length} chars, max_tokens=${maxOutputTokens}), rewrite_mode=scene`);
+        console.log(`[scene-rewrite] Processing scene ${job.scene_number} (${sceneText.length} chars, max_tokens=${maxOutputTokens}), attempts=${job.attempts}`);
         const startTime = Date.now();
 
         const rewrittenScene = await callAI(
@@ -11206,12 +11193,11 @@ CRITICAL:
         const durationMs = Date.now() - startTime;
         console.log(`[scene-rewrite] Scene ${job.scene_number} done in ${(durationMs / 1000).toFixed(1)}s (${rewrittenScene.length} chars out)`);
 
-        // Guard: if output is >50% larger than input, warn but still save
         if (rewrittenScene.length > sceneText.length * 1.5) {
           console.warn(`[scene-rewrite] Scene ${job.scene_number} output is ${Math.round((rewrittenScene.length / sceneText.length - 1) * 100)}% larger than input`);
         }
 
-        // Save output (idempotent via UNIQUE constraint — use upsert)
+        // Save output (idempotent via UNIQUE constraint)
         const { error: outErr } = await supabase.from("rewrite_scene_outputs").upsert({
           project_id: projectId,
           user_id: user.id,
@@ -11240,7 +11226,7 @@ CRITICAL:
 
       } catch (jobErr: any) {
         console.error(`[scene-rewrite] Scene ${job.scene_number} failed:`, jobErr.message);
-        // Attempts was already incremented during claim — determine status from claimed row
+        // Attempts already incremented by claim RPC — do NOT increment again
         const newStatus = job.attempts >= job.max_attempts ? "failed" : "queued";
         await supabase.from("rewrite_jobs").update({
           status: newStatus,
@@ -11291,7 +11277,7 @@ CRITICAL:
       const { projectId, sourceVersionId } = body;
       if (!projectId || !sourceVersionId) throw new Error("projectId, sourceVersionId required");
 
-      // Reset failed jobs: set status=queued AND reset attempts so they get fresh tries
+      // Re-queue failed jobs where attempts < max_attempts. Do NOT reset attempts.
       const { data: failedJobs } = await supabase.from("rewrite_jobs")
         .select("id, attempts, max_attempts")
         .eq("project_id", projectId)
@@ -11300,9 +11286,10 @@ CRITICAL:
 
       let resetCount = 0;
       for (const j of (failedJobs || [])) {
-        // Reset attempts to 0 to give full retries
-        await supabase.from("rewrite_jobs").update({ status: "queued", error: null, attempts: 0 }).eq("id", j.id);
-        resetCount++;
+        if (j.attempts < j.max_attempts) {
+          await supabase.from("rewrite_jobs").update({ status: "queued", error: null }).eq("id", j.id);
+          resetCount++;
+        }
       }
 
       return new Response(JSON.stringify({ reset: resetCount }), {
