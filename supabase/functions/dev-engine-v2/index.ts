@@ -11361,13 +11361,18 @@ CRITICAL:
     // ── PROCESS NEXT REWRITE JOB ──
     if (action === "process_next_rewrite_job") {
       const { projectId, sourceVersionId, runId } = body;
+      if (!runId) {
+        return new Response(JSON.stringify({ error: "runId required" }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
       if (!projectId || !sourceVersionId) throw new Error("projectId, sourceVersionId required");
 
-      // Atomic claim via RPC — prefer run_id if provided
+      // Atomic claim via RPC — always filter by run_id
       const { data: claimedRows, error: claimErr } = await supabase.rpc("claim_next_rewrite_job", {
         p_project_id: projectId,
         p_source_version_id: sourceVersionId,
-        p_run_id: runId || null,
+        p_run_id: runId,
       });
 
       if (claimErr) {
@@ -11392,7 +11397,7 @@ CRITICAL:
         });
       }
 
-      const effectiveRunId = runId || job.run_id;
+      const effectiveRunId = runId;
 
       // Idempotency: check if output already exists for this run + scene
       const { data: existingOutput } = await supabase.from("rewrite_scene_outputs")
@@ -11576,18 +11581,18 @@ CRITICAL:
 
     // ── GET REWRITE STATUS ──
     if (action === "get_rewrite_status") {
-      const { projectId, sourceVersionId, runId } = body;
+      const { projectId, runId } = body;
+      if (!runId) {
+        return new Response(JSON.stringify({ error: "runId required" }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
       if (!projectId) throw new Error("projectId required");
 
-      // Prefer runId for filtering; fallback to sourceVersionId for legacy
       let jobQuery = supabase.from("rewrite_jobs")
         .select("scene_number, scene_heading, status, attempts, error, claimed_at")
-        .eq("project_id", projectId);
-      if (runId) {
-        jobQuery = jobQuery.eq("run_id", runId);
-      } else if (sourceVersionId) {
-        jobQuery = jobQuery.eq("source_version_id", sourceVersionId);
-      }
+        .eq("project_id", projectId)
+        .eq("run_id", runId);
       const { data: jobs } = await jobQuery.order("scene_number", { ascending: true });
 
       if (!jobs || jobs.length === 0) {
@@ -11652,18 +11657,18 @@ CRITICAL:
     // ── ASSEMBLE REWRITTEN SCRIPT ──
     if (action === "assemble_rewritten_script") {
       const { projectId, sourceDocId, sourceVersionId, runId, rewriteModeSelected, rewriteModeEffective, rewriteModeReason, rewriteModeDebug, rewriteProbe, rewriteScopePlan, rewriteScopeExpandedFrom, rewriteVerification } = body;
+      if (!runId) {
+        return new Response(JSON.stringify({ error: "runId required" }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
       if (!projectId || !sourceDocId || !sourceVersionId) throw new Error("projectId, sourceDocId, sourceVersionId required");
 
-      // Check all done — prefer run_id
-      let jobQuery = supabase.from("rewrite_jobs")
+      // Check all done — always filter by run_id
+      const { data: jobs } = await supabase.from("rewrite_jobs")
         .select("scene_number, status")
-        .eq("project_id", projectId);
-      if (runId) {
-        jobQuery = jobQuery.eq("run_id", runId);
-      } else {
-        jobQuery = jobQuery.eq("source_version_id", sourceVersionId);
-      }
-      const { data: jobs } = await jobQuery;
+        .eq("project_id", projectId)
+        .eq("run_id", runId);
 
       const remaining = (jobs || []).filter(j => j.status !== "done");
       if (remaining.length > 0) {
@@ -11673,15 +11678,11 @@ CRITICAL:
         }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
-      // Load all rewritten outputs ordered — prefer run_id
-      let outputQuery = supabase.from("rewrite_scene_outputs")
-        .select("scene_number, rewritten_text");
-      if (runId) {
-        outputQuery = outputQuery.eq("run_id", runId);
-      } else {
-        outputQuery = outputQuery.eq("source_version_id", sourceVersionId);
-      }
-      const { data: outputs } = await outputQuery.order("scene_number", { ascending: true });
+      // Load all rewritten outputs ordered — always by run_id
+      const { data: outputs } = await supabase.from("rewrite_scene_outputs")
+        .select("scene_number, rewritten_text")
+        .eq("run_id", runId)
+        .order("scene_number", { ascending: true });
 
       if (!outputs || outputs.length === 0) throw new Error("No scene outputs found");
 
@@ -11779,7 +11780,7 @@ CRITICAL:
           plaintext: assembledText,
           created_by: user.id,
           parent_version_id: sourceVersionId,
-          is_current: true,
+          is_current: false,
           change_summary: trulySelective
             ? `Selective scene-level rewrite: ${outputs.length} of ${totalScenesInAssembly} scenes rewritten.`
             : `Scene-level rewrite across ${outputs.length} scenes.`,
@@ -11790,10 +11791,15 @@ CRITICAL:
       if (!newVersion) throw new Error("Failed to create version after retries");
 
       // ── Atomically set current version via RPC ──
-      await supabase.rpc("set_current_version", {
+      const { error: rpcErr } = await supabase.rpc("set_current_version", {
         p_document_id: sourceDocId,
         p_new_version_id: newVersion.id,
       });
+      if (rpcErr) {
+        // Rollback: delete the version we just inserted so nothing is incorrectly marked current
+        await supabase.from("project_document_versions").delete().eq("id", newVersion.id);
+        throw new Error(`set_current_version RPC failed: ${rpcErr.message}`);
+      }
 
       // ── Update rewrite_run status ──
       if (runId) {
