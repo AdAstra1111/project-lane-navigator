@@ -74,6 +74,8 @@ export interface SceneRewriteState {
   lastAssembledVersionNumber: number | null;
   lastAssembledSelective: boolean | null;
   lastAssembledTargetCount: number | null;
+  // Run tracking
+  runId: string | null;
 }
 
 const initialState: SceneRewriteState = {
@@ -105,6 +107,7 @@ const initialState: SceneRewriteState = {
   lastAssembledVersionNumber: null,
   lastAssembledSelective: null,
   lastAssembledTargetCount: null,
+  runId: null,
 };
 
 async function callEngine(action: string, extra: Record<string, any> = {}) {
@@ -273,19 +276,17 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
         mode: 'processing',
         total: result.totalScenes,
         queued: result.queued || result.totalScenes,
-        done: result.alreadyExists ? s.done : 0,
+        done: 0,
         failed: 0,
         running: 0,
         rewriteMode: 'scene',
-        smoothedPercent: result.alreadyExists ? s.smoothedPercent : 0,
+        smoothedPercent: 0,
         lastProgressAt: Date.now(),
+        runId: result.runId || null,
       }));
-      pushActivity(result.alreadyExists ? 'warn' : 'success', 
-        result.alreadyExists 
-          ? `Jobs already exist (${result.totalScenes} scenes) — resuming` 
-          : isSelective
-            ? `Enqueued ${targetSceneNumbers!.length} target scene jobs (of ${result.allSceneNumbers?.length || '?'} total)`
-            : `Enqueued ${result.totalScenes} scene jobs`
+      pushActivity('success', isSelective
+        ? `Enqueued ${targetSceneNumbers!.length} target scene jobs (run ${(result.runId || '?').slice(0, 8)})`
+        : `Enqueued ${result.totalScenes} scene jobs (run ${(result.runId || '?').slice(0, 8)})`
       );
       toast.success(isSelective
         ? `${targetSceneNumbers!.length} target scenes queued for rewrite`
@@ -301,8 +302,8 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
     }
   }, [projectId, pushActivity]);
 
-  // Process jobs one at a time in a loop
-  const processAll = useCallback(async (sourceVersionId: string) => {
+  // Process jobs one at a time in a loop, then auto-assemble
+  const processAll = useCallback(async (sourceVersionId: string, sourceDocId?: string) => {
     if (!projectId || processingRef.current) return;
     processingRef.current = true;
     stopRef.current = false;
@@ -312,15 +313,22 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
     pushActivity('info', 'Processing started');
 
     let scenesProcessed = 0;
+    let currentRunId: string | null = null;
+    setState(s => { currentRunId = s.runId; return s; });
 
     try {
       let consecutiveEmpty = 0;
       while (!stopRef.current) {
-        const result = await callEngine('process_next_rewrite_job', { projectId, sourceVersionId });
+        const result = await callEngine('process_next_rewrite_job', {
+          projectId, sourceVersionId,
+          runId: currentRunId || undefined,
+        });
 
         if (stopRef.current) break;
 
         if (!result.processed) {
+          // If backend says all done for this run, break immediately
+          if (result.done) break;
           consecutiveEmpty++;
           if (consecutiveEmpty >= 2) break;
           await new Promise(r => setTimeout(r, 500));
@@ -392,7 +400,7 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
 
         // Full status refresh every 5 scenes
         if (scenesProcessed % 5 === 0) {
-          const status = await callEngine('get_rewrite_status', { projectId, sourceVersionId });
+          const status = await callEngine('get_rewrite_status', { projectId, sourceVersionId, runId: currentRunId || undefined });
           setState(s => ({
             ...s,
             total: status.total,
@@ -411,25 +419,60 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
       }
 
       // Final status
-      const finalStatus = await callEngine('get_rewrite_status', { projectId, sourceVersionId });
+      const finalStatus = await callEngine('get_rewrite_status', { projectId, sourceVersionId, runId: currentRunId || undefined });
       const allDone = finalStatus.done === finalStatus.total;
-      setState(s => ({
-        ...s,
-        ...finalStatus,
-        scenes: finalStatus.scenes || [],
-        oldestRunningClaimedAt: finalStatus.oldest_running_claimed_at || null,
-        mode: allDone ? 'complete' : (finalStatus.failed > 0 ? 'error' : 'idle'),
-        error: finalStatus.failed > 0 ? `${finalStatus.failed} scene(s) failed` : null,
-        smoothedPercent: allDone ? 100 : s.smoothedPercent,
-        etaMs: allDone ? null : s.etaMs,
-      }));
 
-      if (allDone) {
-        pushActivity('success', `All ${finalStatus.total} scenes rewritten successfully`);
-        toast.success(`All ${finalStatus.total} scenes rewritten successfully`);
-      } else if (finalStatus.failed > 0) {
-        pushActivity('warn', `${finalStatus.failed} scene(s) failed — retry available`);
-        toast.warning(`${finalStatus.failed} scene(s) failed. You can retry them.`);
+      if (allDone && !stopRef.current && sourceDocId) {
+        // ── Auto-assemble ──
+        setState(s => ({ ...s, mode: 'assembling', smoothedPercent: 95 }));
+        pushActivity('info', 'All scenes done — auto-assembling…');
+
+        try {
+          const assembleResult = await callEngine('assemble_rewritten_script', {
+            projectId, sourceDocId, sourceVersionId,
+            runId: currentRunId || undefined,
+            rewriteModeSelected: 'auto',
+            rewriteModeEffective: 'scene',
+            rewriteModeReason: 'auto_probe_scene',
+          });
+          setState(s => ({
+            ...s,
+            mode: 'complete',
+            newVersionId: assembleResult.newVersionId,
+            smoothedPercent: 100,
+            etaMs: null,
+            lastAssembledVersionLabel: assembleResult.newVersionLabel || null,
+            lastAssembledChangeSummary: assembleResult.newChangeSummary || null,
+            lastAssembledVersionNumber: assembleResult.newVersionNumber || null,
+            lastAssembledSelective: assembleResult.trulySelective ?? null,
+            lastAssembledTargetCount: assembleResult.targetScenesCount ?? null,
+          }));
+          invalidate();
+          pushActivity('success', `Assembled ${assembleResult.scenesCount} scenes → ${assembleResult.charCount?.toLocaleString()} chars (is_current=true)`);
+          toast.success(`Assembled → ${assembleResult.newVersionLabel || 'new version'}`);
+        } catch (assembleErr: any) {
+          setState(s => ({ ...s, mode: 'error', error: `Assemble failed: ${assembleErr.message}` }));
+          pushActivity('error', `Auto-assemble failed: ${assembleErr.message}`);
+          toast.error(`Auto-assemble failed: ${assembleErr.message}`);
+        }
+      } else {
+        setState(s => ({
+          ...s,
+          ...finalStatus,
+          scenes: finalStatus.scenes || [],
+          oldestRunningClaimedAt: finalStatus.oldest_running_claimed_at || null,
+          mode: allDone ? 'complete' : (finalStatus.failed > 0 ? 'error' : 'idle'),
+          error: finalStatus.failed > 0 ? `${finalStatus.failed} scene(s) failed` : null,
+          smoothedPercent: allDone ? 100 : s.smoothedPercent,
+          etaMs: allDone ? null : s.etaMs,
+        }));
+
+        if (allDone) {
+          pushActivity('success', `All ${finalStatus.total} scenes rewritten (assemble pending — no sourceDocId provided)`);
+        } else if (finalStatus.failed > 0) {
+          pushActivity('warn', `${finalStatus.failed} scene(s) failed — retry available`);
+          toast.warning(`${finalStatus.failed} scene(s) failed. You can retry them.`);
+        }
       }
     } catch (err: any) {
       setState(s => ({ ...s, mode: 'error', error: err.message }));
@@ -439,7 +482,7 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
       processingRef.current = false;
       stopSmoothing();
     }
-  }, [projectId, pushActivity, startSmoothing, stopSmoothing]);
+  }, [projectId, pushActivity, startSmoothing, stopSmoothing, invalidate]);
 
   const stop = useCallback(() => {
     stopRef.current = true;
@@ -469,6 +512,7 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
     try {
       const result = await callEngine('assemble_rewritten_script', {
         projectId, sourceDocId, sourceVersionId,
+        runId: state.runId || undefined,
         rewriteModeSelected: provenance?.rewriteModeSelected || state.selectedRewriteMode || 'auto',
         rewriteModeEffective: provenance?.rewriteModeEffective || 'scene',
         rewriteModeReason: provenance?.rewriteModeReason || 'auto_probe_scene',

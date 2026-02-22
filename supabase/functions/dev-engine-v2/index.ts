@@ -11213,44 +11213,17 @@ CRITICAL:
       // Selective enqueue: if targetSceneNumbers provided, only those will be enqueued
       const selectiveMode = Array.isArray(targetSceneNumbers) && targetSceneNumbers.length > 0;
 
-      // Check idempotency: if jobs already exist for this version, return counts
-      const { data: existingJobs } = await supabase.from("rewrite_jobs")
-        .select("id, status, scene_number")
-        .eq("project_id", projectId)
-        .eq("source_version_id", sourceVersionId);
-
-      if (existingJobs && existingJobs.length > 0) {
-        // In selective mode, check if the specific target scenes already have jobs
-        if (selectiveMode) {
-          const existingNumbers = new Set(existingJobs.map(j => j.scene_number));
-          const alreadyQueued = targetSceneNumbers.filter((n: number) => existingNumbers.has(n));
-          const needsEnqueue = targetSceneNumbers.filter((n: number) => !existingNumbers.has(n));
-          if (needsEnqueue.length === 0) {
-            const counts = { total: existingJobs.length, queued: 0, running: 0, done: 0, failed: 0 };
-            for (const j of existingJobs) {
-              if (j.status === "queued") counts.queued++;
-              else if (j.status === "running") counts.running++;
-              else if (j.status === "done") counts.done++;
-              else if (j.status === "failed") counts.failed++;
-            }
-            return new Response(JSON.stringify({ totalScenes: counts.total, ...counts, alreadyExists: true, selectiveMode: true, alreadyQueued }), {
-              headers: { ...corsHeaders, "Content-Type": "application/json" },
-            });
-          }
-          // Fall through to enqueue only the missing scenes
-        } else {
-          const counts = { total: existingJobs.length, queued: 0, running: 0, done: 0, failed: 0 };
-          for (const j of existingJobs) {
-            if (j.status === "queued") counts.queued++;
-            else if (j.status === "running") counts.running++;
-            else if (j.status === "done") counts.done++;
-            else if (j.status === "failed") counts.failed++;
-          }
-          return new Response(JSON.stringify({ totalScenes: counts.total, ...counts, alreadyExists: true }), {
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
-        }
-      }
+      // ── Always create a NEW rewrite_run (never reuse) ──
+      const { data: run, error: runErr } = await supabase.from("rewrite_runs").insert({
+        project_id: projectId,
+        user_id: user.id,
+        source_doc_id: sourceDocId,
+        source_version_id: sourceVersionId,
+        status: "queued",
+        target_scene_numbers: selectiveMode ? targetSceneNumbers : null,
+      }).select("id").single();
+      if (runErr) throw runErr;
+      const runId = run.id;
 
       // Try scene_graph first
       const { data: sceneOrder } = await supabase.from("scene_graph_order")
@@ -11270,14 +11243,12 @@ CRITICAL:
       let scenes: EnqueueScene[] = [];
 
       if (sceneOrder && sceneOrder.length >= 3) {
-        // Get latest version for each scene (any status, latest by version_number)
         const sceneIds = sceneOrder.map(s => s.scene_id);
         const { data: versions } = await supabase.from("scene_graph_versions")
           .select("id, scene_id, slugline, summary, content, version_number")
           .in("scene_id", sceneIds)
           .order("version_number", { ascending: false });
 
-        // Map: scene_id -> latest version (first occurrence due to desc ordering)
         const latestVersionMap = new Map<string, { id: string; slugline: string; summary: string; content: string }>();
         for (const v of (versions || [])) {
           if (!latestVersionMap.has(v.scene_id)) {
@@ -11285,7 +11256,6 @@ CRITICAL:
           }
         }
 
-        // Build scenes with prev/next summaries computed once
         const orderedVersions = sceneOrder.map(s => latestVersionMap.get(s.scene_id));
         scenes = sceneOrder.map((s, i) => {
           const ver = orderedVersions[i];
@@ -11301,7 +11271,6 @@ CRITICAL:
           };
         });
       } else {
-        // Fallback: split by scene headings from plaintext
         const { data: version } = await supabase.from("project_document_versions")
           .select("plaintext").eq("id", sourceVersionId).single();
         const text = version?.plaintext || "";
@@ -11318,11 +11287,9 @@ CRITICAL:
           });
         }
 
-        // Compute prev/next summaries from plaintext boundaries
         scenes = boundaries.map((b, i) => {
           const start = b.index;
           const end = boundaries[i + 1]?.index ?? text.length;
-          const sceneText = text.substring(start, end).trim();
           const prevStart = i > 0 ? boundaries[i - 1].index : -1;
           const prevEnd = start;
           const nextStart = boundaries[i + 1]?.index ?? -1;
@@ -11340,28 +11307,16 @@ CRITICAL:
 
       // Filter scenes if selective mode
       const targetSet = selectiveMode ? new Set(targetSceneNumbers as number[]) : null;
-      const scenesToEnqueue = targetSet ? scenes.filter(s => targetSet.has(s.scene_number)) : scenes;
-
-      // Also filter out scenes that already have jobs (in selective mode with partial existing)
-      const existingNumbersSet = new Set((existingJobs || []).map(j => j.scene_number));
-      const finalScenes = scenesToEnqueue.filter(s => !existingNumbersSet.has(s.scene_number));
+      const finalScenes = targetSet ? scenes.filter(s => targetSet.has(s.scene_number)) : scenes;
 
       if (finalScenes.length === 0) {
-        // All target scenes already have jobs
-        const allJobs = existingJobs || [];
-        const counts = { total: allJobs.length, queued: 0, running: 0, done: 0, failed: 0 };
-        for (const j of allJobs) {
-          if (j.status === "queued") counts.queued++;
-          else if (j.status === "running") counts.running++;
-          else if (j.status === "done") counts.done++;
-          else if (j.status === "failed") counts.failed++;
-        }
-        return new Response(JSON.stringify({ totalScenes: counts.total, ...counts, alreadyExists: true, selectiveMode: !!selectiveMode }), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        await supabase.from("rewrite_runs").update({ status: "failed", summary: "No scenes to enqueue" }).eq("id", runId);
+        return new Response(JSON.stringify({ error: "No scenes to enqueue", totalScenes: 0, runId }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
 
-      // Insert jobs — use plain insert; catch unique violation gracefully
+      // Insert jobs with run_id
       const jobRows = finalScenes.map(s => ({
         project_id: projectId,
         user_id: user.id,
@@ -11379,34 +11334,20 @@ CRITICAL:
         max_attempts: 3,
         approved_notes: approvedNotes || [],
         protect_items: protectItems || [],
+        run_id: runId,
       }));
 
       const { error: insertErr } = await supabase.from("rewrite_jobs").insert(jobRows);
-      if (insertErr) {
-        // 23505 = unique violation — jobs already exist (race condition with idempotency check)
-        if (insertErr.code === "23505") {
-          const { data: existing } = await supabase.from("rewrite_jobs")
-            .select("id, status").eq("project_id", projectId).eq("source_version_id", sourceVersionId);
-          const counts = { total: (existing || []).length, queued: 0, running: 0, done: 0, failed: 0 };
-          for (const j of (existing || [])) {
-            if (j.status === "queued") counts.queued++;
-            else if (j.status === "running") counts.running++;
-            else if (j.status === "done") counts.done++;
-            else if (j.status === "failed") counts.failed++;
-          }
-          return new Response(JSON.stringify({ totalScenes: counts.total, ...counts, alreadyExists: true }), {
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
-        }
-        throw insertErr;
-      }
+      if (insertErr) throw insertErr;
 
-      // Return total = newly enqueued + existing
-      const totalEnqueued = finalScenes.length + (existingJobs || []).length;
-      console.log(`[scene-rewrite] Enqueued ${finalScenes.length} scene rewrite jobs for version ${sourceVersionId}${selectiveMode ? ` (selective: ${targetSceneNumbers.length} target)` : ''}`);
+      // Update run status
+      await supabase.from("rewrite_runs").update({ status: "running" }).eq("id", runId);
+
+      console.log(`[scene-rewrite] Enqueued ${finalScenes.length} scene rewrite jobs for run ${runId}${selectiveMode ? ` (selective: ${targetSceneNumbers.length} target)` : ''}`);
 
       return new Response(JSON.stringify({
-        totalScenes: selectiveMode ? totalEnqueued : finalScenes.length,
+        runId,
+        totalScenes: finalScenes.length,
         queued: finalScenes.length,
         alreadyExists: false,
         selectiveMode: !!selectiveMode,
@@ -11419,13 +11360,14 @@ CRITICAL:
 
     // ── PROCESS NEXT REWRITE JOB ──
     if (action === "process_next_rewrite_job") {
-      const { projectId, sourceVersionId } = body;
+      const { projectId, sourceVersionId, runId } = body;
       if (!projectId || !sourceVersionId) throw new Error("projectId, sourceVersionId required");
 
-      // Atomic claim via RPC (FOR UPDATE SKIP LOCKED, attempts+1)
+      // Atomic claim via RPC — prefer run_id if provided
       const { data: claimedRows, error: claimErr } = await supabase.rpc("claim_next_rewrite_job", {
         p_project_id: projectId,
         p_source_version_id: sourceVersionId,
+        p_run_id: runId || null,
       });
 
       if (claimErr) {
@@ -11435,15 +11377,27 @@ CRITICAL:
 
       const job = claimedRows?.[0];
       if (!job) {
-        return new Response(JSON.stringify({ processed: false, reason: "no_queued_jobs" }), {
+        // Check if all jobs for this run are done
+        let allDone = false;
+        if (runId) {
+          const { data: remaining } = await supabase.from("rewrite_jobs")
+            .select("id")
+            .eq("run_id", runId)
+            .in("status", ["queued", "running"])
+            .limit(1);
+          allDone = !remaining || remaining.length === 0;
+        }
+        return new Response(JSON.stringify({ processed: false, reason: "no_queued_jobs", done: allDone }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
 
-      // Idempotency: check if output already exists for this scene
+      const effectiveRunId = runId || job.run_id;
+
+      // Idempotency: check if output already exists for this run + scene
       const { data: existingOutput } = await supabase.from("rewrite_scene_outputs")
         .select("id")
-        .eq("source_version_id", sourceVersionId)
+        .eq("run_id", effectiveRunId)
         .eq("scene_number", job.scene_number)
         .maybeSingle();
 
@@ -11464,14 +11418,12 @@ CRITICAL:
         let sceneText = "";
 
         if (job.scene_graph_version_id) {
-          // Fetch by exact version ID (no drift)
           const { data: sv } = await supabase.from("scene_graph_versions")
             .select("content")
             .eq("id", job.scene_graph_version_id)
             .single();
           sceneText = sv?.content || "";
         } else if (job.scene_id) {
-          // Fallback: scene_id but no pinned version (legacy jobs)
           const { data: sv } = await supabase.from("scene_graph_versions")
             .select("content")
             .eq("scene_id", job.scene_id)
@@ -11480,7 +11432,6 @@ CRITICAL:
             .single();
           sceneText = sv?.content || "";
         } else {
-          // From plaintext split
           const { data: version } = await supabase.from("project_document_versions")
             .select("plaintext").eq("id", sourceVersionId).single();
           const fullText = version?.plaintext || "";
@@ -11501,29 +11452,24 @@ CRITICAL:
           throw new Error(`Scene ${job.scene_number} has no text`);
         }
 
-        // Use stored prev/next summaries (no re-querying scene_graph_order)
         const prevSummary = job.prev_summary || "";
         const nextSummary = job.next_summary || "";
 
-        // Filter notes to only those relevant to THIS scene
         const allNotes: any[] = (job.approved_notes as any[]) || [];
         const sceneSpecificNotes: any[] = [];
         const globalNotes: any[] = [];
         const sceneHeadingLower = (job.scene_heading || "").toLowerCase();
 
         for (const note of allNotes) {
-          // Explicitly anchored to this scene
           const noteSceneNum = note.scene_number || note.anchor?.scene_number;
           if (noteSceneNum === job.scene_number) {
             sceneSpecificNotes.push(note);
             continue;
           }
-          // Global notes (no specific anchor)
           if (note.severity === "direction" || note.category === "direction") {
             globalNotes.push(note);
             continue;
           }
-          // Keyword overlap
           const noteText = (note.description || note.note || "").toLowerCase();
           if (noteText.length >= 5) {
             const noteWords = noteText.split(/\s+/).filter((w: string) => w.length > 3);
@@ -11533,7 +11479,6 @@ CRITICAL:
               continue;
             }
           }
-          // If no anchor at all, include as potentially relevant
           if (!noteSceneNum && !note.anchor) {
             globalNotes.push(note);
           }
@@ -11547,10 +11492,6 @@ CRITICAL:
           ? `PROTECT (non-negotiable):\n${JSON.stringify(job.protect_items)}\n\n`
           : "";
 
-        // Build contracts block from scope plan stored in job metadata
-        let contractsBlock = "";
-        // Contracts are passed through approved_notes metadata or job-level fields
-        // For now, include canon rules if available on notes
         const contextBlock = [
           prevSummary ? `PREVIOUS SCENE SUMMARY: ${prevSummary}` : "",
           nextSummary ? `NEXT SCENE SUMMARY: ${nextSummary}` : "",
@@ -11560,11 +11501,10 @@ CRITICAL:
 
         const scenePrompt = `${hardInstruction}${protectContext}${notesContext}${contextBlock ? contextBlock + "\n\n" : ""}SCENE ${job.scene_number} (${job.scene_heading || "untitled"}) — Rewrite this scene applying the notes while preserving dramatic beats and formatting:\n\n${sceneText}`;
 
-        // Cap max_tokens: ~1.3x input tokens, clamped 600–2500
         const estimatedInputTokens = Math.ceil(sceneText.length / 4);
         const maxOutputTokens = Math.min(2500, Math.max(600, Math.ceil(estimatedInputTokens * 1.3)));
 
-        console.log(`[scene-rewrite] Processing scene ${job.scene_number} (${sceneText.length} chars, max_tokens=${maxOutputTokens}), attempts=${job.attempts}`);
+        console.log(`[scene-rewrite] Processing scene ${job.scene_number} (${sceneText.length} chars, max_tokens=${maxOutputTokens}), run=${effectiveRunId}, attempts=${job.attempts}`);
         const startTime = Date.now();
 
         const rewrittenScene = await callAI(
@@ -11578,17 +11518,18 @@ CRITICAL:
           console.warn(`[scene-rewrite] Scene ${job.scene_number} output is ${Math.round((rewrittenScene.length / sceneText.length - 1) * 100)}% larger than input`);
         }
 
-        // Save output (idempotent via UNIQUE constraint)
+        // Save output keyed by run_id + scene_number
         const { error: outErr } = await supabase.from("rewrite_scene_outputs").upsert({
           project_id: projectId,
           user_id: user.id,
           source_version_id: sourceVersionId,
+          run_id: effectiveRunId,
           scene_id: job.scene_id,
           scene_number: job.scene_number,
           rewritten_text: rewrittenScene.trim(),
           tokens_in: sceneText.length,
           tokens_out: rewrittenScene.trim().length,
-        }, { onConflict: "source_version_id,scene_number" });
+        }, { onConflict: "run_id,scene_number" });
         if (outErr) console.error("Scene output save error:", outErr);
 
         // Mark done
@@ -11617,7 +11558,6 @@ CRITICAL:
 
       } catch (jobErr: any) {
         console.error(`[scene-rewrite] Scene ${job.scene_number} failed:`, jobErr.message);
-        // Attempts already incremented by claim RPC — do NOT increment again
         const newStatus = job.attempts >= job.max_attempts ? "failed" : "queued";
         await supabase.from("rewrite_jobs").update({
           status: newStatus,
@@ -11636,14 +11576,19 @@ CRITICAL:
 
     // ── GET REWRITE STATUS ──
     if (action === "get_rewrite_status") {
-      const { projectId, sourceVersionId } = body;
-      if (!projectId || !sourceVersionId) throw new Error("projectId, sourceVersionId required");
+      const { projectId, sourceVersionId, runId } = body;
+      if (!projectId) throw new Error("projectId required");
 
-      const { data: jobs } = await supabase.from("rewrite_jobs")
+      // Prefer runId for filtering; fallback to sourceVersionId for legacy
+      let jobQuery = supabase.from("rewrite_jobs")
         .select("scene_number, scene_heading, status, attempts, error, claimed_at")
-        .eq("project_id", projectId)
-        .eq("source_version_id", sourceVersionId)
-        .order("scene_number", { ascending: true });
+        .eq("project_id", projectId);
+      if (runId) {
+        jobQuery = jobQuery.eq("run_id", runId);
+      } else if (sourceVersionId) {
+        jobQuery = jobQuery.eq("source_version_id", sourceVersionId);
+      }
+      const { data: jobs } = await jobQuery.order("scene_number", { ascending: true });
 
       if (!jobs || jobs.length === 0) {
         return new Response(JSON.stringify({ total: 0, queued: 0, running: 0, done: 0, failed: 0, scenes: [], oldest_running_claimed_at: null }), {
@@ -11706,14 +11651,19 @@ CRITICAL:
 
     // ── ASSEMBLE REWRITTEN SCRIPT ──
     if (action === "assemble_rewritten_script") {
-      const { projectId, sourceDocId, sourceVersionId, rewriteModeSelected, rewriteModeEffective, rewriteModeReason, rewriteModeDebug, rewriteProbe, rewriteScopePlan, rewriteScopeExpandedFrom, rewriteVerification } = body;
+      const { projectId, sourceDocId, sourceVersionId, runId, rewriteModeSelected, rewriteModeEffective, rewriteModeReason, rewriteModeDebug, rewriteProbe, rewriteScopePlan, rewriteScopeExpandedFrom, rewriteVerification } = body;
       if (!projectId || !sourceDocId || !sourceVersionId) throw new Error("projectId, sourceDocId, sourceVersionId required");
 
-      // Check all done
-      const { data: jobs } = await supabase.from("rewrite_jobs")
+      // Check all done — prefer run_id
+      let jobQuery = supabase.from("rewrite_jobs")
         .select("scene_number, status")
-        .eq("project_id", projectId)
-        .eq("source_version_id", sourceVersionId);
+        .eq("project_id", projectId);
+      if (runId) {
+        jobQuery = jobQuery.eq("run_id", runId);
+      } else {
+        jobQuery = jobQuery.eq("source_version_id", sourceVersionId);
+      }
+      const { data: jobs } = await jobQuery;
 
       const remaining = (jobs || []).filter(j => j.status !== "done");
       if (remaining.length > 0) {
@@ -11723,11 +11673,15 @@ CRITICAL:
         }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
-      // Load all rewritten outputs ordered
-      const { data: outputs } = await supabase.from("rewrite_scene_outputs")
-        .select("scene_number, rewritten_text")
-        .eq("source_version_id", sourceVersionId)
-        .order("scene_number", { ascending: true });
+      // Load all rewritten outputs ordered — prefer run_id
+      let outputQuery = supabase.from("rewrite_scene_outputs")
+        .select("scene_number, rewritten_text");
+      if (runId) {
+        outputQuery = outputQuery.eq("run_id", runId);
+      } else {
+        outputQuery = outputQuery.eq("source_version_id", sourceVersionId);
+      }
+      const { data: outputs } = await outputQuery.order("scene_number", { ascending: true });
 
       if (!outputs || outputs.length === 0) throw new Error("No scene outputs found");
 
@@ -11742,8 +11696,6 @@ CRITICAL:
       let totalScenesInAssembly: number;
 
       if (isSelective) {
-        // CRITICAL: Selective rewrite MUST preserve the full script from the source version
-        // and replace ONLY the rewritten scene numbers. Never assemble from outputs only.
         const { data: version } = await supabase.from("project_document_versions")
           .select("plaintext").eq("id", sourceVersionId).single();
         const originalText = (version?.plaintext || "").trim();
@@ -11752,7 +11704,6 @@ CRITICAL:
           throw new Error("Selective assemble failed: source version plaintext is empty");
         }
 
-        // Robust slugline regex supporting leading whitespace, common variants, case-insensitive
         const headingRegex =
           /^\s*(INT\.?|EXT\.?|INT\/EXT\.?|EXT\/INT\.?|I\/E\.?|EST\.?)\s+.+$/gmi;
         const boundaries: number[] = [];
@@ -11770,7 +11721,6 @@ CRITICAL:
           );
         }
 
-        // Split source plaintext into scenes by slugline boundaries
         const originalScenes: string[] = [];
         for (let i = 0; i < boundaries.length; i++) {
           const start = boundaries[i];
@@ -11787,7 +11737,6 @@ CRITICAL:
           );
         }
 
-        // Replace only rewritten scenes, keep all others intact
         for (let i = 0; i < originalScenes.length; i++) {
           const sceneNum = i + 1;
           if (rewrittenMap.has(sceneNum)) {
@@ -11800,7 +11749,6 @@ CRITICAL:
 
         console.log(`[scene-rewrite] Selective assemble ok: replaced ${outputs.length}/${totalScenesInAssembly} scenes from source plaintext`);
       } else {
-        // Full rewrite: all outputs must match all jobs
         const totalJobs = (jobs || []).length;
         if (outputs.length !== totalJobs) {
           throw new Error(`Output count (${outputs.length}) does not match job count (${totalJobs}). Some scenes may be missing.`);
@@ -11824,7 +11772,6 @@ CRITICAL:
           .limit(1)
           .single();
         const nextVersion = (maxRow?.version_number ?? 0) + 1;
-        // trulySelective is defined above the retry loop
         const { data: nv, error: vErr } = await supabase.from("project_document_versions").insert({
           document_id: sourceDocId,
           version_number: nextVersion,
@@ -11832,6 +11779,7 @@ CRITICAL:
           plaintext: assembledText,
           created_by: user.id,
           parent_version_id: sourceVersionId,
+          is_current: true,
           change_summary: trulySelective
             ? `Selective scene-level rewrite: ${outputs.length} of ${totalScenesInAssembly} scenes rewritten.`
             : `Scene-level rewrite across ${outputs.length} scenes.`,
@@ -11840,6 +11788,23 @@ CRITICAL:
         if (vErr.code !== "23505") throw vErr;
       }
       if (!newVersion) throw new Error("Failed to create version after retries");
+
+      // ── Atomically set current version via RPC ──
+      await supabase.rpc("set_current_version", {
+        p_document_id: sourceDocId,
+        p_new_version_id: newVersion.id,
+      });
+
+      // ── Update rewrite_run status ──
+      if (runId) {
+        await supabase.from("rewrite_runs").update({
+          status: "complete",
+          summary: trulySelective
+            ? `Selective scene-level rewrite: ${outputs.length} of ${totalScenesInAssembly} scenes.`
+            : `Scene-level rewrite across ${outputs.length} scenes.`,
+          updated_at: new Date().toISOString(),
+        }).eq("id", runId);
+      }
 
       // Log run
       await supabase.from("development_runs").insert({
@@ -11869,11 +11834,12 @@ CRITICAL:
             : `Scene-level rewrite across ${outputs.length} scenes.`,
           source_version_id: sourceVersionId,
           source_doc_id: sourceDocId,
+          run_id: runId || null,
         },
         schema_version: SCHEMA_VERSION,
       });
 
-      console.log(`[scene-rewrite] Assembled ${outputs.length}${trulySelective ? `/${totalScenesInAssembly}` : ''} scenes → ${assembledText.length} chars, new version ${newVersion.id}`);
+      console.log(`[scene-rewrite] Assembled ${outputs.length}${trulySelective ? `/${totalScenesInAssembly}` : ''} scenes → ${assembledText.length} chars, new version ${newVersion.id} (is_current=true)`);
 
       return new Response(JSON.stringify({
         newVersionId: newVersion.id,

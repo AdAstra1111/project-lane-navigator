@@ -151,10 +151,15 @@ export function useDevEngineV2(projectId: string | undefined) {
         .eq('document_id', selectedDocId)
         .order('version_number', { ascending: true });
       if (error) throw error;
-      return (data || []) as DevVersion[];
+      const rows = (data || []) as DevVersion[];
+      // If any version has is_current=true, use that; otherwise fallback to latest by version_number
+      return rows;
     },
     enabled: !!selectedDocId,
   });
+
+  // Derive the "current" version: prefer is_current flag, fallback to highest version_number
+  const currentVersion = versions.find((v: any) => v.is_current) || versions[versions.length - 1] || null;
 
   // Runs for selected version
   const { data: runs = [] } = useQuery({
