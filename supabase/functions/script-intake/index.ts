@@ -36,12 +36,16 @@ async function callLLM(messages: any[], tools?: any[], tool_choice?: any) {
   }
 
   const json = await resp.json();
+  console.log("LLM response status:", resp.status, "choices:", json.choices?.length);
   // If tool call, parse arguments
   const choice = json.choices?.[0];
   if (choice?.message?.tool_calls?.[0]) {
-    return JSON.parse(choice.message.tool_calls[0].function.arguments);
+    const args = choice.message.tool_calls[0].function.arguments;
+    console.log("Tool call args length:", args?.length, "preview:", args?.slice(0, 200));
+    return JSON.parse(args);
   }
   // Otherwise return content
+  console.log("No tool call found. finish_reason:", choice?.finish_reason, "content length:", choice?.message?.content?.length);
   return choice?.message?.content || "";
 }
 
@@ -150,6 +154,10 @@ async function ingestPdf(
     ],
     { type: "function", function: { name: "extract_pdf_pages" } }
   );
+
+  console.log("Extraction result keys:", Object.keys(extractionResult));
+  console.log("Pages count:", extractionResult.pages?.length, "Scenes count:", extractionResult.scenes?.length);
+  console.log("Title guess:", extractionResult.title_guess);
 
   const pages = extractionResult.pages || [];
   const scenes = extractionResult.scenes || [];
