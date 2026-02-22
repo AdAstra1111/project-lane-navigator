@@ -7,7 +7,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import {
   Play, Pause, SkipForward, SkipBack, X, ChevronRight,
-  MessageSquareText, RotateCcw,
+  MessageSquareText, RotateCcw, Circle, Square,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { DEMO_STEPS, DEMO_CHAPTERS, DEMO_CONFIG, type DemoStep, type DemoView } from './demoConfig';
@@ -23,6 +23,7 @@ import { DemoNotes } from './screens/DemoNotes';
 import { DemoPackage } from './screens/DemoPackage';
 import { DemoDifferentiators } from './screens/DemoDifferentiators';
 import { DemoCTA } from './screens/DemoCTA';
+import { useScreenRecorder } from './useScreenRecorder';
 
 export default function GuidedDemo() {
   const navigate = useNavigate();
@@ -34,6 +35,12 @@ export default function GuidedDemo() {
   const timerRef = useRef<ReturnType<typeof setTimeout>>();
   const [elapsed, setElapsed] = useState(0);
   const elapsedRef = useRef<ReturnType<typeof setInterval>>();
+  const demoContainerRef = useRef<HTMLDivElement>(null);
+
+  const { isRecording, toggleRecording } = useScreenRecorder({
+    targetRef: demoContainerRef,
+    filenamePrefix: `IFFY-Demo-${DEMO_CHAPTERS[DEMO_CHAPTERS.indexOf(DEMO_STEPS[stepIdx]?.chapter)] ?? 'Full'}`,
+  });
 
   const step = DEMO_STEPS[stepIdx];
   const total = DEMO_STEPS.length;
@@ -154,7 +161,7 @@ export default function GuidedDemo() {
   };
 
   return (
-    <div className="fixed inset-0 z-[300] bg-[hsl(225,18%,4%)] overflow-hidden select-none flex flex-col">
+    <div ref={demoContainerRef} className="fixed inset-0 z-[300] bg-[hsl(225,18%,4%)] overflow-hidden select-none flex flex-col">
       {/* Top bar: chapter nav + close */}
       <div className="relative z-40 flex items-center justify-between px-4 py-2 bg-black/60 backdrop-blur-sm border-b border-white/5">
         <div className="flex items-center gap-3">
@@ -172,6 +179,13 @@ export default function GuidedDemo() {
           </span>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={toggleRecording}
+            className={`p-1.5 rounded transition-colors ${isRecording ? 'text-red-500 animate-pulse' : 'text-white/25 hover:text-white/50'}`}
+            title={isRecording ? 'Stop recording & download' : 'Record as video'}
+          >
+            {isRecording ? <Square className="h-4 w-4" /> : <Circle className="h-4 w-4" />}
+          </button>
           <button
             onClick={() => setShowCaptions(c => !c)}
             className={`p-1.5 rounded transition-colors ${showCaptions ? 'text-primary' : 'text-white/25 hover:text-white/50'}`}
