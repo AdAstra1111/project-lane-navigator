@@ -456,9 +456,7 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
         }
 
         // Update local state optimistically
-        console.log('[scene-rewrite-progress] Processing result:', { scene: result.scene_number, status: result.status, processed: result.processed });
         setState(s => {
-          console.log('[scene-rewrite-progress] Current state before update:', { done: s.done, total: s.total, scenesLen: s.scenes.length, mode: s.mode });
           // If scenes array is empty (enqueue didn't populate it), build from result
           let updatedScenes = [...s.scenes];
           const existingIdx = updatedScenes.findIndex(sc => sc.scene_number === result.scene_number);
@@ -480,7 +478,6 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
           const actualPct = s.total > 0 ? (newDone / s.total) * 100 : 0;
           const avg = rollingAvg(durationsRef.current);
           const remaining = s.total - newDone - newFailed;
-          console.log('[scene-rewrite-progress] After update:', { newDone, newFailed, newQueued, actualPct, updatedScenesLen: updatedScenes.length });
           return {
             ...s,
             scenes: updatedScenes,
