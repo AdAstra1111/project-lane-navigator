@@ -13,7 +13,7 @@ const AI_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
 
 async function callLLM(messages: any[], tools?: any[], tool_choice?: any) {
   const body: any = {
-    model: "google/gemini-3-flash-preview",
+    model: "google/gemini-2.5-flash",
     messages,
     temperature: 0.3,
   };
@@ -36,17 +36,23 @@ async function callLLM(messages: any[], tools?: any[], tool_choice?: any) {
   }
 
   const json = await resp.json();
-  console.log("LLM raw response keys:", JSON.stringify(Object.keys(json)));
-  console.log("LLM raw response preview:", JSON.stringify(json).slice(0, 500));
+  
+  // Handle gateway errors that come back as 200 with error body
+  if (json.error) {
+    const errMsg = json.error?.message || JSON.stringify(json.error);
+    const code = json.error?.code;
+    console.error("AI gateway error in response body:", errMsg, "code:", code);
+    if (code === 524) throw new Error("AI provider timeout - PDF may be too large. Try a smaller file.");
+    throw new Error(`AI error: ${errMsg}`);
+  }
+  
   // If tool call, parse arguments
   const choice = json.choices?.[0];
   if (choice?.message?.tool_calls?.[0]) {
     const args = choice.message.tool_calls[0].function.arguments;
-    console.log("Tool call args length:", args?.length, "preview:", args?.slice(0, 200));
     return JSON.parse(args);
   }
   // Otherwise return content
-  console.log("No tool call found. finish_reason:", choice?.finish_reason, "content length:", choice?.message?.content?.length);
   return choice?.message?.content || "";
 }
 
@@ -155,10 +161,6 @@ async function ingestPdf(
     ],
     { type: "function", function: { name: "extract_pdf_pages" } }
   );
-
-  console.log("Extraction result keys:", Object.keys(extractionResult));
-  console.log("Pages count:", extractionResult.pages?.length, "Scenes count:", extractionResult.scenes?.length);
-  console.log("Title guess:", extractionResult.title_guess);
 
   const pages = extractionResult.pages || [];
   const scenes = extractionResult.scenes || [];
