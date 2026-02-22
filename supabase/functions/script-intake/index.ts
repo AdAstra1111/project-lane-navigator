@@ -36,7 +36,8 @@ async function callLLM(messages: any[], tools?: any[], tool_choice?: any) {
   }
 
   const json = await resp.json();
-  console.log("LLM response status:", resp.status, "choices:", json.choices?.length);
+  console.log("LLM raw response keys:", JSON.stringify(Object.keys(json)));
+  console.log("LLM raw response preview:", JSON.stringify(json).slice(0, 500));
   // If tool call, parse arguments
   const choice = json.choices?.[0];
   if (choice?.message?.tool_calls?.[0]) {
