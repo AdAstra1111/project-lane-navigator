@@ -10834,6 +10834,8 @@ export type Database = {
           finished_at: string | null
           id: string
           max_attempts: number
+          next_summary: string | null
+          prev_summary: string | null
           project_id: string
           protect_items: Json | null
           scene_graph_version_id: string | null
@@ -10856,6 +10858,8 @@ export type Database = {
           finished_at?: string | null
           id?: string
           max_attempts?: number
+          next_summary?: string | null
+          prev_summary?: string | null
           project_id: string
           protect_items?: Json | null
           scene_graph_version_id?: string | null
@@ -10878,6 +10882,8 @@ export type Database = {
           finished_at?: string | null
           id?: string
           max_attempts?: number
+          next_summary?: string | null
+          prev_summary?: string | null
           project_id?: string
           protect_items?: Json | null
           scene_graph_version_id?: string | null
@@ -15532,6 +15538,39 @@ export type Database = {
       check_document_access: {
         Args: { _file_path: string; _user_id: string }
         Returns: boolean
+      }
+      claim_next_rewrite_job: {
+        Args: { p_project_id: string; p_source_version_id: string }
+        Returns: {
+          approved_notes: Json | null
+          attempts: number
+          claimed_at: string | null
+          created_at: string
+          error: string | null
+          finished_at: string | null
+          id: string
+          max_attempts: number
+          next_summary: string | null
+          prev_summary: string | null
+          project_id: string
+          protect_items: Json | null
+          scene_graph_version_id: string | null
+          scene_heading: string | null
+          scene_id: string | null
+          scene_number: number
+          source_doc_id: string
+          source_version_id: string
+          status: string
+          target_doc_type: string
+          updated_at: string
+          user_id: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "rewrite_jobs"
+          isOneToOne: false
+          isSetofReturn: true
+        }
       }
       compute_outcome_deltas: {
         Args: { p_project_id: string }
