@@ -1021,6 +1021,7 @@ export default function ProjectDevelopmentEngine() {
                     isVersionApproved={selectedVersion?.approval_status === 'approved'}
                     autoReviewEnabled={autoReviewEnabled}
                     onAutoReviewToggle={setAutoReviewEnabled}
+                    format={normalizedFormat}
                   />
 
                   {/* Resume auto-run handled by banner above */}

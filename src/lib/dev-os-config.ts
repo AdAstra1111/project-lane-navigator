@@ -56,9 +56,10 @@ const FILM_LABEL_OVERRIDES: Partial<Record<DeliverableType, string>> = {
   blueprint: 'Blueprint',
   architecture: 'Architecture',
   beat_sheet: 'Beat Sheet',
+  season_arc: 'Story Arc',
 };
 
-const NON_SERIES_FORMATS = new Set(['film', 'feature', 'short', 'documentary', 'hybrid-documentary']);
+const NON_SERIES_FORMATS = new Set(['film', 'feature', 'short', 'documentary', 'hybrid-documentary', 'short-film']);
 
 /**
  * Get the display label for a deliverable type, adjusted for the project's format.
@@ -66,7 +67,7 @@ const NON_SERIES_FORMATS = new Set(['film', 'feature', 'short', 'documentary', '
  */
 export function getDeliverableLabel(deliverable: string, format?: string | null): string {
   const normalizedFormat = (format || '').toLowerCase().replace(/_/g, '-');
-  if (!normalizedFormat || NON_SERIES_FORMATS.has(normalizedFormat)) {
+  if (normalizedFormat && NON_SERIES_FORMATS.has(normalizedFormat)) {
     const override = FILM_LABEL_OVERRIDES[deliverable as DeliverableType];
     if (override) return override;
   }
