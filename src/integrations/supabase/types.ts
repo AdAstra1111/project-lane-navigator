@@ -8451,6 +8451,7 @@ export type Database = {
         Row: {
           char_count: number | null
           created_at: string
+          display_name: string | null
           doc_type: string
           error_message: string | null
           extracted_text: string | null
@@ -8479,6 +8480,7 @@ export type Database = {
         Insert: {
           char_count?: number | null
           created_at?: string
+          display_name?: string | null
           doc_type?: string
           error_message?: string | null
           extracted_text?: string | null
@@ -8507,6 +8509,7 @@ export type Database = {
         Update: {
           char_count?: number | null
           created_at?: string
+          display_name?: string | null
           doc_type?: string
           error_message?: string | null
           extracted_text?: string | null

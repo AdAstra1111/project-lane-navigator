@@ -1203,3 +1203,8 @@ export interface ProjectRenameInput {
   projectId: string;
   newTitle: string;
 }
+
+export interface SetPrimaryDocumentInput {
+  projectId: string;
+  documentId: string;
+}
