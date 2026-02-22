@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
@@ -24,6 +24,7 @@ export interface SceneRewriteState {
   scenes: SceneRewriteJob[];
   error: string | null;
   newVersionId: string | null;
+  rewriteMode: 'scene' | 'chunk' | null;
 }
 
 const initialState: SceneRewriteState = {
@@ -34,6 +35,7 @@ const initialState: SceneRewriteState = {
   scenes: [],
   error: null,
   newVersionId: null,
+  rewriteMode: null,
 };
 
 async function callEngine(action: string, extra: Record<string, any> = {}) {
@@ -87,6 +89,7 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
         mode: 'idle',
         hasScenes: result.has_scenes,
         scenesCount: result.scenes_count,
+        rewriteMode: result.rewrite_default_mode,
       }));
       return result;
     } catch (err: any) {
@@ -112,6 +115,7 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
           mode: result.done === result.total ? 'complete'
             : (result.queued > 0 || result.running > 0) ? 'processing' : 'idle',
           hasScenes: true,
+          rewriteMode: 'scene',
         }));
       }
     } catch { /* non-critical */ }
@@ -138,6 +142,7 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
         done: result.alreadyExists ? s.done : 0,
         failed: 0,
         running: 0,
+        rewriteMode: 'scene',
       }));
       toast.success(`${result.totalScenes} scenes queued for rewrite`);
       return result;
@@ -155,6 +160,8 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
     stopRef.current = false;
     setState(s => ({ ...s, mode: 'processing' }));
 
+    let scenesProcessed = 0;
+
     try {
       let consecutiveEmpty = 0;
       while (!stopRef.current) {
@@ -162,28 +169,51 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
 
         if (!result.processed) {
           consecutiveEmpty++;
-          if (consecutiveEmpty >= 2) break; // truly no more jobs
+          if (consecutiveEmpty >= 2) break;
           await new Promise(r => setTimeout(r, 500));
           continue;
         }
         consecutiveEmpty = 0;
+        scenesProcessed++;
 
-        // Refresh status
-        const status = await callEngine('get_rewrite_status', { projectId, sourceVersionId });
-        setState(s => ({
-          ...s,
-          total: status.total,
-          queued: status.queued,
-          running: status.running,
-          done: status.done,
-          failed: status.failed,
-          scenes: status.scenes || [],
-        }));
+        // Update local state optimistically from the returned scene info
+        setState(s => {
+          const updatedScenes = s.scenes.map(sc =>
+            sc.scene_number === result.scene_number
+              ? { ...sc, status: result.status, error: result.error || null }
+              : sc
+          );
+          const newDone = updatedScenes.filter(sc => sc.status === 'done').length;
+          const newFailed = updatedScenes.filter(sc => sc.status === 'failed').length;
+          const newQueued = updatedScenes.filter(sc => sc.status === 'queued').length;
+          const newRunning = updatedScenes.filter(sc => sc.status === 'running').length;
+          return {
+            ...s,
+            scenes: updatedScenes,
+            done: newDone,
+            failed: newFailed,
+            queued: newQueued,
+            running: newRunning,
+          };
+        });
 
-        if (status.queued === 0 && status.running === 0) break;
+        // Full status refresh every 5 scenes
+        if (scenesProcessed % 5 === 0) {
+          const status = await callEngine('get_rewrite_status', { projectId, sourceVersionId });
+          setState(s => ({
+            ...s,
+            total: status.total,
+            queued: status.queued,
+            running: status.running,
+            done: status.done,
+            failed: status.failed,
+            scenes: status.scenes || [],
+          }));
+          if (status.queued === 0 && status.running === 0) break;
+        }
 
-        // Small delay between scenes to avoid hammering
-        await new Promise(r => setTimeout(r, 300));
+        // Small delay between scenes
+        await new Promise(r => setTimeout(r, 200));
       }
 
       // Final status

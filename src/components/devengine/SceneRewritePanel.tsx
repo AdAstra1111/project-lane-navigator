@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Loader2, Play, RotateCcw, Package, Square, AlertCircle, CheckCircle2, Clock } from 'lucide-react';
+import { Loader2, Play, RotateCcw, Package, Square, AlertCircle, CheckCircle2, Clock, Layers } from 'lucide-react';
 import { useSceneRewritePipeline, SceneRewriteJob } from '@/hooks/useSceneRewritePipeline';
 
 interface SceneRewritePanelProps {
@@ -76,7 +76,11 @@ export function SceneRewritePanel({
     <div className="rounded-lg border bg-card p-3 space-y-3">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
+          <Layers className="h-4 w-4 text-muted-foreground" />
           <span className="text-sm font-medium">Scene Rewrite</span>
+          <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+            {pipeline.rewriteMode === 'scene' ? 'Scene mode' : pipeline.rewriteMode === 'chunk' ? 'Chunk mode' : 'Auto'}
+          </Badge>
           {pipeline.total > 0 && (
             <span className="text-xs text-muted-foreground">
               {pipeline.done}/{pipeline.total} scenes

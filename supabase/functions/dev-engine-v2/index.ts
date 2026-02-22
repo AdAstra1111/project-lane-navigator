@@ -10879,8 +10879,25 @@ ${scenesForPrompt}`;
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // SCENE-LEVEL REWRITE PIPELINE
+    // SCENE-LEVEL REWRITE PIPELINE (HARDENED)
     // ═══════════════════════════════════════════════════════════════
+
+    const SCENE_REWRITE_SYSTEM = `You are rewriting a SINGLE SCENE from a screenplay.
+
+GOALS:
+- Apply the approved notes to this scene only.
+- Tight, well-written prose and dialogue.
+- Stronger clarity, pacing, and dramatic impact.
+- Preserve professional screenplay formatting.
+- Preserve all PROTECT items absolutely.
+- Maintain continuity with previous/next scene context provided.
+
+CRITICAL:
+- Do NOT summarize the scene.
+- Do NOT collapse beats.
+- Do NOT expand the scene by more than 15% unless explicitly required by notes.
+- Keep the scene at roughly the same length as the input.
+- Output ONLY the rewritten scene text. No JSON, no commentary, no markdown fences.`;
 
     // ── REWRITE DEBUG PROBE ──
     if (action === "rewrite_debug_probe") {
@@ -10891,14 +10908,13 @@ ${scenesForPrompt}`;
         .select("plaintext").eq("id", sourceVersionId).single();
       const scriptChars = (version?.plaintext || "").length;
 
-      // Check for scene_graph_scenes with active order entries
       const { data: sceneOrder } = await supabase.from("scene_graph_order")
         .select("id, scene_id")
         .eq("project_id", projectId)
         .eq("is_active", true);
 
       const scenesCount = sceneOrder?.length || 0;
-      const hasScenes = scenesCount >= 3; // need at least 3 scenes to use scene mode
+      const hasScenes = scenesCount >= 3;
 
       return new Response(JSON.stringify({
         has_scenes: hasScenes,
@@ -10939,27 +10955,33 @@ ${scenesForPrompt}`;
         .eq("is_active", true)
         .order("order_key", { ascending: true });
 
-      let scenes: Array<{ scene_number: number; scene_id: string | null; heading: string }> = [];
+      let scenes: Array<{ scene_number: number; scene_id: string | null; heading: string; scene_graph_version_id: string | null }> = [];
 
       if (sceneOrder && sceneOrder.length >= 3) {
-        // Get latest version content for each scene
+        // Get latest version for each scene (any status, latest by version_number)
         const sceneIds = sceneOrder.map(s => s.scene_id);
         const { data: versions } = await supabase.from("scene_graph_versions")
-          .select("scene_id, slugline, version_number")
+          .select("id, scene_id, slugline, summary, content, version_number")
           .in("scene_id", sceneIds)
-          .eq("status", "draft")
           .order("version_number", { ascending: false });
 
-        const sluglineMap = new Map<string, string>();
+        // Map: scene_id -> latest version (first occurrence due to desc ordering)
+        const latestVersionMap = new Map<string, { id: string; slugline: string; summary: string; content: string }>();
         for (const v of (versions || [])) {
-          if (!sluglineMap.has(v.scene_id)) sluglineMap.set(v.scene_id, v.slugline || "");
+          if (!latestVersionMap.has(v.scene_id)) {
+            latestVersionMap.set(v.scene_id, { id: v.id, slugline: v.slugline || "", summary: v.summary || "", content: v.content || "" });
+          }
         }
 
-        scenes = sceneOrder.map((s, i) => ({
-          scene_number: i + 1,
-          scene_id: s.scene_id,
-          heading: sluglineMap.get(s.scene_id) || `SCENE ${i + 1}`,
-        }));
+        scenes = sceneOrder.map((s, i) => {
+          const ver = latestVersionMap.get(s.scene_id);
+          return {
+            scene_number: i + 1,
+            scene_id: s.scene_id,
+            heading: ver?.slugline || `SCENE ${i + 1}`,
+            scene_graph_version_id: ver?.id || null,
+          };
+        });
       } else {
         // Fallback: split by scene headings from plaintext
         const { data: version } = await supabase.from("project_document_versions")
@@ -10973,7 +10995,6 @@ ${scenesForPrompt}`;
         }
 
         if (boundaries.length < 2) {
-          // Not enough scenes — can't use scene mode
           return new Response(JSON.stringify({ error: "Not enough scenes detected for scene-level rewrite. Use chunk pipeline.", totalScenes: boundaries.length }), {
             status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
@@ -10983,10 +11004,11 @@ ${scenesForPrompt}`;
           scene_number: i + 1,
           scene_id: null,
           heading: b.heading.substring(0, 200),
+          scene_graph_version_id: null,
         }));
       }
 
-      // Insert all jobs
+      // Insert all jobs using onConflict for idempotency
       const jobRows = scenes.map(s => ({
         project_id: projectId,
         user_id: user.id,
@@ -10996,6 +11018,7 @@ ${scenesForPrompt}`;
         scene_id: s.scene_id,
         scene_number: s.scene_number,
         scene_heading: s.heading,
+        scene_graph_version_id: s.scene_graph_version_id,
         status: "queued",
         attempts: 0,
         max_attempts: 3,
@@ -11003,7 +11026,8 @@ ${scenesForPrompt}`;
         protect_items: protectItems || [],
       }));
 
-      const { error: insertErr } = await supabase.from("rewrite_jobs").insert(jobRows);
+      const { error: insertErr } = await supabase.from("rewrite_jobs")
+        .upsert(jobRows, { onConflict: "source_version_id,scene_number", ignoreDuplicates: true });
       if (insertErr) throw insertErr;
 
       console.log(`[scene-rewrite] Enqueued ${scenes.length} scene rewrite jobs for version ${sourceVersionId}, rewrite_mode=scene`);
@@ -11018,10 +11042,9 @@ ${scenesForPrompt}`;
       const { projectId, sourceVersionId } = body;
       if (!projectId || !sourceVersionId) throw new Error("projectId, sourceVersionId required");
 
-      // Claim one queued job (oldest by scene_number)
-      // We use a two-step: find then update, since Supabase JS doesn't support FOR UPDATE SKIP LOCKED
+      // Step 1: Check if output already exists for a queued job (idempotency)
       const { data: candidates } = await supabase.from("rewrite_jobs")
-        .select("*")
+        .select("id, scene_number")
         .eq("project_id", projectId)
         .eq("source_version_id", sourceVersionId)
         .eq("status", "queued")
@@ -11034,32 +11057,59 @@ ${scenesForPrompt}`;
         });
       }
 
-      const job = candidates[0];
+      const candidateId = candidates[0].id;
+      const candidateSceneNum = candidates[0].scene_number;
 
-      // Mark as running
-      await supabase.from("rewrite_jobs").update({
-        status: "running",
-        claimed_at: new Date().toISOString(),
-        attempts: job.attempts + 1,
-      }).eq("id", job.id).eq("status", "queued"); // optimistic lock
+      // Check if output already exists (scene was processed in a previous attempt)
+      const { data: existingOutput } = await supabase.from("rewrite_scene_outputs")
+        .select("id")
+        .eq("source_version_id", sourceVersionId)
+        .eq("scene_number", candidateSceneNum)
+        .maybeSingle();
+
+      if (existingOutput) {
+        // Output exists — mark job done and skip
+        await supabase.from("rewrite_jobs").update({
+          status: "done", finished_at: new Date().toISOString(), error: null,
+        }).eq("id", candidateId);
+        return new Response(JSON.stringify({ processed: true, scene_number: candidateSceneNum, status: "done", skipped: true }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // Step 2: Optimistic claim — increment attempts in the claim itself
+      const now = new Date().toISOString();
+      const { data: claimedRow, error: claimErr } = await supabase.from("rewrite_jobs")
+        .update({ status: "running", claimed_at: now, attempts: candidates[0].scene_number ? (await supabase.from("rewrite_jobs").select("attempts").eq("id", candidateId).single()).data?.attempts + 1 || 1 : 1 })
+        .eq("id", candidateId)
+        .eq("status", "queued") // optimistic lock: only succeeds if still queued
+        .select("*")
+        .maybeSingle();
+
+      if (!claimedRow) {
+        // Another worker claimed it
+        return new Response(JSON.stringify({ processed: false, reason: "claim_lost" }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const job = claimedRow;
 
       try {
-        // Get scene text
+        // Get scene text — bound to exact snapshot via scene_graph_version_id
         let sceneText = "";
         let prevSummary = "";
         let nextSummary = "";
 
-        if (job.scene_id) {
-          // From scene graph
+        if (job.scene_graph_version_id) {
+          // Fetch by exact version ID (no drift)
           const { data: sv } = await supabase.from("scene_graph_versions")
             .select("content, summary, slugline")
-            .eq("scene_id", job.scene_id)
-            .order("version_number", { ascending: false })
-            .limit(1)
+            .eq("id", job.scene_graph_version_id)
             .single();
           sceneText = sv?.content || "";
 
-          // Get prev/next scene summaries for context
+          // Get prev/next scene summaries
           const { data: allOrder } = await supabase.from("scene_graph_order")
             .select("scene_id, order_key")
             .eq("project_id", projectId)
@@ -11087,6 +11137,15 @@ ${scenesForPrompt}`;
               nextSummary = nv ? `${nv.slugline || ""}: ${nv.summary || ""}`.trim() : "";
             }
           }
+        } else if (job.scene_id) {
+          // Fallback: scene_id but no pinned version (legacy jobs)
+          const { data: sv } = await supabase.from("scene_graph_versions")
+            .select("content, summary, slugline")
+            .eq("scene_id", job.scene_id)
+            .order("version_number", { ascending: false })
+            .limit(1)
+            .single();
+          sceneText = sv?.content || "";
         } else {
           // From plaintext split
           const { data: version } = await supabase.from("project_document_versions")
@@ -11133,15 +11192,24 @@ ${scenesForPrompt}`;
 
         const scenePrompt = `${protectContext}${notesContext}${contextBlock ? contextBlock + "\n\n" : ""}SCENE ${job.scene_number} (${job.scene_heading || "untitled"}) — Rewrite this scene applying the notes while preserving dramatic beats and formatting:\n\n${sceneText}`;
 
-        console.log(`[scene-rewrite] Processing scene ${job.scene_number} (${sceneText.length} chars), rewrite_mode=scene`);
+        // Cap max_tokens based on scene size: ~1.3x input tokens, min 800, max 4000
+        const estimatedInputTokens = Math.ceil(sceneText.length / 4);
+        const maxOutputTokens = Math.min(4000, Math.max(800, Math.ceil(estimatedInputTokens * 1.3)));
+
+        console.log(`[scene-rewrite] Processing scene ${job.scene_number} (${sceneText.length} chars, max_tokens=${maxOutputTokens}), rewrite_mode=scene`);
         const startTime = Date.now();
 
         const rewrittenScene = await callAI(
-          LOVABLE_API_KEY, BALANCED_MODEL, REWRITE_CHUNK_SYSTEM, scenePrompt, 0.4, 12000
+          LOVABLE_API_KEY, BALANCED_MODEL, SCENE_REWRITE_SYSTEM, scenePrompt, 0.4, maxOutputTokens
         );
 
         const durationMs = Date.now() - startTime;
         console.log(`[scene-rewrite] Scene ${job.scene_number} done in ${(durationMs / 1000).toFixed(1)}s (${rewrittenScene.length} chars out)`);
+
+        // Guard: if output is >50% larger than input, warn but still save
+        if (rewrittenScene.length > sceneText.length * 1.5) {
+          console.warn(`[scene-rewrite] Scene ${job.scene_number} output is ${Math.round((rewrittenScene.length / sceneText.length - 1) * 100)}% larger than input`);
+        }
 
         // Save output (idempotent via UNIQUE constraint — use upsert)
         const { error: outErr } = await supabase.from("rewrite_scene_outputs").upsert({
@@ -11172,8 +11240,8 @@ ${scenesForPrompt}`;
 
       } catch (jobErr: any) {
         console.error(`[scene-rewrite] Scene ${job.scene_number} failed:`, jobErr.message);
-        const newAttempts = job.attempts + 1;
-        const newStatus = newAttempts >= job.max_attempts ? "failed" : "queued";
+        // Attempts was already incremented during claim — determine status from claimed row
+        const newStatus = job.attempts >= job.max_attempts ? "failed" : "queued";
         await supabase.from("rewrite_jobs").update({
           status: newStatus,
           error: jobErr.message?.substring(0, 500),
@@ -11223,6 +11291,7 @@ ${scenesForPrompt}`;
       const { projectId, sourceVersionId } = body;
       if (!projectId || !sourceVersionId) throw new Error("projectId, sourceVersionId required");
 
+      // Reset failed jobs: set status=queued AND reset attempts so they get fresh tries
       const { data: failedJobs } = await supabase.from("rewrite_jobs")
         .select("id, attempts, max_attempts")
         .eq("project_id", projectId)
@@ -11231,10 +11300,9 @@ ${scenesForPrompt}`;
 
       let resetCount = 0;
       for (const j of (failedJobs || [])) {
-        if (j.attempts < j.max_attempts) {
-          await supabase.from("rewrite_jobs").update({ status: "queued", error: null }).eq("id", j.id);
-          resetCount++;
-        }
+        // Reset attempts to 0 to give full retries
+        await supabase.from("rewrite_jobs").update({ status: "queued", error: null, attempts: 0 }).eq("id", j.id);
+        resetCount++;
       }
 
       return new Response(JSON.stringify({ reset: resetCount }), {
@@ -11244,7 +11312,7 @@ ${scenesForPrompt}`;
 
     // ── ASSEMBLE REWRITTEN SCRIPT ──
     if (action === "assemble_rewritten_script") {
-      const { projectId, sourceDocId, sourceVersionId, targetDocType } = body;
+      const { projectId, sourceDocId, sourceVersionId } = body;
       if (!projectId || !sourceDocId || !sourceVersionId) throw new Error("projectId, sourceDocId, sourceVersionId required");
 
       // Check all done
@@ -11269,9 +11337,15 @@ ${scenesForPrompt}`;
 
       if (!outputs || outputs.length === 0) throw new Error("No scene outputs found");
 
+      // Validate: outputs count must match jobs count
+      const totalJobs = (jobs || []).length;
+      if (outputs.length !== totalJobs) {
+        throw new Error(`Output count (${outputs.length}) does not match job count (${totalJobs}). Some scenes may be missing.`);
+      }
+
       const assembledText = outputs.map(o => o.rewritten_text).join("\n\n");
 
-      // Create new version
+      // Create new version with retry for version_number collision
       let newVersion: any = null;
       for (let _retry = 0; _retry < 3; _retry++) {
         const { data: maxRow } = await supabase.from("project_document_versions")
@@ -11292,6 +11366,7 @@ ${scenesForPrompt}`;
         }).select().single();
         if (!vErr) { newVersion = nv; break; }
         if (vErr.code !== "23505") throw vErr;
+        // 23505 = unique violation on version_number — retry
       }
       if (!newVersion) throw new Error("Failed to create version after retries");
 
