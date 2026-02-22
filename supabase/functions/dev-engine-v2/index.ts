@@ -611,6 +611,24 @@ const BEHAVIOR_MODIFIERS: Record<string, string> = {
   prestige: `BEHAVIOR MODE: Prestige — highest structural and thematic standards. Scores must reach 85/80 minimum. Require deep craft analysis. Two rewrite cycles minimum for convergence.`,
 };
 
+// ── Format alias map: normalize ambiguous DB values to canonical format keys ──
+const FORMAT_ALIASES: Record<string, string> = {
+  "series": "tv-series",
+  "feature": "film",
+  "short-film": "short",
+  "anim-feature": "animation",
+  "branded-content": "digital-series",
+  "music-video": "short",
+  "proof-of-concept": "short",
+  "hybrid": "film",
+  "podcast-ip": "digital-series",
+  "commercial": "short",
+};
+
+function resolveFormatAlias(format: string): string {
+  return FORMAT_ALIASES[format] || format;
+}
+
 const FORMAT_EXPECTATIONS: Record<string, string> = {
   "film": `FORMAT: Feature Film — expect 3-act structure, 90-110 minute runtime, midpoint reversal, escalating stakes.`,
   "feature": `FORMAT: Feature Film — expect 3-act structure, 90-110 minute runtime, midpoint reversal, escalating stakes.`,
@@ -1308,7 +1326,7 @@ async function buildCriteriaSnapshot(supabase: any, projectId: string): Promise<
   if (!p) return {};
   const gc = p.guardrails_config || {};
   const quals = gc?.overrides?.qualifications || {};
-  const fmt = (p.format || "film").toLowerCase().replace(/[_ ]+/g, "-");
+  const fmt = resolveFormatAlias((p.format || "film").toLowerCase().replace(/[_ ]+/g, "-"));
   // Resolve canonical episode length
   const { minSeconds, maxSeconds, targetSeconds } = resolveEpisodeLength(p);
   return {
@@ -1439,7 +1457,7 @@ serve(async (req) => {
       }
 
       const rawFormat = reqFormat || project?.format || "film";
-      const effectiveFormat = rawFormat.toLowerCase().replace(/[_ ]+/g, "-");
+      const effectiveFormat = resolveFormatAlias(rawFormat.toLowerCase().replace(/[_ ]+/g, "-"));
       const effectiveBehavior = developmentBehavior || project?.development_behavior || "market";
       const effectiveDeliverable = deliverableType;
       const effectiveProductionType = productionType || formatToProductionType[effectiveFormat] || "narrative_feature";
@@ -1987,7 +2005,7 @@ ${version.plaintext.slice(0, maxContextChars)}`;
         .select("format, development_behavior, assigned_lane, budget_range")
         .eq("id", projectId).single();
       const notesRawFormat = notesProject?.format || "film";
-      const notesEffectiveFormat = notesRawFormat.toLowerCase().replace(/[_ ]+/g, "-");
+      const notesEffectiveFormat = resolveFormatAlias(notesRawFormat.toLowerCase().replace(/[_ ]+/g, "-"));
       const notesFormatExp = FORMAT_EXPECTATIONS[notesEffectiveFormat] || FORMAT_EXPECTATIONS["film"];
       const notesLadder = getLadderForFormat(notesEffectiveFormat);
       const notesLadderStr = notesLadder.join(", ");
@@ -3392,7 +3410,7 @@ Return ONLY valid JSON:
       const E = (project as any).season_episode_count;
 
       // ── Canonical episode length resolution ──
-      const gridFmtDefault = FORMAT_DEFAULTS_ENGINE[(project?.format || "").toLowerCase().replace(/[_ ]+/g, "-")] || {};
+      const gridFmtDefault = FORMAT_DEFAULTS_ENGINE[resolveFormatAlias((project?.format || "").toLowerCase().replace(/[_ ]+/g, "-"))] || {};
       const { minSeconds: durMin, maxSeconds: durMax, targetSeconds: durTarget, variancePolicy } = resolveEpisodeLength(project, {}, gridFmtDefault);
       const duration = durTarget ?? durMin ?? (project as any).episode_target_duration_seconds ?? null;
 
@@ -4331,7 +4349,7 @@ RULES:
       const { data: project } = await supabase.from("projects")
         .select("format, season_episode_count, guardrails_config")
         .eq("id", projectId).single();
-      const fmt = (project?.format || "").toLowerCase().replace(/[_ ]+/g, "-");
+      const fmt = resolveFormatAlias((project?.format || "").toLowerCase().replace(/[_ ]+/g, "-"));
       if (fmt !== "vertical-drama") throw new Error("beat-sheet-to-script is only available for vertical_drama projects");
 
       const gc = project?.guardrails_config || {};
@@ -5029,7 +5047,7 @@ ${baseScriptText.slice(0, 30000)}`;
         );
       }
 
-      const fmt = (projectMeta?.format || "film").toLowerCase().replace(/[_ ]+/g, "-");
+      const fmt = resolveFormatAlias((projectMeta?.format || "film").toLowerCase().replace(/[_ ]+/g, "-"));
       const isSeries = ["tv-series", "limited-series", "vertical-drama", "miniseries", "anthology"].includes(fmt);
 
       // ── Build PROJECT FACTS block from real metadata ──
@@ -5198,7 +5216,7 @@ ${contextBlock}`;
 
       const { data: project } = await supabase.from("projects")
         .select("format, development_behavior").eq("id", projectId).single();
-      const effectiveFormat = (project?.format || "film").toLowerCase().replace(/[_ ]+/g, "-");
+      const effectiveFormat = resolveFormatAlias((project?.format || "film").toLowerCase().replace(/[_ ]+/g, "-"));
       const effectiveBehavior = project?.development_behavior || "market";
 
       // AI apply the plan
