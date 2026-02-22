@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
@@ -210,17 +210,6 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
     }
   }, []);
 
-  // Restore runId from sessionStorage on mount/projectId change
-  useEffect(() => {
-    if (!projectId || runIdRef.current) return;
-    const svId = lastSourceVersionIdRef.current;
-    if (!svId) return;
-    const restored = loadRunId(projectId, svId);
-    if (restored) {
-      runIdRef.current = restored;
-      setState(s => ({ ...s, runId: restored }));
-    }
-  }, [projectId]);
 
   // Probe whether scenes exist
   const probe = useCallback(async (sourceDocId: string, sourceVersionId: string) => {
