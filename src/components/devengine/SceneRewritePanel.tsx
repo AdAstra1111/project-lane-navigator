@@ -182,7 +182,9 @@ export function SceneRewritePanel({
           </div>
           {pipeline.total > 0 && (
             <span className="text-xs text-muted-foreground">
-              {pipeline.done}/{pipeline.total} scenes
+              {pipeline.scopePlan && pipeline.targetSceneNumbers.length < pipeline.totalScenesInScript
+                ? `Selective: ${pipeline.done}/${pipeline.total} target scenes`
+                : `${pipeline.done}/${pipeline.total} scenes`}
             </span>
           )}
         </div>
@@ -194,7 +196,7 @@ export function SceneRewritePanel({
           )}
           {canStart && !canResume && (
             <Button size="sm" variant="default" onClick={handleStart} disabled={isWorking} className="h-7 text-xs gap-1">
-              <Play className="h-3 w-3" /> {scopePlan ? `Start (${scopePlan.target_scene_numbers.length} scenes)` : 'Start'}
+              <Play className="h-3 w-3" /> {scopePlan ? `Start (${scopePlan.target_scene_numbers.length}/${pipeline.totalScenesInScript || '?'} scenes)` : 'Start'}
             </Button>
           )}
           {canRetry && !isWorking && (
@@ -346,12 +348,17 @@ export function SceneRewritePanel({
             {pipeline.scenes.map((scene) => {
               const metrics = pipeline.sceneMetrics[scene.scene_number];
               const isTarget = scopePlan?.target_scene_numbers.includes(scene.scene_number);
+              const isContext = scopePlan?.context_scene_numbers.includes(scene.scene_number);
+              const isSelective = scopePlan != null && pipeline.targetSceneNumbers.length < pipeline.totalScenesInScript;
+              const isUntouched = isSelective && !isTarget && !isContext;
               return (
-                <div key={scene.scene_number} className={`flex items-center justify-between text-xs py-1 px-2 rounded hover:bg-muted/50 ${isTarget ? 'border-l-2 border-primary/50' : ''}`}>
+                <div key={scene.scene_number} className={`flex items-center justify-between text-xs py-1 px-2 rounded hover:bg-muted/50 ${isTarget ? 'border-l-2 border-primary/50' : isContext ? 'border-l-2 border-muted-foreground/30' : ''}`}>
                   <span className="truncate flex-1 mr-2">
                     <span className="text-muted-foreground mr-1">#{scene.scene_number}</span>
                     {scene.scene_heading || 'Scene'}
-                    {isTarget && <Badge variant="outline" className="ml-1 text-[8px] px-1 py-0">target</Badge>}
+                    {isTarget && <Badge variant="outline" className="ml-1 text-[8px] px-1 py-0 border-primary/50 text-primary">target</Badge>}
+                    {isContext && <Badge variant="outline" className="ml-1 text-[8px] px-1 py-0">context</Badge>}
+                    {isUntouched && <Badge variant="outline" className="ml-1 text-[8px] px-1 py-0 opacity-50">untouched</Badge>}
                   </span>
                   {metrics && scene.status === 'done' && (
                     <span className="text-muted-foreground mr-2 shrink-0 tabular-nums">
@@ -367,7 +374,11 @@ export function SceneRewritePanel({
                       )}
                     </span>
                   )}
-                  <StatusBadge status={scene.status} />
+                  {isUntouched ? (
+                    <span className="text-muted-foreground text-[9px]">Untouched</span>
+                  ) : (
+                    <StatusBadge status={scene.status} />
+                  )}
                   {scene.error && (
                     <span className="text-destructive ml-2 truncate max-w-32" title={scene.error}>
                       {scene.error}

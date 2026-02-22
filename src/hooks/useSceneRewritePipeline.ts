@@ -65,6 +65,9 @@ export interface SceneRewriteState {
   verification: RewriteVerification | null;
   scopeExpandedFrom: number[] | null;
   expansionCount: number;
+  // Selective rewrite tracking
+  totalScenesInScript: number;
+  targetSceneNumbers: number[];
 }
 
 const initialState: SceneRewriteState = {
@@ -89,6 +92,8 @@ const initialState: SceneRewriteState = {
   verification: null,
   scopeExpandedFrom: null,
   expansionCount: 0,
+  totalScenesInScript: 0,
+  targetSceneNumbers: [],
 };
 
 async function callEngine(action: string, extra: Record<string, any> = {}) {
@@ -476,86 +481,58 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
     }
   }, [projectId, invalidate, pushActivity, state.selectedRewriteMode, state.probeResult, state.scopePlan, state.scopeExpandedFrom, state.verification]);
 
-  // Plan scope: deterministic scope planner (frontend)
-  const planScope = useCallback((
+  // Plan scope: call backend scope_plan action for real contracts
+  const planScope = useCallback(async (
+    sourceDocId: string,
+    sourceVersionId: string,
     notes: any[],
-    scenes: Array<{ scene_number: number; scene_heading?: string; summary?: string; characters?: string[] }>,
-  ): RewriteScopePlan => {
-    // Step 1: anchor notes to scenes
-    const anchored = new Set<number>();
-    for (const note of notes) {
-      // Explicit anchor
-      if (note.scene_number) {
-        anchored.add(note.scene_number);
-        continue;
-      }
-      if (note.anchor?.scene_number) {
-        anchored.add(note.anchor.scene_number);
-        continue;
-      }
-      // Keyword matching
-      const noteText = (note.description || note.note || '').toLowerCase();
-      if (noteText.length < 5) continue;
-      for (const scene of scenes) {
-        const heading = (scene.scene_heading || '').toLowerCase();
-        const summary = (scene.summary || '').toLowerCase();
-        // Simple keyword overlap
-        const noteWords = noteText.split(/\s+/).filter(w => w.length > 3);
-        const matchCount = noteWords.filter(w => heading.includes(w) || summary.includes(w)).length;
-        if (matchCount >= 2 || (noteWords.length <= 3 && matchCount >= 1)) {
-          anchored.add(scene.scene_number);
-        }
-      }
-    }
-
-    // If no anchors found, default to all scenes
-    if (anchored.size === 0) {
-      const allNumbers = scenes.map(s => s.scene_number);
-      return {
-        target_scene_numbers: allNumbers,
-        context_scene_numbers: [],
-        at_risk_scene_numbers: [],
-        reason: 'No specific scene anchors found — rewriting all scenes',
-        propagation_depth: 0,
-        note_ids: notes.map((n: any) => n.id || n.note_key || '').filter(Boolean),
-        contracts: { arc_milestones: [], canon_rules: [], knowledge_state: [], setup_payoff: [] },
-        debug: {
-          selected_notes_count: notes.length,
-          anchored_scenes: [],
-          timestamp: new Date().toISOString(),
-        },
+  ): Promise<RewriteScopePlan | null> => {
+    if (!projectId) return null;
+    try {
+      pushActivity('info', 'Computing scope plan…');
+      const result = await callEngine('scope_plan', {
+        projectId, sourceDocId, sourceVersionId, notes,
+      });
+      const plan: RewriteScopePlan = {
+        target_scene_numbers: result.target_scene_numbers || [],
+        context_scene_numbers: result.context_scene_numbers || [],
+        at_risk_scene_numbers: result.at_risk_scene_numbers || [],
+        reason: result.reason || '',
+        propagation_depth: result.propagation_depth || 0,
+        note_ids: result.note_ids || [],
+        contracts: result.contracts || { arc_milestones: [], canon_rules: [], knowledge_state: [], setup_payoff: [] },
+        debug: result.debug || { selected_notes_count: notes.length, anchored_scenes: [], timestamp: new Date().toISOString() },
       };
+      setState(s => ({
+        ...s,
+        scopePlan: plan,
+        totalScenesInScript: result.total_scenes_in_script || 0,
+        targetSceneNumbers: plan.target_scene_numbers,
+      }));
+      pushActivity('success', `Scope plan: ${plan.target_scene_numbers.length} target, ${plan.context_scene_numbers.length} context scenes (${result.contracts?.canon_rules?.length || 0} canon rules, ${result.contracts?.arc_milestones?.length || 0} arc milestones)`);
+      return plan;
+    } catch (err: any) {
+      pushActivity('error', `Scope plan failed: ${err.message}`);
+      // Fallback: local heuristic
+      pushActivity('warn', 'Falling back to local scope planner');
+      return localPlanScope(notes);
     }
+  }, [projectId, pushActivity]);
 
-    // Step 2: build target + context sets
-    const anchoredArr = [...anchored].sort((a, b) => a - b);
-    const allNumbers = new Set(scenes.map(s => s.scene_number));
-    const targetSet = new Set(anchoredArr);
-    const contextSet = new Set<number>();
-
-    // ±1 window around each target
-    for (const n of anchoredArr) {
-      if (allNumbers.has(n - 1) && !targetSet.has(n - 1)) contextSet.add(n - 1);
-      if (allNumbers.has(n + 1) && !targetSet.has(n + 1)) contextSet.add(n + 1);
-    }
-
-    const plan: RewriteScopePlan = {
-      target_scene_numbers: [...targetSet].sort((a, b) => a - b),
-      context_scene_numbers: [...contextSet].sort((a, b) => a - b),
+  // Local fallback scope planner (no contracts)
+  const localPlanScope = useCallback((notes: any[]): RewriteScopePlan => {
+    const allNumbers = state.scenes.map(s => s.scene_number);
+    return {
+      target_scene_numbers: allNumbers,
+      context_scene_numbers: [],
       at_risk_scene_numbers: [],
-      reason: `${targetSet.size} scene(s) directly impacted by ${notes.length} note(s)`,
+      reason: 'Fallback: rewriting all scenes (backend scope plan unavailable)',
       propagation_depth: 0,
       note_ids: notes.map((n: any) => n.id || n.note_key || '').filter(Boolean),
       contracts: { arc_milestones: [], canon_rules: [], knowledge_state: [], setup_payoff: [] },
-      debug: {
-        selected_notes_count: notes.length,
-        anchored_scenes: anchoredArr,
-        timestamp: new Date().toISOString(),
-      },
+      debug: { selected_notes_count: notes.length, anchored_scenes: [], timestamp: new Date().toISOString() },
     };
-
-    return plan;
-  }, []);
+  }, [state.scenes]);
 
   // Set scope plan in state
   const setScopePlan = useCallback((plan: RewriteScopePlan | null) => {
@@ -618,9 +595,15 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
       if (allSet.has(n + 1)) expandedTargets.add(n + 1);
     }
 
-    // Remove scenes already done
-    const doneScenes = new Set(state.scenes.filter(s => s.status === 'done').map(s => s.scene_number));
-    const newTargets = [...expandedTargets].filter(n => !doneScenes.has(n));
+    // Query backend for already-enqueued scene numbers to avoid duplicates
+    let alreadyEnqueued = new Set<number>();
+    try {
+      const enqResult = await callEngine('get_enqueued_scene_numbers', { projectId, sourceVersionId });
+      alreadyEnqueued = new Set(enqResult.scene_numbers || []);
+    } catch { /* non-critical */ }
+
+    // Remove scenes already enqueued
+    const newTargets = [...expandedTargets].filter(n => !alreadyEnqueued.has(n));
 
     if (newTargets.length === 0) {
       pushActivity('info', 'No new scenes to expand to — verification issues may need manual attention');
@@ -682,6 +665,7 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
     durationsRef.current = [];
   }, [stopSmoothing]);
 
+  const isSelective = state.scopePlan != null && state.targetSceneNumbers.length > 0 && state.targetSceneNumbers.length < state.totalScenesInScript;
   const actualPercent = state.total > 0 ? Math.floor((state.done / state.total) * 100) : 0;
 
   const progress = {
@@ -699,11 +683,15 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
     queued: state.queued,
     percent: actualPercent,
     label: state.mode === 'probing' ? 'Probing scenes…'
-      : state.mode === 'enqueuing' ? (state.scopePlan
-          ? `Enqueuing ${state.scopePlan.target_scene_numbers.length} target scenes…`
+      : state.mode === 'enqueuing' ? (isSelective
+          ? `Enqueuing ${state.targetSceneNumbers.length} target scenes…`
           : 'Splitting into scenes…')
-      : state.mode === 'processing' ? `Scene ${state.done}/${state.total}`
-      : state.mode === 'assembling' ? 'Assembling final script…'
+      : state.mode === 'processing' ? (isSelective
+          ? `Target scenes: ${state.done}/${state.total}`
+          : `Scene ${state.done}/${state.total}`)
+      : state.mode === 'assembling' ? (isSelective
+          ? `Assembling (${state.targetSceneNumbers.length} rewritten / ${state.totalScenesInScript} total)…`
+          : 'Assembling final script…')
       : state.mode === 'complete' ? 'Complete'
       : state.mode === 'error' ? (state.error || 'Error')
       : '',
