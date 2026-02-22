@@ -740,6 +740,117 @@ export type Database = {
           },
         ]
       }
+      canon_facts: {
+        Row: {
+          confidence: number
+          created_at: string
+          fact_type: string
+          first_order_key: string | null
+          first_scene_id: string | null
+          id: string
+          is_active: boolean
+          last_order_key: string | null
+          last_scene_id: string | null
+          object: string
+          predicate: string
+          project_id: string
+          sources: Json
+          subject: string
+          value: Json
+        }
+        Insert: {
+          confidence?: number
+          created_at?: string
+          fact_type: string
+          first_order_key?: string | null
+          first_scene_id?: string | null
+          id?: string
+          is_active?: boolean
+          last_order_key?: string | null
+          last_scene_id?: string | null
+          object: string
+          predicate: string
+          project_id: string
+          sources?: Json
+          subject: string
+          value?: Json
+        }
+        Update: {
+          confidence?: number
+          created_at?: string
+          fact_type?: string
+          first_order_key?: string | null
+          first_scene_id?: string | null
+          id?: string
+          is_active?: boolean
+          last_order_key?: string | null
+          last_scene_id?: string | null
+          object?: string
+          predicate?: string
+          project_id?: string
+          sources?: Json
+          subject?: string
+          value?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "canon_facts_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "canon_facts_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      canon_overrides: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          override: Json
+          project_id: string
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          override?: Json
+          project_id: string
+          status?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          override?: Json
+          project_id?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "canon_overrides_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "canon_overrides_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       canon_snapshots: {
         Row: {
           blueprint_version_id: string | null
@@ -9731,6 +9842,57 @@ export type Database = {
           },
         ]
       }
+      project_spines: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          mode: string
+          project_id: string
+          source_snapshot_id: string | null
+          spine: Json
+          stats: Json
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          mode?: string
+          project_id: string
+          source_snapshot_id?: string | null
+          spine?: Json
+          stats?: Json
+          status?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          mode?: string
+          project_id?: string
+          source_snapshot_id?: string | null
+          spine?: Json
+          stats?: Json
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_spines_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "project_spines_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       project_state_graphs: {
         Row: {
           active_scenario_id: string | null
@@ -10932,9 +11094,11 @@ export type Database = {
           created_at: string
           created_by: string | null
           id: string
+          impact_preview: Json
           patch: Json
           project_id: string
           rationale: string | null
+          repair_kind: string | null
           source_action_id: string | null
           status: string
           suggestion: string
@@ -10945,9 +11109,11 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           id?: string
+          impact_preview?: Json
           patch?: Json
           project_id: string
           rationale?: string | null
+          repair_kind?: string | null
           source_action_id?: string | null
           status?: string
           suggestion?: string
@@ -10958,9 +11124,11 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           id?: string
+          impact_preview?: Json
           patch?: Json
           project_id?: string
           rationale?: string | null
+          repair_kind?: string | null
           source_action_id?: string | null
           status?: string
           suggestion?: string
@@ -11265,6 +11433,60 @@ export type Database = {
             columns: ["shoot_day_id"]
             isOneToOne: false
             referencedRelation: "shoot_days"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      scene_spine_links: {
+        Row: {
+          act: number | null
+          arc_steps: Json
+          id: string
+          order_key: string
+          project_id: string
+          roles: Json
+          scene_id: string
+          sequence: number | null
+          threads: Json
+          updated_at: string
+        }
+        Insert: {
+          act?: number | null
+          arc_steps?: Json
+          id?: string
+          order_key: string
+          project_id: string
+          roles?: Json
+          scene_id: string
+          sequence?: number | null
+          threads?: Json
+          updated_at?: string
+        }
+        Update: {
+          act?: number | null
+          arc_steps?: Json
+          id?: string
+          order_key?: string
+          project_id?: string
+          roles?: Json
+          scene_id?: string
+          sequence?: number | null
+          threads?: Json
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scene_spine_links_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "scene_spine_links_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
             referencedColumns: ["id"]
           },
         ]
