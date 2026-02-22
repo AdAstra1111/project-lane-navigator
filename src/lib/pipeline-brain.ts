@@ -87,7 +87,7 @@ const APPROVAL_REQUIRED_STAGES: Set<string> = new Set([
 const ALL_KNOWN_STAGES: DeliverableStage[] = [
   'idea', 'concept_brief', 'market_sheet', 'vertical_market_sheet',
   'blueprint', 'architecture', 'character_bible', 'beat_sheet',
-  'script', 'season_master_script', 'production_draft', 'deck',
+  'feature_script', 'episode_script', 'season_master_script', 'production_draft', 'deck',
   'documentary_outline', 'format_rules', 'season_arc', 'episode_grid',
   'vertical_episode_beats',
 ];
@@ -215,7 +215,7 @@ export function computePipelineState(
     // If eligible, add as primary CTA
     if (seriesWriterReadiness.eligible) {
       nextSteps.unshift({
-        docType: 'script' as DeliverableStage,
+        docType: 'episode_script' as DeliverableStage,
         label: 'Series Writer',
         reason: 'All prerequisites met — generate remaining episodes',
         action: 'enter_series_writer',

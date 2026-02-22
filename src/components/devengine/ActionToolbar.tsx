@@ -137,7 +137,7 @@ export function ActionToolbar({
               // Series Writer entry: always navigate, never promote/convert
               if (nextAction?.kind === 'enter_mode' && nextAction.route) {
                 navigate(nextAction.route);
-              } else if (isVerticalDrama && nextBestDocument === 'script' && projectId) {
+              } else if (isVerticalDrama && (nextBestDocument === 'episode_script' || nextBestDocument === 'script') && projectId) {
                 navigate(`/projects/${projectId}/series-writer`);
               } else {
                 onPromote?.();
@@ -147,7 +147,7 @@ export function ActionToolbar({
             {convertPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <ArrowRight className="h-3 w-3" />}
             {nextAction && nextAction.kind !== 'none'
               ? renderActionPillText(nextAction)
-              : isVerticalDrama && nextBestDocument === 'script'
+              : isVerticalDrama && (nextBestDocument === 'episode_script' || nextBestDocument === 'script')
                 ? 'Enter Series Writer'
                 : nextBestDocument ? `Promote: ${getDeliverableLabel(nextBestDocument, format)}` : 'Promote'}
             {hasUnresolvedDrift && <AlertTriangle className="h-3 w-3 text-amber-400" />}
