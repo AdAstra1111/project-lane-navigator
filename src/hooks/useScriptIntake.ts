@@ -87,6 +87,39 @@ export function useScriptIntake(projectId: string | undefined) {
   const [intake, setIntake] = useState<ScriptIntakeState | null>(null);
   const [coverage, setCoverage] = useState<CoverageResult | null>(null);
   const [backfillDocs, setBackfillDocs] = useState<BackfillDoc[]>([]);
+  const [coverageLoaded, setCoverageLoaded] = useState(false);
+
+  // Load existing coverage from saved script_coverage document on mount
+  const { } = useQuery({
+    queryKey: ['existing-coverage', projectId],
+    queryFn: async () => {
+      if (!projectId) return null;
+      // Find the latest script_coverage document
+      const { data: docs } = await (supabase as any)
+        .from('project_documents')
+        .select('id, latest_version_id, title')
+        .eq('project_id', projectId)
+        .eq('doc_type', 'script_coverage')
+        .order('created_at', { ascending: false })
+        .limit(1);
+      if (!docs?.length || !docs[0].latest_version_id) return null;
+
+      // Load the version with inputs_used containing the raw coverage JSON
+      const { data: ver } = await (supabase as any)
+        .from('project_document_versions')
+        .select('inputs_used')
+        .eq('id', docs[0].latest_version_id)
+        .single();
+
+      if (ver?.inputs_used?.coverage_json) {
+        setCoverage(ver.inputs_used.coverage_json as CoverageResult);
+      }
+      return null;
+    },
+    enabled: !!projectId && !coverageLoaded && !coverage,
+    staleTime: Infinity,
+  });
+
 
   // Upload PDF + create doc/version + ingest
   const upload = useMutation({
@@ -181,7 +214,7 @@ export function useScriptIntake(projectId: string | undefined) {
     onError: (err: any) => toast.error(`Coverage failed: ${err.message}`),
   });
 
-  // Save coverage as document version
+  // Save coverage as document version — also stores raw JSON for persistence
   const saveCoverage = useMutation({
     mutationFn: async () => {
       if (!projectId || !user || !coverage || !intake) throw new Error('Missing data');
@@ -195,8 +228,19 @@ export function useScriptIntake(projectId: string | undefined) {
         confidence_summary: coverage.confidence_summary,
         approve: true,
       });
+
+      // Store the raw coverage JSON in inputs_used for persistence
+      if (result?.versionId) {
+        await (supabase as any)
+          .from('project_document_versions')
+          .update({ inputs_used: { coverage_json: coverage } })
+          .eq('id', result.versionId);
+      }
+
+      setCoverageLoaded(true);
       toast.success('Coverage saved to project');
       qc.invalidateQueries({ queryKey: ['project-documents'] });
+      qc.invalidateQueries({ queryKey: ['existing-coverage', projectId] });
       return result;
     },
     onError: (err: any) => toast.error(`Save failed: ${err.message}`),
