@@ -18,6 +18,8 @@ import {
 import { useState, useCallback, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { NoteResolutionDrawer, type NoteForResolution } from './NoteResolutionDrawer';
+import { NoteWritersRoomDrawer } from '@/components/notes/NoteWritersRoomDrawer';
+import { noteFingerprint } from '@/lib/decisions/fingerprint';
 import { toast } from 'sonner';
 
 const OTHER_OPTION_ID = '__other__';
@@ -268,12 +270,15 @@ function InlineDecisionCard({ decisions, recommended, selectedOptionId, onSelect
   );
 }
 
-function NoteItem({ note, index, checked, onToggle, selectedOptionId, onSelectOption, customDirection, onCustomDirection, projectId, currentDocType, onStatusChange, onOpenResolution }: {
+function NoteItem({ note, index, checked, onToggle, selectedOptionId, onSelectOption, customDirection, onCustomDirection, projectId, currentDocType, onStatusChange, onOpenResolution, onOpenWritersRoom, onFindOtherSolutions, isFindingSolutions }: {
   note: any; index: number; checked: boolean; onToggle: () => void;
   selectedOptionId?: string; onSelectOption?: (optionId: string) => void;
   customDirection?: string; onCustomDirection?: (text: string) => void;
   projectId?: string; currentDocType?: string; onStatusChange?: () => void;
   onOpenResolution?: (note: NoteForResolution) => void;
+  onOpenWritersRoom?: (note: any) => void;
+  onFindOtherSolutions?: (note: any) => void;
+  isFindingSolutions?: boolean;
 }) {
   const [stateActionsOpen, setStateActionsOpen] = useState(false);
   const severityColor = note.severity === 'blocker' ? 'border-destructive/40 bg-destructive/5' : note.severity === 'high' ? 'border-amber-500/40 bg-amber-500/5' : 'border-border/40';
@@ -326,6 +331,20 @@ function NoteItem({ note, index, checked, onToggle, selectedOptionId, onSelectOp
                 });
               }}>
               <Wand2 className="h-2.5 w-2.5" />Fix
+            </Button>
+          )}
+          {onOpenWritersRoom && (
+            <Button variant="outline" size="sm" className="h-5 text-[9px] px-1.5 gap-0.5 border-accent/30 text-accent-foreground hover:bg-accent/10"
+              onClick={(e) => { e.stopPropagation(); onOpenWritersRoom(note); }}>
+              <Sparkles className="h-2.5 w-2.5" />Discuss
+            </Button>
+          )}
+          {onFindOtherSolutions && (
+            <Button variant="outline" size="sm" className="h-5 text-[9px] px-1.5 gap-0.5 border-muted-foreground/30 text-muted-foreground hover:bg-muted/20"
+              disabled={isFindingSolutions}
+              onClick={(e) => { e.stopPropagation(); onFindOtherSolutions(note); }}>
+              {isFindingSolutions ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Lightbulb className="h-2.5 w-2.5" />}
+              Find other solutions
             </Button>
           )}
           {note.note_fingerprint && (
@@ -554,7 +573,10 @@ export function NotesPanel({
   const [resolutionNote, setResolutionNote] = useState<NoteForResolution | null>(null);
   const [resolutionOpen, setResolutionOpen] = useState(false);
   const [noteFilter, setNoteFilter] = useState<NoteFilter>('all');
-  const [statusVersion, setStatusVersion] = useState(0); // bump to re-render after status changes
+  const [statusVersion, setStatusVersion] = useState(0);
+  const [writersRoomNote, setWritersRoomNote] = useState<any>(null);
+  const [writersRoomOpen, setWritersRoomOpen] = useState(false);
+  const [findingSolutionsNote, setFindingSolutionsNote] = useState<string | null>(null);
 
   const [resolvedNoteIds, setResolvedNoteIds] = useState<Set<string>>(new Set());
   const [resolvingNoteId, setResolvingNoteId] = useState<string | null>(null);
@@ -640,6 +662,34 @@ export function NotesPanel({
       setPatchDialog(null);
     } finally { setPatchApplying(false); }
   }, [patchDialog, onResolveCarriedNote]);
+
+  const handleOpenWritersRoom = useCallback((note: any) => {
+    setWritersRoomNote(note);
+    setWritersRoomOpen(true);
+  }, []);
+
+  const handleFindOtherSolutions = useCallback(async (note: any) => {
+    const hash = noteFingerprint(note);
+    setFindingSolutionsNote(hash);
+    try {
+      const { data, error } = await supabase.functions.invoke('notes-writers-room', {
+        body: {
+          action: 'generate_options',
+          projectId, documentId,
+          noteHash: hash,
+          versionId: currentVersionId,
+          noteSnapshot: { summary: note.note || note.description || '', category: note.category, severity: note.severity },
+        },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      toast.success(`Generated ${data.options?.length || 0} new options — open Discuss to view`);
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to generate options');
+    } finally {
+      setFindingSolutionsNote(null);
+    }
+  }, [projectId, documentId, currentVersionId]);
 
   const visibleCarriedNotes = (carriedNotes || []).filter((n: any) => {
     const id = n.id || n.note_key;
@@ -757,7 +807,10 @@ export function NotesPanel({
                     selectedOptionId={selectedDecisions[noteId]} onSelectOption={(optionId) => handleSelectOption(noteId, optionId)}
                     customDirection={customDirections[noteId]} onCustomDirection={(text) => handleCustomDirection(noteId, text)}
                     projectId={projectId} currentDocType={currentDocType} onStatusChange={() => setStatusVersion(v => v + 1)}
-                    onOpenResolution={(n) => { setResolutionNote(n); setResolutionOpen(true); }} />;
+                    onOpenResolution={(n) => { setResolutionNote(n); setResolutionOpen(true); }}
+                    onOpenWritersRoom={handleOpenWritersRoom}
+                    onFindOtherSolutions={handleFindOtherSolutions}
+                    isFindingSolutions={findingSolutionsNote === noteFingerprint(enrichedNote)} />;
                 })}
               </div>
             )}
@@ -774,7 +827,10 @@ export function NotesPanel({
                     selectedOptionId={selectedDecisions[noteId]} onSelectOption={(optionId) => handleSelectOption(noteId, optionId)}
                     customDirection={customDirections[noteId]} onCustomDirection={(text) => handleCustomDirection(noteId, text)}
                     projectId={projectId} currentDocType={currentDocType} onStatusChange={() => setStatusVersion(v => v + 1)}
-                    onOpenResolution={(n) => { setResolutionNote(n); setResolutionOpen(true); }} />;
+                    onOpenResolution={(n) => { setResolutionNote(n); setResolutionOpen(true); }}
+                    onOpenWritersRoom={handleOpenWritersRoom}
+                    onFindOtherSolutions={handleFindOtherSolutions}
+                    isFindingSolutions={findingSolutionsNote === noteFingerprint(enrichedNote)} />;
                 })}
               </div>
             )}
@@ -1073,6 +1129,18 @@ export function NotesPanel({
           onDismissDeferred(noteId);
         } : undefined}
       />
+
+      {/* Writers' Room Drawer */}
+      {writersRoomNote && projectId && documentId && (
+        <NoteWritersRoomDrawer
+          open={writersRoomOpen}
+          onOpenChange={setWritersRoomOpen}
+          projectId={projectId}
+          documentId={documentId}
+          versionId={currentVersionId}
+          note={writersRoomNote}
+        />
+      )}
     </>
   );
 }

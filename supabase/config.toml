@@ -197,3 +197,6 @@ verify_jwt = false
 
 [functions.script-intake]
 verify_jwt = false
+
+[functions.notes-writers-room]
+verify_jwt = false
