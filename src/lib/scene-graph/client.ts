@@ -86,6 +86,19 @@ import type {
   SceneChangeSet,
   SceneChangeSetOp,
   ChangeSetPreview,
+  // Phase 5 Diff + Review + Comments
+  ComputeDiffsInput,
+  GetDiffsInput,
+  GetSceneDiffInput,
+  SetReviewDecisionInput,
+  ApplyReviewDecisionsInput,
+  AddDiffCommentInput,
+  ListDiffCommentsInput,
+  ResolveDiffCommentInput,
+  SceneDiffArtifact,
+  SnapshotDiffArtifact,
+  ChangeSetReviewState,
+  DiffComment,
 } from './types';
 
 async function callSceneGraph<T = any>(action: string, payload: Record<string, any>): Promise<T> {
@@ -352,4 +365,38 @@ export async function changeSetApply(input: ChangeSetApplyInput) {
 
 export async function changeSetRollback(input: ChangeSetRollbackInput) {
   return callSceneGraph<{ change_set: SceneChangeSet; snapshot: any }>('change_set_rollback', input);
+}
+
+// Phase 5 Diff + Review + Comments actions
+
+export async function changeSetComputeDiffs(input: ComputeDiffsInput) {
+  return callSceneGraph<{ artifact_ids: string[]; stats: any }>('change_set_compute_diffs', input);
+}
+
+export async function changeSetGetDiffs(input: GetDiffsInput) {
+  return callSceneGraph<{ snapshot_diff: SnapshotDiffArtifact | null; scene_diffs: Array<{ scene_id: string; before_version_id: string | null; after_version_id: string | null; stats: any }> }>('change_set_get_diffs', input);
+}
+
+export async function changeSetGetSceneDiff(input: GetSceneDiffInput) {
+  return callSceneGraph<{ artifact: SceneDiffArtifact | null }>('change_set_get_scene_diff', input);
+}
+
+export async function changeSetSetReviewDecision(input: SetReviewDecisionInput) {
+  return callSceneGraph<{ review: ChangeSetReviewState }>('change_set_set_review_decision', input);
+}
+
+export async function changeSetApplyReviewDecisions(input: ApplyReviewDecisionsInput) {
+  return callSceneGraph<{ ops: SceneChangeSetOp[] }>('change_set_apply_review_decisions', input);
+}
+
+export async function changeSetAddComment(input: AddDiffCommentInput) {
+  return callSceneGraph<{ comment: DiffComment; thread: DiffComment[] }>('change_set_add_comment', input);
+}
+
+export async function changeSetListComments(input: ListDiffCommentsInput) {
+  return callSceneGraph<{ comments: DiffComment[] }>('change_set_list_comments', input);
+}
+
+export async function changeSetResolveComment(input: ResolveDiffCommentInput) {
+  return callSceneGraph<{ comment: DiffComment }>('change_set_resolve_comment', input);
 }
