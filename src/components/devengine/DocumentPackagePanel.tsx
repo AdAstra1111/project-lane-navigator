@@ -172,7 +172,8 @@ export function DocumentPackagePanel({ projectId }: Props) {
 
   const {
     deliverables,
-    season_scripts,
+    season_scripts: rawSeasonScripts,
+    ladder,
     format,
     pipelineStage,
     projectTitle,
@@ -180,6 +181,9 @@ export function DocumentPackagePanel({ projectId }: Props) {
     totalRequired,
     packageReadyPct,
   } = pkg;
+
+  // Only show season scripts if the format ladder includes them
+  const season_scripts = ladder.includes('season_master_script') ? rawSeasonScripts : [];
 
   // All doc types that have content (for publish)
   const publishableDocTypes = deliverables.map(d => d.deliverable_type);

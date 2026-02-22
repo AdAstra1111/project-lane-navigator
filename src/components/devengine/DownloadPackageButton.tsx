@@ -252,7 +252,7 @@ export function DownloadPackageButton({ projectId, format, pkg }: Props) {
   });
 
   const isPending = serverZip.isPending || serverPdf.isPending || quickZip.isPending;
-  const hasSeasonScripts = pkg.season_scripts.length > 0;
+  const hasSeasonScripts = pkg.season_scripts.length > 0 && pkg.ladder.includes('season_master_script');
 
   return (
     <div className="flex items-center gap-0">
