@@ -12,32 +12,51 @@ interface RewritePipelineState {
   newVersionId: string | null;
 }
 
-async function callEngine(action: string, extra: Record<string, any> = {}) {
+async function callEngine(action: string, extra: Record<string, any> = {}, retries = 2) {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) throw new Error('Not authenticated');
-  const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/dev-engine-v2`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${session.access_token}`,
-    },
-    body: JSON.stringify({ action, ...extra }),
-  });
-  const text = await resp.text();
-  if (!text || text.trim().length === 0) throw new Error('Empty response from engine');
-  let result: any;
-  try { result = JSON.parse(text); } catch {
-    const lastBrace = text.lastIndexOf('}');
-    if (lastBrace > 0) {
-      try { result = JSON.parse(text.substring(0, lastBrace + 1)); } catch {
-        throw new Error('Invalid response from engine');
+
+  let lastError: Error | null = null;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 120_000); // 2 min timeout
+
+      const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/dev-engine-v2`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ action, ...extra }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+
+      const text = await resp.text();
+      if (!text || text.trim().length === 0) throw new Error('Empty response from engine');
+      let result: any;
+      try { result = JSON.parse(text); } catch {
+        const lastBrace = text.lastIndexOf('}');
+        if (lastBrace > 0) {
+          try { result = JSON.parse(text.substring(0, lastBrace + 1)); } catch {
+            throw new Error('Invalid response from engine');
+          }
+        } else throw new Error('Invalid response from engine');
       }
-    } else throw new Error('Invalid response from engine');
+      if (resp.status === 402) throw new Error('AI credits exhausted. Please add funds to your workspace under Settings → Usage.');
+      if (resp.status === 429) throw new Error('Rate limit reached. Please try again in a moment.');
+      if (!resp.ok) throw new Error(result.error || 'Engine error');
+      return result;
+    } catch (err: any) {
+      lastError = err;
+      const isRetryable = err.name === 'AbortError' || err.message === 'Failed to fetch' || err.message === 'Empty response from engine';
+      if (!isRetryable || attempt >= retries) throw err;
+      console.warn(`callEngine retry ${attempt + 1}/${retries} for "${action}":`, err.message);
+      await new Promise(r => setTimeout(r, 2000 * (attempt + 1))); // backoff
+    }
   }
-  if (resp.status === 402) throw new Error('AI credits exhausted. Please add funds to your workspace under Settings → Usage.');
-  if (resp.status === 429) throw new Error('Rate limit reached. Please try again in a moment.');
-  if (!resp.ok) throw new Error(result.error || 'Engine error');
-  return result;
+  throw lastError!;
 }
 
 export function useRewritePipeline(projectId: string | undefined) {
