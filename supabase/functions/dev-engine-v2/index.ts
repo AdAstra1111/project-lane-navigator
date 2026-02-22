@@ -11875,10 +11875,15 @@ CRITICAL:
 
       return new Response(JSON.stringify({
         newVersionId: newVersion.id,
+        newVersionNumber: newVersion.version_number,
+        newVersionLabel: newVersion.label,
+        newChangeSummary: newVersion.change_summary,
         charCount: assembledText.length,
         scenesCount: outputs.length,
         totalScenesInAssembly,
-        selectiveRewrite: isSelective || false,
+        selectiveRewrite: trulySelective,
+        trulySelective,
+        targetScenesCount: trulySelective ? (rewriteScopePlan?.target_scene_numbers?.length ?? outputs.length) : null,
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
