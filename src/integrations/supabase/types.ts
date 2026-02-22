@@ -10836,6 +10836,7 @@ export type Database = {
           max_attempts: number
           project_id: string
           protect_items: Json | null
+          scene_graph_version_id: string | null
           scene_heading: string | null
           scene_id: string | null
           scene_number: number
@@ -10857,6 +10858,7 @@ export type Database = {
           max_attempts?: number
           project_id: string
           protect_items?: Json | null
+          scene_graph_version_id?: string | null
           scene_heading?: string | null
           scene_id?: string | null
           scene_number: number
@@ -10878,6 +10880,7 @@ export type Database = {
           max_attempts?: number
           project_id?: string
           protect_items?: Json | null
+          scene_graph_version_id?: string | null
           scene_heading?: string | null
           scene_id?: string | null
           scene_number?: number
