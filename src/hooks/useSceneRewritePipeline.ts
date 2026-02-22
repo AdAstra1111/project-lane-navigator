@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import { invalidateDevEngine } from '@/lib/invalidateDevEngine';
 import type { ActivityItem } from '@/components/devengine/ActivityTimeline';
+import type { RewriteScopePlan, RewriteVerification, RewriteProvenance } from '@/types/rewrite-scope';
 
 export interface SceneRewriteJob {
   scene_number: number;
@@ -59,6 +60,11 @@ export interface SceneRewriteState {
   avgUnitMs: number | null;
   smoothedPercent: number;
   lastProgressAt: number;
+  // Scope plan + verification
+  scopePlan: RewriteScopePlan | null;
+  verification: RewriteVerification | null;
+  scopeExpandedFrom: number[] | null;
+  expansionCount: number;
 }
 
 const initialState: SceneRewriteState = {
@@ -79,6 +85,10 @@ const initialState: SceneRewriteState = {
   avgUnitMs: null,
   smoothedPercent: 0,
   lastProgressAt: 0,
+  scopePlan: null,
+  verification: null,
+  scopeExpandedFrom: null,
+  expansionCount: 0,
 };
 
 async function callEngine(action: string, extra: Record<string, any> = {}) {
@@ -221,21 +231,26 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
     } catch { /* non-critical */ }
   }, [projectId, pushActivity]);
 
-  // Enqueue all scene jobs
+  // Enqueue scene jobs (optionally selective)
   const enqueue = useCallback(async (
     sourceDocId: string,
     sourceVersionId: string,
     approvedNotes: any[],
     protectItems: string[],
+    targetSceneNumbers?: number[],
   ) => {
     if (!projectId) return;
     if (startGuardRef.current) return;
     startGuardRef.current = true;
+    const isSelective = Array.isArray(targetSceneNumbers) && targetSceneNumbers.length > 0;
     setState(s => ({ ...s, mode: 'enqueuing', error: null, newVersionId: null }));
-    pushActivity('info', 'Enqueuing scene jobs…');
+    pushActivity('info', isSelective
+      ? `Enqueuing ${targetSceneNumbers!.length} target scene jobs…`
+      : 'Enqueuing scene jobs…');
     try {
       const result = await callEngine('enqueue_rewrite_jobs', {
         projectId, sourceDocId, sourceVersionId, approvedNotes, protectItems,
+        targetSceneNumbers: targetSceneNumbers || undefined,
       });
       setState(s => ({
         ...s,
@@ -252,9 +267,13 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
       pushActivity(result.alreadyExists ? 'warn' : 'success', 
         result.alreadyExists 
           ? `Jobs already exist (${result.totalScenes} scenes) — resuming` 
-          : `Enqueued ${result.totalScenes} scene jobs`
+          : isSelective
+            ? `Enqueued ${targetSceneNumbers!.length} target scene jobs (of ${result.allSceneNumbers?.length || '?'} total)`
+            : `Enqueued ${result.totalScenes} scene jobs`
       );
-      toast.success(`${result.totalScenes} scenes queued for rewrite`);
+      toast.success(isSelective
+        ? `${targetSceneNumbers!.length} target scenes queued for rewrite`
+        : `${result.totalScenes} scenes queued for rewrite`);
       return result;
     } catch (err: any) {
       setState(s => ({ ...s, mode: 'error', error: err.message }));
@@ -425,10 +444,12 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
     }
   }, [projectId, loadStatus, pushActivity]);
 
-  const assemble = useCallback(async (sourceDocId: string, sourceVersionId: string, provenance?: { rewriteModeSelected?: string; rewriteModeEffective?: string; rewriteModeReason?: string; rewriteModeDebug?: any; rewriteProbe?: any }) => {
+  const assemble = useCallback(async (sourceDocId: string, sourceVersionId: string, provenance?: Partial<RewriteProvenance>) => {
     if (!projectId) return;
     setState(s => ({ ...s, mode: 'assembling' }));
-    pushActivity('info', 'Assembling final script…');
+    pushActivity('info', state.scopePlan
+      ? `Assembling (selective: ${state.scopePlan.target_scene_numbers.length} rewritten scenes)…`
+      : 'Assembling final script…');
     try {
       const result = await callEngine('assemble_rewritten_script', {
         projectId, sourceDocId, sourceVersionId,
@@ -437,10 +458,14 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
         rewriteModeReason: provenance?.rewriteModeReason || 'auto_probe_scene',
         rewriteModeDebug: provenance?.rewriteModeDebug || null,
         rewriteProbe: provenance?.rewriteProbe || state.probeResult || null,
+        rewriteScopePlan: provenance?.rewriteScopePlan || state.scopePlan || null,
+        rewriteScopeExpandedFrom: provenance?.rewriteScopeExpandedFrom || state.scopeExpandedFrom || null,
+        rewriteVerification: provenance?.rewriteVerification || state.verification || null,
       });
       setState(s => ({ ...s, mode: 'complete', newVersionId: result.newVersionId, smoothedPercent: 100, etaMs: null }));
       invalidate();
-      pushActivity('success', `Assembled ${result.scenesCount} scenes → ${result.charCount.toLocaleString()} chars`);
+      const selectiveNote = result.selectiveRewrite ? ` (${result.scenesCount}/${result.totalScenesInAssembly} selective)` : '';
+      pushActivity('success', `Assembled ${result.scenesCount} scenes${selectiveNote} → ${result.charCount.toLocaleString()} chars`);
       toast.success(`Assembled ${result.scenesCount} scenes → ${result.charCount.toLocaleString()} chars`);
       return result;
     } catch (err: any) {
@@ -449,7 +474,181 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
       toast.error(err.message);
       return null;
     }
-  }, [projectId, invalidate, pushActivity]);
+  }, [projectId, invalidate, pushActivity, state.selectedRewriteMode, state.probeResult, state.scopePlan, state.scopeExpandedFrom, state.verification]);
+
+  // Plan scope: deterministic scope planner (frontend)
+  const planScope = useCallback((
+    notes: any[],
+    scenes: Array<{ scene_number: number; scene_heading?: string; summary?: string; characters?: string[] }>,
+  ): RewriteScopePlan => {
+    // Step 1: anchor notes to scenes
+    const anchored = new Set<number>();
+    for (const note of notes) {
+      // Explicit anchor
+      if (note.scene_number) {
+        anchored.add(note.scene_number);
+        continue;
+      }
+      if (note.anchor?.scene_number) {
+        anchored.add(note.anchor.scene_number);
+        continue;
+      }
+      // Keyword matching
+      const noteText = (note.description || note.note || '').toLowerCase();
+      if (noteText.length < 5) continue;
+      for (const scene of scenes) {
+        const heading = (scene.scene_heading || '').toLowerCase();
+        const summary = (scene.summary || '').toLowerCase();
+        // Simple keyword overlap
+        const noteWords = noteText.split(/\s+/).filter(w => w.length > 3);
+        const matchCount = noteWords.filter(w => heading.includes(w) || summary.includes(w)).length;
+        if (matchCount >= 2 || (noteWords.length <= 3 && matchCount >= 1)) {
+          anchored.add(scene.scene_number);
+        }
+      }
+    }
+
+    // If no anchors found, default to all scenes
+    if (anchored.size === 0) {
+      const allNumbers = scenes.map(s => s.scene_number);
+      return {
+        target_scene_numbers: allNumbers,
+        context_scene_numbers: [],
+        at_risk_scene_numbers: [],
+        reason: 'No specific scene anchors found — rewriting all scenes',
+        propagation_depth: 0,
+        note_ids: notes.map((n: any) => n.id || n.note_key || '').filter(Boolean),
+        contracts: { arc_milestones: [], canon_rules: [], knowledge_state: [], setup_payoff: [] },
+        debug: {
+          selected_notes_count: notes.length,
+          anchored_scenes: [],
+          timestamp: new Date().toISOString(),
+        },
+      };
+    }
+
+    // Step 2: build target + context sets
+    const anchoredArr = [...anchored].sort((a, b) => a - b);
+    const allNumbers = new Set(scenes.map(s => s.scene_number));
+    const targetSet = new Set(anchoredArr);
+    const contextSet = new Set<number>();
+
+    // ±1 window around each target
+    for (const n of anchoredArr) {
+      if (allNumbers.has(n - 1) && !targetSet.has(n - 1)) contextSet.add(n - 1);
+      if (allNumbers.has(n + 1) && !targetSet.has(n + 1)) contextSet.add(n + 1);
+    }
+
+    const plan: RewriteScopePlan = {
+      target_scene_numbers: [...targetSet].sort((a, b) => a - b),
+      context_scene_numbers: [...contextSet].sort((a, b) => a - b),
+      at_risk_scene_numbers: [],
+      reason: `${targetSet.size} scene(s) directly impacted by ${notes.length} note(s)`,
+      propagation_depth: 0,
+      note_ids: notes.map((n: any) => n.id || n.note_key || '').filter(Boolean),
+      contracts: { arc_milestones: [], canon_rules: [], knowledge_state: [], setup_payoff: [] },
+      debug: {
+        selected_notes_count: notes.length,
+        anchored_scenes: anchoredArr,
+        timestamp: new Date().toISOString(),
+      },
+    };
+
+    return plan;
+  }, []);
+
+  // Set scope plan in state
+  const setScopePlan = useCallback((plan: RewriteScopePlan | null) => {
+    setState(s => ({ ...s, scopePlan: plan }));
+  }, []);
+
+  // Verify rewrite
+  const verify = useCallback(async (sourceVersionId: string): Promise<RewriteVerification | null> => {
+    if (!projectId) return null;
+    try {
+      const result = await callEngine('verify_rewrite', {
+        projectId, sourceVersionId,
+        scopePlan: state.scopePlan,
+      });
+      const verification: RewriteVerification = {
+        pass: result.pass,
+        failures: result.failures || [],
+        timestamp: result.timestamp,
+      };
+      setState(s => ({ ...s, verification }));
+      if (verification.pass) {
+        pushActivity('success', 'Verification passed ✓');
+      } else {
+        pushActivity('warn', `Verification found ${verification.failures.length} issue(s)`);
+      }
+      return verification;
+    } catch (err: any) {
+      pushActivity('error', `Verification failed: ${err.message}`);
+      return null;
+    }
+  }, [projectId, state.scopePlan, pushActivity]);
+
+  // Expand scope after verification failure
+  const expandAndContinue = useCallback(async (
+    sourceDocId: string,
+    sourceVersionId: string,
+    failures: RewriteVerification['failures'],
+    approvedNotes: any[],
+    protectItems: string[],
+  ) => {
+    if (!projectId || !state.scopePlan) return false;
+    if (state.expansionCount >= 3) {
+      pushActivity('error', 'Max scope expansions (3) reached — manual widening required');
+      toast.warning('Max automatic scope expansions reached. Use "Widen scope" to proceed.');
+      return false;
+    }
+
+    // Collect scene numbers from failures
+    const failureScenes = new Set<number>();
+    for (const f of failures) {
+      if (f.scene_numbers) f.scene_numbers.forEach(n => failureScenes.add(n));
+    }
+
+    // Add ±1 around failure scenes
+    const allSceneNumbers = state.scenes.map(s => s.scene_number);
+    const allSet = new Set(allSceneNumbers);
+    const expandedTargets = new Set(failureScenes);
+    for (const n of failureScenes) {
+      if (allSet.has(n - 1)) expandedTargets.add(n - 1);
+      if (allSet.has(n + 1)) expandedTargets.add(n + 1);
+    }
+
+    // Remove scenes already done
+    const doneScenes = new Set(state.scenes.filter(s => s.status === 'done').map(s => s.scene_number));
+    const newTargets = [...expandedTargets].filter(n => !doneScenes.has(n));
+
+    if (newTargets.length === 0) {
+      pushActivity('info', 'No new scenes to expand to — verification issues may need manual attention');
+      return false;
+    }
+
+    const previousTargets = state.scopePlan.target_scene_numbers;
+    setState(s => ({
+      ...s,
+      scopeExpandedFrom: previousTargets,
+      expansionCount: s.expansionCount + 1,
+      scopePlan: s.scopePlan ? {
+        ...s.scopePlan,
+        target_scene_numbers: [...new Set([...s.scopePlan.target_scene_numbers, ...newTargets])].sort((a, b) => a - b),
+        propagation_depth: s.scopePlan.propagation_depth + 1,
+        reason: `Expanded from ${previousTargets.length} to ${previousTargets.length + newTargets.length} scenes after verification failure`,
+      } : null,
+    }));
+
+    pushActivity('warn', `Expanding scope: +${newTargets.length} scenes (expansion ${state.expansionCount + 1}/3)`);
+
+    // Enqueue only new targets
+    const enqResult = await enqueue(sourceDocId, sourceVersionId, approvedNotes, protectItems, newTargets);
+    if (enqResult) {
+      processAll(sourceVersionId);
+    }
+    return true;
+  }, [projectId, state.scopePlan, state.expansionCount, state.scenes, enqueue, processAll, pushActivity]);
 
   // Requeue stuck jobs
   const requeueStuck = useCallback(async (sourceVersionId: string, stuckMinutes = 10) => {
@@ -500,7 +699,9 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
     queued: state.queued,
     percent: actualPercent,
     label: state.mode === 'probing' ? 'Probing scenes…'
-      : state.mode === 'enqueuing' ? 'Splitting into scenes…'
+      : state.mode === 'enqueuing' ? (state.scopePlan
+          ? `Enqueuing ${state.scopePlan.target_scene_numbers.length} target scenes…`
+          : 'Splitting into scenes…')
       : state.mode === 'processing' ? `Scene ${state.done}/${state.total}`
       : state.mode === 'assembling' ? 'Assembling final script…'
       : state.mode === 'complete' ? 'Complete'
@@ -522,7 +723,12 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
     reset,
     setSelectedRewriteMode,
     isProcessing: processingRef.current,
-    // New exports
+    // Scope plan
+    planScope,
+    setScopePlan,
+    verify,
+    expandAndContinue,
+    // Progress exports
     progress,
     activityItems,
     clearActivity,

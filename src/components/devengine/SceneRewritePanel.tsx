@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Loader2, Play, RotateCcw, Package, Square, AlertCircle, CheckCircle2, Clock, Layers, Eye, AlertTriangle, Bug } from 'lucide-react';
+import { Loader2, Play, RotateCcw, Package, Square, AlertCircle, CheckCircle2, Clock, Layers, Eye, AlertTriangle, Bug, Target } from 'lucide-react';
 import { useSceneRewritePipeline, type PreviewResult } from '@/hooks/useSceneRewritePipeline';
 import { ProcessProgressBar } from './ProcessProgressBar';
 import { ActivityTimeline } from './ActivityTimeline';
@@ -43,14 +43,12 @@ export function SceneRewritePanel({
   const [previewLoading, setPreviewLoading] = useState(false);
   const startGuardRef = useRef(false);
 
-  // On mount, check for existing jobs (resume)
   useEffect(() => {
     if (!initialized && versionId) {
       pipeline.loadStatus(versionId).then(() => setInitialized(true));
     }
   }, [versionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // When complete with a new version, notify parent
   useEffect(() => {
     if (pipeline.mode === 'complete' && pipeline.newVersionId && onComplete) {
       onComplete(pipeline.newVersionId);
@@ -61,7 +59,9 @@ export function SceneRewritePanel({
     if (startGuardRef.current) return;
     startGuardRef.current = true;
     try {
-      const result = await pipeline.enqueue(documentId, versionId, approvedNotes, protectItems);
+      // Use scope plan if available
+      const targetScenes = pipeline.scopePlan?.target_scene_numbers;
+      const result = await pipeline.enqueue(documentId, versionId, approvedNotes, protectItems, targetScenes);
       if (result) {
         pipeline.processAll(versionId);
       }
@@ -107,6 +107,9 @@ export function SceneRewritePanel({
         probed_script_chars: probe?.script_chars ?? null,
         decision_timestamp: new Date().toISOString(),
       },
+      rewriteScopePlan: pipeline.scopePlan || undefined,
+      rewriteScopeExpandedFrom: pipeline.scopeExpandedFrom || undefined,
+      rewriteVerification: pipeline.verification || undefined,
     });
   };
 
@@ -122,21 +125,37 @@ export function SceneRewritePanel({
     pipeline.requeueStuck(versionId);
   };
 
+  const handleVerify = async () => {
+    const result = await pipeline.verify(versionId);
+    if (result && !result.pass && pipeline.scopePlan) {
+      // Auto-expand if under limit
+      if (pipeline.expansionCount < 3) {
+        await pipeline.expandAndContinue(documentId, versionId, result.failures, approvedNotes, protectItems);
+      }
+    }
+  };
+
+  const handleWidenScope = async () => {
+    // Reset scope plan to null = rewrite all scenes
+    pipeline.setScopePlan(null);
+    pipeline.pushActivity('warn', 'Scope widened to all scenes — re-enqueue required');
+  };
+
   const canStart = pipeline.mode === 'idle' && pipeline.total === 0;
   const canResume = (pipeline.mode === 'idle' || pipeline.mode === 'error') && pipeline.queued > 0;
   const canRetry = pipeline.failed > 0;
   const canAssemble = pipeline.done === pipeline.total && pipeline.total > 0 && !pipeline.newVersionId;
   const isWorking = pipeline.mode === 'processing' || pipeline.mode === 'enqueuing' || pipeline.mode === 'assembling';
 
-  // Stuck detection
   const stuckMinutes = 10;
   const isStuck = pipeline.running > 0 && pipeline.oldestRunningClaimedAt &&
     (Date.now() - new Date(pipeline.oldestRunningClaimedAt).getTime()) > stuckMinutes * 60_000;
 
-  // Effective mode label
   const effectiveMode = pipeline.selectedRewriteMode === 'auto'
     ? (pipeline.probeResult?.rewrite_default_mode || pipeline.rewriteMode || '—')
     : pipeline.selectedRewriteMode;
+
+  const scopePlan = pipeline.scopePlan;
 
   return (
     <div className="rounded-lg border bg-card p-3 space-y-3">
@@ -145,7 +164,6 @@ export function SceneRewritePanel({
         <div className="flex items-center gap-2">
           <Layers className="h-4 w-4 text-muted-foreground" />
           <span className="text-sm font-medium">Scene Rewrite</span>
-          {/* Mode toggle */}
           <div className="flex items-center border rounded-md overflow-hidden">
             {MODE_OPTIONS.map(opt => (
               <button
@@ -169,7 +187,6 @@ export function SceneRewritePanel({
           )}
         </div>
         <div className="flex items-center gap-1">
-          {/* Primary CTA: Resume if jobs exist, else Start */}
           {canResume && !isWorking && (
             <Button size="sm" variant="default" onClick={handleResume} disabled={isWorking} className="h-7 text-xs gap-1">
               <Play className="h-3 w-3" /> Resume
@@ -177,7 +194,7 @@ export function SceneRewritePanel({
           )}
           {canStart && !canResume && (
             <Button size="sm" variant="default" onClick={handleStart} disabled={isWorking} className="h-7 text-xs gap-1">
-              <Play className="h-3 w-3" /> Start
+              <Play className="h-3 w-3" /> {scopePlan ? `Start (${scopePlan.target_scene_numbers.length} scenes)` : 'Start'}
             </Button>
           )}
           {canRetry && !isWorking && (
@@ -185,16 +202,20 @@ export function SceneRewritePanel({
               <RotateCcw className="h-3 w-3" /> Retry Failed
             </Button>
           )}
-          {/* Preview button */}
           {pipeline.done > 0 && !isWorking && (
             <Button size="sm" variant="outline" onClick={handlePreview} disabled={previewLoading} className="h-7 text-xs gap-1">
               {previewLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Eye className="h-3 w-3" />} Preview
             </Button>
           )}
           {canAssemble && !isWorking && (
-            <Button size="sm" variant="default" onClick={handleAssemble} className="h-7 text-xs gap-1">
-              <Package className="h-3 w-3" /> Assemble
-            </Button>
+            <>
+              <Button size="sm" variant="outline" onClick={handleVerify} className="h-7 text-xs gap-1">
+                <CheckCircle2 className="h-3 w-3" /> Verify
+              </Button>
+              <Button size="sm" variant="default" onClick={handleAssemble} className="h-7 text-xs gap-1">
+                <Package className="h-3 w-3" /> Assemble
+              </Button>
+            </>
           )}
           {isWorking && (
             <Button size="sm" variant="ghost" onClick={pipeline.stop} className="h-7 text-xs gap-1">
@@ -209,8 +230,53 @@ export function SceneRewritePanel({
         </div>
       </div>
 
+      {/* Scope plan summary */}
+      {scopePlan && pipeline.total === 0 && (
+        <div className="text-xs p-2 rounded bg-primary/5 border border-primary/20 space-y-1">
+          <div className="flex items-center gap-2 font-medium">
+            <Target className="h-3 w-3 text-primary" />
+            Selective Rewrite: {scopePlan.target_scene_numbers.length} target scene(s)
+            {scopePlan.context_scene_numbers.length > 0 && (
+              <span className="text-muted-foreground font-normal">
+                + {scopePlan.context_scene_numbers.length} context
+              </span>
+            )}
+          </div>
+          <div className="text-muted-foreground">{scopePlan.reason}</div>
+          {scopePlan.target_scene_numbers.length <= 20 && (
+            <div className="text-muted-foreground">
+              Scenes: {scopePlan.target_scene_numbers.join(', ')}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Verification result */}
+      {pipeline.verification && (
+        <div className={`text-xs p-2 rounded border ${pipeline.verification.pass
+          ? 'bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800'
+          : 'bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800'
+        }`}>
+          <div className="flex items-center gap-1 font-medium">
+            {pipeline.verification.pass ? (
+              <><CheckCircle2 className="h-3 w-3 text-green-600" /> Verification passed</>
+            ) : (
+              <><AlertTriangle className="h-3 w-3 text-amber-600" /> {pipeline.verification.failures.length} issue(s) found</>
+            )}
+          </div>
+          {!pipeline.verification.pass && pipeline.verification.failures.slice(0, 3).map((f, i) => (
+            <div key={i} className="text-muted-foreground mt-0.5">• [{f.type}] {f.detail}</div>
+          ))}
+          {!pipeline.verification.pass && pipeline.expansionCount >= 3 && (
+            <Button size="sm" variant="outline" onClick={handleWidenScope} className="mt-1 h-6 text-[10px]">
+              Widen scope (rewrite all)
+            </Button>
+          )}
+        </div>
+      )}
+
       {/* Probe result banner */}
-      {pipeline.probeResult && pipeline.total === 0 && (
+      {pipeline.probeResult && pipeline.total === 0 && !scopePlan && (
         <div className="text-xs p-2 rounded bg-muted/50 space-y-0.5">
           <div className="flex items-center gap-2">
             <span className="font-medium">Mode: {effectiveMode}</span>
@@ -235,7 +301,7 @@ export function SceneRewritePanel({
         </div>
       )}
 
-      {/* Progress bar with ETA + smoothing */}
+      {/* Progress bar */}
       {(isWorking || pipeline.mode === 'complete') && pipeline.total > 0 && (
         <ProcessProgressBar
           percent={pipeline.smoothedPercent}
@@ -273,17 +339,19 @@ export function SceneRewritePanel({
         <div className="text-xs text-green-600 font-medium">✓ Rewrite complete — new version created</div>
       )}
 
-      {/* Scene list with metrics */}
+      {/* Scene list */}
       {pipeline.scenes.length > 0 && (
         <ScrollArea className="max-h-48">
           <div className="space-y-1">
             {pipeline.scenes.map((scene) => {
               const metrics = pipeline.sceneMetrics[scene.scene_number];
+              const isTarget = scopePlan?.target_scene_numbers.includes(scene.scene_number);
               return (
-                <div key={scene.scene_number} className="flex items-center justify-between text-xs py-1 px-2 rounded hover:bg-muted/50">
+                <div key={scene.scene_number} className={`flex items-center justify-between text-xs py-1 px-2 rounded hover:bg-muted/50 ${isTarget ? 'border-l-2 border-primary/50' : ''}`}>
                   <span className="truncate flex-1 mr-2">
                     <span className="text-muted-foreground mr-1">#{scene.scene_number}</span>
                     {scene.scene_heading || 'Scene'}
+                    {isTarget && <Badge variant="outline" className="ml-1 text-[8px] px-1 py-0">target</Badge>}
                   </span>
                   {metrics && scene.status === 'done' && (
                     <span className="text-muted-foreground mr-2 shrink-0 tabular-nums">
@@ -334,34 +402,11 @@ export function SceneRewritePanel({
             <Bug className="h-3 w-3" /> Debug tools
           </summary>
           <div className="mt-1 space-y-1 pl-4">
-            <Button
-              size="sm" variant="outline"
-              className="h-6 text-[10px]"
-              onClick={async () => {
-                console.log('[debug] Simulating concurrent enqueue...');
-                const [r1, r2] = await Promise.allSettled([
-                  pipeline.enqueue(documentId, versionId, approvedNotes, protectItems),
-                  pipeline.enqueue(documentId, versionId, approvedNotes, protectItems),
-                ]);
-                console.log('[debug] Concurrent enqueue results:', r1, r2);
-              }}
-            >
-              Simulate concurrent start
-            </Button>
-            <Button
-              size="sm" variant="outline"
-              className="h-6 text-[10px]"
-              onClick={() => {
-                console.log('[debug] State:', JSON.stringify({
-                  mode: pipeline.mode,
-                  total: pipeline.total, done: pipeline.done, failed: pipeline.failed,
-                  queued: pipeline.queued, running: pipeline.running,
-                  smoothedPercent: pipeline.smoothedPercent,
-                  etaMs: pipeline.etaMs,
-                  avgUnitMs: pipeline.avgUnitMs,
-                }, null, 2));
-              }}
-            >
+            <Button size="sm" variant="outline" className="h-6 text-[10px]"
+              onClick={() => console.log('[debug] State:', JSON.stringify({
+                mode: pipeline.mode, total: pipeline.total, done: pipeline.done, failed: pipeline.failed,
+                scopePlan: pipeline.scopePlan, verification: pipeline.verification, expansionCount: pipeline.expansionCount,
+              }, null, 2))}>
               Log state
             </Button>
           </div>
