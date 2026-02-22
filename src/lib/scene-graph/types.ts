@@ -1085,3 +1085,61 @@ export interface QCGenerateFixInput {
   issueIds?: string[];
   goalLabel?: string;
 }
+
+// ── Phase 7 Pass Runner Types ──
+
+export type PassType = 'dialogue_sharpen' | 'exposition_compress' | 'escalation_lift' | 'tone_consistency';
+
+export interface PassSettings {
+  preserveApproved?: boolean;
+  maxScenesTouched?: number;
+  includeActs?: number[] | null;
+  excludeSceneIds?: string[] | null;
+  intensity?: 'light' | 'medium' | 'strong';
+  notes?: string | null;
+}
+
+export interface PassRun {
+  id: string;
+  project_id: string;
+  created_at: string;
+  created_by: string | null;
+  snapshot_id: string;
+  pass_type: PassType;
+  mode: string;
+  status: 'queued' | 'running' | 'completed' | 'failed';
+  settings: PassSettings;
+  summary: string | null;
+  created_change_set_id: string | null;
+  metadata: Record<string, any>;
+}
+
+export interface PassPatchPlan {
+  scene_id: string;
+  strategy: 'rewrite';
+  patch: {
+    content?: string;
+    summary?: string;
+    beats?: any[];
+    scene_roles?: any[];
+  };
+  rationale: string;
+  risks: string[];
+}
+
+export interface PassRunInput {
+  projectId: string;
+  passType: PassType;
+  mode?: 'approved_prefer' | 'latest';
+  settings?: PassSettings;
+}
+
+export interface PassListRunsInput {
+  projectId: string;
+  limit?: number;
+}
+
+export interface PassGetRunInput {
+  projectId: string;
+  passRunId: string;
+}

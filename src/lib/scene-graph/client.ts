@@ -106,6 +106,11 @@ import type {
   QCUpdateIssueStatusInput,
   QCGenerateFixInput,
   QCRun,
+  // Phase 7 Passes
+  PassRunInput,
+  PassListRunsInput,
+  PassGetRunInput,
+  PassRun,
   QCIssue,
 } from './types';
 
@@ -429,4 +434,18 @@ export async function qcUpdateIssueStatus(input: QCUpdateIssueStatusInput) {
 
 export async function qcGenerateFixChangeSet(input: QCGenerateFixInput) {
   return callSceneGraph<{ change_set_id: string }>('qc_generate_fix_change_set', input);
+}
+
+// Phase 7 Pass Runner actions
+
+export async function runPass(input: PassRunInput) {
+  return callSceneGraph<{ pass_run: PassRun; change_set_id: string; selected_scenes: string[] }>('pass_run', input);
+}
+
+export async function listPassRuns(input: PassListRunsInput) {
+  return callSceneGraph<{ runs: PassRun[] }>('pass_list_runs', input);
+}
+
+export async function getPassRun(input: PassGetRunInput) {
+  return callSceneGraph<{ run: PassRun; selected_scenes: any[] }>('pass_get_run', input);
 }
