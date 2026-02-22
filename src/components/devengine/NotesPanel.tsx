@@ -365,11 +365,20 @@ function GlobalDirectionsBar({ directions }: { directions: GlobalDirection[] }) 
   );
 }
 
-function BundlesSection({ bundles, projectId, documentId, versionId, currentDocType, onBundleApplied }: {
+function BundlesSection({ bundles, projectId, documentId, versionId, currentDocType, onBundleApplied, allNotes }: {
   bundles: NoteBundle[]; projectId?: string; documentId?: string; versionId?: string;
-  currentDocType?: string; onBundleApplied?: () => void;
+  currentDocType?: string; onBundleApplied?: () => void; allNotes?: any[];
 }) {
   const [applying, setApplying] = useState<string | null>(null);
+  const [expandedBundles, setExpandedBundles] = useState<Set<string>>(new Set());
+
+  const toggleExpand = (bundleId: string) => {
+    setExpandedBundles(prev => {
+      const next = new Set(prev);
+      if (next.has(bundleId)) next.delete(bundleId); else next.add(bundleId);
+      return next;
+    });
+  };
 
   async function applyBundle(bundle: NoteBundle) {
     if (!projectId || !documentId || !versionId) { toast.error('No document selected'); return; }
@@ -395,26 +404,58 @@ function BundlesSection({ bundles, projectId, documentId, versionId, currentDocT
     finally { setApplying(null); }
   }
 
+  // Build a lookup from fingerprint → note
+  const notesByFingerprint = useMemo(() => {
+    const map = new Map<string, any>();
+    (allNotes || []).forEach(n => { if (n.note_fingerprint) map.set(n.note_fingerprint, n); });
+    return map;
+  }, [allNotes]);
+
   if (!bundles || bundles.length === 0) return null;
   return (
     <div className="space-y-1.5">
       <div className="flex items-center gap-1 text-[10px] font-semibold text-orange-400">
         <Layers className="h-3 w-3" />Loop Clusters ({bundles.length})
       </div>
-      {bundles.map(b => (
-        <div key={b.bundle_id} className="rounded border border-orange-500/30 bg-orange-500/5 p-2 space-y-1">
-          <p className="text-[10px] font-medium text-foreground">{b.title}</p>
-          <p className="text-[9px] text-muted-foreground">{b.recommended_patch_plan.slice(0, 120)}…</p>
-          <div className="flex items-center gap-1">
-            <Badge variant="outline" className="text-[7px] px-1 py-0 text-orange-400 border-orange-500/30">{b.note_count} notes</Badge>
-            <Button size="sm" variant="outline" className="h-5 text-[8px] px-1.5 gap-0.5 border-orange-500/30 text-orange-400 hover:bg-orange-500/10 ml-auto"
-              disabled={applying === b.bundle_id} onClick={() => applyBundle(b)}>
-              {applying === b.bundle_id ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Wand2 className="h-2.5 w-2.5" />}
-              Apply Bundle Fix
-            </Button>
+      {bundles.map(b => {
+        const isExpanded = expandedBundles.has(b.bundle_id);
+        const matchedNotes = b.note_fingerprints.map(fp => notesByFingerprint.get(fp)).filter(Boolean);
+        return (
+          <div key={b.bundle_id} className="rounded border border-orange-500/30 bg-orange-500/5 p-2 space-y-1">
+            <p className="text-[10px] font-medium text-foreground">{b.title}</p>
+            <p className="text-[9px] text-muted-foreground">{b.recommended_patch_plan.slice(0, 120)}…</p>
+            <div className="flex items-center gap-1">
+              <button onClick={() => toggleExpand(b.bundle_id)}
+                className="flex items-center gap-0.5 text-[7px] px-1 py-0 text-orange-400 border border-orange-500/30 rounded hover:bg-orange-500/10 transition-colors">
+                <ChevronDown className={`h-2.5 w-2.5 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                {b.note_count} notes
+              </button>
+              <Button size="sm" variant="outline" className="h-5 text-[8px] px-1.5 gap-0.5 border-orange-500/30 text-orange-400 hover:bg-orange-500/10 ml-auto"
+                disabled={applying === b.bundle_id} onClick={() => applyBundle(b)}>
+                {applying === b.bundle_id ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Wand2 className="h-2.5 w-2.5" />}
+                Apply Bundle Fix
+              </Button>
+            </div>
+            {isExpanded && (
+              <div className="mt-1 space-y-1 border-t border-orange-500/20 pt-1">
+                {matchedNotes.length > 0 ? matchedNotes.map((n: any, i: number) => (
+                  <div key={n.note_fingerprint || i} className="rounded bg-orange-500/5 px-1.5 py-1 text-[9px] text-muted-foreground">
+                    <span className="font-medium text-foreground">{n.note || n.description || n.title || 'Note'}</span>
+                    {n.suggestion && <p className="text-[8px] mt-0.5 italic">{n.suggestion}</p>}
+                  </div>
+                )) : (
+                  <p className="text-[8px] text-muted-foreground italic">
+                    {b.note_fingerprints.length} note fingerprints in cluster
+                    {b.note_fingerprints.slice(0, 3).map((fp, i) => (
+                      <span key={i} className="block truncate text-[7px] font-mono opacity-60">{fp}</span>
+                    ))}
+                  </p>
+                )}
+              </div>
+            )}
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -674,7 +715,7 @@ export function NotesPanel({
           {/* Bundles section */}
           {hasAnyBundles && (
             <BundlesSection bundles={bundles!} projectId={projectId} documentId={documentId} versionId={currentVersionId}
-              currentDocType={currentDocType} onBundleApplied={() => setStatusVersion(v => v + 1)} />
+              currentDocType={currentDocType} onBundleApplied={() => setStatusVersion(v => v + 1)} allNotes={allNotes} />
           )}
 
           <GlobalDirectionsBar directions={globalDirections || []} />
