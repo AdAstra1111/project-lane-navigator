@@ -160,6 +160,13 @@ export type Database = {
             foreignKeyName: "animatics_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "animatics_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -255,6 +262,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "archive_assets_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
           {
             foreignKeyName: "archive_assets_project_id_fkey"
             columns: ["project_id"]
@@ -399,6 +413,13 @@ export type Database = {
             foreignKeyName: "auto_run_jobs_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "auto_run_jobs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -520,6 +541,13 @@ export type Database = {
             foreignKeyName: "broadcaster_fit_scores_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "broadcaster_fit_scores_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -581,6 +609,13 @@ export type Database = {
           vfx_level?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "budget_assumptions_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
           {
             foreignKeyName: "budget_assumptions_project_id_fkey"
             columns: ["project_id"]
@@ -693,6 +728,13 @@ export type Database = {
             foreignKeyName: "buyer_meetings_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "buyer_meetings_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -748,6 +790,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "canon_snapshots_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
           {
             foreignKeyName: "canon_snapshots_project_id_fkey"
             columns: ["project_id"]
@@ -1124,6 +1173,13 @@ export type Database = {
             foreignKeyName: "concept_lock_documents_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "concept_lock_documents_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -1292,6 +1348,13 @@ export type Database = {
             foreignKeyName: "consent_forms_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "consent_forms_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -1365,6 +1428,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "convergence_scores_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
           {
             foreignKeyName: "convergence_scores_project_id_fkey"
             columns: ["project_id"]
@@ -2213,6 +2283,13 @@ export type Database = {
             foreignKeyName: "coverage_runs_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "coverage_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -2346,6 +2423,13 @@ export type Database = {
             foreignKeyName: "decision_ledger_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "decision_ledger_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -2408,6 +2492,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "project_documents"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dev_engine_convergence_history_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
           },
           {
             foreignKeyName: "dev_engine_convergence_history_project_id_fkey"
@@ -2625,6 +2716,13 @@ export type Database = {
             foreignKeyName: "dev_engine_sessions_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "dev_engine_sessions_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -2668,6 +2766,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "development_branches"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "development_branches_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
           },
           {
             foreignKeyName: "development_branches_project_id_fkey"
@@ -2786,6 +2891,13 @@ export type Database = {
             foreignKeyName: "development_notes_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "development_notes_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -2861,6 +2973,13 @@ export type Database = {
             foreignKeyName: "development_runs_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "development_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -2918,6 +3037,13 @@ export type Database = {
             foreignKeyName: "doc_change_proposals_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "doc_change_proposals_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -2962,6 +3088,13 @@ export type Database = {
             foreignKeyName: "doc_fact_ledger_items_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "doc_fact_ledger_items_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -2999,6 +3132,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "doc_queries_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
           {
             foreignKeyName: "doc_queries_project_id_fkey"
             columns: ["project_id"]
@@ -3253,6 +3393,13 @@ export type Database = {
             foreignKeyName: "document_assistant_threads_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "document_assistant_threads_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -3303,6 +3450,13 @@ export type Database = {
             foreignKeyName: "document_drift_events_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "document_drift_events_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -3346,6 +3500,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "document_ingestions_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
           {
             foreignKeyName: "document_ingestions_project_id_fkey"
             columns: ["project_id"]
@@ -3402,6 +3563,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "documentary_coverage_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
           {
             foreignKeyName: "documentary_coverage_runs_project_id_fkey"
             columns: ["project_id"]
@@ -3486,6 +3654,13 @@ export type Database = {
             foreignKeyName: "documentary_profiles_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: true
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "documentary_profiles_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: true
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -3548,6 +3723,13 @@ export type Database = {
             foreignKeyName: "drift_alerts_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "drift_alerts_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -3589,6 +3771,13 @@ export type Database = {
           version_label?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "edit_versions_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
           {
             foreignKeyName: "edit_versions_project_id_fkey"
             columns: ["project_id"]
@@ -3716,6 +3905,13 @@ export type Database = {
             foreignKeyName: "episode_activity_log_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "episode_activity_log_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -3759,6 +3955,13 @@ export type Database = {
           version_id?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "episode_comments_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
           {
             foreignKeyName: "episode_comments_project_id_fkey"
             columns: ["project_id"]
@@ -3816,6 +4019,13 @@ export type Database = {
             foreignKeyName: "episode_compliance_reports_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "episode_compliance_reports_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -3860,6 +4070,13 @@ export type Database = {
             foreignKeyName: "episode_continuity_ledgers_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "episode_continuity_ledgers_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -3891,6 +4108,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "episode_continuity_notes_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
           {
             foreignKeyName: "episode_continuity_notes_project_id_fkey"
             columns: ["project_id"]
@@ -3989,6 +4213,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "scripts"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "episode_handoffs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
           },
           {
             foreignKeyName: "episode_handoffs_project_id_fkey"
@@ -4100,6 +4331,13 @@ export type Database = {
             foreignKeyName: "episode_patch_runs_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "episode_patch_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -4168,6 +4406,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "series_episodes"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "episode_validations_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
           },
           {
             foreignKeyName: "episode_validations_project_id_fkey"
@@ -4334,6 +4579,13 @@ export type Database = {
             foreignKeyName: "format_profiles_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: true
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "format_profiles_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: true
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -4392,6 +4644,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "grant_matches_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
           {
             foreignKeyName: "grant_matches_project_id_fkey"
             columns: ["project_id"]
@@ -4526,6 +4785,13 @@ export type Database = {
             foreignKeyName: "impact_partners_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "impact_partners_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -4647,6 +4913,13 @@ export type Database = {
             foreignKeyName: "improvement_runs_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "improvement_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -4757,6 +5030,13 @@ export type Database = {
             foreignKeyName: "integration_connections_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "integration_connections_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -4813,6 +5093,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "integration_imports_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
           {
             foreignKeyName: "integration_imports_project_id_fkey"
             columns: ["project_id"]
@@ -4916,6 +5203,13 @@ export type Database = {
             foreignKeyName: "interview_subjects_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "interview_subjects_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -4965,6 +5259,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "legal_flags_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
           {
             foreignKeyName: "legal_flags_project_id_fkey"
             columns: ["project_id"]
@@ -5252,6 +5553,13 @@ export type Database = {
             foreignKeyName: "notifications_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "notifications_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -5353,6 +5661,13 @@ export type Database = {
             foreignKeyName: "outcome_deltas_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: true
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "outcome_deltas_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: true
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -5387,6 +5702,13 @@ export type Database = {
           signal_type?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "outcome_signals_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
           {
             foreignKeyName: "outcome_signals_project_id_fkey"
             columns: ["project_id"]
@@ -5448,6 +5770,13 @@ export type Database = {
             foreignKeyName: "packaging_items_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "packaging_items_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -5488,6 +5817,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "pitch_decks_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
           {
             foreignKeyName: "pitch_decks_project_id_fkey"
             columns: ["project_id"]
@@ -5659,8 +5995,22 @@ export type Database = {
             foreignKeyName: "pitch_ideas_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "pitch_ideas_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pitch_ideas_promoted_to_project_id_fkey"
+            columns: ["promoted_to_project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
           },
           {
             foreignKeyName: "pitch_ideas_promoted_to_project_id_fkey"
@@ -5723,6 +6073,13 @@ export type Database = {
             foreignKeyName: "post_milestones_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "post_milestones_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -5772,6 +6129,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "prediction_outcomes_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
           {
             foreignKeyName: "prediction_outcomes_project_id_fkey"
             columns: ["project_id"]
@@ -5859,6 +6223,13 @@ export type Database = {
             foreignKeyName: "production_cost_actuals_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "production_cost_actuals_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -5917,6 +6288,13 @@ export type Database = {
           wrap_time?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "production_daily_reports_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
           {
             foreignKeyName: "production_daily_reports_project_id_fkey"
             columns: ["project_id"]
@@ -6037,6 +6415,13 @@ export type Database = {
             foreignKeyName: "project_active_docs_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "project_active_docs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -6080,6 +6465,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "project_activity_log_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
           {
             foreignKeyName: "project_activity_log_project_id_fkey"
             columns: ["project_id"]
@@ -6133,6 +6525,13 @@ export type Database = {
           would_pursue?: boolean | null
         }
         Relationships: [
+          {
+            foreignKeyName: "project_baselines_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: true
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
           {
             foreignKeyName: "project_baselines_project_id_fkey"
             columns: ["project_id"]
@@ -6194,6 +6593,13 @@ export type Database = {
             foreignKeyName: "project_budget_lines_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "project_budget_lines_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -6247,6 +6653,13 @@ export type Database = {
             foreignKeyName: "project_budgets_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "project_budgets_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -6272,6 +6685,13 @@ export type Database = {
           updated_by?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "project_canon_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: true
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
           {
             foreignKeyName: "project_canon_project_id_fkey"
             columns: ["project_id"]
@@ -6310,6 +6730,13 @@ export type Database = {
           project_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "project_canon_versions_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
           {
             foreignKeyName: "project_canon_versions_project_id_fkey"
             columns: ["project_id"]
@@ -6369,6 +6796,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "project_cashflow_sources_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
           {
             foreignKeyName: "project_cashflow_sources_project_id_fkey"
             columns: ["project_id"]
@@ -6444,6 +6878,13 @@ export type Database = {
             foreignKeyName: "project_cast_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "project_cast_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -6475,6 +6916,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "project_chat_messages_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
           {
             foreignKeyName: "project_chat_messages_project_id_fkey"
             columns: ["project_id"]
@@ -6519,6 +6967,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "project_collaborators_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
           {
             foreignKeyName: "project_collaborators_project_id_fkey"
             columns: ["project_id"]
@@ -6571,6 +7026,13 @@ export type Database = {
             foreignKeyName: "project_comments_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "project_comments_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -6605,6 +7067,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "production_companies"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_company_links_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
           },
           {
             foreignKeyName: "project_company_links_project_id_fkey"
@@ -6694,6 +7163,13 @@ export type Database = {
             foreignKeyName: "project_contracts_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "project_contracts_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -6746,6 +7222,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "copro_frameworks"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_copro_scenarios_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
           },
           {
             foreignKeyName: "project_copro_scenarios_project_id_fkey"
@@ -6814,6 +7297,13 @@ export type Database = {
             foreignKeyName: "project_cost_entries_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "project_cost_entries_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -6869,6 +7359,13 @@ export type Database = {
           subject_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "project_coverage_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
           {
             foreignKeyName: "project_coverage_runs_project_id_fkey"
             columns: ["project_id"]
@@ -6934,6 +7431,13 @@ export type Database = {
             foreignKeyName: "project_coverage_subjects_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "project_coverage_subjects_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -6977,6 +7481,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "project_deadlines_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
           {
             foreignKeyName: "project_deadlines_project_id_fkey"
             columns: ["project_id"]
@@ -7036,6 +7547,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "project_deals_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
           {
             foreignKeyName: "project_deals_project_id_fkey"
             columns: ["project_id"]
@@ -7110,6 +7628,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "project_decisions_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
           {
             foreignKeyName: "project_decisions_project_id_fkey"
             columns: ["project_id"]
@@ -7194,6 +7719,13 @@ export type Database = {
             foreignKeyName: "project_deferred_notes_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "project_deferred_notes_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -7253,6 +7785,13 @@ export type Database = {
             foreignKeyName: "project_deliverables_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "project_deliverables_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -7305,6 +7844,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "project_dev_decision_state_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
           {
             foreignKeyName: "project_dev_decision_state_project_id_fkey"
             columns: ["project_id"]
@@ -7430,6 +7976,13 @@ export type Database = {
             foreignKeyName: "project_dev_note_state_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "project_dev_note_state_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -7470,6 +8023,13 @@ export type Database = {
           version_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "project_doc_chunks_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
           {
             foreignKeyName: "project_doc_chunks_project_id_fkey"
             columns: ["project_id"]
@@ -7688,6 +8248,13 @@ export type Database = {
             foreignKeyName: "project_documents_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "project_documents_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -7740,6 +8307,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "trend_engines"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_engine_scores_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
           },
           {
             foreignKeyName: "project_engine_scores_project_id_fkey"
@@ -7804,6 +8378,13 @@ export type Database = {
             foreignKeyName: "project_finance_scenarios_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "project_finance_scenarios_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -7862,6 +8443,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "integration_imports"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_finance_snapshots_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
           },
           {
             foreignKeyName: "project_finance_snapshots_project_id_fkey"
@@ -7938,6 +8526,13 @@ export type Database = {
             foreignKeyName: "project_hods_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "project_hods_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -8001,6 +8596,13 @@ export type Database = {
             foreignKeyName: "project_incentive_scenarios_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "project_incentive_scenarios_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -8041,6 +8643,13 @@ export type Database = {
           use_count?: number
         }
         Relationships: [
+          {
+            foreignKeyName: "project_invite_links_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
           {
             foreignKeyName: "project_invite_links_project_id_fkey"
             columns: ["project_id"]
@@ -8154,6 +8763,13 @@ export type Database = {
             foreignKeyName: "project_issues_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "project_issues_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -8234,6 +8850,13 @@ export type Database = {
             foreignKeyName: "project_outcomes_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: true
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "project_outcomes_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: true
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -8310,6 +8933,13 @@ export type Database = {
             foreignKeyName: "project_ownership_stakes_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "project_ownership_stakes_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -8366,6 +8996,13 @@ export type Database = {
             foreignKeyName: "project_participants_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "project_participants_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -8413,6 +9050,13 @@ export type Database = {
             foreignKeyName: "project_partners_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "project_partners_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -8441,6 +9085,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "project_preferences_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
           {
             foreignKeyName: "project_preferences_project_id_fkey"
             columns: ["project_id"]
@@ -8485,6 +9136,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "project_recoupment_scenarios_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
           {
             foreignKeyName: "project_recoupment_scenarios_project_id_fkey"
             columns: ["project_id"]
@@ -8541,6 +9199,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "project_recoupment_tiers_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
           {
             foreignKeyName: "project_recoupment_tiers_project_id_fkey"
             columns: ["project_id"]
@@ -8647,6 +9312,13 @@ export type Database = {
             foreignKeyName: "project_scenarios_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "project_scenarios_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -8706,6 +9378,13 @@ export type Database = {
             foreignKeyName: "project_scenes_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "project_scenes_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -8750,6 +9429,13 @@ export type Database = {
             foreignKeyName: "project_scripts_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "project_scripts_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -8787,6 +9473,13 @@ export type Database = {
           storage_path?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "project_share_links_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
           {
             foreignKeyName: "project_share_links_project_id_fkey"
             columns: ["project_id"]
@@ -8923,6 +9616,13 @@ export type Database = {
             foreignKeyName: "project_share_packs_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "project_share_packs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -8957,6 +9657,13 @@ export type Database = {
           user_id?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "project_shares_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
           {
             foreignKeyName: "project_shares_project_id_fkey"
             columns: ["project_id"]
@@ -9007,6 +9714,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "trend_signals"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_signal_matches_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
           },
           {
             foreignKeyName: "project_signal_matches_project_id_fkey"
@@ -9084,6 +9798,13 @@ export type Database = {
             foreignKeyName: "project_state_graphs_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: true
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "project_state_graphs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: true
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -9146,6 +9867,13 @@ export type Database = {
             foreignKeyName: "project_talent_triage_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "project_talent_triage_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -9183,6 +9911,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "project_updates_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
           {
             foreignKeyName: "project_updates_project_id_fkey"
             columns: ["project_id"]
@@ -9267,6 +10002,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "project_participants"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_waterfall_rules_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
           },
           {
             foreignKeyName: "project_waterfall_rules_project_id_fkey"
@@ -9502,6 +10244,13 @@ export type Database = {
             foreignKeyName: "readiness_score_history_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "readiness_score_history_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -9542,6 +10291,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "decision_ledger"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "resolved_notes_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
           },
           {
             foreignKeyName: "resolved_notes_project_id_fkey"
@@ -9593,6 +10349,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "retcon_events_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
           {
             foreignKeyName: "retcon_events_project_id_fkey"
             columns: ["project_id"]
@@ -9681,6 +10444,13 @@ export type Database = {
             foreignKeyName: "scenario_decision_events_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "scenario_decision_events_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -9731,6 +10501,13 @@ export type Database = {
           status?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "scenario_merge_approvals_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
           {
             foreignKeyName: "scenario_merge_approvals_project_id_fkey"
             columns: ["project_id"]
@@ -9792,6 +10569,13 @@ export type Database = {
             foreignKeyName: "scenario_projections_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "scenario_projections_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -9840,6 +10624,13 @@ export type Database = {
             foreignKeyName: "scenario_recommendations_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "scenario_recommendations_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -9881,6 +10672,13 @@ export type Database = {
           scores?: Json
         }
         Relationships: [
+          {
+            foreignKeyName: "scenario_scores_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
           {
             foreignKeyName: "scenario_scores_project_id_fkey"
             columns: ["project_id"]
@@ -9932,6 +10730,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "scenario_snapshots_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
           {
             foreignKeyName: "scenario_snapshots_project_id_fkey"
             columns: ["project_id"]
@@ -9997,6 +10802,13 @@ export type Database = {
             foreignKeyName: "scenario_stress_tests_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "scenario_stress_tests_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -10005,6 +10817,251 @@ export type Database = {
             columns: ["scenario_id"]
             isOneToOne: false
             referencedRelation: "project_scenarios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      scene_graph_order: {
+        Row: {
+          act: number | null
+          created_at: string
+          id: string
+          inserted_intent: Json
+          inserted_reason: string | null
+          is_active: boolean
+          order_key: string
+          project_id: string
+          scene_id: string
+          sequence: number | null
+        }
+        Insert: {
+          act?: number | null
+          created_at?: string
+          id?: string
+          inserted_intent?: Json
+          inserted_reason?: string | null
+          is_active?: boolean
+          order_key: string
+          project_id: string
+          scene_id: string
+          sequence?: number | null
+        }
+        Update: {
+          act?: number | null
+          created_at?: string
+          id?: string
+          inserted_intent?: Json
+          inserted_reason?: string | null
+          is_active?: boolean
+          order_key?: string
+          project_id?: string
+          scene_id?: string
+          sequence?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scene_graph_order_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "scene_graph_order_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scene_graph_order_scene_id_fkey"
+            columns: ["scene_id"]
+            isOneToOne: false
+            referencedRelation: "scene_graph_scenes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      scene_graph_scenes: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          deprecated_at: string | null
+          id: string
+          project_id: string
+          provenance: Json
+          scene_kind: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          deprecated_at?: string | null
+          id?: string
+          project_id: string
+          provenance?: Json
+          scene_kind?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          deprecated_at?: string | null
+          id?: string
+          project_id?: string
+          provenance?: Json
+          scene_kind?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scene_graph_scenes_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "scene_graph_scenes_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      scene_graph_snapshots: {
+        Row: {
+          assembly: Json
+          content: string
+          created_at: string
+          created_by: string | null
+          id: string
+          label: string | null
+          project_id: string
+          status: string
+        }
+        Insert: {
+          assembly?: Json
+          content?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          label?: string | null
+          project_id: string
+          status?: string
+        }
+        Update: {
+          assembly?: Json
+          content?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          label?: string | null
+          project_id?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scene_graph_snapshots_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "scene_graph_snapshots_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      scene_graph_versions: {
+        Row: {
+          beats: Json
+          characters_present: Json
+          content: string
+          continuity_facts_emitted: Json
+          continuity_facts_required: Json
+          created_at: string
+          created_by: string | null
+          id: string
+          location: string | null
+          metadata: Json
+          project_id: string
+          purpose: string | null
+          scene_id: string
+          setup_payoff_emitted: Json
+          setup_payoff_required: Json
+          slugline: string | null
+          status: string
+          summary: string | null
+          time_of_day: string | null
+          version_number: number
+        }
+        Insert: {
+          beats?: Json
+          characters_present?: Json
+          content?: string
+          continuity_facts_emitted?: Json
+          continuity_facts_required?: Json
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          location?: string | null
+          metadata?: Json
+          project_id: string
+          purpose?: string | null
+          scene_id: string
+          setup_payoff_emitted?: Json
+          setup_payoff_required?: Json
+          slugline?: string | null
+          status?: string
+          summary?: string | null
+          time_of_day?: string | null
+          version_number?: number
+        }
+        Update: {
+          beats?: Json
+          characters_present?: Json
+          content?: string
+          continuity_facts_emitted?: Json
+          continuity_facts_required?: Json
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          location?: string | null
+          metadata?: Json
+          project_id?: string
+          purpose?: string | null
+          scene_id?: string
+          setup_payoff_emitted?: Json
+          setup_payoff_required?: Json
+          slugline?: string | null
+          status?: string
+          summary?: string | null
+          time_of_day?: string | null
+          version_number?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scene_graph_versions_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "scene_graph_versions_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scene_graph_versions_scene_id_fkey"
+            columns: ["scene_id"]
+            isOneToOne: false
+            referencedRelation: "scene_graph_scenes"
             referencedColumns: ["id"]
           },
         ]
@@ -10053,6 +11110,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "scene_schedule_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
           {
             foreignKeyName: "scene_schedule_project_id_fkey"
             columns: ["project_id"]
@@ -10109,6 +11173,13 @@ export type Database = {
             foreignKeyName: "script_blueprints_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "script_blueprints_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -10150,6 +11221,13 @@ export type Database = {
           status?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "script_extraction_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
           {
             foreignKeyName: "script_extraction_runs_project_id_fkey"
             columns: ["project_id"]
@@ -10201,6 +11279,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "project_documents"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "script_pdf_pages_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
           },
           {
             foreignKeyName: "script_pdf_pages_project_id_fkey"
@@ -10333,6 +11418,13 @@ export type Database = {
             foreignKeyName: "script_unit_links_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "script_unit_links_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -10452,6 +11544,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "script_units"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "script_units_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
           },
           {
             foreignKeyName: "script_units_project_id_fkey"
@@ -10579,6 +11678,13 @@ export type Database = {
             foreignKeyName: "script_world_state_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: true
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "script_world_state_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: true
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -10674,6 +11780,13 @@ export type Database = {
             foreignKeyName: "scripts_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "scripts_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -10714,6 +11827,13 @@ export type Database = {
           source?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "season_master_compilations_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
           {
             foreignKeyName: "season_master_compilations_project_id_fkey"
             columns: ["project_id"]
@@ -10777,6 +11897,13 @@ export type Database = {
             foreignKeyName: "series_continuity_issues_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "series_continuity_issues_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -10834,6 +11961,13 @@ export type Database = {
             foreignKeyName: "series_continuity_runs_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "series_continuity_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -10884,6 +12018,13 @@ export type Database = {
             foreignKeyName: "series_dev_notes_runs_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "series_dev_notes_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -10918,6 +12059,13 @@ export type Database = {
           recap?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "series_episode_canon_facts_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
           {
             foreignKeyName: "series_episode_canon_facts_project_id_fkey"
             columns: ["project_id"]
@@ -11024,6 +12172,13 @@ export type Database = {
             foreignKeyName: "series_episodes_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "series_episodes_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -11071,6 +12226,13 @@ export type Database = {
           working_set?: Json
         }
         Relationships: [
+          {
+            foreignKeyName: "series_writer_sessions_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: true
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
           {
             foreignKeyName: "series_writer_sessions_project_id_fkey"
             columns: ["project_id"]
@@ -11160,6 +12322,13 @@ export type Database = {
             foreignKeyName: "shared_signals_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "shared_signals_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -11200,6 +12369,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "shoot_days_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
           {
             foreignKeyName: "shoot_days_project_id_fkey"
             columns: ["project_id"]
@@ -11378,6 +12554,13 @@ export type Database = {
             foreignKeyName: "shot_lists_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "shot_lists_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -11428,6 +12611,13 @@ export type Database = {
             foreignKeyName: "stage_gates_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "stage_gates_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -11474,6 +12664,13 @@ export type Database = {
           version?: number | null
         }
         Relationships: [
+          {
+            foreignKeyName: "story_spine_versions_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
           {
             foreignKeyName: "story_spine_versions_project_id_fkey"
             columns: ["project_id"]
@@ -11564,6 +12761,13 @@ export type Database = {
             foreignKeyName: "storyboard_boards_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "storyboard_boards_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -11612,6 +12816,13 @@ export type Database = {
           storage_path?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "storyboard_exports_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
           {
             foreignKeyName: "storyboard_exports_project_id_fkey"
             columns: ["project_id"]
@@ -12157,6 +13368,13 @@ export type Database = {
             foreignKeyName: "vertical_episode_metrics_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "vertical_episode_metrics_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -12243,6 +13461,13 @@ export type Database = {
             foreignKeyName: "vfx_shots_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "vfx_shots_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -12283,6 +13508,13 @@ export type Database = {
           width?: number | null
         }
         Relationships: [
+          {
+            foreignKeyName: "visual_reference_assets_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
           {
             foreignKeyName: "visual_reference_assets_project_id_fkey"
             columns: ["project_id"]
@@ -12344,6 +13576,13 @@ export type Database = {
             foreignKeyName: "visual_reference_sets_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "visual_reference_sets_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -12360,6 +13599,30 @@ export type Database = {
           greenlight_accuracy: number | null
           lane_accuracy: number | null
           total: number | null
+        }
+        Relationships: []
+      }
+      project_script_scene_state: {
+        Row: {
+          active_scene_count: number | null
+          has_scenes: boolean | null
+          latest_snapshot_id: string | null
+          latest_snapshot_status: string | null
+          project_id: string | null
+        }
+        Insert: {
+          active_scene_count?: never
+          has_scenes?: never
+          latest_snapshot_id?: never
+          latest_snapshot_status?: never
+          project_id?: string | null
+        }
+        Update: {
+          active_scene_count?: never
+          has_scenes?: never
+          latest_snapshot_id?: never
+          latest_snapshot_status?: never
+          project_id?: string | null
         }
         Relationships: []
       }

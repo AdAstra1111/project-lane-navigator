@@ -75,6 +75,7 @@ import { useProjectIssues } from '@/hooks/useProjectIssues';
 import { useDeferredNotes } from '@/hooks/useDeferredNotes';
 import { useEpisodeHandoff } from '@/hooks/useEpisodeHandoff';
 import { EpisodeHandoffBanner } from '@/components/devengine/EpisodeHandoffBanner';
+import { SceneGraphPanel } from '@/components/devengine/SceneGraphPanel';
 
 // ── Main Page ──
 export default function ProjectDevelopmentEngine() {
@@ -1169,6 +1170,7 @@ export default function ProjectDevelopmentEngine() {
               <TabsTrigger value="package" className="text-xs">Package</TabsTrigger>
               <TabsTrigger value="canon" className="text-xs">Canon</TabsTrigger>
               <TabsTrigger value="provenance" className="text-xs">Provenance</TabsTrigger>
+              <TabsTrigger value="scenes" className="text-xs">Scenes</TabsTrigger>
               {convergenceHistory.length > 0 && (
                 <TabsTrigger value="timeline" className="text-xs">Timeline ({convergenceHistory.length})</TabsTrigger>
               )}
@@ -1553,6 +1555,10 @@ export default function ProjectDevelopmentEngine() {
                   />
                 </CardContent>
               </Card>
+            </TabsContent>
+
+            <TabsContent value="scenes" className="mt-3">
+              <SceneGraphPanel projectId={projectId!} documents={documents} />
             </TabsContent>
 
             {convergenceHistory.length > 0 && (
