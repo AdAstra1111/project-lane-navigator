@@ -563,37 +563,66 @@ export default function ProjectDevelopmentEngine() {
     };
 
     if (textLength > 30000 && selectedDocId && selectedVersionId) {
-      // Determine effective rewrite mode using user's toggle selection
-      let effectiveMode: 'scene' | 'chunk' = 'chunk';
-      if (sceneRewrite.selectedRewriteMode === 'chunk') {
-        effectiveMode = 'chunk';
-      } else if (sceneRewrite.selectedRewriteMode === 'scene') {
-        effectiveMode = 'scene';
-      } else {
-        // 'auto' — probe to determine
-        const probeResult = await sceneRewrite.probe(selectedDocId, selectedVersionId);
-        effectiveMode = probeResult?.has_scenes ? 'scene' : 'chunk';
+      const selected = sceneRewrite.selectedRewriteMode; // 'auto' | 'scene' | 'chunk'
+
+      // Ensure probe exists for auto or scene modes
+      let probe = sceneRewrite.probeResult;
+      if (!probe && selected !== 'chunk') {
+        probe = await sceneRewrite.probe(selectedDocId, selectedVersionId) ?? null;
       }
 
-      if (effectiveMode === 'scene') {
-        // Probe if we haven't yet (for 'scene' explicit selection)
-        if (!sceneRewrite.probeResult) {
-          await sceneRewrite.probe(selectedDocId, selectedVersionId);
+      // Determine effectiveMode and reason
+      let effectiveMode: 'scene' | 'chunk' = 'chunk';
+      let rewriteModeReason = 'fallback_error';
+
+      if (selected === 'chunk') {
+        effectiveMode = 'chunk';
+        rewriteModeReason = 'user_selected_chunk';
+      } else if (selected === 'scene') {
+        if (probe?.has_scenes === false) {
+          effectiveMode = 'chunk';
+          rewriteModeReason = 'fallback_scene_unavailable';
+          toast.warning('No scenes detected — falling back to chunk rewrite.');
+        } else {
+          effectiveMode = 'scene';
+          rewriteModeReason = 'user_selected_scene';
         }
+      } else {
+        // 'auto'
+        if (probe?.has_scenes) {
+          effectiveMode = 'scene';
+          rewriteModeReason = 'auto_probe_scene';
+        } else {
+          effectiveMode = 'chunk';
+          rewriteModeReason = 'auto_probe_chunk';
+        }
+      }
+
+      const provenance = {
+        rewriteModeSelected: selected,
+        rewriteModeEffective: effectiveMode,
+        rewriteModeReason,
+        rewriteProbe: probe ? {
+          has_scenes: probe.has_scenes,
+          scenes_count: probe.scenes_count,
+          script_chars: probe.script_chars,
+        } : null,
+        rewriteModeDebug: {
+          selected,
+          probed_has_scenes: probe?.has_scenes ?? null,
+          probed_scenes_count: probe?.scenes_count ?? null,
+          probed_script_chars: probe?.script_chars ?? null,
+          decision_timestamp: new Date().toISOString(),
+        },
+      };
+
+      if (effectiveMode === 'scene') {
         const enqueueResult = await sceneRewrite.enqueue(selectedDocId, selectedVersionId, enrichedNotes, protectItems);
         if (enqueueResult) {
           sceneRewrite.processAll(selectedVersionId);
         }
+        // Provenance will be passed at assemble time via SceneRewritePanel
       } else {
-        // Chunk-based rewrite fallback
-        const provenance = {
-          rewriteModeSelected: sceneRewrite.selectedRewriteMode,
-          rewriteProbe: sceneRewrite.probeResult ? {
-            has_scenes: sceneRewrite.probeResult.has_scenes,
-            scenes_count: sceneRewrite.probeResult.scenes_count,
-            script_chars: sceneRewrite.probeResult.script_chars,
-          } : undefined,
-        };
         rewritePipeline.startRewrite(selectedDocId, selectedVersionId, enrichedNotes, protectItems, provenance);
       }
       afterRewrite();

@@ -75,7 +75,7 @@ export function useRewritePipeline(projectId: string | undefined) {
     versionId: string,
     approvedNotes: any[],
     protectItems: string[],
-    provenance?: { rewriteModeSelected?: string; rewriteProbe?: any },
+    provenance?: { rewriteModeSelected?: string; rewriteModeEffective?: string; rewriteModeReason?: string; rewriteModeDebug?: any; rewriteProbe?: any },
   ) => {
     if (!projectId || runningRef.current) return;
     runningRef.current = true;
@@ -114,6 +114,9 @@ export function useRewritePipeline(projectId: string | undefined) {
       const assembleResult = await callEngine('rewrite-assemble', {
         projectId, documentId, versionId, planRunId, assembledText,
         rewriteModeSelected: provenance?.rewriteModeSelected || 'auto',
+        rewriteModeEffective: provenance?.rewriteModeEffective || 'chunk',
+        rewriteModeReason: provenance?.rewriteModeReason || 'auto_probe_chunk',
+        rewriteModeDebug: provenance?.rewriteModeDebug || null,
         rewriteProbe: provenance?.rewriteProbe || null,
       });
 

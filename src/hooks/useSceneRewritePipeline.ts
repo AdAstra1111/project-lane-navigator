@@ -327,13 +327,16 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
     }
   }, [projectId, loadStatus]);
 
-  const assemble = useCallback(async (sourceDocId: string, sourceVersionId: string, provenance?: { rewriteModeSelected?: string; rewriteProbe?: any }) => {
+  const assemble = useCallback(async (sourceDocId: string, sourceVersionId: string, provenance?: { rewriteModeSelected?: string; rewriteModeEffective?: string; rewriteModeReason?: string; rewriteModeDebug?: any; rewriteProbe?: any }) => {
     if (!projectId) return;
     setState(s => ({ ...s, mode: 'assembling' }));
     try {
       const result = await callEngine('assemble_rewritten_script', {
         projectId, sourceDocId, sourceVersionId,
         rewriteModeSelected: provenance?.rewriteModeSelected || state.selectedRewriteMode || 'auto',
+        rewriteModeEffective: provenance?.rewriteModeEffective || 'scene',
+        rewriteModeReason: provenance?.rewriteModeReason || 'auto_probe_scene',
+        rewriteModeDebug: provenance?.rewriteModeDebug || null,
         rewriteProbe: provenance?.rewriteProbe || state.probeResult || null,
       });
       setState(s => ({ ...s, mode: 'complete', newVersionId: result.newVersionId }));
