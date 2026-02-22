@@ -11255,6 +11255,193 @@ export type Database = {
           },
         ]
       }
+      scene_change_set_comments: {
+        Row: {
+          change_set_id: string
+          comment: string
+          created_at: string
+          created_by: string | null
+          id: string
+          project_id: string
+          target_id: string | null
+          target_type: string
+        }
+        Insert: {
+          change_set_id: string
+          comment: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          project_id: string
+          target_id?: string | null
+          target_type?: string
+        }
+        Update: {
+          change_set_id?: string
+          comment?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          project_id?: string
+          target_id?: string | null
+          target_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scene_change_set_comments_change_set_id_fkey"
+            columns: ["change_set_id"]
+            isOneToOne: false
+            referencedRelation: "scene_change_sets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scene_change_set_comments_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "scene_change_set_comments_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      scene_change_set_ops: {
+        Row: {
+          change_set_id: string
+          created_at: string
+          error: string | null
+          id: string
+          inverse: Json
+          op_index: number
+          op_type: string
+          payload: Json
+          project_id: string
+          status: string
+        }
+        Insert: {
+          change_set_id: string
+          created_at?: string
+          error?: string | null
+          id?: string
+          inverse?: Json
+          op_index: number
+          op_type: string
+          payload?: Json
+          project_id: string
+          status?: string
+        }
+        Update: {
+          change_set_id?: string
+          created_at?: string
+          error?: string | null
+          id?: string
+          inverse?: Json
+          op_index?: number
+          op_type?: string
+          payload?: Json
+          project_id?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scene_change_set_ops_change_set_id_fkey"
+            columns: ["change_set_id"]
+            isOneToOne: false
+            referencedRelation: "scene_change_sets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scene_change_set_ops_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "scene_change_set_ops_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      scene_change_sets: {
+        Row: {
+          applied_snapshot_id: string | null
+          base_snapshot_id: string | null
+          created_at: string
+          created_by: string | null
+          description: string | null
+          goal_type: string | null
+          id: string
+          metadata: Json
+          project_id: string
+          status: string
+          title: string
+        }
+        Insert: {
+          applied_snapshot_id?: string | null
+          base_snapshot_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          goal_type?: string | null
+          id?: string
+          metadata?: Json
+          project_id: string
+          status?: string
+          title: string
+        }
+        Update: {
+          applied_snapshot_id?: string | null
+          base_snapshot_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          goal_type?: string | null
+          id?: string
+          metadata?: Json
+          project_id?: string
+          status?: string
+          title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scene_change_sets_applied_snapshot_id_fkey"
+            columns: ["applied_snapshot_id"]
+            isOneToOne: false
+            referencedRelation: "scene_graph_snapshots"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scene_change_sets_base_snapshot_id_fkey"
+            columns: ["base_snapshot_id"]
+            isOneToOne: false
+            referencedRelation: "scene_graph_snapshots"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scene_change_sets_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "scene_change_sets_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       scene_graph_actions: {
         Row: {
           action_type: string

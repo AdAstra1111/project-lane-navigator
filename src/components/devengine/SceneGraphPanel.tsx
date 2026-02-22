@@ -17,9 +17,10 @@ import {
   Activity, Eye, EyeOff,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { Clapperboard } from 'lucide-react';
+import { Clapperboard, GitBranch } from 'lucide-react';
 import type { SceneListItem, ImpactWarning, PatchQueueItem, InactiveSceneItem, SceneGraphAction, StoryMetricsRun, CoherenceFinding } from '@/lib/scene-graph/types';
 import { VisualProductionPanel } from './VisualProductionPanel';
+import { ChangeSetsPanel } from './ChangeSetsPanel';
 
 interface SceneGraphPanelProps {
   projectId: string;
@@ -173,6 +174,9 @@ export function SceneGraphPanel({ projectId, documents }: SceneGraphPanelProps) 
           <TabsTrigger value="visual" className="text-xs gap-1">
             <Clapperboard className="h-3 w-3" /> Visual Production
           </TabsTrigger>
+          <TabsTrigger value="changesets" className="text-xs gap-1">
+            <GitBranch className="h-3 w-3" /> Change Sets
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="visual" className="mt-3">
@@ -181,6 +185,14 @@ export function SceneGraphPanel({ projectId, documents }: SceneGraphPanelProps) 
             scenes={sg.scenes}
             selectedSceneId={sg.selectedSceneId}
             onSelectScene={(id) => selectScene(id)}
+          />
+        </TabsContent>
+
+        <TabsContent value="changesets" className="mt-3">
+          <ChangeSetsPanel
+            projectId={projectId}
+            scenes={sg.scenes}
+            onSelectScene={(id) => { setTopTab('scenes'); selectScene(id); }}
           />
         </TabsContent>
 

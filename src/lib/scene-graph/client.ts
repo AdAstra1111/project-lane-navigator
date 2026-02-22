@@ -73,6 +73,19 @@ import type {
   ShotVersion,
   StoryboardFrame,
   ProductionBreakdown,
+  // Phase 4 Change Sets
+  ChangeSetCreateInput,
+  ChangeSetListInput,
+  ChangeSetGetInput,
+  ChangeSetAddOpInput,
+  ChangeSetRemoveOpInput,
+  ChangeSetProposeInput,
+  ChangeSetPreviewInput,
+  ChangeSetApplyInput,
+  ChangeSetRollbackInput,
+  SceneChangeSet,
+  SceneChangeSetOp,
+  ChangeSetPreview,
 } from './types';
 
 async function callSceneGraph<T = any>(action: string, payload: Record<string, any>): Promise<T> {
@@ -301,4 +314,42 @@ export async function productionComputeBreakdown(input: ProductionBreakdownInput
 
 export async function productionGetLatest(input: ProductionGetLatestInput) {
   return callSceneGraph<{ breakdown: ProductionBreakdown | null }>('production_get_latest', input);
+}
+
+// Phase 4 Change Set actions
+
+export async function changeSetCreate(input: ChangeSetCreateInput) {
+  return callSceneGraph<{ change_set: SceneChangeSet }>('change_set_create', input);
+}
+
+export async function changeSetList(input: ChangeSetListInput) {
+  return callSceneGraph<{ change_sets: SceneChangeSet[] }>('change_set_list', input);
+}
+
+export async function changeSetGet(input: ChangeSetGetInput) {
+  return callSceneGraph<{ change_set: SceneChangeSet; ops: SceneChangeSetOp[] }>('change_set_get', input);
+}
+
+export async function changeSetAddOp(input: ChangeSetAddOpInput) {
+  return callSceneGraph<{ ops: SceneChangeSetOp[] }>('change_set_add_op', input);
+}
+
+export async function changeSetRemoveOp(input: ChangeSetRemoveOpInput) {
+  return callSceneGraph<{ ops: SceneChangeSetOp[] }>('change_set_remove_op', input);
+}
+
+export async function changeSetPropose(input: ChangeSetProposeInput) {
+  return callSceneGraph<{ change_set: SceneChangeSet }>('change_set_propose', input);
+}
+
+export async function changeSetPreview(input: ChangeSetPreviewInput) {
+  return callSceneGraph<ChangeSetPreview>('change_set_preview', input);
+}
+
+export async function changeSetApply(input: ChangeSetApplyInput) {
+  return callSceneGraph<{ change_set: SceneChangeSet; snapshot: any; impact: any; ops: SceneChangeSetOp[] }>('change_set_apply', input);
+}
+
+export async function changeSetRollback(input: ChangeSetRollbackInput) {
+  return callSceneGraph<{ change_set: SceneChangeSet; snapshot: any }>('change_set_rollback', input);
 }
