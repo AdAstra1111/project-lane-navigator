@@ -367,3 +367,96 @@ export interface NarrativeRepairQueueOptionInput {
   projectId: string;
   option: NarrativeRepairOption;
 }
+
+// ── Phase 4 Types ──
+
+export interface StoryMetricsRun {
+  id: string;
+  project_id: string;
+  created_at: string;
+  created_by: string | null;
+  mode: string;
+  source_snapshot_id: string | null;
+  metrics: {
+    act_balance_score?: number;
+    escalation_curve_score?: number;
+    conflict_density?: number;
+    exposition_ratio?: number;
+    character_focus_entropy?: number;
+    thread_resolution_ratio?: number;
+    setup_payoff_health?: number;
+    continuity_risk_score?: number;
+    coverage?: number;
+    confidence?: number;
+  };
+  per_scene: Array<{
+    scene_id: string;
+    order_key: string;
+    metrics: Record<string, number>;
+  }>;
+  charts: {
+    tension_over_time?: Array<{ x: number; y: number }>;
+    exposition_over_time?: Array<{ x: number; y: number }>;
+    character_presence_over_time?: Array<{ character: string; data: Array<{ x: number; y: number }> }>;
+    open_threads_over_time?: Array<{ x: number; y: number }>;
+  };
+  status: string;
+}
+
+export interface CoherenceFinding {
+  id: string;
+  project_id: string;
+  run_id: string;
+  created_at: string;
+  severity: 'low' | 'med' | 'high';
+  finding_type: 'canon_conflict' | 'character_conflict' | 'format_conflict' | 'market_conflict' | 'blueprint_conflict';
+  title: string;
+  detail: string;
+  related_scene_ids: string[];
+  related_doc_refs: Array<{ doc_type: string; document_id: string; version_id: string }>;
+  suggested_repairs: FindingRepairSuggestion[];
+  is_open: boolean;
+}
+
+export interface FindingRepairSuggestion {
+  repair_kind: string;
+  patch: Record<string, any>;
+  rationale: string;
+}
+
+export interface CoherenceRun {
+  id: string;
+  project_id: string;
+  created_at: string;
+  created_by: string | null;
+  mode: string;
+  inputs: Record<string, any>;
+  findings: any[];
+  status: string;
+}
+
+// Phase 4 inputs
+export interface MetricsRunInput {
+  projectId: string;
+  mode?: 'latest' | 'approved_prefer';
+}
+
+export interface MetricsGetLatestInput {
+  projectId: string;
+}
+
+export interface CoherenceRunInput {
+  projectId: string;
+  mode?: 'latest' | 'approved_prefer';
+  docSet?: { blueprint?: boolean; character_bible?: boolean; format_rules?: boolean; market_sheet?: boolean };
+}
+
+export interface CoherenceGetLatestInput {
+  projectId: string;
+}
+
+export interface CoherenceCloseFindingInput {
+  projectId: string;
+  findingId: string;
+  resolution?: { note: string; actionTaken?: string };
+}

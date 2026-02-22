@@ -995,6 +995,121 @@ export type Database = {
         }
         Relationships: []
       }
+      coherence_checks_runs: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          findings: Json
+          id: string
+          inputs: Json
+          mode: string
+          project_id: string
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          findings?: Json
+          id?: string
+          inputs?: Json
+          mode?: string
+          project_id: string
+          status?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          findings?: Json
+          id?: string
+          inputs?: Json
+          mode?: string
+          project_id?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "coherence_checks_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "coherence_checks_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      coherence_findings: {
+        Row: {
+          created_at: string
+          detail: string
+          finding_type: string
+          id: string
+          is_open: boolean
+          project_id: string
+          related_doc_refs: Json
+          related_scene_ids: Json
+          run_id: string
+          severity: string
+          suggested_repairs: Json
+          title: string
+        }
+        Insert: {
+          created_at?: string
+          detail: string
+          finding_type: string
+          id?: string
+          is_open?: boolean
+          project_id: string
+          related_doc_refs?: Json
+          related_scene_ids?: Json
+          run_id: string
+          severity: string
+          suggested_repairs?: Json
+          title: string
+        }
+        Update: {
+          created_at?: string
+          detail?: string
+          finding_type?: string
+          id?: string
+          is_open?: boolean
+          project_id?: string
+          related_doc_refs?: Json
+          related_scene_ids?: Json
+          run_id?: string
+          severity?: string
+          suggested_repairs?: Json
+          title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "coherence_findings_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "coherence_findings_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "coherence_findings_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "coherence_checks_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       commercial_proof: {
         Row: {
           active: boolean
@@ -11100,6 +11215,8 @@ export type Database = {
           rationale: string | null
           repair_kind: string | null
           source_action_id: string | null
+          source_finding_id: string | null
+          source_run_id: string | null
           status: string
           suggestion: string
           target_scene_id: string | null
@@ -11115,6 +11232,8 @@ export type Database = {
           rationale?: string | null
           repair_kind?: string | null
           source_action_id?: string | null
+          source_finding_id?: string | null
+          source_run_id?: string | null
           status?: string
           suggestion?: string
           target_scene_id?: string | null
@@ -11130,6 +11249,8 @@ export type Database = {
           rationale?: string | null
           repair_kind?: string | null
           source_action_id?: string | null
+          source_finding_id?: string | null
+          source_run_id?: string | null
           status?: string
           suggestion?: string
           target_scene_id?: string | null
@@ -11155,6 +11276,20 @@ export type Database = {
             columns: ["source_action_id"]
             isOneToOne: false
             referencedRelation: "scene_graph_actions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scene_graph_patch_queue_source_finding_id_fkey"
+            columns: ["source_finding_id"]
+            isOneToOne: false
+            referencedRelation: "coherence_findings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scene_graph_patch_queue_source_run_id_fkey"
+            columns: ["source_run_id"]
+            isOneToOne: false
+            referencedRelation: "coherence_checks_runs"
             referencedColumns: ["id"]
           },
           {
@@ -12967,6 +13102,60 @@ export type Database = {
           },
           {
             foreignKeyName: "stage_gates_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      story_metrics_runs: {
+        Row: {
+          charts: Json
+          created_at: string
+          created_by: string | null
+          id: string
+          metrics: Json
+          mode: string
+          per_scene: Json
+          project_id: string
+          source_snapshot_id: string | null
+          status: string
+        }
+        Insert: {
+          charts?: Json
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          metrics?: Json
+          mode?: string
+          per_scene?: Json
+          project_id: string
+          source_snapshot_id?: string | null
+          status?: string
+        }
+        Update: {
+          charts?: Json
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          metrics?: Json
+          mode?: string
+          per_scene?: Json
+          project_id?: string
+          source_snapshot_id?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "story_metrics_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "story_metrics_runs_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"

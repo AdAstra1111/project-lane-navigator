@@ -37,6 +37,15 @@ import type {
   ProjectSpine,
   CanonFact,
   NarrativeRepairOption,
+  // Phase 4
+  MetricsRunInput,
+  MetricsGetLatestInput,
+  CoherenceRunInput,
+  CoherenceGetLatestInput,
+  CoherenceCloseFindingInput,
+  StoryMetricsRun,
+  CoherenceRun,
+  CoherenceFinding,
 } from './types';
 
 async function callSceneGraph<T = any>(action: string, payload: Record<string, any>): Promise<T> {
@@ -175,4 +184,26 @@ export async function narrativeRepairSuggest(input: NarrativeRepairSuggestInput)
 
 export async function narrativeRepairQueueOption(input: NarrativeRepairQueueOptionInput) {
   return callSceneGraph<{ queued_items: PatchQueueItem[] }>('narrative_repair_queue_option', input);
+}
+
+// Phase 4 actions
+
+export async function metricsRun(input: MetricsRunInput) {
+  return callSceneGraph<{ runId: string; metrics: StoryMetricsRun['metrics']; charts: StoryMetricsRun['charts'] }>('metrics_run', input);
+}
+
+export async function metricsGetLatest(input: MetricsGetLatestInput) {
+  return callSceneGraph<{ run: StoryMetricsRun | null }>('metrics_get_latest', input);
+}
+
+export async function coherenceRun(input: CoherenceRunInput) {
+  return callSceneGraph<{ runId: string; findings: CoherenceFinding[] }>('coherence_run', input);
+}
+
+export async function coherenceGetLatest(input: CoherenceGetLatestInput) {
+  return callSceneGraph<{ run: CoherenceRun | null; findings: CoherenceFinding[] }>('coherence_get_latest', input);
+}
+
+export async function coherenceCloseFinding(input: CoherenceCloseFindingInput) {
+  return callSceneGraph<{ finding: CoherenceFinding }>('coherence_close_finding', input);
 }
