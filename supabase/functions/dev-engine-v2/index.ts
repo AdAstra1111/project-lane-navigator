@@ -11797,7 +11797,19 @@ CRITICAL:
       });
       if (rpcErr) {
         // Rollback: delete the version we just inserted so nothing is incorrectly marked current
-        await supabase.from("project_document_versions").delete().eq("id", newVersion.id);
+        try {
+          await supabase.from("project_document_versions").delete().eq("id", newVersion.id);
+        } catch (delErr: any) {
+          console.error("[scene-rewrite] Failed to rollback version after RPC error:", delErr.message);
+        }
+        // Mark rewrite_run as failed
+        if (runId) {
+          await supabase.from("rewrite_runs").update({
+            status: "failed",
+            summary: `set_current_version RPC failed: ${rpcErr.message}`,
+            updated_at: new Date().toISOString(),
+          }).eq("id", runId);
+        }
         throw new Error(`set_current_version RPC failed: ${rpcErr.message}`);
       }
 

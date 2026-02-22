@@ -15740,7 +15740,7 @@ export type Database = {
       }
       set_current_version: {
         Args: { p_document_id: string; p_new_version_id: string }
-        Returns: undefined
+        Returns: Json
       }
     }
     Enums: {
