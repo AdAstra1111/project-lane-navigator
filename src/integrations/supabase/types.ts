@@ -12107,6 +12107,80 @@ export type Database = {
           },
         ]
       }
+      scene_pass_runs: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          created_change_set_id: string | null
+          id: string
+          metadata: Json
+          mode: string
+          pass_type: string
+          project_id: string
+          settings: Json
+          snapshot_id: string
+          status: string
+          summary: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          created_change_set_id?: string | null
+          id?: string
+          metadata?: Json
+          mode?: string
+          pass_type: string
+          project_id: string
+          settings?: Json
+          snapshot_id: string
+          status?: string
+          summary?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          created_change_set_id?: string | null
+          id?: string
+          metadata?: Json
+          mode?: string
+          pass_type?: string
+          project_id?: string
+          settings?: Json
+          snapshot_id?: string
+          status?: string
+          summary?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scene_pass_runs_created_change_set_id_fkey"
+            columns: ["created_change_set_id"]
+            isOneToOne: false
+            referencedRelation: "scene_change_sets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scene_pass_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "scene_pass_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scene_pass_runs_snapshot_id_fkey"
+            columns: ["snapshot_id"]
+            isOneToOne: false
+            referencedRelation: "scene_graph_snapshots"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       scene_qc_issues: {
         Row: {
           category: string

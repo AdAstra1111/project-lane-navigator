@@ -10139,6 +10139,330 @@ Rules:
       });
     }
 
+    // ══════════════════════════════════════════════
+    // PHASE 7 — PASS RUNNER + WRITERS' ROOM PASSES
+    // ══════════════════════════════════════════════
+
+    if (action === "pass_run") {
+      const { projectId, passType, mode, settings } = body;
+      if (!projectId || !passType) throw new Error("projectId and passType required");
+      const validTypes = ['dialogue_sharpen', 'exposition_compress', 'escalation_lift', 'tone_consistency'];
+      if (!validTypes.includes(passType)) throw new Error(`Invalid passType: ${passType}. Must be one of: ${validTypes.join(', ')}`);
+
+      const passMode = mode || 'approved_prefer';
+
+      // Validate settings
+      const s = settings || {};
+      const preserveApproved = s.preserveApproved !== false;
+      const maxScenesTouched = Math.min(Math.max(s.maxScenesTouched || 8, 1), 20);
+      const intensity = ['light', 'medium', 'strong'].includes(s.intensity || '') ? s.intensity : 'medium';
+      const includeActs = s.includeActs || null;
+      const excludeSceneIds = new Set(s.excludeSceneIds || []);
+      const notes = s.notes || '';
+
+      // 1. Build snapshot
+      const { data: orderRows } = await supabase.from("scene_graph_order")
+        .select("scene_id, order_key, act, sequence")
+        .eq("project_id", projectId).eq("is_active", true)
+        .order("order_key", { ascending: true });
+
+      if (!orderRows || orderRows.length === 0) throw new Error("No active scenes found");
+
+      const sceneIds = orderRows.map((r: any) => r.scene_id);
+      const { data: allVers } = await supabase.from("scene_graph_versions")
+        .select("*").in("scene_id", sceneIds).order("version_number", { ascending: false });
+
+      const latestMap = new Map<string, any>();
+      const approvedSet = new Set<string>();
+      for (const v of (allVers || [])) {
+        if (!latestMap.has(v.scene_id)) latestMap.set(v.scene_id, v);
+        if (v.status === 'approved') approvedSet.add(v.scene_id);
+      }
+
+      const snapshotContent = orderRows.map((o: any) => {
+        const v = latestMap.get(o.scene_id);
+        return v?.content || '';
+      }).join('\n\n');
+
+      const so = orderRows.map((o: any) => ({
+        scene_id: o.scene_id, version_id: latestMap.get(o.scene_id)?.id || null,
+        order_key: o.order_key, act: o.act, sequence: o.sequence,
+      }));
+
+      const { data: snapshot } = await supabase.from("scene_graph_snapshots").insert({
+        project_id: projectId, created_by: user.id,
+        label: `Pass: ${passType} ${new Date().toISOString()}`,
+        assembly: { scene_order: so, generated_at: new Date().toISOString(), mode: passMode },
+        content: snapshotContent, status: 'draft',
+      }).select().single();
+
+      if (!snapshot) throw new Error("Failed to create snapshot");
+
+      // 2. Ensure spine + ledger exist
+      const { data: existingSpine } = await supabase.from("story_spines")
+        .select("*").eq("project_id", projectId).order("created_at", { ascending: false }).limit(1).maybeSingle();
+
+      let spine = existingSpine;
+      if (!spine) {
+        try {
+          const spineRaw = await callAI(apiKey, BALANCED_MODEL, "You are a screenplay structure analyst. Return ONLY valid JSON.",
+            `Analyze this screenplay and produce a Story Spine JSON with: logline, genre, tone, premise, acts, character_arcs (name, start_state, end_state, key_steps), rules (world_rules, tone_rules, forbidden_changes).\n\nScript:\n${snapshotContent.slice(0, 15000)}`, 0.2, 6000);
+          const spineJson = await parseAIJson(apiKey, spineRaw);
+          const { data: spRow } = await supabase.from("story_spines").insert({
+            project_id: projectId, created_by: user.id, status: 'active',
+            source: 'pass_runner', spine: spineJson, summary: spineJson.logline || null, version: 1,
+          }).select().single();
+          spine = spRow;
+        } catch (e: any) { console.error("Spine build failed:", e); }
+      }
+
+      const { data: existingLedger } = await supabase.from("thread_ledgers")
+        .select("*").eq("project_id", projectId).order("created_at", { ascending: false }).limit(1).maybeSingle();
+
+      let ledger = existingLedger;
+      if (!ledger) {
+        try {
+          const ledgerRaw = await callAI(apiKey, BALANCED_MODEL, "You are a screenplay thread analyst. Return ONLY valid JSON.",
+            `Analyze this screenplay and produce a Thread Ledger JSON with a "threads" array. Each thread: thread_id, type, title, status, introduced_in_scene_id, resolved_in_scene_id, beats, dependencies, notes.\n\nScript:\n${snapshotContent.slice(0, 15000)}`, 0.2, 6000);
+          const ledgerJson = await parseAIJson(apiKey, ledgerRaw);
+          const { data: lRow } = await supabase.from("thread_ledgers").insert({
+            project_id: projectId, created_by: user.id, status: 'active',
+            ledger: ledgerJson, summary: null, version: 1,
+          }).select().single();
+          ledger = lRow;
+        } catch (e: any) { console.error("Ledger build failed:", e); }
+      }
+
+      const spineData = spine?.spine || {};
+      const forbiddenChanges = spineData.rules?.forbidden_changes || [];
+
+      // 3. Build scene data with indices
+      const scenesWithData = orderRows.map((o: any, idx: number) => {
+        const ver = latestMap.get(o.scene_id);
+        return {
+          scene_id: o.scene_id, display_number: idx + 1, order_key: o.order_key,
+          act: o.act || 1, content: ver?.content || '', contentLen: (ver?.content || '').length,
+          version: ver, isApproved: approvedSet.has(o.scene_id),
+          roles: ver?.metadata?.scene_roles || [],
+          characters: ver?.characters_present || [],
+        };
+      });
+
+      // 4. Get relevant QC issues if available
+      const { data: recentQcRun } = await supabase.from("scene_qc_runs")
+        .select("id").eq("project_id", projectId)
+        .order("created_at", { ascending: false }).limit(1).maybeSingle();
+
+      let qcIssuesByScene = new Map<string, any[]>();
+      if (recentQcRun) {
+        const categoryMap: Record<string, string[]> = {
+          dialogue_sharpen: ['tone', 'arc'],
+          exposition_compress: ['pacing', 'setup_payoff'],
+          escalation_lift: ['pacing', 'arc'],
+          tone_consistency: ['tone'],
+        };
+        const relevantCats = categoryMap[passType] || [];
+        const { data: qcIssues } = await supabase.from("scene_qc_issues")
+          .select("*").eq("qc_run_id", recentQcRun.id).eq("status", "open")
+          .in("category", relevantCats);
+
+        for (const issue of (qcIssues || [])) {
+          const sceneRefs = issue.related_scene_ids || [];
+          for (const sid of sceneRefs) {
+            if (!qcIssuesByScene.has(sid)) qcIssuesByScene.set(sid, []);
+            qcIssuesByScene.get(sid)!.push(issue);
+          }
+        }
+      }
+
+      // 5. Score + rank scenes for this pass type
+      const scoredScenes = scenesWithData
+        .filter(sc => {
+          if (preserveApproved && sc.isApproved && !notes.toLowerCase().includes('allow approved')) return false;
+          if (excludeSceneIds.has(sc.scene_id)) return false;
+          if (includeActs && !includeActs.includes(sc.act)) return false;
+          return true;
+        })
+        .map(sc => {
+          let score = 0;
+          const issues = qcIssuesByScene.get(sc.scene_id) || [];
+          score += issues.reduce((sum: number, i: any) => sum + (i.severity === 'critical' ? 4 : i.severity === 'high' ? 3 : i.severity === 'medium' ? 2 : 1), 0);
+
+          if (passType === 'dialogue_sharpen') {
+            // Higher score for longer content (proxy for dialogue density)
+            score += Math.min(sc.contentLen / 500, 5);
+          } else if (passType === 'exposition_compress') {
+            const hasSetupRole = sc.roles.some((r: any) => (r.role || r).toString().includes('setup') || (r.role || r).toString().includes('transition'));
+            if (hasSetupRole) score += 3;
+            score += Math.min(sc.contentLen / 800, 4);
+          } else if (passType === 'escalation_lift') {
+            // Flat stretches get higher scores
+            score += sc.contentLen < 300 ? 2 : 0;
+          } else if (passType === 'tone_consistency') {
+            score += issues.filter((i: any) => i.category === 'tone').length * 3;
+          }
+          return { ...sc, score };
+        })
+        .sort((a, b) => b.score - a.score)
+        .slice(0, maxScenesTouched);
+
+      if (scoredScenes.length === 0) {
+        // Still create the pass run but no change set
+        const { data: passRun } = await supabase.from("scene_pass_runs").insert({
+          project_id: projectId, created_by: user.id, snapshot_id: snapshot.id,
+          pass_type: passType, mode: passMode, status: 'completed',
+          settings: { preserveApproved, maxScenesTouched, intensity, includeActs, excludeSceneIds: Array.from(excludeSceneIds), notes },
+          summary: 'No eligible scenes found for this pass.',
+          metadata: { selected_count: 0 },
+        }).select().single();
+
+        return new Response(JSON.stringify({ pass_run: passRun, change_set_id: null, selected_scenes: [] }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // 6. Generate patches via LLM
+      const passGoals: Record<string, string> = {
+        dialogue_sharpen: `Tighten dialogue lines, improve subtext, preserve plot beats, keep character voice distinct. Do NOT add/remove story facts or thread links. Intensity: ${intensity}.`,
+        exposition_compress: `Reduce exposition, move info into conflict/action, shorten explanations. Preserve necessary facts by embedding subtly. Intensity: ${intensity}.`,
+        escalation_lift: `Increase stakes, add reversals, sharper obstacles. May insert micro-beats. Do NOT break continuity or change major outcomes without explicit note. Intensity: ${intensity}.`,
+        tone_consistency: `Align tone with established rules: ${JSON.stringify(spineData.rules?.tone_rules || [])}. Genre: ${spineData.genre || 'unknown'}. Preserve events. Intensity: ${intensity}.`,
+      };
+
+      const scenesForPrompt = scoredScenes.map(sc =>
+        `Scene ${sc.display_number} (ID: ${sc.scene_id}):\nCharacters: ${sc.characters.join(', ') || 'unknown'}\n---\n${sc.content.slice(0, 3000)}\n---`
+      ).join('\n\n');
+
+      const forbiddenStr = forbiddenChanges.length > 0 ? `\nFORBIDDEN CHANGES (do not violate): ${JSON.stringify(forbiddenChanges)}` : '';
+
+      const patchPrompt = `You are a professional screenplay rewrite assistant performing a "${passType}" pass.
+
+GOAL: ${passGoals[passType]}
+${forbiddenStr}
+
+RULES:
+- Return a JSON array of patch objects, one per scene
+- Each patch: { "scene_id": "uuid", "strategy": "rewrite", "patch": { "content": "full rewritten scene text" }, "rationale": "why", "risks": ["risk1"] }
+- Preserve ALL continuity facts and thread connections
+- Do NOT introduce new characters not already in the scene
+- Do NOT change scene boundaries or sluglines unless absolutely necessary
+- Return ONLY valid JSON array
+
+SCENES TO REWRITE:
+${scenesForPrompt}`;
+
+      let patches: any[] = [];
+      try {
+        const patchRaw = await callAI(apiKey, BALANCED_MODEL, "You are a screenplay rewrite engine. Return ONLY a valid JSON array of patch objects.", patchPrompt, 0.4, 12000);
+        const parsed = await parseAIJson(apiKey, patchRaw);
+        patches = Array.isArray(parsed) ? parsed : (parsed.patches || []);
+      } catch (e: any) {
+        console.error("Pass LLM failed:", e);
+        // Retry once with simpler prompt
+        try {
+          const patchRaw2 = await callAI(apiKey, FAST_MODEL, "Return JSON array of screenplay patches.", `Rewrite these scenes (${passType}, ${intensity}):\n${scenesForPrompt.slice(0, 8000)}\n\nReturn JSON array: [{ "scene_id": "...", "strategy": "rewrite", "patch": { "content": "..." }, "rationale": "...", "risks": [] }]`, 0.3, 8000);
+          const parsed2 = await parseAIJson(apiKey, patchRaw2);
+          patches = Array.isArray(parsed2) ? parsed2 : [];
+        } catch { patches = []; }
+      }
+
+      // 7. Create Change Set
+      const validSceneIds = new Set(scoredScenes.map(s => s.scene_id));
+      const validPatches = patches.filter((p: any) => p.scene_id && validSceneIds.has(p.scene_id));
+
+      const csTitle = `Pass: ${passType} (${new Date().toISOString().split('T')[0]})`;
+      const { data: cs } = await supabase.from("scene_change_sets").insert({
+        project_id: projectId, created_by: user.id,
+        title: csTitle,
+        description: `Auto-generated by ${passType} pass. Intensity: ${intensity}. ${validPatches.length} scenes rewritten.`,
+        goal_type: passType,
+        status: 'draft',
+        base_snapshot_id: snapshot.id,
+        metadata: { pass_type: passType, intensity, scene_count: validPatches.length },
+      }).select().single();
+
+      if (!cs) throw new Error("Failed to create change set");
+
+      // 8. Insert ops
+      let opIndex = 0;
+      for (const patch of validPatches) {
+        await supabase.from("scene_change_set_ops").insert({
+          change_set_id: cs.id,
+          project_id: projectId,
+          op_index: opIndex++,
+          op_type: 'update_scene',
+          payload: {
+            sceneId: patch.scene_id,
+            patch: patch.patch || {},
+            meta: { rationale: patch.rationale || '', risks: patch.risks || [], source: `pass_${passType}` },
+          },
+          inverse: {},
+          status: 'pending',
+        });
+      }
+
+      // 9. Create pass run row
+      const { data: passRun } = await supabase.from("scene_pass_runs").insert({
+        project_id: projectId, created_by: user.id, snapshot_id: snapshot.id,
+        pass_type: passType, mode: passMode, status: 'completed',
+        settings: { preserveApproved, maxScenesTouched, intensity, includeActs, excludeSceneIds: Array.from(excludeSceneIds), notes },
+        summary: `${validPatches.length} scenes rewritten (${passType}, ${intensity})`,
+        created_change_set_id: cs.id,
+        metadata: { selected_scenes: scoredScenes.map(s => s.scene_id), patch_count: validPatches.length },
+      }).select().single();
+
+      return new Response(JSON.stringify({
+        pass_run: passRun,
+        change_set_id: cs.id,
+        selected_scenes: scoredScenes.map(s => s.scene_id),
+      }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "pass_list_runs") {
+      const { projectId, limit } = body;
+      if (!projectId) throw new Error("projectId required");
+
+      const { data: runs } = await supabase.from("scene_pass_runs")
+        .select("*").eq("project_id", projectId)
+        .order("created_at", { ascending: false }).limit(limit || 20);
+
+      return new Response(JSON.stringify({ runs: runs || [] }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "pass_get_run") {
+      const { projectId, passRunId } = body;
+      if (!projectId || !passRunId) throw new Error("projectId and passRunId required");
+
+      const { data: run } = await supabase.from("scene_pass_runs")
+        .select("*").eq("id", passRunId).single();
+      if (!run) throw new Error("Pass run not found");
+
+      const selectedScenes = run.metadata?.selected_scenes || [];
+      let sceneDetails: any[] = [];
+      if (selectedScenes.length > 0) {
+        const { data: scenes } = await supabase.from("scene_graph_versions")
+          .select("scene_id, slugline, content, version_number")
+          .in("scene_id", selectedScenes)
+          .order("version_number", { ascending: false });
+
+        const seen = new Set<string>();
+        for (const s of (scenes || [])) {
+          if (!seen.has(s.scene_id)) {
+            seen.add(s.scene_id);
+            sceneDetails.push(s);
+          }
+        }
+      }
+
+      return new Response(JSON.stringify({ run, selected_scenes: sceneDetails }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     throw new Error(`Unknown action: ${action}`);
   } catch (err: any) {
     console.error("dev-engine-v2 error:", err);
