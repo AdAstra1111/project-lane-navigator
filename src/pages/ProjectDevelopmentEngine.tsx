@@ -1448,6 +1448,7 @@ export default function ProjectDevelopmentEngine() {
                       });
                       return result;
                     }}
+                    onClearOldNotes={() => deferred.bulkDismissAll.mutate()}
                   />
                 );
               })()}
