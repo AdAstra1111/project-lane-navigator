@@ -11371,6 +11371,85 @@ export type Database = {
           },
         ]
       }
+      scene_change_set_review_state: {
+        Row: {
+          after_version_id: string | null
+          before_version_id: string | null
+          change_set_id: string
+          decided_at: string | null
+          decided_by: string | null
+          decision: string
+          id: string
+          project_id: string
+          scene_id: string
+        }
+        Insert: {
+          after_version_id?: string | null
+          before_version_id?: string | null
+          change_set_id: string
+          decided_at?: string | null
+          decided_by?: string | null
+          decision?: string
+          id?: string
+          project_id: string
+          scene_id: string
+        }
+        Update: {
+          after_version_id?: string | null
+          before_version_id?: string | null
+          change_set_id?: string
+          decided_at?: string | null
+          decided_by?: string | null
+          decision?: string
+          id?: string
+          project_id?: string
+          scene_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scene_change_set_review_state_after_version_id_fkey"
+            columns: ["after_version_id"]
+            isOneToOne: false
+            referencedRelation: "scene_graph_versions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scene_change_set_review_state_before_version_id_fkey"
+            columns: ["before_version_id"]
+            isOneToOne: false
+            referencedRelation: "scene_graph_versions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scene_change_set_review_state_change_set_id_fkey"
+            columns: ["change_set_id"]
+            isOneToOne: false
+            referencedRelation: "scene_change_sets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scene_change_set_review_state_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "scene_change_set_review_state_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scene_change_set_review_state_scene_id_fkey"
+            columns: ["scene_id"]
+            isOneToOne: false
+            referencedRelation: "scene_graph_scenes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       scene_change_sets: {
         Row: {
           applied_snapshot_id: string | null
@@ -11438,6 +11517,180 @@ export type Database = {
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      scene_diff_artifacts: {
+        Row: {
+          after_version_id: string | null
+          artifact: Json
+          before_version_id: string | null
+          change_set_id: string
+          created_at: string
+          created_by: string | null
+          diff_type: string
+          id: string
+          project_id: string
+          scene_id: string | null
+        }
+        Insert: {
+          after_version_id?: string | null
+          artifact?: Json
+          before_version_id?: string | null
+          change_set_id: string
+          created_at?: string
+          created_by?: string | null
+          diff_type: string
+          id?: string
+          project_id: string
+          scene_id?: string | null
+        }
+        Update: {
+          after_version_id?: string | null
+          artifact?: Json
+          before_version_id?: string | null
+          change_set_id?: string
+          created_at?: string
+          created_by?: string | null
+          diff_type?: string
+          id?: string
+          project_id?: string
+          scene_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scene_diff_artifacts_after_version_id_fkey"
+            columns: ["after_version_id"]
+            isOneToOne: false
+            referencedRelation: "scene_graph_versions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scene_diff_artifacts_before_version_id_fkey"
+            columns: ["before_version_id"]
+            isOneToOne: false
+            referencedRelation: "scene_graph_versions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scene_diff_artifacts_change_set_id_fkey"
+            columns: ["change_set_id"]
+            isOneToOne: false
+            referencedRelation: "scene_change_sets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scene_diff_artifacts_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "scene_diff_artifacts_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scene_diff_artifacts_scene_id_fkey"
+            columns: ["scene_id"]
+            isOneToOne: false
+            referencedRelation: "scene_graph_scenes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      scene_diff_comments: {
+        Row: {
+          after_version_id: string | null
+          before_version_id: string | null
+          change_set_id: string
+          comment: string
+          created_at: string
+          created_by: string | null
+          id: string
+          parent_id: string | null
+          project_id: string
+          scene_id: string | null
+          status: string
+        }
+        Insert: {
+          after_version_id?: string | null
+          before_version_id?: string | null
+          change_set_id: string
+          comment: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          parent_id?: string | null
+          project_id: string
+          scene_id?: string | null
+          status?: string
+        }
+        Update: {
+          after_version_id?: string | null
+          before_version_id?: string | null
+          change_set_id?: string
+          comment?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          parent_id?: string | null
+          project_id?: string
+          scene_id?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scene_diff_comments_after_version_id_fkey"
+            columns: ["after_version_id"]
+            isOneToOne: false
+            referencedRelation: "scene_graph_versions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scene_diff_comments_before_version_id_fkey"
+            columns: ["before_version_id"]
+            isOneToOne: false
+            referencedRelation: "scene_graph_versions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scene_diff_comments_change_set_id_fkey"
+            columns: ["change_set_id"]
+            isOneToOne: false
+            referencedRelation: "scene_change_sets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scene_diff_comments_parent_id_fkey"
+            columns: ["parent_id"]
+            isOneToOne: false
+            referencedRelation: "scene_diff_comments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scene_diff_comments_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "scene_diff_comments_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scene_diff_comments_scene_id_fkey"
+            columns: ["scene_id"]
+            isOneToOne: false
+            referencedRelation: "scene_graph_scenes"
             referencedColumns: ["id"]
           },
         ]

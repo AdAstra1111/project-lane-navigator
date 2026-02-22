@@ -8776,6 +8776,16 @@ SCENE MAP: ${JSON.stringify(sceneMapCompact).slice(0, 15000)}`;
 
       for (const op of (ops || [])) {
         try {
+          // Phase 5: Skip ops marked by review decisions
+          if (op.payload?.meta?.skip === true) {
+            await supabase.from("scene_change_set_ops").update({
+              status: 'executed', error: null,
+              inverse: { skipped: true, skip_reason: op.payload?.meta?.skip_reason || 'skipped_by_review' },
+            }).eq("id", op.id);
+            executedOps.push({ ...op, status: 'executed', inverse: { skipped: true } });
+            continue;
+          }
+
           let realInverse: any = {};
 
           if (op.op_type === 'insert') {
@@ -9064,6 +9074,456 @@ SCENE MAP: ${JSON.stringify(sceneMapCompact).slice(0, 15000)}`;
         change_set: { ...cs, status: 'rolled_back' },
         snapshot: restoredSnapshot,
       }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ══════════════════════════════════════════════
+    // PHASE 5 DIFF + REVIEW + COMMENTS
+    // ══════════════════════════════════════════════
+
+    // ── Pure TS line diff (Myers-like LCS) ──
+    function computeLineDiff(beforeText: string, afterText: string): { hunks: any[]; stats: { insertions: number; deletions: number; unchanged: number } } {
+      const beforeLines = beforeText.split('\n');
+      const afterLines = afterText.split('\n');
+
+      // Simple LCS-based diff
+      const m = beforeLines.length;
+      const n = afterLines.length;
+      // Build LCS table
+      const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0));
+      for (let i = 1; i <= m; i++) {
+        for (let j = 1; j <= n; j++) {
+          if (beforeLines[i - 1] === afterLines[j - 1]) dp[i][j] = dp[i - 1][j - 1] + 1;
+          else dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+        }
+      }
+
+      // Backtrack to produce ops
+      const ops: Array<{ t: 'eq' | 'ins' | 'del'; text: string }> = [];
+      let i = m, j = n;
+      const rawOps: Array<{ t: 'eq' | 'ins' | 'del'; text: string }> = [];
+      while (i > 0 || j > 0) {
+        if (i > 0 && j > 0 && beforeLines[i - 1] === afterLines[j - 1]) {
+          rawOps.push({ t: 'eq', text: beforeLines[i - 1] });
+          i--; j--;
+        } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+          rawOps.push({ t: 'ins', text: afterLines[j - 1] });
+          j--;
+        } else {
+          rawOps.push({ t: 'del', text: beforeLines[i - 1] });
+          i--;
+        }
+      }
+      rawOps.reverse();
+
+      // Group into hunks (context = 3 lines)
+      const hunks: any[] = [];
+      let currentHunk: any = null;
+      let bLine = 0, aLine = 0;
+
+      for (const op of rawOps) {
+        if (op.t !== 'eq') {
+          if (!currentHunk) {
+            currentHunk = { before_start: bLine, before_len: 0, after_start: aLine, after_len: 0, ops: [] };
+          }
+          currentHunk.ops.push(op);
+          if (op.t === 'del') { currentHunk.before_len++; bLine++; }
+          if (op.t === 'ins') { currentHunk.after_len++; aLine++; }
+        } else {
+          if (currentHunk) {
+            // Add context line
+            currentHunk.ops.push(op);
+            currentHunk.before_len++;
+            currentHunk.after_len++;
+            // Check if we should close the hunk (3 consecutive eq lines)
+            const lastThree = currentHunk.ops.slice(-3);
+            if (lastThree.length === 3 && lastThree.every((o: any) => o.t === 'eq')) {
+              hunks.push(currentHunk);
+              currentHunk = null;
+            }
+          }
+          bLine++;
+          aLine++;
+        }
+      }
+      if (currentHunk) hunks.push(currentHunk);
+
+      // If no hunks, create a single "all equal" summary
+      const stats = {
+        insertions: rawOps.filter(o => o.t === 'ins').length,
+        deletions: rawOps.filter(o => o.t === 'del').length,
+        unchanged: rawOps.filter(o => o.t === 'eq').length,
+      };
+
+      return { hunks, stats };
+    }
+
+    if (action === "change_set_compute_diffs") {
+      const { projectId, changeSetId, granularity } = body;
+      if (!projectId || !changeSetId) throw new Error("projectId and changeSetId required");
+      const gran = granularity || 'line';
+
+      // Get change set
+      const { data: cs } = await supabase.from("scene_change_sets")
+        .select("*").eq("id", changeSetId).eq("project_id", projectId).single();
+      if (!cs) throw new Error("Change set not found");
+
+      // Get ops
+      const { data: ops } = await supabase.from("scene_change_set_ops")
+        .select("*").eq("change_set_id", changeSetId).order("op_index", { ascending: true });
+
+      // Get current live state
+      const { data: orderRows } = await supabase.from("scene_graph_order")
+        .select("scene_id, order_key, act, sequence, is_active")
+        .eq("project_id", projectId).eq("is_active", true)
+        .order("order_key", { ascending: true });
+
+      const sceneIds = (orderRows || []).map((r: any) => r.scene_id);
+      const { data: allVersions } = await supabase.from("scene_graph_versions")
+        .select("id, scene_id, version_number, slugline, summary, content")
+        .in("scene_id", sceneIds.length > 0 ? sceneIds : ['__none__'])
+        .order("version_number", { ascending: false });
+
+      const latestVersionMap = new Map<string, any>();
+      for (const v of (allVersions || [])) {
+        if (!latestVersionMap.has(v.scene_id)) latestVersionMap.set(v.scene_id, v);
+      }
+
+      // Build before-state
+      const beforeState = (orderRows || []).map((o: any) => ({
+        scene_id: o.scene_id,
+        order_key: o.order_key,
+        version_id: latestVersionMap.get(o.scene_id)?.id || null,
+        content: latestVersionMap.get(o.scene_id)?.content || '',
+        slugline: latestVersionMap.get(o.scene_id)?.slugline || '',
+      }));
+
+      // Simulate ops to build after-state
+      const afterState = JSON.parse(JSON.stringify(beforeState));
+      let nextPlaceholder = 0;
+
+      for (const op of (ops || [])) {
+        if (op.op_type === 'insert') {
+          const pos = op.payload?.position || {};
+          const draft = op.payload?.sceneDraft || {};
+          const newEntry = { scene_id: `__new_${nextPlaceholder++}__`, order_key: `sim_${nextPlaceholder}`, version_id: null, content: draft.content || '', slugline: draft.slugline || 'NEW SCENE' };
+          if (pos.afterSceneId) { const idx = afterState.findIndex((s: any) => s.scene_id === pos.afterSceneId); afterState.splice(idx >= 0 ? idx + 1 : afterState.length, 0, newEntry); }
+          else if (pos.beforeSceneId) { const idx = afterState.findIndex((s: any) => s.scene_id === pos.beforeSceneId); afterState.splice(idx >= 0 ? idx : 0, 0, newEntry); }
+          else afterState.push(newEntry);
+        } else if (op.op_type === 'remove' && op.payload?.sceneId) {
+          const idx = afterState.findIndex((s: any) => s.scene_id === op.payload.sceneId);
+          if (idx >= 0) afterState.splice(idx, 1);
+        } else if (op.op_type === 'move' && op.payload?.sceneId) {
+          const idx = afterState.findIndex((s: any) => s.scene_id === op.payload.sceneId);
+          if (idx >= 0) {
+            const [entry] = afterState.splice(idx, 1);
+            const pos = op.payload?.position || {};
+            if (pos.afterSceneId) { const tgt = afterState.findIndex((s: any) => s.scene_id === pos.afterSceneId); afterState.splice(tgt >= 0 ? tgt + 1 : afterState.length, 0, entry); }
+            else if (pos.beforeSceneId) { const tgt = afterState.findIndex((s: any) => s.scene_id === pos.beforeSceneId); afterState.splice(tgt >= 0 ? tgt : 0, 0, entry); }
+            else afterState.push(entry);
+          }
+        } else if (op.op_type === 'update_scene' && op.payload?.sceneId) {
+          const entry = afterState.find((s: any) => s.scene_id === op.payload.sceneId);
+          if (entry) {
+            if (op.payload.patch?.content) entry.content = op.payload.patch.content;
+            if (op.payload.patch?.slugline) entry.slugline = op.payload.patch.slugline;
+            entry.version_id = `__updated_${nextPlaceholder++}__`;
+          }
+        }
+      }
+
+      // Build scene blocks for snapshot diff
+      const beforeIds = new Set(beforeState.map((s: any) => s.scene_id));
+      const afterIds = new Set(afterState.map((s: any) => s.scene_id));
+      const beforePositions = new Map(beforeState.map((s: any, i: number) => [s.scene_id, i]));
+      const afterPositions = new Map(afterState.map((s: any, i: number) => [s.scene_id, i]));
+      const beforeVersions = new Map(beforeState.map((s: any) => [s.scene_id, s.version_id]));
+      const beforeContentMap = new Map(beforeState.map((s: any) => [s.scene_id, s.content]));
+
+      const sceneBlocks: any[] = [];
+      const artifactIds: string[] = [];
+
+      // Process all scenes (after + removed)
+      const allSceneIds = new Set([...beforeState.map((s: any) => s.scene_id), ...afterState.map((s: any) => s.scene_id)]);
+      for (const sid of allSceneIds) {
+        const inBefore = beforeIds.has(sid);
+        const inAfter = afterIds.has(sid);
+        const bEntry = beforeState.find((s: any) => s.scene_id === sid);
+        const aEntry = afterState.find((s: any) => s.scene_id === sid);
+
+        let changeType: string;
+        if (!inBefore && inAfter) changeType = 'added';
+        else if (inBefore && !inAfter) changeType = 'removed';
+        else if (inBefore && inAfter) {
+          const bVer = beforeVersions.get(sid);
+          const aVer = aEntry?.version_id;
+          const moved = beforePositions.get(sid) !== afterPositions.get(sid);
+          const edited = bVer !== aVer;
+          if (edited) changeType = 'edited';
+          else if (moved) changeType = 'moved';
+          else changeType = 'unchanged';
+        } else changeType = 'unchanged';
+
+        const block = {
+          scene_id: sid,
+          change_type: changeType,
+          before_version_id: bEntry?.version_id || null,
+          after_version_id: aEntry?.version_id || null,
+          before_excerpt: bEntry ? (bEntry.content || '').slice(0, 200) : null,
+          after_excerpt: aEntry ? (aEntry.content || '').slice(0, 200) : null,
+        };
+        sceneBlocks.push(block);
+
+        // If edited, compute scene diff artifact
+        if (changeType === 'edited' && bEntry && aEntry) {
+          const beforeText = bEntry.content || '';
+          const afterText = aEntry.content || '';
+          const { hunks, stats } = computeLineDiff(beforeText, afterText);
+
+          const artifact = {
+            format: 'iffi_diff_v1',
+            granularity: gran,
+            before: { scene_id: sid, version_id: bEntry.version_id || '', text: beforeText },
+            after: { scene_id: sid, version_id: aEntry.version_id || '', text: afterText },
+            hunks,
+            stats,
+          };
+
+          // Upsert scene diff artifact
+          const { data: existing } = await supabase.from("scene_diff_artifacts")
+            .select("id").eq("change_set_id", changeSetId).eq("scene_id", sid).eq("diff_type", "scene").maybeSingle();
+          if (existing) {
+            await supabase.from("scene_diff_artifacts").update({ artifact, created_by: user.id }).eq("id", existing.id);
+            artifactIds.push(existing.id);
+          } else {
+            const { data: inserted } = await supabase.from("scene_diff_artifacts").insert({
+              project_id: projectId, change_set_id: changeSetId, created_by: user.id,
+              diff_type: 'scene', scene_id: sid,
+              before_version_id: bEntry.version_id || null,
+              after_version_id: aEntry.version_id || null,
+              artifact,
+            }).select("id").single();
+            if (inserted) artifactIds.push(inserted.id);
+          }
+        }
+      }
+
+      // Snapshot diff artifact
+      const snapshotArtifact = {
+        format: 'iffi_snapshot_diff_v1',
+        before_snapshot_id: cs.base_snapshot_id,
+        after_snapshot_id: null,
+        scene_blocks: sceneBlocks,
+        stats: {
+          added: sceneBlocks.filter((b: any) => b.change_type === 'added').length,
+          removed: sceneBlocks.filter((b: any) => b.change_type === 'removed').length,
+          moved: sceneBlocks.filter((b: any) => b.change_type === 'moved').length,
+          edited: sceneBlocks.filter((b: any) => b.change_type === 'edited').length,
+          unchanged: sceneBlocks.filter((b: any) => b.change_type === 'unchanged').length,
+        },
+      };
+
+      const { data: existingSnap } = await supabase.from("scene_diff_artifacts")
+        .select("id").eq("change_set_id", changeSetId).eq("diff_type", "snapshot").maybeSingle();
+      if (existingSnap) {
+        await supabase.from("scene_diff_artifacts").update({ artifact: snapshotArtifact, created_by: user.id }).eq("id", existingSnap.id);
+        artifactIds.push(existingSnap.id);
+      } else {
+        const { data: inserted } = await supabase.from("scene_diff_artifacts").insert({
+          project_id: projectId, change_set_id: changeSetId, created_by: user.id,
+          diff_type: 'snapshot', scene_id: null, before_version_id: null, after_version_id: null,
+          artifact: snapshotArtifact,
+        }).select("id").single();
+        if (inserted) artifactIds.push(inserted.id);
+      }
+
+      return new Response(JSON.stringify({ artifact_ids: artifactIds, stats: snapshotArtifact.stats }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "change_set_get_diffs") {
+      const { projectId, changeSetId } = body;
+      if (!projectId || !changeSetId) throw new Error("projectId and changeSetId required");
+
+      const { data: snapArt } = await supabase.from("scene_diff_artifacts")
+        .select("artifact").eq("change_set_id", changeSetId).eq("diff_type", "snapshot").maybeSingle();
+
+      const { data: sceneDiffs } = await supabase.from("scene_diff_artifacts")
+        .select("scene_id, before_version_id, after_version_id, artifact")
+        .eq("change_set_id", changeSetId).eq("diff_type", "scene");
+
+      return new Response(JSON.stringify({
+        snapshot_diff: snapArt?.artifact || null,
+        scene_diffs: (sceneDiffs || []).map((d: any) => ({
+          scene_id: d.scene_id,
+          before_version_id: d.before_version_id,
+          after_version_id: d.after_version_id,
+          stats: d.artifact?.stats || null,
+        })),
+      }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "change_set_get_scene_diff") {
+      const { projectId, changeSetId, sceneId, beforeVersionId, afterVersionId } = body;
+      if (!projectId || !changeSetId || !sceneId) throw new Error("projectId, changeSetId, sceneId required");
+
+      let q = supabase.from("scene_diff_artifacts")
+        .select("artifact").eq("change_set_id", changeSetId).eq("scene_id", sceneId).eq("diff_type", "scene");
+      if (beforeVersionId) q = q.eq("before_version_id", beforeVersionId);
+      if (afterVersionId) q = q.eq("after_version_id", afterVersionId);
+
+      const { data } = await q.maybeSingle();
+
+      return new Response(JSON.stringify({ artifact: data?.artifact || null }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "change_set_set_review_decision") {
+      const { projectId, changeSetId, sceneId, beforeVersionId, afterVersionId, decision } = body;
+      if (!projectId || !changeSetId || !sceneId || !decision) throw new Error("projectId, changeSetId, sceneId, decision required");
+
+      const { data, error: upsErr } = await supabase.from("scene_change_set_review_state").upsert({
+        project_id: projectId,
+        change_set_id: changeSetId,
+        scene_id: sceneId,
+        before_version_id: beforeVersionId || null,
+        after_version_id: afterVersionId || null,
+        decision,
+        decided_at: decision !== 'pending' ? new Date().toISOString() : null,
+        decided_by: decision !== 'pending' ? user.id : null,
+      }, {
+        onConflict: 'change_set_id,scene_id,before_version_id,after_version_id',
+      }).select().single();
+      if (upsErr) throw upsErr;
+
+      return new Response(JSON.stringify({ review: data }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "change_set_apply_review_decisions") {
+      const { projectId, changeSetId } = body;
+      if (!projectId || !changeSetId) throw new Error("projectId and changeSetId required");
+
+      // Get all review decisions
+      const { data: reviews } = await supabase.from("scene_change_set_review_state")
+        .select("*").eq("change_set_id", changeSetId);
+
+      const rejectedSceneIds = new Set(
+        (reviews || []).filter((r: any) => r.decision === 'rejected').map((r: any) => r.scene_id)
+      );
+
+      // Get ops and mark rejected scenes as skipped
+      const { data: ops } = await supabase.from("scene_change_set_ops")
+        .select("*").eq("change_set_id", changeSetId).order("op_index", { ascending: true });
+
+      const updatedOps: any[] = [];
+      for (const op of (ops || [])) {
+        const targetSceneId = op.payload?.sceneId;
+        const shouldSkip = targetSceneId && rejectedSceneIds.has(targetSceneId);
+
+        if (shouldSkip) {
+          const newPayload = { ...op.payload, meta: { ...(op.payload?.meta || {}), skip: true, skip_reason: 'rejected_by_review' } };
+          await supabase.from("scene_change_set_ops").update({ payload: newPayload }).eq("id", op.id);
+          updatedOps.push({ ...op, payload: newPayload });
+        } else {
+          // Ensure skip is removed if previously set
+          if (op.payload?.meta?.skip) {
+            const newPayload = { ...op.payload, meta: { ...(op.payload?.meta || {}), skip: false } };
+            await supabase.from("scene_change_set_ops").update({ payload: newPayload }).eq("id", op.id);
+            updatedOps.push({ ...op, payload: newPayload });
+          } else {
+            updatedOps.push(op);
+          }
+        }
+      }
+
+      // Store execution plan in metadata
+      await supabase.from("scene_change_sets").update({
+        metadata: {
+          execution_plan: {
+            rejected_scene_ids: Array.from(rejectedSceneIds),
+            total_ops: updatedOps.length,
+            skipped_ops: updatedOps.filter((o: any) => o.payload?.meta?.skip).length,
+            computed_at: new Date().toISOString(),
+          },
+        },
+      }).eq("id", changeSetId);
+
+      return new Response(JSON.stringify({ ops: updatedOps }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "change_set_add_comment") {
+      const { projectId, changeSetId, sceneId, beforeVersionId, afterVersionId, parentId, comment: commentText } = body;
+      if (!projectId || !changeSetId || !commentText) throw new Error("projectId, changeSetId, comment required");
+
+      const { data: inserted, error: insErr } = await supabase.from("scene_diff_comments").insert({
+        project_id: projectId,
+        change_set_id: changeSetId,
+        scene_id: sceneId || null,
+        before_version_id: beforeVersionId || null,
+        after_version_id: afterVersionId || null,
+        created_by: user.id,
+        parent_id: parentId || null,
+        status: 'open',
+        comment: commentText,
+      }).select().single();
+      if (insErr) throw insErr;
+
+      // Return thread
+      const rootId = parentId || inserted.id;
+      const { data: thread } = await supabase.from("scene_diff_comments")
+        .select("*")
+        .or(`id.eq.${rootId},parent_id.eq.${rootId}`)
+        .order("created_at", { ascending: true });
+
+      return new Response(JSON.stringify({ comment: inserted, thread: thread || [] }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "change_set_list_comments") {
+      const { projectId, changeSetId, sceneId } = body;
+      if (!projectId || !changeSetId) throw new Error("projectId and changeSetId required");
+
+      let q = supabase.from("scene_diff_comments")
+        .select("*").eq("change_set_id", changeSetId)
+        .order("created_at", { ascending: true });
+      if (sceneId) q = q.eq("scene_id", sceneId);
+
+      const { data: comments } = await q;
+
+      // Build hierarchical threads
+      const roots = (comments || []).filter((c: any) => !c.parent_id);
+      const childMap = new Map<string, any[]>();
+      for (const c of (comments || []).filter((c: any) => c.parent_id)) {
+        const arr = childMap.get(c.parent_id) || [];
+        arr.push(c);
+        childMap.set(c.parent_id, arr);
+      }
+      const threaded = roots.map((r: any) => ({ ...r, children: childMap.get(r.id) || [] }));
+
+      return new Response(JSON.stringify({ comments: threaded }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "change_set_resolve_comment") {
+      const { projectId, commentId, status: newStatus } = body;
+      if (!commentId || !newStatus) throw new Error("commentId and status required");
+
+      const { data, error: updErr } = await supabase.from("scene_diff_comments")
+        .update({ status: newStatus }).eq("id", commentId).select().single();
+      if (updErr) throw updErr;
+
+      return new Response(JSON.stringify({ comment: data }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }

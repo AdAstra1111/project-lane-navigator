@@ -874,3 +874,133 @@ export interface ChangeSetRollbackInput {
   projectId: string;
   changeSetId: string;
 }
+
+// ── Phase 5 Diff + Review + Comments Types ──
+
+export interface DiffOp {
+  t: 'eq' | 'ins' | 'del';
+  text: string;
+}
+
+export interface DiffHunk {
+  before_start: number;
+  before_len: number;
+  after_start: number;
+  after_len: number;
+  ops: DiffOp[];
+}
+
+export interface DiffStats {
+  insertions: number;
+  deletions: number;
+  unchanged: number;
+}
+
+export interface SceneDiffArtifact {
+  format: 'iffi_diff_v1';
+  granularity: 'line' | 'word';
+  before: { scene_id: string; version_id: string; text: string };
+  after: { scene_id: string; version_id: string; text: string };
+  hunks: DiffHunk[];
+  stats: DiffStats;
+}
+
+export interface SnapshotDiffArtifactBlock {
+  scene_id: string;
+  change_type: 'added' | 'removed' | 'moved' | 'edited' | 'unchanged';
+  before_version_id: string | null;
+  after_version_id: string | null;
+  before_excerpt: string | null;
+  after_excerpt: string | null;
+}
+
+export interface SnapshotDiffArtifact {
+  format: 'iffi_snapshot_diff_v1';
+  before_snapshot_id: string | null;
+  after_snapshot_id: string | null;
+  scene_blocks: SnapshotDiffArtifactBlock[];
+  stats: { added: number; removed: number; moved: number; edited: number; unchanged: number };
+}
+
+export interface ChangeSetReviewState {
+  id: string;
+  project_id: string;
+  change_set_id: string;
+  scene_id: string;
+  before_version_id: string | null;
+  after_version_id: string | null;
+  decision: 'pending' | 'accepted' | 'rejected';
+  decided_at: string | null;
+  decided_by: string | null;
+}
+
+export interface DiffComment {
+  id: string;
+  project_id: string;
+  change_set_id: string;
+  scene_id: string | null;
+  before_version_id: string | null;
+  after_version_id: string | null;
+  created_at: string;
+  created_by: string | null;
+  parent_id: string | null;
+  status: 'open' | 'resolved';
+  comment: string;
+  children?: DiffComment[];
+}
+
+// Phase 5 Diff inputs
+export interface ComputeDiffsInput {
+  projectId: string;
+  changeSetId: string;
+  granularity?: 'line' | 'word';
+}
+
+export interface GetDiffsInput {
+  projectId: string;
+  changeSetId: string;
+}
+
+export interface GetSceneDiffInput {
+  projectId: string;
+  changeSetId: string;
+  sceneId: string;
+  beforeVersionId?: string;
+  afterVersionId?: string;
+}
+
+export interface SetReviewDecisionInput {
+  projectId: string;
+  changeSetId: string;
+  sceneId: string;
+  beforeVersionId?: string;
+  afterVersionId?: string;
+  decision: 'accepted' | 'rejected' | 'pending';
+}
+
+export interface ApplyReviewDecisionsInput {
+  projectId: string;
+  changeSetId: string;
+}
+
+export interface AddDiffCommentInput {
+  projectId: string;
+  changeSetId: string;
+  sceneId?: string;
+  beforeVersionId?: string;
+  afterVersionId?: string;
+  parentId?: string;
+  comment: string;
+}
+
+export interface ListDiffCommentsInput {
+  projectId: string;
+  changeSetId: string;
+  sceneId?: string;
+}
+
+export interface ResolveDiffCommentInput {
+  projectId: string;
+  commentId: string;
+  status: 'resolved' | 'open';
+}
