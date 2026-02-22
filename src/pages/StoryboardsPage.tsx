@@ -1,8 +1,8 @@
 /**
  * StoryboardsPage — Scene strip / grid view of storyboard panels for a shot list.
- * Enhanced with visual reference controls (character/location refs, style presets, continuity lock).
+ * Enhanced with visual reference controls and Animatic tab.
  */
-import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef, lazy, Suspense } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
@@ -14,7 +14,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -23,13 +23,15 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import {
   Lock, Unlock, Download, Loader2, ImagePlus, Upload,
   ArrowLeft, LayoutGrid, List, Film, Sparkles, Palette,
-  ChevronDown, Link2, Shield,
+  ChevronDown, Link2, Shield, Play,
 } from 'lucide-react';
 import { useShotList } from '@/hooks/useShotList';
 import { useStoryboards, type StoryboardBoard } from '@/hooks/useStoryboards';
 import { useVisualReferences, type VisualReferenceSet } from '@/hooks/useVisualReferences';
 import { toast } from 'sonner';
 import jsPDF from 'jspdf';
+
+const AnimaticEditor = lazy(() => import('@/components/animatic/AnimaticEditor'));
 
 export default function StoryboardsPage() {
   const { id: projectId } = useParams<{ id: string }>();
@@ -60,6 +62,9 @@ export default function StoryboardsPage() {
 
   const [viewMode, setViewMode] = useState<'strip' | 'grid'>('strip');
   const [activeScene, setActiveScene] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'boards' | 'animatic'>('boards');
+
+  const isVertical = project?.format?.toLowerCase().includes('vertical') || false;
 
   // Scenes
   const scenes = useMemo(() => {
@@ -186,24 +191,38 @@ export default function StoryboardsPage() {
               )}
             </div>
             <div className="flex items-center gap-2">
-              <Link to={`/projects/${projectId}/visual-references`}>
-                <Button variant="outline" size="sm" className="text-xs gap-1">
-                  <Palette className="h-3 w-3" />References
-                </Button>
-              </Link>
-              <Tabs value={viewMode} onValueChange={v => setViewMode(v as any)}>
+              <Tabs value={activeTab} onValueChange={v => setActiveTab(v as any)}>
                 <TabsList className="h-7">
-                  <TabsTrigger value="strip" className="text-xs h-6 px-2 gap-1">
-                    <List className="h-3 w-3" />Strip
+                  <TabsTrigger value="boards" className="text-xs h-6 px-2 gap-1">
+                    <LayoutGrid className="h-3 w-3" />Boards
                   </TabsTrigger>
-                  <TabsTrigger value="grid" className="text-xs h-6 px-2 gap-1">
-                    <LayoutGrid className="h-3 w-3" />Grid
+                  <TabsTrigger value="animatic" className="text-xs h-6 px-2 gap-1">
+                    <Play className="h-3 w-3" />Animatic
                   </TabsTrigger>
                 </TabsList>
               </Tabs>
-              <Button variant="outline" size="sm" className="text-xs gap-1" onClick={exportBoardBook}>
-                <Download className="h-3 w-3" />Board Book
-              </Button>
+              {activeTab === 'boards' && (
+                <>
+                  <Link to={`/projects/${projectId}/visual-references`}>
+                    <Button variant="outline" size="sm" className="text-xs gap-1">
+                      <Palette className="h-3 w-3" />References
+                    </Button>
+                  </Link>
+                  <Tabs value={viewMode} onValueChange={v => setViewMode(v as any)}>
+                    <TabsList className="h-7">
+                      <TabsTrigger value="strip" className="text-xs h-6 px-2 gap-1">
+                        <List className="h-3 w-3" />Strip
+                      </TabsTrigger>
+                      <TabsTrigger value="grid" className="text-xs h-6 px-2 gap-1">
+                        <LayoutGrid className="h-3 w-3" />Grid
+                      </TabsTrigger>
+                    </TabsList>
+                  </Tabs>
+                  <Button variant="outline" size="sm" className="text-xs gap-1" onClick={exportBoardBook}>
+                    <Download className="h-3 w-3" />Board Book
+                  </Button>
+                </>
+              )}
             </div>
           </div>
 
@@ -218,6 +237,16 @@ export default function StoryboardsPage() {
                 <p className="text-sm text-muted-foreground">No storyboard panels yet. They'll be created automatically from the shot list.</p>
               </CardContent>
             </Card>
+          ) : activeTab === 'animatic' ? (
+            <Suspense fallback={<div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>}>
+              <AnimaticEditor
+                projectId={projectId!}
+                shotListId={shotListId!}
+                boards={boards}
+                isVertical={isVertical}
+                getImageUrl={getImageUrl}
+              />
+            </Suspense>
           ) : (
             <div className="flex gap-4">
               {/* Scene sidebar (strip view) */}
