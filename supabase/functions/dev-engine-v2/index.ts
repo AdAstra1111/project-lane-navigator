@@ -10931,6 +10931,280 @@ CRITICAL:
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
+    // ── SCOPE PLAN (compute impacted scenes + contracts) ──
+    if (action === "scope_plan") {
+      const { projectId, sourceDocId, sourceVersionId, notes } = body;
+      if (!projectId || !sourceVersionId) throw new Error("projectId, sourceVersionId required");
+      const approvedNotes: any[] = notes || [];
+
+      // 1. Get scene list
+      const { data: sceneOrder } = await supabase.from("scene_graph_order")
+        .select("scene_id, order_key")
+        .eq("project_id", projectId)
+        .eq("is_active", true)
+        .order("order_key", { ascending: true });
+
+      let scenes: Array<{ scene_number: number; scene_id: string | null; heading: string; summary: string; characters: string[] }> = [];
+
+      if (sceneOrder && sceneOrder.length >= 3) {
+        const sceneIds = sceneOrder.map(s => s.scene_id);
+        const { data: versions } = await supabase.from("scene_graph_versions")
+          .select("scene_id, slugline, summary, characters_present, version_number")
+          .in("scene_id", sceneIds)
+          .order("version_number", { ascending: false });
+        const latestMap = new Map<string, { slugline: string; summary: string; characters: string[] }>();
+        for (const v of (versions || [])) {
+          if (!latestMap.has(v.scene_id)) {
+            latestMap.set(v.scene_id, {
+              slugline: v.slugline || "",
+              summary: v.summary || "",
+              characters: v.characters_present || [],
+            });
+          }
+        }
+        scenes = sceneOrder.map((s, i) => {
+          const ver = latestMap.get(s.scene_id);
+          return {
+            scene_number: i + 1,
+            scene_id: s.scene_id,
+            heading: ver?.slugline || `SCENE ${i + 1}`,
+            summary: ver?.summary || "",
+            characters: ver?.characters || [],
+          };
+        });
+      } else {
+        // Fallback: split from plaintext
+        const { data: version } = await supabase.from("project_document_versions")
+          .select("plaintext").eq("id", sourceVersionId).single();
+        const text = version?.plaintext || "";
+        const headingRegex = /^(INT\.|EXT\.|INT\/EXT\.|I\/E\.)\s*.+/gm;
+        let match;
+        const boundaries: Array<{ index: number; heading: string }> = [];
+        while ((match = headingRegex.exec(text)) !== null) {
+          boundaries.push({ index: match.index, heading: match[0].trim() });
+        }
+        scenes = boundaries.map((b, i) => {
+          const start = b.index;
+          const end = boundaries[i + 1]?.index ?? text.length;
+          const sceneText = text.substring(start, end).trim();
+          // Extract character names (ALL CAPS words in dialogue position)
+          const charMatches = sceneText.match(/^\s{10,}([A-Z][A-Z\s\.]+)\s*$/gm) || [];
+          const chars = [...new Set(charMatches.map(c => c.trim()))];
+          return {
+            scene_number: i + 1,
+            scene_id: null,
+            heading: b.heading.substring(0, 200),
+            summary: sceneText.substring(0, 300),
+            characters: chars.slice(0, 10),
+          };
+        });
+      }
+
+      if (scenes.length === 0) {
+        return new Response(JSON.stringify({ error: "No scenes found", totalScenes: 0 }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // 2. Anchor notes to scenes
+      const anchored = new Set<number>();
+      const noteSceneMap = new Map<string, number[]>(); // noteId -> scene_numbers
+      for (const note of approvedNotes) {
+        const noteId = note.id || note.note_key || "";
+        const mappedScenes: number[] = [];
+
+        // Explicit scene anchor
+        const explicitScene = note.scene_number || note.anchor?.scene_number;
+        if (explicitScene && typeof explicitScene === "number") {
+          anchored.add(explicitScene);
+          mappedScenes.push(explicitScene);
+        } else {
+          // Keyword matching
+          const noteText = (note.description || note.note || "").toLowerCase();
+          if (noteText.length >= 5) {
+            const noteWords = noteText.split(/\s+/).filter((w: string) => w.length > 3);
+            for (const scene of scenes) {
+              const heading = scene.heading.toLowerCase();
+              const summary = scene.summary.toLowerCase();
+              const matchCount = noteWords.filter((w: string) => heading.includes(w) || summary.includes(w)).length;
+              if (matchCount >= 2 || (noteWords.length <= 3 && matchCount >= 1)) {
+                anchored.add(scene.scene_number);
+                mappedScenes.push(scene.scene_number);
+              }
+            }
+          }
+          // Character name matching
+          if (mappedScenes.length === 0) {
+            const noteText2 = (note.description || note.note || "");
+            for (const scene of scenes) {
+              for (const char of scene.characters) {
+                if (noteText2.includes(char)) {
+                  anchored.add(scene.scene_number);
+                  mappedScenes.push(scene.scene_number);
+                  break;
+                }
+              }
+            }
+          }
+        }
+        if (noteId) noteSceneMap.set(noteId, mappedScenes);
+      }
+
+      // If no anchors, target all
+      if (anchored.size === 0) {
+        const allNumbers = scenes.map(s => s.scene_number);
+        return new Response(JSON.stringify({
+          target_scene_numbers: allNumbers,
+          context_scene_numbers: [],
+          at_risk_scene_numbers: [],
+          reason: "No specific scene anchors found — rewriting all scenes",
+          propagation_depth: 0,
+          note_ids: approvedNotes.map((n: any) => n.id || n.note_key || "").filter(Boolean),
+          contracts: { arc_milestones: [], canon_rules: [], knowledge_state: [], setup_payoff: [] },
+          debug: { selected_notes_count: approvedNotes.length, anchored_scenes: [], timestamp: new Date().toISOString() },
+          total_scenes_in_script: scenes.length,
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // 3. Build target + context sets
+      const anchoredArr = [...anchored].sort((a, b) => a - b);
+      const allNumbers = new Set(scenes.map(s => s.scene_number));
+      const targetSet = new Set(anchoredArr);
+      const contextSet = new Set<number>();
+
+      for (const n of anchoredArr) {
+        if (allNumbers.has(n - 1) && !targetSet.has(n - 1)) contextSet.add(n - 1);
+        if (allNumbers.has(n + 1) && !targetSet.has(n + 1)) contextSet.add(n + 1);
+      }
+
+      // 4. Build contracts from canonical docs
+      const canonRules: string[] = [];
+      const arcMilestones: Array<{ scene_number: number; must_be_true: string[] }> = [];
+      const knowledgeState: Array<{ character: string; by_scene: Array<{ scene_number: number; knows: string[] }> }> = [];
+      const setupPayoff: Array<{ setup_scene: number; payoff_scene: number; item: string }> = [];
+
+      // Pull canon
+      const { data: canonRow } = await supabase.from("project_canon")
+        .select("canon_json").eq("project_id", projectId).maybeSingle();
+      const canon = canonRow?.canon_json || {};
+
+      if (canon.logline) canonRules.push(`Logline: ${canon.logline}`);
+      if (canon.premise) canonRules.push(`Premise: ${String(canon.premise).substring(0, 300)}`);
+      if (canon.tone) canonRules.push(`Tone: ${canon.tone}`);
+      if (canon.genre) canonRules.push(`Genre: ${canon.genre}`);
+      if (canon.world_rules) canonRules.push(`World rules: ${String(canon.world_rules).substring(0, 300)}`);
+      canonRules.push("Do not introduce new characters/locations unless required by notes.");
+      canonRules.push("Do not contradict established timeline or character knowledge.");
+
+      // Pull character bible for knowledge state
+      const { data: charBibleDoc } = await supabase.from("project_documents")
+        .select("id").eq("project_id", projectId).eq("doc_type", "character_bible").limit(1).maybeSingle();
+      if (charBibleDoc) {
+        const { data: charVer } = await supabase.from("project_document_versions")
+          .select("plaintext").eq("document_id", charBibleDoc.id)
+          .order("version_number", { ascending: false }).limit(1).maybeSingle();
+        if (charVer?.plaintext) {
+          // Extract character names from bible headings
+          const charMatches = charVer.plaintext.match(/^#+\s*(.+)/gm) || [];
+          const characters = charMatches.map((m: string) => m.replace(/^#+\s*/, "").trim()).filter((c: string) => c.length > 1 && c.length < 40).slice(0, 8);
+          for (const charName of characters) {
+            // Find which scenes this character appears in
+            const charScenes = scenes.filter(s => s.characters.some(c => c.toLowerCase().includes(charName.toLowerCase())));
+            if (charScenes.length > 0) {
+              knowledgeState.push({
+                character: charName,
+                by_scene: charScenes.slice(0, 5).map(s => ({
+                  scene_number: s.scene_number,
+                  knows: [`Present in scene ${s.scene_number}`],
+                })),
+              });
+            }
+          }
+        }
+      }
+
+      // Pull blueprint/beat_sheet for arc milestones
+      const { data: blueprintDoc } = await supabase.from("project_documents")
+        .select("id").eq("project_id", projectId).in("doc_type", ["blueprint", "beat_sheet"]).limit(1).maybeSingle();
+      if (blueprintDoc) {
+        const { data: bpVer } = await supabase.from("project_document_versions")
+          .select("plaintext").eq("document_id", blueprintDoc.id)
+          .order("version_number", { ascending: false }).limit(1).maybeSingle();
+        if (bpVer?.plaintext) {
+          // Extract act breaks / key beats
+          const beatLines = bpVer.plaintext.split("\n").filter((l: string) => /act\s*(break|[123]|i{1,3})|midpoint|climax|inciting|resolution/i.test(l)).slice(0, 8);
+          const totalScenes = scenes.length;
+          // Map beats to approximate scene positions
+          const beatPositions = [
+            { label: "Inciting incident", pos: Math.ceil(totalScenes * 0.1) },
+            { label: "End of Act 1", pos: Math.ceil(totalScenes * 0.25) },
+            { label: "Midpoint", pos: Math.ceil(totalScenes * 0.5) },
+            { label: "End of Act 2", pos: Math.ceil(totalScenes * 0.75) },
+            { label: "Climax", pos: Math.ceil(totalScenes * 0.9) },
+            { label: "Resolution", pos: totalScenes },
+          ];
+          for (const bp of beatPositions) {
+            const relevantBeat = beatLines.find((l: string) => l.toLowerCase().includes(bp.label.toLowerCase()));
+            arcMilestones.push({
+              scene_number: bp.pos,
+              must_be_true: [relevantBeat ? relevantBeat.trim().substring(0, 200) : `${bp.label} must occur around scene ${bp.pos}`],
+            });
+          }
+        }
+      }
+
+      // Fallback arc milestones if none found
+      if (arcMilestones.length === 0) {
+        const totalScenes = scenes.length;
+        arcMilestones.push(
+          { scene_number: Math.ceil(totalScenes * 0.1), must_be_true: ["Inciting incident establishes central conflict"] },
+          { scene_number: Math.ceil(totalScenes * 0.25), must_be_true: ["Act 1 break — protagonist commits to journey"] },
+          { scene_number: Math.ceil(totalScenes * 0.5), must_be_true: ["Midpoint reversal or revelation"] },
+          { scene_number: Math.ceil(totalScenes * 0.75), must_be_true: ["Act 2 break — all seems lost / dark night"] },
+          { scene_number: Math.ceil(totalScenes * 0.9), must_be_true: ["Climax — central conflict resolved"] },
+          { scene_number: totalScenes, must_be_true: ["Resolution — new equilibrium established"] },
+        );
+      }
+
+      const plan = {
+        target_scene_numbers: [...targetSet].sort((a, b) => a - b),
+        context_scene_numbers: [...contextSet].sort((a, b) => a - b),
+        at_risk_scene_numbers: [],
+        reason: `${targetSet.size} scene(s) directly impacted by ${approvedNotes.length} note(s)`,
+        propagation_depth: 0,
+        note_ids: approvedNotes.map((n: any) => n.id || n.note_key || "").filter(Boolean),
+        contracts: { arc_milestones: arcMilestones, canon_rules: canonRules, knowledge_state: knowledgeState, setup_payoff: setupPayoff },
+        debug: {
+          selected_notes_count: approvedNotes.length,
+          anchored_scenes: anchoredArr,
+          timestamp: new Date().toISOString(),
+        },
+        total_scenes_in_script: scenes.length,
+      };
+
+      console.log(`[scope_plan] ${targetSet.size} target scenes, ${contextSet.size} context scenes, ${canonRules.length} canon rules, ${arcMilestones.length} arc milestones`);
+
+      return new Response(JSON.stringify(plan), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ── GET ENQUEUED SCENE NUMBERS ──
+    if (action === "get_enqueued_scene_numbers") {
+      const { projectId, sourceVersionId } = body;
+      if (!projectId || !sourceVersionId) throw new Error("projectId, sourceVersionId required");
+
+      const { data: jobs } = await supabase.from("rewrite_jobs")
+        .select("scene_number")
+        .eq("project_id", projectId)
+        .eq("source_version_id", sourceVersionId);
+
+      const sceneNumbers = (jobs || []).map(j => j.scene_number).sort((a: number, b: number) => a - b);
+      return new Response(JSON.stringify({ scene_numbers: sceneNumbers }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     // ── ENQUEUE REWRITE JOBS ──
     if (action === "enqueue_rewrite_jobs") {
       const { projectId, sourceDocId, sourceVersionId, targetDocType, approvedNotes, protectItems, targetSceneNumbers } = body;
@@ -11231,18 +11505,60 @@ CRITICAL:
         const prevSummary = job.prev_summary || "";
         const nextSummary = job.next_summary || "";
 
-        const notesContext = (job.approved_notes as any[])?.length
-          ? `APPROVED NOTES TO APPLY:\n${JSON.stringify(job.approved_notes)}\n\n`
+        // Filter notes to only those relevant to THIS scene
+        const allNotes: any[] = (job.approved_notes as any[]) || [];
+        const sceneSpecificNotes: any[] = [];
+        const globalNotes: any[] = [];
+        const sceneHeadingLower = (job.scene_heading || "").toLowerCase();
+
+        for (const note of allNotes) {
+          // Explicitly anchored to this scene
+          const noteSceneNum = note.scene_number || note.anchor?.scene_number;
+          if (noteSceneNum === job.scene_number) {
+            sceneSpecificNotes.push(note);
+            continue;
+          }
+          // Global notes (no specific anchor)
+          if (note.severity === "direction" || note.category === "direction") {
+            globalNotes.push(note);
+            continue;
+          }
+          // Keyword overlap
+          const noteText = (note.description || note.note || "").toLowerCase();
+          if (noteText.length >= 5) {
+            const noteWords = noteText.split(/\s+/).filter((w: string) => w.length > 3);
+            const matchCount = noteWords.filter((w: string) => sceneHeadingLower.includes(w) || sceneText.toLowerCase().includes(w)).length;
+            if (matchCount >= 2 || (noteWords.length <= 3 && matchCount >= 1)) {
+              sceneSpecificNotes.push(note);
+              continue;
+            }
+          }
+          // If no anchor at all, include as potentially relevant
+          if (!noteSceneNum && !note.anchor) {
+            globalNotes.push(note);
+          }
+        }
+
+        const filteredNotes = [...sceneSpecificNotes, ...globalNotes];
+        const notesContext = filteredNotes.length
+          ? `APPROVED NOTES TO APPLY (${sceneSpecificNotes.length} scene-specific, ${globalNotes.length} global):\n${JSON.stringify(filteredNotes)}\n\n`
           : "";
         const protectContext = (job.protect_items as any[])?.length
           ? `PROTECT (non-negotiable):\n${JSON.stringify(job.protect_items)}\n\n`
           : "";
+
+        // Build contracts block from scope plan stored in job metadata
+        let contractsBlock = "";
+        // Contracts are passed through approved_notes metadata or job-level fields
+        // For now, include canon rules if available on notes
         const contextBlock = [
           prevSummary ? `PREVIOUS SCENE SUMMARY: ${prevSummary}` : "",
           nextSummary ? `NEXT SCENE SUMMARY: ${nextSummary}` : "",
         ].filter(Boolean).join("\n");
 
-        const scenePrompt = `${protectContext}${notesContext}${contextBlock ? contextBlock + "\n\n" : ""}SCENE ${job.scene_number} (${job.scene_heading || "untitled"}) — Rewrite this scene applying the notes while preserving dramatic beats and formatting:\n\n${sceneText}`;
+        const hardInstruction = "HARD CONSTRAINT: Change only what is necessary to satisfy the notes. Preserve scene intent. Do not introduce new characters/locations/props unless required by notes. Maintain continuity.\n\n";
+
+        const scenePrompt = `${hardInstruction}${protectContext}${notesContext}${contextBlock ? contextBlock + "\n\n" : ""}SCENE ${job.scene_number} (${job.scene_heading || "untitled"}) — Rewrite this scene applying the notes while preserving dramatic beats and formatting:\n\n${sceneText}`;
 
         // Cap max_tokens: ~1.3x input tokens, clamped 600–2500
         const estimatedInputTokens = Math.ceil(sceneText.length / 4);
@@ -11295,6 +11611,8 @@ CRITICAL:
           output_chars: outputChars,
           delta_pct: deltaPct,
           skipped: false,
+          scene_notes_count: sceneSpecificNotes.length,
+          total_notes_count: allNotes.length,
         }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
       } catch (jobErr: any) {
@@ -11424,63 +11742,42 @@ CRITICAL:
       let totalScenesInAssembly: number;
 
       if (isSelective) {
-        // Stitch: use rewritten text for target scenes, original text for others
-        // Get original scene texts from the source version
+        // Stitch: use rewritten text for target scenes, original text from SOURCE VERSION (not latest scene_graph)
         const { data: version } = await supabase.from("project_document_versions")
           .select("plaintext").eq("id", sourceVersionId).single();
         const originalText = version?.plaintext || "";
 
-        // Try scene_graph_order first for structure
-        const { data: sceneOrder } = await supabase.from("scene_graph_order")
-          .select("scene_id, order_key")
-          .eq("project_id", projectId)
-          .eq("is_active", true)
-          .order("order_key", { ascending: true });
+        // Always split the source version plaintext by scene headings for stitching
+        // This ensures we use the EXACT text from the version being rewritten, not latest scene graph
+        const headingRegex = /^(INT\.|EXT\.|INT\/EXT\.|I\/E\.)\s*.+/gm;
+        let match;
+        const boundaries: number[] = [];
+        while ((match = headingRegex.exec(originalText)) !== null) {
+          boundaries.push(match.index);
+        }
 
-        if (sceneOrder && sceneOrder.length >= 3) {
-          // Get latest version for each scene
-          const sceneIds = sceneOrder.map(s => s.scene_id);
-          const { data: versions } = await supabase.from("scene_graph_versions")
-            .select("scene_id, content, version_number")
-            .in("scene_id", sceneIds)
-            .order("version_number", { ascending: false });
-          const latestMap = new Map<string, string>();
-          for (const v of (versions || [])) {
-            if (!latestMap.has(v.scene_id)) latestMap.set(v.scene_id, v.content || "");
-          }
+        const missingOriginalScenes: number[] = [];
+        const assembledParts: string[] = [];
 
-          const assembledParts: string[] = [];
-          sceneOrder.forEach((s, i) => {
-            const sceneNum = i + 1;
-            if (rewrittenMap.has(sceneNum)) {
-              assembledParts.push(rewrittenMap.get(sceneNum)!);
-            } else {
-              assembledParts.push(latestMap.get(s.scene_id) || "");
-            }
-          });
-          assembledText = assembledParts.filter(Boolean).join("\n\n");
-          totalScenesInAssembly = sceneOrder.length;
-        } else {
-          // Fallback: split original by scene headings and stitch
-          const headingRegex = /^(INT\.|EXT\.|INT\/EXT\.|I\/E\.)\s*.+/gm;
-          let match;
-          const boundaries: number[] = [];
-          while ((match = headingRegex.exec(originalText)) !== null) {
-            boundaries.push(match.index);
-          }
-
-          const assembledParts: string[] = [];
+        if (boundaries.length >= 2) {
           boundaries.forEach((start, i) => {
             const sceneNum = i + 1;
             const end = boundaries[i + 1] ?? originalText.length;
             if (rewrittenMap.has(sceneNum)) {
               assembledParts.push(rewrittenMap.get(sceneNum)!);
             } else {
-              assembledParts.push(originalText.substring(start, end).trim());
+              const origScene = originalText.substring(start, end).trim();
+              if (!origScene) missingOriginalScenes.push(sceneNum);
+              assembledParts.push(origScene);
             }
           });
           assembledText = assembledParts.join("\n\n");
           totalScenesInAssembly = boundaries.length;
+        } else {
+          // Can't split — just concatenate rewritten outputs with original as prefix/suffix
+          console.warn("[scene-rewrite] Selective assemble: could not split source version into scenes, using rewritten outputs only");
+          assembledText = outputs.map(o => o.rewritten_text).join("\n\n");
+          totalScenesInAssembly = outputs.length;
         }
       } else {
         // Full rewrite: all outputs must match all jobs

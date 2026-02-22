@@ -616,35 +616,43 @@ export default function ProjectDevelopmentEngine() {
       };
 
       if (effectiveMode === 'scene') {
-        // Build scope plan for selective rewrite
-        const scenes = sceneRewrite.scenes.length > 0
-          ? sceneRewrite.scenes.map(s => ({ scene_number: s.scene_number, scene_heading: s.scene_heading }))
-          : Array.from({ length: probe?.scenes_count || 0 }, (_, i) => ({ scene_number: i + 1 }));
+        // Build scope plan via backend for real contracts
+        if (selectedDocId && selectedVersionId && enrichedNotes.length > 0) {
+          const scopePlan = await sceneRewrite.planScope(selectedDocId, selectedVersionId, enrichedNotes);
 
-        if (scenes.length > 0 && enrichedNotes.length > 0) {
-          const scopePlan = sceneRewrite.planScope(enrichedNotes, scenes);
-          sceneRewrite.setScopePlan(scopePlan);
+          if (scopePlan) {
+            const totalScenes = sceneRewrite.totalScenesInScript || probe?.scenes_count || scopePlan.target_scene_numbers.length;
 
-          // Only do selective if we have fewer targets than total scenes
-          if (scopePlan.target_scene_numbers.length < scenes.length) {
-            const enqueueResult = await sceneRewrite.enqueue(
-              selectedDocId, selectedVersionId, enrichedNotes, protectItems,
-              scopePlan.target_scene_numbers,
-            );
-            if (enqueueResult) {
-              sceneRewrite.processAll(selectedVersionId);
+            // Only do selective if we have fewer targets than total scenes
+            if (scopePlan.target_scene_numbers.length < totalScenes) {
+              toast.info(`Selective rewrite: ${scopePlan.target_scene_numbers.length} scenes targeted (${totalScenes} total)`);
+              const enqueueResult = await sceneRewrite.enqueue(
+                selectedDocId, selectedVersionId, enrichedNotes, protectItems,
+                scopePlan.target_scene_numbers,
+              );
+              if (enqueueResult) {
+                sceneRewrite.processAll(selectedVersionId);
+              }
+            } else {
+              // All scenes targeted — full rewrite
+              const enqueueResult = await sceneRewrite.enqueue(selectedDocId, selectedVersionId, enrichedNotes, protectItems);
+              if (enqueueResult) {
+                sceneRewrite.processAll(selectedVersionId);
+              }
             }
           } else {
-            // All scenes targeted — full rewrite
+            // Scope plan failed, fall back to full rewrite
             const enqueueResult = await sceneRewrite.enqueue(selectedDocId, selectedVersionId, enrichedNotes, protectItems);
             if (enqueueResult) {
               sceneRewrite.processAll(selectedVersionId);
             }
           }
         } else {
-          const enqueueResult = await sceneRewrite.enqueue(selectedDocId, selectedVersionId, enrichedNotes, protectItems);
-          if (enqueueResult) {
-            sceneRewrite.processAll(selectedVersionId);
+          if (selectedDocId && selectedVersionId) {
+            const enqueueResult = await sceneRewrite.enqueue(selectedDocId, selectedVersionId, enrichedNotes, protectItems);
+            if (enqueueResult) {
+              sceneRewrite.processAll(selectedVersionId);
+            }
           }
         }
       } else {
