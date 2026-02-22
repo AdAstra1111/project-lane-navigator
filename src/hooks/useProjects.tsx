@@ -307,13 +307,13 @@ export function useProjectDocuments(projectId: string | undefined) {
       });
       const docs = filtered;
 
-      // For dev-engine docs (empty file_path), fetch latest version plaintext
-      const devEngineDocs = docs.filter(d => !d.file_path);
-      if (devEngineDocs.length > 0) {
+      // For dev-engine docs (empty file_path) AND script_pdf docs, fetch latest version plaintext
+      const docsNeedingVersionText = docs.filter(d => !d.file_path || (d.doc_type as string) === 'script_pdf');
+      if (docsNeedingVersionText.length > 0) {
         const { data: versions } = await (supabase as any)
           .from('project_document_versions')
           .select('document_id, plaintext, version_number')
-          .in('document_id', devEngineDocs.map(d => d.id))
+          .in('document_id', docsNeedingVersionText.map(d => d.id))
           .order('version_number', { ascending: false });
         if (versions) {
           // Group by document_id, take latest (first due to desc order)
