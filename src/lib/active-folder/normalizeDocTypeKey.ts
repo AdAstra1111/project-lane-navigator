@@ -80,6 +80,7 @@ const KEY_MAP: Record<string, DocTypeKey> = {
   doc_outline: 'documentary_outline',
   format_rules: 'format_rules',
   script: 'feature_script',
+  script_pdf: 'feature_script',
   feature_script: 'feature_script',
   pilot_script: 'episode_script',
   episode_script: 'episode_script',
