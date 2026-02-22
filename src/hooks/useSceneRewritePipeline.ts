@@ -147,6 +147,20 @@ function rollingAvg(durations: number[], windowSize = 5): number {
   return window.reduce((a, b) => a + b, 0) / window.length;
 }
 
+// ── sessionStorage helpers for runId persistence ──
+function makeRunIdKey(projectId: string, sourceVersionId: string) {
+  return `sceneRewriteRun:${projectId}:${sourceVersionId}`;
+}
+function saveRunId(projectId: string, sourceVersionId: string, runId: string) {
+  try { sessionStorage.setItem(makeRunIdKey(projectId, sourceVersionId), runId); } catch {}
+}
+function loadRunId(projectId: string, sourceVersionId: string): string | null {
+  try { return sessionStorage.getItem(makeRunIdKey(projectId, sourceVersionId)); } catch { return null; }
+}
+function clearRunId(projectId: string, sourceVersionId: string) {
+  try { sessionStorage.removeItem(makeRunIdKey(projectId, sourceVersionId)); } catch {}
+}
+
 export function useSceneRewritePipeline(projectId: string | undefined) {
   const qc = useQueryClient();
   const [state, setState] = useState<SceneRewriteState>(initialState);
@@ -228,8 +242,19 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
   // Load existing status (for resume after refresh)
   const loadStatus = useCallback(async (sourceVersionId: string) => {
     if (!projectId) return;
-    const currentRunId = runIdRef.current;
-    if (!currentRunId) return; // Cannot load status without a runId
+    let currentRunId = runIdRef.current;
+    if (!currentRunId) {
+      // Attempt restore from sessionStorage
+      currentRunId = loadRunId(projectId, sourceVersionId);
+      if (currentRunId) {
+        runIdRef.current = currentRunId;
+        setState(s => ({ ...s, runId: currentRunId }));
+      }
+    }
+    if (!currentRunId) {
+      pushActivity('warn', 'No active rewrite run to resume');
+      return;
+    }
     try {
       const result = await callEngine('get_rewrite_status', { projectId, sourceVersionId, runId: currentRunId });
       if (result.total > 0) {
@@ -276,6 +301,9 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
       });
       const newRunId = result.runId || null;
       runIdRef.current = newRunId;
+      if (newRunId && projectId) {
+        saveRunId(projectId, sourceVersionId, newRunId);
+      }
       setState(s => ({
         ...s,
         mode: 'processing',
@@ -457,6 +485,8 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
             lastAssembledTargetCount: assembleResult.targetScenesCount ?? null,
           }));
           invalidate();
+          // Clear persisted runId on successful assemble
+          if (projectId) clearRunId(projectId, sourceVersionId);
           pushActivity('success', `Assembled ${assembleResult.scenesCount} scenes → ${assembleResult.charCount?.toLocaleString()} chars (is_current=true)`);
           toast.success(`Assembled → ${assembleResult.newVersionLabel || 'new version'}`);
         } catch (assembleErr: any) {
@@ -546,6 +576,8 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
         lastAssembledTargetCount: result.targetScenesCount ?? null,
       }));
       invalidate();
+      // Clear persisted runId on successful assemble
+      if (projectId) clearRunId(projectId, sourceVersionId);
       const label = result.newVersionLabel || `${result.scenesCount} scenes`;
       const selectiveNote = result.trulySelective ? ` (${result.scenesCount}/${result.totalScenesInAssembly} selective)` : '';
       pushActivity('success', `Assembled ${result.scenesCount} scenes${selectiveNote} → ${result.charCount.toLocaleString()} chars`);
