@@ -10824,6 +10824,87 @@ export type Database = {
           },
         ]
       }
+      rewrite_jobs: {
+        Row: {
+          approved_notes: Json | null
+          attempts: number
+          claimed_at: string | null
+          created_at: string
+          error: string | null
+          finished_at: string | null
+          id: string
+          max_attempts: number
+          project_id: string
+          protect_items: Json | null
+          scene_heading: string | null
+          scene_id: string | null
+          scene_number: number
+          source_doc_id: string
+          source_version_id: string
+          status: string
+          target_doc_type: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          approved_notes?: Json | null
+          attempts?: number
+          claimed_at?: string | null
+          created_at?: string
+          error?: string | null
+          finished_at?: string | null
+          id?: string
+          max_attempts?: number
+          project_id: string
+          protect_items?: Json | null
+          scene_heading?: string | null
+          scene_id?: string | null
+          scene_number: number
+          source_doc_id: string
+          source_version_id: string
+          status?: string
+          target_doc_type?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          approved_notes?: Json | null
+          attempts?: number
+          claimed_at?: string | null
+          created_at?: string
+          error?: string | null
+          finished_at?: string | null
+          id?: string
+          max_attempts?: number
+          project_id?: string
+          protect_items?: Json | null
+          scene_heading?: string | null
+          scene_id?: string | null
+          scene_number?: number
+          source_doc_id?: string
+          source_version_id?: string
+          status?: string
+          target_doc_type?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rewrite_jobs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "rewrite_jobs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       rewrite_playbooks: {
         Row: {
           created_at: string
@@ -10859,6 +10940,60 @@ export type Database = {
           triggers?: Json
         }
         Relationships: []
+      }
+      rewrite_scene_outputs: {
+        Row: {
+          created_at: string
+          id: string
+          project_id: string
+          rewritten_text: string
+          scene_id: string | null
+          scene_number: number
+          source_version_id: string
+          tokens_in: number | null
+          tokens_out: number | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          project_id: string
+          rewritten_text: string
+          scene_id?: string | null
+          scene_number: number
+          source_version_id: string
+          tokens_in?: number | null
+          tokens_out?: number | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          project_id?: string
+          rewritten_text?: string
+          scene_id?: string | null
+          scene_number?: number
+          source_version_id?: string
+          tokens_in?: number | null
+          tokens_out?: number | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rewrite_scene_outputs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "rewrite_scene_outputs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       scenario_decision_events: {
         Row: {
