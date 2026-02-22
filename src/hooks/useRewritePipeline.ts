@@ -75,6 +75,7 @@ export function useRewritePipeline(projectId: string | undefined) {
     versionId: string,
     approvedNotes: any[],
     protectItems: string[],
+    provenance?: { rewriteModeSelected?: string; rewriteProbe?: any },
   ) => {
     if (!projectId || runningRef.current) return;
     runningRef.current = true;
@@ -112,6 +113,8 @@ export function useRewritePipeline(projectId: string | undefined) {
 
       const assembleResult = await callEngine('rewrite-assemble', {
         projectId, documentId, versionId, planRunId, assembledText,
+        rewriteModeSelected: provenance?.rewriteModeSelected || 'auto',
+        rewriteProbe: provenance?.rewriteProbe || null,
       });
 
       // Show runtime warning from server if present

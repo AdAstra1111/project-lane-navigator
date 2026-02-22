@@ -2720,7 +2720,7 @@ MATERIAL TO REWRITE:\n${fullText}`;
 
     // ── REWRITE-ASSEMBLE (chunked rewrite step 3) ──
     if (action === "rewrite-assemble") {
-      const { projectId, documentId, versionId, planRunId, assembledText } = body;
+      const { projectId, documentId, versionId, planRunId, assembledText, rewriteModeSelected, rewriteProbe } = body;
       if (!projectId || !documentId || !versionId || !assembledText) throw new Error("projectId, documentId, versionId, assembledText required");
 
       function estimateRuntimeMinutes(text: string, mode: string) {
@@ -2786,9 +2786,13 @@ MATERIAL TO REWRITE:\n${fullText}`;
         user_id: user.id,
         run_type: "REWRITE",
         output_json: {
+          rewrite_mode_used: "chunk",
+          rewrite_mode_selected: rewriteModeSelected || "auto",
+          rewrite_probe: rewriteProbe || null,
           rewritten_text: `[${assembledText.length} chars]`,
           changes_summary: `Full chunked rewrite. Applied ${notesCount} notes.`,
           source_version_id: versionId,
+          source_doc_id: documentId,
         },
         schema_version: SCHEMA_VERSION,
       }).select().single();
@@ -11317,7 +11321,7 @@ CRITICAL:
 
     // ── ASSEMBLE REWRITTEN SCRIPT ──
     if (action === "assemble_rewritten_script") {
-      const { projectId, sourceDocId, sourceVersionId } = body;
+      const { projectId, sourceDocId, sourceVersionId, rewriteModeSelected, rewriteProbe } = body;
       if (!projectId || !sourceDocId || !sourceVersionId) throw new Error("projectId, sourceDocId, sourceVersionId required");
 
       // Check all done
@@ -11384,10 +11388,14 @@ CRITICAL:
         run_type: "REWRITE",
         output_json: {
           rewrite_mode: "scene",
+          rewrite_mode_used: "scene",
+          rewrite_mode_selected: rewriteModeSelected || "auto",
+          rewrite_probe: rewriteProbe || null,
           scenes_count: outputs.length,
           rewritten_text: `[${assembledText.length} chars]`,
           changes_summary: `Scene-level rewrite across ${outputs.length} scenes.`,
           source_version_id: sourceVersionId,
+          source_doc_id: sourceDocId,
         },
         schema_version: SCHEMA_VERSION,
       });
