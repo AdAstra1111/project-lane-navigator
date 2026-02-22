@@ -11742,43 +11742,63 @@ CRITICAL:
       let totalScenesInAssembly: number;
 
       if (isSelective) {
-        // Stitch: use rewritten text for target scenes, original text from SOURCE VERSION (not latest scene_graph)
+        // CRITICAL: Selective rewrite MUST preserve the full script from the source version
+        // and replace ONLY the rewritten scene numbers. Never assemble from outputs only.
         const { data: version } = await supabase.from("project_document_versions")
           .select("plaintext").eq("id", sourceVersionId).single();
-        const originalText = version?.plaintext || "";
+        const originalText = (version?.plaintext || "").trim();
 
-        // Always split the source version plaintext by scene headings for stitching
-        // This ensures we use the EXACT text from the version being rewritten, not latest scene graph
-        const headingRegex = /^(INT\.|EXT\.|INT\/EXT\.|I\/E\.)\s*.+/gm;
-        let match;
+        if (!originalText) {
+          throw new Error("Selective assemble failed: source version plaintext is empty");
+        }
+
+        // Robust slugline regex supporting leading whitespace, common variants, case-insensitive
+        const headingRegex =
+          /^\s*(INT\.?|EXT\.?|INT\/EXT\.?|EXT\/INT\.?|I\/E\.?|EST\.?)\s+.+$/gmi;
         const boundaries: number[] = [];
+        let match: RegExpExecArray | null;
         while ((match = headingRegex.exec(originalText)) !== null) {
           boundaries.push(match.index);
         }
 
-        const missingOriginalScenes: number[] = [];
-        const assembledParts: string[] = [];
-
-        if (boundaries.length >= 2) {
-          boundaries.forEach((start, i) => {
-            const sceneNum = i + 1;
-            const end = boundaries[i + 1] ?? originalText.length;
-            if (rewrittenMap.has(sceneNum)) {
-              assembledParts.push(rewrittenMap.get(sceneNum)!);
-            } else {
-              const origScene = originalText.substring(start, end).trim();
-              if (!origScene) missingOriginalScenes.push(sceneNum);
-              assembledParts.push(origScene);
-            }
-          });
-          assembledText = assembledParts.join("\n\n");
-          totalScenesInAssembly = boundaries.length;
-        } else {
-          // Can't split — just concatenate rewritten outputs with original as prefix/suffix
-          console.warn("[scene-rewrite] Selective assemble: could not split source version into scenes, using rewritten outputs only");
-          assembledText = outputs.map(o => o.rewritten_text).join("\n\n");
-          totalScenesInAssembly = outputs.length;
+        if (boundaries.length < 3) {
+          const sample = originalText.slice(0, 1200);
+          throw new Error(
+            `Selective assemble failed: could not detect scene headings reliably (found ${boundaries.length}). ` +
+            `Refusing to assemble from rewritten outputs only (would truncate script). ` +
+            `Check slugline format in source version. Sample start:\n---\n${sample}\n---`
+          );
         }
+
+        // Split source plaintext into scenes by slugline boundaries
+        const originalScenes: string[] = [];
+        for (let i = 0; i < boundaries.length; i++) {
+          const start = boundaries[i];
+          const end = boundaries[i + 1] ?? originalText.length;
+          originalScenes.push(originalText.substring(start, end).trim());
+        }
+
+        const maxRewrittenScene = Math.max(...outputs.map(o => o.scene_number));
+        if (maxRewrittenScene > originalScenes.length) {
+          throw new Error(
+            `Selective assemble failed: rewritten outputs include scene ${maxRewrittenScene} ` +
+            `but only ${originalScenes.length} scenes were detected in source plaintext. ` +
+            `This indicates scene numbering mismatch or slugline detection mismatch.`
+          );
+        }
+
+        // Replace only rewritten scenes, keep all others intact
+        for (let i = 0; i < originalScenes.length; i++) {
+          const sceneNum = i + 1;
+          if (rewrittenMap.has(sceneNum)) {
+            originalScenes[i] = (rewrittenMap.get(sceneNum) || "").trim();
+          }
+        }
+
+        assembledText = originalScenes.filter(Boolean).join("\n\n");
+        totalScenesInAssembly = originalScenes.length;
+
+        console.log(`[scene-rewrite] Selective assemble ok: replaced ${outputs.length}/${totalScenesInAssembly} scenes from source plaintext`);
       } else {
         // Full rewrite: all outputs must match all jobs
         const totalJobs = (jobs || []).length;
