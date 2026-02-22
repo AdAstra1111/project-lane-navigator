@@ -169,6 +169,7 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
   const startGuardRef = useRef(false);
   const durationsRef = useRef<number[]>([]);
   const runIdRef = useRef<string | null>(null);
+  const lastSourceVersionIdRef = useRef<string | null>(null);
   const [activityItems, setActivityItems] = useState<ActivityItem[]>([]);
   const smoothingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -242,6 +243,7 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
   // Load existing status (for resume after refresh)
   const loadStatus = useCallback(async (sourceVersionId: string) => {
     if (!projectId) return;
+    lastSourceVersionIdRef.current = sourceVersionId;
     let currentRunId = runIdRef.current;
     if (!currentRunId) {
       // Attempt restore from sessionStorage
@@ -295,6 +297,7 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
       ? `Enqueuing ${targetSceneNumbers!.length} target scene jobs…`
       : 'Enqueuing scene jobs…');
     try {
+      lastSourceVersionIdRef.current = sourceVersionId;
       const result = await callEngine('enqueue_rewrite_jobs', {
         projectId, sourceDocId, sourceVersionId, approvedNotes, protectItems,
         targetSceneNumbers: targetSceneNumbers || undefined,
@@ -771,10 +774,15 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
   const reset = useCallback(() => {
     stopRef.current = true;
     stopSmoothing();
+    // Clear persisted runId from sessionStorage
+    if (projectId && lastSourceVersionIdRef.current) {
+      clearRunId(projectId, lastSourceVersionIdRef.current);
+    }
     setState(initialState);
     durationsRef.current = [];
     runIdRef.current = null;
-  }, [stopSmoothing]);
+    lastSourceVersionIdRef.current = null;
+  }, [stopSmoothing, projectId]);
 
   const isSelective = state.scopePlan != null && state.targetSceneNumbers.length > 0 && state.targetSceneNumbers.length < state.totalScenesInScript;
   const actualPercent = state.total > 0 ? Math.floor((state.done / state.total) * 100) : 0;
