@@ -14,6 +14,164 @@ export type Database = {
   }
   public: {
     Tables: {
+      animatic_markers: {
+        Row: {
+          animatic_id: string
+          created_at: string | null
+          created_by: string
+          id: string
+          marker_type: string
+          text: string
+          time_seconds: number
+        }
+        Insert: {
+          animatic_id: string
+          created_at?: string | null
+          created_by: string
+          id?: string
+          marker_type?: string
+          text?: string
+          time_seconds?: number
+        }
+        Update: {
+          animatic_id?: string
+          created_at?: string | null
+          created_by?: string
+          id?: string
+          marker_type?: string
+          text?: string
+          time_seconds?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "animatic_markers_animatic_id_fkey"
+            columns: ["animatic_id"]
+            isOneToOne: false
+            referencedRelation: "animatics"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      animatic_panels: {
+        Row: {
+          animatic_id: string
+          created_at: string | null
+          duration_seconds: number
+          id: string
+          locked: boolean | null
+          order_index: number
+          scene_number: string
+          shot_number: number
+          storyboard_board_id: string
+          transition: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          animatic_id: string
+          created_at?: string | null
+          duration_seconds?: number
+          id?: string
+          locked?: boolean | null
+          order_index?: number
+          scene_number?: string
+          shot_number?: number
+          storyboard_board_id: string
+          transition?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          animatic_id?: string
+          created_at?: string | null
+          duration_seconds?: number
+          id?: string
+          locked?: boolean | null
+          order_index?: number
+          scene_number?: string
+          shot_number?: number
+          storyboard_board_id?: string
+          transition?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "animatic_panels_animatic_id_fkey"
+            columns: ["animatic_id"]
+            isOneToOne: false
+            referencedRelation: "animatics"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "animatic_panels_storyboard_board_id_fkey"
+            columns: ["storyboard_board_id"]
+            isOneToOne: false
+            referencedRelation: "storyboard_boards"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      animatics: {
+        Row: {
+          aspect_ratio: string | null
+          created_at: string | null
+          created_by: string
+          episode_number: number | null
+          fps: number | null
+          id: string
+          project_id: string
+          render_asset_path: string | null
+          scope: Json | null
+          shot_list_id: string
+          status: string | null
+          timing_asset_path: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          aspect_ratio?: string | null
+          created_at?: string | null
+          created_by: string
+          episode_number?: number | null
+          fps?: number | null
+          id?: string
+          project_id: string
+          render_asset_path?: string | null
+          scope?: Json | null
+          shot_list_id: string
+          status?: string | null
+          timing_asset_path?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          aspect_ratio?: string | null
+          created_at?: string | null
+          created_by?: string
+          episode_number?: number | null
+          fps?: number | null
+          id?: string
+          project_id?: string
+          render_asset_path?: string | null
+          scope?: Json | null
+          shot_list_id?: string
+          status?: string | null
+          timing_asset_path?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "animatics_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "animatics_shot_list_id_fkey"
+            columns: ["shot_list_id"]
+            isOneToOne: false
+            referencedRelation: "shot_lists"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       approved_sources: {
         Row: {
           added_by: string
