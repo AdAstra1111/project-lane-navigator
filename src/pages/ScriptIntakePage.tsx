@@ -536,6 +536,20 @@ function BackfillTab({
       {/* Generated doc previews */}
       {backfillDocs.length > 0 && (
         <div className="space-y-3">
+          {/* Approve All button */}
+          {backfillDocs.filter(d => !d.error).length > 1 && (
+            <div className="flex justify-end">
+              <Button
+                size="sm"
+                className="gap-1 text-xs"
+                onClick={() => backfillDocs.filter(d => !d.error).forEach(d => onApprove(d))}
+                disabled={approving}
+              >
+                {approving ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
+                Approve All ({backfillDocs.filter(d => !d.error).length})
+              </Button>
+            </div>
+          )}
           {backfillDocs.map((doc, i) => (
             <Card key={i} className={doc.error ? 'border-destructive/30' : ''}>
               <CardHeader className="py-3 px-4">
