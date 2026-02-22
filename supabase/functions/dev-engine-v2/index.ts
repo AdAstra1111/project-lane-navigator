@@ -10463,6 +10463,190 @@ ${scenesForPrompt}`;
       });
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    // CANON OS ACTIONS
+    // ═══════════════════════════════════════════════════════════════
+
+    if (action === "canon_os_initialize") {
+      const { projectId } = body;
+      if (!projectId) throw new Error("projectId required");
+
+      // Check if canon already has data
+      const { data: existing } = await supabase.from("project_canon")
+        .select("canon_json").eq("project_id", projectId).maybeSingle();
+
+      const existingJson = existing?.canon_json || {};
+      if (existingJson && Object.keys(existingJson).length > 3) {
+        // Already initialized - return latest version
+        const { data: latest } = await supabase.from("project_canon_versions")
+          .select("*").eq("project_id", projectId)
+          .order("created_at", { ascending: false }).limit(1).maybeSingle();
+        return new Response(JSON.stringify({ canon: latest }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // Build initial canon from project + documents
+      const { data: project } = await supabase.from("projects")
+        .select("title, production_type, format, genre, target_audience, episode_count, qualifications")
+        .eq("id", projectId).single();
+
+      const quals = (project?.qualifications || {}) as any;
+      const canonData: any = {
+        title: project?.title || "",
+        format: project?.format || project?.production_type || "",
+        episode_count: project?.episode_count || quals.episode_count || null,
+        episode_length_seconds_min: quals.episode_duration_min || null,
+        episode_length_seconds_max: quals.episode_duration_max || null,
+        genre: project?.genre || quals.genre || null,
+        tone: quals.tone || null,
+        world_rules: [],
+        characters: [],
+        locations: [],
+        timeline_notes: [],
+        forbidden_changes: [],
+      };
+
+      // Save to project_canon
+      await supabase.from("project_canon")
+        .update({ canon_json: canonData, updated_by: user.id })
+        .eq("project_id", projectId);
+
+      // Fetch the version that was auto-created by trigger
+      const { data: version } = await supabase.from("project_canon_versions")
+        .select("*").eq("project_id", projectId)
+        .order("created_at", { ascending: false }).limit(1).maybeSingle();
+
+      if (version) {
+        await supabase.from("projects")
+          .update({ canon_version_id: version.id })
+          .eq("id", projectId);
+      }
+
+      return new Response(JSON.stringify({ canon: version }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "canon_os_update") {
+      const { projectId, patch } = body;
+      if (!projectId || !patch) throw new Error("projectId and patch required");
+
+      // Fetch current
+      const { data: current } = await supabase.from("project_canon")
+        .select("canon_json").eq("project_id", projectId).single();
+      if (!current) throw new Error("Canon not found");
+
+      const merged = { ...(current.canon_json || {}), ...patch };
+
+      // Update (trigger auto-creates version)
+      await supabase.from("project_canon")
+        .update({ canon_json: merged, updated_by: user.id })
+        .eq("project_id", projectId);
+
+      // Get new version
+      const { data: version } = await supabase.from("project_canon_versions")
+        .select("*").eq("project_id", projectId)
+        .order("created_at", { ascending: false }).limit(1).maybeSingle();
+
+      if (version) {
+        await supabase.from("projects")
+          .update({ canon_version_id: version.id })
+          .eq("id", projectId);
+      }
+
+      return new Response(JSON.stringify({ canon: version }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "canon_os_approve") {
+      const { projectId, canonId } = body;
+      if (!projectId || !canonId) throw new Error("projectId and canonId required");
+
+      // Supersede previous approved
+      await supabase.from("project_canon_versions")
+        .update({ is_approved: false, approved_at: null, status: 'superseded' })
+        .eq("project_id", projectId)
+        .eq("is_approved", true);
+
+      // Approve this version
+      await supabase.from("project_canon_versions")
+        .update({ is_approved: true, approved_at: new Date().toISOString(), status: 'approved' })
+        .eq("id", canonId);
+
+      // Update project pointer
+      await supabase.from("projects")
+        .update({ canon_version_id: canonId })
+        .eq("id", projectId);
+
+      const { data: version } = await supabase.from("project_canon_versions")
+        .select("*").eq("id", canonId).single();
+
+      return new Response(JSON.stringify({ canon: version }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "canon_os_get") {
+      const { projectId } = body;
+      if (!projectId) throw new Error("projectId required");
+
+      // Get current canon + latest version
+      const { data: version } = await supabase.from("project_canon_versions")
+        .select("*").eq("project_id", projectId)
+        .order("created_at", { ascending: false }).limit(1).maybeSingle();
+
+      return new Response(JSON.stringify({ canon: version || null }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "project_rename") {
+      const { projectId, newTitle } = body;
+      if (!projectId || !newTitle) throw new Error("projectId and newTitle required");
+
+      // 1. Get old title
+      const { data: project } = await supabase.from("projects")
+        .select("title").eq("id", projectId).single();
+      const oldTitle = project?.title || "";
+
+      // 2. Update project title
+      await supabase.from("projects")
+        .update({ title: newTitle })
+        .eq("id", projectId);
+
+      // 3. Update canon data.title
+      const { data: canon } = await supabase.from("project_canon")
+        .select("canon_json").eq("project_id", projectId).maybeSingle();
+      if (canon) {
+        const updated = { ...(canon.canon_json || {}), title: newTitle };
+        await supabase.from("project_canon")
+          .update({ canon_json: updated, updated_by: user.id })
+          .eq("project_id", projectId);
+      }
+
+      // 4. Update document titles - replace old title prefix
+      let updatedDocs = 0;
+      if (oldTitle) {
+        const { data: docs } = await supabase.from("project_documents")
+          .select("id, file_name").eq("project_id", projectId);
+        for (const doc of (docs || [])) {
+          if (doc.file_name && doc.file_name.startsWith(oldTitle)) {
+            const newName = newTitle + doc.file_name.slice(oldTitle.length);
+            await supabase.from("project_documents")
+              .update({ file_name: newName })
+              .eq("id", doc.id);
+            updatedDocs++;
+          }
+        }
+      }
+
+      return new Response(JSON.stringify({ success: true, updated_documents: updatedDocs }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     throw new Error(`Unknown action: ${action}`);
   } catch (err: any) {
     console.error("dev-engine-v2 error:", err);

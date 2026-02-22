@@ -14,7 +14,7 @@ import {
   Check, FileText, AlertTriangle, ChevronRight, GripVertical,
   Camera, Download, RotateCw, Undo2, Archive, RefreshCw,
   CheckCircle, XCircle, Play, History, BarChart3, ShieldCheck,
-  Activity, Eye, EyeOff, Shield, Wand2,
+  Activity, Eye, EyeOff, Shield, Wand2, BookOpen,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Clapperboard, GitBranch } from 'lucide-react';
@@ -23,6 +23,7 @@ import { VisualProductionPanel } from './VisualProductionPanel';
 import { ChangeSetsPanel } from './ChangeSetsPanel';
 import { QCPanel } from './QCPanel';
 import { PassesPanel } from './PassesPanel';
+import { CanonOSPanel } from './CanonOSPanel';
 
 interface SceneGraphPanelProps {
   projectId: string;
@@ -185,6 +186,9 @@ export function SceneGraphPanel({ projectId, documents }: SceneGraphPanelProps) 
           <TabsTrigger value="passes" className="text-xs gap-1">
             <Wand2 className="h-3 w-3" /> Passes
           </TabsTrigger>
+          <TabsTrigger value="canon" className="text-xs gap-1">
+            <BookOpen className="h-3 w-3" /> Canon
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="visual" className="mt-3">
@@ -217,6 +221,10 @@ export function SceneGraphPanel({ projectId, documents }: SceneGraphPanelProps) 
             projectId={projectId}
             onNavigateToChangeSet={() => setTopTab('changesets')}
           />
+        </TabsContent>
+
+        <TabsContent value="canon" className="mt-3">
+          <CanonOSPanel projectId={projectId} />
         </TabsContent>
 
         <TabsContent value="scenes" className="mt-3 space-y-3">

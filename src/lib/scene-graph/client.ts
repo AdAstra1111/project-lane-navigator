@@ -112,6 +112,13 @@ import type {
   PassGetRunInput,
   PassRun,
   QCIssue,
+  // Canon OS
+  CanonInitializeInput,
+  CanonOSUpdateInput,
+  CanonApproveInput,
+  CanonOSGetInput,
+  CanonOSVersion,
+  ProjectRenameInput,
 } from './types';
 
 async function callSceneGraph<T = any>(action: string, payload: Record<string, any>): Promise<T> {
@@ -448,4 +455,26 @@ export async function listPassRuns(input: PassListRunsInput) {
 
 export async function getPassRun(input: PassGetRunInput) {
   return callSceneGraph<{ run: PassRun; selected_scenes: any[] }>('pass_get_run', input);
+}
+
+// Canon OS actions
+
+export async function canonInitialize(input: CanonInitializeInput) {
+  return callSceneGraph<{ canon: CanonOSVersion }>('canon_os_initialize', input);
+}
+
+export async function canonOSUpdate(input: CanonOSUpdateInput) {
+  return callSceneGraph<{ canon: CanonOSVersion }>('canon_os_update', input);
+}
+
+export async function canonApprove(input: CanonApproveInput) {
+  return callSceneGraph<{ canon: CanonOSVersion }>('canon_os_approve', input);
+}
+
+export async function canonOSGet(input: CanonOSGetInput) {
+  return callSceneGraph<{ canon: CanonOSVersion | null }>('canon_os_get', input);
+}
+
+export async function projectRename(input: ProjectRenameInput) {
+  return callSceneGraph<{ success: boolean; updated_documents: number }>('project_rename', input);
 }

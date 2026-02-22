@@ -6994,6 +6994,9 @@ export type Database = {
           id: string
           is_approved: boolean
           project_id: string
+          status: string
+          summary: string | null
+          version_number: number
         }
         Insert: {
           approved_at?: string | null
@@ -7003,6 +7006,9 @@ export type Database = {
           id?: string
           is_approved?: boolean
           project_id: string
+          status?: string
+          summary?: string | null
+          version_number?: number
         }
         Update: {
           approved_at?: string | null
@@ -7012,6 +7018,9 @@ export type Database = {
           id?: string
           is_approved?: boolean
           project_id?: string
+          status?: string
+          summary?: string | null
+          version_number?: number
         }
         Relationships: [
           {
@@ -8451,6 +8460,7 @@ export type Database = {
           id: string
           ingestion_source: string | null
           is_out_of_date: boolean | null
+          is_primary: boolean
           last_compiled_at: string | null
           latest_export_path: string | null
           latest_version_id: string | null
@@ -8478,6 +8488,7 @@ export type Database = {
           id?: string
           ingestion_source?: string | null
           is_out_of_date?: boolean | null
+          is_primary?: boolean
           last_compiled_at?: string | null
           latest_export_path?: string | null
           latest_version_id?: string | null
@@ -8505,6 +8516,7 @@ export type Database = {
           id?: string
           ingestion_source?: string | null
           is_out_of_date?: boolean | null
+          is_primary?: boolean
           last_compiled_at?: string | null
           latest_export_path?: string | null
           latest_version_id?: string | null
@@ -10459,6 +10471,7 @@ export type Database = {
           analysis_passes: Json | null
           assigned_lane: string | null
           budget_range: string
+          canon_version_id: string | null
           comparable_titles: string
           concept_lock_version: number | null
           confidence: number | null
@@ -10517,6 +10530,7 @@ export type Database = {
           analysis_passes?: Json | null
           assigned_lane?: string | null
           budget_range?: string
+          canon_version_id?: string | null
           comparable_titles?: string
           concept_lock_version?: number | null
           confidence?: number | null
@@ -10575,6 +10589,7 @@ export type Database = {
           analysis_passes?: Json | null
           assigned_lane?: string | null
           budget_range?: string
+          canon_version_id?: string | null
           comparable_titles?: string
           concept_lock_version?: number | null
           confidence?: number | null
@@ -10634,6 +10649,13 @@ export type Database = {
             columns: ["active_company_profile_id"]
             isOneToOne: false
             referencedRelation: "company_intelligence_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "projects_canon_version_id_fkey"
+            columns: ["canon_version_id"]
+            isOneToOne: false
+            referencedRelation: "project_canon_versions"
             referencedColumns: ["id"]
           },
           {
