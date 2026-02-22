@@ -22,6 +22,11 @@ import {
   sceneGraphApplyPatch,
   sceneGraphRebalance,
   sceneGraphListActions,
+  metricsRun,
+  metricsGetLatest,
+  coherenceRun,
+  coherenceGetLatest,
+  coherenceCloseFinding,
 } from '@/lib/scene-graph/client';
 import type {
   SceneListItem,
@@ -30,6 +35,9 @@ import type {
   PatchQueueItem,
   SceneGraphAction,
   InactiveSceneItem,
+  StoryMetricsRun,
+  CoherenceRun,
+  CoherenceFinding,
 } from '@/lib/scene-graph/types';
 
 export function useSceneGraph(projectId: string | undefined) {
@@ -101,6 +109,28 @@ export function useSceneGraph(projectId: string | undefined) {
       if (!projectId) return [];
       const result = await sceneGraphListActions(projectId);
       return result.actions || [];
+    },
+    enabled: !!projectId && (stateQuery.data?.has_scenes ?? false),
+  });
+
+  // Phase 4: Metrics
+  const metricsQuery = useQuery({
+    queryKey: ['scene-graph-metrics', projectId],
+    queryFn: async () => {
+      if (!projectId) return null;
+      const result = await metricsGetLatest({ projectId });
+      return result.run || null;
+    },
+    enabled: !!projectId && (stateQuery.data?.has_scenes ?? false),
+  });
+
+  // Phase 4: Coherence
+  const coherenceQuery = useQuery({
+    queryKey: ['scene-graph-coherence', projectId],
+    queryFn: async () => {
+      if (!projectId) return { run: null, findings: [] };
+      const result = await coherenceGetLatest({ projectId });
+      return { run: result.run, findings: result.findings || [] };
     },
     enabled: !!projectId && (stateQuery.data?.has_scenes ?? false),
   });
@@ -275,6 +305,46 @@ export function useSceneGraph(projectId: string | undefined) {
     onError: (e: Error) => toast.error(`Rebalance failed: ${e.message}`),
   });
 
+  // Phase 4: Run metrics
+  const runMetricsMutation = useMutation({
+    mutationFn: async (params: { mode?: 'latest' | 'approved_prefer' } | void) => {
+      if (!projectId) throw new Error('No project');
+      return metricsRun({ projectId, ...(params || {}) });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['scene-graph-metrics', projectId] });
+      toast.success('Diagnostics complete');
+    },
+    onError: (e: Error) => toast.error(`Metrics failed: ${e.message}`),
+  });
+
+  // Phase 4: Run coherence
+  const runCoherenceMutation = useMutation({
+    mutationFn: async (params: { mode?: 'latest' | 'approved_prefer'; docSet?: any } | void) => {
+      if (!projectId) throw new Error('No project');
+      return coherenceRun({ projectId, ...(params || {}) });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['scene-graph-coherence', projectId] });
+      invalidate(); // Also refresh patches
+      toast.success('Coherence check complete');
+    },
+    onError: (e: Error) => toast.error(`Coherence failed: ${e.message}`),
+  });
+
+  // Phase 4: Close finding
+  const closeCoherenceFindingMutation = useMutation({
+    mutationFn: async (params: { findingId: string; resolution?: { note: string; actionTaken?: string } }) => {
+      if (!projectId) throw new Error('No project');
+      return coherenceCloseFinding({ projectId, ...params });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['scene-graph-coherence', projectId] });
+      toast.success('Finding resolved');
+    },
+    onError: (e: Error) => toast.error(`Close failed: ${e.message}`),
+  });
+
   return {
     // State
     projectState: stateQuery.data,
@@ -288,6 +358,12 @@ export function useSceneGraph(projectId: string | undefined) {
     lastImpact,
     setLastImpact,
     lastActionId,
+
+    // Phase 4 state
+    latestMetrics: metricsQuery.data as StoryMetricsRun | null,
+    coherenceData: coherenceQuery.data as { run: CoherenceRun | null; findings: CoherenceFinding[] },
+    isMetricsLoading: metricsQuery.isLoading,
+    isCoherenceLoading: coherenceQuery.isLoading,
 
     // Phase 1 Mutations
     extract: extractMutation,
@@ -307,5 +383,10 @@ export function useSceneGraph(projectId: string | undefined) {
     rejectPatch: rejectPatchMutation,
     applyPatch: applyPatchMutation,
     rebalance: rebalanceMutation,
+
+    // Phase 4 Mutations
+    runMetrics: runMetricsMutation,
+    runCoherence: runCoherenceMutation,
+    closeCoherenceFinding: closeCoherenceFindingMutation,
   };
 }

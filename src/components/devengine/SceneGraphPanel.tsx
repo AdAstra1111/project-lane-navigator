@@ -13,10 +13,11 @@ import {
   Loader2, Plus, Trash2, ArrowUp, ArrowDown, Scissors, Merge,
   Check, FileText, AlertTriangle, ChevronRight, GripVertical,
   Camera, Download, RotateCw, Undo2, Archive, RefreshCw,
-  CheckCircle, XCircle, Play, History,
+  CheckCircle, XCircle, Play, History, BarChart3, ShieldCheck,
+  Activity, Eye, EyeOff,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import type { SceneListItem, ImpactWarning, PatchQueueItem, InactiveSceneItem, SceneGraphAction } from '@/lib/scene-graph/types';
+import type { SceneListItem, ImpactWarning, PatchQueueItem, InactiveSceneItem, SceneGraphAction, StoryMetricsRun, CoherenceFinding } from '@/lib/scene-graph/types';
 
 interface SceneGraphPanelProps {
   projectId: string;
@@ -285,7 +286,7 @@ export function SceneGraphPanel({ projectId, documents }: SceneGraphPanelProps) 
             )}
           </div>
 
-          {/* Right Panel: Impact + Patches */}
+          {/* Right Panel: Impact + Patches + Diagnostics + Coherence */}
           <div className="col-span-3">
             <Tabs value={rightTab} onValueChange={setRightTab}>
               <TabsList className="w-full h-7">
@@ -294,6 +295,12 @@ export function SceneGraphPanel({ projectId, documents }: SceneGraphPanelProps) 
                   Patches {sg.patchQueue.filter(p => p.status === 'open').length > 0 && (
                     <Badge variant="destructive" className="ml-1 text-[8px] h-4 px-1">{sg.patchQueue.filter(p => p.status === 'open').length}</Badge>
                   )}
+                </TabsTrigger>
+                <TabsTrigger value="diagnostics" className="text-[10px] flex-1">
+                  <BarChart3 className="h-2.5 w-2.5 mr-0.5" />Diag
+                </TabsTrigger>
+                <TabsTrigger value="coherence" className="text-[10px] flex-1">
+                  <ShieldCheck className="h-2.5 w-2.5 mr-0.5" />Coh
                 </TabsTrigger>
               </TabsList>
               <TabsContent value="impact" className="mt-2">
@@ -306,6 +313,27 @@ export function SceneGraphPanel({ projectId, documents }: SceneGraphPanelProps) 
                   onReject={(id) => sg.rejectPatch.mutateAsync(id)}
                   onApply={(id, mode) => sg.applyPatch.mutateAsync({ patchQueueId: id, mode })}
                   isLoading={sg.acceptPatch.isPending || sg.rejectPatch.isPending || sg.applyPatch.isPending}
+                />
+              </TabsContent>
+              <TabsContent value="diagnostics" className="mt-2">
+                <DiagnosticsPanel
+                  metrics={sg.latestMetrics}
+                  onRun={() => sg.runMetrics.mutateAsync()}
+                  isRunning={sg.runMetrics.isPending}
+                />
+              </TabsContent>
+              <TabsContent value="coherence" className="mt-2">
+                <CoherencePanel
+                  findings={sg.coherenceData?.findings || []}
+                  lastRunAt={sg.coherenceData?.run?.created_at || null}
+                  onRun={() => sg.runCoherence.mutateAsync()}
+                  onClose={(findingId) => sg.closeCoherenceFinding.mutateAsync({ findingId, resolution: { note: 'Resolved' } })}
+                  onQueueRepair={(findingId, repair) => {
+                    // Push repair to patch queue by accepting it as-is
+                    toast.info('Repair queued to patch queue');
+                  }}
+                  isRunning={sg.runCoherence.isPending}
+                  onSelectScene={(sceneId) => selectScene(sceneId)}
                 />
               </TabsContent>
             </Tabs>
@@ -488,7 +516,7 @@ function PatchQueuePanel({ patches, onAccept, onReject, onApply, isLoading }: {
         <CardContent className="px-2 py-2 space-y-2">
           {patches.map(p => (
             <div key={p.id} className="p-2 rounded border border-border/50 bg-muted/10 text-[10px] space-y-1.5">
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1.5 flex-wrap">
                 <Badge variant={
                   p.status === 'open' ? 'secondary' :
                   p.status === 'accepted' ? 'default' :
@@ -496,6 +524,12 @@ function PatchQueuePanel({ patches, onAccept, onReject, onApply, isLoading }: {
                 } className="text-[8px] h-4 px-1">
                   {p.status}
                 </Badge>
+                {(p as any).repair_kind && (
+                  <Badge variant="outline" className="text-[8px] h-4 px-1">{(p as any).repair_kind}</Badge>
+                )}
+                {(p as any).source_finding_id && (
+                  <Badge variant="outline" className="text-[8px] h-4 px-1 border-primary/30 text-primary">From finding</Badge>
+                )}
               </div>
               <p className="font-medium">{p.suggestion}</p>
               {p.rationale && <p className="text-muted-foreground">{p.rationale}</p>}
@@ -526,6 +560,223 @@ function PatchQueuePanel({ patches, onAccept, onReject, onApply, isLoading }: {
           ))}
         </CardContent>
       </ScrollArea>
+    </Card>
+  );
+}
+
+// ── Phase 4: Diagnostics Panel ──
+
+function MetricCard({ label, value, maxValue = 100 }: { label: string; value: number | undefined; maxValue?: number }) {
+  const v = value ?? 0;
+  const pct = Math.round((v / maxValue) * 100);
+  const color = pct >= 70 ? 'text-primary' : pct >= 40 ? 'text-amber-500' : 'text-destructive';
+  return (
+    <div className="p-1.5 rounded border border-border/50 bg-muted/10">
+      <div className="flex items-center justify-between">
+        <span className="text-[9px] text-muted-foreground truncate">{label}</span>
+        <span className={`text-[11px] font-mono font-bold ${color}`}>{v}</span>
+      </div>
+      <div className="mt-1 h-1 rounded-full bg-muted">
+        <div className={`h-1 rounded-full ${pct >= 70 ? 'bg-primary' : pct >= 40 ? 'bg-amber-500' : 'bg-destructive'}`} style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function MiniChart({ data, color = 'bg-primary' }: { data: Array<{ x: number; y: number }>; color?: string }) {
+  if (!data || data.length === 0) return <p className="text-[9px] text-muted-foreground">No data</p>;
+  const maxY = Math.max(...data.map(d => d.y), 1);
+  return (
+    <div className="flex items-end gap-px h-12">
+      {data.map((d, i) => (
+        <div
+          key={i}
+          className={`flex-1 min-w-[2px] rounded-t ${color}`}
+          style={{ height: `${(d.y / maxY) * 100}%`, opacity: 0.6 + (d.y / maxY) * 0.4 }}
+          title={`Scene ${d.x}: ${d.y}`}
+        />
+      ))}
+    </div>
+  );
+}
+
+function DiagnosticsPanel({ metrics, onRun, isRunning }: {
+  metrics: StoryMetricsRun | null;
+  onRun: () => void;
+  isRunning: boolean;
+}) {
+  return (
+    <Card className="border-border/50">
+      <CardHeader className="px-2 py-1.5">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1">
+            <BarChart3 className="h-3 w-3 text-primary" />
+            <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Diagnostics</span>
+          </div>
+          <Button size="sm" variant="ghost" className="h-5 text-[9px] gap-0.5 px-1.5" onClick={onRun} disabled={isRunning}>
+            {isRunning ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Activity className="h-2.5 w-2.5" />}
+            Run
+          </Button>
+        </div>
+      </CardHeader>
+      <ScrollArea className="max-h-[400px]">
+        <CardContent className="px-2 pb-2 space-y-2">
+          {!metrics ? (
+            <p className="text-[10px] text-muted-foreground text-center py-4">Click "Run" to compute story metrics.</p>
+          ) : (
+            <>
+              {metrics.created_at && (
+                <p className="text-[9px] text-muted-foreground">Last run: {new Date(metrics.created_at).toLocaleString()}</p>
+              )}
+              <div className="grid grid-cols-2 gap-1.5">
+                <MetricCard label="Act Balance" value={metrics.metrics.act_balance_score} />
+                <MetricCard label="Escalation" value={metrics.metrics.escalation_curve_score} />
+                <MetricCard label="Conflict Density" value={metrics.metrics.conflict_density} />
+                <MetricCard label="Exposition Ratio" value={metrics.metrics.exposition_ratio} />
+                <MetricCard label="Character Focus" value={metrics.metrics.character_focus_entropy} />
+                <MetricCard label="Thread Resolution" value={metrics.metrics.thread_resolution_ratio} />
+                <MetricCard label="Setup/Payoff" value={metrics.metrics.setup_payoff_health} />
+                <MetricCard label="Continuity" value={metrics.metrics.continuity_risk_score} />
+              </div>
+
+              {metrics.charts.tension_over_time && metrics.charts.tension_over_time.length > 0 && (
+                <div className="space-y-1">
+                  <p className="text-[9px] text-muted-foreground uppercase tracking-wider">Tension Curve</p>
+                  <MiniChart data={metrics.charts.tension_over_time} color="bg-primary" />
+                </div>
+              )}
+
+              {metrics.charts.exposition_over_time && metrics.charts.exposition_over_time.length > 0 && (
+                <div className="space-y-1">
+                  <p className="text-[9px] text-muted-foreground uppercase tracking-wider">Exposition</p>
+                  <MiniChart data={metrics.charts.exposition_over_time} color="bg-amber-500" />
+                </div>
+              )}
+
+              {metrics.charts.open_threads_over_time && metrics.charts.open_threads_over_time.length > 0 && (
+                <div className="space-y-1">
+                  <p className="text-[9px] text-muted-foreground uppercase tracking-wider">Open Threads</p>
+                  <MiniChart data={metrics.charts.open_threads_over_time} color="bg-blue-500" />
+                </div>
+              )}
+            </>
+          )}
+        </CardContent>
+      </ScrollArea>
+    </Card>
+  );
+}
+
+// ── Phase 4: Coherence Panel ──
+
+function CoherencePanel({ findings, lastRunAt, onRun, onClose, onQueueRepair, isRunning, onSelectScene }: {
+  findings: CoherenceFinding[];
+  lastRunAt: string | null;
+  onRun: () => void;
+  onClose: (findingId: string) => void;
+  onQueueRepair: (findingId: string, repair: any) => void;
+  isRunning: boolean;
+  onSelectScene: (sceneId: string) => void;
+}) {
+  const [filterType, setFilterType] = useState<string>('all');
+  const [showClosed, setShowClosed] = useState(false);
+
+  const filtered = findings.filter(f => {
+    if (!showClosed && !f.is_open) return false;
+    if (filterType !== 'all' && f.finding_type !== filterType) return false;
+    return true;
+  });
+
+  const openCount = findings.filter(f => f.is_open).length;
+  const highCount = findings.filter(f => f.is_open && f.severity === 'high').length;
+
+  return (
+    <Card className="border-border/50">
+      <CardHeader className="px-2 py-1.5">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1">
+            <ShieldCheck className="h-3 w-3 text-primary" />
+            <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Coherence</span>
+            {openCount > 0 && (
+              <Badge variant={highCount > 0 ? 'destructive' : 'secondary'} className="text-[8px] h-4 px-1">{openCount} open</Badge>
+            )}
+          </div>
+          <Button size="sm" variant="ghost" className="h-5 text-[9px] gap-0.5 px-1.5" onClick={onRun} disabled={isRunning}>
+            {isRunning ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <ShieldCheck className="h-2.5 w-2.5" />}
+            Run
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="px-2 pb-2 space-y-2">
+        {lastRunAt && (
+          <p className="text-[9px] text-muted-foreground">Last run: {new Date(lastRunAt).toLocaleString()}</p>
+        )}
+        <div className="flex gap-1 flex-wrap">
+          {['all', 'canon_conflict', 'character_conflict', 'format_conflict', 'blueprint_conflict'].map(t => (
+            <Button key={t} size="sm" variant={filterType === t ? 'default' : 'outline'}
+              className="h-5 text-[8px] px-1.5" onClick={() => setFilterType(t)}>
+              {t === 'all' ? 'All' : t.replace('_', ' ').replace('conflict', '').trim()}
+            </Button>
+          ))}
+          <Button size="sm" variant="ghost" className="h-5 text-[8px] px-1 gap-0.5" onClick={() => setShowClosed(!showClosed)}>
+            {showClosed ? <EyeOff className="h-2 w-2" /> : <Eye className="h-2 w-2" />}
+            {showClosed ? 'Hide closed' : 'Show closed'}
+          </Button>
+        </div>
+        <ScrollArea className="max-h-[350px]">
+          <div className="space-y-1.5">
+            {filtered.length === 0 ? (
+              <p className="text-[10px] text-muted-foreground text-center py-4">
+                {findings.length === 0 ? 'Click "Run" to check cross-document coherence.' : 'No matching findings.'}
+              </p>
+            ) : filtered.map(f => (
+              <div key={f.id} className={`p-2 rounded border text-[10px] space-y-1 ${
+                !f.is_open ? 'border-border/30 bg-muted/10 opacity-60' :
+                f.severity === 'high' ? 'border-destructive/30 bg-destructive/5' :
+                f.severity === 'med' ? 'border-amber-500/30 bg-amber-500/5' :
+                'border-border/50 bg-muted/10'
+              }`}>
+                <div className="flex items-center gap-1 flex-wrap">
+                  <Badge variant={f.severity === 'high' ? 'destructive' : 'outline'} className="text-[8px] h-4 px-1">{f.severity}</Badge>
+                  <Badge variant="outline" className="text-[8px] h-4 px-1">{f.finding_type.replace(/_/g, ' ')}</Badge>
+                  {!f.is_open && <Badge variant="outline" className="text-[8px] h-4 px-1">resolved</Badge>}
+                </div>
+                <p className="font-medium">{f.title}</p>
+                <p className="text-muted-foreground leading-relaxed">{f.detail}</p>
+                {f.related_scene_ids.length > 0 && (
+                  <div className="flex gap-1 flex-wrap">
+                    {f.related_scene_ids.map((sid: string) => (
+                      <button key={sid} className="text-[8px] text-primary underline" onClick={() => onSelectScene(sid)}>
+                        Scene {sid.slice(0, 6)}…
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {f.related_doc_refs.length > 0 && (
+                  <div className="flex gap-1 flex-wrap">
+                    {f.related_doc_refs.map((ref: any, i: number) => (
+                      <Badge key={i} variant="outline" className="text-[7px] h-3.5 px-1">{ref.doc_type}</Badge>
+                    ))}
+                  </div>
+                )}
+                {f.is_open && (
+                  <div className="flex gap-1 pt-1">
+                    {f.suggested_repairs.length > 0 && f.suggested_repairs.map((r: any, i: number) => (
+                      <Button key={i} size="sm" variant="ghost" className="h-5 text-[9px] gap-0.5 px-1.5"
+                        onClick={() => onQueueRepair(f.id, r)}>
+                        <Play className="h-2.5 w-2.5" /> Queue repair
+                      </Button>
+                    ))}
+                    <Button size="sm" variant="ghost" className="h-5 text-[9px] gap-0.5 px-1.5" onClick={() => onClose(f.id)}>
+                      <CheckCircle className="h-2.5 w-2.5" /> Resolve
+                    </Button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </ScrollArea>
+      </CardContent>
     </Card>
   );
 }

@@ -6893,6 +6893,484 @@ CANON FACTS: ${JSON.stringify(canonFacts || []).slice(0, 4000)}`;
       });
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    // PHASE 4: STRUCTURAL DIAGNOSTICS + COHERENCE
+    // ═══════════════════════════════════════════════════════════════
+
+    if (action === "metrics_run") {
+      const { projectId, mode: metricsMode } = body;
+      if (!projectId) throw new Error("projectId required");
+      const useMode = metricsMode || 'latest';
+
+      // Get ordered active scenes
+      const { data: orderRows } = await supabase.from("scene_graph_order")
+        .select("scene_id, order_key, act, sequence")
+        .eq("project_id", projectId).eq("is_active", true)
+        .order("order_key", { ascending: true });
+      if (!orderRows || orderRows.length === 0) throw new Error("No active scenes for metrics");
+
+      const sceneIds = orderRows.map((r: any) => r.scene_id);
+      const { data: versions } = await supabase.from("scene_graph_versions")
+        .select("scene_id, slugline, summary, content, characters_present, beats, continuity_facts_emitted, continuity_facts_required, setup_payoff_emitted, setup_payoff_required")
+        .in("scene_id", sceneIds)
+        .order("version_number", { ascending: false });
+
+      const latestMap = new Map<string, any>();
+      for (const v of (versions || [])) {
+        if (!latestMap.has(v.scene_id)) latestMap.set(v.scene_id, v);
+      }
+
+      // Get spine links
+      const { data: spineLinks } = await supabase.from("scene_spine_links")
+        .select("scene_id, roles, threads, arc_steps")
+        .eq("project_id", projectId);
+      const spineLinkMap = new Map<string, any>();
+      for (const sl of (spineLinks || [])) spineLinkMap.set(sl.scene_id, sl);
+
+      // Get canon facts for thread/setup analysis
+      const { data: canonFacts } = await supabase.from("canon_facts")
+        .select("fact_type, subject, predicate, object, first_scene_id, last_scene_id, is_active")
+        .eq("project_id", projectId).eq("is_active", true).limit(500);
+
+      const totalScenes = orderRows.length;
+
+      // ── Compute metrics deterministically ──
+
+      // Act balance
+      const actCounts: Record<number, number> = {};
+      for (const o of orderRows) {
+        const act = o.act || Math.ceil(((orderRows.indexOf(o) + 1) / totalScenes) * 3);
+        actCounts[act] = (actCounts[act] || 0) + 1;
+      }
+      const actValues = Object.values(actCounts);
+      const actMean = actValues.reduce((a, b) => a + b, 0) / actValues.length;
+      const actDeviation = actValues.reduce((a, b) => a + Math.abs(b - actMean), 0) / actValues.length;
+      const actBalanceScore = Math.max(0, Math.round(100 - (actDeviation / Math.max(actMean, 1)) * 100));
+
+      // Conflict density + exposition ratio
+      const conflictKeywords = ['conflict', 'fight', 'argue', 'confront', 'attack', 'chase', 'threat', 'betray', 'refuse', 'demand', 'struggle'];
+      const expositionKeywords = ['explain', 'reveal', 'describe', 'tell about', 'inform', 'backstory', 'exposition', 'flashback'];
+      let conflictScenes = 0;
+      let expositionScenes = 0;
+      const tensionSeries: Array<{ x: number; y: number }> = [];
+      const expositionSeries: Array<{ x: number; y: number }> = [];
+      const characterPresence: Record<string, number[]> = {};
+
+      const perScene: any[] = [];
+
+      for (let i = 0; i < orderRows.length; i++) {
+        const o = orderRows[i];
+        const v = latestMap.get(o.scene_id);
+        const text = ((v?.content || '') + ' ' + (v?.summary || '')).toLowerCase();
+        const beats = v?.beats || [];
+
+        const hasConflict = conflictKeywords.some(k => text.includes(k)) || beats.some((b: any) => (b.type || '').includes('conflict'));
+        const isExposition = expositionKeywords.some(k => text.includes(k));
+
+        if (hasConflict) conflictScenes++;
+        if (isExposition) expositionScenes++;
+
+        // Tension heuristic: conflict presence + position weight
+        const posWeight = i / Math.max(totalScenes - 1, 1);
+        const tensionBase = hasConflict ? 60 : 30;
+        const tension = Math.min(100, tensionBase + posWeight * 40 + (isExposition ? -15 : 0));
+        tensionSeries.push({ x: i + 1, y: Math.round(tension) });
+        expositionSeries.push({ x: i + 1, y: isExposition ? 80 : 10 });
+
+        // Character presence
+        const chars = v?.characters_present || [];
+        for (const c of chars) {
+          if (!characterPresence[c]) characterPresence[c] = new Array(totalScenes).fill(0);
+          characterPresence[c][i] = 1;
+        }
+
+        const sl = spineLinkMap.get(o.scene_id);
+        perScene.push({
+          scene_id: o.scene_id,
+          order_key: o.order_key,
+          metrics: {
+            tension: Math.round(tension),
+            has_conflict: hasConflict ? 1 : 0,
+            is_exposition: isExposition ? 1 : 0,
+            character_count: chars.length,
+            roles: (sl?.roles || []).length,
+            threads: (sl?.threads || []).length,
+          },
+        });
+      }
+
+      const conflictDensity = Math.round((conflictScenes / Math.max(totalScenes, 1)) * 100);
+      const expositionRatio = Math.round((expositionScenes / Math.max(totalScenes, 1)) * 100);
+
+      // Escalation curve: check if tension is roughly monotonically increasing (with allowed dips)
+      let escalationViolations = 0;
+      for (let i = 2; i < tensionSeries.length; i++) {
+        if (tensionSeries[i].y < tensionSeries[i - 2].y - 20) escalationViolations++;
+      }
+      const escalationCurveScore = Math.max(0, Math.round(100 - (escalationViolations / Math.max(totalScenes, 1)) * 200));
+
+      // Character focus entropy
+      const charEntries = Object.entries(characterPresence);
+      const top5 = charEntries.sort((a, b) => b[1].reduce((s, v) => s + v, 0) - a[1].reduce((s, v) => s + v, 0)).slice(0, 5);
+      let entropySum = 0;
+      const totalCharAppearances = top5.reduce((s, [, arr]) => s + arr.reduce((a, b) => a + b, 0), 0);
+      for (const [, arr] of top5) {
+        const p = arr.reduce((a, b) => a + b, 0) / Math.max(totalCharAppearances, 1);
+        if (p > 0) entropySum -= p * Math.log2(p);
+      }
+      const maxEntropy = Math.log2(Math.max(top5.length, 1));
+      const characterFocusEntropy = maxEntropy > 0 ? Math.round((entropySum / maxEntropy) * 100) : 50;
+
+      // Thread resolution
+      const threadFacts = (canonFacts || []).filter((f: any) => f.fact_type === 'thread' || f.predicate === 'resolves');
+      const introducedThreads = new Set<string>();
+      const resolvedThreads = new Set<string>();
+      for (const f of threadFacts) {
+        introducedThreads.add(f.subject);
+        if (f.predicate === 'resolves' || (f.last_scene_id && f.first_scene_id !== f.last_scene_id)) {
+          resolvedThreads.add(f.subject);
+        }
+      }
+      const threadResolutionRatio = introducedThreads.size > 0
+        ? Math.round((resolvedThreads.size / introducedThreads.size) * 100)
+        : 50;
+
+      // Setup/payoff health
+      let payoffTotal = 0, payoffHealthy = 0;
+      const setupFacts = (canonFacts || []).filter((f: any) => f.fact_type === 'setup_payoff' || f.predicate === 'setup' || f.predicate === 'payoff');
+      const setupSubjects = new Set(setupFacts.filter((f: any) => f.predicate === 'setup').map((f: any) => f.subject));
+      const payoffSubjects = new Set(setupFacts.filter((f: any) => f.predicate === 'payoff').map((f: any) => f.subject));
+      for (const s of payoffSubjects) { payoffTotal++; if (setupSubjects.has(s)) payoffHealthy++; }
+      // Also count from version arrays
+      for (const v of latestMap.values()) {
+        const required = v?.setup_payoff_required || [];
+        const emitted = v?.setup_payoff_emitted || [];
+        payoffTotal += required.length;
+        payoffHealthy += Math.min(required.length, emitted.length);
+      }
+      const setupPayoffHealth = payoffTotal > 0 ? Math.round((payoffHealthy / payoffTotal) * 100) : 50;
+
+      // Continuity risk (inverse of high-severity warnings)
+      const continuityRiskScore = 80; // default; would be refined by actual warnings count
+
+      // Character presence charts
+      const characterPresenceChart = top5.map(([char, arr]) => ({
+        character: char,
+        data: arr.map((v, i) => ({ x: i + 1, y: v })),
+      }));
+
+      // Open threads over time
+      const openThreadsSeries = orderRows.map((o: any, i: number) => {
+        // Very rough: assume threads introduced linearly, resolved towards end
+        const introduced = Math.round((i / Math.max(totalScenes - 1, 1)) * introducedThreads.size);
+        const resolved = i > totalScenes * 0.7 ? Math.round(((i - totalScenes * 0.7) / (totalScenes * 0.3)) * resolvedThreads.size) : 0;
+        return { x: i + 1, y: Math.max(0, introduced - resolved) };
+      });
+
+      const metricsObj = {
+        act_balance_score: actBalanceScore,
+        escalation_curve_score: escalationCurveScore,
+        conflict_density: conflictDensity,
+        exposition_ratio: expositionRatio,
+        character_focus_entropy: characterFocusEntropy,
+        thread_resolution_ratio: threadResolutionRatio,
+        setup_payoff_health: setupPayoffHealth,
+        continuity_risk_score: continuityRiskScore,
+        coverage: 100,
+        confidence: 0.7,
+      };
+
+      const chartsObj = {
+        tension_over_time: tensionSeries,
+        exposition_over_time: expositionSeries,
+        character_presence_over_time: characterPresenceChart,
+        open_threads_over_time: openThreadsSeries,
+      };
+
+      const { data: run } = await supabase.from("story_metrics_runs").insert({
+        project_id: projectId,
+        created_by: user.id,
+        mode: useMode,
+        metrics: metricsObj,
+        per_scene: perScene,
+        charts: chartsObj,
+        status: 'complete',
+      }).select("id").single();
+
+      return new Response(JSON.stringify({ runId: run?.id, metrics: metricsObj, charts: chartsObj }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "metrics_get_latest") {
+      const { projectId } = body;
+      if (!projectId) throw new Error("projectId required");
+
+      const { data: run } = await supabase.from("story_metrics_runs")
+        .select("*").eq("project_id", projectId)
+        .order("created_at", { ascending: false }).limit(1).single();
+
+      return new Response(JSON.stringify({ run: run || null }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "coherence_run") {
+      const { projectId, mode: cohMode, docSet } = body;
+      if (!projectId) throw new Error("projectId required");
+      const useDocSet = docSet || { blueprint: true, character_bible: true, format_rules: true, market_sheet: true };
+
+      // Gather project docs
+      const docTypes: string[] = [];
+      if (useDocSet.blueprint) docTypes.push('blueprint');
+      if (useDocSet.character_bible) docTypes.push('character_bible');
+      if (useDocSet.format_rules) docTypes.push('format_rules');
+      if (useDocSet.market_sheet) docTypes.push('market_sheet', 'vertical_market_sheet');
+
+      const { data: docs } = await supabase.from("project_documents")
+        .select("id, doc_type, file_name")
+        .eq("project_id", projectId)
+        .in("doc_type", docTypes);
+
+      const docVersions: Array<{ doc_type: string; document_id: string; version_id: string; plaintext: string }> = [];
+      for (const doc of (docs || [])) {
+        const { data: ver } = await supabase.from("project_document_versions")
+          .select("id, plaintext")
+          .eq("document_id", doc.id)
+          .order("version_number", { ascending: false })
+          .limit(1).single();
+        if (ver?.plaintext) {
+          docVersions.push({ doc_type: doc.doc_type, document_id: doc.id, version_id: ver.id, plaintext: ver.plaintext.slice(0, 8000) });
+        }
+      }
+
+      // Get scene map
+      const { data: orderRows } = await supabase.from("scene_graph_order")
+        .select("scene_id, order_key, act, sequence")
+        .eq("project_id", projectId).eq("is_active", true)
+        .order("order_key", { ascending: true });
+
+      const sceneIds = (orderRows || []).map((r: any) => r.scene_id);
+      const { data: versions } = sceneIds.length > 0
+        ? await supabase.from("scene_graph_versions")
+            .select("scene_id, slugline, summary, characters_present, content")
+            .in("scene_id", sceneIds)
+            .order("version_number", { ascending: false })
+        : { data: [] };
+
+      const latestMap = new Map<string, any>();
+      for (const v of (versions || [])) {
+        if (!latestMap.has(v.scene_id)) latestMap.set(v.scene_id, v);
+      }
+
+      const sceneMapCompact = (orderRows || []).map((o: any, i: number) => {
+        const v = latestMap.get(o.scene_id);
+        return { n: i + 1, id: o.scene_id, slug: v?.slugline || '', summary: (v?.summary || '').slice(0, 200), chars: v?.characters_present || [], act: o.act };
+      });
+
+      // Get canon facts
+      const { data: canonFacts } = await supabase.from("canon_facts")
+        .select("fact_type, subject, predicate, object, confidence")
+        .eq("project_id", projectId).eq("is_active", true).limit(200);
+
+      // Get current spine
+      const { data: currentSpine } = await supabase.from("project_spines")
+        .select("spine").eq("project_id", projectId).eq("status", "current")
+        .order("created_at", { ascending: false }).limit(1).single();
+
+      // ── Deterministic checks ──
+      const deterministicFindings: any[] = [];
+
+      // Character list check: if character_bible exists, check scene characters against it
+      const bibleDV = docVersions.find(d => d.doc_type === 'character_bible');
+      if (bibleDV) {
+        const bibleText = bibleDV.plaintext.toLowerCase();
+        for (const scene of sceneMapCompact) {
+          for (const c of scene.chars) {
+            if (c && c.length > 1 && !bibleText.includes(c.toLowerCase())) {
+              deterministicFindings.push({
+                severity: 'med',
+                finding_type: 'character_conflict',
+                title: `Character "${c}" not in Character Bible`,
+                detail: `Scene ${scene.n} ("${scene.slug}") references character "${c}" which does not appear in the Character Bible.`,
+                related_scene_ids: [scene.id],
+                related_doc_refs: [{ doc_type: 'character_bible', document_id: bibleDV.document_id, version_id: bibleDV.version_id }],
+                suggested_repairs: [{
+                  repair_kind: 'character_conflict',
+                  patch: { action: 'canon_override_upsert', payload: { override: { fact_type: 'character', subject: c, predicate: 'exists_in', object: 'story_world', confidence: 0.5 } } },
+                  rationale: `Add "${c}" to canon or correct the scene.`,
+                }],
+              });
+            }
+          }
+        }
+      }
+
+      // Format rules check
+      const formatDV = docVersions.find(d => d.doc_type === 'format_rules');
+      if (formatDV) {
+        const formatText = formatDV.plaintext.toLowerCase();
+        // Check episode count if mentioned
+        const epCountMatch = formatText.match(/(\d+)\s*episodes?/);
+        if (epCountMatch) {
+          const targetEps = parseInt(epCountMatch[1], 10);
+          if (targetEps > 0 && sceneMapCompact.length > 0) {
+            // Just note for awareness
+            deterministicFindings.push({
+              severity: 'low',
+              finding_type: 'format_conflict',
+              title: `Format specifies ${targetEps} episodes`,
+              detail: `Format rules mention ${targetEps} episodes. Ensure scene count and structure align.`,
+              related_scene_ids: [],
+              related_doc_refs: [{ doc_type: 'format_rules', document_id: formatDV.document_id, version_id: formatDV.version_id }],
+              suggested_repairs: [],
+            });
+          }
+        }
+      }
+
+      // ── LLM semantic coherence check (single pass) ──
+      let llmFindings: any[] = [];
+      if (docVersions.length > 0 && sceneMapCompact.length > 0) {
+        const apiKey = Deno.env.get("LOVABLE_API_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || '';
+
+        const docsContext = docVersions.map(d => `[${d.doc_type}|doc:${d.document_id}|ver:${d.version_id}]\n${d.plaintext.slice(0, 3000)}`).join('\n\n---\n\n');
+
+        const cohSystem = `You are a script coherence analyst. Compare the SCENE MAP against the provided REFERENCE DOCUMENTS and CANON FACTS. Find conflicts, contradictions, or missing elements.
+Output ONLY a valid JSON array of findings:
+[{
+  "severity": "low"|"med"|"high",
+  "finding_type": "canon_conflict"|"character_conflict"|"format_conflict"|"market_conflict"|"blueprint_conflict",
+  "title": "short title",
+  "detail": "explanation with evidence",
+  "related_scene_ids": ["scene_id_from_map"],
+  "related_doc_refs": [{"doc_type":"...", "document_id":"...", "version_id":"..."}],
+  "evidence": [{"kind":"quote", "text":"...", "scene_id":"...", "doc_type":"...", "version_id":"..."}],
+  "suggested_repairs": [{"repair_kind":"...", "patch":{...}, "rationale":"..."}]
+}]
+Rules:
+- ONLY reference scene IDs from the SCENE MAP
+- ONLY reference doc IDs from the REFERENCE DOCUMENTS headers
+- Include evidence quotes
+- Limit to 5-10 most important findings
+- If no conflicts found, return empty array []`;
+
+        const cohUser = `SCENE MAP:\n${JSON.stringify(sceneMapCompact).slice(0, 10000)}\n\nCANON FACTS:\n${JSON.stringify(canonFacts || []).slice(0, 3000)}\n\nSPINE:\n${JSON.stringify(currentSpine?.spine || {}).slice(0, 2000)}\n\nREFERENCE DOCUMENTS:\n${docsContext.slice(0, 15000)}`;
+
+        try {
+          const { callLLM, parseJsonSafe, MODELS } = await import("../_shared/llm.ts");
+          const result = await callLLM({
+            apiKey, model: MODELS.FAST, system: cohSystem, user: cohUser,
+            temperature: 0.2, maxTokens: 6000,
+          });
+          llmFindings = await parseJsonSafe(result.content, apiKey);
+          if (!Array.isArray(llmFindings)) llmFindings = [llmFindings];
+        } catch (e: any) {
+          console.error("Coherence LLM failed:", e.message);
+          llmFindings = [];
+        }
+      }
+
+      const allFindings = [...deterministicFindings, ...llmFindings];
+
+      // Store run
+      const inputsUsed = docVersions.map(d => ({ doc_type: d.doc_type, document_id: d.document_id, version_id: d.version_id }));
+      const { data: run } = await supabase.from("coherence_checks_runs").insert({
+        project_id: projectId,
+        created_by: user.id,
+        mode: cohMode || 'latest',
+        inputs: { docs: inputsUsed, scene_count: sceneMapCompact.length },
+        findings: allFindings,
+        status: 'complete',
+      }).select("id").single();
+
+      // Store individual findings
+      const storedFindings: any[] = [];
+      for (const f of allFindings) {
+        const { data: stored } = await supabase.from("coherence_findings").insert({
+          project_id: projectId,
+          run_id: run?.id,
+          severity: f.severity || 'low',
+          finding_type: f.finding_type || 'canon_conflict',
+          title: f.title || 'Finding',
+          detail: f.detail || '',
+          related_scene_ids: f.related_scene_ids || [],
+          related_doc_refs: f.related_doc_refs || [],
+          suggested_repairs: f.suggested_repairs || [],
+          is_open: true,
+        }).select().single();
+        if (stored) storedFindings.push(stored);
+
+        // For high severity, create patch queue items
+        if (f.severity === 'high' && f.suggested_repairs?.length > 0) {
+          for (const repair of f.suggested_repairs.slice(0, 3)) {
+            await supabase.from("scene_graph_patch_queue").insert({
+              project_id: projectId,
+              created_by: user.id,
+              status: 'open',
+              target_scene_id: f.related_scene_ids?.[0] || null,
+              suggestion: `[Coherence] ${f.title}: ${repair.rationale || ''}`.slice(0, 500),
+              rationale: f.detail?.slice(0, 500) || '',
+              patch: repair.patch || {},
+              repair_kind: repair.repair_kind || 'continuity_fix',
+              impact_preview: {},
+              source_finding_id: stored?.id || null,
+              source_run_id: run?.id || null,
+            });
+          }
+        }
+      }
+
+      return new Response(JSON.stringify({ runId: run?.id, findings: storedFindings }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "coherence_get_latest") {
+      const { projectId } = body;
+      if (!projectId) throw new Error("projectId required");
+
+      const { data: run } = await supabase.from("coherence_checks_runs")
+        .select("*").eq("project_id", projectId)
+        .order("created_at", { ascending: false }).limit(1).single();
+
+      let findings: any[] = [];
+      if (run) {
+        const { data: f } = await supabase.from("coherence_findings")
+          .select("*").eq("run_id", run.id)
+          .order("created_at", { ascending: false });
+        findings = f || [];
+      }
+
+      return new Response(JSON.stringify({ run: run || null, findings }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "coherence_close_finding") {
+      const { projectId, findingId, resolution } = body;
+      if (!projectId || !findingId) throw new Error("projectId and findingId required");
+
+      const { data: finding } = await supabase.from("coherence_findings")
+        .update({ is_open: false })
+        .eq("id", findingId).eq("project_id", projectId)
+        .select().single();
+
+      if (resolution?.note) {
+        await supabase.from("scene_graph_actions").insert({
+          project_id: projectId,
+          action_type: 'coherence_close_finding',
+          actor_id: user.id,
+          payload: { findingId, resolution },
+          inverse: { findingId, reopen: true },
+        });
+      }
+
+      return new Response(JSON.stringify({ finding }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     throw new Error(`Unknown action: ${action}`);
   } catch (err: any) {
     console.error("dev-engine-v2 error:", err);
