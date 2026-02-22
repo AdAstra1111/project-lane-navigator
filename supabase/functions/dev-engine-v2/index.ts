@@ -11819,14 +11819,18 @@ CRITICAL:
           .limit(1)
           .single();
         const nextVersion = (maxRow?.version_number ?? 0) + 1;
+        const trulySelective =
+          Array.isArray(rewriteScopePlan?.target_scene_numbers) &&
+          rewriteScopePlan.target_scene_numbers.length > 0 &&
+          rewriteScopePlan.target_scene_numbers.length < totalScenesInAssembly;
         const { data: nv, error: vErr } = await supabase.from("project_document_versions").insert({
           document_id: sourceDocId,
           version_number: nextVersion,
-          label: isSelective ? `Selective scene rewrite v${nextVersion} (${outputs.length}/${totalScenesInAssembly} scenes)` : `Scene rewrite v${nextVersion}`,
+          label: trulySelective ? `Selective scene rewrite v${nextVersion} (${outputs.length}/${totalScenesInAssembly} scenes)` : `Scene rewrite v${nextVersion}`,
           plaintext: assembledText,
           created_by: user.id,
           parent_version_id: sourceVersionId,
-          change_summary: isSelective
+          change_summary: trulySelective
             ? `Selective scene-level rewrite: ${outputs.length} of ${totalScenesInAssembly} scenes rewritten.`
             : `Scene-level rewrite across ${outputs.length} scenes.`,
         }).select().single();
@@ -11853,12 +11857,12 @@ CRITICAL:
           rewrite_scope_plan: rewriteScopePlan || null,
           rewrite_scope_expanded_from: rewriteScopeExpandedFrom || null,
           rewrite_verification: rewriteVerification || null,
-          selective_rewrite: isSelective || false,
-          target_scenes_count: isSelective ? (rewriteScopePlan?.target_scene_numbers?.length || outputs.length) : null,
+          selective_rewrite: trulySelective,
+          target_scenes_count: trulySelective ? (rewriteScopePlan?.target_scene_numbers?.length || outputs.length) : null,
           total_scenes_count: totalScenesInAssembly,
           scenes_count: outputs.length,
           rewritten_text: `[${assembledText.length} chars]`,
-          changes_summary: isSelective
+          changes_summary: trulySelective
             ? `Selective scene-level rewrite: ${outputs.length} of ${totalScenesInAssembly} scenes.`
             : `Scene-level rewrite across ${outputs.length} scenes.`,
           source_version_id: sourceVersionId,
@@ -11867,7 +11871,7 @@ CRITICAL:
         schema_version: SCHEMA_VERSION,
       });
 
-      console.log(`[scene-rewrite] Assembled ${outputs.length}${isSelective ? `/${totalScenesInAssembly}` : ''} scenes → ${assembledText.length} chars, new version ${newVersion.id}`);
+      console.log(`[scene-rewrite] Assembled ${outputs.length}${trulySelective ? `/${totalScenesInAssembly}` : ''} scenes → ${assembledText.length} chars, new version ${newVersion.id}`);
 
       return new Response(JSON.stringify({
         newVersionId: newVersion.id,
