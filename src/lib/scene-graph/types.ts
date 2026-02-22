@@ -1004,3 +1004,84 @@ export interface ResolveDiffCommentInput {
   commentId: string;
   status: 'resolved' | 'open';
 }
+
+// ── Phase 6 QC Engine Types ──
+
+export type QCPassType = 'continuity' | 'setup_payoff' | 'pacing' | 'arc' | 'tone';
+export type QCIssueSeverity = 'low' | 'medium' | 'high' | 'critical';
+
+export interface QCEvidenceItem {
+  scene_id: string;
+  excerpt: string;
+  note: string;
+}
+
+export interface QCIssue {
+  id: string;
+  qc_run_id: string;
+  project_id: string;
+  created_at: string;
+  category: QCPassType;
+  severity: QCIssueSeverity;
+  title: string;
+  description: string;
+  evidence: QCEvidenceItem[];
+  related_scene_ids: string[];
+  related_thread_ids: string[];
+  status: 'open' | 'acknowledged' | 'fixed' | 'dismissed';
+  linked_change_set_id: string | null;
+}
+
+export interface QCRun {
+  id: string;
+  project_id: string;
+  created_at: string;
+  created_by: string | null;
+  snapshot_id: string;
+  mode: string;
+  summary: string | null;
+  metadata: Record<string, any>;
+}
+
+export interface QCFixPlan {
+  strategy: 'insert' | 'rewrite' | 'move' | 'split' | 'merge';
+  target_scene_id: string | null;
+  details: Record<string, any>;
+  rationale: string;
+}
+
+// Phase 6 QC inputs
+
+export interface QCRunInput {
+  projectId: string;
+  mode?: 'latest' | 'approved_prefer';
+  passes?: QCPassType[];
+  forceRebuildSpine?: boolean;
+  forceRebuildLedger?: boolean;
+}
+
+export interface QCListRunsInput {
+  projectId: string;
+  limit?: number;
+}
+
+export interface QCListIssuesInput {
+  projectId: string;
+  qcRunId?: string;
+  severity?: QCIssueSeverity;
+  category?: QCPassType;
+  status?: string;
+}
+
+export interface QCUpdateIssueStatusInput {
+  projectId: string;
+  issueId: string;
+  status: 'open' | 'acknowledged' | 'fixed' | 'dismissed';
+}
+
+export interface QCGenerateFixInput {
+  projectId: string;
+  qcRunId: string;
+  issueIds?: string[];
+  goalLabel?: string;
+}

@@ -12107,6 +12107,138 @@ export type Database = {
           },
         ]
       }
+      scene_qc_issues: {
+        Row: {
+          category: string
+          created_at: string
+          description: string
+          evidence: Json
+          id: string
+          linked_change_set_id: string | null
+          project_id: string
+          qc_run_id: string
+          related_scene_ids: Json
+          related_thread_ids: Json
+          severity: string
+          status: string
+          title: string
+        }
+        Insert: {
+          category: string
+          created_at?: string
+          description: string
+          evidence?: Json
+          id?: string
+          linked_change_set_id?: string | null
+          project_id: string
+          qc_run_id: string
+          related_scene_ids?: Json
+          related_thread_ids?: Json
+          severity: string
+          status?: string
+          title: string
+        }
+        Update: {
+          category?: string
+          created_at?: string
+          description?: string
+          evidence?: Json
+          id?: string
+          linked_change_set_id?: string | null
+          project_id?: string
+          qc_run_id?: string
+          related_scene_ids?: Json
+          related_thread_ids?: Json
+          severity?: string
+          status?: string
+          title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scene_qc_issues_linked_change_set_id_fkey"
+            columns: ["linked_change_set_id"]
+            isOneToOne: false
+            referencedRelation: "scene_change_sets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scene_qc_issues_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "scene_qc_issues_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scene_qc_issues_qc_run_id_fkey"
+            columns: ["qc_run_id"]
+            isOneToOne: false
+            referencedRelation: "scene_qc_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      scene_qc_runs: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          metadata: Json
+          mode: string
+          project_id: string
+          snapshot_id: string
+          summary: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          metadata?: Json
+          mode?: string
+          project_id: string
+          snapshot_id: string
+          summary?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          metadata?: Json
+          mode?: string
+          project_id?: string
+          snapshot_id?: string
+          summary?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scene_qc_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "scene_qc_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scene_qc_runs_snapshot_id_fkey"
+            columns: ["snapshot_id"]
+            isOneToOne: false
+            referencedRelation: "scene_graph_snapshots"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       scene_role_taxonomy: {
         Row: {
           description: string

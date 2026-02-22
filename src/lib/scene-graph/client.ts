@@ -99,6 +99,14 @@ import type {
   SnapshotDiffArtifact,
   ChangeSetReviewState,
   DiffComment,
+  // Phase 6 QC
+  QCRunInput,
+  QCListRunsInput,
+  QCListIssuesInput,
+  QCUpdateIssueStatusInput,
+  QCGenerateFixInput,
+  QCRun,
+  QCIssue,
 } from './types';
 
 async function callSceneGraph<T = any>(action: string, payload: Record<string, any>): Promise<T> {
@@ -399,4 +407,26 @@ export async function changeSetListComments(input: ListDiffCommentsInput) {
 
 export async function changeSetResolveComment(input: ResolveDiffCommentInput) {
   return callSceneGraph<{ comment: DiffComment }>('change_set_resolve_comment', input);
+}
+
+// Phase 6 QC Engine actions
+
+export async function qcRun(input: QCRunInput) {
+  return callSceneGraph<{ qc_run_id: string; summary: { low: number; medium: number; high: number; critical: number; total: number } }>('qc_run', input);
+}
+
+export async function qcListRuns(input: QCListRunsInput) {
+  return callSceneGraph<{ runs: QCRun[] }>('qc_list_runs', input);
+}
+
+export async function qcListIssues(input: QCListIssuesInput) {
+  return callSceneGraph<{ issues: QCIssue[] }>('qc_list_issues', input);
+}
+
+export async function qcUpdateIssueStatus(input: QCUpdateIssueStatusInput) {
+  return callSceneGraph<{ issue: QCIssue }>('qc_update_issue_status', input);
+}
+
+export async function qcGenerateFixChangeSet(input: QCGenerateFixInput) {
+  return callSceneGraph<{ change_set_id: string }>('qc_generate_fix_change_set', input);
 }

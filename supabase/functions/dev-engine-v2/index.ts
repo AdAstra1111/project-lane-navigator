@@ -9528,6 +9528,617 @@ SCENE MAP: ${JSON.stringify(sceneMapCompact).slice(0, 15000)}`;
       });
     }
 
+    // ══════════════════════════════════════════════
+    // PHASE 6 — QC ENGINE + AUTO-FIX
+    // ══════════════════════════════════════════════
+
+    if (action === "qc_run") {
+      const { projectId, mode, passes, forceRebuildSpine, forceRebuildLedger } = body;
+      if (!projectId) throw new Error("projectId required");
+      const qcMode = mode || 'latest';
+      const selectedPasses: string[] = passes || ['continuity', 'setup_payoff', 'arc', 'pacing', 'tone'];
+
+      // 1. Build snapshot
+      const { data: orderRows } = await supabase.from("scene_graph_order")
+        .select("scene_id, order_key, act, sequence")
+        .eq("project_id", projectId).eq("is_active", true)
+        .order("order_key", { ascending: true });
+
+      if (!orderRows || orderRows.length === 0) throw new Error("No active scenes found");
+
+      const sceneIds = orderRows.map((r: any) => r.scene_id);
+      const { data: allVers } = await supabase.from("scene_graph_versions")
+        .select("*").in("scene_id", sceneIds).order("version_number", { ascending: false });
+
+      const latestMap = new Map<string, any>();
+      for (const v of (allVers || [])) {
+        if (!latestMap.has(v.scene_id)) latestMap.set(v.scene_id, v);
+      }
+
+      const snapshotContent = orderRows.map((o: any) => {
+        const v = latestMap.get(o.scene_id);
+        return v?.content || '';
+      }).join('\n\n');
+
+      const so = orderRows.map((o: any) => ({
+        scene_id: o.scene_id, version_id: latestMap.get(o.scene_id)?.id || null,
+        order_key: o.order_key, act: o.act, sequence: o.sequence,
+      }));
+
+      const { data: snapshot } = await supabase.from("scene_graph_snapshots").insert({
+        project_id: projectId, created_by: user.id,
+        label: `QC Run ${new Date().toISOString()}`,
+        assembly: { scene_order: so, generated_at: new Date().toISOString(), mode: qcMode },
+        content: snapshotContent, status: 'draft',
+      }).select().single();
+
+      if (!snapshot) throw new Error("Failed to create snapshot for QC run");
+
+      // 2. Ensure spine + ledger
+      let spine: any = null;
+      let ledger: any = null;
+
+      const { data: existingSpine } = await supabase.from("story_spines")
+        .select("*").eq("project_id", projectId).order("created_at", { ascending: false }).limit(1).maybeSingle();
+
+      if (!existingSpine || forceRebuildSpine) {
+        // Build spine via LLM
+        const spinePrompt = `Analyze this screenplay and produce a Story Spine JSON with: logline, genre, tone, premise, acts (with turning_points), character_arcs (name, start_state, end_state, key_steps), and rules (world_rules, tone_rules, forbidden_changes).\n\nScript:\n${snapshotContent.slice(0, 15000)}`;
+        try {
+          const spineRaw = await callAI(apiKey, BALANCED_MODEL, "You are a screenplay structure analyst. Return ONLY valid JSON.", spinePrompt, 0.2, 6000);
+          const spineJson = await parseAIJson(apiKey, spineRaw);
+          const { data: spineRow } = await supabase.from("story_spines").insert({
+            project_id: projectId, created_by: user.id, status: 'active',
+            source: 'qc_engine', spine: spineJson, summary: spineJson.logline || null, version: 1,
+          }).select().single();
+          spine = spineRow;
+        } catch (e: any) { console.error("Spine build failed:", e); spine = existingSpine; }
+      } else { spine = existingSpine; }
+
+      const { data: existingLedger } = await supabase.from("thread_ledgers")
+        .select("*").eq("project_id", projectId).order("created_at", { ascending: false }).limit(1).maybeSingle();
+
+      if (!existingLedger || forceRebuildLedger) {
+        const ledgerPrompt = `Analyze this screenplay and produce a Thread Ledger JSON with a "threads" array. Each thread: thread_id, type (mystery|relationship|goal|lie|clue|setup_payoff|theme), title, status (open|paid|moved|removed), introduced_in_scene_id (null ok), resolved_in_scene_id (null ok), beats [], dependencies [], notes.\n\nScript:\n${snapshotContent.slice(0, 15000)}`;
+        try {
+          const ledgerRaw = await callAI(apiKey, BALANCED_MODEL, "You are a screenplay thread analyst. Return ONLY valid JSON.", ledgerPrompt, 0.2, 6000);
+          const ledgerJson = await parseAIJson(apiKey, ledgerRaw);
+          const { data: ledgerRow } = await supabase.from("thread_ledgers").insert({
+            project_id: projectId, created_by: user.id, status: 'active',
+            ledger: ledgerJson, summary: null, version: 1,
+          }).select().single();
+          ledger = ledgerRow;
+        } catch (e: any) { console.error("Ledger build failed:", e); ledger = existingLedger; }
+      } else { ledger = existingLedger; }
+
+      // 3. Create QC run row
+      const { data: qcRun } = await supabase.from("scene_qc_runs").insert({
+        project_id: projectId, created_by: user.id,
+        snapshot_id: snapshot.id, mode: qcMode,
+        metadata: { passes: selectedPasses },
+      }).select().single();
+
+      if (!qcRun) throw new Error("Failed to create QC run");
+
+      // 4. Execute passes
+      const allIssues: any[] = [];
+      const scenesWithVersions = orderRows.map((o: any, idx: number) => ({
+        ...o, display_number: idx + 1, version: latestMap.get(o.scene_id),
+      }));
+
+      const spineData = spine?.spine || {};
+      const ledgerData = ledger?.ledger || { threads: [] };
+      const threads = ledgerData.threads || [];
+
+      // 4.1 CONTINUITY PASS
+      if (selectedPasses.includes('continuity')) {
+        for (let i = 0; i < scenesWithVersions.length; i++) {
+          const scene = scenesWithVersions[i];
+          const ver = scene.version;
+          if (!ver) continue;
+
+          const required = ver.continuity_facts_required || [];
+          for (const fact of required) {
+            const factKey = typeof fact === 'string' ? fact : (fact.fact || fact.subject || JSON.stringify(fact));
+            // Check if emitted in any prior scene
+            let found = false;
+            for (let j = 0; j < i; j++) {
+              const priorVer = scenesWithVersions[j].version;
+              if (!priorVer) continue;
+              const emitted = priorVer.continuity_facts_emitted || [];
+              for (const e of emitted) {
+                const eKey = typeof e === 'string' ? e : (e.fact || e.subject || JSON.stringify(e));
+                if (eKey === factKey) { found = true; break; }
+              }
+              if (found) break;
+            }
+            if (!found) {
+              allIssues.push({
+                category: 'continuity',
+                severity: 'high',
+                title: `Missing continuity fact required by Scene ${scene.display_number}`,
+                description: `Scene ${scene.display_number} requires "${factKey}" but it is not emitted by any prior scene.`,
+                evidence: [{ scene_id: scene.scene_id, excerpt: (ver.content || '').slice(0, 300), note: `Requires: ${factKey}` }],
+                related_scene_ids: [scene.scene_id],
+                related_thread_ids: [],
+              });
+            }
+          }
+        }
+
+        // Check world rules from spine
+        const worldRules = spineData.rules?.world_rules || [];
+        for (const rule of worldRules) {
+          const ruleLower = (rule || '').toLowerCase();
+          for (const scene of scenesWithVersions) {
+            const content = (scene.version?.content || '').toLowerCase();
+            // Simple heuristic: check for contradiction keywords
+            const negations = ['never', 'cannot', 'impossible', 'forbidden', 'prohibited'];
+            for (const neg of negations) {
+              if (ruleLower.includes(neg)) {
+                const ruleSubject = ruleLower.replace(new RegExp(`.*${neg}\\s+`), '').slice(0, 40).trim();
+                if (ruleSubject && content.includes(ruleSubject)) {
+                  allIssues.push({
+                    category: 'continuity',
+                    severity: 'critical',
+                    title: `Possible world rule violation in Scene ${scene.display_number}`,
+                    description: `World rule "${rule}" may be violated. The scene content references "${ruleSubject}" which conflicts with the rule.`,
+                    evidence: [{ scene_id: scene.scene_id, excerpt: (scene.version?.content || '').slice(0, 300), note: `Rule: ${rule}` }],
+                    related_scene_ids: [scene.scene_id],
+                    related_thread_ids: [],
+                  });
+                }
+                break;
+              }
+            }
+          }
+        }
+      }
+
+      // 4.2 SETUP/PAYOFF PASS
+      if (selectedPasses.includes('setup_payoff')) {
+        // Check threads for unresolved setups
+        for (const thread of threads) {
+          if (thread.type === 'setup_payoff' || thread.type === 'clue' || thread.type === 'mystery') {
+            if (thread.status === 'open' && !thread.resolved_in_scene_id) {
+              allIssues.push({
+                category: 'setup_payoff',
+                severity: 'medium',
+                title: `Unresolved thread: "${thread.title}"`,
+                description: `Thread "${thread.title}" (type: ${thread.type}) was introduced but never resolved by end of script.`,
+                evidence: thread.introduced_in_scene_id ? [{
+                  scene_id: thread.introduced_in_scene_id,
+                  excerpt: latestMap.get(thread.introduced_in_scene_id)?.content?.slice(0, 200) || '',
+                  note: 'Thread introduced here',
+                }] : [{ scene_id: scenesWithVersions[0]?.scene_id || '', excerpt: '', note: 'Thread introduced but scene unknown' }],
+                related_scene_ids: thread.introduced_in_scene_id ? [thread.introduced_in_scene_id] : [],
+                related_thread_ids: [thread.thread_id],
+              });
+            }
+            if (thread.status === 'paid' && !thread.resolved_in_scene_id) {
+              allIssues.push({
+                category: 'setup_payoff',
+                severity: 'medium',
+                title: `Thread status mismatch: "${thread.title}"`,
+                description: `Thread "${thread.title}" is marked as paid/resolved but has no resolved_in_scene_id.`,
+                evidence: [{ scene_id: scenesWithVersions[0]?.scene_id || '', excerpt: '', note: 'Status mismatch' }],
+                related_scene_ids: [],
+                related_thread_ids: [thread.thread_id],
+              });
+            }
+          }
+        }
+
+        // Check scene-level setup/payoff arrays
+        for (const scene of scenesWithVersions) {
+          const ver = scene.version;
+          if (!ver) continue;
+          const payoffs = ver.setup_payoff_required || [];
+          for (const payoff of payoffs) {
+            const payoffKey = typeof payoff === 'string' ? payoff : (payoff.setup || payoff.key || JSON.stringify(payoff));
+            let setupFound = false;
+            for (let j = 0; j < scenesWithVersions.indexOf(scene); j++) {
+              const priorVer = scenesWithVersions[j].version;
+              if (!priorVer) continue;
+              const setups = priorVer.setup_payoff_emitted || [];
+              for (const s of setups) {
+                const sKey = typeof s === 'string' ? s : (s.setup || s.key || JSON.stringify(s));
+                if (sKey === payoffKey) { setupFound = true; break; }
+              }
+              if (setupFound) break;
+            }
+            if (!setupFound) {
+              allIssues.push({
+                category: 'setup_payoff',
+                severity: 'critical',
+                title: `Payoff without setup in Scene ${scene.display_number}`,
+                description: `Scene ${scene.display_number} references payoff "${payoffKey}" but no prior scene sets it up.`,
+                evidence: [{ scene_id: scene.scene_id, excerpt: (ver.content || '').slice(0, 300), note: `Payoff: ${payoffKey}` }],
+                related_scene_ids: [scene.scene_id],
+                related_thread_ids: [],
+              });
+            }
+          }
+        }
+      }
+
+      // 4.3 ARC PASS
+      if (selectedPasses.includes('arc')) {
+        const arcs = spineData.character_arcs || [];
+        for (const arc of arcs) {
+          const steps = arc.key_steps || [];
+          if (steps.length < 2) continue;
+          // Check that character name appears across multiple scenes
+          const charName = (arc.name || '').toLowerCase();
+          const scenesWithChar = scenesWithVersions.filter((s: any) => {
+            const content = (s.version?.content || '').toLowerCase();
+            const chars = s.version?.characters_present || [];
+            return content.includes(charName) || chars.some((c: string) => c.toLowerCase().includes(charName));
+          });
+          if (scenesWithChar.length < 2 && scenesWithVersions.length > 3) {
+            allIssues.push({
+              category: 'arc',
+              severity: 'medium',
+              title: `Character "${arc.name}" has minimal presence`,
+              description: `Character arc for "${arc.name}" (${arc.start_state} → ${arc.end_state}) only appears in ${scenesWithChar.length} scene(s). Expected more presence for ${steps.length} key steps.`,
+              evidence: scenesWithChar.slice(0, 2).map((s: any) => ({
+                scene_id: s.scene_id, excerpt: (s.version?.content || '').slice(0, 200), note: `Character present`,
+              })),
+              related_scene_ids: scenesWithChar.map((s: any) => s.scene_id),
+              related_thread_ids: [],
+            });
+          }
+        }
+      }
+
+      // 4.4 PACING PASS
+      if (selectedPasses.includes('pacing')) {
+        // Act balance check
+        const actGroups = new Map<number, number>();
+        for (const scene of scenesWithVersions) {
+          const act = scene.act || 1;
+          actGroups.set(act, (actGroups.get(act) || 0) + 1);
+        }
+        if (actGroups.size > 1) {
+          const counts = Array.from(actGroups.values());
+          const mean = counts.reduce((a, b) => a + b, 0) / counts.length;
+          for (const [act, count] of actGroups.entries()) {
+            const deviation = Math.abs(count - mean) / mean;
+            if (deviation > 0.35) {
+              allIssues.push({
+                category: 'pacing',
+                severity: 'medium',
+                title: `Act ${act} imbalance`,
+                description: `Act ${act} has ${count} scenes (${Math.round(deviation * 100)}% deviation from mean of ${mean.toFixed(1)}). This may indicate pacing issues.`,
+                evidence: [{ scene_id: scenesWithVersions[0]?.scene_id || '', excerpt: '', note: `Act ${act}: ${count} scenes, mean: ${mean.toFixed(1)}` }],
+                related_scene_ids: scenesWithVersions.filter((s: any) => (s.act || 1) === act).map((s: any) => s.scene_id),
+                related_thread_ids: [],
+              });
+            }
+          }
+        }
+
+        // Flat stretch detection (basic: scenes with very similar content length as proxy for tension)
+        if (scenesWithVersions.length >= 4) {
+          for (let i = 0; i <= scenesWithVersions.length - 4; i++) {
+            const window = scenesWithVersions.slice(i, i + 4);
+            const lengths = window.map((s: any) => (s.version?.content || '').length);
+            const avgLen = lengths.reduce((a: number, b: number) => a + b, 0) / lengths.length;
+            const allSimilar = lengths.every((l: number) => Math.abs(l - avgLen) / Math.max(avgLen, 1) < 0.15);
+            if (allSimilar && avgLen > 50) {
+              allIssues.push({
+                category: 'pacing',
+                severity: 'low',
+                title: `Potential flat stretch: Scenes ${window[0].display_number}-${window[3].display_number}`,
+                description: `Four consecutive scenes (${window[0].display_number}-${window[3].display_number}) have very similar lengths, which may indicate a monotonous stretch.`,
+                evidence: [{ scene_id: window[0].scene_id, excerpt: '', note: `Scenes ${window[0].display_number}-${window[3].display_number} avg length: ${Math.round(avgLen)} chars` }],
+                related_scene_ids: window.map((s: any) => s.scene_id),
+                related_thread_ids: [],
+              });
+              i += 3; // Skip ahead
+            }
+          }
+        }
+      }
+
+      // 4.5 TONE PASS (LLM-assisted)
+      if (selectedPasses.includes('tone')) {
+        const toneRules = spineData.rules?.tone_rules || [];
+        const tonePrompt = `You are a screenplay tone analyst. Analyze the following script for tone inconsistencies against the established tone rules.
+
+Tone rules: ${JSON.stringify(toneRules)}
+Genre: ${spineData.genre || 'unknown'}
+Tone: ${spineData.tone || 'unknown'}
+
+Script summary (first 8000 chars):
+${snapshotContent.slice(0, 8000)}
+
+Return a JSON array of up to 10 tone issues. Each issue:
+{
+  "title": "short title",
+  "description": "explanation",
+  "scene_number": number (1-indexed),
+  "severity": "low"|"medium"|"high"
+}
+
+Return ONLY valid JSON array.`;
+
+        try {
+          const toneRaw = await callAI(apiKey, BALANCED_MODEL, "You are a tone consistency checker. Return ONLY a valid JSON array.", tonePrompt, 0.3, 4000);
+          const toneIssues = await parseAIJson(apiKey, toneRaw);
+          const issuesArr = Array.isArray(toneIssues) ? toneIssues : (toneIssues.issues || []);
+          for (const ti of issuesArr.slice(0, 10)) {
+            const sceneIdx = Math.max(0, Math.min((ti.scene_number || 1) - 1, scenesWithVersions.length - 1));
+            const targetScene = scenesWithVersions[sceneIdx];
+            allIssues.push({
+              category: 'tone',
+              severity: ti.severity || 'low',
+              title: ti.title || 'Tone inconsistency',
+              description: ti.description || 'Potential tone issue detected',
+              evidence: [{
+                scene_id: targetScene?.scene_id || scenesWithVersions[0]?.scene_id || '',
+                excerpt: (targetScene?.version?.content || '').slice(0, 200),
+                note: 'AI-detected tone issue',
+              }],
+              related_scene_ids: targetScene ? [targetScene.scene_id] : [],
+              related_thread_ids: [],
+            });
+          }
+        } catch (e: any) {
+          console.error("Tone pass LLM error:", e);
+        }
+      }
+
+      // 5. Dedupe and cap at 200
+      const seenKeys = new Set<string>();
+      const deduped: any[] = [];
+      for (const issue of allIssues) {
+        const key = `${issue.title}|${(issue.related_scene_ids || []).sort().join(',')}`;
+        if (seenKeys.has(key)) continue;
+        seenKeys.add(key);
+        deduped.push(issue);
+        if (deduped.length >= 200) break;
+      }
+
+      // 6. Insert issues
+      if (deduped.length > 0) {
+        const issueRows = deduped.map((issue: any) => ({
+          qc_run_id: qcRun.id,
+          project_id: projectId,
+          category: issue.category,
+          severity: issue.severity,
+          title: issue.title,
+          description: issue.description,
+          evidence: issue.evidence,
+          related_scene_ids: issue.related_scene_ids,
+          related_thread_ids: issue.related_thread_ids,
+          status: 'open',
+        }));
+        await supabase.from("scene_qc_issues").insert(issueRows);
+      }
+
+      // 7. Create decision events for high/critical
+      const highCritical = deduped.filter((i: any) => i.severity === 'high' || i.severity === 'critical');
+      for (const issue of highCritical.slice(0, 10)) {
+        try {
+          await supabase.from("feedback_notes").insert({
+            project_id: projectId,
+            user_id: user.id,
+            doc_type: 'qc_engine',
+            content: `[QC ${issue.severity.toUpperCase()}] ${issue.title}: ${issue.description}`,
+            note_type: 'qc_issue',
+            severity: issue.severity === 'critical' ? 'blocker' : 'major',
+            category: issue.category,
+          });
+        } catch (e: any) { console.error("Decision event insert error:", e); }
+      }
+
+      // 8. Update QC run summary
+      const summaryCounts = {
+        low: deduped.filter((i: any) => i.severity === 'low').length,
+        medium: deduped.filter((i: any) => i.severity === 'medium').length,
+        high: deduped.filter((i: any) => i.severity === 'high').length,
+        critical: deduped.filter((i: any) => i.severity === 'critical').length,
+        total: deduped.length,
+      };
+
+      await supabase.from("scene_qc_runs").update({
+        summary: `${summaryCounts.total} issues: ${summaryCounts.critical} critical, ${summaryCounts.high} high, ${summaryCounts.medium} medium, ${summaryCounts.low} low`,
+        metadata: { ...qcRun.metadata, passes: selectedPasses, issue_counts: summaryCounts },
+      }).eq("id", qcRun.id);
+
+      return new Response(JSON.stringify({ qc_run_id: qcRun.id, summary: summaryCounts }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "qc_list_runs") {
+      const { projectId, limit } = body;
+      if (!projectId) throw new Error("projectId required");
+
+      const { data: runs } = await supabase.from("scene_qc_runs")
+        .select("*").eq("project_id", projectId)
+        .order("created_at", { ascending: false }).limit(limit || 20);
+
+      return new Response(JSON.stringify({ runs: runs || [] }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "qc_list_issues") {
+      const { projectId, qcRunId, severity, category, status } = body;
+      if (!projectId) throw new Error("projectId required");
+
+      let q = supabase.from("scene_qc_issues").select("*").eq("project_id", projectId);
+      if (qcRunId) q = q.eq("qc_run_id", qcRunId);
+      if (severity) q = q.eq("severity", severity);
+      if (category) q = q.eq("category", category);
+      if (status) q = q.eq("status", status);
+      q = q.order("created_at", { ascending: false }).limit(200);
+
+      const { data: issues } = await q;
+
+      return new Response(JSON.stringify({ issues: issues || [] }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "qc_update_issue_status") {
+      const { projectId, issueId, status: newStatus } = body;
+      if (!issueId || !newStatus) throw new Error("issueId and status required");
+
+      const { data, error: updErr } = await supabase.from("scene_qc_issues")
+        .update({ status: newStatus }).eq("id", issueId).select().single();
+      if (updErr) throw updErr;
+
+      return new Response(JSON.stringify({ issue: data }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "qc_generate_fix_change_set") {
+      const { projectId, qcRunId, issueIds, goalLabel } = body;
+      if (!projectId || !qcRunId) throw new Error("projectId and qcRunId required");
+
+      // Get issues to fix
+      let issueQuery = supabase.from("scene_qc_issues")
+        .select("*").eq("qc_run_id", qcRunId).eq("status", "open");
+      if (issueIds && issueIds.length > 0) {
+        issueQuery = issueQuery.in("id", issueIds);
+      }
+      const { data: issues } = await issueQuery;
+      if (!issues || issues.length === 0) throw new Error("No open issues found to fix");
+
+      // Create change set
+      const csTitle = goalLabel || `QC Fix: Run ${new Date().toISOString().split('T')[0]}`;
+
+      // Build base snapshot
+      const { data: orderRows } = await supabase.from("scene_graph_order")
+        .select("scene_id, order_key, act, sequence")
+        .eq("project_id", projectId).eq("is_active", true)
+        .order("order_key", { ascending: true });
+
+      let baseSnapshotId: string | null = null;
+      if (orderRows && orderRows.length > 0) {
+        const sIds = orderRows.map((r: any) => r.scene_id);
+        const { data: vers } = await supabase.from("scene_graph_versions")
+          .select("*").in("scene_id", sIds).order("version_number", { ascending: false });
+        const lm = new Map<string, any>();
+        for (const v of (vers || [])) { if (!lm.has(v.scene_id)) lm.set(v.scene_id, v); }
+        const content = orderRows.map((o: any) => lm.get(o.scene_id)?.content || '').join('\n\n');
+        const so = orderRows.map((o: any) => ({
+          scene_id: o.scene_id, version_id: lm.get(o.scene_id)?.id || null,
+          order_key: o.order_key, act: o.act, sequence: o.sequence,
+        }));
+
+        const { data: snap } = await supabase.from("scene_graph_snapshots").insert({
+          project_id: projectId, created_by: user.id, label: `Base for ${csTitle}`,
+          assembly: { scene_order: so, generated_at: new Date().toISOString(), mode: 'latest' },
+          content, status: 'draft',
+        }).select().single();
+        baseSnapshotId = snap?.id || null;
+      }
+
+      const { data: cs } = await supabase.from("scene_change_sets").insert({
+        project_id: projectId, created_by: user.id,
+        title: csTitle,
+        description: `Auto-generated fix change set for ${issues.length} QC issue(s)`,
+        goal_type: 'qc_fix',
+        status: 'draft',
+        base_snapshot_id: baseSnapshotId,
+        metadata: { qc_run_id: qcRunId, issue_count: issues.length },
+      }).select().single();
+
+      if (!cs) throw new Error("Failed to create change set");
+
+      // Generate fix plans via LLM
+      const issuesSummary = issues.slice(0, 15).map((iss: any, idx: number) =>
+        `${idx + 1}. [${iss.severity}/${iss.category}] ${iss.title}: ${iss.description}`
+      ).join('\n');
+
+      const sceneSummary = (orderRows || []).map((o: any, idx: number) => {
+        const ver = orderRows ? undefined : undefined; // We'd need versions here
+        return `Scene ${idx + 1} (${o.scene_id}): order_key=${o.order_key}`;
+      }).join('\n');
+
+      const fixPrompt = `You are a screenplay fix planner. Given these QC issues and scene list, produce fix operations.
+
+QC Issues:
+${issuesSummary}
+
+Available scene IDs (in order):
+${(orderRows || []).map((o: any, idx: number) => `Scene ${idx + 1}: ${o.scene_id}`).join('\n')}
+
+For each issue, produce a fix plan as a JSON array of operations. Each operation:
+{
+  "issue_index": number (1-indexed from the issues list),
+  "op_type": "update_scene"|"insert"|"move",
+  "payload": {
+    "sceneId": "uuid" (for update_scene/move),
+    "patch": { "content": "new content...", "slugline": "..." } (for update_scene),
+    "position": { "afterSceneId": "uuid" } (for insert/move),
+    "sceneDraft": { "slugline": "...", "content": "..." } (for insert)
+  },
+  "rationale": "why this fix"
+}
+
+Rules:
+- Max 20 operations total
+- Only reference valid scene IDs from the list
+- Prefer update_scene over insert
+- Return ONLY valid JSON array`;
+
+      let ops: any[] = [];
+      try {
+        const fixRaw = await callAI(apiKey, BALANCED_MODEL, "You are a screenplay fix planner. Return ONLY valid JSON array.", fixPrompt, 0.3, 6000);
+        const fixPlans = await parseAIJson(apiKey, fixRaw);
+        ops = Array.isArray(fixPlans) ? fixPlans.slice(0, 20) : [];
+      } catch (e: any) {
+        console.error("Fix plan generation failed:", e);
+        // Try once more
+        try {
+          const fixRaw2 = await callAI(apiKey, FAST_MODEL, "Return a JSON array of screenplay fix operations.", `Fix these issues:\n${issuesSummary}\n\nScene IDs:\n${(orderRows || []).map((o: any) => o.scene_id).join('\n')}\n\nReturn JSON array with op_type, payload, rationale.`, 0.2, 4000);
+          const fixPlans2 = await parseAIJson(apiKey, fixRaw2);
+          ops = Array.isArray(fixPlans2) ? fixPlans2.slice(0, 20) : [];
+        } catch { ops = []; }
+      }
+
+      // Validate and insert ops
+      const validSceneIds = new Set((orderRows || []).map((r: any) => r.scene_id));
+      let opIndex = 0;
+      for (const op of ops) {
+        const opType = op.op_type || 'update_scene';
+        const payload = op.payload || {};
+
+        // Validate scene references
+        if (opType === 'update_scene' || opType === 'move') {
+          if (!payload.sceneId || !validSceneIds.has(payload.sceneId)) continue;
+        }
+
+        await supabase.from("scene_change_set_ops").insert({
+          change_set_id: cs.id,
+          project_id: projectId,
+          op_index: opIndex++,
+          op_type: opType,
+          payload: { ...payload, meta: { rationale: op.rationale || '', source: 'qc_fix' } },
+          inverse: {},
+          status: 'pending',
+        });
+      }
+
+      // Link issues to change set
+      const issueIdsToLink = issues.map((i: any) => i.id);
+      if (issueIdsToLink.length > 0) {
+        await supabase.from("scene_qc_issues")
+          .update({ linked_change_set_id: cs.id })
+          .in("id", issueIdsToLink);
+      }
+
+      return new Response(JSON.stringify({ change_set_id: cs.id }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     throw new Error(`Unknown action: ${action}`);
   } catch (err: any) {
     console.error("dev-engine-v2 error:", err);
