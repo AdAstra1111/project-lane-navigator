@@ -11337,7 +11337,10 @@ CRITICAL:
         run_id: runId,
       }));
 
-      const { error: insertErr } = await supabase.from("rewrite_jobs").insert(jobRows);
+      const { error: insertErr } = await supabase.from("rewrite_jobs").upsert(jobRows, {
+        onConflict: "source_version_id,scene_number",
+        ignoreDuplicates: false,
+      });
       if (insertErr) throw insertErr;
 
       // Update run status
