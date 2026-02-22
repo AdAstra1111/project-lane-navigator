@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
@@ -210,6 +210,18 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
     }
   }, []);
 
+  // Restore runId from sessionStorage on mount/projectId change
+  useEffect(() => {
+    if (!projectId || runIdRef.current) return;
+    const svId = lastSourceVersionIdRef.current;
+    if (!svId) return;
+    const restored = loadRunId(projectId, svId);
+    if (restored) {
+      runIdRef.current = restored;
+      setState(s => ({ ...s, runId: restored }));
+    }
+  }, [projectId]);
+
   // Probe whether scenes exist
   const probe = useCallback(async (sourceDocId: string, sourceVersionId: string) => {
     if (!projectId) return null;
@@ -341,7 +353,16 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
   // Process jobs one at a time in a loop, then auto-assemble
   const processAll = useCallback(async (sourceVersionId: string, sourceDocId?: string) => {
     if (!projectId || processingRef.current) return;
-    const currentRunId = runIdRef.current;
+    lastSourceVersionIdRef.current = sourceVersionId;
+    let currentRunId = runIdRef.current;
+    if (!currentRunId) {
+      // Attempt restore from sessionStorage
+      currentRunId = loadRunId(projectId, sourceVersionId);
+      if (currentRunId) {
+        runIdRef.current = currentRunId;
+        setState(s => ({ ...s, runId: currentRunId }));
+      }
+    }
     if (!currentRunId) {
       toast.error('Missing runId — please enqueue again.');
       pushActivity('error', 'Missing runId — please enqueue again.');
@@ -490,6 +511,7 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
           invalidate();
           // Clear persisted runId on successful assemble
           if (projectId) clearRunId(projectId, sourceVersionId);
+          runIdRef.current = null;
           pushActivity('success', `Assembled ${assembleResult.scenesCount} scenes → ${assembleResult.charCount?.toLocaleString()} chars (is_current=true)`);
           toast.success(`Assembled → ${assembleResult.newVersionLabel || 'new version'}`);
         } catch (assembleErr: any) {
@@ -581,6 +603,7 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
       invalidate();
       // Clear persisted runId on successful assemble
       if (projectId) clearRunId(projectId, sourceVersionId);
+      runIdRef.current = null;
       const label = result.newVersionLabel || `${result.scenesCount} scenes`;
       const selectiveNote = result.trulySelective ? ` (${result.scenesCount}/${result.totalScenesInAssembly} selective)` : '';
       pushActivity('success', `Assembled ${result.scenesCount} scenes${selectiveNote} → ${result.charCount.toLocaleString()} chars`);
