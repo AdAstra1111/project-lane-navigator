@@ -512,6 +512,7 @@ export function defaultDeliverableForDocType(docType: string): DeliverableType {
     vertical_market_sheet: 'vertical_market_sheet',
     treatment: 'blueprint',
     script: 'feature_script',
+    script_pdf: 'feature_script',
     feature_script: 'feature_script',
     episode_script: 'episode_script',
     pilot_script: 'episode_script',

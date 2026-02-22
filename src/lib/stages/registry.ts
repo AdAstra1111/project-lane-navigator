@@ -157,6 +157,7 @@ export const DOC_TYPE_TO_LADDER_STAGE: Record<string, DeliverableStage> = {
   notes:                   'concept_brief',
   // Legacy aliases — backward compat
   script:                  'feature_script',
+  script_pdf:              'feature_script',
   draft:                   'feature_script',
   coverage:                'production_draft',
   complete_season_script:  'season_master_script',
