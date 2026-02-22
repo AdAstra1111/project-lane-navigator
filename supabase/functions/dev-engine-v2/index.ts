@@ -10878,6 +10878,447 @@ ${scenesForPrompt}`;
       });
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    // SCENE-LEVEL REWRITE PIPELINE
+    // ═══════════════════════════════════════════════════════════════
+
+    // ── REWRITE DEBUG PROBE ──
+    if (action === "rewrite_debug_probe") {
+      const { projectId, sourceDocId, sourceVersionId } = body;
+      if (!projectId || !sourceVersionId) throw new Error("projectId, sourceVersionId required");
+
+      const { data: version } = await supabase.from("project_document_versions")
+        .select("plaintext").eq("id", sourceVersionId).single();
+      const scriptChars = (version?.plaintext || "").length;
+
+      // Check for scene_graph_scenes with active order entries
+      const { data: sceneOrder } = await supabase.from("scene_graph_order")
+        .select("id, scene_id")
+        .eq("project_id", projectId)
+        .eq("is_active", true);
+
+      const scenesCount = sceneOrder?.length || 0;
+      const hasScenes = scenesCount >= 3; // need at least 3 scenes to use scene mode
+
+      return new Response(JSON.stringify({
+        has_scenes: hasScenes,
+        scenes_count: scenesCount,
+        rewrite_default_mode: hasScenes ? "scene" : "chunk",
+        script_chars: scriptChars,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // ── ENQUEUE REWRITE JOBS ──
+    if (action === "enqueue_rewrite_jobs") {
+      const { projectId, sourceDocId, sourceVersionId, targetDocType, approvedNotes, protectItems } = body;
+      if (!projectId || !sourceDocId || !sourceVersionId) throw new Error("projectId, sourceDocId, sourceVersionId required");
+
+      // Check idempotency: if jobs already exist for this version, return counts
+      const { data: existingJobs } = await supabase.from("rewrite_jobs")
+        .select("id, status")
+        .eq("project_id", projectId)
+        .eq("source_version_id", sourceVersionId);
+
+      if (existingJobs && existingJobs.length > 0) {
+        const counts = { total: existingJobs.length, queued: 0, running: 0, done: 0, failed: 0 };
+        for (const j of existingJobs) {
+          if (j.status === "queued") counts.queued++;
+          else if (j.status === "running") counts.running++;
+          else if (j.status === "done") counts.done++;
+          else if (j.status === "failed") counts.failed++;
+        }
+        return new Response(JSON.stringify({ totalScenes: counts.total, ...counts, alreadyExists: true }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // Try scene_graph first
+      const { data: sceneOrder } = await supabase.from("scene_graph_order")
+        .select("scene_id, order_key, act, sequence")
+        .eq("project_id", projectId)
+        .eq("is_active", true)
+        .order("order_key", { ascending: true });
+
+      let scenes: Array<{ scene_number: number; scene_id: string | null; heading: string }> = [];
+
+      if (sceneOrder && sceneOrder.length >= 3) {
+        // Get latest version content for each scene
+        const sceneIds = sceneOrder.map(s => s.scene_id);
+        const { data: versions } = await supabase.from("scene_graph_versions")
+          .select("scene_id, slugline, version_number")
+          .in("scene_id", sceneIds)
+          .eq("status", "draft")
+          .order("version_number", { ascending: false });
+
+        const sluglineMap = new Map<string, string>();
+        for (const v of (versions || [])) {
+          if (!sluglineMap.has(v.scene_id)) sluglineMap.set(v.scene_id, v.slugline || "");
+        }
+
+        scenes = sceneOrder.map((s, i) => ({
+          scene_number: i + 1,
+          scene_id: s.scene_id,
+          heading: sluglineMap.get(s.scene_id) || `SCENE ${i + 1}`,
+        }));
+      } else {
+        // Fallback: split by scene headings from plaintext
+        const { data: version } = await supabase.from("project_document_versions")
+          .select("plaintext").eq("id", sourceVersionId).single();
+        const text = version?.plaintext || "";
+        const headingRegex = /^(INT\.|EXT\.|INT\/EXT\.|I\/E\.)\s*.+/gm;
+        let match;
+        const boundaries: Array<{ index: number; heading: string }> = [];
+        while ((match = headingRegex.exec(text)) !== null) {
+          boundaries.push({ index: match.index, heading: match[0].trim() });
+        }
+
+        if (boundaries.length < 2) {
+          // Not enough scenes — can't use scene mode
+          return new Response(JSON.stringify({ error: "Not enough scenes detected for scene-level rewrite. Use chunk pipeline.", totalScenes: boundaries.length }), {
+            status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
+        scenes = boundaries.map((b, i) => ({
+          scene_number: i + 1,
+          scene_id: null,
+          heading: b.heading.substring(0, 200),
+        }));
+      }
+
+      // Insert all jobs
+      const jobRows = scenes.map(s => ({
+        project_id: projectId,
+        user_id: user.id,
+        source_doc_id: sourceDocId,
+        source_version_id: sourceVersionId,
+        target_doc_type: targetDocType || "script",
+        scene_id: s.scene_id,
+        scene_number: s.scene_number,
+        scene_heading: s.heading,
+        status: "queued",
+        attempts: 0,
+        max_attempts: 3,
+        approved_notes: approvedNotes || [],
+        protect_items: protectItems || [],
+      }));
+
+      const { error: insertErr } = await supabase.from("rewrite_jobs").insert(jobRows);
+      if (insertErr) throw insertErr;
+
+      console.log(`[scene-rewrite] Enqueued ${scenes.length} scene rewrite jobs for version ${sourceVersionId}, rewrite_mode=scene`);
+
+      return new Response(JSON.stringify({ totalScenes: scenes.length, queued: scenes.length, alreadyExists: false }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ── PROCESS NEXT REWRITE JOB ──
+    if (action === "process_next_rewrite_job") {
+      const { projectId, sourceVersionId } = body;
+      if (!projectId || !sourceVersionId) throw new Error("projectId, sourceVersionId required");
+
+      // Claim one queued job (oldest by scene_number)
+      // We use a two-step: find then update, since Supabase JS doesn't support FOR UPDATE SKIP LOCKED
+      const { data: candidates } = await supabase.from("rewrite_jobs")
+        .select("*")
+        .eq("project_id", projectId)
+        .eq("source_version_id", sourceVersionId)
+        .eq("status", "queued")
+        .order("scene_number", { ascending: true })
+        .limit(1);
+
+      if (!candidates || candidates.length === 0) {
+        return new Response(JSON.stringify({ processed: false, reason: "no_queued_jobs" }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const job = candidates[0];
+
+      // Mark as running
+      await supabase.from("rewrite_jobs").update({
+        status: "running",
+        claimed_at: new Date().toISOString(),
+        attempts: job.attempts + 1,
+      }).eq("id", job.id).eq("status", "queued"); // optimistic lock
+
+      try {
+        // Get scene text
+        let sceneText = "";
+        let prevSummary = "";
+        let nextSummary = "";
+
+        if (job.scene_id) {
+          // From scene graph
+          const { data: sv } = await supabase.from("scene_graph_versions")
+            .select("content, summary, slugline")
+            .eq("scene_id", job.scene_id)
+            .order("version_number", { ascending: false })
+            .limit(1)
+            .single();
+          sceneText = sv?.content || "";
+
+          // Get prev/next scene summaries for context
+          const { data: allOrder } = await supabase.from("scene_graph_order")
+            .select("scene_id, order_key")
+            .eq("project_id", projectId)
+            .eq("is_active", true)
+            .order("order_key", { ascending: true });
+
+          if (allOrder) {
+            const idx = allOrder.findIndex(o => o.scene_id === job.scene_id);
+            if (idx > 0) {
+              const { data: pv } = await supabase.from("scene_graph_versions")
+                .select("summary, slugline")
+                .eq("scene_id", allOrder[idx - 1].scene_id)
+                .order("version_number", { ascending: false })
+                .limit(1)
+                .single();
+              prevSummary = pv ? `${pv.slugline || ""}: ${pv.summary || ""}`.trim() : "";
+            }
+            if (idx < allOrder.length - 1) {
+              const { data: nv } = await supabase.from("scene_graph_versions")
+                .select("summary, slugline")
+                .eq("scene_id", allOrder[idx + 1].scene_id)
+                .order("version_number", { ascending: false })
+                .limit(1)
+                .single();
+              nextSummary = nv ? `${nv.slugline || ""}: ${nv.summary || ""}`.trim() : "";
+            }
+          }
+        } else {
+          // From plaintext split
+          const { data: version } = await supabase.from("project_document_versions")
+            .select("plaintext").eq("id", sourceVersionId).single();
+          const fullText = version?.plaintext || "";
+          const headingRegex = /^(INT\.|EXT\.|INT\/EXT\.|I\/E\.)\s*.+/gm;
+          let match;
+          const boundaries: number[] = [];
+          while ((match = headingRegex.exec(fullText)) !== null) {
+            boundaries.push(match.index);
+          }
+
+          const sceneIdx = job.scene_number - 1;
+          const start = boundaries[sceneIdx] ?? 0;
+          const end = boundaries[sceneIdx + 1] ?? fullText.length;
+          sceneText = fullText.substring(start, end).trim();
+
+          // Prev/next: just grab first 300 chars as summary
+          if (sceneIdx > 0) {
+            const pStart = boundaries[sceneIdx - 1] ?? 0;
+            prevSummary = fullText.substring(pStart, start).trim().substring(0, 300);
+          }
+          if (sceneIdx < boundaries.length - 1) {
+            const nStart = boundaries[sceneIdx + 1] ?? end;
+            const nEnd = boundaries[sceneIdx + 2] ?? fullText.length;
+            nextSummary = fullText.substring(nStart, nEnd).trim().substring(0, 300);
+          }
+        }
+
+        if (!sceneText || sceneText.trim().length === 0) {
+          throw new Error(`Scene ${job.scene_number} has no text`);
+        }
+
+        const notesContext = (job.approved_notes as any[])?.length
+          ? `APPROVED NOTES TO APPLY:\n${JSON.stringify(job.approved_notes)}\n\n`
+          : "";
+        const protectContext = (job.protect_items as any[])?.length
+          ? `PROTECT (non-negotiable):\n${JSON.stringify(job.protect_items)}\n\n`
+          : "";
+        const contextBlock = [
+          prevSummary ? `PREVIOUS SCENE SUMMARY: ${prevSummary}` : "",
+          nextSummary ? `NEXT SCENE SUMMARY: ${nextSummary}` : "",
+        ].filter(Boolean).join("\n");
+
+        const scenePrompt = `${protectContext}${notesContext}${contextBlock ? contextBlock + "\n\n" : ""}SCENE ${job.scene_number} (${job.scene_heading || "untitled"}) — Rewrite this scene applying the notes while preserving dramatic beats and formatting:\n\n${sceneText}`;
+
+        console.log(`[scene-rewrite] Processing scene ${job.scene_number} (${sceneText.length} chars), rewrite_mode=scene`);
+        const startTime = Date.now();
+
+        const rewrittenScene = await callAI(
+          LOVABLE_API_KEY, BALANCED_MODEL, REWRITE_CHUNK_SYSTEM, scenePrompt, 0.4, 12000
+        );
+
+        const durationMs = Date.now() - startTime;
+        console.log(`[scene-rewrite] Scene ${job.scene_number} done in ${(durationMs / 1000).toFixed(1)}s (${rewrittenScene.length} chars out)`);
+
+        // Save output (idempotent via UNIQUE constraint — use upsert)
+        const { error: outErr } = await supabase.from("rewrite_scene_outputs").upsert({
+          project_id: projectId,
+          user_id: user.id,
+          source_version_id: sourceVersionId,
+          scene_id: job.scene_id,
+          scene_number: job.scene_number,
+          rewritten_text: rewrittenScene.trim(),
+          tokens_in: sceneText.length,
+          tokens_out: rewrittenScene.trim().length,
+        }, { onConflict: "source_version_id,scene_number" });
+        if (outErr) console.error("Scene output save error:", outErr);
+
+        // Mark done
+        await supabase.from("rewrite_jobs").update({
+          status: "done",
+          finished_at: new Date().toISOString(),
+          error: null,
+        }).eq("id", job.id);
+
+        return new Response(JSON.stringify({
+          processed: true,
+          scene_number: job.scene_number,
+          status: "done",
+          duration_ms: durationMs,
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
+      } catch (jobErr: any) {
+        console.error(`[scene-rewrite] Scene ${job.scene_number} failed:`, jobErr.message);
+        const newAttempts = job.attempts + 1;
+        const newStatus = newAttempts >= job.max_attempts ? "failed" : "queued";
+        await supabase.from("rewrite_jobs").update({
+          status: newStatus,
+          error: jobErr.message?.substring(0, 500),
+        }).eq("id", job.id);
+
+        return new Response(JSON.stringify({
+          processed: true,
+          scene_number: job.scene_number,
+          status: newStatus,
+          error: jobErr.message,
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+    }
+
+    // ── GET REWRITE STATUS ──
+    if (action === "get_rewrite_status") {
+      const { projectId, sourceVersionId } = body;
+      if (!projectId || !sourceVersionId) throw new Error("projectId, sourceVersionId required");
+
+      const { data: jobs } = await supabase.from("rewrite_jobs")
+        .select("scene_number, scene_heading, status, attempts, error")
+        .eq("project_id", projectId)
+        .eq("source_version_id", sourceVersionId)
+        .order("scene_number", { ascending: true });
+
+      if (!jobs || jobs.length === 0) {
+        return new Response(JSON.stringify({ total: 0, queued: 0, running: 0, done: 0, failed: 0, scenes: [] }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const counts = { total: jobs.length, queued: 0, running: 0, done: 0, failed: 0 };
+      for (const j of jobs) {
+        if (j.status === "queued") counts.queued++;
+        else if (j.status === "running") counts.running++;
+        else if (j.status === "done") counts.done++;
+        else if (j.status === "failed") counts.failed++;
+      }
+
+      return new Response(JSON.stringify({ ...counts, scenes: jobs }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ── RETRY FAILED REWRITE JOBS ──
+    if (action === "retry_failed_rewrite_jobs") {
+      const { projectId, sourceVersionId } = body;
+      if (!projectId || !sourceVersionId) throw new Error("projectId, sourceVersionId required");
+
+      const { data: failedJobs } = await supabase.from("rewrite_jobs")
+        .select("id, attempts, max_attempts")
+        .eq("project_id", projectId)
+        .eq("source_version_id", sourceVersionId)
+        .eq("status", "failed");
+
+      let resetCount = 0;
+      for (const j of (failedJobs || [])) {
+        if (j.attempts < j.max_attempts) {
+          await supabase.from("rewrite_jobs").update({ status: "queued", error: null }).eq("id", j.id);
+          resetCount++;
+        }
+      }
+
+      return new Response(JSON.stringify({ reset: resetCount }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ── ASSEMBLE REWRITTEN SCRIPT ──
+    if (action === "assemble_rewritten_script") {
+      const { projectId, sourceDocId, sourceVersionId, targetDocType } = body;
+      if (!projectId || !sourceDocId || !sourceVersionId) throw new Error("projectId, sourceDocId, sourceVersionId required");
+
+      // Check all done
+      const { data: jobs } = await supabase.from("rewrite_jobs")
+        .select("scene_number, status")
+        .eq("project_id", projectId)
+        .eq("source_version_id", sourceVersionId);
+
+      const remaining = (jobs || []).filter(j => j.status !== "done");
+      if (remaining.length > 0) {
+        return new Response(JSON.stringify({
+          error: `${remaining.length} scene(s) not done yet`,
+          remaining: remaining.map(r => ({ scene_number: r.scene_number, status: r.status })),
+        }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // Load all outputs ordered
+      const { data: outputs } = await supabase.from("rewrite_scene_outputs")
+        .select("scene_number, rewritten_text")
+        .eq("source_version_id", sourceVersionId)
+        .order("scene_number", { ascending: true });
+
+      if (!outputs || outputs.length === 0) throw new Error("No scene outputs found");
+
+      const assembledText = outputs.map(o => o.rewritten_text).join("\n\n");
+
+      // Create new version
+      let newVersion: any = null;
+      for (let _retry = 0; _retry < 3; _retry++) {
+        const { data: maxRow } = await supabase.from("project_document_versions")
+          .select("version_number")
+          .eq("document_id", sourceDocId)
+          .order("version_number", { ascending: false })
+          .limit(1)
+          .single();
+        const nextVersion = (maxRow?.version_number ?? 0) + 1;
+        const { data: nv, error: vErr } = await supabase.from("project_document_versions").insert({
+          document_id: sourceDocId,
+          version_number: nextVersion,
+          label: `Scene rewrite v${nextVersion}`,
+          plaintext: assembledText,
+          created_by: user.id,
+          parent_version_id: sourceVersionId,
+          change_summary: `Scene-level rewrite across ${outputs.length} scenes.`,
+        }).select().single();
+        if (!vErr) { newVersion = nv; break; }
+        if (vErr.code !== "23505") throw vErr;
+      }
+      if (!newVersion) throw new Error("Failed to create version after retries");
+
+      // Log run
+      await supabase.from("development_runs").insert({
+        project_id: projectId,
+        document_id: sourceDocId,
+        version_id: newVersion.id,
+        user_id: user.id,
+        run_type: "REWRITE",
+        output_json: {
+          rewrite_mode: "scene",
+          scenes_count: outputs.length,
+          rewritten_text: `[${assembledText.length} chars]`,
+          changes_summary: `Scene-level rewrite across ${outputs.length} scenes.`,
+          source_version_id: sourceVersionId,
+        },
+        schema_version: SCHEMA_VERSION,
+      });
+
+      console.log(`[scene-rewrite] Assembled ${outputs.length} scenes → ${assembledText.length} chars, new version ${newVersion.id}`);
+
+      return new Response(JSON.stringify({ newVersionId: newVersion.id, charCount: assembledText.length, scenesCount: outputs.length }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     throw new Error(`Unknown action: ${action}`);
   } catch (err: any) {
     console.error("dev-engine-v2 error:", err);

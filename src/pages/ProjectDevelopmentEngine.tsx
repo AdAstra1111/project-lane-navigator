@@ -8,6 +8,8 @@ import { PageTransition } from '@/components/PageTransition';
 import { useDevEngineV2 } from '@/hooks/useDevEngineV2';
 import { useScriptPipeline } from '@/hooks/useScriptPipeline';
 import { useRewritePipeline } from '@/hooks/useRewritePipeline';
+import { useSceneRewritePipeline } from '@/hooks/useSceneRewritePipeline';
+import { SceneRewritePanel } from '@/components/devengine/SceneRewritePanel';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -209,6 +211,7 @@ export default function ProjectDevelopmentEngine() {
   const pipeline = useScriptPipeline(projectId);
   const promotionIntel = usePromotionIntelligence();
   const rewritePipeline = useRewritePipeline(projectId);
+  const sceneRewrite = useSceneRewritePipeline(projectId);
   const autoRun = useAutoRunMissionControl(projectId);
   const { resolveOnEntry, currentResolverHash, resolvedQuals } = useStageResolve(projectId);
   const { propose } = useDecisionCommit(projectId);
@@ -480,7 +483,7 @@ export default function ProjectDevelopmentEngine() {
     runAnalysisWithContext();
   };
 
-  const handleRewrite = (decisions?: Record<string, string>, globalDirections?: any[]) => {
+  const handleRewrite = async (decisions?: Record<string, string>, globalDirections?: any[]) => {
     const approved = allPrioritizedMoves.filter((_, i) => selectedNotes.has(i));
     const protectItems = latestNotes?.protect || latestAnalysis?.protect || [];
     const textLength = (selectedVersion?.plaintext || selectedDoc?.plaintext || '').length;
@@ -560,7 +563,17 @@ export default function ProjectDevelopmentEngine() {
     };
 
     if (textLength > 30000 && selectedDocId && selectedVersionId) {
-      rewritePipeline.startRewrite(selectedDocId, selectedVersionId, enrichedNotes, protectItems);
+      // Prefer scene-level rewrite if scenes exist (probe first)
+      const probeResult = await sceneRewrite.probe(selectedDocId, selectedVersionId);
+      if (probeResult?.has_scenes) {
+        const enqueueResult = await sceneRewrite.enqueue(selectedDocId, selectedVersionId, enrichedNotes, protectItems);
+        if (enqueueResult) {
+          sceneRewrite.processAll(selectedVersionId);
+        }
+      } else {
+        // Fallback to chunk-based rewrite
+        rewritePipeline.startRewrite(selectedDocId, selectedVersionId, enrichedNotes, protectItems);
+      }
       afterRewrite();
     } else {
       rewrite.mutate({
@@ -1006,7 +1019,7 @@ export default function ProjectDevelopmentEngine() {
                     selectedDeliverableType={selectedDeliverableType}
                     hasUnresolvedDrift={hasUnresolvedMajorDrift}
                     analyzePending={analyze.isPending}
-                    rewritePending={rewrite.isPending || rewritePipeline.status !== 'idle'}
+                    rewritePending={rewrite.isPending || rewritePipeline.status !== 'idle' || sceneRewrite.mode === 'processing' || sceneRewrite.mode === 'enqueuing'}
                     convertPending={convert.isPending}
                     generateNotesPending={generateNotes.isPending}
                     verticalDramaGating={verticalDramaGating}
@@ -1049,7 +1062,22 @@ export default function ProjectDevelopmentEngine() {
                             <Button variant="ghost" size="sm" className="h-5 w-5 p-0" onClick={() => rewritePipeline.reset()} title="Stop">
                               <Square className="h-3 w-3" />
                             </Button>
-                          )}
+                  )}
+                  {/* Scene-level rewrite panel */}
+                  {sceneRewrite.total > 0 && selectedDocId && selectedVersionId && (
+                    <SceneRewritePanel
+                      projectId={projectId!}
+                      documentId={selectedDocId}
+                      versionId={selectedVersionId}
+                      approvedNotes={[]}
+                      protectItems={[]}
+                      onComplete={(newVersionId) => {
+                        postOperationVersionId.current = newVersionId;
+                        setSelectedVersionId(newVersionId);
+                        sceneRewrite.reset();
+                      }}
+                    />
+                  )}
                           {rewritePipeline.status === 'error' && (
                             <Button variant="ghost" size="sm" className="h-5 w-5 p-0" onClick={() => { rewritePipeline.reset(); handleRewrite(); }} title="Restart">
                               <RotateCcw className="h-3 w-3" />
