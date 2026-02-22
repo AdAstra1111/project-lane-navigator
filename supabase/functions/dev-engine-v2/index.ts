@@ -1415,8 +1415,28 @@ serve(async (req) => {
       if (!version) throw new Error("Version not found");
 
       const { data: project } = await supabase.from("projects")
-        .select("title, budget_range, assigned_lane, format, development_behavior, episode_target_duration_seconds, episode_target_duration_min_seconds, episode_target_duration_max_seconds, season_episode_count, guardrails_config")
+        .select("title, budget_range, assigned_lane, format, development_behavior, episode_target_duration_seconds, episode_target_duration_min_seconds, episode_target_duration_max_seconds, season_episode_count, guardrails_config, canon_version_id")
         .eq("id", projectId).single();
+
+      // ── Canon OS: fetch active canon for authoritative episode metadata ──
+      let canonEpisodeMeta: { episode_count: number | null; min: number | null; max: number | null } = { episode_count: null, min: null, max: null };
+      let canonJson: any = null;
+      try {
+        if (project?.canon_version_id) {
+          const { data: canonVer } = await supabase.from("project_canon_versions")
+            .select("canon_json").eq("id", project.canon_version_id).maybeSingle();
+          if (canonVer?.canon_json) {
+            canonJson = canonVer.canon_json;
+            const ec = typeof canonJson.episode_count === "number" ? canonJson.episode_count : null;
+            let cMin = typeof canonJson.episode_length_seconds_min === "number" ? canonJson.episode_length_seconds_min : null;
+            let cMax = typeof canonJson.episode_length_seconds_max === "number" ? canonJson.episode_length_seconds_max : null;
+            if (cMin !== null && cMax !== null && cMin > cMax) { cMin = null; cMax = null; }
+            canonEpisodeMeta = { episode_count: ec, min: cMin, max: cMax };
+          }
+        }
+      } catch (e) {
+        console.warn("[dev-engine-v2] Canon fetch failed (non-fatal):", e);
+      }
 
       const rawFormat = reqFormat || project?.format || "film";
       const effectiveFormat = rawFormat.toLowerCase().replace(/[_ ]+/g, "-");
@@ -1453,10 +1473,11 @@ serve(async (req) => {
       const gc = project?.guardrails_config || {};
       const gquals = gc?.overrides?.qualifications || {};
       const fmtDefaults = FORMAT_DEFAULTS_ENGINE[effectiveFormat] || {};
-      const effectiveDuration = payloadDuration || rq.episode_target_duration_seconds || project?.episode_target_duration_seconds || gquals.episode_target_duration_seconds || fmtDefaults.episode_target_duration_seconds || null;
-      const effectiveDurationMin = payloadDurationMin || rq.episode_target_duration_min_seconds || (project as any)?.episode_target_duration_min_seconds || gquals.episode_target_duration_min_seconds || fmtDefaults.episode_target_duration_min_seconds || effectiveDuration || null;
-      const effectiveDurationMax = payloadDurationMax || rq.episode_target_duration_max_seconds || (project as any)?.episode_target_duration_max_seconds || gquals.episode_target_duration_max_seconds || fmtDefaults.episode_target_duration_max_seconds || effectiveDuration || null;
-      const effectiveSeasonCount = payloadCount || rq.season_episode_count || (project as any)?.season_episode_count || gquals.season_episode_count || fmtDefaults.season_episode_count || null;
+      // Canon values override all legacy values (highest priority after explicit payload)
+      const effectiveDuration = payloadDuration || canonEpisodeMeta.min || rq.episode_target_duration_seconds || project?.episode_target_duration_seconds || gquals.episode_target_duration_seconds || fmtDefaults.episode_target_duration_seconds || null;
+      const effectiveDurationMin = payloadDurationMin || canonEpisodeMeta.min || rq.episode_target_duration_min_seconds || (project as any)?.episode_target_duration_min_seconds || gquals.episode_target_duration_min_seconds || fmtDefaults.episode_target_duration_min_seconds || effectiveDuration || null;
+      const effectiveDurationMax = payloadDurationMax || canonEpisodeMeta.max || rq.episode_target_duration_max_seconds || (project as any)?.episode_target_duration_max_seconds || gquals.episode_target_duration_max_seconds || fmtDefaults.episode_target_duration_max_seconds || effectiveDuration || null;
+      const effectiveSeasonCount = payloadCount || canonEpisodeMeta.episode_count || rq.season_episode_count || (project as any)?.season_episode_count || gquals.season_episode_count || fmtDefaults.season_episode_count || null;
 
       // Vertical drama: require episode duration (min or max or scalar)
       if (effectiveFormat === "vertical-drama" && !effectiveDuration && !effectiveDurationMin) {
@@ -1600,12 +1621,31 @@ Format: ${rq.format}.${episodeLengthBlock}`;
         console.warn("[dev-engine-v2] Locked decisions fetch failed (non-fatal):", e);
       }
 
+      // ── Canon OS Context block ──
+      let canonOSContext = "";
+      if (canonJson) {
+        const parts: string[] = [];
+        if (canonJson.title) parts.push(`Title: ${canonJson.title}`);
+        if (canonJson.format) parts.push(`Format: ${canonJson.format}`);
+        if (canonJson.genre) parts.push(`Genre: ${canonJson.genre}`);
+        if (canonJson.tone) parts.push(`Tone: ${canonJson.tone}`);
+        if (canonEpisodeMeta.episode_count) parts.push(`Episode count: ${canonEpisodeMeta.episode_count}`);
+        if (canonEpisodeMeta.min != null && canonEpisodeMeta.max != null) {
+          parts.push(`Episode duration range: ${canonEpisodeMeta.min}–${canonEpisodeMeta.max}s`);
+        }
+        if (Array.isArray(canonJson.world_rules) && canonJson.world_rules.length > 0) parts.push(`World rules: ${canonJson.world_rules.join("; ")}`);
+        if (Array.isArray(canonJson.forbidden_changes) && canonJson.forbidden_changes.length > 0) parts.push(`Forbidden changes: ${canonJson.forbidden_changes.join("; ")}`);
+        if (parts.length > 0) {
+          canonOSContext = `\nCANON OS (authoritative — these values override any other references):\n${parts.join("\n")}`;
+        }
+      }
+
       const userPrompt = `PRODUCTION TYPE: ${effectiveProductionType}
 STRATEGIC PRIORITY: ${strategicPriority || "BALANCED"}
 DEVELOPMENT STAGE: ${developmentStage || "IDEA"}
 PROJECT: ${project?.title || "Unknown"}
 LANE: ${project?.assigned_lane || "Unknown"} | BUDGET: ${project?.budget_range || "Unknown"}
-${prevContext}${seasonContext}${qualBinding}${signalContext}${lockedDecisionsContext}
+${prevContext}${seasonContext}${qualBinding}${canonOSContext}${signalContext}${lockedDecisionsContext}
 
 MATERIAL (${version.plaintext.length} chars):
 ${version.plaintext.slice(0, maxContextChars)}`;
@@ -2052,7 +2092,30 @@ GENERAL RULES:
 - Do NOT re-raise previously resolved issues as blockers.
 - If an existing note_key persists, use the same key — do NOT rephrase under a new key.${antiRepeatRule}`;
 
-      const userPrompt = `ANALYSIS:\n${JSON.stringify(analysis)}\n\nMATERIAL (${version.plaintext.length} chars total):\n${version.plaintext}`;
+      // ── Canon OS injection for notes ──
+      let notesCanonBlock = "";
+      try {
+        const { data: notesProj } = await supabase.from("projects")
+          .select("canon_version_id").eq("id", projectId).single();
+        if (notesProj?.canon_version_id) {
+          const { data: cVer } = await supabase.from("project_canon_versions")
+            .select("canon_json").eq("id", notesProj.canon_version_id).maybeSingle();
+          if (cVer?.canon_json) {
+            const cj = cVer.canon_json;
+            const cMin = typeof cj.episode_length_seconds_min === "number" ? cj.episode_length_seconds_min : null;
+            const cMax = typeof cj.episode_length_seconds_max === "number" ? cj.episode_length_seconds_max : null;
+            const cCount = typeof cj.episode_count === "number" ? cj.episode_count : null;
+            const parts: string[] = [];
+            if (cCount) parts.push(`Episode count: ${cCount}`);
+            if (cMin != null && cMax != null) parts.push(`Episode duration range: ${cMin}–${cMax}s (use this range, not 180s or any other hardcoded value)`);
+            else if (cMin != null) parts.push(`Episode duration: ${cMin}s`);
+            if (cj.format) parts.push(`Format: ${cj.format}`);
+            if (parts.length > 0) notesCanonBlock = `\n\nCANON OS (authoritative):\n${parts.join("\n")}`;
+          }
+        }
+      } catch (_e) { /* non-fatal */ }
+
+      const userPrompt = `ANALYSIS:\n${JSON.stringify(analysis)}${notesCanonBlock}\n\nMATERIAL (${version.plaintext.length} chars total):\n${version.plaintext}`;
       const raw = await callAI(LOVABLE_API_KEY, PRO_MODEL, notesSystem, userPrompt, 0.25, 6000);
       const parsed = await parseAIJson(LOVABLE_API_KEY, raw);
 
@@ -10771,6 +10834,46 @@ ${scenesForPrompt}`;
       }
 
       return new Response(JSON.stringify({ success: true, updated_documents: updatedDocs }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "docs_backfill_display_names") {
+      const { projectId } = body;
+      if (!projectId) throw new Error("projectId required");
+
+      // Get canon title (fallback to project title)
+      let canonTitle = "";
+      const { data: proj } = await supabase.from("projects")
+        .select("title, canon_version_id").eq("id", projectId).single();
+      canonTitle = proj?.title || "";
+      if (proj?.canon_version_id) {
+        const { data: cv } = await supabase.from("project_canon_versions")
+          .select("canon_json").eq("id", proj.canon_version_id).maybeSingle();
+        if (cv?.canon_json?.title) canonTitle = cv.canon_json.title;
+      }
+
+      // Fetch all docs missing display_name
+      const { data: docs } = await supabase.from("project_documents")
+        .select("id, doc_type, file_name, title, display_name")
+        .eq("project_id", projectId);
+
+      let updated = 0;
+      for (const doc of (docs || [])) {
+        if (doc.display_name && doc.display_name.trim().length > 0) continue;
+
+        let episodeNumber: number | undefined;
+        const epMatch = (doc.file_name || doc.title || "").match(/[Ee]pisode\s*(\d+)|[Ee]p\.?\s*(\d+)|[Ss]\d+[Ee](\d+)/);
+        if (epMatch) episodeNumber = parseInt(epMatch[1] || epMatch[2] || epMatch[3], 10);
+
+        const displayName = buildDisplayName(canonTitle, doc.doc_type || "other", episodeNumber ? { episodeNumber } : undefined);
+        await supabase.from("project_documents")
+          .update({ display_name: displayName })
+          .eq("id", doc.id);
+        updated++;
+      }
+
+      return new Response(JSON.stringify({ success: true, updated }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }

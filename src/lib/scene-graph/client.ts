@@ -120,6 +120,7 @@ import type {
   CanonOSVersion,
   ProjectRenameInput,
   SetPrimaryDocumentInput,
+  DocsBackfillDisplayNamesInput,
 } from './types';
 
 async function callSceneGraph<T = any>(action: string, payload: Record<string, any>): Promise<T> {
@@ -482,4 +483,8 @@ export async function projectRename(input: ProjectRenameInput) {
 
 export async function setPrimaryDocument(input: SetPrimaryDocumentInput) {
   return callSceneGraph<{ success: boolean }>('set_primary_document', input);
+}
+
+export async function docsBackfillDisplayNames(input: DocsBackfillDisplayNamesInput) {
+  return callSceneGraph<{ success: boolean; updated: number }>('docs_backfill_display_names', input);
 }

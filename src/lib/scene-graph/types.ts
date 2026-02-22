@@ -1209,3 +1209,7 @@ export interface SetPrimaryDocumentInput {
   documentId: string;
   scope?: 'script';
 }
+
+export interface DocsBackfillDisplayNamesInput {
+  projectId: string;
+}
