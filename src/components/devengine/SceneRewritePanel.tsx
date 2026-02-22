@@ -1,11 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { Button } from '@/components/ui/button';
-import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Loader2, Play, RotateCcw, Package, Square, AlertCircle, CheckCircle2, Clock, Layers, Eye, AlertTriangle, Bug } from 'lucide-react';
 import { useSceneRewritePipeline, type PreviewResult } from '@/hooks/useSceneRewritePipeline';
+import { ProcessProgressBar } from './ProcessProgressBar';
+import { ActivityTimeline } from './ActivityTimeline';
 
 interface SceneRewritePanelProps {
   projectId: string;
@@ -40,6 +41,7 @@ export function SceneRewritePanel({
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewData, setPreviewData] = useState<PreviewResult | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const startGuardRef = useRef(false);
 
   // On mount, check for existing jobs (resume)
   useEffect(() => {
@@ -56,14 +58,26 @@ export function SceneRewritePanel({
   }, [pipeline.mode, pipeline.newVersionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleStart = async () => {
-    const result = await pipeline.enqueue(documentId, versionId, approvedNotes, protectItems);
-    if (result) {
-      pipeline.processAll(versionId);
+    if (startGuardRef.current) return;
+    startGuardRef.current = true;
+    try {
+      const result = await pipeline.enqueue(documentId, versionId, approvedNotes, protectItems);
+      if (result) {
+        pipeline.processAll(versionId);
+      }
+    } finally {
+      startGuardRef.current = false;
     }
   };
 
   const handleResume = () => {
-    pipeline.processAll(versionId);
+    if (startGuardRef.current) return;
+    startGuardRef.current = true;
+    try {
+      pipeline.processAll(versionId);
+    } finally {
+      startGuardRef.current = false;
+    }
   };
 
   const handleRetry = async () => {
@@ -108,14 +122,13 @@ export function SceneRewritePanel({
     pipeline.requeueStuck(versionId);
   };
 
-  const progress = pipeline.total > 0 ? (pipeline.done / pipeline.total) * 100 : 0;
   const canStart = pipeline.mode === 'idle' && pipeline.total === 0;
   const canResume = (pipeline.mode === 'idle' || pipeline.mode === 'error') && pipeline.queued > 0;
   const canRetry = pipeline.failed > 0;
   const canAssemble = pipeline.done === pipeline.total && pipeline.total > 0 && !pipeline.newVersionId;
   const isWorking = pipeline.mode === 'processing' || pipeline.mode === 'enqueuing' || pipeline.mode === 'assembling';
 
-  // Stuck detection (Improvement 4)
+  // Stuck detection
   const stuckMinutes = 10;
   const isStuck = pipeline.running > 0 && pipeline.oldestRunningClaimedAt &&
     (Date.now() - new Date(pipeline.oldestRunningClaimedAt).getTime()) > stuckMinutes * 60_000;
@@ -132,7 +145,7 @@ export function SceneRewritePanel({
         <div className="flex items-center gap-2">
           <Layers className="h-4 w-4 text-muted-foreground" />
           <span className="text-sm font-medium">Scene Rewrite</span>
-          {/* Mode toggle (Improvement 1) */}
+          {/* Mode toggle */}
           <div className="flex items-center border rounded-md overflow-hidden">
             {MODE_OPTIONS.map(opt => (
               <button
@@ -156,14 +169,14 @@ export function SceneRewritePanel({
           )}
         </div>
         <div className="flex items-center gap-1">
-          {/* Primary CTA: Resume if jobs exist, else Start (Improvement 2) */}
+          {/* Primary CTA: Resume if jobs exist, else Start */}
           {canResume && !isWorking && (
-            <Button size="sm" variant="default" onClick={handleResume} className="h-7 text-xs gap-1">
+            <Button size="sm" variant="default" onClick={handleResume} disabled={isWorking} className="h-7 text-xs gap-1">
               <Play className="h-3 w-3" /> Resume
             </Button>
           )}
           {canStart && !canResume && (
-            <Button size="sm" variant="default" onClick={handleStart} className="h-7 text-xs gap-1">
+            <Button size="sm" variant="default" onClick={handleStart} disabled={isWorking} className="h-7 text-xs gap-1">
               <Play className="h-3 w-3" /> Start
             </Button>
           )}
@@ -172,7 +185,7 @@ export function SceneRewritePanel({
               <RotateCcw className="h-3 w-3" /> Retry Failed
             </Button>
           )}
-          {/* Preview button (Improvement 5) */}
+          {/* Preview button */}
           {pipeline.done > 0 && !isWorking && (
             <Button size="sm" variant="outline" onClick={handlePreview} disabled={previewLoading} className="h-7 text-xs gap-1">
               {previewLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Eye className="h-3 w-3" />} Preview
@@ -196,7 +209,7 @@ export function SceneRewritePanel({
         </div>
       </div>
 
-      {/* Probe result banner (Improvement 1) */}
+      {/* Probe result banner */}
       {pipeline.probeResult && pipeline.total === 0 && (
         <div className="text-xs p-2 rounded bg-muted/50 space-y-0.5">
           <div className="flex items-center gap-2">
@@ -222,27 +235,28 @@ export function SceneRewritePanel({
         </div>
       )}
 
-      {pipeline.total > 0 && (
-        <Progress value={progress} className="h-1.5" />
-      )}
-
-      {pipeline.mode === 'assembling' && (
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Loader2 className="h-3 w-3 animate-spin" /> Assembling final script…
-        </div>
-      )}
-
-      {pipeline.mode === 'enqueuing' && (
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Loader2 className="h-3 w-3 animate-spin" /> Splitting into scenes…
-        </div>
+      {/* Progress bar with ETA + smoothing */}
+      {(isWorking || pipeline.mode === 'complete') && pipeline.total > 0 && (
+        <ProcessProgressBar
+          percent={pipeline.smoothedPercent}
+          actualPercent={pipeline.progress.percent}
+          phase={pipeline.progress.phase}
+          label={pipeline.progress.label}
+          etaMs={pipeline.etaMs}
+          status={
+            pipeline.mode === 'complete' ? 'success'
+            : pipeline.mode === 'error' ? 'error'
+            : pipeline.failed > 0 ? 'warn'
+            : 'working'
+          }
+        />
       )}
 
       {pipeline.error && (
         <div className="text-xs text-destructive">{pipeline.error}</div>
       )}
 
-      {/* Stuck jobs warning (Improvement 4) */}
+      {/* Stuck jobs warning */}
       {isStuck && (
         <div className="text-xs p-2 rounded bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 flex items-center justify-between">
           <span className="text-amber-700 dark:text-amber-400 flex items-center gap-1">
@@ -259,7 +273,7 @@ export function SceneRewritePanel({
         <div className="text-xs text-green-600 font-medium">✓ Rewrite complete — new version created</div>
       )}
 
-      {/* Scene list with metrics (Improvement 3) */}
+      {/* Scene list with metrics */}
       {pipeline.scenes.length > 0 && (
         <ScrollArea className="max-h-48">
           <div className="space-y-1">
@@ -271,7 +285,6 @@ export function SceneRewritePanel({
                     <span className="text-muted-foreground mr-1">#{scene.scene_number}</span>
                     {scene.scene_heading || 'Scene'}
                   </span>
-                  {/* Metrics (Improvement 3) */}
                   {metrics && scene.status === 'done' && (
                     <span className="text-muted-foreground mr-2 shrink-0 tabular-nums">
                       {metrics.skipped ? 'skip' : (
@@ -309,7 +322,12 @@ export function SceneRewritePanel({
         </div>
       )}
 
-      {/* Debug panel (Improvement 6) */}
+      {/* Activity timeline */}
+      {pipeline.activityItems.length > 0 && (
+        <ActivityTimeline items={pipeline.activityItems} onClear={pipeline.clearActivity} />
+      )}
+
+      {/* Debug panel */}
       {import.meta.env.DEV && (
         <details className="text-xs">
           <summary className="cursor-pointer text-muted-foreground flex items-center gap-1">
@@ -334,22 +352,23 @@ export function SceneRewritePanel({
               size="sm" variant="outline"
               className="h-6 text-[10px]"
               onClick={() => {
-                console.log('[debug] Resume checklist:');
-                console.log('1. Existing jobs should be loaded on mount (loadStatus)');
-                console.log('2. Resume button should appear when queued > 0');
-                console.log('3. Retry Failed should appear when failed > 0');
-                console.log('4. Assemble should appear when done == total');
-                console.log('5. Stop should stop promptly (stopRef)');
-                console.log('State:', JSON.stringify(pipeline, null, 2));
+                console.log('[debug] State:', JSON.stringify({
+                  mode: pipeline.mode,
+                  total: pipeline.total, done: pipeline.done, failed: pipeline.failed,
+                  queued: pipeline.queued, running: pipeline.running,
+                  smoothedPercent: pipeline.smoothedPercent,
+                  etaMs: pipeline.etaMs,
+                  avgUnitMs: pipeline.avgUnitMs,
+                }, null, 2));
               }}
             >
-              Refresh/resume checklist
+              Log state
             </Button>
           </div>
         </details>
       )}
 
-      {/* Preview modal (Improvement 5) */}
+      {/* Preview modal */}
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
         <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
           <DialogHeader>
