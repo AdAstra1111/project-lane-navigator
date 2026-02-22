@@ -798,6 +798,7 @@ export default function ProjectDevelopmentEngine() {
                 latestVersionMap={latestVersionMap}
                 approvedVersionMap={approvedVersionMap}
                 projectTitle={(project as any)?.title || ''}
+                format={normalizedFormat}
                 onOpenPackage={() => setIntelligenceTab('package')}
               />
 

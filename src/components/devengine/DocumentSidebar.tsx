@@ -46,6 +46,8 @@ interface DocumentSidebarProps {
   approvedVersionMap?: Record<string, string>;
   /** Current project title — used to prefix display names */
   projectTitle?: string;
+  /** Project format — used for format-specific label overrides */
+  format?: string | null;
   /** Callback to navigate to the Package tab */
   onOpenPackage?: () => void;
 }
@@ -53,7 +55,7 @@ interface DocumentSidebarProps {
 export function DocumentSidebar({
   documents, docsLoading, selectedDocId, selectDocument, deleteDocument, deleteVersion,
   versions, selectedVersionId, setSelectedVersionId, createPaste, latestVersionMap = {},
-  approvedVersionMap = {}, projectTitle = '', onOpenPackage,
+  approvedVersionMap = {}, projectTitle = '', format, onOpenPackage,
 }: DocumentSidebarProps) {
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteTitle, setPasteTitle] = useState('');
@@ -144,8 +146,8 @@ export function DocumentSidebar({
           <div className="max-h-[calc(100vh-420px)] overflow-y-auto space-y-1">
             {documents.map(doc => {
               const hasApproved = !!approvedVersionMap[doc.id];
-              const docTypeLabel = getDocTypeLabel(doc.doc_type);
-              const displayName = getDocDisplayName(projectTitle, doc.doc_type);
+              const docTypeLabel = getDocTypeLabel(doc.doc_type, format);
+              const displayName = getDocDisplayName(projectTitle, doc.doc_type, format);
               return (
               <div
                 key={doc.id}
@@ -234,7 +236,7 @@ export function DocumentSidebar({
                 const isLatestForDoc = selectedDocObj && latestVersionMap[selectedDocObj.doc_type] === v.id;
                 const isApprovedVersion = selectedDocId ? approvedVersionMap[selectedDocId] === v.id : false;
                 const versionDisplayName = projectTitle
-                  ? `${projectTitle} — ${getDocTypeLabel(selectedDocObj?.doc_type)} — v${v.version_number}`
+                  ? `${projectTitle} — ${getDocTypeLabel(selectedDocObj?.doc_type, format)} — v${v.version_number}`
                   : `v${v.version_number}`;
                 return (
                 <Tooltip key={v.id}>

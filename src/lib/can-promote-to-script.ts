@@ -117,6 +117,18 @@ export const ALL_DOC_TYPE_LABELS: Record<string, string> = {
 };
 
 /**
+ * Format-specific label overrides for non-series projects.
+ * Film/feature/short/documentary projects should NOT see series terminology.
+ */
+const NON_SERIES_FORMATS = new Set(['film', 'feature', 'short', 'documentary', 'hybrid-documentary', 'short-film']);
+const FILM_DOC_LABEL_OVERRIDES: Record<string, string> = {
+  blueprint: 'Blueprint',
+  architecture: 'Architecture',
+  beat_sheet: 'Beat Sheet',
+  season_arc: 'Story Arc',
+};
+
+/**
  * Normalize a doc_type key to canonical underscore form.
  * Use at all read/write boundaries.
  */
@@ -135,8 +147,9 @@ export function normalizeDocTypeKey(raw: string | null | undefined): string {
 export function getDocDisplayName(
   projectTitle: string | null | undefined,
   docType: string | null | undefined,
+  format?: string | null,
 ): string {
-  const label = getDocTypeLabel(docType);
+  const label = getDocTypeLabel(docType, format);
   if (projectTitle?.trim()) return `${projectTitle.trim()} \u2014 ${label}`;
   return label;
 }
@@ -167,10 +180,19 @@ export function getCanonicalFilename(opts: {
 
 /**
  * Get a human-readable label for any doc_type.
+ * Accepts optional format to apply film/feature-specific overrides.
  * NEVER defaults to "Script" — returns "Document" for unknown types.
  */
-export function getDocTypeLabel(docType: string | null | undefined): string {
+export function getDocTypeLabel(docType: string | null | undefined, format?: string | null): string {
   const normalized = normalizeDocTypeKey(docType);
+
+  // Apply format-specific overrides for non-series formats
+  const normalizedFormat = (format || '').toLowerCase().trim().replace(/[\s\-]+/g, '_').replace(/_/g, '-');
+  if (normalizedFormat && NON_SERIES_FORMATS.has(normalizedFormat)) {
+    const override = FILM_DOC_LABEL_OVERRIDES[normalized];
+    if (override) return override;
+  }
+
   const label = ALL_DOC_TYPE_LABELS[normalized];
   if (!label) {
     console.warn(`[DocType] Unknown doc_type encountered: "${docType}" (normalized: "${normalized}"). Displaying as "Document".`);
