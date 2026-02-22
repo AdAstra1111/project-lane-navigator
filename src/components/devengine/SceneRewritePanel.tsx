@@ -338,7 +338,29 @@ export function SceneRewritePanel({
       )}
 
       {pipeline.newVersionId && (
-        <div className="text-xs text-green-600 font-medium">✓ Rewrite complete — new version created</div>
+        <div className="text-xs space-y-1 p-2 rounded bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800">
+          <div className="text-green-600 font-medium flex items-center gap-1">
+            <CheckCircle2 className="h-3 w-3" /> Rewrite complete — new version created
+          </div>
+          {pipeline.lastAssembledVersionNumber != null && (
+            <div className="text-muted-foreground">
+              <span className="font-medium text-foreground">v{pipeline.lastAssembledVersionNumber}</span>
+              {pipeline.lastAssembledVersionLabel && (
+                <span className="ml-1">— {pipeline.lastAssembledVersionLabel}</span>
+              )}
+            </div>
+          )}
+          {pipeline.lastAssembledChangeSummary && (
+            <div className="text-muted-foreground">{pipeline.lastAssembledChangeSummary}</div>
+          )}
+          {pipeline.lastAssembledSelective != null && (
+            <div className="text-muted-foreground">
+              {pipeline.lastAssembledSelective
+                ? `Selective: ${pipeline.lastAssembledTargetCount}/${pipeline.totalScenesInScript || '?'} scenes`
+                : `Full rewrite: ${pipeline.done} scenes`}
+            </div>
+          )}
+        </div>
       )}
 
       {/* Scene list */}

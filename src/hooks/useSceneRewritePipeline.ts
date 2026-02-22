@@ -68,6 +68,12 @@ export interface SceneRewriteState {
   // Selective rewrite tracking
   totalScenesInScript: number;
   targetSceneNumbers: number[];
+  // Last assembled version metadata
+  lastAssembledVersionLabel: string | null;
+  lastAssembledChangeSummary: string | null;
+  lastAssembledVersionNumber: number | null;
+  lastAssembledSelective: boolean | null;
+  lastAssembledTargetCount: number | null;
 }
 
 const initialState: SceneRewriteState = {
@@ -94,6 +100,11 @@ const initialState: SceneRewriteState = {
   expansionCount: 0,
   totalScenesInScript: 0,
   targetSceneNumbers: [],
+  lastAssembledVersionLabel: null,
+  lastAssembledChangeSummary: null,
+  lastAssembledVersionNumber: null,
+  lastAssembledSelective: null,
+  lastAssembledTargetCount: null,
 };
 
 async function callEngine(action: string, extra: Record<string, any> = {}) {
@@ -467,11 +478,23 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
         rewriteScopeExpandedFrom: provenance?.rewriteScopeExpandedFrom || state.scopeExpandedFrom || null,
         rewriteVerification: provenance?.rewriteVerification || state.verification || null,
       });
-      setState(s => ({ ...s, mode: 'complete', newVersionId: result.newVersionId, smoothedPercent: 100, etaMs: null }));
+      setState(s => ({
+        ...s,
+        mode: 'complete',
+        newVersionId: result.newVersionId,
+        smoothedPercent: 100,
+        etaMs: null,
+        lastAssembledVersionLabel: result.newVersionLabel || null,
+        lastAssembledChangeSummary: result.newChangeSummary || null,
+        lastAssembledVersionNumber: result.newVersionNumber || null,
+        lastAssembledSelective: result.trulySelective ?? null,
+        lastAssembledTargetCount: result.targetScenesCount ?? null,
+      }));
       invalidate();
-      const selectiveNote = result.selectiveRewrite ? ` (${result.scenesCount}/${result.totalScenesInAssembly} selective)` : '';
+      const label = result.newVersionLabel || `${result.scenesCount} scenes`;
+      const selectiveNote = result.trulySelective ? ` (${result.scenesCount}/${result.totalScenesInAssembly} selective)` : '';
       pushActivity('success', `Assembled ${result.scenesCount} scenes${selectiveNote} → ${result.charCount.toLocaleString()} chars`);
-      toast.success(`Assembled ${result.scenesCount} scenes → ${result.charCount.toLocaleString()} chars`);
+      toast.success(`Assembled → ${label}`);
       return result;
     } catch (err: any) {
       setState(s => ({ ...s, mode: 'error', error: err.message }));
