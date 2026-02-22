@@ -1143,3 +1143,63 @@ export interface PassGetRunInput {
   projectId: string;
   passRunId: string;
 }
+
+// ── Canon OS Types ──
+
+export interface CanonOSData {
+  title?: string;
+  format?: string;
+  episode_count?: number | null;
+  episode_length_seconds_min?: number | null;
+  episode_length_seconds_max?: number | null;
+  genre?: string | null;
+  tone?: string | null;
+  world_rules?: string[];
+  characters?: Array<{
+    id: string;
+    name: string;
+    description: string;
+    traits: string[];
+    relationships: Array<{ character_id: string; description: string }>;
+  }>;
+  locations?: Array<{ id: string; name: string; description: string }>;
+  timeline_notes?: string[];
+  forbidden_changes?: string[];
+  [key: string]: unknown;
+}
+
+export interface CanonOSVersion {
+  id: string;
+  project_id: string;
+  canon_json: CanonOSData;
+  created_at: string;
+  created_by: string | null;
+  is_approved: boolean;
+  approved_at: string | null;
+  status: 'draft' | 'approved' | 'superseded';
+  version_number: number;
+  summary: string | null;
+}
+
+export interface CanonInitializeInput {
+  projectId: string;
+}
+
+export interface CanonOSUpdateInput {
+  projectId: string;
+  patch: Partial<CanonOSData>;
+}
+
+export interface CanonApproveInput {
+  projectId: string;
+  canonId: string;
+}
+
+export interface CanonOSGetInput {
+  projectId: string;
+}
+
+export interface ProjectRenameInput {
+  projectId: string;
+  newTitle: string;
+}
