@@ -6371,6 +6371,64 @@ export type Database = {
           },
         ]
       }
+      production_breakdowns: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          mode: string
+          per_scene: Json
+          project_id: string
+          source_snapshot_id: string | null
+          suggestions: Json
+          totals: Json
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          mode?: string
+          per_scene?: Json
+          project_id: string
+          source_snapshot_id?: string | null
+          suggestions?: Json
+          totals?: Json
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          mode?: string
+          per_scene?: Json
+          project_id?: string
+          source_snapshot_id?: string | null
+          suggestions?: Json
+          totals?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "production_breakdowns_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "production_breakdowns_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "production_breakdowns_source_snapshot_id_fkey"
+            columns: ["source_snapshot_id"]
+            isOneToOne: false
+            referencedRelation: "scene_graph_snapshots"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       production_companies: {
         Row: {
           color_accent: string
@@ -11572,6 +11630,267 @@ export type Database = {
           },
         ]
       }
+      scene_shot_sets: {
+        Row: {
+          aspect_ratio: string
+          created_at: string
+          created_by: string | null
+          id: string
+          mode: string
+          notes: string | null
+          project_id: string
+          provenance: Json
+          scene_id: string
+          scene_version_id: string
+          status: string
+        }
+        Insert: {
+          aspect_ratio?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          mode?: string
+          notes?: string | null
+          project_id: string
+          provenance?: Json
+          scene_id: string
+          scene_version_id: string
+          status?: string
+        }
+        Update: {
+          aspect_ratio?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          mode?: string
+          notes?: string | null
+          project_id?: string
+          provenance?: Json
+          scene_id?: string
+          scene_version_id?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scene_shot_sets_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "scene_shot_sets_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scene_shot_sets_scene_id_fkey"
+            columns: ["scene_id"]
+            isOneToOne: false
+            referencedRelation: "scene_graph_scenes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scene_shot_sets_scene_version_id_fkey"
+            columns: ["scene_version_id"]
+            isOneToOne: false
+            referencedRelation: "scene_graph_versions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      scene_shot_versions: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          data: Json
+          id: string
+          project_id: string
+          shot_id: string
+          status: string
+          superseded_at: string | null
+          supersedes_version_id: string | null
+          version_number: number
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          data?: Json
+          id?: string
+          project_id: string
+          shot_id: string
+          status?: string
+          superseded_at?: string | null
+          supersedes_version_id?: string | null
+          version_number?: number
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          data?: Json
+          id?: string
+          project_id?: string
+          shot_id?: string
+          status?: string
+          superseded_at?: string | null
+          supersedes_version_id?: string | null
+          version_number?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scene_shot_versions_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "scene_shot_versions_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scene_shot_versions_shot_id_fkey"
+            columns: ["shot_id"]
+            isOneToOne: false
+            referencedRelation: "scene_shots"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      scene_shots: {
+        Row: {
+          angle: string | null
+          blocking_notes: string | null
+          camera_movement: string | null
+          camera_support: string | null
+          characters_in_frame: Json
+          composition_notes: string | null
+          coverage_role: string | null
+          created_at: string
+          emotional_intent: string | null
+          est_duration_seconds: number | null
+          est_setup_complexity: number | null
+          framing: string | null
+          id: string
+          lens_mm: number | null
+          lighting_style: string | null
+          location_hint: string | null
+          narrative_function: string | null
+          order_key: string
+          project_id: string
+          props_required: Json
+          scene_id: string
+          scene_version_id: string
+          sfx_vfx_flags: Json
+          shot_number: number | null
+          shot_set_id: string
+          shot_type: string
+          status: string
+          time_of_day_hint: string | null
+        }
+        Insert: {
+          angle?: string | null
+          blocking_notes?: string | null
+          camera_movement?: string | null
+          camera_support?: string | null
+          characters_in_frame?: Json
+          composition_notes?: string | null
+          coverage_role?: string | null
+          created_at?: string
+          emotional_intent?: string | null
+          est_duration_seconds?: number | null
+          est_setup_complexity?: number | null
+          framing?: string | null
+          id?: string
+          lens_mm?: number | null
+          lighting_style?: string | null
+          location_hint?: string | null
+          narrative_function?: string | null
+          order_key: string
+          project_id: string
+          props_required?: Json
+          scene_id: string
+          scene_version_id: string
+          sfx_vfx_flags?: Json
+          shot_number?: number | null
+          shot_set_id: string
+          shot_type?: string
+          status?: string
+          time_of_day_hint?: string | null
+        }
+        Update: {
+          angle?: string | null
+          blocking_notes?: string | null
+          camera_movement?: string | null
+          camera_support?: string | null
+          characters_in_frame?: Json
+          composition_notes?: string | null
+          coverage_role?: string | null
+          created_at?: string
+          emotional_intent?: string | null
+          est_duration_seconds?: number | null
+          est_setup_complexity?: number | null
+          framing?: string | null
+          id?: string
+          lens_mm?: number | null
+          lighting_style?: string | null
+          location_hint?: string | null
+          narrative_function?: string | null
+          order_key?: string
+          project_id?: string
+          props_required?: Json
+          scene_id?: string
+          scene_version_id?: string
+          sfx_vfx_flags?: Json
+          shot_number?: number | null
+          shot_set_id?: string
+          shot_type?: string
+          status?: string
+          time_of_day_hint?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scene_shots_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "scene_shots_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scene_shots_scene_id_fkey"
+            columns: ["scene_id"]
+            isOneToOne: false
+            referencedRelation: "scene_graph_scenes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scene_shots_scene_version_id_fkey"
+            columns: ["scene_version_id"]
+            isOneToOne: false
+            referencedRelation: "scene_graph_versions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scene_shots_shot_set_id_fkey"
+            columns: ["shot_set_id"]
+            isOneToOne: false
+            referencedRelation: "scene_shot_sets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       scene_spine_links: {
         Row: {
           act: number | null
@@ -13379,6 +13698,106 @@ export type Database = {
           },
         ]
       }
+      storyboard_frames: {
+        Row: {
+          aspect_ratio: string
+          created_at: string
+          frame_index: number
+          id: string
+          image_url: string | null
+          is_stale: boolean
+          notes: string | null
+          project_id: string
+          prompt: string
+          scene_id: string
+          scene_version_id: string
+          shot_id: string
+          shot_version_id: string | null
+          status: string
+          style_preset: string
+          thumb_url: string | null
+        }
+        Insert: {
+          aspect_ratio?: string
+          created_at?: string
+          frame_index?: number
+          id?: string
+          image_url?: string | null
+          is_stale?: boolean
+          notes?: string | null
+          project_id: string
+          prompt?: string
+          scene_id: string
+          scene_version_id: string
+          shot_id: string
+          shot_version_id?: string | null
+          status?: string
+          style_preset?: string
+          thumb_url?: string | null
+        }
+        Update: {
+          aspect_ratio?: string
+          created_at?: string
+          frame_index?: number
+          id?: string
+          image_url?: string | null
+          is_stale?: boolean
+          notes?: string | null
+          project_id?: string
+          prompt?: string
+          scene_id?: string
+          scene_version_id?: string
+          shot_id?: string
+          shot_version_id?: string | null
+          status?: string
+          style_preset?: string
+          thumb_url?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "storyboard_frames_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "storyboard_frames_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "storyboard_frames_scene_id_fkey"
+            columns: ["scene_id"]
+            isOneToOne: false
+            referencedRelation: "scene_graph_scenes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "storyboard_frames_scene_version_id_fkey"
+            columns: ["scene_version_id"]
+            isOneToOne: false
+            referencedRelation: "scene_graph_versions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "storyboard_frames_shot_id_fkey"
+            columns: ["shot_id"]
+            isOneToOne: false
+            referencedRelation: "scene_shots"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "storyboard_frames_shot_version_id_fkey"
+            columns: ["shot_version_id"]
+            isOneToOne: false
+            referencedRelation: "scene_shot_versions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       subscriptions: {
         Row: {
           cancel_at_period_end: boolean
@@ -14200,6 +14619,16 @@ export type Database = {
           p_project_id: string
           p_propose?: boolean
           p_scene_id: string
+        }
+        Returns: Json
+      }
+      next_shot_version: {
+        Args: {
+          p_created_by?: string
+          p_patch?: Json
+          p_project_id: string
+          p_propose?: boolean
+          p_shot_id: string
         }
         Returns: Json
       }

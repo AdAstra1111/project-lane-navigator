@@ -7371,6 +7371,526 @@ Rules:
       });
     }
 
+    // ═══════════════════════════════════════════════════════════
+    // PHASE 5: VISUAL PRODUCTION ENGINE
+    // ═══════════════════════════════════════════════════════════
+
+    if (action === "shots_generate_for_scene") {
+      const { projectId, sceneId, mode: shotMode, aspectRatio, preferApprovedScene } = body;
+      if (!projectId || !sceneId) throw new Error("projectId and sceneId required");
+      const useMode = shotMode || 'coverage';
+      const useAR = aspectRatio || '2.39:1';
+
+      // Resolve scene version
+      let sceneVersionId: string;
+      if (preferApprovedScene) {
+        const { data: approved } = await supabase.from("scene_graph_versions")
+          .select("id").eq("scene_id", sceneId).eq("status", "approved")
+          .order("version_number", { ascending: false }).limit(1).single();
+        if (approved) { sceneVersionId = approved.id; }
+        else {
+          const { data: latest } = await supabase.from("scene_graph_versions")
+            .select("id").eq("scene_id", sceneId)
+            .order("version_number", { ascending: false }).limit(1).single();
+          if (!latest) throw new Error("No versions for scene");
+          sceneVersionId = latest.id;
+        }
+      } else {
+        const { data: latest } = await supabase.from("scene_graph_versions")
+          .select("id").eq("scene_id", sceneId)
+          .order("version_number", { ascending: false }).limit(1).single();
+        if (!latest) throw new Error("No versions for scene");
+        sceneVersionId = latest.id;
+      }
+
+      // Get scene content
+      const { data: sceneVer } = await supabase.from("scene_graph_versions")
+        .select("slugline, summary, content, characters_present, beats, metadata")
+        .eq("id", sceneVersionId).single();
+
+      // Get spine link for roles
+      const { data: spineLink } = await supabase.from("scene_spine_links")
+        .select("roles, threads, arc_steps")
+        .eq("project_id", projectId).eq("scene_id", sceneId).maybeSingle();
+
+      // Get canon facts for context
+      const { data: canonFacts } = await supabase.from("canon_facts")
+        .select("fact_type, subject, predicate, object")
+        .eq("project_id", projectId).eq("is_active", true).limit(50);
+
+      const apiKey = Deno.env.get("LOVABLE_API_KEY") || '';
+
+      const shotGenSystem = `You are a feature film cinematographer and 1st AD planning a shot list. Mode: ${useMode}. Aspect ratio: ${useAR}.
+Output ONLY valid JSON: { "shots": [{ "order": 1, "shot_type": "shot"|"insert"|"cutaway"|"transition"|"montage", "coverage_role": "master"|"wide"|"two_shot"|"single"|"ots"|"pov"|"insert"|"cutaway", "framing": "WS"|"MS"|"MCU"|"CU"|"ECU", "lens_mm": 35, "camera_support": "tripod"|"handheld"|"steadicam"|"dolly"|"crane"|"drone", "camera_movement": "static"|"pan"|"tilt"|"push"|"pull"|"track"|"crane"|"handheld", "angle": "eye"|"high"|"low"|"dutch"|"overhead", "composition_notes": "", "blocking_notes": "", "emotional_intent": "", "narrative_function": "reveal"|"escalation"|"payoff"|"exposition"|"transition"|"motif", "characters_in_frame": [], "props_required": [], "sfx_vfx_flags": {"vfx":false,"sfx":false,"stunts":false}, "est_duration_seconds": 5, "est_setup_complexity": 2, "lighting_style": "naturalistic" }] }
+Rules:
+- Generate 10-30 shots for comprehensive coverage
+- Use cinematic grammar appropriate for ${useAR} feature film
+- Include master, coverage singles, inserts, and cutaways
+- Consider blocking, emotional beats, and narrative function
+- Be specific about lens choices and camera movement`;
+
+      const shotGenUser = `SCENE:\nSlugline: ${sceneVer?.slugline || 'Unknown'}\nSummary: ${(sceneVer?.summary || '').slice(0, 500)}\nContent: ${(sceneVer?.content || '').slice(0, 4000)}\nCharacters: ${JSON.stringify(sceneVer?.characters_present || [])}\nBeats: ${JSON.stringify(sceneVer?.beats || []).slice(0, 1000)}\n\nRoles: ${JSON.stringify(spineLink?.roles || [])}\nThreads: ${JSON.stringify(spineLink?.threads || [])}\nCanon: ${JSON.stringify((canonFacts || []).slice(0, 20)).slice(0, 1000)}`;
+
+      const shotRaw = await callAI(apiKey, FAST_MODEL, shotGenSystem, shotGenUser, 0.3, 8000);
+      const shotData = await parseAIJson(apiKey, shotRaw);
+      const shots = Array.isArray(shotData.shots) ? shotData.shots : Array.isArray(shotData) ? shotData : [];
+
+      // Upsert shot set
+      const { data: existing } = await supabase.from("scene_shot_sets")
+        .select("id").eq("project_id", projectId).eq("scene_version_id", sceneVersionId).eq("mode", useMode).maybeSingle();
+
+      let shotSetId: string;
+      if (existing) {
+        await supabase.from("scene_shot_sets").update({ status: 'draft', aspect_ratio: useAR, notes: null }).eq("id", existing.id);
+        // Delete old shots for this set
+        await supabase.from("scene_shots").delete().eq("shot_set_id", existing.id);
+        shotSetId = existing.id;
+      } else {
+        const { data: newSet } = await supabase.from("scene_shot_sets").insert({
+          project_id: projectId, scene_id: sceneId, scene_version_id: sceneVersionId,
+          mode: useMode, aspect_ratio: useAR, status: 'draft', created_by: user.id,
+          provenance: { source: 'generated' },
+        }).select("id").single();
+        shotSetId = newSet!.id;
+      }
+
+      // Insert shots with fractional order keys
+      const insertedShots: any[] = [];
+      const insertedVersions: any[] = [];
+      for (let i = 0; i < shots.length; i++) {
+        const s = shots[i];
+        const orderKey = String(i + 1).padStart(6, '0');
+        const locationHint = sceneVer?.slugline?.match(/(?:INT|EXT)\.\s*(.+?)(?:\s*-|$)/)?.[1] || null;
+        const todHint = sceneVer?.slugline?.match(/-\s*(\w+)\s*$/)?.[1] || null;
+
+        const { data: shot } = await supabase.from("scene_shots").insert({
+          project_id: projectId, shot_set_id: shotSetId, scene_id: sceneId, scene_version_id: sceneVersionId,
+          order_key: orderKey, shot_number: i + 1,
+          shot_type: s.shot_type || 'shot', coverage_role: s.coverage_role || null,
+          framing: s.framing || null, lens_mm: s.lens_mm || null,
+          camera_support: s.camera_support || null, camera_movement: s.camera_movement || null,
+          angle: s.angle || null, composition_notes: s.composition_notes || null,
+          blocking_notes: s.blocking_notes || null, emotional_intent: s.emotional_intent || null,
+          narrative_function: s.narrative_function || null,
+          characters_in_frame: s.characters_in_frame || [],
+          props_required: s.props_required || [],
+          sfx_vfx_flags: s.sfx_vfx_flags || {},
+          est_duration_seconds: s.est_duration_seconds || null,
+          est_setup_complexity: s.est_setup_complexity || null,
+          lighting_style: s.lighting_style || null,
+          location_hint: locationHint, time_of_day_hint: todHint,
+          status: 'draft',
+        }).select().single();
+        if (shot) insertedShots.push(shot);
+
+        // Create version 1
+        if (shot) {
+          const shotDataSnapshot = { ...s, location_hint: locationHint, time_of_day_hint: todHint };
+          const { data: ver } = await supabase.from("scene_shot_versions").insert({
+            project_id: projectId, shot_id: shot.id, version_number: 1,
+            status: 'proposed', created_by: user.id, data: shotDataSnapshot,
+          }).select().single();
+          if (ver) insertedVersions.push(ver);
+        }
+      }
+
+      // Log action
+      await supabase.from("scene_graph_actions").insert({
+        project_id: projectId, action_type: 'shots_generate', actor_id: user.id,
+        payload: { sceneId, sceneVersionId, mode: useMode, shotSetId, shotCount: insertedShots.length },
+        inverse: { action: 'delete_shot_set', shotSetId },
+      });
+
+      const { data: shotSet } = await supabase.from("scene_shot_sets").select("*").eq("id", shotSetId).single();
+
+      return new Response(JSON.stringify({ shot_set: shotSet, shots: insertedShots, versions: insertedVersions }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "shots_list_for_scene") {
+      const { projectId, sceneId, sceneVersionId, mode: listMode } = body;
+      if (!projectId || !sceneId) throw new Error("projectId and sceneId required");
+
+      let targetVersionId = sceneVersionId;
+      if (!targetVersionId) {
+        const { data: latest } = await supabase.from("scene_graph_versions")
+          .select("id").eq("scene_id", sceneId)
+          .order("version_number", { ascending: false }).limit(1).single();
+        targetVersionId = latest?.id;
+      }
+
+      let query = supabase.from("scene_shot_sets").select("*").eq("project_id", projectId).eq("scene_id", sceneId);
+      if (listMode) query = query.eq("mode", listMode);
+      const { data: allSets } = await query.order("created_at", { ascending: false });
+
+      const currentSets = (allSets || []).filter((s: any) => s.scene_version_id === targetVersionId);
+      const staleSets = (allSets || []).filter((s: any) => s.scene_version_id !== targetVersionId);
+
+      const setIds = currentSets.map((s: any) => s.id);
+      let shots: any[] = [];
+      if (setIds.length > 0) {
+        const { data: s } = await supabase.from("scene_shots").select("*")
+          .in("shot_set_id", setIds).order("order_key", { ascending: true });
+        shots = s || [];
+      }
+
+      return new Response(JSON.stringify({ shot_sets: currentSets, shots, stale_sets: staleSets }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "shots_update_shot") {
+      const { projectId, shotId, patch, propose } = body;
+      if (!projectId || !shotId) throw new Error("projectId and shotId required");
+
+      const { data: ver } = await supabase.rpc("next_shot_version", {
+        p_shot_id: shotId, p_project_id: projectId,
+        p_patch: patch || {}, p_propose: propose || false, p_created_by: user.id,
+      });
+
+      // Update denormalized fields on scene_shots
+      if (patch) {
+        const updates: any = {};
+        for (const key of ['framing', 'lens_mm', 'camera_support', 'camera_movement', 'angle',
+          'composition_notes', 'blocking_notes', 'emotional_intent', 'narrative_function',
+          'characters_in_frame', 'props_required', 'sfx_vfx_flags',
+          'est_duration_seconds', 'est_setup_complexity', 'lighting_style']) {
+          if (patch[key] !== undefined) updates[key] = patch[key];
+        }
+        if (Object.keys(updates).length > 0) {
+          await supabase.from("scene_shots").update(updates).eq("id", shotId);
+        }
+      }
+
+      return new Response(JSON.stringify({ version: ver }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "shots_approve_shot_version") {
+      const { projectId, shotVersionId } = body;
+      if (!projectId || !shotVersionId) throw new Error("projectId and shotVersionId required");
+
+      const { data: ver } = await supabase.from("scene_shot_versions")
+        .update({ status: 'approved' }).eq("id", shotVersionId).select().single();
+
+      // Supersede older approved
+      if (ver) {
+        await supabase.from("scene_shot_versions")
+          .update({ superseded_at: new Date().toISOString(), supersedes_version_id: ver.id })
+          .eq("shot_id", ver.shot_id).eq("status", "approved").neq("id", ver.id);
+        await supabase.from("scene_shots").update({ status: 'approved' }).eq("id", ver.shot_id);
+      }
+
+      return new Response(JSON.stringify({ version: ver }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "shots_approve_shot_set") {
+      const { projectId, shotSetId } = body;
+      if (!projectId || !shotSetId) throw new Error("projectId and shotSetId required");
+
+      await supabase.from("scene_shot_sets").update({ status: 'approved' }).eq("id", shotSetId);
+
+      // Approve all shots that have approved versions
+      const { data: shots } = await supabase.from("scene_shots").select("id").eq("shot_set_id", shotSetId);
+      for (const shot of (shots || [])) {
+        const { data: approvedVer } = await supabase.from("scene_shot_versions")
+          .select("id").eq("shot_id", shot.id).eq("status", "approved").limit(1).maybeSingle();
+        if (approvedVer) {
+          await supabase.from("scene_shots").update({ status: 'approved' }).eq("id", shot.id);
+        }
+      }
+
+      const { data: shotSet } = await supabase.from("scene_shot_sets").select("*").eq("id", shotSetId).single();
+      return new Response(JSON.stringify({ shot_set: shotSet }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "storyboard_generate_frames") {
+      const { projectId, shotId, shotVersionId, frameCount, stylePreset, aspectRatio } = body;
+      if (!projectId || !shotId) throw new Error("projectId and shotId required");
+      const count = frameCount || 1;
+      const style = stylePreset || 'cinematic';
+      const ar = aspectRatio || '2.39:1';
+
+      // Resolve shot version
+      let resolvedSVId = shotVersionId;
+      if (!resolvedSVId) {
+        const { data: approved } = await supabase.from("scene_shot_versions")
+          .select("id").eq("shot_id", shotId).eq("status", "approved")
+          .order("version_number", { ascending: false }).limit(1).maybeSingle();
+        if (approved) resolvedSVId = approved.id;
+        else {
+          const { data: latest } = await supabase.from("scene_shot_versions")
+            .select("id").eq("shot_id", shotId)
+            .order("version_number", { ascending: false }).limit(1).single();
+          resolvedSVId = latest?.id;
+        }
+      }
+
+      // Get shot data
+      const { data: shot } = await supabase.from("scene_shots")
+        .select("scene_id, scene_version_id, framing, lens_mm, camera_movement, angle, composition_notes, blocking_notes, emotional_intent, lighting_style, characters_in_frame, location_hint, time_of_day_hint")
+        .eq("id", shotId).single();
+
+      // Get scene context
+      const { data: sceneVer } = await supabase.from("scene_graph_versions")
+        .select("slugline, summary").eq("id", shot?.scene_version_id).maybeSingle();
+
+      // Build prompts
+      const frames: any[] = [];
+      for (let i = 0; i < count; i++) {
+        const prompt = `${style} film still, ${ar} aspect ratio. ${shot?.framing || 'MS'} shot${shot?.lens_mm ? ` ${shot.lens_mm}mm lens` : ''}. ${shot?.camera_movement || 'static'}. ${shot?.angle || 'eye level'} angle. ${sceneVer?.slugline || ''}. ${shot?.composition_notes || ''}. ${shot?.blocking_notes || ''}. Characters: ${(shot?.characters_in_frame || []).join(', ')}. Mood: ${shot?.emotional_intent || 'neutral'}. Lighting: ${shot?.lighting_style || 'naturalistic'}. Location: ${shot?.location_hint || 'interior'}. Time: ${shot?.time_of_day_hint || 'day'}.`;
+
+        const { data: frame } = await supabase.from("storyboard_frames").insert({
+          project_id: projectId, scene_id: shot?.scene_id, scene_version_id: shot?.scene_version_id,
+          shot_id: shotId, shot_version_id: resolvedSVId,
+          frame_index: i + 1, aspect_ratio: ar, prompt,
+          style_preset: style, status: 'draft', is_stale: false,
+        }).select().single();
+        if (frame) frames.push(frame);
+      }
+
+      return new Response(JSON.stringify({ frames }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "storyboard_list_for_scene") {
+      const { projectId, sceneId, sceneVersionId } = body;
+      if (!projectId || !sceneId) throw new Error("projectId and sceneId required");
+
+      let query = supabase.from("storyboard_frames").select("*").eq("project_id", projectId).eq("scene_id", sceneId);
+      if (sceneVersionId) query = query.eq("scene_version_id", sceneVersionId);
+      const { data: frames } = await query.order("shot_id").order("frame_index", { ascending: true });
+
+      return new Response(JSON.stringify({ frames: frames || [] }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "storyboard_approve_frame") {
+      const { projectId, frameId } = body;
+      if (!projectId || !frameId) throw new Error("projectId and frameId required");
+
+      const { data: frame } = await supabase.from("storyboard_frames")
+        .update({ status: 'approved', is_stale: false })
+        .eq("id", frameId).eq("project_id", projectId).select().single();
+
+      return new Response(JSON.stringify({ frame }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "storyboard_mark_frame_stale") {
+      const { projectId, frameId } = body;
+      if (!projectId || !frameId) throw new Error("projectId and frameId required");
+
+      const { data: frame } = await supabase.from("storyboard_frames")
+        .update({ status: 'stale', is_stale: true })
+        .eq("id", frameId).eq("project_id", projectId).select().single();
+
+      return new Response(JSON.stringify({ frame }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "production_compute_breakdown") {
+      const { projectId, mode: bdMode } = body;
+      if (!projectId) throw new Error("projectId required");
+
+      const { data: orderRows } = await supabase.from("scene_graph_order")
+        .select("scene_id, order_key, act, sequence")
+        .eq("project_id", projectId).eq("is_active", true)
+        .order("order_key", { ascending: true });
+      if (!orderRows || orderRows.length === 0) throw new Error("No active scenes");
+
+      const sceneIds = orderRows.map((r: any) => r.scene_id);
+      const { data: versions } = await supabase.from("scene_graph_versions")
+        .select("scene_id, slugline, characters_present, metadata")
+        .in("scene_id", sceneIds).order("version_number", { ascending: false });
+
+      const latestMap = new Map<string, any>();
+      for (const v of (versions || [])) { if (!latestMap.has(v.scene_id)) latestMap.set(v.scene_id, v); }
+
+      // Get shot sets
+      const { data: shotSets } = await supabase.from("scene_shot_sets")
+        .select("id, scene_id, scene_version_id, status, mode")
+        .eq("project_id", projectId).in("scene_id", sceneIds)
+        .order("created_at", { ascending: false });
+
+      const shotSetByScene = new Map<string, any>();
+      for (const ss of (shotSets || [])) {
+        if (!shotSetByScene.has(ss.scene_id)) shotSetByScene.set(ss.scene_id, ss);
+      }
+
+      // Get shots for those sets
+      const setIds = (shotSets || []).map((s: any) => s.id);
+      let allShots: any[] = [];
+      if (setIds.length > 0) {
+        const { data: s } = await supabase.from("scene_shots")
+          .select("shot_set_id, est_duration_seconds, est_setup_complexity, lighting_style, camera_support, location_hint, sfx_vfx_flags, characters_in_frame")
+          .in("shot_set_id", setIds);
+        allShots = s || [];
+      }
+
+      const shotsBySet = new Map<string, any[]>();
+      for (const s of allShots) {
+        if (!shotsBySet.has(s.shot_set_id)) shotsBySet.set(s.shot_set_id, []);
+        shotsBySet.get(s.shot_set_id)!.push(s);
+      }
+
+      // Get spine links for act/roles
+      const { data: spineLinks } = await supabase.from("scene_spine_links")
+        .select("scene_id, roles, act").eq("project_id", projectId);
+      const spineLinkMap = new Map<string, any>();
+      for (const sl of (spineLinks || [])) spineLinkMap.set(sl.scene_id, sl);
+
+      const perScene: any[] = [];
+      let totalSetups = 0, totalTime = 0, totalVfx = 0, totalStunts = 0;
+      const allCast = new Set<string>();
+      const allLocations = new Set<string>();
+
+      for (const o of orderRows) {
+        const v = latestMap.get(o.scene_id);
+        const ss = shotSetByScene.get(o.scene_id);
+        const shots = ss ? (shotsBySet.get(ss.id) || []) : [];
+
+        const slug = v?.slugline || '';
+        const location = slug.match(/(?:INT|EXT)\.\s*(.+?)(?:\s*-|$)/)?.[1]?.trim() || 'Unknown';
+        const dayNight = slug.match(/-\s*(\w+)\s*$/)?.[1]?.toUpperCase() || 'DAY';
+
+        // Compute setups (unique combos of lighting + support)
+        const setupKeys = new Set<string>();
+        for (const shot of shots) {
+          setupKeys.add(`${shot.lighting_style || 'nat'}_${shot.camera_support || 'tripod'}_${location}`);
+        }
+        const estSetupCount = Math.max(setupKeys.size, 1);
+
+        const estDuration = shots.reduce((s: number, sh: any) => s + (sh.est_duration_seconds || 5), 0);
+        const setupOverhead = estSetupCount * 15 * 60; // 15 min per setup
+        const estTimeMins = Math.round((estDuration + setupOverhead) / 60);
+
+        const complexity = shots.length > 0
+          ? Math.round(shots.reduce((s: number, sh: any) => s + (sh.est_setup_complexity || 2), 0) / shots.length)
+          : 2;
+
+        const cast = [...new Set([...(v?.characters_present || []), ...shots.flatMap((sh: any) => sh.characters_in_frame || [])])];
+        const flags: Record<string, boolean> = { vfx: false, sfx: false, stunts: false };
+        for (const shot of shots) {
+          if (shot.sfx_vfx_flags?.vfx) flags.vfx = true;
+          if (shot.sfx_vfx_flags?.sfx) flags.sfx = true;
+          if (shot.sfx_vfx_flags?.stunts) flags.stunts = true;
+        }
+
+        totalSetups += estSetupCount;
+        totalTime += estTimeMins;
+        if (flags.vfx) totalVfx++;
+        if (flags.stunts) totalStunts++;
+        cast.forEach(c => allCast.add(c));
+        allLocations.add(location);
+
+        perScene.push({
+          scene_id: o.scene_id, order_key: o.order_key,
+          est_setup_count: estSetupCount, est_time: estTimeMins, complexity,
+          cast, locations: [location], day_night: dayNight, flags,
+        });
+      }
+
+      const totals = {
+        total_scenes: orderRows.length, total_setups: totalSetups,
+        total_time_mins: totalTime, total_cast: allCast.size,
+        total_locations: allLocations.size, vfx_scenes: totalVfx, stunt_scenes: totalStunts,
+      };
+
+      // Generate reorder suggestions (group by location/day_night)
+      const suggestions: any[] = [];
+      const locationGroups = new Map<string, any[]>();
+      for (const ps of perScene) {
+        const key = `${ps.locations[0]}_${ps.day_night}`;
+        if (!locationGroups.has(key)) locationGroups.set(key, []);
+        locationGroups.get(key)!.push(ps);
+      }
+      for (const [key, group] of locationGroups) {
+        if (group.length >= 2) {
+          // Check if they are consecutive
+          const indices = group.map(g => perScene.indexOf(g));
+          const isConsecutive = indices.every((idx, i) => i === 0 || idx === indices[i - 1] + 1);
+          if (!isConsecutive) {
+            // Check if any are turning points (don't suggest moving those)
+            const turningPointScenes = group.filter(g => {
+              const sl = spineLinkMap.get(g.scene_id);
+              return sl?.roles?.some((r: string) => ['inciting_incident', 'midpoint', 'climax'].includes(r));
+            });
+            if (turningPointScenes.length === 0) {
+              suggestions.push({
+                type: 'production_optimize_reorder',
+                rationale: `Scenes at "${key.replace('_', ' / ')}" are non-consecutive. Grouping could reduce company moves and save setup time.`,
+                payload: { action: 'scene_graph_move_scene', scene_ids: group.map(g => g.scene_id), location_key: key },
+              });
+            }
+          }
+        }
+      }
+
+      const { data: breakdown } = await supabase.from("production_breakdowns").insert({
+        project_id: projectId, created_by: user.id, mode: bdMode || 'latest',
+        per_scene: perScene, totals, suggestions,
+      }).select().single();
+
+      return new Response(JSON.stringify({ breakdown }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "production_get_latest") {
+      const { projectId } = body;
+      if (!projectId) throw new Error("projectId required");
+
+      const { data: breakdown } = await supabase.from("production_breakdowns")
+        .select("*").eq("project_id", projectId)
+        .order("created_at", { ascending: false }).limit(1).maybeSingle();
+
+      return new Response(JSON.stringify({ breakdown: breakdown || null }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Invalidation helper: mark shots/frames stale for prior scene versions
+    if (action === "shots_mark_stale_for_scene_versions") {
+      const { projectId, sceneId, currentSceneVersionId } = body;
+      if (!projectId || !sceneId) throw new Error("projectId and sceneId required");
+
+      // Mark shot sets stale
+      await supabase.from("scene_shot_sets")
+        .update({ status: 'stale' })
+        .eq("project_id", projectId).eq("scene_id", sceneId)
+        .neq("scene_version_id", currentSceneVersionId);
+
+      // Mark shots stale
+      const { data: staleSets } = await supabase.from("scene_shot_sets")
+        .select("id").eq("project_id", projectId).eq("scene_id", sceneId)
+        .eq("status", "stale");
+      if (staleSets && staleSets.length > 0) {
+        const staleSetIds = staleSets.map((s: any) => s.id);
+        await supabase.from("scene_shots").update({ status: 'stale' }).in("shot_set_id", staleSetIds);
+      }
+
+      // Mark frames stale
+      await supabase.from("storyboard_frames")
+        .update({ status: 'stale', is_stale: true })
+        .eq("project_id", projectId).eq("scene_id", sceneId)
+        .neq("scene_version_id", currentSceneVersionId);
+
+      return new Response(JSON.stringify({ ok: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     throw new Error(`Unknown action: ${action}`);
   } catch (err: any) {
     console.error("dev-engine-v2 error:", err);

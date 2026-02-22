@@ -46,6 +46,22 @@ import type {
   StoryMetricsRun,
   CoherenceRun,
   CoherenceFinding,
+  // Phase 5
+  ShotsGenerateInput,
+  ShotsListInput,
+  ShotsUpdateInput,
+  ShotsApproveVersionInput,
+  ShotsApproveShotSetInput,
+  StoryboardGenerateInput,
+  StoryboardListInput,
+  StoryboardApproveFrameInput,
+  ProductionBreakdownInput,
+  ProductionGetLatestInput,
+  ShotSet,
+  SceneShot,
+  ShotVersion,
+  StoryboardFrame,
+  ProductionBreakdown,
 } from './types';
 
 async function callSceneGraph<T = any>(action: string, payload: Record<string, any>): Promise<T> {
@@ -206,4 +222,46 @@ export async function coherenceGetLatest(input: CoherenceGetLatestInput) {
 
 export async function coherenceCloseFinding(input: CoherenceCloseFindingInput) {
   return callSceneGraph<{ finding: CoherenceFinding }>('coherence_close_finding', input);
+}
+
+// Phase 5 actions
+
+export async function shotsGenerateForScene(input: ShotsGenerateInput) {
+  return callSceneGraph<{ shot_set: ShotSet; shots: SceneShot[]; versions: ShotVersion[] }>('shots_generate_for_scene', input);
+}
+
+export async function shotsListForScene(input: ShotsListInput) {
+  return callSceneGraph<{ shot_sets: ShotSet[]; shots: SceneShot[]; stale_sets: ShotSet[] }>('shots_list_for_scene', input);
+}
+
+export async function shotsUpdateShot(input: ShotsUpdateInput) {
+  return callSceneGraph<{ version: ShotVersion }>('shots_update_shot', input);
+}
+
+export async function shotsApproveShotVersion(input: ShotsApproveVersionInput) {
+  return callSceneGraph<{ version: ShotVersion }>('shots_approve_shot_version', input);
+}
+
+export async function shotsApproveShotSet(input: ShotsApproveShotSetInput) {
+  return callSceneGraph<{ shot_set: ShotSet }>('shots_approve_shot_set', input);
+}
+
+export async function storyboardGenerateFrames(input: StoryboardGenerateInput) {
+  return callSceneGraph<{ frames: StoryboardFrame[] }>('storyboard_generate_frames', input);
+}
+
+export async function storyboardListForScene(input: StoryboardListInput) {
+  return callSceneGraph<{ frames: StoryboardFrame[] }>('storyboard_list_for_scene', input);
+}
+
+export async function storyboardApproveFrame(input: StoryboardApproveFrameInput) {
+  return callSceneGraph<{ frame: StoryboardFrame }>('storyboard_approve_frame', input);
+}
+
+export async function productionComputeBreakdown(input: ProductionBreakdownInput) {
+  return callSceneGraph<{ breakdown: ProductionBreakdown }>('production_compute_breakdown', input);
+}
+
+export async function productionGetLatest(input: ProductionGetLatestInput) {
+  return callSceneGraph<{ breakdown: ProductionBreakdown | null }>('production_get_latest', input);
 }
