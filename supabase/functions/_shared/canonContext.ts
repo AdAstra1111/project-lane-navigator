@@ -21,13 +21,36 @@ const MAX_COMPACT_CHARS = 8000;
 
 /**
  * Fetch canonical context for a project.
- * Priority: Active Approved version > latest project_canon row.
+ * Priority: projects.canon_version_id pointer > Active Approved version > latest project_canon row.
  */
 export async function getCanonicalContext(
   supabase: any,
   projectId: string,
 ): Promise<CanonicalContext> {
-  // 1. Try active approved version
+  // 1. Try pointer-based resolution (authoritative)
+  const { data: proj } = await supabase
+    .from('projects')
+    .select('canon_version_id')
+    .eq('id', projectId)
+    .single();
+
+  if (proj?.canon_version_id) {
+    const { data: pointerVer } = await supabase
+      .from('project_canon_versions')
+      .select('id, canon_json, is_approved')
+      .eq('id', proj.canon_version_id)
+      .maybeSingle();
+    if (pointerVer?.canon_json && Object.keys(pointerVer.canon_json).length > 0) {
+      return {
+        canon: pointerVer.canon_json,
+        isApproved: !!pointerVer.is_approved,
+        compactText: buildCompactText(pointerVer.canon_json),
+        versionId: pointerVer.id,
+      };
+    }
+  }
+
+  // 2. Fallback: Try active approved version
   const { data: approved } = await supabase
     .from('project_canon_versions')
     .select('id, canon_json')
@@ -46,7 +69,7 @@ export async function getCanonicalContext(
     };
   }
 
-  // 2. Fallback to latest project_canon
+  // 3. Fallback to latest project_canon
   const { data: current } = await supabase
     .from('project_canon')
     .select('canon_json')
@@ -60,6 +83,25 @@ export async function getCanonicalContext(
     compactText: buildCompactText(json),
     versionId: null,
   };
+}
+
+/**
+ * Extract episode metadata from canon JSON with validation.
+ */
+export function getCanonEpisodeMeta(canonJson: Record<string, unknown>): {
+  episode_count: number | null;
+  min: number | null;
+  max: number | null;
+} {
+  const episode_count = typeof canonJson.episode_count === 'number' ? canonJson.episode_count : null;
+  let min = typeof canonJson.episode_length_seconds_min === 'number' ? canonJson.episode_length_seconds_min : null;
+  let max = typeof canonJson.episode_length_seconds_max === 'number' ? canonJson.episode_length_seconds_max : null;
+  // Validate min <= max; coerce invalid to null
+  if (min !== null && max !== null && min > max) {
+    min = null;
+    max = null;
+  }
+  return { episode_count, min, max };
 }
 
 function buildCompactText(canon: Record<string, unknown>): string {

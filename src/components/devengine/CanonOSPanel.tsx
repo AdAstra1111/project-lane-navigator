@@ -1,23 +1,23 @@
 /**
  * CanonOSPanel — Structured editor for Canon OS data.
- * Initialize, edit, approve, rename.
+ * Initialize, edit, approve, rename, backfill display names.
  */
 import { useState, useEffect } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
   BookOpen, ChevronDown, Loader2, ShieldCheck, Plus, Trash2,
-  Save, RefreshCw, PenLine,
+  Save, RefreshCw, PenLine, FileText,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useCanonOS } from '@/hooks/useCanonOS';
+import { docsBackfillDisplayNames } from '@/lib/scene-graph/client';
 import type { CanonOSData } from '@/lib/scene-graph/types';
 
 interface Props {
@@ -52,6 +52,7 @@ export function CanonOSPanel({ projectId }: Props) {
   const [renameTitle, setRenameTitle] = useState('');
   const [showRename, setShowRename] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [backfilling, setBackfilling] = useState(false);
 
   useEffect(() => {
     if (currentCanon?.canon_json) {
@@ -66,7 +67,7 @@ export function CanonOSPanel({ projectId }: Props) {
 
   const handleSave = async () => {
     try {
-      await updateAsync(draft);
+      await updateAsync({ patch: draft });
       setDirty(false);
       toast.success('Canon saved');
     } catch {}
@@ -86,6 +87,18 @@ export function CanonOSPanel({ projectId }: Props) {
 
   const handleInit = async () => {
     await initialize();
+  };
+
+  const handleBackfill = async () => {
+    setBackfilling(true);
+    try {
+      const result = await docsBackfillDisplayNames({ projectId });
+      toast.success(`Updated ${result.updated} document display names`);
+    } catch (e: any) {
+      toast.error(e.message || 'Backfill failed');
+    } finally {
+      setBackfilling(false);
+    }
   };
 
   if (isLoading) {
@@ -254,6 +267,21 @@ export function CanonOSPanel({ projectId }: Props) {
               ))}
               <Button variant="outline" size="sm" className="h-6 text-[10px] gap-1" onClick={() => updateField('forbidden_changes', [...forbiddenChanges, ''])}>
                 <Plus className="h-3 w-3" /> Add Rule
+              </Button>
+            </div>
+          </Section>
+
+          <Separator />
+
+          {/* Backfill Display Names */}
+          <Section title="Document Naming" defaultOpen={false}>
+            <div className="space-y-2">
+              <p className="text-[10px] text-muted-foreground">
+                Backfill missing display names for all documents using Canon title + doc type.
+              </p>
+              <Button variant="outline" size="sm" className="h-6 text-[10px] gap-1" onClick={handleBackfill} disabled={backfilling}>
+                {backfilling ? <Loader2 className="h-3 w-3 animate-spin" /> : <FileText className="h-3 w-3" />}
+                Backfill Display Names
               </Button>
             </div>
           </Section>
