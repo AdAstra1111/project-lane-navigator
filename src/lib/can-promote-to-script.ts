@@ -68,6 +68,8 @@ export const ALL_DOC_TYPE_LABELS: Record<string, string> = {
   episode_script: 'Episode Script',
   episodes_1_3_scripts: 'Episodes 1–3 Scripts',
   script: 'Script',
+  script_latest: 'Script',
+  script_older: 'Script (Older Draft)',
   season_scripts_bundle: 'Season Scripts Bundle',
   season_master_script: 'Master Season Script',
   complete_season_script: 'Master Season Script',

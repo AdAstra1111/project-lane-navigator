@@ -411,7 +411,9 @@ serve(async (req) => {
     }
 
     // Read the doc_type passed from the client (single source of truth)
-    const docType = body.docType || "document";
+    // Normalize script variants to canonical 'script' for storage
+    const rawDocType = body.docType || "document";
+    const docType = rawDocType === "script_latest" || rawDocType === "script_older" ? "script" : rawDocType;
 
     // Save document records to DB (upsert by file_path)
     for (const doc of docResults) {
