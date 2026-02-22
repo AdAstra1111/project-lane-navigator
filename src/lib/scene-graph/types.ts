@@ -243,3 +243,127 @@ export interface ProjectSceneState {
   latest_snapshot_id: string | null;
   latest_snapshot_status: string | null;
 }
+
+// ── Phase 3 Types ──
+
+export interface ProjectSpine {
+  id: string;
+  project_id: string;
+  created_at: string;
+  created_by: string | null;
+  mode: string;
+  source_snapshot_id: string | null;
+  status: string;
+  spine: {
+    logline?: string;
+    central_question?: string;
+    act_turning_points?: Array<{ act: number; scene_id: string; label: string }>;
+    main_arcs?: Array<{ character: string; arc_type: string; steps: string[] }>;
+    open_threads?: Array<{ thread: string; status: string; scenes: string[] }>;
+    setups_payoffs?: Array<{ setup: string; payoff: string; setup_scene_id?: string; payoff_scene_id?: string; status: string }>;
+    tone?: string;
+    genre?: string;
+  };
+  stats: Record<string, any>;
+}
+
+export interface CanonFact {
+  id: string;
+  project_id: string;
+  fact_type: string;
+  subject: string;
+  predicate: string;
+  object: string;
+  value: Record<string, any>;
+  confidence: number;
+  first_scene_id: string | null;
+  last_scene_id: string | null;
+  first_order_key: string | null;
+  last_order_key: string | null;
+  sources: Array<{ scene_id: string; version_id?: string; order_key?: string; quote?: string }>;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface CanonOverride {
+  id: string;
+  project_id: string;
+  created_at: string;
+  created_by: string | null;
+  status: string;
+  override: Record<string, any>;
+}
+
+export interface SceneSpineLink {
+  id: string;
+  project_id: string;
+  scene_id: string;
+  order_key: string;
+  act: number | null;
+  sequence: number | null;
+  roles: string[];
+  threads: string[];
+  arc_steps: Array<{ character: string; step: string }>;
+  updated_at: string;
+}
+
+export type NarrativeRepairProblemType =
+  | 'motivation_unclear'
+  | 'act2_sag'
+  | 'missing_payoff'
+  | 'weak_escalation'
+  | 'exposition_heavy'
+  | 'continuity_hole'
+  | 'reveal_unearned'
+  | 'pacing_issue'
+  | 'character_arc_jump';
+
+export interface NarrativeRepairProblem {
+  type: NarrativeRepairProblemType;
+  notes?: string;
+  targetSceneId?: string;
+  severity?: 'low' | 'med' | 'high';
+}
+
+export interface NarrativeRepairOption {
+  id: string;
+  action_type: 'insert_new_scene' | 'rewrite_scene' | 'move_scene' | 'split_scene' | 'merge_scenes';
+  summary: string;
+  rationale: string;
+  risk: string;
+  predicted_impact: { warnings: ImpactWarning[] };
+  cascading_effects: string[];
+  payload: Record<string, any>;
+}
+
+// Phase 3 inputs
+export interface SpineRebuildInput {
+  projectId: string;
+  mode?: 'latest' | 'approved_prefer';
+  snapshotLabel?: string;
+}
+
+export interface SpineGetCurrentInput {
+  projectId: string;
+}
+
+export interface CanonListInput {
+  projectId: string;
+  filters?: { fact_type?: string; subject?: string; is_active?: boolean };
+}
+
+export interface CanonOverrideUpsertInput {
+  projectId: string;
+  override: Record<string, any>;
+}
+
+export interface NarrativeRepairSuggestInput {
+  projectId: string;
+  problem: NarrativeRepairProblem;
+  mode?: 'latest' | 'approved_prefer';
+}
+
+export interface NarrativeRepairQueueOptionInput {
+  projectId: string;
+  option: NarrativeRepairOption;
+}

@@ -6544,6 +6544,355 @@ Return ONLY valid JSON:
       });
     }
 
+    // ══════════════════════════════════════════════
+    // PHASE 3: SPINE + CANON + NARRATIVE REPAIR
+    // ══════════════════════════════════════════════
+
+    if (action === "spine_rebuild") {
+      const { projectId, mode: spineMode, snapshotLabel } = body;
+      if (!projectId) throw new Error("projectId required");
+      const useMode = spineMode || 'latest';
+
+      // 1. Assemble ordered scenes
+      const { data: orderRows } = await supabase.from("scene_graph_order")
+        .select("scene_id, order_key, act, sequence")
+        .eq("project_id", projectId).eq("is_active", true)
+        .order("order_key", { ascending: true });
+      if (!orderRows || orderRows.length === 0) throw new Error("No active scenes");
+
+      const sceneIds = orderRows.map((r: any) => r.scene_id);
+      const { data: allVersions } = await supabase.from("scene_graph_versions")
+        .select("*").in("scene_id", sceneIds)
+        .order("version_number", { ascending: false });
+
+      const selectedVersions = new Map<string, any>();
+      for (const sid of sceneIds) {
+        const versions = (allVersions || []).filter((v: any) => v.scene_id === sid);
+        if (useMode === 'approved_prefer') {
+          const approved = versions.filter((v: any) => v.status === 'approved')
+            .sort((a: any, b: any) => b.version_number - a.version_number);
+          selectedVersions.set(sid, approved[0] || versions[0]);
+        } else {
+          selectedVersions.set(sid, versions[0]);
+        }
+      }
+
+      // 2. Build scene map for LLM
+      const sceneMap = orderRows.map((o: any, idx: number) => {
+        const v = selectedVersions.get(o.scene_id);
+        return {
+          scene_number: idx + 1,
+          scene_id: o.scene_id,
+          order_key: o.order_key,
+          act: o.act,
+          slugline: v?.slugline || '',
+          summary: v?.summary || '',
+          content: (v?.content || '').slice(0, 800),
+          characters_present: v?.characters_present || [],
+          continuity_emitted: v?.continuity_facts_emitted || [],
+          continuity_required: v?.continuity_facts_required || [],
+          setup_emitted: v?.setup_payoff_emitted || [],
+          setup_required: v?.setup_payoff_required || [],
+        };
+      });
+
+      const assembledContent = orderRows
+        .map((o: any) => selectedVersions.get(o.scene_id)?.content || '')
+        .join('\n\n');
+
+      // 3. Create snapshot
+      const sceneOrder = orderRows.map((o: any) => ({
+        scene_id: o.scene_id,
+        version_id: selectedVersions.get(o.scene_id)?.id || null,
+        order_key: o.order_key, act: o.act, sequence: o.sequence,
+      }));
+      const { data: snapshot } = await supabase.from("scene_graph_snapshots").insert({
+        project_id: projectId, created_by: user.id,
+        label: snapshotLabel || `Spine Rebuild (${useMode})`,
+        assembly: { scene_order: sceneOrder, generated_at: new Date().toISOString(), mode: useMode },
+        content: assembledContent, status: 'draft',
+      }).select().single();
+
+      // 4. LLM: Build spine
+      const apiKey = Deno.env.get("LOVABLE_API_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || '';
+      const spineSystem = `You are a script analysis engine. Given a scene map of a screenplay, produce a Project Spine JSON.
+Output ONLY valid JSON with this structure:
+{
+  "logline": "one-sentence logline",
+  "central_question": "the dramatic question",
+  "act_turning_points": [{"act": 1, "scene_id": "uuid", "label": "inciting incident"}, ...],
+  "main_arcs": [{"character": "NAME", "arc_type": "transformation|fall|revelation|steadfast", "steps": ["step1","step2"]}, ...],
+  "open_threads": [{"thread": "description", "status": "open|resolved|dropped", "scenes": ["uuid1","uuid2"]}, ...],
+  "setups_payoffs": [{"setup": "what", "payoff": "what", "setup_scene_id": "uuid", "payoff_scene_id": "uuid", "status": "paired|orphan_setup|orphan_payoff"}, ...],
+  "tone": "overall tone",
+  "genre": "detected genre"
+}
+Use ONLY the scene_ids provided. Never invent IDs.`;
+
+      const spineUser = `SCENE MAP (${sceneMap.length} scenes):\n${JSON.stringify(sceneMap, null, 1).slice(0, 30000)}`;
+
+      let spineJson: any = {};
+      try {
+        const { callLLM, parseJsonSafe, MODELS } = await import("../_shared/llm.ts");
+        const result = await callLLM({
+          apiKey, model: MODELS.FAST, system: spineSystem, user: spineUser,
+          temperature: 0.2, maxTokens: 4000,
+        });
+        spineJson = await parseJsonSafe(result.content, apiKey);
+      } catch (e: any) {
+        console.error("Spine LLM failed, using empty spine:", e.message);
+        spineJson = { logline: '', central_question: '', act_turning_points: [], main_arcs: [], open_threads: [], setups_payoffs: [], tone: '', genre: '' };
+      }
+
+      // 5. Archive prior current spines, insert new
+      await supabase.from("project_spines")
+        .update({ status: 'archived' })
+        .eq("project_id", projectId).eq("status", "current");
+
+      const spineStats = {
+        scene_count: sceneMap.length,
+        arcs: (spineJson.main_arcs || []).length,
+        threads: (spineJson.open_threads || []).length,
+        setups_payoffs: (spineJson.setups_payoffs || []).length,
+        turning_points: (spineJson.act_turning_points || []).length,
+      };
+
+      const { data: newSpine } = await supabase.from("project_spines").insert({
+        project_id: projectId,
+        created_by: user.id,
+        mode: useMode,
+        source_snapshot_id: snapshot?.id || null,
+        status: 'current',
+        spine: spineJson,
+        stats: spineStats,
+      }).select().single();
+
+      // 6. Rebuild canon index
+      const canonStats = await rebuildCanonIndex(supabase, projectId, useMode, sceneMap, selectedVersions, orderRows, apiKey);
+
+      // 7. Rebuild scene spine links
+      await rebuildSceneSpineLinks(supabase, projectId, spineJson, orderRows, selectedVersions);
+
+      return new Response(JSON.stringify({
+        spineId: newSpine?.id,
+        spine: spineJson,
+        stats: spineStats,
+        canonStats,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    if (action === "spine_get_current") {
+      const { projectId } = body;
+      if (!projectId) throw new Error("projectId required");
+
+      const { data: spine } = await supabase.from("project_spines")
+        .select("*").eq("project_id", projectId).eq("status", "current")
+        .order("created_at", { ascending: false }).limit(1).single();
+
+      return new Response(JSON.stringify({ spine: spine || null }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "canon_list") {
+      const { projectId, filters } = body;
+      if (!projectId) throw new Error("projectId required");
+
+      let query = supabase.from("canon_facts").select("*").eq("project_id", projectId);
+      if (filters?.fact_type) query = query.eq("fact_type", filters.fact_type);
+      if (filters?.subject) query = query.ilike("subject", `%${filters.subject}%`);
+      if (filters?.is_active !== undefined) query = query.eq("is_active", filters.is_active);
+      const { data: facts } = await query.order("created_at", { ascending: false }).limit(200);
+
+      const { count } = await supabase.from("canon_overrides")
+        .select("id", { count: 'exact', head: true })
+        .eq("project_id", projectId).eq("status", "active");
+
+      return new Response(JSON.stringify({ facts: facts || [], overrides_count: count || 0 }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "canon_override_upsert") {
+      const { projectId, override } = body;
+      if (!projectId) throw new Error("projectId required");
+
+      // If disabling a fact
+      if (override?.disable_fact_id) {
+        await supabase.from("canon_facts")
+          .update({ is_active: false })
+          .eq("id", override.disable_fact_id).eq("project_id", projectId);
+      }
+
+      // Insert override record
+      await supabase.from("canon_overrides").insert({
+        project_id: projectId,
+        created_by: user.id,
+        status: 'active',
+        override,
+      });
+
+      // If adding/correcting a fact
+      if (override?.fact_type && override?.subject && override?.predicate && override?.object) {
+        await supabase.from("canon_facts").upsert({
+          project_id: projectId,
+          fact_type: override.fact_type,
+          subject: override.subject,
+          predicate: override.predicate,
+          object: override.object,
+          value: override.value || {},
+          confidence: 1.0,
+          sources: [{ scene_id: null, source: 'override' }],
+          is_active: true,
+        }, { onConflict: 'id' });
+      }
+
+      // Re-fetch facts
+      const { data: facts } = await supabase.from("canon_facts")
+        .select("*").eq("project_id", projectId).eq("is_active", true)
+        .order("created_at", { ascending: false }).limit(200);
+
+      const { data: currentSpine } = await supabase.from("project_spines")
+        .select("spine").eq("project_id", projectId).eq("status", "current")
+        .order("created_at", { ascending: false }).limit(1).single();
+
+      return new Response(JSON.stringify({
+        facts: facts || [],
+        spine_summary: currentSpine?.spine || {},
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    if (action === "narrative_repair_suggest") {
+      const { projectId, problem, mode: repairMode } = body;
+      if (!projectId || !problem?.type) throw new Error("projectId and problem.type required");
+      const useMode = repairMode || 'latest';
+
+      // Get spine + scenes
+      const { data: currentSpine } = await supabase.from("project_spines")
+        .select("spine").eq("project_id", projectId).eq("status", "current")
+        .order("created_at", { ascending: false }).limit(1).single();
+
+      const { data: orderRows } = await supabase.from("scene_graph_order")
+        .select("scene_id, order_key, act, sequence")
+        .eq("project_id", projectId).eq("is_active", true)
+        .order("order_key", { ascending: true });
+      if (!orderRows || orderRows.length === 0) throw new Error("No active scenes");
+
+      const sceneIds = orderRows.map((r: any) => r.scene_id);
+      const { data: versions } = await supabase.from("scene_graph_versions")
+        .select("scene_id, slugline, summary, content").in("scene_id", sceneIds)
+        .order("version_number", { ascending: false });
+
+      const latestMap = new Map<string, any>();
+      for (const v of (versions || [])) {
+        if (!latestMap.has(v.scene_id)) latestMap.set(v.scene_id, v);
+      }
+
+      const sceneMapCompact = orderRows.map((o: any, i: number) => {
+        const v = latestMap.get(o.scene_id);
+        return { n: i + 1, id: o.scene_id, slug: v?.slugline || '', summary: v?.summary || '', act: o.act };
+      });
+
+      const { data: canonFacts } = await supabase.from("canon_facts")
+        .select("fact_type, subject, predicate, object, confidence")
+        .eq("project_id", projectId).eq("is_active", true).limit(100);
+
+      const apiKey = Deno.env.get("LOVABLE_API_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || '';
+
+      const repairSystem = `You are a script repair advisor. Given a problem, a project spine, a scene map, and canon facts, suggest 3-6 repair OPTIONS.
+Each option MUST be one of: insert_new_scene, rewrite_scene, move_scene, split_scene, merge_scenes.
+Output ONLY valid JSON array:
+[{
+  "id": "opt_1",
+  "action_type": "insert_new_scene|rewrite_scene|move_scene|split_scene|merge_scenes",
+  "summary": "brief description",
+  "rationale": "why this helps",
+  "risk": "what could go wrong",
+  "predicted_impact": {"warnings": []},
+  "cascading_effects": ["other things that may need updating"],
+  "payload": { ... action-specific data using real scene_ids ... }
+}]
+For insert_new_scene payload: { position: {afterSceneId?, beforeSceneId?}, sceneDraft: {slugline, content, summary} }
+For rewrite_scene payload: { sceneId, patch: {content?, slugline?, summary?} }
+For move_scene payload: { sceneId, position: {afterSceneId?, beforeSceneId?} }
+For split_scene payload: { sceneId, drafts: {partA, partB} }
+For merge_scenes payload: { sceneIds: [id1, id2], mergedDraft: {content, slugline} }
+ONLY use scene_ids from the provided scene map. Never invent IDs.`;
+
+      const repairUser = `PROBLEM: ${problem.type}${problem.notes ? ' — ' + problem.notes : ''}${problem.targetSceneId ? ' (target scene: ' + problem.targetSceneId + ')' : ''}
+
+SPINE: ${JSON.stringify(currentSpine?.spine || {}).slice(0, 4000)}
+
+SCENE MAP: ${JSON.stringify(sceneMapCompact).slice(0, 12000)}
+
+CANON FACTS: ${JSON.stringify(canonFacts || []).slice(0, 4000)}`;
+
+      let options: any[] = [];
+      try {
+        const { callLLM, parseJsonSafe, MODELS } = await import("../_shared/llm.ts");
+        const result = await callLLM({
+          apiKey, model: MODELS.FAST, system: repairSystem, user: repairUser,
+          temperature: 0.4, maxTokens: 6000,
+        });
+        options = await parseJsonSafe(result.content, apiKey);
+        if (!Array.isArray(options)) options = [options];
+      } catch (e: any) {
+        console.error("Repair LLM failed:", e.message);
+        options = [];
+      }
+
+      return new Response(JSON.stringify({ options }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "narrative_repair_queue_option") {
+      const { projectId, option } = body;
+      if (!projectId || !option) throw new Error("projectId and option required");
+
+      const repairKindMap: Record<string, string> = {
+        insert_new_scene: 'new_scene_insert',
+        rewrite_scene: 'continuity_fix',
+        move_scene: 'pacing_fix',
+        split_scene: 'pacing_fix',
+        merge_scenes: 'pacing_fix',
+      };
+
+      const queueItems: any[] = [];
+
+      if (option.action_type === 'rewrite_scene' && option.payload?.sceneId) {
+        const { data: item } = await supabase.from("scene_graph_patch_queue").insert({
+          project_id: projectId,
+          created_by: user.id,
+          status: 'open',
+          target_scene_id: option.payload.sceneId,
+          suggestion: option.summary,
+          rationale: option.rationale,
+          patch: option.payload.patch || {},
+          repair_kind: repairKindMap[option.action_type] || 'continuity_fix',
+          impact_preview: option.predicted_impact || {},
+        }).select().single();
+        if (item) queueItems.push(item);
+      } else {
+        // For insert/move/split/merge — store as planned action
+        const { data: item } = await supabase.from("scene_graph_patch_queue").insert({
+          project_id: projectId,
+          created_by: user.id,
+          status: 'open',
+          suggestion: option.summary,
+          rationale: option.rationale,
+          patch: { action: `scene_graph_${option.action_type === 'insert_new_scene' ? 'insert_scene' : option.action_type}`, payload: option.payload },
+          repair_kind: repairKindMap[option.action_type] || 'continuity_fix',
+          impact_preview: option.predicted_impact || {},
+        }).select().single();
+        if (item) queueItems.push(item);
+      }
+
+      return new Response(JSON.stringify({ queued_items: queueItems }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     throw new Error(`Unknown action: ${action}`);
   } catch (err: any) {
     console.error("dev-engine-v2 error:", err);

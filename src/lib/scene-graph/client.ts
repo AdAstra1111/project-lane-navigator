@@ -27,6 +27,16 @@ import type {
   ScriptSnapshot,
   SceneGraphAction,
   PatchQueueItem,
+  // Phase 3
+  SpineRebuildInput,
+  SpineGetCurrentInput,
+  CanonListInput,
+  CanonOverrideUpsertInput,
+  NarrativeRepairSuggestInput,
+  NarrativeRepairQueueOptionInput,
+  ProjectSpine,
+  CanonFact,
+  NarrativeRepairOption,
 } from './types';
 
 async function callSceneGraph<T = any>(action: string, payload: Record<string, any>): Promise<T> {
@@ -139,4 +149,30 @@ export async function sceneGraphRebalance(input: SceneGraphRebalanceInput) {
 
 export async function sceneGraphListActions(projectId: string) {
   return callSceneGraph<{ actions: SceneGraphAction[] }>('scene_graph_list_actions', { projectId });
+}
+
+// Phase 3 actions
+
+export async function spineRebuild(input: SpineRebuildInput) {
+  return callSceneGraph<{ spineId: string; spine: any; stats: any; canonStats: any }>('spine_rebuild', input);
+}
+
+export async function spineGetCurrent(input: SpineGetCurrentInput) {
+  return callSceneGraph<{ spine: ProjectSpine | null }>('spine_get_current', input);
+}
+
+export async function canonList(input: CanonListInput) {
+  return callSceneGraph<{ facts: CanonFact[]; overrides_count: number }>('canon_list', input);
+}
+
+export async function canonOverrideUpsert(input: CanonOverrideUpsertInput) {
+  return callSceneGraph<{ facts: CanonFact[]; spine_summary: any }>('canon_override_upsert', input);
+}
+
+export async function narrativeRepairSuggest(input: NarrativeRepairSuggestInput) {
+  return callSceneGraph<{ options: NarrativeRepairOption[] }>('narrative_repair_suggest', input);
+}
+
+export async function narrativeRepairQueueOption(input: NarrativeRepairQueueOptionInput) {
+  return callSceneGraph<{ queued_items: PatchQueueItem[] }>('narrative_repair_queue_option', input);
 }
