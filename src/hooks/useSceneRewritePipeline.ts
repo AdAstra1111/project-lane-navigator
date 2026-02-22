@@ -161,6 +161,24 @@ function clearRunId(projectId: string, sourceVersionId: string) {
   try { sessionStorage.removeItem(makeRunIdKey(projectId, sourceVersionId)); } catch {}
 }
 
+// ── DB fallback: fetch latest active run when local refs are empty ──
+async function fetchLatestRunId(projectId: string, sourceVersionId: string): Promise<string | null> {
+  try {
+    const { data } = await supabase
+      .from('rewrite_runs')
+      .select('id')
+      .eq('project_id', projectId)
+      .eq('source_version_id', sourceVersionId)
+      .in('status', ['queued', 'running'])
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    return data?.id || null;
+  } catch {
+    return null;
+  }
+}
+
 export function useSceneRewritePipeline(projectId: string | undefined) {
   const qc = useQueryClient();
   const [state, setState] = useState<SceneRewriteState>(initialState);
@@ -251,6 +269,15 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
       currentRunId = loadRunId(projectId, sourceVersionId);
       if (currentRunId) {
         runIdRef.current = currentRunId;
+        setState(s => ({ ...s, runId: currentRunId }));
+      }
+    }
+    if (!currentRunId) {
+      // DB fallback
+      currentRunId = await fetchLatestRunId(projectId, sourceVersionId);
+      if (currentRunId) {
+        runIdRef.current = currentRunId;
+        saveRunId(projectId, sourceVersionId, currentRunId);
         setState(s => ({ ...s, runId: currentRunId }));
       }
     }
@@ -350,6 +377,16 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
       if (currentRunId) {
         runIdRef.current = currentRunId;
         setState(s => ({ ...s, runId: currentRunId }));
+      }
+    }
+    if (!currentRunId) {
+      // DB fallback: fetch latest active run
+      currentRunId = await fetchLatestRunId(projectId, sourceVersionId);
+      if (currentRunId) {
+        runIdRef.current = currentRunId;
+        saveRunId(projectId, sourceVersionId, currentRunId);
+        setState(s => ({ ...s, runId: currentRunId }));
+        pushActivity('info', `Recovered runId from database: ${currentRunId.slice(0, 8)}`);
       }
     }
     if (!currentRunId) {
@@ -563,7 +600,15 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
       ? `Assembling (selective: ${state.scopePlan.target_scene_numbers.length} rewritten scenes)…`
       : 'Assembling final script…');
     try {
-      const currentRunId = runIdRef.current;
+      let currentRunId = runIdRef.current;
+      if (!currentRunId && projectId) {
+        currentRunId = loadRunId(projectId, sourceVersionId);
+        if (!currentRunId) currentRunId = await fetchLatestRunId(projectId, sourceVersionId);
+        if (currentRunId) {
+          runIdRef.current = currentRunId;
+          pushActivity('info', `Recovered runId for assembly: ${currentRunId.slice(0, 8)}`);
+        }
+      }
       if (!currentRunId) throw new Error('Missing runId — please enqueue again.');
       const result = await callEngine('assemble_rewritten_script', {
         projectId, sourceDocId, sourceVersionId,
