@@ -111,7 +111,7 @@ export function VisualProductionPanel({ projectId, scenes, selectedSceneId, onSe
       <div className="col-span-3">
         <ProductionDashboard
           breakdown={vp.breakdown}
-          onCompute={() => vp.computeBreakdown.mutateAsync()}
+          onCompute={() => vp.computeBreakdown.mutateAsync({})}
           isComputing={vp.computeBreakdown.isPending}
           isLoading={vp.isLoadingBreakdown}
         />
