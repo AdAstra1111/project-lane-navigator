@@ -460,3 +460,170 @@ export interface CoherenceCloseFindingInput {
   findingId: string;
   resolution?: { note: string; actionTaken?: string };
 }
+
+// ── Phase 5 Types ──
+
+export interface ShotSet {
+  id: string;
+  project_id: string;
+  scene_id: string;
+  scene_version_id: string;
+  created_at: string;
+  created_by: string | null;
+  mode: string;
+  aspect_ratio: string;
+  status: 'draft' | 'approved' | 'stale' | 'needs_review';
+  notes: string | null;
+  provenance: Record<string, any>;
+}
+
+export interface SceneShot {
+  id: string;
+  project_id: string;
+  shot_set_id: string;
+  scene_id: string;
+  scene_version_id: string;
+  order_key: string;
+  shot_number: number | null;
+  shot_type: string;
+  coverage_role: string | null;
+  framing: string | null;
+  lens_mm: number | null;
+  camera_support: string | null;
+  camera_movement: string | null;
+  angle: string | null;
+  composition_notes: string | null;
+  blocking_notes: string | null;
+  emotional_intent: string | null;
+  narrative_function: string | null;
+  characters_in_frame: string[];
+  props_required: string[];
+  sfx_vfx_flags: Record<string, boolean>;
+  est_duration_seconds: number | null;
+  est_setup_complexity: number | null;
+  lighting_style: string | null;
+  location_hint: string | null;
+  time_of_day_hint: string | null;
+  status: 'draft' | 'approved' | 'stale' | 'needs_review';
+  created_at: string;
+}
+
+export interface ShotVersion {
+  id: string;
+  project_id: string;
+  shot_id: string;
+  version_number: number;
+  created_at: string;
+  created_by: string | null;
+  status: 'draft' | 'proposed' | 'approved' | 'superseded';
+  supersedes_version_id: string | null;
+  superseded_at: string | null;
+  data: Record<string, any>;
+}
+
+export interface StoryboardFrame {
+  id: string;
+  project_id: string;
+  scene_id: string;
+  scene_version_id: string;
+  shot_id: string;
+  shot_version_id: string | null;
+  frame_index: number;
+  aspect_ratio: string;
+  prompt: string;
+  style_preset: string;
+  image_url: string | null;
+  thumb_url: string | null;
+  notes: string | null;
+  status: 'draft' | 'approved' | 'stale' | 'needs_review';
+  is_stale: boolean;
+  created_at: string;
+}
+
+export interface ProductionBreakdown {
+  id: string;
+  project_id: string;
+  created_at: string;
+  created_by: string | null;
+  mode: string;
+  source_snapshot_id: string | null;
+  per_scene: Array<{
+    scene_id: string;
+    order_key: string;
+    est_setup_count: number;
+    est_time: number;
+    complexity: number;
+    cast: string[];
+    locations: string[];
+    day_night: string;
+    flags: Record<string, boolean>;
+  }>;
+  totals: Record<string, any>;
+  suggestions: Array<{
+    type: string;
+    rationale: string;
+    payload: Record<string, any>;
+  }>;
+}
+
+// Phase 5 inputs
+export interface ShotsGenerateInput {
+  projectId: string;
+  sceneId: string;
+  mode?: 'coverage' | 'cinematic' | 'efficiency';
+  aspectRatio?: string;
+  preferApprovedScene?: boolean;
+}
+
+export interface ShotsListInput {
+  projectId: string;
+  sceneId: string;
+  sceneVersionId?: string;
+  mode?: string;
+}
+
+export interface ShotsUpdateInput {
+  projectId: string;
+  shotId: string;
+  patch: Record<string, any>;
+  propose?: boolean;
+}
+
+export interface ShotsApproveVersionInput {
+  projectId: string;
+  shotVersionId: string;
+}
+
+export interface ShotsApproveShotSetInput {
+  projectId: string;
+  shotSetId: string;
+}
+
+export interface StoryboardGenerateInput {
+  projectId: string;
+  shotId: string;
+  shotVersionId?: string;
+  frameCount?: number;
+  stylePreset?: string;
+  aspectRatio?: string;
+}
+
+export interface StoryboardListInput {
+  projectId: string;
+  sceneId: string;
+  sceneVersionId?: string;
+}
+
+export interface StoryboardApproveFrameInput {
+  projectId: string;
+  frameId: string;
+}
+
+export interface ProductionBreakdownInput {
+  projectId: string;
+  mode?: 'latest' | 'approved_prefer';
+}
+
+export interface ProductionGetLatestInput {
+  projectId: string;
+}
