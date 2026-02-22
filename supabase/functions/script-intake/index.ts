@@ -80,8 +80,8 @@ async function ingestPdf(
   const bytes = new Uint8Array(arrayBuffer);
 
   // Use Deno's native base64 encoding to avoid call stack overflow on large files
-  const { encode: b64encode } = await import("https://deno.land/std@0.224.0/encoding/base64.ts");
-  const base64Pdf = b64encode(bytes);
+  const { encodeBase64 } = await import("https://deno.land/std@0.224.0/encoding/base64.ts");
+  const base64Pdf = encodeBase64(bytes);
 
   const extractionResult = await callLLM(
     [
