@@ -32,7 +32,7 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    // Find the latest "current" script
+    // Find the latest "current" script from project_scripts
     const { data: scripts } = await adminClient
       .from("project_scripts")
       .select("file_path")
@@ -67,13 +67,13 @@ serve(async (req) => {
       extractedText = fallbackDocs?.[0]?.extracted_text || "";
     }
 
-    // Fallback: check project_document_versions (dev-engine generated scripts)
+    // Fallback: check project_document_versions for script/script_pdf docs
     if (!extractedText) {
       const { data: scriptDoc } = await adminClient
         .from("project_documents")
         .select("id")
         .eq("project_id", projectId)
-        .eq("doc_type", "script")
+        .in("doc_type", ["script", "script_pdf", "screenplay"])
         .order("created_at", { ascending: false })
         .limit(1);
 
@@ -88,7 +88,7 @@ serve(async (req) => {
       }
     }
 
-    // Final fallback: any document version with substantial plaintext
+    // Fallback: any document version with substantial plaintext
     if (!extractedText) {
       const { data: allDocs } = await adminClient
         .from("project_documents")
@@ -112,26 +112,45 @@ serve(async (req) => {
       }
     }
 
-    // Fallback: download PDF
+    // Fallback: download PDF from storage — try both buckets
     let pdfBase64: string | null = null;
-    if (!extractedText && scriptFilePath) {
-      const { data: fileData, error: downloadError } = await adminClient.storage
-        .from("project-documents")
-        .download(scriptFilePath);
+    if (!extractedText) {
+      // Find any script_pdf document with a storage_path or file_path
+      const { data: pdfDocs } = await adminClient
+        .from("project_documents")
+        .select("file_path, storage_path")
+        .eq("project_id", projectId)
+        .in("doc_type", ["script_pdf", "script", "screenplay"])
+        .order("created_at", { ascending: false })
+        .limit(1);
 
-      if (!downloadError && fileData) {
-        const arrayBuffer = await fileData.arrayBuffer();
-        const bytes = new Uint8Array(arrayBuffer);
-        let binary = "";
-        for (let i = 0; i < bytes.length; i++) {
-          binary += String.fromCharCode(bytes[i]);
+      const pdfPath = pdfDocs?.[0]?.storage_path || pdfDocs?.[0]?.file_path || scriptFilePath;
+
+      if (pdfPath) {
+        // Try 'scripts' bucket first (used by script-intake upload), then 'project-documents'
+        for (const bucket of ["scripts", "project-documents"]) {
+          const { data: fileData, error: downloadError } = await adminClient.storage
+            .from(bucket)
+            .download(pdfPath);
+
+          if (!downloadError && fileData) {
+            const arrayBuffer = await fileData.arrayBuffer();
+            const bytes = new Uint8Array(arrayBuffer);
+            let binary = "";
+            for (let i = 0; i < bytes.length; i++) {
+              binary += String.fromCharCode(bytes[i]);
+            }
+            pdfBase64 = btoa(binary);
+            console.log(`Downloaded PDF from ${bucket}/${pdfPath}`);
+            break;
+          }
         }
-        pdfBase64 = btoa(binary);
       }
     }
 
     if (!extractedText && !pdfBase64) {
-      return new Response(JSON.stringify({ scenes: [] }), {
+      console.log("No script text or PDF found for project", projectId);
+      return new Response(JSON.stringify({ scenes: [], error: "No script text found. Please upload a script PDF via Script Intake first." }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -254,7 +273,6 @@ IMPORTANT PAGE COUNT RULES:
     }
 
     // --- Deterministic page count override ---
-    // Split the full script text at sluglines and count words per scene
     if (extractedText && scenes.length > 0) {
       const sluglinePattern = /^(INT\.|EXT\.|INT\/EXT\.|I\/E\.)/m;
       const lines = extractedText.split("\n");
@@ -270,20 +288,17 @@ IMPORTANT PAGE COUNT RULES:
       }
       if (currentChunk.trim()) sceneChunks.push(currentChunk);
 
-      // If chunk count roughly matches scene count, assign word-based page counts
       if (sceneChunks.length > 0) {
         const totalWords = extractedText.split(/\s+/).filter(Boolean).length;
-        const totalPages = Math.ceil(totalWords / 180); // screenplay format: ~180 words/page
+        const totalPages = Math.ceil(totalWords / 180);
 
         if (Math.abs(sceneChunks.length - scenes.length) <= 3) {
-          // Direct mapping
           for (let i = 0; i < scenes.length; i++) {
             const chunk = sceneChunks[Math.min(i, sceneChunks.length - 1)];
             const wordCount = chunk.split(/\s+/).filter(Boolean).length;
-            scenes[i].page_count = Math.round((wordCount / 180) * 8) / 8; // eighth-page precision, screenplay rate
+            scenes[i].page_count = Math.round((wordCount / 180) * 8) / 8;
           }
         } else {
-          // Distribute proportionally based on AI ratios but scaled to real total
           const aiTotal = scenes.reduce((sum: number, s: any) => sum + (s.page_count || 1), 0);
           for (const scene of scenes) {
             const ratio = (scene.page_count || 1) / aiTotal;
@@ -296,7 +311,6 @@ IMPORTANT PAGE COUNT RULES:
 
     // Save scenes to DB
     if (scenes.length > 0) {
-      // Delete existing scenes for this project first (fresh extraction)
       await adminClient.from("project_scenes").delete().eq("project_id", projectId);
 
       const rows = scenes.map((s: any) => ({
