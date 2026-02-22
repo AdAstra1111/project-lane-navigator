@@ -457,15 +457,29 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
 
         // Update local state optimistically
         setState(s => {
-          const updatedScenes = s.scenes.map(sc =>
-            sc.scene_number === result.scene_number
-              ? { ...sc, status: result.status, error: result.error || null }
-              : sc
-          );
+          // If scenes array is empty (enqueue didn't populate it), build from result
+          let updatedScenes = s.scenes;
+          const existingScene = updatedScenes.find(sc => sc.scene_number === result.scene_number);
+          if (existingScene) {
+            updatedScenes = updatedScenes.map(sc =>
+              sc.scene_number === result.scene_number
+                ? { ...sc, status: result.status, error: result.error || null }
+                : sc
+            );
+          } else {
+            // Scene wasn't in our local array — add it
+            updatedScenes = [...updatedScenes, {
+              scene_number: result.scene_number,
+              status: result.status,
+              attempts: 1,
+              error: result.error || null,
+            }];
+          }
           const newDone = updatedScenes.filter(sc => sc.status === 'done').length;
           const newFailed = updatedScenes.filter(sc => sc.status === 'failed').length;
-          const newQueued = updatedScenes.filter(sc => sc.status === 'queued').length;
-          const newRunning = updatedScenes.filter(sc => sc.status === 'running').length;
+          // Use total from state (set by enqueue) rather than scenes array length
+          const newQueued = Math.max(0, s.total - newDone - newFailed - (result.status === 'running' ? 1 : 0));
+          const newRunning = result.status === 'running' ? 1 : 0;
           const actualPct = s.total > 0 ? (newDone / s.total) * 100 : 0;
           const avg = rollingAvg(durationsRef.current);
           const remaining = s.total - newDone - newFailed;
