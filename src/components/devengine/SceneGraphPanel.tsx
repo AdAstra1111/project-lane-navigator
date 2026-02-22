@@ -14,13 +14,14 @@ import {
   Check, FileText, AlertTriangle, ChevronRight, GripVertical,
   Camera, Download, RotateCw, Undo2, Archive, RefreshCw,
   CheckCircle, XCircle, Play, History, BarChart3, ShieldCheck,
-  Activity, Eye, EyeOff,
+  Activity, Eye, EyeOff, Shield,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Clapperboard, GitBranch } from 'lucide-react';
 import type { SceneListItem, ImpactWarning, PatchQueueItem, InactiveSceneItem, SceneGraphAction, StoryMetricsRun, CoherenceFinding } from '@/lib/scene-graph/types';
 import { VisualProductionPanel } from './VisualProductionPanel';
 import { ChangeSetsPanel } from './ChangeSetsPanel';
+import { QCPanel } from './QCPanel';
 
 interface SceneGraphPanelProps {
   projectId: string;
@@ -177,6 +178,9 @@ export function SceneGraphPanel({ projectId, documents }: SceneGraphPanelProps) 
           <TabsTrigger value="changesets" className="text-xs gap-1">
             <GitBranch className="h-3 w-3" /> Change Sets
           </TabsTrigger>
+          <TabsTrigger value="qc" className="text-xs gap-1">
+            <Shield className="h-3 w-3" /> QC
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="visual" className="mt-3">
@@ -193,6 +197,14 @@ export function SceneGraphPanel({ projectId, documents }: SceneGraphPanelProps) 
             projectId={projectId}
             scenes={sg.scenes}
             onSelectScene={(id) => { setTopTab('scenes'); selectScene(id); }}
+          />
+        </TabsContent>
+
+        <TabsContent value="qc" className="mt-3">
+          <QCPanel
+            projectId={projectId}
+            onSelectScene={(id) => { setTopTab('scenes'); selectScene(id); }}
+            onNavigateToChangeSet={() => setTopTab('changesets')}
           />
         </TabsContent>
 
