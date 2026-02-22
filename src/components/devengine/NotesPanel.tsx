@@ -1128,6 +1128,10 @@ export function NotesPanel({
         onDeferred={onDismissDeferred ? (noteId) => {
           onDismissDeferred(noteId);
         } : undefined}
+        onOpenWritersRoom={(note) => {
+          setWritersRoomNote(note.note_data || note);
+          setWritersRoomOpen(true);
+        }}
       />
 
       {/* Writers' Room Drawer */}

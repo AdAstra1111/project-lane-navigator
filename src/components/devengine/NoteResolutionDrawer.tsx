@@ -12,7 +12,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import {
-  Loader2, Check, X, Wand2, Shield, AlertTriangle, Clock, ExternalLink,
+  Loader2, Check, X, Wand2, Shield, AlertTriangle, Clock, ExternalLink, Sparkles,
 } from 'lucide-react';
 
 export interface FixOption {
@@ -49,10 +49,11 @@ interface NoteResolutionDrawerProps {
   onApplied?: (result: { new_version_id: string; new_version_number: number; approved: boolean }) => void;
   onResolved?: (noteId: string) => void;
   onDeferred?: (noteId: string) => void;
+  onOpenWritersRoom?: (note: NoteForResolution) => void;
 }
 
 export function NoteResolutionDrawer({
-  open, onOpenChange, note, projectId, currentVersionId, onApplied, onResolved, onDeferred,
+  open, onOpenChange, note, projectId, currentVersionId, onApplied, onResolved, onDeferred, onOpenWritersRoom,
 }: NoteResolutionDrawerProps) {
   const [fixOptions, setFixOptions] = useState<FixOption[]>([]);
   const [recommendedId, setRecommendedId] = useState<string | null>(null);
@@ -314,6 +315,11 @@ export function NoteResolutionDrawer({
 
         <DialogFooter className="gap-2 pt-2 border-t border-border/30 flex-wrap shrink-0">
           <div className="flex items-center gap-1.5 mr-auto">
+            {onOpenWritersRoom && note && (
+              <Button variant="outline" size="sm" className="h-7 text-xs gap-1 border-accent/30 text-accent-foreground hover:bg-accent/10" onClick={() => { onOpenWritersRoom(note); onOpenChange(false); }}>
+                <Sparkles className="h-3 w-3" />Writers' Room
+              </Button>
+            )}
             <Button variant="ghost" size="sm" className="h-7 text-xs gap-1 text-muted-foreground" onClick={handleMarkResolved}>
               <Check className="h-3 w-3" />Mark Resolved
             </Button>
