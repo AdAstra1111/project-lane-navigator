@@ -10821,6 +10821,51 @@ export type Database = {
           },
         ]
       }
+      scene_graph_actions: {
+        Row: {
+          action_type: string
+          actor_id: string | null
+          created_at: string
+          id: string
+          inverse: Json
+          payload: Json
+          project_id: string
+        }
+        Insert: {
+          action_type: string
+          actor_id?: string | null
+          created_at?: string
+          id?: string
+          inverse?: Json
+          payload?: Json
+          project_id: string
+        }
+        Update: {
+          action_type?: string
+          actor_id?: string | null
+          created_at?: string
+          id?: string
+          inverse?: Json
+          payload?: Json
+          project_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scene_graph_actions_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "scene_graph_actions_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       scene_graph_order: {
         Row: {
           act: number | null
@@ -10878,6 +10923,84 @@ export type Database = {
             columns: ["scene_id"]
             isOneToOne: false
             referencedRelation: "scene_graph_scenes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      scene_graph_patch_queue: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          patch: Json
+          project_id: string
+          rationale: string | null
+          source_action_id: string | null
+          status: string
+          suggestion: string
+          target_scene_id: string | null
+          target_scene_version_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          patch?: Json
+          project_id: string
+          rationale?: string | null
+          source_action_id?: string | null
+          status?: string
+          suggestion?: string
+          target_scene_id?: string | null
+          target_scene_version_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          patch?: Json
+          project_id?: string
+          rationale?: string | null
+          source_action_id?: string | null
+          status?: string
+          suggestion?: string
+          target_scene_id?: string | null
+          target_scene_version_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scene_graph_patch_queue_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "scene_graph_patch_queue_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scene_graph_patch_queue_source_action_id_fkey"
+            columns: ["source_action_id"]
+            isOneToOne: false
+            referencedRelation: "scene_graph_actions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scene_graph_patch_queue_target_scene_id_fkey"
+            columns: ["target_scene_id"]
+            isOneToOne: false
+            referencedRelation: "scene_graph_scenes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scene_graph_patch_queue_target_scene_version_id_fkey"
+            columns: ["target_scene_version_id"]
+            isOneToOne: false
+            referencedRelation: "scene_graph_versions"
             referencedColumns: ["id"]
           },
         ]
@@ -10995,6 +11118,8 @@ export type Database = {
           slugline: string | null
           status: string
           summary: string | null
+          superseded_at: string | null
+          supersedes_version_id: string | null
           time_of_day: string | null
           version_number: number
         }
@@ -11017,6 +11142,8 @@ export type Database = {
           slugline?: string | null
           status?: string
           summary?: string | null
+          superseded_at?: string | null
+          supersedes_version_id?: string | null
           time_of_day?: string | null
           version_number?: number
         }
@@ -11039,6 +11166,8 @@ export type Database = {
           slugline?: string | null
           status?: string
           summary?: string | null
+          superseded_at?: string | null
+          supersedes_version_id?: string | null
           time_of_day?: string | null
           version_number?: number
         }
@@ -13652,6 +13781,16 @@ export type Database = {
           _user_id: string
         }
         Returns: boolean
+      }
+      next_scene_version: {
+        Args: {
+          p_created_by?: string
+          p_patch?: Json
+          p_project_id: string
+          p_propose?: boolean
+          p_scene_id: string
+        }
+        Returns: Json
       }
       search_corpus_chunks: {
         Args: { match_count?: number; p_user_id?: string; search_query: string }

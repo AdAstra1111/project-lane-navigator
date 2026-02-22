@@ -13,21 +13,37 @@ import {
   sceneGraphUpdate,
   sceneGraphApproveVersion,
   sceneGraphRebuildSnapshot,
+  sceneGraphListInactive,
+  sceneGraphRestore,
+  sceneGraphUndo,
+  sceneGraphListPatchQueue,
+  sceneGraphAcceptPatch,
+  sceneGraphRejectPatch,
+  sceneGraphApplyPatch,
+  sceneGraphRebalance,
+  sceneGraphListActions,
 } from '@/lib/scene-graph/client';
 import type {
   SceneListItem,
   ImpactReport,
   ProjectSceneState,
+  PatchQueueItem,
+  SceneGraphAction,
+  InactiveSceneItem,
 } from '@/lib/scene-graph/types';
 
 export function useSceneGraph(projectId: string | undefined) {
   const qc = useQueryClient();
   const [selectedSceneId, setSelectedSceneId] = useState<string | null>(null);
   const [lastImpact, setLastImpact] = useState<ImpactReport | null>(null);
+  const [lastActionId, setLastActionId] = useState<string | null>(null);
 
   const invalidate = useCallback(() => {
     qc.invalidateQueries({ queryKey: ['scene-graph', projectId] });
     qc.invalidateQueries({ queryKey: ['scene-graph-state', projectId] });
+    qc.invalidateQueries({ queryKey: ['scene-graph-inactive', projectId] });
+    qc.invalidateQueries({ queryKey: ['scene-graph-patches', projectId] });
+    qc.invalidateQueries({ queryKey: ['scene-graph-actions-list', projectId] });
   }, [qc, projectId]);
 
   // Check if project has scenes
@@ -45,7 +61,7 @@ export function useSceneGraph(projectId: string | undefined) {
     enabled: !!projectId,
   });
 
-  // List scenes
+  // List active scenes
   const scenesQuery = useQuery({
     queryKey: ['scene-graph', projectId],
     queryFn: async () => {
@@ -55,6 +71,45 @@ export function useSceneGraph(projectId: string | undefined) {
     },
     enabled: !!projectId && (stateQuery.data?.has_scenes ?? false),
   });
+
+  // List inactive scenes
+  const inactiveQuery = useQuery({
+    queryKey: ['scene-graph-inactive', projectId],
+    queryFn: async () => {
+      if (!projectId) return [];
+      const result = await sceneGraphListInactive({ projectId });
+      return result.scenes || [];
+    },
+    enabled: !!projectId && (stateQuery.data?.has_scenes ?? false),
+  });
+
+  // List patch queue
+  const patchQueueQuery = useQuery({
+    queryKey: ['scene-graph-patches', projectId],
+    queryFn: async () => {
+      if (!projectId) return [];
+      const result = await sceneGraphListPatchQueue({ projectId });
+      return result.patches || [];
+    },
+    enabled: !!projectId && (stateQuery.data?.has_scenes ?? false),
+  });
+
+  // List recent actions
+  const actionsQuery = useQuery({
+    queryKey: ['scene-graph-actions-list', projectId],
+    queryFn: async () => {
+      if (!projectId) return [];
+      const result = await sceneGraphListActions(projectId);
+      return result.actions || [];
+    },
+    enabled: !!projectId && (stateQuery.data?.has_scenes ?? false),
+  });
+
+  const handleActionResult = (data: any) => {
+    if (data.impact) setLastImpact(data.impact);
+    if (data.action_id) setLastActionId(data.action_id);
+    invalidate();
+  };
 
   // Extract scenes from existing script
   const extractMutation = useMutation({
@@ -68,10 +123,7 @@ export function useSceneGraph(projectId: string | undefined) {
         text: params.text,
       });
     },
-    onSuccess: () => {
-      invalidate();
-      toast.success('Scenes extracted successfully');
-    },
+    onSuccess: () => { invalidate(); toast.success('Scenes extracted successfully'); },
     onError: (e: Error) => toast.error(`Extract failed: ${e.message}`),
   });
 
@@ -85,11 +137,7 @@ export function useSceneGraph(projectId: string | undefined) {
       if (!projectId) throw new Error('No project');
       return sceneGraphInsert({ projectId, ...params });
     },
-    onSuccess: (data) => {
-      invalidate();
-      setLastImpact(data.impact);
-      toast.success('Scene inserted');
-    },
+    onSuccess: (data) => { handleActionResult(data); toast.success('Scene inserted'); },
     onError: (e: Error) => toast.error(`Insert failed: ${e.message}`),
   });
 
@@ -99,11 +147,7 @@ export function useSceneGraph(projectId: string | undefined) {
       if (!projectId) throw new Error('No project');
       return sceneGraphRemove({ projectId, sceneId });
     },
-    onSuccess: (data) => {
-      invalidate();
-      setLastImpact(data.impact);
-      toast.success('Scene removed');
-    },
+    onSuccess: (data) => { handleActionResult(data); toast.success('Scene removed'); },
     onError: (e: Error) => toast.error(`Remove failed: ${e.message}`),
   });
 
@@ -113,10 +157,7 @@ export function useSceneGraph(projectId: string | undefined) {
       if (!projectId) throw new Error('No project');
       return sceneGraphMove({ projectId, ...params });
     },
-    onSuccess: (data) => {
-      invalidate();
-      setLastImpact(data.impact);
-    },
+    onSuccess: (data) => handleActionResult(data),
     onError: (e: Error) => toast.error(`Move failed: ${e.message}`),
   });
 
@@ -126,11 +167,7 @@ export function useSceneGraph(projectId: string | undefined) {
       if (!projectId) throw new Error('No project');
       return sceneGraphSplit({ projectId, ...params });
     },
-    onSuccess: (data) => {
-      invalidate();
-      setLastImpact(data.impact);
-      toast.success('Scene split');
-    },
+    onSuccess: (data) => { handleActionResult(data); toast.success('Scene split'); },
     onError: (e: Error) => toast.error(`Split failed: ${e.message}`),
   });
 
@@ -140,15 +177,11 @@ export function useSceneGraph(projectId: string | undefined) {
       if (!projectId) throw new Error('No project');
       return sceneGraphMerge({ projectId, ...params });
     },
-    onSuccess: (data) => {
-      invalidate();
-      setLastImpact(data.impact);
-      toast.success('Scenes merged');
-    },
+    onSuccess: (data) => { handleActionResult(data); toast.success('Scenes merged'); },
     onError: (e: Error) => toast.error(`Merge failed: ${e.message}`),
   });
 
-  // Update scene
+  // Update scene (concurrency-safe)
   const updateMutation = useMutation({
     mutationFn: async (params: {
       sceneId: string;
@@ -158,10 +191,7 @@ export function useSceneGraph(projectId: string | undefined) {
       if (!projectId) throw new Error('No project');
       return sceneGraphUpdate({ projectId, ...params });
     },
-    onSuccess: () => {
-      invalidate();
-      toast.success('Scene updated');
-    },
+    onSuccess: (data) => { handleActionResult(data); toast.success('Scene updated'); },
     onError: (e: Error) => toast.error(`Update failed: ${e.message}`),
   });
 
@@ -171,10 +201,7 @@ export function useSceneGraph(projectId: string | undefined) {
       if (!projectId) throw new Error('No project');
       return sceneGraphApproveVersion({ projectId, sceneVersionId });
     },
-    onSuccess: () => {
-      invalidate();
-      toast.success('Version approved');
-    },
+    onSuccess: () => { invalidate(); toast.success('Version approved'); },
     onError: (e: Error) => toast.error(`Approve failed: ${e.message}`),
   });
 
@@ -184,24 +211,85 @@ export function useSceneGraph(projectId: string | undefined) {
       if (!projectId) throw new Error('No project');
       return sceneGraphRebuildSnapshot({ projectId, ...params });
     },
-    onSuccess: () => {
-      invalidate();
-      toast.success('Snapshot rebuilt');
-    },
+    onSuccess: () => { invalidate(); toast.success('Snapshot rebuilt'); },
     onError: (e: Error) => toast.error(`Rebuild failed: ${e.message}`),
+  });
+
+  // Restore inactive scene
+  const restoreMutation = useMutation({
+    mutationFn: async (params: { sceneId: string; position?: { beforeSceneId?: string; afterSceneId?: string } }) => {
+      if (!projectId) throw new Error('No project');
+      return sceneGraphRestore({ projectId, ...params });
+    },
+    onSuccess: (data) => { handleActionResult(data); toast.success('Scene restored'); },
+    onError: (e: Error) => toast.error(`Restore failed: ${e.message}`),
+  });
+
+  // Undo action
+  const undoMutation = useMutation({
+    mutationFn: async (actionId: string) => {
+      if (!projectId) throw new Error('No project');
+      return sceneGraphUndo({ projectId, actionId });
+    },
+    onSuccess: () => { invalidate(); setLastActionId(null); toast.success('Action undone'); },
+    onError: (e: Error) => toast.error(`Undo failed: ${e.message}`),
+  });
+
+  // Accept patch
+  const acceptPatchMutation = useMutation({
+    mutationFn: async (patchQueueId: string) => {
+      if (!projectId) throw new Error('No project');
+      return sceneGraphAcceptPatch({ projectId, patchQueueId });
+    },
+    onSuccess: () => { invalidate(); toast.success('Patch accepted'); },
+    onError: (e: Error) => toast.error(`Accept failed: ${e.message}`),
+  });
+
+  // Reject patch
+  const rejectPatchMutation = useMutation({
+    mutationFn: async (patchQueueId: string) => {
+      if (!projectId) throw new Error('No project');
+      return sceneGraphRejectPatch({ projectId, patchQueueId });
+    },
+    onSuccess: () => { invalidate(); toast.success('Patch rejected'); },
+    onError: (e: Error) => toast.error(`Reject failed: ${e.message}`),
+  });
+
+  // Apply patch
+  const applyPatchMutation = useMutation({
+    mutationFn: async (params: { patchQueueId: string; mode?: 'draft' | 'propose' }) => {
+      if (!projectId) throw new Error('No project');
+      return sceneGraphApplyPatch({ projectId, ...params });
+    },
+    onSuccess: (data) => { handleActionResult(data); toast.success('Patch applied'); },
+    onError: (e: Error) => toast.error(`Apply failed: ${e.message}`),
+  });
+
+  // Rebalance order keys
+  const rebalanceMutation = useMutation({
+    mutationFn: async () => {
+      if (!projectId) throw new Error('No project');
+      return sceneGraphRebalance({ projectId });
+    },
+    onSuccess: () => { invalidate(); toast.success('Order keys rebalanced'); },
+    onError: (e: Error) => toast.error(`Rebalance failed: ${e.message}`),
   });
 
   return {
     // State
     projectState: stateQuery.data,
     scenes: (scenesQuery.data || []) as SceneListItem[],
+    inactiveScenes: (inactiveQuery.data || []) as InactiveSceneItem[],
+    patchQueue: (patchQueueQuery.data || []) as PatchQueueItem[],
+    recentActions: (actionsQuery.data || []) as SceneGraphAction[],
     isLoading: stateQuery.isLoading || scenesQuery.isLoading,
     selectedSceneId,
     setSelectedSceneId,
     lastImpact,
     setLastImpact,
+    lastActionId,
 
-    // Mutations
+    // Phase 1 Mutations
     extract: extractMutation,
     insert: insertMutation,
     remove: removeMutation,
@@ -211,5 +299,13 @@ export function useSceneGraph(projectId: string | undefined) {
     update: updateMutation,
     approve: approveMutation,
     rebuild: rebuildMutation,
+
+    // Phase 2 Mutations
+    restore: restoreMutation,
+    undo: undoMutation,
+    acceptPatch: acceptPatchMutation,
+    rejectPatch: rejectPatchMutation,
+    applyPatch: applyPatchMutation,
+    rebalance: rebalanceMutation,
   };
 }
