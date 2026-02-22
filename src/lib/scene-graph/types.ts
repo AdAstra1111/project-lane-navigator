@@ -169,6 +169,73 @@ export interface SceneGraphRebuildSnapshotInput {
   label?: string;
 }
 
+// Phase 2 inputs
+export interface SceneGraphListInactiveInput {
+  projectId: string;
+}
+
+export interface SceneGraphRestoreInput {
+  projectId: string;
+  sceneId: string;
+  position?: { beforeSceneId?: string; afterSceneId?: string };
+}
+
+export interface SceneGraphUndoInput {
+  projectId: string;
+  actionId: string;
+}
+
+export interface SceneGraphApplyPatchInput {
+  projectId: string;
+  patchQueueId: string;
+  mode?: 'draft' | 'propose';
+}
+
+export interface SceneGraphPatchStatusInput {
+  projectId: string;
+  patchQueueId: string;
+}
+
+export interface SceneGraphRebalanceInput {
+  projectId: string;
+}
+
+export interface SceneGraphListPatchQueueInput {
+  projectId: string;
+}
+
+// Phase 2 response types
+export interface SceneGraphAction {
+  id: string;
+  project_id: string;
+  action_type: string;
+  actor_id: string | null;
+  created_at: string;
+  payload: Record<string, any>;
+  inverse: Record<string, any>;
+}
+
+export interface PatchQueueItem {
+  id: string;
+  project_id: string;
+  created_at: string;
+  created_by: string | null;
+  status: 'open' | 'accepted' | 'rejected' | 'applied';
+  source_action_id: string | null;
+  target_scene_id: string | null;
+  target_scene_version_id: string | null;
+  suggestion: string;
+  rationale: string | null;
+  patch: Record<string, any>;
+}
+
+export interface InactiveSceneItem {
+  scene_id: string;
+  order_key: string;
+  scene_kind: string;
+  latest_version: ScriptSceneVersion | null;
+}
+
 export interface ProjectSceneState {
   project_id: string;
   has_scenes: boolean;

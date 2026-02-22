@@ -5395,13 +5395,12 @@ Return ONLY valid JSON:
       return Array.from({ length: count }, (_, i) => ((i + 1) * step).toString(BASE).padStart(LEN, '0'));
     }
 
-    // --- Impact Report Helper ---
+    // --- Impact Report Helper (Phase 2 enhanced) ---
     async function sgBuildImpactReport(
       _supabase: any, projectId: string, actionDesc: string, affectedSceneIds: string[]
     ): Promise<{ warnings: any[]; suggested_patches: any[] }> {
-      // Fetch all active scene versions for continuity analysis
       const { data: activeOrder } = await _supabase
-        .from("scene_graph_order").select("scene_id, order_key")
+        .from("scene_graph_order").select("scene_id, order_key, act, id")
         .eq("project_id", projectId).eq("is_active", true)
         .order("order_key", { ascending: true });
 
@@ -5409,35 +5408,29 @@ Return ONLY valid JSON:
       const warnings: any[] = [];
       const suggested_patches: any[] = [];
 
-      if (activeSceneIds.length === 0) {
-        return { warnings, suggested_patches };
-      }
+      if (activeSceneIds.length === 0) return { warnings, suggested_patches };
 
-      // Fetch latest versions for active scenes
       const { data: versions } = await _supabase
         .from("scene_graph_versions").select("*")
         .in("scene_id", activeSceneIds)
         .order("version_number", { ascending: false });
 
-      // Build map of latest version per scene
       const latestMap = new Map<string, any>();
       for (const v of (versions || [])) {
         if (!latestMap.has(v.scene_id)) latestMap.set(v.scene_id, v);
       }
 
-      // Check continuity facts
-      const emittedFacts = new Set<string>();
       const orderedScenes = (activeOrder || []).map((o: any) => ({ ...o, version: latestMap.get(o.scene_id) }));
 
+      // Continuity: required facts must be emitted by preceding scenes
+      const emittedFacts = new Set<string>();
       for (const s of orderedScenes) {
         const v = s.version;
         if (!v) continue;
-
-        // Check required facts
         const required = v.continuity_facts_required || [];
         for (const fact of required) {
           const factKey = typeof fact === 'string' ? fact : JSON.stringify(fact);
-          if (!emittedFacts.has(factKey) && affectedSceneIds.includes(s.scene_id)) {
+          if (!emittedFacts.has(factKey)) {
             warnings.push({
               type: 'continuity', severity: 'high',
               message: `Scene requires fact "${factKey}" but it may not be established by preceding scenes.`,
@@ -5445,15 +5438,13 @@ Return ONLY valid JSON:
             });
           }
         }
-
-        // Add emitted facts
         const emitted = v.continuity_facts_emitted || [];
         for (const fact of emitted) {
           emittedFacts.add(typeof fact === 'string' ? fact : JSON.stringify(fact));
         }
       }
 
-      // Check setup/payoff
+      // Setup/payoff
       const emittedSetups = new Set<string>();
       for (const s of orderedScenes) {
         const v = s.version;
@@ -5462,8 +5453,9 @@ Return ONLY valid JSON:
         for (const p of payoffReq) {
           const pk = typeof p === 'string' ? p : JSON.stringify(p);
           if (!emittedSetups.has(pk)) {
+            const critical = typeof p === 'object' && p?.critical;
             warnings.push({
-              type: 'setup_payoff', severity: 'med',
+              type: 'setup_payoff', severity: critical ? 'high' : 'med',
               message: `Payoff "${pk}" expected but setup may be missing from preceding scenes.`,
               relatedSceneIds: [s.scene_id],
             });
@@ -5475,30 +5467,53 @@ Return ONLY valid JSON:
         }
       }
 
-      // Pacing check: scenes per act
+      // Knowledge ordering: fact emitted AFTER it's required
+      const emitPositions = new Map<string, number>();
+      for (let i = 0; i < orderedScenes.length; i++) {
+        const v = orderedScenes[i].version;
+        if (!v) continue;
+        for (const fact of (v.continuity_facts_emitted || [])) {
+          const fk = typeof fact === 'string' ? fact : JSON.stringify(fact);
+          if (!emitPositions.has(fk)) emitPositions.set(fk, i);
+        }
+      }
+      for (let i = 0; i < orderedScenes.length; i++) {
+        const v = orderedScenes[i].version;
+        if (!v) continue;
+        for (const fact of (v.continuity_facts_required || [])) {
+          const fk = typeof fact === 'string' ? fact : JSON.stringify(fact);
+          const emitPos = emitPositions.get(fk);
+          if (emitPos !== undefined && emitPos > i) {
+            warnings.push({
+              type: 'continuity', severity: 'high',
+              message: `Scene ${i + 1} requires "${fk}" but it's first emitted in scene ${emitPos + 1} (later in order).`,
+              relatedSceneIds: [orderedScenes[i].scene_id, orderedScenes[emitPos].scene_id],
+            });
+          }
+        }
+      }
+
+      // Pacing: act scene count deviation >35%
       const actCounts: Record<number, number> = {};
       for (const o of (activeOrder || [])) {
-        // Get act from order
-        const { data: orderRow } = await _supabase
-          .from("scene_graph_order").select("act").eq("id", o.id).single();
-        const act = orderRow?.act || 1;
+        const act = o.act || 1;
         actCounts[act] = (actCounts[act] || 0) + 1;
       }
       const actValues = Object.values(actCounts);
       if (actValues.length > 1) {
         const avg = actValues.reduce((a, b) => a + b, 0) / actValues.length;
         for (const [act, count] of Object.entries(actCounts)) {
-          if (Math.abs(count - avg) > avg * 0.5) {
+          if (Math.abs(count - avg) > avg * 0.35) {
             warnings.push({
               type: 'pacing', severity: 'low',
-              message: `Act ${act} has ${count} scenes, significantly different from average ${Math.round(avg)}.`,
+              message: `Act ${act} has ${count} scenes, deviating >35% from average ${Math.round(avg)}.`,
               relatedSceneIds: [],
             });
           }
         }
       }
 
-      // Generic warning if no specific ones found and facts arrays are empty
+      // Generic fallback
       if (warnings.length === 0 && affectedSceneIds.length > 0) {
         warnings.push({
           type: 'continuity', severity: 'low',
@@ -5508,6 +5523,59 @@ Return ONLY valid JSON:
       }
 
       return { warnings, suggested_patches };
+    }
+
+    // --- Create patch suggestions from high-severity warnings ---
+    async function sgCreatePatchSuggestions(
+      _supabase: any, projectId: string, userId: string, actionId: string,
+      warnings: any[]
+    ): Promise<void> {
+      const highWarnings = warnings.filter((w: any) => w.severity === 'high');
+      if (highWarnings.length === 0) return;
+
+      const toCreate = highWarnings.slice(0, 3);
+      for (const w of toCreate) {
+        const targetSceneId = w.relatedSceneIds?.[0] || null;
+        let suggestion = '';
+        let rationale = w.message || '';
+        const patch: any = {};
+
+        if (w.type === 'continuity') {
+          suggestion = `Add exposition or reference to establish missing continuity fact in an earlier scene.`;
+          patch.content_note = `Consider adding dialogue or action that establishes: ${rationale}`;
+        } else if (w.type === 'setup_payoff') {
+          suggestion = `Add setup element in an earlier scene to support the payoff.`;
+          patch.content_note = `Insert a setup beat: ${rationale}`;
+        } else {
+          suggestion = `Review and adjust to resolve: ${rationale}`;
+        }
+
+        await _supabase.from("scene_graph_patch_queue").insert({
+          project_id: projectId,
+          created_by: userId,
+          status: 'open',
+          source_action_id: actionId,
+          target_scene_id: targetSceneId,
+          suggestion,
+          rationale,
+          patch,
+        });
+      }
+    }
+
+    // --- Log action with inverse ---
+    async function sgLogAction(
+      _supabase: any, projectId: string, userId: string,
+      actionType: string, payload: any, inverse: any
+    ): Promise<string> {
+      const { data } = await _supabase.from("scene_graph_actions").insert({
+        project_id: projectId,
+        action_type: actionType,
+        actor_id: userId,
+        payload,
+        inverse,
+      }).select("id").single();
+      return data?.id || '';
     }
 
     // --- Parse slugline helper ---
@@ -5723,7 +5791,6 @@ Return ONLY valid JSON:
       const { projectId, position, intent, sceneDraft } = body;
       if (!projectId) throw new Error("projectId required");
 
-      // Determine order_key
       let prevKey: string | null = null;
       let nextKey: string | null = null;
 
@@ -5742,7 +5809,6 @@ Return ONLY valid JSON:
 
       const newKey = sgKeyBetween(prevKey, nextKey);
 
-      // Create scene + version + order
       const { data: scene, error: sErr } = await supabase.from("scene_graph_scenes").insert({
         project_id: projectId, scene_kind: 'narrative', created_by: user.id,
       }).select().single();
@@ -5767,6 +5833,16 @@ Return ONLY valid JSON:
 
       const impact = await sgBuildImpactReport(supabase, projectId, 'insert', [scene.id]);
 
+      const action_id = await sgLogAction(supabase, projectId, user.id, 'insert', {
+        scene_id: scene.id, order_key: newKey, position,
+      }, {
+        type: 'deactivate_scene', scene_id: scene.id, order_key: newKey,
+      });
+
+      if (impact.warnings.some((w: any) => w.severity === 'high')) {
+        await sgCreatePatchSuggestions(supabase, projectId, user.id, action_id, impact.warnings);
+      }
+
       return new Response(JSON.stringify({
         scene: {
           scene_id: scene.id, display_number: 0, order_key: newKey,
@@ -5774,12 +5850,17 @@ Return ONLY valid JSON:
           latest_version: version, approval_status: 'draft',
         },
         impact,
+        action_id,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     if (action === "scene_graph_remove_scene") {
       const { projectId, sceneId } = body;
       if (!projectId || !sceneId) throw new Error("projectId, sceneId required");
+
+      // Get prior state for inverse
+      const { data: priorOrder } = await supabase.from("scene_graph_order")
+        .select("order_key, is_active").eq("project_id", projectId).eq("scene_id", sceneId).single();
 
       const { error } = await supabase.from("scene_graph_order")
         .update({ is_active: false })
@@ -5788,7 +5869,18 @@ Return ONLY valid JSON:
 
       const impact = await sgBuildImpactReport(supabase, projectId, 'remove', [sceneId]);
 
-      return new Response(JSON.stringify({ impact }), {
+      const action_id = await sgLogAction(supabase, projectId, user.id, 'remove', {
+        scene_id: sceneId,
+      }, {
+        type: 'restore_scene', scene_id: sceneId,
+        prior_order_key: priorOrder?.order_key, prior_is_active: priorOrder?.is_active,
+      });
+
+      if (impact.warnings.some((w: any) => w.severity === 'high')) {
+        await sgCreatePatchSuggestions(supabase, projectId, user.id, action_id, impact.warnings);
+      }
+
+      return new Response(JSON.stringify({ impact, action_id }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -5797,9 +5889,13 @@ Return ONLY valid JSON:
       const { projectId, sceneId, position } = body;
       if (!projectId || !sceneId) throw new Error("projectId, sceneId required");
 
+      // Get prior key for inverse
+      const { data: priorOrd } = await supabase.from("scene_graph_order")
+        .select("order_key").eq("project_id", projectId).eq("scene_id", sceneId).eq("is_active", true).single();
+      const priorKey = priorOrd?.order_key;
+
       let prevKey: string | null = null;
       let nextKey: string | null = null;
-
       if (position?.afterSceneId) {
         const { data } = await supabase.from("scene_graph_order")
           .select("order_key").eq("project_id", projectId)
@@ -5822,7 +5918,13 @@ Return ONLY valid JSON:
 
       const impact = await sgBuildImpactReport(supabase, projectId, 'move', [sceneId]);
 
-      return new Response(JSON.stringify({ impact }), {
+      const action_id = await sgLogAction(supabase, projectId, user.id, 'move', {
+        scene_id: sceneId, new_order_key: newKey, position,
+      }, {
+        type: 'restore_order_key', scene_id: sceneId, prior_order_key: priorKey,
+      });
+
+      return new Response(JSON.stringify({ impact, action_id }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -5831,13 +5933,11 @@ Return ONLY valid JSON:
       const { projectId, sceneId, splitAt, drafts } = body;
       if (!projectId || !sceneId) throw new Error("projectId, sceneId required");
 
-      // Get current version
       const { data: curVer } = await supabase.from("scene_graph_versions")
         .select("*").eq("scene_id", sceneId)
         .order("version_number", { ascending: false }).limit(1).single();
       if (!curVer) throw new Error("No version found for scene");
 
-      // Determine split content
       let partA = drafts?.partA || '';
       let partB = drafts?.partB || '';
       if (!partA && !partB) {
@@ -5847,48 +5947,36 @@ Return ONLY valid JSON:
         partB = contentLines.slice(mid).join('\n');
       }
 
-      // Deactivate old scene
+      // Get old order key before deactivation
+      const { data: oldOrder } = await supabase.from("scene_graph_order")
+        .select("order_key").eq("project_id", projectId).eq("scene_id", sceneId).eq("is_active", true).single();
+      const oldKey = oldOrder?.order_key || 'n00000';
+
       await supabase.from("scene_graph_order")
         .update({ is_active: false })
         .eq("project_id", projectId).eq("scene_id", sceneId);
 
-      // Get old order key
-      const { data: oldOrder } = await supabase.from("scene_graph_order")
-        .select("order_key").eq("project_id", projectId).eq("scene_id", sceneId)
-        .order("created_at", { ascending: false }).limit(1).single();
-      const oldKey = oldOrder?.order_key || 'n00000';
-
-      // Deprecate old scene
       await supabase.from("scene_graph_scenes")
         .update({ deprecated_at: new Date().toISOString() })
         .eq("id", sceneId);
 
-      // Create two new scenes
-      const keyA = sgKeyBetween(null, oldKey);
-      // Make keyB slightly after oldKey position
-      const keyB = sgKeyBetween(oldKey, null);
-      // Actually need keyA < keyB and both near oldKey
       const trueKeyA = sgKeyBetween(sgKeyBetween(null, oldKey), oldKey);
       const trueKeyB = sgKeyBetween(oldKey, sgKeyBetween(oldKey, null));
 
       const createSplitScene = async (content: string, key: string, provenance: any) => {
         const { data: sc } = await supabase.from("scene_graph_scenes").insert({
-          project_id: projectId, scene_kind: 'narrative', created_by: user.id,
-          provenance,
+          project_id: projectId, scene_kind: 'narrative', created_by: user.id, provenance,
         }).select().single();
         if (!sc) throw new Error("Failed to create split scene");
-
         const parsed = sgParseSlugline(content.split('\n')[0] || '');
         const { data: ver } = await supabase.from("scene_graph_versions").insert({
           scene_id: sc.id, project_id: projectId, version_number: 1, status: 'draft',
           created_by: user.id, slugline: parsed.slugline, location: parsed.location,
           time_of_day: parsed.time_of_day, content,
         }).select().single();
-
         await supabase.from("scene_graph_order").insert({
           project_id: projectId, scene_id: sc.id, order_key: key, is_active: true,
         });
-
         return { scene_id: sc.id, latest_version: ver, order_key: key };
       };
 
@@ -5897,10 +5985,21 @@ Return ONLY valid JSON:
 
       const impact = await sgBuildImpactReport(supabase, projectId, 'split', [sceneA.scene_id, sceneB.scene_id]);
 
+      const action_id = await sgLogAction(supabase, projectId, user.id, 'split', {
+        original_scene_id: sceneId, new_scene_ids: [sceneA.scene_id, sceneB.scene_id],
+      }, {
+        type: 'unsplit', original_scene_id: sceneId, original_order_key: oldKey,
+        new_scene_ids: [sceneA.scene_id, sceneB.scene_id],
+      });
+
+      if (impact.warnings.some((w: any) => w.severity === 'high')) {
+        await sgCreatePatchSuggestions(supabase, projectId, user.id, action_id, impact.warnings);
+      }
+
       return new Response(JSON.stringify({
         sceneA: { ...sceneA, display_number: 0, act: null, sequence: null, is_active: true, scene_kind: 'narrative', approval_status: 'draft' },
         sceneB: { ...sceneB, display_number: 0, act: null, sequence: null, is_active: true, scene_kind: 'narrative', approval_status: 'draft' },
-        impact,
+        impact, action_id,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
@@ -5908,15 +6007,12 @@ Return ONLY valid JSON:
       const { projectId, sceneIds, mergedDraft } = body;
       if (!projectId || !sceneIds || sceneIds.length < 2) throw new Error("projectId, sceneIds (2) required");
 
-      // Get order of both scenes
       const { data: orders } = await supabase.from("scene_graph_order")
         .select("scene_id, order_key").eq("project_id", projectId)
         .in("scene_id", sceneIds).eq("is_active", true)
         .order("order_key", { ascending: true });
-
       if (!orders || orders.length < 2) throw new Error("Both scenes must be active");
 
-      // Get content of both
       const contents: string[] = [];
       for (const sid of sceneIds) {
         const { data: ver } = await supabase.from("scene_graph_versions")
@@ -5925,17 +6021,14 @@ Return ONLY valid JSON:
         contents.push(ver?.content || '');
       }
 
-      // Deactivate both
+      const orderKeysBackup = orders.map((o: any) => ({ scene_id: o.scene_id, order_key: o.order_key }));
+
       for (const sid of sceneIds) {
-        await supabase.from("scene_graph_order")
-          .update({ is_active: false })
+        await supabase.from("scene_graph_order").update({ is_active: false })
           .eq("project_id", projectId).eq("scene_id", sid);
-        await supabase.from("scene_graph_scenes")
-          .update({ deprecated_at: new Date().toISOString() })
-          .eq("id", sid);
+        await supabase.from("scene_graph_scenes").update({ deprecated_at: new Date().toISOString() }).eq("id", sid);
       }
 
-      // Create merged scene at earliest position
       const mergedContent = mergedDraft?.content || contents.join('\n\n');
       const mergedSlugline = mergedDraft?.slugline || null;
       const earliestKey = orders[0].order_key;
@@ -5959,13 +6052,24 @@ Return ONLY valid JSON:
 
       const impact = await sgBuildImpactReport(supabase, projectId, 'merge', [newScene.id]);
 
+      const action_id = await sgLogAction(supabase, projectId, user.id, 'merge', {
+        merged_scene_ids: sceneIds, new_scene_id: newScene.id,
+      }, {
+        type: 'unmerge', merged_scene_ids: sceneIds, new_scene_id: newScene.id,
+        original_order_keys: orderKeysBackup,
+      });
+
+      if (impact.warnings.some((w: any) => w.severity === 'high')) {
+        await sgCreatePatchSuggestions(supabase, projectId, user.id, action_id, impact.warnings);
+      }
+
       return new Response(JSON.stringify({
         mergedScene: {
           scene_id: newScene.id, display_number: 0, order_key: earliestKey,
           act: null, sequence: null, is_active: true, scene_kind: 'narrative',
           latest_version: ver, approval_status: 'draft',
         },
-        impact,
+        impact, action_id,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
@@ -5973,36 +6077,52 @@ Return ONLY valid JSON:
       const { projectId, sceneId, patch, propose } = body;
       if (!projectId || !sceneId) throw new Error("projectId, sceneId required");
 
-      // Get latest version
-      const { data: curVer } = await supabase.from("scene_graph_versions")
-        .select("*").eq("scene_id", sceneId)
-        .order("version_number", { ascending: false }).limit(1).single();
+      // Use concurrency-safe RPC
+      const { data: rpcResult, error: rpcErr } = await supabase.rpc('next_scene_version', {
+        p_scene_id: sceneId,
+        p_project_id: projectId,
+        p_patch: patch || {},
+        p_propose: propose || false,
+        p_created_by: user.id,
+      });
+      if (rpcErr) {
+        // Fallback to direct insert if RPC fails
+        console.warn("RPC next_scene_version failed, falling back:", rpcErr.message);
+        const { data: curVer } = await supabase.from("scene_graph_versions")
+          .select("*").eq("scene_id", sceneId)
+          .order("version_number", { ascending: false }).limit(1).single();
+        const newVersionNumber = (curVer?.version_number || 0) + 1;
+        const { data: newVer, error: vErr } = await supabase.from("scene_graph_versions").insert({
+          scene_id: sceneId, project_id: projectId, version_number: newVersionNumber,
+          status: propose ? 'proposed' : 'draft', created_by: user.id,
+          slugline: patch?.slugline ?? curVer?.slugline ?? null,
+          location: curVer?.location ?? null, time_of_day: curVer?.time_of_day ?? null,
+          characters_present: patch?.characters_present ?? curVer?.characters_present ?? [],
+          purpose: curVer?.purpose ?? null,
+          beats: patch?.beats ?? curVer?.beats ?? [],
+          summary: patch?.summary ?? curVer?.summary ?? null,
+          content: patch?.content ?? curVer?.content ?? '',
+          continuity_facts_emitted: curVer?.continuity_facts_emitted ?? [],
+          continuity_facts_required: curVer?.continuity_facts_required ?? [],
+          setup_payoff_emitted: curVer?.setup_payoff_emitted ?? [],
+          setup_payoff_required: curVer?.setup_payoff_required ?? [],
+          metadata: curVer?.metadata ?? {},
+        }).select().single();
+        if (vErr) throw vErr;
+        const action_id = await sgLogAction(supabase, projectId, user.id, 'update', {
+          scene_id: sceneId, version_id: newVer.id,
+        }, { type: 'version_created', scene_id: sceneId, version_id: newVer.id });
+        return new Response(JSON.stringify({ version: newVer, action_id }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
 
-      const newVersionNumber = (curVer?.version_number || 0) + 1;
+      const newVer = rpcResult;
+      const action_id = await sgLogAction(supabase, projectId, user.id, 'update', {
+        scene_id: sceneId, version_id: newVer.id,
+      }, { type: 'version_created', scene_id: sceneId, version_id: newVer.id });
 
-      const { data: newVer, error: vErr } = await supabase.from("scene_graph_versions").insert({
-        scene_id: sceneId,
-        project_id: projectId,
-        version_number: newVersionNumber,
-        status: propose ? 'proposed' : 'draft',
-        created_by: user.id,
-        slugline: patch?.slugline ?? curVer?.slugline ?? null,
-        location: curVer?.location ?? null,
-        time_of_day: curVer?.time_of_day ?? null,
-        characters_present: patch?.characters_present ?? curVer?.characters_present ?? [],
-        purpose: curVer?.purpose ?? null,
-        beats: patch?.beats ?? curVer?.beats ?? [],
-        summary: patch?.summary ?? curVer?.summary ?? null,
-        content: patch?.content ?? curVer?.content ?? '',
-        continuity_facts_emitted: curVer?.continuity_facts_emitted ?? [],
-        continuity_facts_required: curVer?.continuity_facts_required ?? [],
-        setup_payoff_emitted: curVer?.setup_payoff_emitted ?? [],
-        setup_payoff_required: curVer?.setup_payoff_required ?? [],
-        metadata: curVer?.metadata ?? {},
-      }).select().single();
-      if (vErr) throw vErr;
-
-      return new Response(JSON.stringify({ version: newVer }), {
+      return new Response(JSON.stringify({ version: newVer, action_id }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -6017,17 +6137,19 @@ Return ONLY valid JSON:
         .select().single();
       if (error) throw error;
 
-      // Mark prior approved versions of same scene as superseded in metadata
+      // Phase 2: set supersedes_version_id + superseded_at on older approved versions
       if (ver) {
         const { data: priorApproved } = await supabase.from("scene_graph_versions")
-          .select("id, metadata").eq("scene_id", ver.scene_id)
-          .eq("status", "approved").neq("id", sceneVersionId);
+          .select("id, version_number, metadata").eq("scene_id", ver.scene_id)
+          .eq("status", "approved").neq("id", sceneVersionId)
+          .order("version_number", { ascending: false });
 
         for (const pv of (priorApproved || [])) {
-          const meta = pv.metadata || {};
-          meta.superseded_by = sceneVersionId;
-          await supabase.from("scene_graph_versions")
-            .update({ metadata: meta }).eq("id", pv.id);
+          await supabase.from("scene_graph_versions").update({
+            superseded_at: new Date().toISOString(),
+            supersedes_version_id: sceneVersionId,
+            metadata: { ...(pv.metadata || {}), superseded_by: sceneVersionId },
+          }).eq("id", pv.id);
         }
       }
 
@@ -6046,22 +6168,21 @@ Return ONLY valid JSON:
         .eq("project_id", projectId).eq("is_active", true)
         .order("order_key", { ascending: true });
 
-      if (!orderRows || orderRows.length === 0) {
-        throw new Error("No active scenes to assemble");
-      }
+      if (!orderRows || orderRows.length === 0) throw new Error("No active scenes to assemble");
 
       const sceneIds = orderRows.map((r: any) => r.scene_id);
       const { data: allVersions } = await supabase.from("scene_graph_versions")
         .select("*").in("scene_id", sceneIds)
         .order("version_number", { ascending: false });
 
-      // Build version selection per scene
       const selectedVersions = new Map<string, any>();
       for (const sid of sceneIds) {
         const versions = (allVersions || []).filter((v: any) => v.scene_id === sid);
         if (useMode === 'approved_prefer') {
-          const approved = versions.find((v: any) => v.status === 'approved');
-          selectedVersions.set(sid, approved || versions[0]);
+          // Phase 2: use latest approved by version_number (ignore superseded)
+          const approved = versions.filter((v: any) => v.status === 'approved')
+            .sort((a: any, b: any) => b.version_number - a.version_number);
+          selectedVersions.set(sid, approved[0] || versions[0]);
         } else {
           selectedVersions.set(sid, versions[0]);
         }
@@ -6070,9 +6191,7 @@ Return ONLY valid JSON:
       const sceneOrder = orderRows.map((o: any) => ({
         scene_id: o.scene_id,
         version_id: selectedVersions.get(o.scene_id)?.id || null,
-        order_key: o.order_key,
-        act: o.act,
-        sequence: o.sequence,
+        order_key: o.order_key, act: o.act, sequence: o.sequence,
       }));
 
       const assembledContent = orderRows
@@ -6080,20 +6199,347 @@ Return ONLY valid JSON:
         .join('\n\n');
 
       const { data: snapshot, error: snErr } = await supabase.from("scene_graph_snapshots").insert({
-        project_id: projectId,
-        created_by: user.id,
+        project_id: projectId, created_by: user.id,
         label: label || `Snapshot (${useMode})`,
-        assembly: {
-          scene_order: sceneOrder,
-          generated_at: new Date().toISOString(),
-          mode: useMode,
-        },
-        content: assembledContent,
-        status: 'draft',
+        assembly: { scene_order: sceneOrder, generated_at: new Date().toISOString(), mode: useMode },
+        content: assembledContent, status: 'draft',
       }).select().single();
       if (snErr) throw snErr;
 
       return new Response(JSON.stringify({ snapshot }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ══════════════════════════════════════════════
+    // PHASE 2: NEW SCENE GRAPH ACTIONS
+    // ══════════════════════════════════════════════
+
+    if (action === "scene_graph_list_inactive") {
+      const { projectId } = body;
+      if (!projectId) throw new Error("projectId required");
+
+      const { data: inactiveOrder } = await supabase.from("scene_graph_order")
+        .select("scene_id, order_key").eq("project_id", projectId).eq("is_active", false)
+        .order("order_key", { ascending: true });
+
+      if (!inactiveOrder || inactiveOrder.length === 0) {
+        return new Response(JSON.stringify({ scenes: [] }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const sceneIds = [...new Set(inactiveOrder.map((r: any) => r.scene_id))];
+      const { data: versions } = await supabase.from("scene_graph_versions")
+        .select("*").in("scene_id", sceneIds)
+        .order("version_number", { ascending: false });
+      const { data: sceneRows } = await supabase.from("scene_graph_scenes")
+        .select("id, scene_kind").in("id", sceneIds);
+
+      const latestMap = new Map<string, any>();
+      for (const v of (versions || [])) {
+        if (!latestMap.has(v.scene_id)) latestMap.set(v.scene_id, v);
+      }
+      const sceneMap = new Map((sceneRows || []).map((s: any) => [s.id, s]));
+
+      // Deduplicate by scene_id
+      const seen = new Set<string>();
+      const scenes = inactiveOrder.filter((o: any) => {
+        if (seen.has(o.scene_id)) return false;
+        seen.add(o.scene_id);
+        return true;
+      }).map((o: any) => ({
+        scene_id: o.scene_id,
+        order_key: o.order_key,
+        scene_kind: sceneMap.get(o.scene_id)?.scene_kind || 'narrative',
+        latest_version: latestMap.get(o.scene_id) || null,
+      }));
+
+      return new Response(JSON.stringify({ scenes }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "scene_graph_restore_scene") {
+      const { projectId, sceneId, position } = body;
+      if (!projectId || !sceneId) throw new Error("projectId, sceneId required");
+
+      // Get prior state
+      const { data: priorOrd } = await supabase.from("scene_graph_order")
+        .select("order_key, is_active").eq("project_id", projectId).eq("scene_id", sceneId).single();
+
+      // Restore active
+      await supabase.from("scene_graph_order")
+        .update({ is_active: true })
+        .eq("project_id", projectId).eq("scene_id", sceneId);
+
+      // Undeprecate scene
+      await supabase.from("scene_graph_scenes")
+        .update({ deprecated_at: null })
+        .eq("id", sceneId);
+
+      // If position provided, move
+      if (position?.afterSceneId || position?.beforeSceneId) {
+        let prevKey: string | null = null;
+        let nextKey: string | null = null;
+        if (position?.afterSceneId) {
+          const { data } = await supabase.from("scene_graph_order")
+            .select("order_key").eq("project_id", projectId)
+            .eq("scene_id", position.afterSceneId).eq("is_active", true).single();
+          if (data) prevKey = data.order_key;
+        }
+        if (position?.beforeSceneId) {
+          const { data } = await supabase.from("scene_graph_order")
+            .select("order_key").eq("project_id", projectId)
+            .eq("scene_id", position.beforeSceneId).eq("is_active", true).single();
+          if (data) nextKey = data.order_key;
+        }
+        const newKey = sgKeyBetween(prevKey, nextKey);
+        await supabase.from("scene_graph_order")
+          .update({ order_key: newKey })
+          .eq("project_id", projectId).eq("scene_id", sceneId);
+      }
+
+      const impact = await sgBuildImpactReport(supabase, projectId, 'restore', [sceneId]);
+
+      const action_id = await sgLogAction(supabase, projectId, user.id, 'restore', {
+        scene_id: sceneId, position,
+      }, {
+        type: 'deactivate_scene', scene_id: sceneId,
+        prior_order_key: priorOrd?.order_key, prior_is_active: false,
+      });
+
+      return new Response(JSON.stringify({ impact, action_id }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "scene_graph_undo") {
+      const { projectId, actionId } = body;
+      if (!projectId || !actionId) throw new Error("projectId, actionId required");
+
+      const { data: actionRow } = await supabase.from("scene_graph_actions")
+        .select("*").eq("id", actionId).eq("project_id", projectId).single();
+      if (!actionRow) throw new Error("Action not found");
+
+      const inv = actionRow.inverse || {};
+
+      // Apply inverse based on type
+      if (inv.type === 'deactivate_scene') {
+        await supabase.from("scene_graph_order")
+          .update({ is_active: false })
+          .eq("project_id", projectId).eq("scene_id", inv.scene_id);
+      } else if (inv.type === 'restore_scene') {
+        await supabase.from("scene_graph_order")
+          .update({ is_active: true })
+          .eq("project_id", projectId).eq("scene_id", inv.scene_id);
+        if (inv.prior_order_key) {
+          await supabase.from("scene_graph_order")
+            .update({ order_key: inv.prior_order_key })
+            .eq("project_id", projectId).eq("scene_id", inv.scene_id);
+        }
+        await supabase.from("scene_graph_scenes")
+          .update({ deprecated_at: null }).eq("id", inv.scene_id);
+      } else if (inv.type === 'restore_order_key') {
+        await supabase.from("scene_graph_order")
+          .update({ order_key: inv.prior_order_key })
+          .eq("project_id", projectId).eq("scene_id", inv.scene_id).eq("is_active", true);
+      } else if (inv.type === 'unsplit') {
+        // Deactivate new scenes, reactivate original
+        for (const nid of (inv.new_scene_ids || [])) {
+          await supabase.from("scene_graph_order")
+            .update({ is_active: false })
+            .eq("project_id", projectId).eq("scene_id", nid);
+        }
+        await supabase.from("scene_graph_order")
+          .update({ is_active: true })
+          .eq("project_id", projectId).eq("scene_id", inv.original_scene_id);
+        await supabase.from("scene_graph_scenes")
+          .update({ deprecated_at: null }).eq("id", inv.original_scene_id);
+      } else if (inv.type === 'unmerge') {
+        // Deactivate merged scene, reactivate originals
+        await supabase.from("scene_graph_order")
+          .update({ is_active: false })
+          .eq("project_id", projectId).eq("scene_id", inv.new_scene_id);
+        for (const ok of (inv.original_order_keys || [])) {
+          await supabase.from("scene_graph_order")
+            .update({ is_active: true, order_key: ok.order_key })
+            .eq("project_id", projectId).eq("scene_id", ok.scene_id);
+          await supabase.from("scene_graph_scenes")
+            .update({ deprecated_at: null }).eq("id", ok.scene_id);
+        }
+      }
+
+      // Delete the action record (undo consumed)
+      await supabase.from("scene_graph_actions").delete().eq("id", actionId);
+
+      const impact = await sgBuildImpactReport(supabase, projectId, 'undo', []);
+
+      // Re-list scenes for response
+      const listResp = await supabase.from("scene_graph_order")
+        .select("scene_id, order_key, act, sequence, is_active")
+        .eq("project_id", projectId).eq("is_active", true)
+        .order("order_key", { ascending: true });
+
+      return new Response(JSON.stringify({ impact, scenes: listResp.data || [] }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "scene_graph_list_patch_queue") {
+      const { projectId } = body;
+      if (!projectId) throw new Error("projectId required");
+
+      const { data: patches } = await supabase.from("scene_graph_patch_queue")
+        .select("*").eq("project_id", projectId)
+        .order("created_at", { ascending: false }).limit(50);
+
+      return new Response(JSON.stringify({ patches: patches || [] }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "scene_graph_accept_patch_suggestion") {
+      const { projectId, patchQueueId } = body;
+      if (!projectId || !patchQueueId) throw new Error("projectId, patchQueueId required");
+
+      const { data: patch, error } = await supabase.from("scene_graph_patch_queue")
+        .update({ status: 'accepted' })
+        .eq("id", patchQueueId).eq("project_id", projectId)
+        .select().single();
+      if (error) throw error;
+
+      return new Response(JSON.stringify({ patch }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "scene_graph_reject_patch_suggestion") {
+      const { projectId, patchQueueId } = body;
+      if (!projectId || !patchQueueId) throw new Error("projectId, patchQueueId required");
+
+      const { data: patch, error } = await supabase.from("scene_graph_patch_queue")
+        .update({ status: 'rejected' })
+        .eq("id", patchQueueId).eq("project_id", projectId)
+        .select().single();
+      if (error) throw error;
+
+      return new Response(JSON.stringify({ patch }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "scene_graph_apply_patch_suggestion") {
+      const { projectId, patchQueueId, mode } = body;
+      if (!projectId || !patchQueueId) throw new Error("projectId, patchQueueId required");
+
+      const { data: patchItem } = await supabase.from("scene_graph_patch_queue")
+        .select("*").eq("id", patchQueueId).eq("project_id", projectId).single();
+      if (!patchItem) throw new Error("Patch not found");
+      if (!patchItem.target_scene_id) throw new Error("No target scene for this patch");
+
+      // Apply via RPC
+      const patchData = patchItem.patch || {};
+      const propose = mode === 'propose';
+      const { data: rpcResult, error: rpcErr } = await supabase.rpc('next_scene_version', {
+        p_scene_id: patchItem.target_scene_id,
+        p_project_id: projectId,
+        p_patch: patchData,
+        p_propose: propose,
+        p_created_by: user.id,
+      });
+
+      let newVer = rpcResult;
+      if (rpcErr) {
+        // Fallback
+        const { data: curVer } = await supabase.from("scene_graph_versions")
+          .select("*").eq("scene_id", patchItem.target_scene_id)
+          .order("version_number", { ascending: false }).limit(1).single();
+        const nextNum = (curVer?.version_number || 0) + 1;
+        const { data: fallbackVer } = await supabase.from("scene_graph_versions").insert({
+          scene_id: patchItem.target_scene_id, project_id: projectId,
+          version_number: nextNum, status: propose ? 'proposed' : 'draft',
+          created_by: user.id,
+          slugline: patchData.slugline ?? curVer?.slugline ?? null,
+          content: patchData.content ?? curVer?.content ?? '',
+          summary: patchData.summary ?? curVer?.summary ?? null,
+          beats: patchData.beats ?? curVer?.beats ?? [],
+          characters_present: curVer?.characters_present ?? [],
+          location: curVer?.location ?? null, time_of_day: curVer?.time_of_day ?? null,
+          purpose: curVer?.purpose ?? null,
+          continuity_facts_emitted: curVer?.continuity_facts_emitted ?? [],
+          continuity_facts_required: curVer?.continuity_facts_required ?? [],
+          setup_payoff_emitted: curVer?.setup_payoff_emitted ?? [],
+          setup_payoff_required: curVer?.setup_payoff_required ?? [],
+          metadata: curVer?.metadata ?? {},
+        }).select().single();
+        newVer = fallbackVer;
+      }
+
+      // Mark applied
+      await supabase.from("scene_graph_patch_queue")
+        .update({ status: 'applied' })
+        .eq("id", patchQueueId);
+
+      const action_id = await sgLogAction(supabase, projectId, user.id, 'apply_patch', {
+        patch_queue_id: patchQueueId, scene_id: patchItem.target_scene_id,
+        version_id: newVer?.id,
+      }, {
+        type: 'version_created', scene_id: patchItem.target_scene_id,
+        version_id: newVer?.id,
+      });
+
+      return new Response(JSON.stringify({
+        version: newVer,
+        patch: { ...patchItem, status: 'applied' },
+        action_id,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    if (action === "scene_graph_rebalance_order_keys") {
+      const { projectId } = body;
+      if (!projectId) throw new Error("projectId required");
+
+      const { data: activeOrder } = await supabase.from("scene_graph_order")
+        .select("id, scene_id, order_key")
+        .eq("project_id", projectId).eq("is_active", true)
+        .order("order_key", { ascending: true });
+
+      if (!activeOrder || activeOrder.length === 0) {
+        return new Response(JSON.stringify({ action_id: null }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const oldKeys = activeOrder.map((o: any) => ({ id: o.id, scene_id: o.scene_id, order_key: o.order_key }));
+      const newKeys = sgGenerateEvenKeys(activeOrder.length);
+
+      for (let i = 0; i < activeOrder.length; i++) {
+        await supabase.from("scene_graph_order")
+          .update({ order_key: newKeys[i] })
+          .eq("id", activeOrder[i].id);
+      }
+
+      const action_id = await sgLogAction(supabase, projectId, user.id, 'rebalance', {
+        scene_count: activeOrder.length,
+      }, {
+        type: 'rebalance_restore', old_keys: oldKeys,
+      });
+
+      return new Response(JSON.stringify({ action_id }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "scene_graph_list_actions") {
+      const { projectId } = body;
+      if (!projectId) throw new Error("projectId required");
+
+      const { data: actions } = await supabase.from("scene_graph_actions")
+        .select("*").eq("project_id", projectId)
+        .order("created_at", { ascending: false }).limit(20);
+
+      return new Response(JSON.stringify({ actions: actions || [] }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
