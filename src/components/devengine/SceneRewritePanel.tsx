@@ -15,6 +15,8 @@ interface SceneRewritePanelProps {
   approvedNotes: any[];
   protectItems: string[];
   onComplete?: (newVersionId: string) => void;
+  /** Pass the pipeline instance from the parent to share state */
+  pipelineInstance?: ReturnType<typeof useSceneRewritePipeline>;
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -34,9 +36,10 @@ const MODE_OPTIONS = [
 ];
 
 export function SceneRewritePanel({
-  projectId, documentId, versionId, approvedNotes, protectItems, onComplete,
+  projectId, documentId, versionId, approvedNotes, protectItems, onComplete, pipelineInstance,
 }: SceneRewritePanelProps) {
-  const pipeline = useSceneRewritePipeline(projectId);
+  const ownPipeline = useSceneRewritePipeline(projectId);
+  const pipeline = pipelineInstance || ownPipeline;
   const [initialized, setInitialized] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewData, setPreviewData] = useState<PreviewResult | null>(null);

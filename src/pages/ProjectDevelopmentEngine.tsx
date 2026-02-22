@@ -1170,6 +1170,7 @@ export default function ProjectDevelopmentEngine() {
                       versionId={selectedVersionId}
                       approvedNotes={[]}
                       protectItems={[]}
+                      pipelineInstance={sceneRewrite}
                       onComplete={(newVersionId) => {
                         postOperationVersionId.current = newVersionId;
                         setSelectedVersionId(newVersionId);
