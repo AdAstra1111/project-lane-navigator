@@ -154,6 +154,7 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
   const stopRef = useRef(false);
   const startGuardRef = useRef(false);
   const durationsRef = useRef<number[]>([]);
+  const runIdRef = useRef<string | null>(null);
   const [activityItems, setActivityItems] = useState<ActivityItem[]>([]);
   const smoothingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -227,8 +228,10 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
   // Load existing status (for resume after refresh)
   const loadStatus = useCallback(async (sourceVersionId: string) => {
     if (!projectId) return;
+    const currentRunId = runIdRef.current;
+    if (!currentRunId) return; // Cannot load status without a runId
     try {
-      const result = await callEngine('get_rewrite_status', { projectId, sourceVersionId });
+      const result = await callEngine('get_rewrite_status', { projectId, sourceVersionId, runId: currentRunId });
       if (result.total > 0) {
         const pct = result.total > 0 ? (result.done / result.total) * 100 : 0;
         setState(s => ({
@@ -271,6 +274,8 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
         projectId, sourceDocId, sourceVersionId, approvedNotes, protectItems,
         targetSceneNumbers: targetSceneNumbers || undefined,
       });
+      const newRunId = result.runId || null;
+      runIdRef.current = newRunId;
       setState(s => ({
         ...s,
         mode: 'processing',
@@ -282,7 +287,7 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
         rewriteMode: 'scene',
         smoothedPercent: 0,
         lastProgressAt: Date.now(),
-        runId: result.runId || null,
+        runId: newRunId,
       }));
       pushActivity('success', isSelective
         ? `Enqueued ${targetSceneNumbers!.length} target scene jobs (run ${(result.runId || '?').slice(0, 8)})`
@@ -305,23 +310,27 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
   // Process jobs one at a time in a loop, then auto-assemble
   const processAll = useCallback(async (sourceVersionId: string, sourceDocId?: string) => {
     if (!projectId || processingRef.current) return;
+    const currentRunId = runIdRef.current;
+    if (!currentRunId) {
+      toast.error('Missing runId — please enqueue again.');
+      pushActivity('error', 'Missing runId — please enqueue again.');
+      return;
+    }
     processingRef.current = true;
     stopRef.current = false;
     durationsRef.current = [];
     setState(s => ({ ...s, mode: 'processing', lastProgressAt: Date.now() }));
     startSmoothing();
-    pushActivity('info', 'Processing started');
+    pushActivity('info', `Processing started (run ${currentRunId.slice(0, 8)})`);
 
     let scenesProcessed = 0;
-    let currentRunId: string | null = null;
-    setState(s => { currentRunId = s.runId; return s; });
 
     try {
       let consecutiveEmpty = 0;
       while (!stopRef.current) {
         const result = await callEngine('process_next_rewrite_job', {
           projectId, sourceVersionId,
-          runId: currentRunId || undefined,
+          runId: currentRunId,
         });
 
         if (stopRef.current) break;
@@ -400,7 +409,7 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
 
         // Full status refresh every 5 scenes
         if (scenesProcessed % 5 === 0) {
-          const status = await callEngine('get_rewrite_status', { projectId, sourceVersionId, runId: currentRunId || undefined });
+          const status = await callEngine('get_rewrite_status', { projectId, sourceVersionId, runId: currentRunId });
           setState(s => ({
             ...s,
             total: status.total,
@@ -419,7 +428,7 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
       }
 
       // Final status
-      const finalStatus = await callEngine('get_rewrite_status', { projectId, sourceVersionId, runId: currentRunId || undefined });
+      const finalStatus = await callEngine('get_rewrite_status', { projectId, sourceVersionId, runId: currentRunId });
       const allDone = finalStatus.done === finalStatus.total;
 
       if (allDone && !stopRef.current && sourceDocId) {
@@ -430,7 +439,7 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
         try {
           const assembleResult = await callEngine('assemble_rewritten_script', {
             projectId, sourceDocId, sourceVersionId,
-            runId: currentRunId || undefined,
+            runId: currentRunId,
             rewriteModeSelected: 'auto',
             rewriteModeEffective: 'scene',
             rewriteModeReason: 'auto_probe_scene',
@@ -510,9 +519,11 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
       ? `Assembling (selective: ${state.scopePlan.target_scene_numbers.length} rewritten scenes)…`
       : 'Assembling final script…');
     try {
+      const currentRunId = runIdRef.current;
+      if (!currentRunId) throw new Error('Missing runId — please enqueue again.');
       const result = await callEngine('assemble_rewritten_script', {
         projectId, sourceDocId, sourceVersionId,
-        runId: state.runId || undefined,
+        runId: currentRunId,
         rewriteModeSelected: provenance?.rewriteModeSelected || state.selectedRewriteMode || 'auto',
         rewriteModeEffective: provenance?.rewriteModeEffective || 'scene',
         rewriteModeReason: provenance?.rewriteModeReason || 'auto_probe_scene',
@@ -730,6 +741,7 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
     stopSmoothing();
     setState(initialState);
     durationsRef.current = [];
+    runIdRef.current = null;
   }, [stopSmoothing]);
 
   const isSelective = state.scopePlan != null && state.targetSceneNumbers.length > 0 && state.targetSceneNumbers.length < state.totalScenesInScript;
