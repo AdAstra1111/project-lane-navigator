@@ -8351,6 +8351,7 @@ export type Database = {
           id: string
           inherited_core: Json | null
           inputs_used: Json | null
+          is_current: boolean
           is_stale: boolean | null
           label: string | null
           parent_version_id: string | null
@@ -8361,6 +8362,8 @@ export type Database = {
           stage: string | null
           stale_reason: string | null
           status: string | null
+          superseded_at: string | null
+          superseded_by: string | null
           version_number: number
         }
         Insert: {
@@ -8381,6 +8384,7 @@ export type Database = {
           id?: string
           inherited_core?: Json | null
           inputs_used?: Json | null
+          is_current?: boolean
           is_stale?: boolean | null
           label?: string | null
           parent_version_id?: string | null
@@ -8391,6 +8395,8 @@ export type Database = {
           stage?: string | null
           stale_reason?: string | null
           status?: string | null
+          superseded_at?: string | null
+          superseded_by?: string | null
           version_number?: number
         }
         Update: {
@@ -8411,6 +8417,7 @@ export type Database = {
           id?: string
           inherited_core?: Json | null
           inputs_used?: Json | null
+          is_current?: boolean
           is_stale?: boolean | null
           label?: string | null
           parent_version_id?: string | null
@@ -8421,6 +8428,8 @@ export type Database = {
           stage?: string | null
           stale_reason?: string | null
           status?: string | null
+          superseded_at?: string | null
+          superseded_by?: string | null
           version_number?: number
         }
         Relationships: [
@@ -10838,6 +10847,7 @@ export type Database = {
           prev_summary: string | null
           project_id: string
           protect_items: Json | null
+          run_id: string | null
           scene_graph_version_id: string | null
           scene_heading: string | null
           scene_id: string | null
@@ -10862,6 +10872,7 @@ export type Database = {
           prev_summary?: string | null
           project_id: string
           protect_items?: Json | null
+          run_id?: string | null
           scene_graph_version_id?: string | null
           scene_heading?: string | null
           scene_id?: string | null
@@ -10886,6 +10897,7 @@ export type Database = {
           prev_summary?: string | null
           project_id?: string
           protect_items?: Json | null
+          run_id?: string | null
           scene_graph_version_id?: string | null
           scene_heading?: string | null
           scene_id?: string | null
@@ -10910,6 +10922,13 @@ export type Database = {
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rewrite_jobs_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "rewrite_runs"
             referencedColumns: ["id"]
           },
         ]
@@ -10950,12 +10969,67 @@ export type Database = {
         }
         Relationships: []
       }
+      rewrite_runs: {
+        Row: {
+          created_at: string
+          id: string
+          project_id: string
+          source_doc_id: string
+          source_version_id: string
+          status: string
+          summary: string | null
+          target_scene_numbers: number[] | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          project_id: string
+          source_doc_id: string
+          source_version_id: string
+          status?: string
+          summary?: string | null
+          target_scene_numbers?: number[] | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          project_id?: string
+          source_doc_id?: string
+          source_version_id?: string
+          status?: string
+          summary?: string | null
+          target_scene_numbers?: number[] | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rewrite_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "rewrite_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       rewrite_scene_outputs: {
         Row: {
           created_at: string
           id: string
           project_id: string
           rewritten_text: string
+          run_id: string | null
           scene_id: string | null
           scene_number: number
           source_version_id: string
@@ -10968,6 +11042,7 @@ export type Database = {
           id?: string
           project_id: string
           rewritten_text: string
+          run_id?: string | null
           scene_id?: string | null
           scene_number: number
           source_version_id: string
@@ -10980,6 +11055,7 @@ export type Database = {
           id?: string
           project_id?: string
           rewritten_text?: string
+          run_id?: string | null
           scene_id?: string | null
           scene_number?: number
           source_version_id?: string
@@ -11000,6 +11076,13 @@ export type Database = {
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rewrite_scene_outputs_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "rewrite_runs"
             referencedColumns: ["id"]
           },
         ]
@@ -15539,39 +15622,79 @@ export type Database = {
         Args: { _file_path: string; _user_id: string }
         Returns: boolean
       }
-      claim_next_rewrite_job: {
-        Args: { p_project_id: string; p_source_version_id: string }
-        Returns: {
-          approved_notes: Json | null
-          attempts: number
-          claimed_at: string | null
-          created_at: string
-          error: string | null
-          finished_at: string | null
-          id: string
-          max_attempts: number
-          next_summary: string | null
-          prev_summary: string | null
-          project_id: string
-          protect_items: Json | null
-          scene_graph_version_id: string | null
-          scene_heading: string | null
-          scene_id: string | null
-          scene_number: number
-          source_doc_id: string
-          source_version_id: string
-          status: string
-          target_doc_type: string
-          updated_at: string
-          user_id: string
-        }[]
-        SetofOptions: {
-          from: "*"
-          to: "rewrite_jobs"
-          isOneToOne: false
-          isSetofReturn: true
-        }
-      }
+      claim_next_rewrite_job:
+        | {
+            Args: { p_project_id: string; p_source_version_id: string }
+            Returns: {
+              approved_notes: Json | null
+              attempts: number
+              claimed_at: string | null
+              created_at: string
+              error: string | null
+              finished_at: string | null
+              id: string
+              max_attempts: number
+              next_summary: string | null
+              prev_summary: string | null
+              project_id: string
+              protect_items: Json | null
+              run_id: string | null
+              scene_graph_version_id: string | null
+              scene_heading: string | null
+              scene_id: string | null
+              scene_number: number
+              source_doc_id: string
+              source_version_id: string
+              status: string
+              target_doc_type: string
+              updated_at: string
+              user_id: string
+            }[]
+            SetofOptions: {
+              from: "*"
+              to: "rewrite_jobs"
+              isOneToOne: false
+              isSetofReturn: true
+            }
+          }
+        | {
+            Args: {
+              p_project_id: string
+              p_run_id?: string
+              p_source_version_id: string
+            }
+            Returns: {
+              approved_notes: Json | null
+              attempts: number
+              claimed_at: string | null
+              created_at: string
+              error: string | null
+              finished_at: string | null
+              id: string
+              max_attempts: number
+              next_summary: string | null
+              prev_summary: string | null
+              project_id: string
+              protect_items: Json | null
+              run_id: string | null
+              scene_graph_version_id: string | null
+              scene_heading: string | null
+              scene_id: string | null
+              scene_number: number
+              source_doc_id: string
+              source_version_id: string
+              status: string
+              target_doc_type: string
+              updated_at: string
+              user_id: string
+            }[]
+            SetofOptions: {
+              from: "*"
+              to: "rewrite_jobs"
+              isOneToOne: false
+              isSetofReturn: true
+            }
+          }
       compute_outcome_deltas: {
         Args: { p_project_id: string }
         Returns: undefined
@@ -15649,6 +15772,10 @@ export type Database = {
           rank: number
           version_id: string
         }[]
+      }
+      set_current_version: {
+        Args: { p_document_id: string; p_new_version_id: string }
+        Returns: undefined
       }
     }
     Enums: {
