@@ -19,6 +19,7 @@ import {
 import { useNoteWritersRoom } from '@/hooks/useNoteWritersRoom';
 import { noteFingerprint } from '@/lib/decisions/fingerprint';
 import type { NoteOption, NoteOptionSet, NoteThreadSynthesis } from '@/lib/types/writers-room';
+import ReactMarkdown from 'react-markdown';
 
 interface NoteWritersRoomDrawerProps {
   open: boolean;
@@ -215,7 +216,13 @@ export function NoteWritersRoomDrawer({
                           ? 'bg-primary text-primary-foreground'
                           : 'bg-muted text-foreground'
                       }`}>
-                        {msg.content}
+                        {msg.role === 'assistant' ? (
+                          <div className="prose prose-xs prose-invert max-w-none [&_h1]:text-sm [&_h1]:font-bold [&_h1]:mt-2 [&_h1]:mb-1 [&_h2]:text-xs [&_h2]:font-semibold [&_h2]:mt-2 [&_h2]:mb-1 [&_h3]:text-xs [&_h3]:font-medium [&_h3]:mt-1.5 [&_h3]:mb-0.5 [&_p]:text-xs [&_p]:mb-1.5 [&_p]:leading-relaxed [&_ul]:text-xs [&_ul]:pl-4 [&_ul]:mb-1.5 [&_ol]:text-xs [&_ol]:pl-4 [&_ol]:mb-1.5 [&_li]:mb-0.5 [&_strong]:font-semibold [&_em]:italic [&_blockquote]:border-l-2 [&_blockquote]:border-primary/30 [&_blockquote]:pl-2 [&_blockquote]:italic [&_blockquote]:text-muted-foreground [&_code]:bg-background/50 [&_code]:px-1 [&_code]:rounded [&_code]:text-[10px]">
+                            <ReactMarkdown>{msg.content}</ReactMarkdown>
+                          </div>
+                        ) : (
+                          <span className="whitespace-pre-wrap">{msg.content}</span>
+                        )}
                       </div>
                     </div>
                   ))}
