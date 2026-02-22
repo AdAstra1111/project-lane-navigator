@@ -643,12 +643,20 @@ export function ScriptStudio({
     (async () => {
       const { data } = await (supabase as any)
         .from('project_document_versions')
-        .select('content_plaintext')
+        .select('plaintext')
         .eq('document_id', selectedDocId)
         .order('version_number', { ascending: false })
         .limit(1);
-      if (data?.[0]?.content_plaintext) {
-        setDisplayText(data[0].content_plaintext);
+      if (data?.[0]?.plaintext) {
+        setDisplayText(data[0].plaintext);
+      } else {
+        // Last resort: call document-text edge function
+        const { data: fnData } = await supabase.functions.invoke('document-text', {
+          body: { documentId: selectedDocId },
+        });
+        if (fnData?.plaintext) {
+          setDisplayText(fnData.plaintext);
+        }
       }
     })();
   }, [selectedDocId, documents]);
