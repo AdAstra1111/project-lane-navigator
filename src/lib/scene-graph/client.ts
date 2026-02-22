@@ -37,6 +37,17 @@ import type {
   ProjectSpine,
   CanonFact,
   NarrativeRepairOption,
+  // Phase 3 Story-Smart
+  BuildSpineInput,
+  BuildThreadLedgerInput,
+  TagSceneRolesInput,
+  TagAllSceneRolesInput,
+  NarrativeRepairInput,
+  ApplyRepairOptionInput,
+  StorySpineRecord,
+  ThreadLedgerRecord,
+  NarrativeRepairResponse,
+  ApplyRepairResponse,
   // Phase 4
   MetricsRunInput,
   MetricsGetLatestInput,
@@ -200,6 +211,32 @@ export async function narrativeRepairSuggest(input: NarrativeRepairSuggestInput)
 
 export async function narrativeRepairQueueOption(input: NarrativeRepairQueueOptionInput) {
   return callSceneGraph<{ queued_items: PatchQueueItem[] }>('narrative_repair_queue_option', input);
+}
+
+// Phase 3 Story-Smart actions
+
+export async function buildStorySpine(input: BuildSpineInput) {
+  return callSceneGraph<{ spine: StorySpineRecord; summary: string }>('scene_graph_build_spine', input);
+}
+
+export async function buildThreadLedger(input: BuildThreadLedgerInput) {
+  return callSceneGraph<{ ledger: ThreadLedgerRecord; summary: string }>('scene_graph_build_thread_ledger', input);
+}
+
+export async function tagSceneRoles(input: TagSceneRolesInput) {
+  return callSceneGraph<{ version: any }>('scene_graph_tag_scene_roles', input);
+}
+
+export async function tagAllSceneRoles(input: TagAllSceneRolesInput) {
+  return callSceneGraph<{ tagged_count: number; skipped_count: number }>('scene_graph_tag_all_scene_roles', input);
+}
+
+export async function narrativeRepair(input: NarrativeRepairInput) {
+  return callSceneGraph<NarrativeRepairResponse>('scene_graph_narrative_repair', input);
+}
+
+export async function applyRepairOption(input: ApplyRepairOptionInput) {
+  return callSceneGraph<ApplyRepairResponse>('scene_graph_apply_repair_option', input);
 }
 
 // Phase 4 actions

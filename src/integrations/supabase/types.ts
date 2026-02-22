@@ -10145,6 +10145,57 @@ export type Database = {
           },
         ]
       }
+      project_story_spines: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          project_id: string
+          source: string
+          spine: Json
+          status: string
+          summary: string | null
+          version: number
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          project_id: string
+          source?: string
+          spine?: Json
+          status?: string
+          summary?: string | null
+          version?: number
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          project_id?: string
+          source?: string
+          spine?: Json
+          status?: string
+          summary?: string | null
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_story_spines_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "project_story_spines_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       project_talent_triage: {
         Row: {
           commercial_case: string
@@ -10207,6 +10258,54 @@ export type Database = {
           },
           {
             foreignKeyName: "project_talent_triage_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_thread_ledgers: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          ledger: Json
+          project_id: string
+          status: string
+          summary: string | null
+          version: number
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          ledger?: Json
+          project_id: string
+          status?: string
+          summary?: string | null
+          version?: number
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          ledger?: Json
+          project_id?: string
+          status?: string
+          summary?: string | null
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_thread_ledgers_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "project_thread_ledgers_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"
@@ -11471,9 +11570,11 @@ export type Database = {
           id: string
           location: string | null
           metadata: Json
+          pacing_seconds: number | null
           project_id: string
           purpose: string | null
           scene_id: string
+          scene_roles: Json
           setup_payoff_emitted: Json
           setup_payoff_required: Json
           slugline: string | null
@@ -11481,6 +11582,8 @@ export type Database = {
           summary: string | null
           superseded_at: string | null
           supersedes_version_id: string | null
+          tension_delta: number | null
+          thread_links: Json
           time_of_day: string | null
           version_number: number
         }
@@ -11495,9 +11598,11 @@ export type Database = {
           id?: string
           location?: string | null
           metadata?: Json
+          pacing_seconds?: number | null
           project_id: string
           purpose?: string | null
           scene_id: string
+          scene_roles?: Json
           setup_payoff_emitted?: Json
           setup_payoff_required?: Json
           slugline?: string | null
@@ -11505,6 +11610,8 @@ export type Database = {
           summary?: string | null
           superseded_at?: string | null
           supersedes_version_id?: string | null
+          tension_delta?: number | null
+          thread_links?: Json
           time_of_day?: string | null
           version_number?: number
         }
@@ -11519,9 +11626,11 @@ export type Database = {
           id?: string
           location?: string | null
           metadata?: Json
+          pacing_seconds?: number | null
           project_id?: string
           purpose?: string | null
           scene_id?: string
+          scene_roles?: Json
           setup_payoff_emitted?: Json
           setup_payoff_required?: Json
           slugline?: string | null
@@ -11529,6 +11638,8 @@ export type Database = {
           summary?: string | null
           superseded_at?: string | null
           supersedes_version_id?: string | null
+          tension_delta?: number | null
+          thread_links?: Json
           time_of_day?: string | null
           version_number?: number
         }
@@ -11555,6 +11666,27 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      scene_role_taxonomy: {
+        Row: {
+          description: string
+          id: string
+          label: string
+          role_key: string
+        }
+        Insert: {
+          description: string
+          id?: string
+          label: string
+          role_key: string
+        }
+        Update: {
+          description?: string
+          id?: string
+          label?: string
+          role_key?: string
+        }
+        Relationships: []
       }
       scene_schedule: {
         Row: {

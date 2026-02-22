@@ -244,7 +244,7 @@ export interface ProjectSceneState {
   latest_snapshot_status: string | null;
 }
 
-// ── Phase 3 Types ──
+// ── Phase 3 Types (original) ──
 
 export interface ProjectSpine {
   id: string;
@@ -316,13 +316,20 @@ export type NarrativeRepairProblemType =
   | 'continuity_hole'
   | 'reveal_unearned'
   | 'pacing_issue'
-  | 'character_arc_jump';
+  | 'character_arc_jump'
+  | 'pacing_sag'
+  | 'twist_unearned'
+  | 'arc_jump'
+  | 'tone_inconsistent'
+  | 'confusing_transition';
 
 export interface NarrativeRepairProblem {
   type: NarrativeRepairProblemType;
   notes?: string;
   targetSceneId?: string;
   severity?: 'low' | 'med' | 'high';
+  description?: string;
+  constraints?: { preserveApproved?: boolean; maxNewScenes?: number };
 }
 
 export interface NarrativeRepairOption {
@@ -334,9 +341,11 @@ export interface NarrativeRepairOption {
   predicted_impact: { warnings: ImpactWarning[] };
   cascading_effects: string[];
   payload: Record<string, any>;
+  threads_affected?: string[];
+  expected_outcome?: string;
 }
 
-// Phase 3 inputs
+// Phase 3 inputs (original)
 export interface SpineRebuildInput {
   projectId: string;
   mode?: 'latest' | 'approved_prefer';
@@ -366,6 +375,135 @@ export interface NarrativeRepairSuggestInput {
 export interface NarrativeRepairQueueOptionInput {
   projectId: string;
   option: NarrativeRepairOption;
+}
+
+// ── Phase 3 Story-Smart Types ──
+
+export interface StorySpine {
+  logline: string;
+  genre: string;
+  tone: string;
+  premise: string;
+  acts: Array<{
+    act: number;
+    goal: string;
+    turning_points: Array<{ name: string; description: string; target_scene_hint: string | null }>;
+    pacing_notes: string | null;
+  }>;
+  character_arcs: Array<{ name: string; start_state: string; end_state: string; key_steps: string[] }>;
+  rules: {
+    world_rules: string[];
+    tone_rules: string[];
+    forbidden_changes: string[];
+  };
+}
+
+export interface StorySpineRecord {
+  id: string;
+  project_id: string;
+  created_at: string;
+  created_by: string | null;
+  status: string;
+  source: string;
+  spine: StorySpine;
+  summary: string | null;
+  version: number;
+}
+
+export interface ThreadItem {
+  thread_id: string;
+  type: 'mystery' | 'relationship' | 'goal' | 'lie' | 'clue' | 'setup_payoff' | 'theme';
+  title: string;
+  status: 'open' | 'paid' | 'moved' | 'removed';
+  introduced_in_scene_id: string | null;
+  resolved_in_scene_id: string | null;
+  beats: string[];
+  dependencies: string[];
+  notes: string | null;
+}
+
+export interface ThreadLedger {
+  threads: ThreadItem[];
+}
+
+export interface ThreadLedgerRecord {
+  id: string;
+  project_id: string;
+  created_at: string;
+  created_by: string | null;
+  status: string;
+  ledger: ThreadLedger;
+  summary: string | null;
+  version: number;
+}
+
+export interface SceneRoleTag {
+  role_key: string;
+  confidence: number;
+  note: string | null;
+}
+
+export interface SceneThreadLink {
+  thread_id: string;
+  relation: 'introduces' | 'advances' | 'complicates' | 'resolves' | 'references';
+  note: string | null;
+}
+
+export interface NarrativeRepairResponse {
+  options: [NarrativeRepairOption, NarrativeRepairOption, NarrativeRepairOption];
+  recommended_option_index: number;
+}
+
+export interface ApplyRepairRequest {
+  projectId: string;
+  option: NarrativeRepairOption;
+  applyMode?: 'draft' | 'propose';
+  mode?: 'latest' | 'approved_prefer';
+}
+
+export interface ApplyRepairResponse {
+  scenes: SceneListItem[];
+  impact: ImpactReport;
+  action_id: string;
+  patch_queue_ids: string[];
+}
+
+// Story-Smart inputs
+export interface BuildSpineInput {
+  projectId: string;
+  mode?: 'latest' | 'approved_prefer';
+  force?: boolean;
+}
+
+export interface BuildThreadLedgerInput {
+  projectId: string;
+  mode?: 'latest' | 'approved_prefer';
+  force?: boolean;
+}
+
+export interface TagSceneRolesInput {
+  projectId: string;
+  sceneId: string;
+  versionId?: string;
+  mode?: 'latest' | 'approved_prefer';
+}
+
+export interface TagAllSceneRolesInput {
+  projectId: string;
+  mode?: 'latest' | 'approved_prefer';
+}
+
+export interface NarrativeRepairInput {
+  projectId: string;
+  problem: NarrativeRepairProblem;
+  mode?: 'latest' | 'approved_prefer';
+}
+
+export interface ApplyRepairOptionInput {
+  projectId: string;
+  option: NarrativeRepairOption;
+  applyMode?: 'draft' | 'propose';
+  mode?: 'latest' | 'approved_prefer';
 }
 
 // ── Phase 4 Types ──
