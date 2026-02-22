@@ -148,6 +148,22 @@ Deno.serve(async (req) => {
         await markVersionApproved(db, documentVersionId, userId);
       }
 
+      // Auto-set primary if this is a script authority doc type
+      const SCRIPT_DOC_TYPES = ["season_script", "feature_script", "episode_script", "script", "pilot_script", "script_pdf"];
+      const parentDocType = parentDoc?.doc_type || "";
+      if (SCRIPT_DOC_TYPES.includes(parentDocType)) {
+        // Clear is_primary for other scripts in this project
+        await db.from("project_documents")
+          .update({ is_primary: false })
+          .eq("project_id", projectId)
+          .eq("is_primary", true)
+          .in("doc_type", SCRIPT_DOC_TYPES);
+        // Set this document as primary
+        await db.from("project_documents")
+          .update({ is_primary: true })
+          .eq("id", version.document_id);
+      }
+
       // Upsert into project_active_docs
       const { data: upserted, error: upsertErr } = await db.from("project_active_docs")
         .upsert({
