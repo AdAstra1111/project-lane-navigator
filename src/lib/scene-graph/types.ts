@@ -765,3 +765,112 @@ export interface ProductionBreakdownInput {
 export interface ProductionGetLatestInput {
   projectId: string;
 }
+
+// ── Phase 4 Change Sets Types ──
+
+export interface SceneChangeSet {
+  id: string;
+  project_id: string;
+  created_at: string;
+  created_by: string | null;
+  title: string;
+  description: string | null;
+  goal_type: string | null;
+  status: 'draft' | 'proposed' | 'applied' | 'rolled_back' | 'abandoned';
+  base_snapshot_id: string | null;
+  applied_snapshot_id: string | null;
+  metadata: Record<string, any>;
+  ops_count?: number;
+}
+
+export type ChangeSetOpType = 'insert' | 'remove' | 'move' | 'restore' | 'update_scene' | 'split' | 'merge' | 'rebalance' | 'apply_patch';
+
+export interface SceneChangeSetOp {
+  id: string;
+  change_set_id: string;
+  project_id: string;
+  created_at: string;
+  op_index: number;
+  op_type: ChangeSetOpType;
+  payload: Record<string, any>;
+  inverse: Record<string, any>;
+  status: 'pending' | 'executed' | 'failed' | 'reverted';
+  error: string | null;
+}
+
+export interface SceneDiffRow {
+  scene_id: string;
+  before_version_id: string | null;
+  after_version_id: string | null;
+  change_type: 'added' | 'removed' | 'moved' | 'edited' | 'unchanged';
+  before_excerpt: string | null;
+  after_excerpt: string | null;
+}
+
+export interface SnapshotDiffSummary {
+  added: number;
+  removed: number;
+  edited: number;
+  moved: number;
+  unchanged: number;
+  impacted_scene_ids: string[];
+}
+
+export interface ChangeSetPreview {
+  preview_snapshot_content: string;
+  scene_diff: SceneDiffRow[];
+  snapshot_diff: SnapshotDiffSummary;
+}
+
+// Change Set inputs
+export interface ChangeSetCreateInput {
+  projectId: string;
+  title: string;
+  description?: string;
+  goal_type?: string;
+  baseSnapshotMode?: 'latest' | 'approved_prefer';
+}
+
+export interface ChangeSetListInput {
+  projectId: string;
+  limit?: number;
+}
+
+export interface ChangeSetGetInput {
+  projectId: string;
+  changeSetId: string;
+}
+
+export interface ChangeSetAddOpInput {
+  projectId: string;
+  changeSetId: string;
+  op: { op_type: ChangeSetOpType; payload: Record<string, any> };
+}
+
+export interface ChangeSetRemoveOpInput {
+  projectId: string;
+  changeSetId: string;
+  opId: string;
+}
+
+export interface ChangeSetProposeInput {
+  projectId: string;
+  changeSetId: string;
+}
+
+export interface ChangeSetPreviewInput {
+  projectId: string;
+  changeSetId: string;
+  previewMode?: 'simulate';
+}
+
+export interface ChangeSetApplyInput {
+  projectId: string;
+  changeSetId: string;
+  applyMode?: 'draft' | 'propose';
+}
+
+export interface ChangeSetRollbackInput {
+  projectId: string;
+  changeSetId: string;
+}

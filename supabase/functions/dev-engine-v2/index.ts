@@ -8408,6 +8408,666 @@ SCENE MAP: ${JSON.stringify(sceneMapCompact).slice(0, 15000)}`;
       });
     }
 
+    // ══════════════════════════════════════════════
+    // PHASE 4 CHANGE SETS: CHANGE SET ACTIONS
+    // ══════════════════════════════════════════════
+
+    if (action === "change_set_create") {
+      const { projectId, title, description, goal_type, baseSnapshotMode } = body;
+      if (!projectId || !title) throw new Error("projectId and title required");
+      const useMode = baseSnapshotMode || 'latest';
+
+      // Build a base snapshot
+      const { data: orderRows } = await supabase.from("scene_graph_order")
+        .select("scene_id, order_key, act, sequence")
+        .eq("project_id", projectId).eq("is_active", true)
+        .order("order_key", { ascending: true });
+
+      let baseSnapshotId: string | null = null;
+      if (orderRows && orderRows.length > 0) {
+        const sceneIds = orderRows.map((r: any) => r.scene_id);
+        const { data: allVersions } = await supabase.from("scene_graph_versions")
+          .select("*").in("scene_id", sceneIds)
+          .order("version_number", { ascending: false });
+
+        const selectedVersions = new Map<string, any>();
+        for (const sid of sceneIds) {
+          const versions = (allVersions || []).filter((v: any) => v.scene_id === sid);
+          if (useMode === 'approved_prefer') {
+            const approved = versions.filter((v: any) => v.status === 'approved')
+              .sort((a: any, b: any) => b.version_number - a.version_number);
+            selectedVersions.set(sid, approved[0] || versions[0]);
+          } else {
+            selectedVersions.set(sid, versions[0]);
+          }
+        }
+
+        const sceneOrder = orderRows.map((o: any) => ({
+          scene_id: o.scene_id,
+          version_id: selectedVersions.get(o.scene_id)?.id || null,
+          order_key: o.order_key, act: o.act, sequence: o.sequence,
+        }));
+        const assembledContent = orderRows.map((o: any) => selectedVersions.get(o.scene_id)?.content || '').join('\n\n');
+
+        const { data: snap } = await supabase.from("scene_graph_snapshots").insert({
+          project_id: projectId, created_by: user.id,
+          label: `Base for: ${title}`,
+          assembly: { scene_order: sceneOrder, generated_at: new Date().toISOString(), mode: useMode },
+          content: assembledContent, status: 'draft',
+        }).select("id").single();
+        if (snap) baseSnapshotId = snap.id;
+      }
+
+      const { data: cs, error: csErr } = await supabase.from("scene_change_sets").insert({
+        project_id: projectId, created_by: user.id,
+        title, description: description || null, goal_type: goal_type || null,
+        status: 'draft', base_snapshot_id: baseSnapshotId,
+        metadata: { base_mode: useMode },
+      }).select().single();
+      if (csErr) throw csErr;
+
+      return new Response(JSON.stringify({ change_set: cs }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "change_set_list") {
+      const { projectId, limit: lim } = body;
+      if (!projectId) throw new Error("projectId required");
+      const q = supabase.from("scene_change_sets")
+        .select("*").eq("project_id", projectId)
+        .order("created_at", { ascending: false }).limit(lim || 20);
+      const { data: sets } = await q;
+
+      // Attach ops counts
+      const result = [];
+      for (const cs of (sets || [])) {
+        const { count } = await supabase.from("scene_change_set_ops")
+          .select("id", { count: 'exact', head: true })
+          .eq("change_set_id", cs.id);
+        result.push({ ...cs, ops_count: count || 0 });
+      }
+
+      return new Response(JSON.stringify({ change_sets: result }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "change_set_get") {
+      const { projectId, changeSetId } = body;
+      if (!projectId || !changeSetId) throw new Error("projectId and changeSetId required");
+
+      const { data: cs } = await supabase.from("scene_change_sets")
+        .select("*").eq("id", changeSetId).eq("project_id", projectId).single();
+      if (!cs) throw new Error("Change set not found");
+
+      const { data: ops } = await supabase.from("scene_change_set_ops")
+        .select("*").eq("change_set_id", changeSetId)
+        .order("op_index", { ascending: true });
+
+      return new Response(JSON.stringify({ change_set: cs, ops: ops || [] }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "change_set_add_op") {
+      const { projectId, changeSetId, op } = body;
+      if (!projectId || !changeSetId || !op) throw new Error("projectId, changeSetId, op required");
+
+      // Verify change set is draft
+      const { data: cs } = await supabase.from("scene_change_sets")
+        .select("status").eq("id", changeSetId).eq("project_id", projectId).single();
+      if (!cs) throw new Error("Change set not found");
+      if (cs.status !== 'draft') throw new Error("Can only add ops to draft change sets");
+
+      // Get next op_index
+      const { data: maxOp } = await supabase.from("scene_change_set_ops")
+        .select("op_index").eq("change_set_id", changeSetId)
+        .order("op_index", { ascending: false }).limit(1).maybeSingle();
+      const nextIdx = (maxOp?.op_index ?? -1) + 1;
+
+      // Compute inverse stub based on op_type
+      let inverse: any = {};
+      if (op.op_type === 'remove' && op.payload?.sceneId) {
+        // Inverse is restore
+        inverse = { op_type: 'restore', sceneId: op.payload.sceneId };
+      } else if (op.op_type === 'insert') {
+        inverse = { op_type: 'remove', note: 'will be filled with scene_id on execution' };
+      } else if (op.op_type === 'move' && op.payload?.sceneId) {
+        // Will be filled with original position on execution
+        inverse = { op_type: 'move', sceneId: op.payload.sceneId, note: 'original position stored on execution' };
+      } else if (op.op_type === 'update_scene') {
+        inverse = { op_type: 'update_scene', note: 'prior version stored on execution' };
+      }
+
+      await supabase.from("scene_change_set_ops").insert({
+        change_set_id: changeSetId, project_id: projectId,
+        op_index: nextIdx, op_type: op.op_type,
+        payload: op.payload || {}, inverse, status: 'pending',
+      });
+
+      const { data: ops } = await supabase.from("scene_change_set_ops")
+        .select("*").eq("change_set_id", changeSetId)
+        .order("op_index", { ascending: true });
+
+      return new Response(JSON.stringify({ ops: ops || [] }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "change_set_remove_op") {
+      const { projectId, changeSetId, opId } = body;
+      if (!projectId || !changeSetId || !opId) throw new Error("projectId, changeSetId, opId required");
+
+      const { data: cs } = await supabase.from("scene_change_sets")
+        .select("status").eq("id", changeSetId).eq("project_id", projectId).single();
+      if (!cs) throw new Error("Change set not found");
+      if (cs.status !== 'draft') throw new Error("Can only remove ops from draft change sets");
+
+      await supabase.from("scene_change_set_ops").delete().eq("id", opId).eq("change_set_id", changeSetId);
+
+      const { data: ops } = await supabase.from("scene_change_set_ops")
+        .select("*").eq("change_set_id", changeSetId)
+        .order("op_index", { ascending: true });
+
+      return new Response(JSON.stringify({ ops: ops || [] }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "change_set_propose") {
+      const { projectId, changeSetId } = body;
+      if (!projectId || !changeSetId) throw new Error("projectId and changeSetId required");
+
+      const { data: cs, error: csErr } = await supabase.from("scene_change_sets")
+        .update({ status: 'proposed' })
+        .eq("id", changeSetId).eq("project_id", projectId)
+        .select().single();
+      if (csErr) throw csErr;
+
+      return new Response(JSON.stringify({ change_set: cs }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "change_set_preview") {
+      const { projectId, changeSetId } = body;
+      if (!projectId || !changeSetId) throw new Error("projectId and changeSetId required");
+
+      // Get change set + ops
+      const { data: cs } = await supabase.from("scene_change_sets")
+        .select("*").eq("id", changeSetId).eq("project_id", projectId).single();
+      if (!cs) throw new Error("Change set not found");
+
+      const { data: ops } = await supabase.from("scene_change_set_ops")
+        .select("*").eq("change_set_id", changeSetId)
+        .order("op_index", { ascending: true });
+
+      // Get current live state
+      const { data: orderRows } = await supabase.from("scene_graph_order")
+        .select("scene_id, order_key, act, sequence, is_active")
+        .eq("project_id", projectId).eq("is_active", true)
+        .order("order_key", { ascending: true });
+
+      const sceneIds = (orderRows || []).map((r: any) => r.scene_id);
+      const { data: allVersions } = await supabase.from("scene_graph_versions")
+        .select("id, scene_id, version_number, slugline, summary, content")
+        .in("scene_id", sceneIds.length > 0 ? sceneIds : ['__none__'])
+        .order("version_number", { ascending: false });
+
+      const latestVersionMap = new Map<string, any>();
+      for (const v of (allVersions || [])) {
+        if (!latestVersionMap.has(v.scene_id)) latestVersionMap.set(v.scene_id, v);
+      }
+
+      // Build before-state: ordered scene entries
+      const beforeState = (orderRows || []).map((o: any) => ({
+        scene_id: o.scene_id,
+        order_key: o.order_key,
+        version_id: latestVersionMap.get(o.scene_id)?.id || null,
+        content: latestVersionMap.get(o.scene_id)?.content || '',
+        slugline: latestVersionMap.get(o.scene_id)?.slugline || '',
+      }));
+
+      // Simulate ops to build after-state (in-memory only)
+      const afterState = JSON.parse(JSON.stringify(beforeState));
+      let nextPlaceholder = 0;
+
+      for (const op of (ops || [])) {
+        if (op.op_type === 'insert') {
+          const pos = op.payload?.position || {};
+          const draft = op.payload?.sceneDraft || {};
+          const newEntry = {
+            scene_id: `__new_${nextPlaceholder++}__`,
+            order_key: `sim_${nextPlaceholder}`,
+            version_id: null,
+            content: draft.content || '[New scene content]',
+            slugline: draft.slugline || 'NEW SCENE',
+          };
+          // Insert at position
+          if (pos.afterSceneId) {
+            const idx = afterState.findIndex((s: any) => s.scene_id === pos.afterSceneId);
+            afterState.splice(idx >= 0 ? idx + 1 : afterState.length, 0, newEntry);
+          } else if (pos.beforeSceneId) {
+            const idx = afterState.findIndex((s: any) => s.scene_id === pos.beforeSceneId);
+            afterState.splice(idx >= 0 ? idx : 0, 0, newEntry);
+          } else {
+            afterState.push(newEntry);
+          }
+        } else if (op.op_type === 'remove' && op.payload?.sceneId) {
+          const idx = afterState.findIndex((s: any) => s.scene_id === op.payload.sceneId);
+          if (idx >= 0) afterState.splice(idx, 1);
+        } else if (op.op_type === 'move' && op.payload?.sceneId) {
+          const idx = afterState.findIndex((s: any) => s.scene_id === op.payload.sceneId);
+          if (idx >= 0) {
+            const [entry] = afterState.splice(idx, 1);
+            const pos = op.payload?.position || {};
+            if (pos.afterSceneId) {
+              const tgt = afterState.findIndex((s: any) => s.scene_id === pos.afterSceneId);
+              afterState.splice(tgt >= 0 ? tgt + 1 : afterState.length, 0, entry);
+            } else if (pos.beforeSceneId) {
+              const tgt = afterState.findIndex((s: any) => s.scene_id === pos.beforeSceneId);
+              afterState.splice(tgt >= 0 ? tgt : 0, 0, entry);
+            } else {
+              afterState.push(entry);
+            }
+          }
+        } else if (op.op_type === 'update_scene' && op.payload?.sceneId) {
+          const entry = afterState.find((s: any) => s.scene_id === op.payload.sceneId);
+          if (entry) {
+            if (op.payload.patch?.content) entry.content = op.payload.patch.content;
+            if (op.payload.patch?.slugline) entry.slugline = op.payload.patch.slugline;
+            entry.version_id = `__updated_${nextPlaceholder++}__`;
+          }
+        }
+      }
+
+      // Build diffs
+      const beforeIds = new Set(beforeState.map((s: any) => s.scene_id));
+      const afterIds = new Set(afterState.map((s: any) => s.scene_id));
+      const beforePositions = new Map(beforeState.map((s: any, i: number) => [s.scene_id, i]));
+      const afterPositions = new Map(afterState.map((s: any, i: number) => [s.scene_id, i]));
+      const beforeVersions = new Map(beforeState.map((s: any) => [s.scene_id, s.version_id]));
+
+      const sceneDiff: any[] = [];
+
+      // Added scenes
+      for (const s of afterState) {
+        if (!beforeIds.has(s.scene_id)) {
+          sceneDiff.push({
+            scene_id: s.scene_id, before_version_id: null, after_version_id: s.version_id,
+            change_type: 'added', before_excerpt: null, after_excerpt: (s.content || '').slice(0, 200),
+          });
+        }
+      }
+
+      // Removed scenes
+      for (const s of beforeState) {
+        if (!afterIds.has(s.scene_id)) {
+          sceneDiff.push({
+            scene_id: s.scene_id, before_version_id: s.version_id, after_version_id: null,
+            change_type: 'removed', before_excerpt: (s.content || '').slice(0, 200), after_excerpt: null,
+          });
+        }
+      }
+
+      // Moved / edited / unchanged
+      for (const s of afterState) {
+        if (beforeIds.has(s.scene_id)) {
+          const beforeVer = beforeVersions.get(s.scene_id);
+          const beforePos = beforePositions.get(s.scene_id);
+          const afterPos = afterPositions.get(s.scene_id);
+          const edited = beforeVer !== s.version_id;
+          const moved = beforePos !== afterPos;
+          const bEntry = beforeState.find((b: any) => b.scene_id === s.scene_id);
+
+          if (edited) {
+            sceneDiff.push({
+              scene_id: s.scene_id, before_version_id: beforeVer, after_version_id: s.version_id,
+              change_type: 'edited', before_excerpt: (bEntry?.content || '').slice(0, 200),
+              after_excerpt: (s.content || '').slice(0, 200),
+            });
+          } else if (moved) {
+            sceneDiff.push({
+              scene_id: s.scene_id, before_version_id: beforeVer, after_version_id: s.version_id,
+              change_type: 'moved', before_excerpt: (bEntry?.content || '').slice(0, 100),
+              after_excerpt: null,
+            });
+          }
+          // Unchanged scenes are not included in diff output for brevity
+        }
+      }
+
+      const summary = {
+        added: sceneDiff.filter((d: any) => d.change_type === 'added').length,
+        removed: sceneDiff.filter((d: any) => d.change_type === 'removed').length,
+        edited: sceneDiff.filter((d: any) => d.change_type === 'edited').length,
+        moved: sceneDiff.filter((d: any) => d.change_type === 'moved').length,
+        unchanged: afterState.filter((s: any) => beforeIds.has(s.scene_id) && beforeVersions.get(s.scene_id) === s.version_id && beforePositions.get(s.scene_id) === afterPositions.get(s.scene_id)).length,
+        impacted_scene_ids: sceneDiff.map((d: any) => d.scene_id),
+      };
+
+      const previewContent = afterState.map((s: any) => s.content || '').join('\n\n');
+
+      return new Response(JSON.stringify({
+        preview_snapshot_content: previewContent,
+        scene_diff: sceneDiff,
+        snapshot_diff: summary,
+      }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "change_set_apply") {
+      const { projectId, changeSetId, applyMode } = body;
+      if (!projectId || !changeSetId) throw new Error("projectId and changeSetId required");
+
+      const { data: cs } = await supabase.from("scene_change_sets")
+        .select("*").eq("id", changeSetId).eq("project_id", projectId).single();
+      if (!cs) throw new Error("Change set not found");
+      if (!['draft', 'proposed'].includes(cs.status)) throw new Error("Change set must be draft or proposed to apply");
+
+      const { data: ops } = await supabase.from("scene_change_set_ops")
+        .select("*").eq("change_set_id", changeSetId)
+        .order("op_index", { ascending: true });
+
+      const executedOps: any[] = [];
+      let allSuccess = true;
+
+      for (const op of (ops || [])) {
+        try {
+          let realInverse: any = {};
+
+          if (op.op_type === 'insert') {
+            const pos = op.payload?.position || {};
+            const draft = op.payload?.sceneDraft || {};
+            const intent = op.payload?.intent || { type: 'change_set', notes: cs.title };
+
+            // Create scene
+            const { data: scene } = await supabase.from("scene_graph_scenes").insert({
+              project_id: projectId, scene_kind: 'narrative', created_by: user.id,
+              provenance: { source: 'change_set', change_set_id: changeSetId },
+            }).select().single();
+
+            // Compute order key
+            let prevKey: string | null = null;
+            let nextKey: string | null = null;
+            if (pos.afterSceneId) {
+              const { data: d } = await supabase.from("scene_graph_order")
+                .select("order_key").eq("project_id", projectId).eq("scene_id", pos.afterSceneId).eq("is_active", true).single();
+              if (d) prevKey = d.order_key;
+            }
+            if (pos.beforeSceneId) {
+              const { data: d } = await supabase.from("scene_graph_order")
+                .select("order_key").eq("project_id", projectId).eq("scene_id", pos.beforeSceneId).eq("is_active", true).single();
+              if (d) nextKey = d.order_key;
+            }
+            const newKey = sgKeyBetween(prevKey, nextKey);
+
+            await supabase.from("scene_graph_order").insert({
+              project_id: projectId, scene_id: scene.id, order_key: newKey,
+              is_active: true, inserted_reason: 'change_set',
+              inserted_intent: intent,
+            });
+
+            const parsed = sgParseSlugline(draft.slugline || '');
+            await supabase.from("scene_graph_versions").insert({
+              scene_id: scene.id, project_id: projectId, version_number: 1,
+              status: applyMode === 'propose' ? 'proposed' : 'draft',
+              created_by: user.id,
+              slugline: parsed.slugline, location: parsed.location, time_of_day: parsed.time_of_day,
+              content: draft.content || '', summary: draft.summary || '',
+            });
+
+            realInverse = { op_type: 'remove', sceneId: scene.id, order_key: newKey };
+
+            // Log action
+            await sgLogAction(supabase, projectId, user.id, 'insert_scene', {
+              scene_id: scene.id, order_key: newKey, change_set_id: changeSetId,
+            }, realInverse);
+
+          } else if (op.op_type === 'remove') {
+            const sceneId = op.payload?.sceneId;
+            if (!sceneId) throw new Error("remove op requires sceneId");
+
+            const { data: priorOrd } = await supabase.from("scene_graph_order")
+              .select("order_key, is_active").eq("project_id", projectId).eq("scene_id", sceneId).single();
+
+            await supabase.from("scene_graph_order")
+              .update({ is_active: false }).eq("project_id", projectId).eq("scene_id", sceneId);
+            await supabase.from("scene_graph_scenes")
+              .update({ deprecated_at: new Date().toISOString() }).eq("id", sceneId);
+
+            realInverse = { op_type: 'restore', sceneId, order_key: priorOrd?.order_key, was_active: priorOrd?.is_active };
+
+            await sgLogAction(supabase, projectId, user.id, 'remove_scene', {
+              scene_id: sceneId, change_set_id: changeSetId,
+            }, realInverse);
+
+          } else if (op.op_type === 'move') {
+            const sceneId = op.payload?.sceneId;
+            const position = op.payload?.position;
+            if (!sceneId) throw new Error("move op requires sceneId");
+
+            const { data: priorOrd } = await supabase.from("scene_graph_order")
+              .select("order_key").eq("project_id", projectId).eq("scene_id", sceneId).eq("is_active", true).single();
+
+            let prevKey: string | null = null;
+            let nextKey: string | null = null;
+            if (position?.afterSceneId) {
+              const { data: d } = await supabase.from("scene_graph_order")
+                .select("order_key").eq("project_id", projectId).eq("scene_id", position.afterSceneId).eq("is_active", true).single();
+              if (d) prevKey = d.order_key;
+            }
+            if (position?.beforeSceneId) {
+              const { data: d } = await supabase.from("scene_graph_order")
+                .select("order_key").eq("project_id", projectId).eq("scene_id", position.beforeSceneId).eq("is_active", true).single();
+              if (d) nextKey = d.order_key;
+            }
+            const newKey = sgKeyBetween(prevKey, nextKey);
+            await supabase.from("scene_graph_order")
+              .update({ order_key: newKey }).eq("project_id", projectId).eq("scene_id", sceneId);
+
+            realInverse = { op_type: 'move', sceneId, original_order_key: priorOrd?.order_key };
+
+            await sgLogAction(supabase, projectId, user.id, 'move_scene', {
+              scene_id: sceneId, new_order_key: newKey, change_set_id: changeSetId,
+            }, realInverse);
+
+          } else if (op.op_type === 'update_scene') {
+            const sceneId = op.payload?.sceneId;
+            const patch = op.payload?.patch || {};
+            if (!sceneId) throw new Error("update_scene op requires sceneId");
+
+            const { data: priorVer } = await supabase.from("scene_graph_versions")
+              .select("id, version_number").eq("scene_id", sceneId)
+              .order("version_number", { ascending: false }).limit(1).single();
+
+            const propose = applyMode === 'propose';
+            const { data: newVer } = await supabase.rpc("next_scene_version", {
+              p_scene_id: sceneId, p_project_id: projectId,
+              p_patch: patch, p_propose: propose, p_created_by: user.id,
+            });
+
+            realInverse = { op_type: 'update_scene', sceneId, prior_version_id: priorVer?.id, prior_version_number: priorVer?.version_number };
+
+            await sgLogAction(supabase, projectId, user.id, 'update_scene', {
+              scene_id: sceneId, change_set_id: changeSetId,
+            }, realInverse);
+
+          } else if (op.op_type === 'restore') {
+            const sceneId = op.payload?.sceneId;
+            if (!sceneId) throw new Error("restore op requires sceneId");
+
+            await supabase.from("scene_graph_order")
+              .update({ is_active: true }).eq("project_id", projectId).eq("scene_id", sceneId);
+            await supabase.from("scene_graph_scenes")
+              .update({ deprecated_at: null }).eq("id", sceneId);
+
+            realInverse = { op_type: 'remove', sceneId };
+
+          } else if (op.op_type === 'rebalance') {
+            // Rebalance all order keys
+            const { data: rows } = await supabase.from("scene_graph_order")
+              .select("id, scene_id, order_key").eq("project_id", projectId).eq("is_active", true)
+              .order("order_key", { ascending: true });
+
+            const oldKeys = (rows || []).map((r: any) => ({ id: r.id, scene_id: r.scene_id, order_key: r.order_key }));
+            const step = 1000;
+            for (let i = 0; i < (rows || []).length; i++) {
+              const newKey = String((i + 1) * step).padStart(10, '0');
+              await supabase.from("scene_graph_order").update({ order_key: newKey }).eq("id", rows![i].id);
+            }
+
+            realInverse = { op_type: 'rebalance', old_keys: oldKeys };
+          }
+
+          // Mark op executed
+          await supabase.from("scene_change_set_ops").update({
+            status: 'executed', inverse: realInverse,
+          }).eq("id", op.id);
+
+          executedOps.push({ ...op, status: 'executed', inverse: realInverse });
+
+        } catch (opErr: any) {
+          allSuccess = false;
+          await supabase.from("scene_change_set_ops").update({
+            status: 'failed', error: opErr.message || 'Unknown error',
+          }).eq("id", op.id);
+          executedOps.push({ ...op, status: 'failed', error: opErr.message });
+          break; // Stop on first failure
+        }
+      }
+
+      // Rebuild snapshot after apply
+      let appliedSnapshot: any = null;
+      if (allSuccess) {
+        const { data: orderRows2 } = await supabase.from("scene_graph_order")
+          .select("scene_id, order_key, act, sequence")
+          .eq("project_id", projectId).eq("is_active", true)
+          .order("order_key", { ascending: true });
+
+        if (orderRows2 && orderRows2.length > 0) {
+          const sIds = orderRows2.map((r: any) => r.scene_id);
+          const { data: vers } = await supabase.from("scene_graph_versions")
+            .select("*").in("scene_id", sIds).order("version_number", { ascending: false });
+          const lm = new Map<string, any>();
+          for (const v of (vers || [])) { if (!lm.has(v.scene_id)) lm.set(v.scene_id, v); }
+
+          const so = orderRows2.map((o: any) => ({
+            scene_id: o.scene_id, version_id: lm.get(o.scene_id)?.id || null,
+            order_key: o.order_key, act: o.act, sequence: o.sequence,
+          }));
+          const content = orderRows2.map((o: any) => lm.get(o.scene_id)?.content || '').join('\n\n');
+
+          const { data: snap } = await supabase.from("scene_graph_snapshots").insert({
+            project_id: projectId, created_by: user.id,
+            label: `Applied: ${cs.title}`,
+            assembly: { scene_order: so, generated_at: new Date().toISOString(), mode: 'latest' },
+            content, status: 'draft',
+          }).select().single();
+          appliedSnapshot = snap;
+        }
+
+        await supabase.from("scene_change_sets").update({
+          status: 'applied', applied_snapshot_id: appliedSnapshot?.id || null,
+        }).eq("id", changeSetId);
+      }
+
+      // Compute impact
+      const impact = await sgComputeImpact(supabase, projectId, 'change_set_apply', []);
+
+      return new Response(JSON.stringify({
+        change_set: { ...cs, status: allSuccess ? 'applied' : cs.status, applied_snapshot_id: appliedSnapshot?.id },
+        snapshot: appliedSnapshot,
+        impact,
+        ops: executedOps,
+      }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "change_set_rollback") {
+      const { projectId, changeSetId } = body;
+      if (!projectId || !changeSetId) throw new Error("projectId and changeSetId required");
+
+      const { data: cs } = await supabase.from("scene_change_sets")
+        .select("*").eq("id", changeSetId).eq("project_id", projectId).single();
+      if (!cs) throw new Error("Change set not found");
+      if (cs.status !== 'applied') throw new Error("Can only rollback applied change sets");
+
+      // Get ops in reverse order
+      const { data: ops } = await supabase.from("scene_change_set_ops")
+        .select("*").eq("change_set_id", changeSetId).eq("status", "executed")
+        .order("op_index", { ascending: false });
+
+      for (const op of (ops || [])) {
+        const inv = op.inverse || {};
+        try {
+          if (inv.op_type === 'remove' && inv.sceneId) {
+            await supabase.from("scene_graph_order")
+              .update({ is_active: false }).eq("project_id", projectId).eq("scene_id", inv.sceneId);
+            await supabase.from("scene_graph_scenes")
+              .update({ deprecated_at: new Date().toISOString() }).eq("id", inv.sceneId);
+          } else if (inv.op_type === 'restore' && inv.sceneId) {
+            await supabase.from("scene_graph_order")
+              .update({ is_active: true, order_key: inv.order_key || '' }).eq("project_id", projectId).eq("scene_id", inv.sceneId);
+            await supabase.from("scene_graph_scenes")
+              .update({ deprecated_at: null }).eq("id", inv.sceneId);
+          } else if (inv.op_type === 'move' && inv.sceneId && inv.original_order_key) {
+            await supabase.from("scene_graph_order")
+              .update({ order_key: inv.original_order_key }).eq("project_id", projectId).eq("scene_id", inv.sceneId);
+          } else if (inv.op_type === 'rebalance' && inv.old_keys) {
+            for (const k of inv.old_keys) {
+              await supabase.from("scene_graph_order").update({ order_key: k.order_key }).eq("id", k.id);
+            }
+          }
+          // For update_scene rollback, we don't delete versions (immutable versioning)
+          // The prior version remains and new version stays as a record
+
+          await supabase.from("scene_change_set_ops").update({ status: 'reverted' }).eq("id", op.id);
+        } catch (revErr: any) {
+          console.error("Rollback op error:", revErr);
+          await supabase.from("scene_change_set_ops").update({
+            status: 'failed', error: `Rollback error: ${revErr.message}`,
+          }).eq("id", op.id);
+        }
+      }
+
+      // Rebuild snapshot
+      let restoredSnapshot: any = null;
+      const { data: orderRows3 } = await supabase.from("scene_graph_order")
+        .select("scene_id, order_key, act, sequence")
+        .eq("project_id", projectId).eq("is_active", true)
+        .order("order_key", { ascending: true });
+
+      if (orderRows3 && orderRows3.length > 0) {
+        const sIds = orderRows3.map((r: any) => r.scene_id);
+        const { data: vers } = await supabase.from("scene_graph_versions")
+          .select("*").in("scene_id", sIds).order("version_number", { ascending: false });
+        const lm = new Map<string, any>();
+        for (const v of (vers || [])) { if (!lm.has(v.scene_id)) lm.set(v.scene_id, v); }
+
+        const content = orderRows3.map((o: any) => lm.get(o.scene_id)?.content || '').join('\n\n');
+        const { data: snap } = await supabase.from("scene_graph_snapshots").insert({
+          project_id: projectId, created_by: user.id,
+          label: `Rolled back: ${cs.title}`,
+          assembly: { scene_order: orderRows3.map((o: any) => ({ scene_id: o.scene_id, version_id: lm.get(o.scene_id)?.id, order_key: o.order_key, act: o.act, sequence: o.sequence })), generated_at: new Date().toISOString(), mode: 'latest' },
+          content, status: 'draft',
+        }).select().single();
+        restoredSnapshot = snap;
+      }
+
+      await supabase.from("scene_change_sets").update({ status: 'rolled_back' }).eq("id", changeSetId);
+
+      return new Response(JSON.stringify({
+        change_set: { ...cs, status: 'rolled_back' },
+        snapshot: restoredSnapshot,
+      }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     throw new Error(`Unknown action: ${action}`);
   } catch (err: any) {
     console.error("dev-engine-v2 error:", err);
