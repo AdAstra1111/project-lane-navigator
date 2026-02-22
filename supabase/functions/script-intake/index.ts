@@ -93,10 +93,9 @@ async function ingestPdf(
         role: "user",
         content: [
           {
-            type: "file",
-            file: {
-              filename: "script.pdf",
-              file_data: `data:application/pdf;base64,${base64Pdf}`,
+            type: "image_url",
+            image_url: {
+              url: `data:application/pdf;base64,${base64Pdf}`,
             },
           },
           {
