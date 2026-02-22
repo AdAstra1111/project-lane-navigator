@@ -565,15 +565,13 @@ export default function ProjectDevelopmentEngine() {
     };
 
     if (textLength > 30000 && selectedDocId && selectedVersionId) {
-      const selected = sceneRewrite.selectedRewriteMode; // 'auto' | 'scene' | 'chunk'
+      const selected = sceneRewrite.selectedRewriteMode;
 
-      // Ensure probe exists for auto or scene modes
       let probe = sceneRewrite.probeResult;
       if (!probe && selected !== 'chunk') {
         probe = await sceneRewrite.probe(selectedDocId, selectedVersionId) ?? null;
       }
 
-      // Determine effectiveMode and reason
       let effectiveMode: 'scene' | 'chunk' = 'chunk';
       let rewriteModeReason = 'fallback_error';
 
@@ -590,7 +588,6 @@ export default function ProjectDevelopmentEngine() {
           rewriteModeReason = 'user_selected_scene';
         }
       } else {
-        // 'auto'
         if (probe?.has_scenes) {
           effectiveMode = 'scene';
           rewriteModeReason = 'auto_probe_scene';
@@ -619,11 +616,37 @@ export default function ProjectDevelopmentEngine() {
       };
 
       if (effectiveMode === 'scene') {
-        const enqueueResult = await sceneRewrite.enqueue(selectedDocId, selectedVersionId, enrichedNotes, protectItems);
-        if (enqueueResult) {
-          sceneRewrite.processAll(selectedVersionId);
+        // Build scope plan for selective rewrite
+        const scenes = sceneRewrite.scenes.length > 0
+          ? sceneRewrite.scenes.map(s => ({ scene_number: s.scene_number, scene_heading: s.scene_heading }))
+          : Array.from({ length: probe?.scenes_count || 0 }, (_, i) => ({ scene_number: i + 1 }));
+
+        if (scenes.length > 0 && enrichedNotes.length > 0) {
+          const scopePlan = sceneRewrite.planScope(enrichedNotes, scenes);
+          sceneRewrite.setScopePlan(scopePlan);
+
+          // Only do selective if we have fewer targets than total scenes
+          if (scopePlan.target_scene_numbers.length < scenes.length) {
+            const enqueueResult = await sceneRewrite.enqueue(
+              selectedDocId, selectedVersionId, enrichedNotes, protectItems,
+              scopePlan.target_scene_numbers,
+            );
+            if (enqueueResult) {
+              sceneRewrite.processAll(selectedVersionId);
+            }
+          } else {
+            // All scenes targeted — full rewrite
+            const enqueueResult = await sceneRewrite.enqueue(selectedDocId, selectedVersionId, enrichedNotes, protectItems);
+            if (enqueueResult) {
+              sceneRewrite.processAll(selectedVersionId);
+            }
+          }
+        } else {
+          const enqueueResult = await sceneRewrite.enqueue(selectedDocId, selectedVersionId, enrichedNotes, protectItems);
+          if (enqueueResult) {
+            sceneRewrite.processAll(selectedVersionId);
+          }
         }
-        // Provenance will be passed at assemble time via SceneRewritePanel
       } else {
         rewritePipeline.startRewrite(selectedDocId, selectedVersionId, enrichedNotes, protectItems, provenance);
       }
