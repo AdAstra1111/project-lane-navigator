@@ -10,6 +10,29 @@ export interface SceneRewriteJob {
   status: string;
   attempts: number;
   error?: string | null;
+  claimed_at?: string | null;
+}
+
+export interface SceneMetrics {
+  duration_ms?: number;
+  input_chars?: number;
+  output_chars?: number;
+  delta_pct?: number;
+  skipped?: boolean;
+}
+
+export interface ProbeResult {
+  has_scenes: boolean;
+  scenes_count: number;
+  rewrite_default_mode: 'scene' | 'chunk';
+  script_chars: number;
+}
+
+export interface PreviewResult {
+  preview_text: string;
+  total_chars: number;
+  scenes_count: number;
+  missing_scenes: number[];
 }
 
 export interface SceneRewriteState {
@@ -25,6 +48,14 @@ export interface SceneRewriteState {
   error: string | null;
   newVersionId: string | null;
   rewriteMode: 'scene' | 'chunk' | null;
+  // Improvement 1
+  probeResult: ProbeResult | null;
+  selectedRewriteMode: 'auto' | 'scene' | 'chunk';
+  lastProbedAt: string | null;
+  // Improvement 3
+  sceneMetrics: Record<number, SceneMetrics>;
+  // Improvement 4
+  oldestRunningClaimedAt: string | null;
 }
 
 const initialState: SceneRewriteState = {
@@ -36,6 +67,11 @@ const initialState: SceneRewriteState = {
   error: null,
   newVersionId: null,
   rewriteMode: null,
+  probeResult: null,
+  selectedRewriteMode: 'auto',
+  lastProbedAt: null,
+  sceneMetrics: {},
+  oldestRunningClaimedAt: null,
 };
 
 async function callEngine(action: string, extra: Record<string, any> = {}) {
@@ -78,18 +114,30 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
     invalidateDevEngine(qc, { projectId, deep: true });
   }, [qc, projectId]);
 
+  const setSelectedRewriteMode = useCallback((mode: 'auto' | 'scene' | 'chunk') => {
+    setState(s => ({ ...s, selectedRewriteMode: mode }));
+  }, []);
+
   // Probe whether scenes exist
   const probe = useCallback(async (sourceDocId: string, sourceVersionId: string) => {
     if (!projectId) return null;
     setState(s => ({ ...s, mode: 'probing' }));
     try {
       const result = await callEngine('rewrite_debug_probe', { projectId, sourceDocId, sourceVersionId });
+      const probeResult: ProbeResult = {
+        has_scenes: result.has_scenes,
+        scenes_count: result.scenes_count,
+        rewrite_default_mode: result.rewrite_default_mode,
+        script_chars: result.script_chars,
+      };
       setState(s => ({
         ...s,
         mode: 'idle',
         hasScenes: result.has_scenes,
         scenesCount: result.scenes_count,
         rewriteMode: result.rewrite_default_mode,
+        probeResult,
+        lastProbedAt: new Date().toISOString(),
       }));
       return result;
     } catch (err: any) {
@@ -112,6 +160,7 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
           done: result.done,
           failed: result.failed,
           scenes: result.scenes || [],
+          oldestRunningClaimedAt: result.oldest_running_claimed_at || null,
           mode: result.done === result.total ? 'complete'
             : (result.queued > 0 || result.running > 0) ? 'processing' : 'idle',
           hasScenes: true,
@@ -167,6 +216,8 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
       while (!stopRef.current) {
         const result = await callEngine('process_next_rewrite_job', { projectId, sourceVersionId });
 
+        if (stopRef.current) break;
+
         if (!result.processed) {
           consecutiveEmpty++;
           if (consecutiveEmpty >= 2) break;
@@ -175,6 +226,23 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
         }
         consecutiveEmpty = 0;
         scenesProcessed++;
+
+        // Store per-scene metrics (Improvement 3)
+        if (result.scene_number) {
+          setState(s => ({
+            ...s,
+            sceneMetrics: {
+              ...s.sceneMetrics,
+              [result.scene_number]: {
+                duration_ms: result.duration_ms,
+                input_chars: result.input_chars,
+                output_chars: result.output_chars,
+                delta_pct: result.delta_pct,
+                skipped: result.skipped,
+              },
+            },
+          }));
+        }
 
         // Update local state optimistically from the returned scene info
         setState(s => {
@@ -197,6 +265,8 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
           };
         });
 
+        if (stopRef.current) break;
+
         // Full status refresh every 5 scenes
         if (scenesProcessed % 5 === 0) {
           const status = await callEngine('get_rewrite_status', { projectId, sourceVersionId });
@@ -208,6 +278,7 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
             done: status.done,
             failed: status.failed,
             scenes: status.scenes || [],
+            oldestRunningClaimedAt: status.oldest_running_claimed_at || null,
           }));
           if (status.queued === 0 && status.running === 0) break;
         }
@@ -223,6 +294,7 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
         ...s,
         ...finalStatus,
         scenes: finalStatus.scenes || [],
+        oldestRunningClaimedAt: finalStatus.oldest_running_claimed_at || null,
         mode: allDone ? 'complete' : (finalStatus.failed > 0 ? 'error' : 'idle'),
         error: finalStatus.failed > 0 ? `${finalStatus.failed} scene(s) failed` : null,
       }));
@@ -271,6 +343,29 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
     }
   }, [projectId, invalidate]);
 
+  // Improvement 4: Requeue stuck jobs
+  const requeueStuck = useCallback(async (sourceVersionId: string, stuckMinutes = 10) => {
+    if (!projectId) return;
+    try {
+      const result = await callEngine('requeue_stuck_rewrite_jobs', { projectId, sourceVersionId, stuckMinutes });
+      toast.success(`${result.requeued} stuck job(s) requeued`);
+      await loadStatus(sourceVersionId);
+    } catch (err: any) {
+      toast.error(err.message);
+    }
+  }, [projectId, loadStatus]);
+
+  // Improvement 5: Preview assembled output
+  const preview = useCallback(async (sourceVersionId: string, maxChars = 8000): Promise<PreviewResult | null> => {
+    if (!projectId) return null;
+    try {
+      return await callEngine('preview_assembled_rewrite', { projectId, sourceVersionId, maxChars }) as PreviewResult;
+    } catch (err: any) {
+      toast.error(err.message);
+      return null;
+    }
+  }, [projectId]);
+
   const reset = useCallback(() => {
     stopRef.current = true;
     setState(initialState);
@@ -285,7 +380,10 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
     stop,
     retryFailed,
     assemble,
+    requeueStuck,
+    preview,
     reset,
+    setSelectedRewriteMode,
     isProcessing: processingRef.current,
   };
 }

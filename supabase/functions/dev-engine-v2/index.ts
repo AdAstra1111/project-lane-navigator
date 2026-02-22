@@ -11217,11 +11217,19 @@ CRITICAL:
           error: null,
         }).eq("id", job.id);
 
+        const inputChars = sceneText.length;
+        const outputChars = rewrittenScene.trim().length;
+        const deltaPct = inputChars > 0 ? Math.round(((outputChars - inputChars) / inputChars) * 100) : 0;
+
         return new Response(JSON.stringify({
           processed: true,
           scene_number: job.scene_number,
           status: "done",
           duration_ms: durationMs,
+          input_chars: inputChars,
+          output_chars: outputChars,
+          delta_pct: deltaPct,
+          skipped: false,
         }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
       } catch (jobErr: any) {
@@ -11248,26 +11256,32 @@ CRITICAL:
       if (!projectId || !sourceVersionId) throw new Error("projectId, sourceVersionId required");
 
       const { data: jobs } = await supabase.from("rewrite_jobs")
-        .select("scene_number, scene_heading, status, attempts, error")
+        .select("scene_number, scene_heading, status, attempts, error, claimed_at")
         .eq("project_id", projectId)
         .eq("source_version_id", sourceVersionId)
         .order("scene_number", { ascending: true });
 
       if (!jobs || jobs.length === 0) {
-        return new Response(JSON.stringify({ total: 0, queued: 0, running: 0, done: 0, failed: 0, scenes: [] }), {
+        return new Response(JSON.stringify({ total: 0, queued: 0, running: 0, done: 0, failed: 0, scenes: [], oldest_running_claimed_at: null }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
 
       const counts = { total: jobs.length, queued: 0, running: 0, done: 0, failed: 0 };
+      let oldestRunningClaimedAt: string | null = null;
       for (const j of jobs) {
         if (j.status === "queued") counts.queued++;
-        else if (j.status === "running") counts.running++;
+        else if (j.status === "running") {
+          counts.running++;
+          if (j.claimed_at && (!oldestRunningClaimedAt || j.claimed_at < oldestRunningClaimedAt)) {
+            oldestRunningClaimedAt = j.claimed_at;
+          }
+        }
         else if (j.status === "done") counts.done++;
         else if (j.status === "failed") counts.failed++;
       }
 
-      return new Response(JSON.stringify({ ...counts, scenes: jobs }), {
+      return new Response(JSON.stringify({ ...counts, scenes: jobs, oldest_running_claimed_at: oldestRunningClaimedAt }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -11379,6 +11393,63 @@ CRITICAL:
       return new Response(JSON.stringify({ newVersionId: newVersion.id, charCount: assembledText.length, scenesCount: outputs.length }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+
+    // ── REQUEUE STUCK REWRITE JOBS ──
+    if (action === "requeue_stuck_rewrite_jobs") {
+      const { projectId, sourceVersionId, stuckMinutes } = body;
+      if (!projectId || !sourceVersionId) throw new Error("projectId, sourceVersionId required");
+      const minutes = stuckMinutes || 10;
+      const cutoff = new Date(Date.now() - minutes * 60_000).toISOString();
+
+      const { data: stuckJobs } = await supabase.from("rewrite_jobs")
+        .select("id")
+        .eq("project_id", projectId)
+        .eq("source_version_id", sourceVersionId)
+        .eq("status", "running")
+        .lt("claimed_at", cutoff);
+
+      let requeued = 0;
+      for (const j of (stuckJobs || [])) {
+        await supabase.from("rewrite_jobs").update({ status: "queued", error: "requeued_stuck" }).eq("id", j.id);
+        requeued++;
+      }
+
+      return new Response(JSON.stringify({ requeued, stuckMinutes: minutes }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ── PREVIEW ASSEMBLED REWRITE ──
+    if (action === "preview_assembled_rewrite") {
+      const { projectId, sourceVersionId, maxChars } = body;
+      if (!projectId || !sourceVersionId) throw new Error("projectId, sourceVersionId required");
+      const limit = maxChars || 8000;
+
+      const { data: jobs } = await supabase.from("rewrite_jobs")
+        .select("scene_number")
+        .eq("project_id", projectId)
+        .eq("source_version_id", sourceVersionId)
+        .order("scene_number", { ascending: true });
+
+      const { data: outputs } = await supabase.from("rewrite_scene_outputs")
+        .select("scene_number, rewritten_text")
+        .eq("source_version_id", sourceVersionId)
+        .order("scene_number", { ascending: true });
+
+      const jobNumbers = new Set((jobs || []).map(j => j.scene_number));
+      const outputNumbers = new Set((outputs || []).map(o => o.scene_number));
+      const missingScenes = [...jobNumbers].filter(n => !outputNumbers.has(n));
+
+      const fullText = (outputs || []).map(o => o.rewritten_text).join("\n\n");
+      const previewText = fullText.substring(0, limit);
+
+      return new Response(JSON.stringify({
+        preview_text: previewText,
+        total_chars: fullText.length,
+        scenes_count: (outputs || []).length,
+        missing_scenes: missingScenes,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     throw new Error(`Unknown action: ${action}`);
