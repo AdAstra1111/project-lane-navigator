@@ -72,13 +72,27 @@ export function SceneRewritePanel({
   };
 
   const handleAssemble = () => {
+    const selected = pipeline.selectedRewriteMode;
+    const probe = pipeline.probeResult;
+    const reason = selected === 'scene' ? 'user_selected_scene'
+      : selected === 'auto' ? 'auto_probe_scene'
+      : 'fallback_error';
     pipeline.assemble(documentId, versionId, {
-      rewriteModeSelected: pipeline.selectedRewriteMode,
-      rewriteProbe: pipeline.probeResult ? {
-        has_scenes: pipeline.probeResult.has_scenes,
-        scenes_count: pipeline.probeResult.scenes_count,
-        script_chars: pipeline.probeResult.script_chars,
+      rewriteModeSelected: selected,
+      rewriteModeEffective: 'scene',
+      rewriteModeReason: reason,
+      rewriteProbe: probe ? {
+        has_scenes: probe.has_scenes,
+        scenes_count: probe.scenes_count,
+        script_chars: probe.script_chars,
       } : undefined,
+      rewriteModeDebug: {
+        selected,
+        probed_has_scenes: probe?.has_scenes ?? null,
+        probed_scenes_count: probe?.scenes_count ?? null,
+        probed_script_chars: probe?.script_chars ?? null,
+        decision_timestamp: new Date().toISOString(),
+      },
     });
   };
 
