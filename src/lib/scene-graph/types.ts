@@ -1207,4 +1207,5 @@ export interface ProjectRenameInput {
 export interface SetPrimaryDocumentInput {
   projectId: string;
   documentId: string;
+  scope?: 'script';
 }

@@ -10678,14 +10678,34 @@ ${scenesForPrompt}`;
     }
 
     if (action === "set_primary_document") {
-      const { projectId, documentId } = body;
+      const { projectId, documentId, scope } = body;
       if (!projectId || !documentId) throw new Error("projectId and documentId required");
 
-      // Clear is_primary for all season/episode scripts in this project
-      await supabase.from("project_documents")
-        .update({ is_primary: false })
-        .eq("project_id", projectId)
-        .eq("is_primary", true);
+      const SCRIPT_DOC_TYPES = ["season_script", "feature_script", "episode_script", "script", "pilot_script", "script_pdf"];
+      const effectiveScope = scope || "script";
+
+      if (effectiveScope === "script") {
+        // Validate target document is a script type
+        const { data: targetDoc } = await supabase.from("project_documents")
+          .select("id, doc_type").eq("id", documentId).single();
+        if (!targetDoc) throw new Error("Document not found");
+        if (!SCRIPT_DOC_TYPES.includes(targetDoc.doc_type)) {
+          throw new Error(`Document doc_type '${targetDoc.doc_type}' is not a script authority type. Allowed: ${SCRIPT_DOC_TYPES.join(", ")}`);
+        }
+
+        // Clear is_primary ONLY for script doc_types in this project
+        await supabase.from("project_documents")
+          .update({ is_primary: false })
+          .eq("project_id", projectId)
+          .eq("is_primary", true)
+          .in("doc_type", SCRIPT_DOC_TYPES);
+      } else {
+        // Generic scope: clear all primary in project
+        await supabase.from("project_documents")
+          .update({ is_primary: false })
+          .eq("project_id", projectId)
+          .eq("is_primary", true);
+      }
 
       // Set is_primary for target document
       await supabase.from("project_documents")
@@ -10711,7 +10731,6 @@ ${scenesForPrompt}`;
         await supabase.from("project_canon")
           .update({ canon_json: merged, updated_by: user.id })
           .eq("project_id", projectId);
-        // Update pointer to new version
         const { data: newVer } = await supabase.from("project_canon_versions")
           .select("id").eq("project_id", projectId)
           .order("created_at", { ascending: false }).limit(1).maybeSingle();
@@ -10719,7 +10738,6 @@ ${scenesForPrompt}`;
           await supabase.from("projects").update({ canon_version_id: newVer.id }).eq("id", projectId);
         }
       } else {
-        // No canon yet, just update if exists
         const { data: canon } = await supabase.from("project_canon")
           .select("canon_json").eq("project_id", projectId).maybeSingle();
         if (canon) {
@@ -10730,15 +10748,24 @@ ${scenesForPrompt}`;
         }
       }
 
-      // 3. Deterministic rename: recompute display_name for ALL documents based on doc_type
+      // 3. Deterministic rename: update display_name + title for ALL documents
+      //    DO NOT overwrite file_name (used as export name).
+      //    Preserve episode numbering from file_name heuristic.
       const { data: docs } = await supabase.from("project_documents")
-        .select("id, doc_type, file_name").eq("project_id", projectId);
+        .select("id, doc_type, file_name, title").eq("project_id", projectId);
 
       let updatedDocs = 0;
       for (const doc of (docs || [])) {
-        const displayName = buildDisplayName(newTitle, doc.doc_type || "other");
+        // Try to extract episode number from existing file_name or title
+        let episodeNumber: number | undefined;
+        const epMatch = (doc.file_name || doc.title || "").match(/[Ee]pisode\s*(\d+)|[Ee]p\.?\s*(\d+)|[Ss]\d+[Ee](\d+)/);
+        if (epMatch) {
+          episodeNumber = parseInt(epMatch[1] || epMatch[2] || epMatch[3], 10);
+        }
+
+        const displayName = buildDisplayName(newTitle, doc.doc_type || "other", episodeNumber ? { episodeNumber } : undefined);
         await supabase.from("project_documents")
-          .update({ display_name: displayName, file_name: displayName })
+          .update({ display_name: displayName, title: displayName })
           .eq("id", doc.id);
         updatedDocs++;
       }
