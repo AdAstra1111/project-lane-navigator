@@ -38,7 +38,7 @@ function getLadder(format: string): string[] {
   return FORMAT_LADDERS[key] ?? FORMAT_LADDERS["film"];
 }
 
-function toLabel(docType: string): string {
+function toLabel(docType: string, format?: string): string {
   const LABELS: Record<string, string> = {
     idea: "Idea",
     topline_narrative: "Topline Narrative",
@@ -60,6 +60,17 @@ function toLabel(docType: string): string {
     vertical_episode_beats: "Episode Beats",
     series_writer: "Series Writer",
   };
+  const NON_SERIES = new Set(["film", "feature", "short", "documentary", "hybrid-documentary", "short-film"]);
+  const FILM_OVERRIDES: Record<string, string> = {
+    blueprint: "Blueprint",
+    architecture: "Architecture",
+    beat_sheet: "Beat Sheet",
+  };
+  const normalizedFormat = (format || "").toLowerCase().replace(/[\s_]+/g, "-");
+  if (normalizedFormat && NON_SERIES.has(normalizedFormat)) {
+    const override = FILM_OVERRIDES[docType];
+    if (override) return override;
+  }
   return LABELS[docType] ?? docType.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
 }
 
@@ -340,7 +351,7 @@ Deno.serve(async (req) => {
         if (!plaintext) continue;
 
         const orderPrefix = String(globalOrder).padStart(2, "0");
-        const label = toLabel(docType);
+        const label = toLabel(docType, project.format);
         const statusSuffix = approved ? "APPROVED" : "DRAFT";
         const fileName = `${orderPrefix}_${docType}_${statusSuffix}.md`;
 
