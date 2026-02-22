@@ -563,15 +563,29 @@ export default function ProjectDevelopmentEngine() {
     };
 
     if (textLength > 30000 && selectedDocId && selectedVersionId) {
-      // Prefer scene-level rewrite if scenes exist (probe first)
-      const probeResult = await sceneRewrite.probe(selectedDocId, selectedVersionId);
-      if (probeResult?.has_scenes) {
+      // Determine effective rewrite mode using user's toggle selection
+      let effectiveMode: 'scene' | 'chunk' = 'chunk';
+      if (sceneRewrite.selectedRewriteMode === 'chunk') {
+        effectiveMode = 'chunk';
+      } else if (sceneRewrite.selectedRewriteMode === 'scene') {
+        effectiveMode = 'scene';
+      } else {
+        // 'auto' — probe to determine
+        const probeResult = await sceneRewrite.probe(selectedDocId, selectedVersionId);
+        effectiveMode = probeResult?.has_scenes ? 'scene' : 'chunk';
+      }
+
+      if (effectiveMode === 'scene') {
+        // Probe if we haven't yet (for 'scene' explicit selection)
+        if (!sceneRewrite.probeResult) {
+          await sceneRewrite.probe(selectedDocId, selectedVersionId);
+        }
         const enqueueResult = await sceneRewrite.enqueue(selectedDocId, selectedVersionId, enrichedNotes, protectItems);
         if (enqueueResult) {
           sceneRewrite.processAll(selectedVersionId);
         }
       } else {
-        // Fallback to chunk-based rewrite
+        // Chunk-based rewrite fallback
         rewritePipeline.startRewrite(selectedDocId, selectedVersionId, enrichedNotes, protectItems);
       }
       afterRewrite();

@@ -163,8 +163,8 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
           oldestRunningClaimedAt: result.oldest_running_claimed_at || null,
           mode: result.done === result.total ? 'complete'
             : (result.queued > 0 || result.running > 0) ? 'processing' : 'idle',
-          hasScenes: true,
-          rewriteMode: 'scene',
+          // Don't force hasScenes — keep whatever probe set (or null if not probed)
+          rewriteMode: s.rewriteMode || 'scene',
         }));
       }
     } catch { /* non-critical */ }

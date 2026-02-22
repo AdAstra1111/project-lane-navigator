@@ -11115,7 +11115,10 @@ CRITICAL:
         await supabase.from("rewrite_jobs").update({
           status: "done", finished_at: new Date().toISOString(), error: null,
         }).eq("id", job.id);
-        return new Response(JSON.stringify({ processed: true, scene_number: job.scene_number, status: "done", skipped: true }), {
+        return new Response(JSON.stringify({
+          processed: true, scene_number: job.scene_number, status: "done",
+          skipped: true, duration_ms: 0, input_chars: 0, output_chars: 0, delta_pct: 0,
+        }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
@@ -11246,6 +11249,7 @@ CRITICAL:
           scene_number: job.scene_number,
           status: newStatus,
           error: jobErr.message,
+          duration_ms: 0, input_chars: 0, output_chars: 0, delta_pct: 0, skipped: false,
         }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
     }
