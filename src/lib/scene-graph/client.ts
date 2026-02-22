@@ -119,6 +119,7 @@ import type {
   CanonOSGetInput,
   CanonOSVersion,
   ProjectRenameInput,
+  SetPrimaryDocumentInput,
 } from './types';
 
 async function callSceneGraph<T = any>(action: string, payload: Record<string, any>): Promise<T> {
@@ -477,4 +478,8 @@ export async function canonOSGet(input: CanonOSGetInput) {
 
 export async function projectRename(input: ProjectRenameInput) {
   return callSceneGraph<{ success: boolean; updated_documents: number }>('project_rename', input);
+}
+
+export async function setPrimaryDocument(input: SetPrimaryDocumentInput) {
+  return callSceneGraph<{ success: boolean }>('set_primary_document', input);
 }

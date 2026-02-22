@@ -10464,12 +10464,86 @@ ${scenesForPrompt}`;
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // CANON OS ACTIONS
+    // CANON OS ACTIONS (HARDENED)
     // ═══════════════════════════════════════════════════════════════
+
+    // Deep-merge helper: objects merge recursively, arrays replace only when provided, primitives overwrite
+    function mergeCanonSafe(prev: any, patch: any): any {
+      if (patch === null || patch === undefined) return prev;
+      if (typeof patch !== "object" || Array.isArray(patch)) return patch;
+      if (typeof prev !== "object" || Array.isArray(prev) || prev === null) return patch;
+      const result: any = { ...prev };
+      for (const key of Object.keys(patch)) {
+        const pv = patch[key];
+        if (pv === undefined) continue;
+        if (Array.isArray(pv)) {
+          // Arrays: replace entirely when explicitly provided
+          result[key] = pv;
+        } else if (pv !== null && typeof pv === "object" && !Array.isArray(pv)) {
+          result[key] = mergeCanonSafe(prev[key], pv);
+        } else {
+          result[key] = pv;
+        }
+      }
+      return result;
+    }
+
+    // Helper: fetch canon version by pointer, fallback to latest
+    async function getPointerCanonVersion(supabaseClient: any, projectId: string) {
+      // 1. Check pointer
+      const { data: proj } = await supabaseClient.from("projects")
+        .select("canon_version_id").eq("id", projectId).single();
+      if (proj?.canon_version_id) {
+        const { data: ver } = await supabaseClient.from("project_canon_versions")
+          .select("*").eq("id", proj.canon_version_id).maybeSingle();
+        if (ver) return ver;
+      }
+      // 2. Fallback to latest by created_at
+      const { data: latest } = await supabaseClient.from("project_canon_versions")
+        .select("*").eq("project_id", projectId)
+        .order("created_at", { ascending: false }).limit(1).maybeSingle();
+      return latest || null;
+    }
+
+    // Helper: doc type label for display names
+    function docTypeLabelEdge(docType: string): string {
+      const labels: Record<string, string> = {
+        topline_narrative: "Topline Narrative", concept_brief: "Concept Brief",
+        character_bible: "Character Bible", market_sheet: "Market Sheet",
+        blueprint: "Blueprint / Series Bible", beat_sheet: "Beat Sheet",
+        deck: "Deck", documentary_outline: "Documentary Outline",
+        episode_grid: "Episode Grid", season_arc: "Season Arc",
+        episode_script: "Episode Script", feature_script: "Feature Script",
+        format_rules: "Format Rules", production_draft: "Production Draft",
+        script: "Script", treatment: "Treatment", other: "Document",
+      };
+      return labels[docType] || docType.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase());
+    }
+
+    function buildDisplayName(projectTitle: string, docType: string, extra?: { episodeNumber?: number }): string {
+      const label = docTypeLabelEdge(docType);
+      const parts = [projectTitle];
+      if (extra?.episodeNumber != null) parts.push(`Episode ${String(extra.episodeNumber).padStart(2, "0")}`);
+      parts.push(label);
+      return parts.join(" — ");
+    }
 
     if (action === "canon_os_initialize") {
       const { projectId } = body;
       if (!projectId) throw new Error("projectId required");
+
+      // If project already has a pointer, return that version
+      const { data: proj } = await supabase.from("projects")
+        .select("canon_version_id").eq("id", projectId).single();
+      if (proj?.canon_version_id) {
+        const { data: ver } = await supabase.from("project_canon_versions")
+          .select("*").eq("id", proj.canon_version_id).maybeSingle();
+        if (ver) {
+          return new Response(JSON.stringify({ canon: ver }), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+      }
 
       // Check if canon already has data
       const { data: existing } = await supabase.from("project_canon")
@@ -10477,10 +10551,13 @@ ${scenesForPrompt}`;
 
       const existingJson = existing?.canon_json || {};
       if (existingJson && Object.keys(existingJson).length > 3) {
-        // Already initialized - return latest version
+        // Already initialized but no pointer - fetch latest version and set pointer
         const { data: latest } = await supabase.from("project_canon_versions")
           .select("*").eq("project_id", projectId)
           .order("created_at", { ascending: false }).limit(1).maybeSingle();
+        if (latest) {
+          await supabase.from("projects").update({ canon_version_id: latest.id }).eq("id", projectId);
+        }
         return new Response(JSON.stringify({ canon: latest }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
@@ -10507,10 +10584,9 @@ ${scenesForPrompt}`;
         forbidden_changes: [],
       };
 
-      // Save to project_canon
+      // Ensure base row exists
       await supabase.from("project_canon")
-        .update({ canon_json: canonData, updated_by: user.id })
-        .eq("project_id", projectId);
+        .upsert({ project_id: projectId, canon_json: canonData, updated_by: user.id }, { onConflict: "project_id" });
 
       // Fetch the version that was auto-created by trigger
       const { data: version } = await supabase.from("project_canon_versions")
@@ -10518,9 +10594,7 @@ ${scenesForPrompt}`;
         .order("created_at", { ascending: false }).limit(1).maybeSingle();
 
       if (version) {
-        await supabase.from("projects")
-          .update({ canon_version_id: version.id })
-          .eq("id", projectId);
+        await supabase.from("projects").update({ canon_version_id: version.id }).eq("id", projectId);
       }
 
       return new Response(JSON.stringify({ canon: version }), {
@@ -10532,27 +10606,32 @@ ${scenesForPrompt}`;
       const { projectId, patch } = body;
       if (!projectId || !patch) throw new Error("projectId and patch required");
 
-      // Fetch current
-      const { data: current } = await supabase.from("project_canon")
-        .select("canon_json").eq("project_id", projectId).single();
-      if (!current) throw new Error("Canon not found");
+      // Fetch current via pointer
+      const pointerVer = await getPointerCanonVersion(supabase, projectId);
+      let currentJson: any = {};
+      if (pointerVer?.canon_json) {
+        currentJson = pointerVer.canon_json;
+      } else {
+        const { data: current } = await supabase.from("project_canon")
+          .select("canon_json").eq("project_id", projectId).maybeSingle();
+        currentJson = current?.canon_json || {};
+      }
 
-      const merged = { ...(current.canon_json || {}), ...patch };
+      // Safe deep merge
+      const merged = mergeCanonSafe(currentJson, patch);
 
       // Update (trigger auto-creates version)
       await supabase.from("project_canon")
         .update({ canon_json: merged, updated_by: user.id })
         .eq("project_id", projectId);
 
-      // Get new version
+      // Get new version and update pointer
       const { data: version } = await supabase.from("project_canon_versions")
         .select("*").eq("project_id", projectId)
         .order("created_at", { ascending: false }).limit(1).maybeSingle();
 
       if (version) {
-        await supabase.from("projects")
-          .update({ canon_version_id: version.id })
-          .eq("id", projectId);
+        await supabase.from("projects").update({ canon_version_id: version.id }).eq("id", projectId);
       }
 
       return new Response(JSON.stringify({ canon: version }), {
@@ -10566,19 +10645,17 @@ ${scenesForPrompt}`;
 
       // Supersede previous approved
       await supabase.from("project_canon_versions")
-        .update({ is_approved: false, approved_at: null, status: 'superseded' })
+        .update({ is_approved: false, approved_at: null, status: "superseded" })
         .eq("project_id", projectId)
         .eq("is_approved", true);
 
       // Approve this version
       await supabase.from("project_canon_versions")
-        .update({ is_approved: true, approved_at: new Date().toISOString(), status: 'approved' })
+        .update({ is_approved: true, approved_at: new Date().toISOString(), status: "approved" })
         .eq("id", canonId);
 
       // Update project pointer
-      await supabase.from("projects")
-        .update({ canon_version_id: canonId })
-        .eq("id", projectId);
+      await supabase.from("projects").update({ canon_version_id: canonId }).eq("id", projectId);
 
       const { data: version } = await supabase.from("project_canon_versions")
         .select("*").eq("id", canonId).single();
@@ -10592,12 +10669,30 @@ ${scenesForPrompt}`;
       const { projectId } = body;
       if (!projectId) throw new Error("projectId required");
 
-      // Get current canon + latest version
-      const { data: version } = await supabase.from("project_canon_versions")
-        .select("*").eq("project_id", projectId)
-        .order("created_at", { ascending: false }).limit(1).maybeSingle();
+      // POINTER FIRST
+      const version = await getPointerCanonVersion(supabase, projectId);
 
       return new Response(JSON.stringify({ canon: version || null }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "set_primary_document") {
+      const { projectId, documentId } = body;
+      if (!projectId || !documentId) throw new Error("projectId and documentId required");
+
+      // Clear is_primary for all season/episode scripts in this project
+      await supabase.from("project_documents")
+        .update({ is_primary: false })
+        .eq("project_id", projectId)
+        .eq("is_primary", true);
+
+      // Set is_primary for target document
+      await supabase.from("project_documents")
+        .update({ is_primary: true })
+        .eq("id", documentId);
+
+      return new Response(JSON.stringify({ success: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -10606,40 +10701,46 @@ ${scenesForPrompt}`;
       const { projectId, newTitle } = body;
       if (!projectId || !newTitle) throw new Error("projectId and newTitle required");
 
-      // 1. Get old title
-      const { data: project } = await supabase.from("projects")
-        .select("title").eq("id", projectId).single();
-      const oldTitle = project?.title || "";
+      // 1. Update project title
+      await supabase.from("projects").update({ title: newTitle }).eq("id", projectId);
 
-      // 2. Update project title
-      await supabase.from("projects")
-        .update({ title: newTitle })
-        .eq("id", projectId);
-
-      // 3. Update canon data.title
-      const { data: canon } = await supabase.from("project_canon")
-        .select("canon_json").eq("project_id", projectId).maybeSingle();
-      if (canon) {
-        const updated = { ...(canon.canon_json || {}), title: newTitle };
+      // 2. Update canon data.title via safe merge (creates versioned entry)
+      const pointerVer = await getPointerCanonVersion(supabase, projectId);
+      if (pointerVer?.canon_json) {
+        const merged = mergeCanonSafe(pointerVer.canon_json, { title: newTitle });
         await supabase.from("project_canon")
-          .update({ canon_json: updated, updated_by: user.id })
+          .update({ canon_json: merged, updated_by: user.id })
           .eq("project_id", projectId);
+        // Update pointer to new version
+        const { data: newVer } = await supabase.from("project_canon_versions")
+          .select("id").eq("project_id", projectId)
+          .order("created_at", { ascending: false }).limit(1).maybeSingle();
+        if (newVer) {
+          await supabase.from("projects").update({ canon_version_id: newVer.id }).eq("id", projectId);
+        }
+      } else {
+        // No canon yet, just update if exists
+        const { data: canon } = await supabase.from("project_canon")
+          .select("canon_json").eq("project_id", projectId).maybeSingle();
+        if (canon) {
+          const updated = mergeCanonSafe(canon.canon_json || {}, { title: newTitle });
+          await supabase.from("project_canon")
+            .update({ canon_json: updated, updated_by: user.id })
+            .eq("project_id", projectId);
+        }
       }
 
-      // 4. Update document titles - replace old title prefix
+      // 3. Deterministic rename: recompute display_name for ALL documents based on doc_type
+      const { data: docs } = await supabase.from("project_documents")
+        .select("id, doc_type, file_name").eq("project_id", projectId);
+
       let updatedDocs = 0;
-      if (oldTitle) {
-        const { data: docs } = await supabase.from("project_documents")
-          .select("id, file_name").eq("project_id", projectId);
-        for (const doc of (docs || [])) {
-          if (doc.file_name && doc.file_name.startsWith(oldTitle)) {
-            const newName = newTitle + doc.file_name.slice(oldTitle.length);
-            await supabase.from("project_documents")
-              .update({ file_name: newName })
-              .eq("id", doc.id);
-            updatedDocs++;
-          }
-        }
+      for (const doc of (docs || [])) {
+        const displayName = buildDisplayName(newTitle, doc.doc_type || "other");
+        await supabase.from("project_documents")
+          .update({ display_name: displayName, file_name: displayName })
+          .eq("id", doc.id);
+        updatedDocs++;
       }
 
       return new Response(JSON.stringify({ success: true, updated_documents: updatedDocs }), {
