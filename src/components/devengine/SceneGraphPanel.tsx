@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, lazy, Suspense } from 'react';
 import { useSceneGraph } from '@/hooks/useSceneGraph';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -17,7 +17,9 @@ import {
   Activity, Eye, EyeOff,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { Clapperboard } from 'lucide-react';
 import type { SceneListItem, ImpactWarning, PatchQueueItem, InactiveSceneItem, SceneGraphAction, StoryMetricsRun, CoherenceFinding } from '@/lib/scene-graph/types';
+import { VisualProductionPanel } from './VisualProductionPanel';
 
 interface SceneGraphPanelProps {
   projectId: string;
@@ -39,6 +41,7 @@ export function SceneGraphPanel({ projectId, documents }: SceneGraphPanelProps) 
   const [showInactiveDrawer, setShowInactiveDrawer] = useState(false);
   const [showActionHistory, setShowActionHistory] = useState(false);
   const [rightTab, setRightTab] = useState<string>('impact');
+  const [topTab, setTopTab] = useState<string>('scenes');
 
   const selectedScene = useMemo(() => {
     return sg.scenes.find(s => s.scene_id === sg.selectedSceneId) || null;
@@ -161,6 +164,27 @@ export function SceneGraphPanel({ projectId, documents }: SceneGraphPanelProps) 
   // ── Main Scene Graph UI ──
   return (
     <div className="space-y-3">
+      {/* Top-level tabs: Scenes vs Visual Production */}
+      <Tabs value={topTab} onValueChange={setTopTab}>
+        <TabsList className="h-8">
+          <TabsTrigger value="scenes" className="text-xs gap-1">
+            <Scissors className="h-3 w-3" /> Scene Graph
+          </TabsTrigger>
+          <TabsTrigger value="visual" className="text-xs gap-1">
+            <Clapperboard className="h-3 w-3" /> Visual Production
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="visual" className="mt-3">
+          <VisualProductionPanel
+            projectId={projectId}
+            scenes={sg.scenes}
+            selectedSceneId={sg.selectedSceneId}
+            onSelectScene={(id) => selectScene(id)}
+          />
+        </TabsContent>
+
+        <TabsContent value="scenes" className="mt-3 space-y-3">
       {/* Top toolbar */}
       <div className="flex items-center gap-2 flex-wrap">
         <Badge variant="secondary" className="text-[10px]">{sg.scenes.length} scenes</Badge>
@@ -382,6 +406,8 @@ export function SceneGraphPanel({ projectId, documents }: SceneGraphPanelProps) 
           />
         </DialogContent>
       </Dialog>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
