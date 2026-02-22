@@ -455,8 +455,8 @@ export function useSceneGraph(projectId: string | undefined) {
     lastActionId,
 
     // Phase 3 Story-Smart state
-    storySpine: storySpineQuery.data as StorySpineRecord | null,
-    threadLedger: threadLedgerQuery.data as ThreadLedgerRecord | null,
+    storySpine: (storySpineQuery.data as unknown) as StorySpineRecord | null,
+    threadLedger: (threadLedgerQuery.data as unknown) as ThreadLedgerRecord | null,
     isSpineLoading: storySpineQuery.isLoading,
     isLedgerLoading: threadLedgerQuery.isLoading,
 
