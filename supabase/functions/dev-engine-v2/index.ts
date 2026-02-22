@@ -11292,7 +11292,16 @@ CRITICAL:
         else if (j.status === "failed") counts.failed++;
       }
 
-      return new Response(JSON.stringify({ ...counts, scenes: jobs, oldest_running_claimed_at: oldestRunningClaimedAt }), {
+      const percent = counts.total > 0 ? Math.floor((counts.done / counts.total) * 100) : 0;
+      const progress = {
+        phase: counts.done === counts.total ? "complete" : counts.running > 0 ? "processing_scene" : counts.queued > 0 ? "queued" : "complete",
+        total: counts.total, completed: counts.done, running: counts.running, failed: counts.failed, queued: counts.queued,
+        percent,
+        label: counts.done === counts.total ? "Complete" : `Scene ${counts.done}/${counts.total}`,
+        oldest_running_claimed_at: oldestRunningClaimedAt,
+      };
+
+      return new Response(JSON.stringify({ ...counts, scenes: jobs, oldest_running_claimed_at: oldestRunningClaimedAt, progress }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }

@@ -3,6 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import { invalidateDevEngine } from '@/lib/invalidateDevEngine';
+import type { ActivityItem } from '@/components/devengine/ActivityTimeline';
 
 export interface SceneRewriteJob {
   scene_number: number;
@@ -48,14 +49,16 @@ export interface SceneRewriteState {
   error: string | null;
   newVersionId: string | null;
   rewriteMode: 'scene' | 'chunk' | null;
-  // Improvement 1
   probeResult: ProbeResult | null;
   selectedRewriteMode: 'auto' | 'scene' | 'chunk';
   lastProbedAt: string | null;
-  // Improvement 3
   sceneMetrics: Record<number, SceneMetrics>;
-  // Improvement 4
   oldestRunningClaimedAt: string | null;
+  // Progress / ETA / smoothing
+  etaMs: number | null;
+  avgUnitMs: number | null;
+  smoothedPercent: number;
+  lastProgressAt: number;
 }
 
 const initialState: SceneRewriteState = {
@@ -72,6 +75,10 @@ const initialState: SceneRewriteState = {
   lastProbedAt: null,
   sceneMetrics: {},
   oldestRunningClaimedAt: null,
+  etaMs: null,
+  avgUnitMs: null,
+  smoothedPercent: 0,
+  lastProgressAt: 0,
 };
 
 async function callEngine(action: string, extra: Record<string, any> = {}) {
@@ -104,11 +111,28 @@ async function callEngine(action: string, extra: Record<string, any> = {}) {
   return result;
 }
 
+// Rolling average helper
+function rollingAvg(durations: number[], windowSize = 5): number {
+  if (durations.length === 0) return 0;
+  const window = durations.slice(-windowSize);
+  return window.reduce((a, b) => a + b, 0) / window.length;
+}
+
 export function useSceneRewritePipeline(projectId: string | undefined) {
   const qc = useQueryClient();
   const [state, setState] = useState<SceneRewriteState>(initialState);
   const processingRef = useRef(false);
   const stopRef = useRef(false);
+  const startGuardRef = useRef(false);
+  const durationsRef = useRef<number[]>([]);
+  const [activityItems, setActivityItems] = useState<ActivityItem[]>([]);
+  const smoothingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const pushActivity = useCallback((level: ActivityItem['level'], message: string) => {
+    setActivityItems(prev => [{ ts: new Date().toISOString(), level, message }, ...prev].slice(0, 200));
+  }, []);
+
+  const clearActivity = useCallback(() => setActivityItems([]), []);
 
   const invalidate = useCallback(() => {
     invalidateDevEngine(qc, { projectId, deep: true });
@@ -116,6 +140,29 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
 
   const setSelectedRewriteMode = useCallback((mode: 'auto' | 'scene' | 'chunk') => {
     setState(s => ({ ...s, selectedRewriteMode: mode }));
+  }, []);
+
+  // Start smoothing interval
+  const startSmoothing = useCallback(() => {
+    if (smoothingTimerRef.current) return;
+    smoothingTimerRef.current = setInterval(() => {
+      setState(s => {
+        if (s.mode !== 'processing' && s.mode !== 'enqueuing') return s;
+        const elapsed = Date.now() - s.lastProgressAt;
+        if (elapsed < 2500) return s;
+        const actualPct = s.total > 0 ? (s.done / s.total) * 100 : 0;
+        const maxSmoothed = Math.min(actualPct + 2, 99);
+        if (s.smoothedPercent >= maxSmoothed) return s;
+        return { ...s, smoothedPercent: Math.min(s.smoothedPercent + 0.3, maxSmoothed) };
+      });
+    }, 1000);
+  }, []);
+
+  const stopSmoothing = useCallback(() => {
+    if (smoothingTimerRef.current) {
+      clearInterval(smoothingTimerRef.current);
+      smoothingTimerRef.current = null;
+    }
   }, []);
 
   // Probe whether scenes exist
@@ -139,12 +186,14 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
         probeResult,
         lastProbedAt: new Date().toISOString(),
       }));
+      pushActivity('info', `Probe: ${result.scenes_count} scenes detected (${result.script_chars.toLocaleString()} chars) → ${result.rewrite_default_mode}`);
       return result;
     } catch (err: any) {
       setState(s => ({ ...s, mode: 'idle' }));
+      pushActivity('error', `Probe failed: ${err.message}`);
       return null;
     }
-  }, [projectId]);
+  }, [projectId, pushActivity]);
 
   // Load existing status (for resume after refresh)
   const loadStatus = useCallback(async (sourceVersionId: string) => {
@@ -152,6 +201,7 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
     try {
       const result = await callEngine('get_rewrite_status', { projectId, sourceVersionId });
       if (result.total > 0) {
+        const pct = result.total > 0 ? (result.done / result.total) * 100 : 0;
         setState(s => ({
           ...s,
           total: result.total,
@@ -163,12 +213,13 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
           oldestRunningClaimedAt: result.oldest_running_claimed_at || null,
           mode: result.done === result.total ? 'complete'
             : (result.queued > 0 || result.running > 0) ? 'processing' : 'idle',
-          // Don't force hasScenes — keep whatever probe set (or null if not probed)
-          rewriteMode: s.rewriteMode || 'scene',
+          smoothedPercent: pct,
+          lastProgressAt: Date.now(),
         }));
+        pushActivity('info', `Loaded status: ${result.done}/${result.total} done, ${result.queued} queued, ${result.failed} failed`);
       }
     } catch { /* non-critical */ }
-  }, [projectId]);
+  }, [projectId, pushActivity]);
 
   // Enqueue all scene jobs
   const enqueue = useCallback(async (
@@ -178,7 +229,10 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
     protectItems: string[],
   ) => {
     if (!projectId) return;
+    if (startGuardRef.current) return;
+    startGuardRef.current = true;
     setState(s => ({ ...s, mode: 'enqueuing', error: null, newVersionId: null }));
+    pushActivity('info', 'Enqueuing scene jobs…');
     try {
       const result = await callEngine('enqueue_rewrite_jobs', {
         projectId, sourceDocId, sourceVersionId, approvedNotes, protectItems,
@@ -192,22 +246,35 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
         failed: 0,
         running: 0,
         rewriteMode: 'scene',
+        smoothedPercent: result.alreadyExists ? s.smoothedPercent : 0,
+        lastProgressAt: Date.now(),
       }));
+      pushActivity(result.alreadyExists ? 'warn' : 'success', 
+        result.alreadyExists 
+          ? `Jobs already exist (${result.totalScenes} scenes) — resuming` 
+          : `Enqueued ${result.totalScenes} scene jobs`
+      );
       toast.success(`${result.totalScenes} scenes queued for rewrite`);
       return result;
     } catch (err: any) {
       setState(s => ({ ...s, mode: 'error', error: err.message }));
+      pushActivity('error', `Enqueue failed: ${err.message}`);
       toast.error(err.message);
       return null;
+    } finally {
+      startGuardRef.current = false;
     }
-  }, [projectId]);
+  }, [projectId, pushActivity]);
 
   // Process jobs one at a time in a loop
   const processAll = useCallback(async (sourceVersionId: string) => {
     if (!projectId || processingRef.current) return;
     processingRef.current = true;
     stopRef.current = false;
-    setState(s => ({ ...s, mode: 'processing' }));
+    durationsRef.current = [];
+    setState(s => ({ ...s, mode: 'processing', lastProgressAt: Date.now() }));
+    startSmoothing();
+    pushActivity('info', 'Processing started');
 
     let scenesProcessed = 0;
 
@@ -227,8 +294,22 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
         consecutiveEmpty = 0;
         scenesProcessed++;
 
-        // Store per-scene metrics (Improvement 3)
+        // Track duration for ETA
+        if (result.duration_ms && !result.skipped) {
+          durationsRef.current.push(result.duration_ms);
+        }
+
+        // Store per-scene metrics
         if (result.scene_number) {
+          const durationStr = result.duration_ms ? `${(result.duration_ms / 1000).toFixed(1)}s` : '';
+          const deltaStr = result.delta_pct != null ? ` ${result.delta_pct > 0 ? '+' : ''}${result.delta_pct}%` : '';
+          pushActivity(
+            result.status === 'done' ? 'success' : 'error',
+            result.skipped 
+              ? `Scene ${result.scene_number} skipped (already done)` 
+              : `Scene ${result.scene_number} ${result.status} (${durationStr}${deltaStr})`
+          );
+
           setState(s => ({
             ...s,
             sceneMetrics: {
@@ -244,7 +325,7 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
           }));
         }
 
-        // Update local state optimistically from the returned scene info
+        // Update local state optimistically
         setState(s => {
           const updatedScenes = s.scenes.map(sc =>
             sc.scene_number === result.scene_number
@@ -255,6 +336,9 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
           const newFailed = updatedScenes.filter(sc => sc.status === 'failed').length;
           const newQueued = updatedScenes.filter(sc => sc.status === 'queued').length;
           const newRunning = updatedScenes.filter(sc => sc.status === 'running').length;
+          const actualPct = s.total > 0 ? (newDone / s.total) * 100 : 0;
+          const avg = rollingAvg(durationsRef.current);
+          const remaining = s.total - newDone - newFailed;
           return {
             ...s,
             scenes: updatedScenes,
@@ -262,6 +346,10 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
             failed: newFailed,
             queued: newQueued,
             running: newRunning,
+            smoothedPercent: Math.max(s.smoothedPercent, actualPct),
+            lastProgressAt: Date.now(),
+            avgUnitMs: avg > 0 ? avg : null,
+            etaMs: avg > 0 && remaining > 0 ? avg * remaining : null,
           };
         });
 
@@ -297,39 +385,50 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
         oldestRunningClaimedAt: finalStatus.oldest_running_claimed_at || null,
         mode: allDone ? 'complete' : (finalStatus.failed > 0 ? 'error' : 'idle'),
         error: finalStatus.failed > 0 ? `${finalStatus.failed} scene(s) failed` : null,
+        smoothedPercent: allDone ? 100 : s.smoothedPercent,
+        etaMs: allDone ? null : s.etaMs,
       }));
 
       if (allDone) {
+        pushActivity('success', `All ${finalStatus.total} scenes rewritten successfully`);
         toast.success(`All ${finalStatus.total} scenes rewritten successfully`);
       } else if (finalStatus.failed > 0) {
+        pushActivity('warn', `${finalStatus.failed} scene(s) failed — retry available`);
         toast.warning(`${finalStatus.failed} scene(s) failed. You can retry them.`);
       }
     } catch (err: any) {
       setState(s => ({ ...s, mode: 'error', error: err.message }));
+      pushActivity('error', `Processing error: ${err.message}`);
       toast.error(`Scene rewrite error: ${err.message}`);
     } finally {
       processingRef.current = false;
+      stopSmoothing();
     }
-  }, [projectId]);
+  }, [projectId, pushActivity, startSmoothing, stopSmoothing]);
 
   const stop = useCallback(() => {
     stopRef.current = true;
-  }, []);
+    stopSmoothing();
+    pushActivity('warn', 'Processing stopped by user');
+  }, [stopSmoothing, pushActivity]);
 
   const retryFailed = useCallback(async (sourceVersionId: string) => {
     if (!projectId) return;
     try {
       const result = await callEngine('retry_failed_rewrite_jobs', { projectId, sourceVersionId });
+      pushActivity('info', `Re-queued ${result.reset} failed scene(s)`);
       toast.success(`${result.reset} failed scene(s) re-queued`);
       await loadStatus(sourceVersionId);
     } catch (err: any) {
+      pushActivity('error', `Retry failed: ${err.message}`);
       toast.error(err.message);
     }
-  }, [projectId, loadStatus]);
+  }, [projectId, loadStatus, pushActivity]);
 
   const assemble = useCallback(async (sourceDocId: string, sourceVersionId: string, provenance?: { rewriteModeSelected?: string; rewriteModeEffective?: string; rewriteModeReason?: string; rewriteModeDebug?: any; rewriteProbe?: any }) => {
     if (!projectId) return;
     setState(s => ({ ...s, mode: 'assembling' }));
+    pushActivity('info', 'Assembling final script…');
     try {
       const result = await callEngine('assemble_rewritten_script', {
         projectId, sourceDocId, sourceVersionId,
@@ -339,30 +438,34 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
         rewriteModeDebug: provenance?.rewriteModeDebug || null,
         rewriteProbe: provenance?.rewriteProbe || state.probeResult || null,
       });
-      setState(s => ({ ...s, mode: 'complete', newVersionId: result.newVersionId }));
+      setState(s => ({ ...s, mode: 'complete', newVersionId: result.newVersionId, smoothedPercent: 100, etaMs: null }));
       invalidate();
+      pushActivity('success', `Assembled ${result.scenesCount} scenes → ${result.charCount.toLocaleString()} chars`);
       toast.success(`Assembled ${result.scenesCount} scenes → ${result.charCount.toLocaleString()} chars`);
       return result;
     } catch (err: any) {
       setState(s => ({ ...s, mode: 'error', error: err.message }));
+      pushActivity('error', `Assemble failed: ${err.message}`);
       toast.error(err.message);
       return null;
     }
-  }, [projectId, invalidate]);
+  }, [projectId, invalidate, pushActivity]);
 
-  // Improvement 4: Requeue stuck jobs
+  // Requeue stuck jobs
   const requeueStuck = useCallback(async (sourceVersionId: string, stuckMinutes = 10) => {
     if (!projectId) return;
     try {
       const result = await callEngine('requeue_stuck_rewrite_jobs', { projectId, sourceVersionId, stuckMinutes });
+      pushActivity('warn', `Requeued ${result.requeued} stuck job(s)`);
       toast.success(`${result.requeued} stuck job(s) requeued`);
       await loadStatus(sourceVersionId);
     } catch (err: any) {
+      pushActivity('error', `Requeue stuck failed: ${err.message}`);
       toast.error(err.message);
     }
-  }, [projectId, loadStatus]);
+  }, [projectId, loadStatus, pushActivity]);
 
-  // Improvement 5: Preview assembled output
+  // Preview assembled output
   const preview = useCallback(async (sourceVersionId: string, maxChars = 8000): Promise<PreviewResult | null> => {
     if (!projectId) return null;
     try {
@@ -375,8 +478,35 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
 
   const reset = useCallback(() => {
     stopRef.current = true;
+    stopSmoothing();
     setState(initialState);
-  }, []);
+    durationsRef.current = [];
+  }, [stopSmoothing]);
+
+  const actualPercent = state.total > 0 ? Math.floor((state.done / state.total) * 100) : 0;
+
+  const progress = {
+    phase: state.mode === 'probing' ? 'probing'
+      : state.mode === 'enqueuing' ? 'enqueuing'
+      : state.mode === 'processing' ? 'processing_scene'
+      : state.mode === 'assembling' ? 'assembling'
+      : state.mode === 'complete' ? 'complete'
+      : state.mode === 'error' ? 'error'
+      : 'queued',
+    total: state.total,
+    completed: state.done,
+    running: state.running,
+    failed: state.failed,
+    queued: state.queued,
+    percent: actualPercent,
+    label: state.mode === 'probing' ? 'Probing scenes…'
+      : state.mode === 'enqueuing' ? 'Splitting into scenes…'
+      : state.mode === 'processing' ? `Scene ${state.done}/${state.total}`
+      : state.mode === 'assembling' ? 'Assembling final script…'
+      : state.mode === 'complete' ? 'Complete'
+      : state.mode === 'error' ? (state.error || 'Error')
+      : '',
+  };
 
   return {
     ...state,
@@ -392,5 +522,10 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
     reset,
     setSelectedRewriteMode,
     isProcessing: processingRef.current,
+    // New exports
+    progress,
+    activityItems,
+    clearActivity,
+    pushActivity,
   };
 }

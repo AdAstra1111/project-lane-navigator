@@ -10,6 +10,8 @@ import { useScriptPipeline } from '@/hooks/useScriptPipeline';
 import { useRewritePipeline } from '@/hooks/useRewritePipeline';
 import { useSceneRewritePipeline } from '@/hooks/useSceneRewritePipeline';
 import { SceneRewritePanel } from '@/components/devengine/SceneRewritePanel';
+import { ProcessProgressBar } from '@/components/devengine/ProcessProgressBar';
+import { ActivityTimeline } from '@/components/devengine/ActivityTimeline';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -1098,21 +1100,36 @@ export default function ProjectDevelopmentEngine() {
                     const nbd = latestAnalysis?.convergence?.next_best_document;
                     if (nbd) convert.mutate({ targetOutput: nbd.toUpperCase(), protectItems: latestAnalysis?.protect });
                   }} />
+                  {/* Chunk rewrite progress with ProcessProgressBar */}
                   {rewritePipeline.status !== 'idle' && rewritePipeline.status !== 'complete' && (
-                    <div className="p-2 rounded-lg border bg-muted/30">
-                      <div className="flex items-center gap-2 text-xs">
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                        <span className="flex-1">
-                          {rewritePipeline.status === 'planning' && 'Planning rewrite…'}
-                          {rewritePipeline.status === 'writing' && `Chunk ${rewritePipeline.currentChunk}/${rewritePipeline.totalChunks}`}
-                          {rewritePipeline.status === 'assembling' && 'Assembling…'}
-                          {rewritePipeline.status === 'error' && `Error: ${rewritePipeline.error}`}
-                        </span>
-                        <div className="flex gap-0.5 shrink-0">
-                          {rewritePipeline.status !== 'error' && (
-                            <Button variant="ghost" size="sm" className="h-5 w-5 p-0" onClick={() => rewritePipeline.reset()} title="Stop">
-                              <Square className="h-3 w-3" />
-                            </Button>
+                    <div className="p-2 rounded-lg border bg-muted/30 space-y-2">
+                      <ProcessProgressBar
+                        percent={rewritePipeline.smoothedPercent}
+                        actualPercent={rewritePipeline.progress.percent}
+                        phase={rewritePipeline.progress.phase}
+                        label={rewritePipeline.progress.label}
+                        etaMs={rewritePipeline.etaMs}
+                        status={
+                          rewritePipeline.status === 'error' ? 'error' : 'working'
+                        }
+                      />
+                      <div className="flex gap-0.5 justify-end">
+                        {rewritePipeline.status !== 'error' && (
+                          <Button variant="ghost" size="sm" className="h-5 w-5 p-0" onClick={() => rewritePipeline.reset()} title="Stop">
+                            <Square className="h-3 w-3" />
+                          </Button>
+                        )}
+                        {rewritePipeline.status === 'error' && (
+                          <Button variant="ghost" size="sm" className="h-5 w-5 p-0" onClick={() => { rewritePipeline.reset(); handleRewrite(); }} title="Restart">
+                            <RotateCcw className="h-3 w-3" />
+                          </Button>
+                        )}
+                      </div>
+                      {/* Chunk activity timeline */}
+                      {rewritePipeline.activityItems.length > 0 && (
+                        <ActivityTimeline items={rewritePipeline.activityItems} onClear={rewritePipeline.clearActivity} />
+                      )}
+                    </div>
                   )}
                   {/* Scene-level rewrite panel */}
                   {sceneRewrite.total > 0 && selectedDocId && selectedVersionId && (
@@ -1128,18 +1145,6 @@ export default function ProjectDevelopmentEngine() {
                         sceneRewrite.reset();
                       }}
                     />
-                  )}
-                          {rewritePipeline.status === 'error' && (
-                            <Button variant="ghost" size="sm" className="h-5 w-5 p-0" onClick={() => { rewritePipeline.reset(); handleRewrite(); }} title="Restart">
-                              <RotateCcw className="h-3 w-3" />
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-                      {rewritePipeline.totalChunks > 0 && (
-                        <Progress value={(rewritePipeline.currentChunk / rewritePipeline.totalChunks) * 100} className="h-1 mt-1" />
-                      )}
-                    </div>
                   )}
 
                   {/* Document content — editable */}
