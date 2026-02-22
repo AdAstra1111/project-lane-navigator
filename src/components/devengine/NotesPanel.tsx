@@ -13,7 +13,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   Zap, ChevronDown, Sparkles, Loader2, CheckCircle2, ArrowRight, Lightbulb,
-  Pencil, Check, X, Wand2, Shield, Eye, Lock, AlertTriangle, Layers, Pin, Clock,
+  Pencil, Check, X, Wand2, Shield, Eye, Lock, AlertTriangle, Layers, Pin, Clock, Trash2,
 } from 'lucide-react';
 import { useState, useCallback, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
@@ -98,6 +98,7 @@ interface NotesPanelProps {
   mutedByDecision?: string[];
   projectId?: string;
   documentId?: string;
+  onClearOldNotes?: () => void;
   /** Called after a decision is successfully applied — parent should invalidate + refresh */
   onDecisionApplied?: () => void;
 }
@@ -543,6 +544,7 @@ export function NotesPanel({
   deferredNotes, persistedDeferredNotes, onPinDeferred, onUnpinDeferred, onDismissDeferred,
   carriedNotes, currentDocType, currentVersionId, onResolveCarriedNote,
   bundles, decisionSets, mutedByDecision, projectId, documentId, onDecisionApplied,
+  onClearOldNotes,
 }: NotesPanelProps) {
   const [polishOpen, setPolishOpen] = useState(false);
   const [deferredOpen, setDeferredOpen] = useState(false);
@@ -682,6 +684,11 @@ export function NotesPanel({
               {tieredNotes.high.length > 0 && <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/30 text-[9px] px-1.5 py-0">{tieredNotes.high.length} High</Badge>}
               {tieredNotes.polish.length > 0 && <Badge className="bg-muted/40 text-muted-foreground border-border/50 text-[9px] px-1.5 py-0">{tieredNotes.polish.length} Polish</Badge>}
             </div>
+            {onClearOldNotes && (
+              <Button variant="ghost" size="sm" className="h-5 px-1.5 text-[9px] text-muted-foreground hover:text-destructive gap-0.5" onClick={onClearOldNotes}>
+                <Trash2 className="h-3 w-3" /> Clear Old
+              </Button>
+            )}
           </div>
         </CardHeader>
         <CardContent className="px-2 pb-2 space-y-2">

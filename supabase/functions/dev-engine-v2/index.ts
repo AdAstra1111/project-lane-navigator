@@ -1777,6 +1777,32 @@ ${version.plaintext.slice(0, maxContextChars)}`;
         }
       }
 
+      // ── Auto-dismiss stale notes from prior runs for this source_doc_type ──
+      if (projectId) {
+        try {
+          const currentNoteKeys = allDeferred.map((dn: any) => dn.note_key || dn.id).filter(Boolean);
+          // Dismiss old open notes for this doc type that weren't re-flagged
+          if (currentNoteKeys.length > 0) {
+            await supabase.from("project_deferred_notes")
+              .update({ status: "dismissed", resolved_at: new Date().toISOString(), resolution_method: "auto_stale", resolution_summary: "Auto-dismissed: not re-flagged in latest analysis" })
+              .eq("project_id", projectId)
+              .eq("source_doc_type", effectiveDeliverable)
+              .in("status", ["open", "pinned"])
+              .not("note_key", "in", `(${currentNoteKeys.join(",")})`);
+          } else {
+            // No new deferred notes — dismiss all old ones for this doc type
+            await supabase.from("project_deferred_notes")
+              .update({ status: "dismissed", resolved_at: new Date().toISOString(), resolution_method: "auto_stale", resolution_summary: "Auto-dismissed: no notes in latest analysis" })
+              .eq("project_id", projectId)
+              .eq("source_doc_type", effectiveDeliverable)
+              .in("status", ["open", "pinned"]);
+          }
+          console.log("[dev-engine-v2] Auto-dismissed stale deferred notes for", effectiveDeliverable);
+        } catch (e) {
+          console.warn("[dev-engine-v2] Failed to auto-dismiss stale notes:", e);
+        }
+      }
+
       // ── Load and inject carried-forward deferred notes for current deliverable ──
       if (projectId) {
         try {

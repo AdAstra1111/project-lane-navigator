@@ -148,6 +148,21 @@ export function useDeferredNotes(projectId: string | undefined) {
     },
   });
 
+  // Bulk dismiss all open deferred notes for this project
+  const bulkDismissAll = useMutation({
+    mutationFn: async () => {
+      if (!projectId) return;
+      const { error } = await (supabase as any)
+        .from('project_deferred_notes')
+        .update({ status: 'dismissed', resolved_at: new Date().toISOString(), resolution_method: 'bulk_dismissed', resolution_summary: 'Bulk dismissed by user' })
+        .eq('project_id', projectId)
+        .in('status', ['open', 'pinned']);
+      if (error) throw error;
+    },
+    onSuccess: () => { toast.success('All old notes cleared'); invalidate(); },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   // Filtered views
   const pinnedNotes = deferredNotes.filter(n => n.pinned);
   const unpinnedNotes = deferredNotes.filter(n => !n.pinned);
@@ -162,6 +177,7 @@ export function useDeferredNotes(projectId: string | undefined) {
     dismissNote,
     resolveNote,
     resurfaceForStage,
+    bulkDismissAll,
     invalidate,
   };
 }
