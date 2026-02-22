@@ -327,11 +327,15 @@ export function useSceneRewritePipeline(projectId: string | undefined) {
     }
   }, [projectId, loadStatus]);
 
-  const assemble = useCallback(async (sourceDocId: string, sourceVersionId: string) => {
+  const assemble = useCallback(async (sourceDocId: string, sourceVersionId: string, provenance?: { rewriteModeSelected?: string; rewriteProbe?: any }) => {
     if (!projectId) return;
     setState(s => ({ ...s, mode: 'assembling' }));
     try {
-      const result = await callEngine('assemble_rewritten_script', { projectId, sourceDocId, sourceVersionId });
+      const result = await callEngine('assemble_rewritten_script', {
+        projectId, sourceDocId, sourceVersionId,
+        rewriteModeSelected: provenance?.rewriteModeSelected || state.selectedRewriteMode || 'auto',
+        rewriteProbe: provenance?.rewriteProbe || state.probeResult || null,
+      });
       setState(s => ({ ...s, mode: 'complete', newVersionId: result.newVersionId }));
       invalidate();
       toast.success(`Assembled ${result.scenesCount} scenes → ${result.charCount.toLocaleString()} chars`);

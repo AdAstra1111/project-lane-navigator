@@ -586,7 +586,15 @@ export default function ProjectDevelopmentEngine() {
         }
       } else {
         // Chunk-based rewrite fallback
-        rewritePipeline.startRewrite(selectedDocId, selectedVersionId, enrichedNotes, protectItems);
+        const provenance = {
+          rewriteModeSelected: sceneRewrite.selectedRewriteMode,
+          rewriteProbe: sceneRewrite.probeResult ? {
+            has_scenes: sceneRewrite.probeResult.has_scenes,
+            scenes_count: sceneRewrite.probeResult.scenes_count,
+            script_chars: sceneRewrite.probeResult.script_chars,
+          } : undefined,
+        };
+        rewritePipeline.startRewrite(selectedDocId, selectedVersionId, enrichedNotes, protectItems, provenance);
       }
       afterRewrite();
     } else {

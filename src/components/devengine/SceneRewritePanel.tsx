@@ -72,7 +72,14 @@ export function SceneRewritePanel({
   };
 
   const handleAssemble = () => {
-    pipeline.assemble(documentId, versionId);
+    pipeline.assemble(documentId, versionId, {
+      rewriteModeSelected: pipeline.selectedRewriteMode,
+      rewriteProbe: pipeline.probeResult ? {
+        has_scenes: pipeline.probeResult.has_scenes,
+        scenes_count: pipeline.probeResult.scenes_count,
+        script_chars: pipeline.probeResult.script_chars,
+      } : undefined,
+    });
   };
 
   const handlePreview = async () => {
