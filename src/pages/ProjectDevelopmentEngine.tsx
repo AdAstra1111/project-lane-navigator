@@ -342,7 +342,7 @@ export default function ProjectDevelopmentEngine() {
     return conflicts;
   }, [isSeriesFormat, project, effectiveSeasonEpisodes, latestAnalysis]);
 
-  const [selectedDeliverableType, setSelectedDeliverableType] = useState<DeliverableType>('script');
+  const [selectedDeliverableType, setSelectedDeliverableType] = useState<DeliverableType>('feature_script');
   const [selectedNotes, setSelectedNotes] = useState<Set<number>>(new Set());
   const [targetPages, setTargetPages] = useState(100);
   const [notesDecisions, setNotesDecisions] = useState<Record<string, string>>({});
@@ -1351,7 +1351,7 @@ export default function ProjectDevelopmentEngine() {
                   </CardContent>
                 </Card>
               )}
-              {versionText && !isVerticalDrama && (selectedDeliverableType === 'script' || selectedDeliverableType === 'production_draft') && (
+              {versionText && !isVerticalDrama && (selectedDeliverableType === 'feature_script' || selectedDeliverableType === 'production_draft') && (
                 <FeatureLengthGuardrails projectId={projectId!} versionText={versionText}
                   selectedDocId={selectedDocId} selectedVersionId={selectedVersionId} />
               )}

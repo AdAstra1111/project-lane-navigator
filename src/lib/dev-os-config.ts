@@ -15,7 +15,8 @@ export type DeliverableType =
   | 'architecture'
   | 'character_bible'
   | 'beat_sheet'
-  | 'script'
+  | 'feature_script'
+  | 'episode_script'
   | 'season_master_script'
   | 'production_draft'
   | 'deck'
@@ -36,7 +37,8 @@ export const DELIVERABLE_LABELS: Record<DeliverableType, string> = {
   architecture: 'Series Architecture',
   character_bible: 'Character Bible',
   beat_sheet: 'Episode Beat Sheet',
-  script: 'Script',
+  feature_script: 'Feature Script',
+  episode_script: 'Episode Script',
   season_master_script: 'Master Season Script',
   production_draft: 'Production Draft',
   deck: 'Deck',
@@ -57,6 +59,7 @@ const FILM_LABEL_OVERRIDES: Partial<Record<DeliverableType, string>> = {
   architecture: 'Architecture',
   beat_sheet: 'Beat Sheet',
   season_arc: 'Story Arc',
+  feature_script: 'Script',
 };
 
 const NON_SERIES_FORMATS = new Set(['film', 'feature', 'short', 'documentary', 'hybrid-documentary', 'short-film']);
@@ -82,7 +85,7 @@ export const DELIVERABLE_PIPELINE_ORDER: DeliverableType[] = [
   'architecture',
   'character_bible',
   'beat_sheet',
-  'script',
+  'feature_script',
   'season_master_script',
   'production_draft',
 ];
@@ -96,7 +99,7 @@ export const VERTICAL_DRAMA_PIPELINE_ORDER: DeliverableType[] = [
   'season_arc',
   'episode_grid',
   'vertical_episode_beats',
-  'script',
+  'episode_script',
   'season_master_script',
   'series_writer',
 ];
@@ -114,7 +117,7 @@ export const VERTICAL_DRAMA_DOC_ORDER: Array<{ type: DeliverableType; label: str
   { type: 'season_arc', label: 'Season Arc', prerequisites: ['concept_brief', 'character_bible'] },
   { type: 'episode_grid', label: 'Episode Grid', prerequisites: ['season_arc'] },
   { type: 'vertical_episode_beats', label: 'Episode Beats (Ep 1–3)', prerequisites: ['season_arc', 'episode_grid'] },
-  { type: 'script', label: 'Scripts (Ep 1–3)', prerequisites: ['vertical_episode_beats'] },
+  { type: 'episode_script', label: 'Scripts (Ep 1–3)', prerequisites: ['vertical_episode_beats'] },
 ];
 
 /**
@@ -492,7 +495,7 @@ export function isDocumentaryDeliverable(deliverableType: DeliverableType): bool
 }
 
 export function isNonScriptDeliverable(deliverableType: DeliverableType): boolean {
-  return deliverableType !== 'script' && deliverableType !== 'production_draft';
+  return deliverableType !== 'feature_script' && deliverableType !== 'episode_script' && deliverableType !== 'production_draft';
 }
 
 export function defaultDeliverableForDocType(docType: string): DeliverableType {
@@ -508,8 +511,10 @@ export function defaultDeliverableForDocType(docType: string): DeliverableType {
     market_sheet: 'market_sheet',
     vertical_market_sheet: 'vertical_market_sheet',
     treatment: 'blueprint',
-    script: 'script',
-    pilot_script: 'script',
+    script: 'feature_script',
+    feature_script: 'feature_script',
+    episode_script: 'episode_script',
+    pilot_script: 'episode_script',
     one_pager: 'market_sheet',
     outline: 'blueprint',
     beat_sheet: 'beat_sheet',

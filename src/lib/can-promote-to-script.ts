@@ -9,6 +9,7 @@ export const SCRIPT_DOC_TYPES = new Set([
   'screenplay_draft',
   'pilot_script',
   'episode_script',
+  'feature_script',
   'episodes_1_3_scripts',
   'script',
   'season_scripts_bundle',
@@ -65,6 +66,7 @@ export const ALL_DOC_TYPE_LABELS: Record<string, string> = {
   // Script types
   screenplay_draft: 'Screenplay Draft',
   pilot_script: 'Pilot Script',
+  feature_script: 'Feature Script',
   episode_script: 'Episode Script',
   episodes_1_3_scripts: 'Episodes 1–3 Scripts',
   script: 'Script',

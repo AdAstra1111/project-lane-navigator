@@ -18,19 +18,19 @@ const corsHeaders = {
 
 // Canonical ladder per format — mirrors stage-ladders.json
 const FORMAT_LADDERS: Record<string, string[]> = {
-  film: ["idea","topline_narrative","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","script","production_draft","deck"],
-  feature: ["idea","topline_narrative","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","script","production_draft","deck"],
-  "tv-series": ["idea","topline_narrative","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","script","season_master_script","production_draft"],
-  "limited-series": ["idea","topline_narrative","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","script","season_master_script","production_draft"],
-  "digital-series": ["idea","topline_narrative","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","script","season_master_script","production_draft"],
-  "vertical-drama": ["idea","topline_narrative","concept_brief","vertical_market_sheet","format_rules","character_bible","season_arc","episode_grid","vertical_episode_beats","script","complete_season_script","season_master_script"],
+  film: ["idea","topline_narrative","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","feature_script","production_draft","deck"],
+  feature: ["idea","topline_narrative","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","feature_script","production_draft","deck"],
+  "tv-series": ["idea","topline_narrative","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","episode_script","season_master_script","production_draft"],
+  "limited-series": ["idea","topline_narrative","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","episode_script","season_master_script","production_draft"],
+  "digital-series": ["idea","topline_narrative","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","episode_script","season_master_script","production_draft"],
+  "vertical-drama": ["idea","topline_narrative","concept_brief","vertical_market_sheet","format_rules","character_bible","season_arc","episode_grid","vertical_episode_beats","episode_script","complete_season_script","season_master_script"],
   documentary: ["idea","topline_narrative","concept_brief","market_sheet","documentary_outline","deck"],
   "documentary-series": ["idea","topline_narrative","concept_brief","market_sheet","documentary_outline","deck"],
   "hybrid-documentary": ["idea","topline_narrative","concept_brief","market_sheet","documentary_outline","blueprint","deck"],
-  short: ["idea","topline_narrative","concept_brief","script"],
-  animation: ["idea","topline_narrative","concept_brief","market_sheet","blueprint","character_bible","beat_sheet","script"],
-  "anim-series": ["idea","topline_narrative","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","script","season_master_script","production_draft"],
-  reality: ["idea","topline_narrative","concept_brief","market_sheet","blueprint","beat_sheet","script"],
+  short: ["idea","topline_narrative","concept_brief","feature_script"],
+  animation: ["idea","topline_narrative","concept_brief","market_sheet","blueprint","character_bible","beat_sheet","feature_script"],
+  "anim-series": ["idea","topline_narrative","concept_brief","market_sheet","blueprint","architecture","character_bible","beat_sheet","episode_script","season_master_script","production_draft"],
+  reality: ["idea","topline_narrative","concept_brief","market_sheet","blueprint","beat_sheet","episode_script"],
 };
 
 function getLadder(format: string): string[] {
@@ -49,6 +49,8 @@ function toLabel(docType: string, format?: string): string {
     architecture: "Series Architecture",
     character_bible: "Character Bible",
     beat_sheet: "Episode Beat Sheet",
+    feature_script: "Feature Script",
+    episode_script: "Episode Script",
     script: "Script",
     season_master_script: "Master Season Script",
     production_draft: "Production Draft",
@@ -65,6 +67,7 @@ function toLabel(docType: string, format?: string): string {
     blueprint: "Blueprint",
     architecture: "Architecture",
     beat_sheet: "Beat Sheet",
+    feature_script: "Script",
   };
   const normalizedFormat = (format || "").toLowerCase().replace(/[\s_]+/g, "-");
   if (normalizedFormat && NON_SERIES.has(normalizedFormat)) {

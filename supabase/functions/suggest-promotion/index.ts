@@ -6,9 +6,21 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-// ── Document ladder ──
+// ── Document ladder (legacy — prefer format-aware ladders) ──
 const LADDER = ["idea", "concept_brief", "blueprint", "architecture", "draft", "coverage"] as const;
 type DocStage = (typeof LADDER)[number];
+
+// Format-aware script type mapping
+const FORMAT_SCRIPT_TYPE: Record<string, string> = {
+  film: "feature_script", feature: "feature_script", short: "feature_script", animation: "feature_script",
+  "tv-series": "episode_script", "limited-series": "episode_script", "digital-series": "episode_script",
+  "vertical-drama": "episode_script", "anim-series": "episode_script", reality: "episode_script",
+};
+
+function getScriptTypeForFormat(format: string): string {
+  const key = (format || "film").toLowerCase().replace(/[_ ]+/g, "-");
+  return FORMAT_SCRIPT_TYPE[key] || "feature_script";
+}
 
 function nextDoc(current: DocStage): DocStage | null {
   const idx = LADDER.indexOf(current);

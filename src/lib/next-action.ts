@@ -38,6 +38,8 @@ export const DOC_STAGE_LABELS: Record<string, string> = {
   season_arc: 'Season Arc',
   episode_grid: 'Episode Grid',
   vertical_episode_beats: 'Episode Beats',
+  feature_script: 'Feature Script',
+  episode_script: 'Episode Script',
   script: 'Script',
   production_draft: 'Production Draft',
 };

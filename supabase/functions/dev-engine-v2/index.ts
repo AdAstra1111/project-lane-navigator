@@ -631,17 +631,19 @@ const FORMAT_EXPECTATIONS: Record<string, string> = {
 
 // ── Format-specific document ladders ──
 const FORMAT_LADDERS: Record<string, string[]> = {
-  "vertical-drama": ["idea", "topline_narrative", "concept_brief", "vertical_market_sheet", "format_rules", "character_bible", "season_arc", "episode_grid", "vertical_episode_beats", "script"],
-  "tv-series": ["idea", "topline_narrative", "concept_brief", "market_sheet", "blueprint", "architecture", "character_bible", "beat_sheet", "script", "production_draft"],
-  "limited-series": ["idea", "topline_narrative", "concept_brief", "market_sheet", "blueprint", "architecture", "character_bible", "beat_sheet", "script", "production_draft"],
-  "digital-series": ["idea", "topline_narrative", "concept_brief", "market_sheet", "blueprint", "architecture", "character_bible", "beat_sheet", "script", "production_draft"],
-  "film": ["idea", "topline_narrative", "concept_brief", "market_sheet", "blueprint", "architecture", "character_bible", "beat_sheet", "script", "production_draft", "deck"],
-  "feature": ["idea", "topline_narrative", "concept_brief", "market_sheet", "blueprint", "architecture", "character_bible", "beat_sheet", "script", "production_draft", "deck"],
+  "vertical-drama": ["idea", "topline_narrative", "concept_brief", "vertical_market_sheet", "format_rules", "character_bible", "season_arc", "episode_grid", "vertical_episode_beats", "episode_script"],
+  "tv-series": ["idea", "topline_narrative", "concept_brief", "market_sheet", "blueprint", "architecture", "character_bible", "beat_sheet", "episode_script", "production_draft"],
+  "limited-series": ["idea", "topline_narrative", "concept_brief", "market_sheet", "blueprint", "architecture", "character_bible", "beat_sheet", "episode_script", "production_draft"],
+  "digital-series": ["idea", "topline_narrative", "concept_brief", "market_sheet", "blueprint", "architecture", "character_bible", "beat_sheet", "episode_script", "production_draft"],
+  "film": ["idea", "topline_narrative", "concept_brief", "market_sheet", "blueprint", "architecture", "character_bible", "beat_sheet", "feature_script", "production_draft", "deck"],
+  "feature": ["idea", "topline_narrative", "concept_brief", "market_sheet", "blueprint", "architecture", "character_bible", "beat_sheet", "feature_script", "production_draft", "deck"],
   "documentary": ["idea", "topline_narrative", "concept_brief", "market_sheet", "documentary_outline", "deck"],
   "documentary-series": ["idea", "topline_narrative", "concept_brief", "market_sheet", "documentary_outline", "deck"],
   "hybrid-documentary": ["idea", "topline_narrative", "concept_brief", "market_sheet", "documentary_outline", "blueprint", "deck"],
-  "short": ["idea", "topline_narrative", "concept_brief", "script"],
-  "animation": ["idea", "topline_narrative", "concept_brief", "market_sheet", "blueprint", "character_bible", "beat_sheet", "script"],
+  "short": ["idea", "topline_narrative", "concept_brief", "feature_script"],
+  "animation": ["idea", "topline_narrative", "concept_brief", "market_sheet", "blueprint", "character_bible", "beat_sheet", "feature_script"],
+  "anim-series": ["idea", "topline_narrative", "concept_brief", "market_sheet", "blueprint", "architecture", "character_bible", "beat_sheet", "episode_script", "season_master_script", "production_draft"],
+  "reality": ["idea", "topline_narrative", "concept_brief", "market_sheet", "blueprint", "beat_sheet", "episode_script"],
 };
 
 function getLadderForFormat(format: string): string[] {
@@ -655,19 +657,47 @@ const DOC_TYPE_REMAP: Record<string, Record<string, string>> = {
     architecture: "episode_grid",
     beat_sheet: "vertical_episode_beats",
     market_sheet: "vertical_market_sheet",
-    production_draft: "script",
+    production_draft: "episode_script",
+    script: "episode_script",
+    feature_script: "episode_script",
   },
   "documentary": {
     blueprint: "documentary_outline",
     architecture: "documentary_outline",
     character_bible: "documentary_outline",
     beat_sheet: "documentary_outline",
+    script: "documentary_outline",
+    feature_script: "documentary_outline",
+    episode_script: "documentary_outline",
   },
   "documentary-series": {
     blueprint: "documentary_outline",
     architecture: "documentary_outline",
     character_bible: "documentary_outline",
     beat_sheet: "documentary_outline",
+    script: "documentary_outline",
+    feature_script: "documentary_outline",
+    episode_script: "documentary_outline",
+  },
+  "film": {
+    episode_script: "feature_script",
+    script: "feature_script",
+  },
+  "feature": {
+    episode_script: "feature_script",
+    script: "feature_script",
+  },
+  "short": {
+    episode_script: "feature_script",
+    script: "feature_script",
+  },
+  "tv-series": {
+    feature_script: "episode_script",
+    script: "episode_script",
+  },
+  "limited-series": {
+    feature_script: "episode_script",
+    script: "episode_script",
   },
 };
 

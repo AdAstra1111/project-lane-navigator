@@ -25,7 +25,8 @@ export type DeliverableStage =
   | 'architecture'
   | 'character_bible'
   | 'beat_sheet'
-  | 'script'
+  | 'feature_script'
+  | 'episode_script'
   | 'season_master_script'
   | 'production_draft'
   | 'deck'
@@ -35,6 +36,16 @@ export type DeliverableStage =
   | 'episode_grid'
   | 'vertical_episode_beats'
   | 'series_writer';
+
+/** Maps a project format to its canonical script doc_type */
+export const FORMAT_SCRIPT_TYPES: Record<string, DeliverableStage> =
+  LADDERS_JSON.FORMAT_SCRIPT_TYPES as Record<string, DeliverableStage>;
+
+/** Get the correct script doc_type for a project format */
+export function getScriptTypeForFormat(format: string): DeliverableStage {
+  const key = normalizeFormatKey(format);
+  return FORMAT_SCRIPT_TYPES[key] ?? 'feature_script';
+}
 
 // ── Per-format ordered ladders (loaded from shared JSON) ─────────────────────
 export const FORMAT_LADDERS: Record<string, DeliverableStage[]> =
@@ -122,7 +133,8 @@ export const DOC_TYPE_TO_LADDER_STAGE: Record<string, DeliverableStage> = {
   architecture:            'architecture',
   character_bible:         'character_bible',
   beat_sheet:              'beat_sheet',
-  script:                  'script',
+  feature_script:          'feature_script',
+  episode_script:          'episode_script',
   season_master_script:    'season_master_script',
   production_draft:        'production_draft',
   deck:                    'deck',
@@ -139,14 +151,13 @@ export const DOC_TYPE_TO_LADDER_STAGE: Record<string, DeliverableStage> = {
   season_outline:          'blueprint',
   outline:                 'blueprint',
   episode_beat_sheet:      'beat_sheet',
-  feature_script:          'script',
-  pilot_script:            'script',
-  episode_script:          'script',
-  episode_1_script:        'script',
+  pilot_script:            'episode_script',
+  episode_1_script:        'episode_script',
   writers_room:            'series_writer',
   notes:                   'concept_brief',
-  // Legacy aliases — NEVER stored as real doc_types
-  draft:                   'script',
+  // Legacy aliases — backward compat
+  script:                  'feature_script',
+  draft:                   'feature_script',
   coverage:                'production_draft',
   complete_season_script:  'season_master_script',
 };
@@ -219,10 +230,10 @@ export function runStageRegistrySelfTest(verbose = false): { passed: boolean; fa
     }
   }
 
-  // 6. mapDocTypeToLadderStage('draft') must return 'script', never 'draft'
+  // 6. mapDocTypeToLadderStage('draft') must return 'feature_script', never 'draft'
   const draftMapped = mapDocTypeToLadderStage('draft');
-  if (draftMapped !== 'script') {
-    failures.push(`mapDocTypeToLadderStage("draft") returned "${draftMapped}", expected "script"`);
+  if (draftMapped !== 'feature_script') {
+    failures.push(`mapDocTypeToLadderStage("draft") returned "${draftMapped}", expected "feature_script"`);
   }
 
   // 7. FORMAT_LADDERS matches the JSON source

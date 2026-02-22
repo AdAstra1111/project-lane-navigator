@@ -134,7 +134,7 @@ const registry: Record<DeliverableType, ReviewSchema> = {
     convergenceRules: { minCI: 70, minGP: 65 },
     forbiddenCritique: ['dialogue quality', 'prose style', 'visual description'],
   },
-  script: {
+  feature_script: {
     rubricSections: [
       { dimension: 'Scene Construction', weight: 20, description: 'Are scenes well-constructed with clear purpose?' },
       { dimension: 'Dialogue', weight: 20, description: 'Is dialogue distinctive and purposeful?' },
@@ -145,6 +145,20 @@ const registry: Record<DeliverableType, ReviewSchema> = {
     ],
     analysisPromptModifier: 'This is a SCRIPT — full evaluation of scene construction, dialogue, subtext, visual storytelling, emotional impact, and production feasibility.',
     rewritePromptModifier: 'Apply full script rewrite with attention to all craft dimensions.',
+    convergenceRules: { minCI: 75, minGP: 75 },
+    forbiddenCritique: [],
+  },
+  episode_script: {
+    rubricSections: [
+      { dimension: 'Scene Construction', weight: 20, description: 'Are scenes well-constructed with clear purpose?' },
+      { dimension: 'Dialogue', weight: 20, description: 'Is dialogue distinctive and purposeful?' },
+      { dimension: 'Episodic Structure', weight: 15, description: 'Does the episode work as a standalone unit with series hooks?' },
+      { dimension: 'Visual Storytelling', weight: 15, description: 'Does the writing think cinematically?' },
+      { dimension: 'Cliffhanger / Hook', weight: 15, description: 'Does the episode end with a compelling hook for the next?' },
+      { dimension: 'Production Feasibility', weight: 15, description: 'Is the script producible at its budget tier?' },
+    ],
+    analysisPromptModifier: 'This is an EPISODE SCRIPT — evaluate scene construction, dialogue, episodic structure, cliffhanger/hook quality, and production feasibility.',
+    rewritePromptModifier: 'Apply episode script rewrite with attention to episodic pacing and series continuity.',
     convergenceRules: { minCI: 75, minGP: 75 },
     forbiddenCritique: [],
   },
@@ -260,7 +274,7 @@ const registry: Record<DeliverableType, ReviewSchema> = {
 // ── Public API ──
 
 export function getReviewSchema(deliverableType: DeliverableType): ReviewSchema {
-  return registry[deliverableType] || registry.script;
+  return registry[deliverableType] || registry.feature_script;
 }
 
 /**
