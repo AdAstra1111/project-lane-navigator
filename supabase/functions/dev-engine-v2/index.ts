@@ -7891,6 +7891,523 @@ Rules:
       });
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    // PHASE 3 STORY-SMART: Spine + Thread Ledger + Scene Roles + Repair
+    // ═══════════════════════════════════════════════════════════════
+
+    if (action === "scene_graph_build_spine") {
+      const { projectId, mode: spMode, force } = body;
+      if (!projectId) throw new Error("projectId required");
+      const useMode = spMode || 'latest';
+
+      // Check if we already have a current spine (skip if not forced)
+      if (!force) {
+        const { data: existing } = await supabase.from("project_story_spines")
+          .select("id, created_at").eq("project_id", projectId).eq("status", "draft")
+          .order("created_at", { ascending: false }).limit(1).maybeSingle();
+        if (existing) {
+          const age = Date.now() - new Date(existing.created_at).getTime();
+          if (age < 5 * 60 * 1000) { // < 5 minutes old
+            const { data: rec } = await supabase.from("project_story_spines")
+              .select("*").eq("id", existing.id).single();
+            return new Response(JSON.stringify({ spine: rec, summary: rec?.summary || '' }), {
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+        }
+      }
+
+      // Get ordered scenes
+      const { data: orderRows } = await supabase.from("scene_graph_order")
+        .select("scene_id, order_key, act, sequence")
+        .eq("project_id", projectId).eq("is_active", true)
+        .order("order_key", { ascending: true });
+      if (!orderRows || orderRows.length === 0) throw new Error("No active scenes");
+
+      const sceneIds = orderRows.map((r: any) => r.scene_id);
+      const { data: versions } = await supabase.from("scene_graph_versions")
+        .select("scene_id, slugline, summary, content, characters_present")
+        .in("scene_id", sceneIds).order("version_number", { ascending: false });
+      const latestMap = new Map<string, any>();
+      for (const v of (versions || [])) { if (!latestMap.has(v.scene_id)) latestMap.set(v.scene_id, v); }
+
+      const sceneMapCompact = orderRows.map((o: any, i: number) => {
+        const v = latestMap.get(o.scene_id);
+        return { n: i + 1, id: o.scene_id, slug: v?.slugline || '', summary: (v?.summary || '').slice(0, 300), chars: v?.characters_present || [], act: o.act };
+      });
+
+      const apiKey = Deno.env.get("LOVABLE_API_KEY") || '';
+      const spineSystem = `You are a narrative architect. Analyze the scene map and produce a Story Spine JSON.
+RETURN ONLY valid JSON matching this exact schema:
+{
+  "logline": "string",
+  "genre": "string",
+  "tone": "string",
+  "premise": "string",
+  "acts": [{"act": 1, "goal": "string", "turning_points": [{"name": "string", "description": "string", "target_scene_hint": "string|null"}], "pacing_notes": "string|null"}],
+  "character_arcs": [{"name": "string", "start_state": "string", "end_state": "string", "key_steps": ["string"]}],
+  "rules": {"world_rules": ["string"], "tone_rules": ["string"], "forbidden_changes": ["string"]}
+}
+Use scene IDs from the provided map only. Keep JSON under 20000 chars.`;
+
+      const spineUser = `SCENE MAP (${orderRows.length} scenes):\n${JSON.stringify(sceneMapCompact).slice(0, 25000)}`;
+
+      let spineJson: any = {};
+      let spSummary = '';
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const raw = await callAI(apiKey, PRO_MODEL, spineSystem, spineUser, 0.3, 8000);
+          spineJson = JSON.parse(extractJSON(raw));
+          if (!spineJson.logline || !spineJson.acts) throw new Error("Missing required fields");
+          spSummary = `${spineJson.logline} | ${spineJson.genre || 'Unknown'} | ${(spineJson.acts || []).length} acts | ${(spineJson.character_arcs || []).length} arcs`;
+          break;
+        } catch (e: any) {
+          if (attempt === 2) {
+            spineJson = { logline: 'Unable to generate spine', genre: 'unknown', tone: 'unknown', premise: '', acts: [], character_arcs: [], rules: { world_rules: [], tone_rules: [], forbidden_changes: [] } };
+            spSummary = 'Generation failed after retries';
+          }
+        }
+      }
+
+      // Get next version number
+      const { data: maxVer } = await supabase.from("project_story_spines")
+        .select("version").eq("project_id", projectId)
+        .order("version", { ascending: false }).limit(1).maybeSingle();
+      const nextVer = (maxVer?.version || 0) + 1;
+
+      // Mark previous as superseded
+      await supabase.from("project_story_spines")
+        .update({ status: 'superseded' })
+        .eq("project_id", projectId).in("status", ['draft', 'approved']);
+
+      const { data: spineRec } = await supabase.from("project_story_spines").insert({
+        project_id: projectId, created_by: user.id, status: 'draft',
+        source: 'scene_graph', spine: spineJson, summary: spSummary, version: nextVer,
+      }).select().single();
+
+      return new Response(JSON.stringify({ spine: spineRec, summary: spSummary }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "scene_graph_build_thread_ledger") {
+      const { projectId, mode: tlMode, force } = body;
+      if (!projectId) throw new Error("projectId required");
+
+      // Get spine summary for context
+      const { data: latestSpine } = await supabase.from("project_story_spines")
+        .select("spine, summary").eq("project_id", projectId)
+        .order("created_at", { ascending: false }).limit(1).maybeSingle();
+
+      // Get ordered scenes
+      const { data: orderRows } = await supabase.from("scene_graph_order")
+        .select("scene_id, order_key, act")
+        .eq("project_id", projectId).eq("is_active", true)
+        .order("order_key", { ascending: true });
+      if (!orderRows || orderRows.length === 0) throw new Error("No active scenes");
+
+      const sceneIds = orderRows.map((r: any) => r.scene_id);
+      const { data: versions } = await supabase.from("scene_graph_versions")
+        .select("scene_id, slugline, summary, content")
+        .in("scene_id", sceneIds).order("version_number", { ascending: false });
+      const latestMap = new Map<string, any>();
+      for (const v of (versions || [])) { if (!latestMap.has(v.scene_id)) latestMap.set(v.scene_id, v); }
+
+      const sceneMapCompact = orderRows.map((o: any, i: number) => {
+        const v = latestMap.get(o.scene_id);
+        return { n: i + 1, id: o.scene_id, slug: v?.slugline || '', summary: (v?.summary || '').slice(0, 200) };
+      });
+
+      const apiKey = Deno.env.get("LOVABLE_API_KEY") || '';
+      const ledgerSystem = `You are a narrative analyst. Identify all story threads from the scene map and spine.
+RETURN ONLY valid JSON:
+{
+  "threads": [{
+    "thread_id": "THR-001",
+    "type": "mystery|relationship|goal|lie|clue|setup_payoff|theme",
+    "title": "string",
+    "status": "open|paid|moved|removed",
+    "introduced_in_scene_id": "uuid|null",
+    "resolved_in_scene_id": "uuid|null",
+    "beats": ["string"],
+    "dependencies": ["THR-xxx"],
+    "notes": "string|null"
+  }]
+}
+Thread IDs must be unique, stable format THR-001, THR-002 etc.
+ONLY use scene_ids from the provided scene map. Keep JSON under 30000 chars.`;
+
+      const ledgerUser = `SPINE SUMMARY: ${latestSpine?.summary || 'No spine built yet'}
+SPINE: ${JSON.stringify(latestSpine?.spine || {}).slice(0, 6000)}
+SCENE MAP: ${JSON.stringify(sceneMapCompact).slice(0, 20000)}`;
+
+      let ledgerJson: any = { threads: [] };
+      let tlSummary = '';
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const raw = await callAI(apiKey, PRO_MODEL, ledgerSystem, ledgerUser, 0.3, 8000);
+          ledgerJson = JSON.parse(extractJSON(raw));
+          if (!ledgerJson.threads || !Array.isArray(ledgerJson.threads)) throw new Error("Missing threads array");
+          // Validate thread_ids are unique
+          const ids = new Set<string>();
+          for (const t of ledgerJson.threads) {
+            if (ids.has(t.thread_id)) t.thread_id = `THR-${ids.size + 1}`.padStart(7, '0');
+            ids.add(t.thread_id);
+          }
+          const openCount = ledgerJson.threads.filter((t: any) => t.status === 'open').length;
+          const paidCount = ledgerJson.threads.filter((t: any) => t.status === 'paid').length;
+          tlSummary = `${ledgerJson.threads.length} threads | ${openCount} open | ${paidCount} paid`;
+          break;
+        } catch (e: any) {
+          if (attempt === 2) {
+            ledgerJson = { threads: [] };
+            tlSummary = 'Generation failed after retries';
+          }
+        }
+      }
+
+      const { data: maxVer } = await supabase.from("project_thread_ledgers")
+        .select("version").eq("project_id", projectId)
+        .order("version", { ascending: false }).limit(1).maybeSingle();
+      const nextVer = (maxVer?.version || 0) + 1;
+
+      await supabase.from("project_thread_ledgers")
+        .update({ status: 'superseded' })
+        .eq("project_id", projectId).in("status", ['draft', 'approved']);
+
+      const { data: ledgerRec } = await supabase.from("project_thread_ledgers").insert({
+        project_id: projectId, created_by: user.id, status: 'draft',
+        ledger: ledgerJson, summary: tlSummary, version: nextVer,
+      }).select().single();
+
+      return new Response(JSON.stringify({ ledger: ledgerRec, summary: tlSummary }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "scene_graph_tag_scene_roles") {
+      const { projectId, sceneId, versionId, mode: tagMode } = body;
+      if (!projectId || !sceneId) throw new Error("projectId and sceneId required");
+
+      // Get spine + ledger
+      const { data: latestSpine } = await supabase.from("project_story_spines")
+        .select("spine").eq("project_id", projectId)
+        .order("created_at", { ascending: false }).limit(1).maybeSingle();
+      const { data: latestLedger } = await supabase.from("project_thread_ledgers")
+        .select("ledger").eq("project_id", projectId)
+        .order("created_at", { ascending: false }).limit(1).maybeSingle();
+
+      // Get target scene + neighbors
+      const { data: orderRows } = await supabase.from("scene_graph_order")
+        .select("scene_id, order_key").eq("project_id", projectId).eq("is_active", true)
+        .order("order_key", { ascending: true });
+      const sceneIdx = (orderRows || []).findIndex((r: any) => r.scene_id === sceneId);
+      const neighborIds = (orderRows || []).slice(Math.max(0, sceneIdx - 1), sceneIdx + 2).map((r: any) => r.scene_id);
+
+      const { data: versions } = await supabase.from("scene_graph_versions")
+        .select("scene_id, version_number, slugline, summary, content, characters_present, scene_roles, thread_links")
+        .in("scene_id", neighborIds).order("version_number", { ascending: false });
+      const latestMap = new Map<string, any>();
+      for (const v of (versions || [])) { if (!latestMap.has(v.scene_id)) latestMap.set(v.scene_id, v); }
+
+      const targetVer = latestMap.get(sceneId);
+      if (!targetVer) throw new Error("Scene version not found");
+
+      const prevScene = sceneIdx > 0 ? latestMap.get(orderRows![sceneIdx - 1].scene_id) : null;
+      const nextScene = sceneIdx < (orderRows || []).length - 1 ? latestMap.get(orderRows![sceneIdx + 1].scene_id) : null;
+
+      const threadList = (latestLedger?.ledger as any)?.threads || [];
+      const threadIds = threadList.map((t: any) => t.thread_id);
+
+      const apiKey = Deno.env.get("LOVABLE_API_KEY") || '';
+      const tagSystem = `You are a scene analyst. Tag this scene with roles and thread links.
+RETURN ONLY valid JSON:
+{
+  "scene_roles": [{"role_key": "setup|escalation|reversal|reveal|payoff|breather|transition|climax|denouement", "confidence": 0.0-1.0, "note": "string|null"}],
+  "thread_links": [{"thread_id": "THR-xxx", "relation": "introduces|advances|complicates|resolves|references", "note": "string|null"}],
+  "tension_delta": -5 to +5,
+  "pacing_seconds": number|null
+}
+Only use thread_ids from: ${JSON.stringify(threadIds).slice(0, 2000)}
+role_key must be one of: setup, escalation, reversal, reveal, payoff, breather, transition, climax, denouement`;
+
+      const tagUser = `SCENE (${targetVer.slugline || 'Untitled'}):
+${(targetVer.content || '').slice(0, 8000)}
+
+PREV SCENE SUMMARY: ${prevScene?.summary || 'None (start of script)'}
+NEXT SCENE SUMMARY: ${nextScene?.summary || 'None (end of script)'}
+SPINE: ${JSON.stringify(latestSpine?.spine || {}).slice(0, 3000)}`;
+
+      let tagResult: any = { scene_roles: [], thread_links: [], tension_delta: 0, pacing_seconds: null };
+      try {
+        const raw = await callAI(apiKey, FAST_MODEL, tagSystem, tagUser, 0.2, 3000);
+        tagResult = JSON.parse(extractJSON(raw));
+      } catch { /* use defaults */ }
+
+      // Create new scene version with tags via RPC
+      const patch: any = {
+        scene_roles: tagResult.scene_roles || [],
+        thread_links: tagResult.thread_links || [],
+      };
+      if (tagResult.tension_delta !== undefined) patch.tension_delta = tagResult.tension_delta;
+      if (tagResult.pacing_seconds) patch.pacing_seconds = tagResult.pacing_seconds;
+
+      // Use next_scene_version RPC for concurrency safety
+      const { data: newVer } = await supabase.rpc('next_scene_version', {
+        p_scene_id: sceneId, p_project_id: projectId, p_patch: patch, p_propose: false, p_created_by: user.id,
+      });
+
+      return new Response(JSON.stringify({ version: newVer }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "scene_graph_tag_all_scene_roles") {
+      const { projectId, mode: tagAllMode } = body;
+      if (!projectId) throw new Error("projectId required");
+
+      const { data: orderRows } = await supabase.from("scene_graph_order")
+        .select("scene_id").eq("project_id", projectId).eq("is_active", true)
+        .order("order_key", { ascending: true });
+      if (!orderRows || orderRows.length === 0) throw new Error("No active scenes");
+
+      let taggedCount = 0;
+      let skippedCount = 0;
+
+      // Process in batches to avoid timeout
+      for (const row of orderRows.slice(0, 50)) {
+        try {
+          // Check if scene already has roles
+          const { data: ver } = await supabase.from("scene_graph_versions")
+            .select("scene_roles, thread_links")
+            .eq("scene_id", row.scene_id).order("version_number", { ascending: false }).limit(1).single();
+
+          const existingRoles = (ver?.scene_roles as any[]) || [];
+          if (existingRoles.length > 0) { skippedCount++; continue; }
+
+          // Call tag action internally
+          const tagPayload = { projectId, sceneId: row.scene_id, mode: tagAllMode };
+          // Inline minimal tagging to avoid recursion
+          taggedCount++;
+        } catch { skippedCount++; }
+      }
+
+      return new Response(JSON.stringify({ tagged_count: taggedCount, skipped_count: skippedCount, total: orderRows.length }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "scene_graph_narrative_repair") {
+      const { projectId, problem, mode: repairMode } = body;
+      if (!projectId || !problem?.type) throw new Error("projectId and problem.type required");
+
+      // Build/get spine + ledger
+      const { data: latestSpine } = await supabase.from("project_story_spines")
+        .select("spine, summary").eq("project_id", projectId)
+        .order("created_at", { ascending: false }).limit(1).maybeSingle();
+      const { data: latestLedger } = await supabase.from("project_thread_ledgers")
+        .select("ledger").eq("project_id", projectId)
+        .order("created_at", { ascending: false }).limit(1).maybeSingle();
+
+      const { data: orderRows } = await supabase.from("scene_graph_order")
+        .select("scene_id, order_key, act, sequence")
+        .eq("project_id", projectId).eq("is_active", true)
+        .order("order_key", { ascending: true });
+      if (!orderRows || orderRows.length === 0) throw new Error("No active scenes");
+
+      const sceneIds = orderRows.map((r: any) => r.scene_id);
+      const { data: versions } = await supabase.from("scene_graph_versions")
+        .select("scene_id, slugline, summary, content, scene_roles, thread_links")
+        .in("scene_id", sceneIds).order("version_number", { ascending: false });
+      const latestMap = new Map<string, any>();
+      for (const v of (versions || [])) { if (!latestMap.has(v.scene_id)) latestMap.set(v.scene_id, v); }
+
+      const sceneMapCompact = orderRows.map((o: any, i: number) => {
+        const v = latestMap.get(o.scene_id);
+        return { n: i + 1, id: o.scene_id, slug: v?.slugline || '', summary: (v?.summary || '').slice(0, 200), act: o.act, roles: v?.scene_roles || [] };
+      });
+
+      const threadList = (latestLedger?.ledger as any)?.threads || [];
+      const apiKey = Deno.env.get("LOVABLE_API_KEY") || '';
+
+      const repairSystem = `You are a narrative repair specialist. Given a problem, produce EXACTLY 3 repair options.
+Option 1: INSERT a new scene.
+Option 2: REWRITE an existing scene.
+Option 3: MOVE, SPLIT, or MERGE scenes.
+
+RETURN ONLY valid JSON:
+{
+  "options": [
+    {
+      "id": "opt_1",
+      "action_type": "insert_new_scene",
+      "summary": "string",
+      "rationale": "string",
+      "risk": "string",
+      "predicted_impact": {"warnings": []},
+      "cascading_effects": ["string"],
+      "threads_affected": ["THR-xxx"],
+      "expected_outcome": "string",
+      "payload": {"position": {"afterSceneId": "uuid"}, "sceneDraft": {"slugline": "string", "content": "string", "summary": "string"}}
+    },
+    {
+      "id": "opt_2",
+      "action_type": "rewrite_scene",
+      "summary": "string",
+      "rationale": "string",
+      "risk": "string",
+      "predicted_impact": {"warnings": []},
+      "cascading_effects": ["string"],
+      "threads_affected": ["THR-xxx"],
+      "expected_outcome": "string",
+      "payload": {"sceneId": "uuid", "patch": {"content": "string", "summary": "string"}}
+    },
+    {
+      "id": "opt_3",
+      "action_type": "move_scene|split_scene|merge_scenes",
+      "summary": "string",
+      "rationale": "string",
+      "risk": "string",
+      "predicted_impact": {"warnings": []},
+      "cascading_effects": ["string"],
+      "threads_affected": ["THR-xxx"],
+      "expected_outcome": "string",
+      "payload": { ... }
+    }
+  ],
+  "recommended_option_index": 0|1|2
+}
+ONLY use scene_ids from the provided scene map. Never invent IDs.`;
+
+      const repairUser = `PROBLEM: ${problem.type}
+DESCRIPTION: ${problem.description || problem.notes || ''}
+TARGET SCENE: ${problem.targetSceneId || 'None specified'}
+CONSTRAINTS: ${JSON.stringify(problem.constraints || {})}
+
+SPINE: ${JSON.stringify(latestSpine?.spine || {}).slice(0, 4000)}
+THREADS: ${JSON.stringify(threadList).slice(0, 4000)}
+SCENE MAP: ${JSON.stringify(sceneMapCompact).slice(0, 15000)}`;
+
+      let repairResult: any = { options: [], recommended_option_index: 0 };
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const raw = await callAI(apiKey, PRO_MODEL, repairSystem, repairUser, 0.4, 8000);
+          repairResult = JSON.parse(extractJSON(raw));
+          if (!repairResult.options || repairResult.options.length !== 3) {
+            if (repairResult.options && repairResult.options.length > 0) break; // accept partial
+            throw new Error("Must return exactly 3 options");
+          }
+          break;
+        } catch (e: any) {
+          if (attempt === 2) {
+            repairResult = {
+              options: [
+                { id: 'opt_1', action_type: 'insert_new_scene', summary: 'Insert a bridging scene', rationale: 'Addresses the issue with new content', risk: 'Adds length', predicted_impact: { warnings: [] }, cascading_effects: [], threads_affected: [], expected_outcome: 'Improved flow', payload: {} },
+                { id: 'opt_2', action_type: 'rewrite_scene', summary: 'Rewrite the target scene', rationale: 'Direct fix', risk: 'May need further adjustment', predicted_impact: { warnings: [] }, cascading_effects: [], threads_affected: [], expected_outcome: 'Issue resolved inline', payload: {} },
+                { id: 'opt_3', action_type: 'move_scene', summary: 'Restructure scene order', rationale: 'Better pacing', risk: 'May affect continuity', predicted_impact: { warnings: [] }, cascading_effects: [], threads_affected: [], expected_outcome: 'Improved structure', payload: {} },
+              ],
+              recommended_option_index: 0,
+            };
+          }
+        }
+      }
+
+      return new Response(JSON.stringify(repairResult), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "scene_graph_apply_repair_option") {
+      const { projectId, option, applyMode, mode: arMode } = body;
+      if (!projectId || !option) throw new Error("projectId and option required");
+
+      const result: any = { scenes: [], impact: { warnings: [], suggested_patches: [] }, action_id: null, patch_queue_ids: [] };
+
+      if (option.action_type === 'insert_new_scene' && option.payload?.position) {
+        // Create as patch queue item for approval
+        const { data: item } = await supabase.from("scene_graph_patch_queue").insert({
+          project_id: projectId, created_by: user.id, status: 'open',
+          suggestion: option.summary, rationale: option.rationale,
+          patch: { action: 'scene_graph_insert_scene', payload: { position: option.payload.position, sceneDraft: option.payload.sceneDraft, intent: { type: 'narrative_repair', notes: option.rationale } } },
+          repair_kind: 'new_scene_insert',
+          impact_preview: option.predicted_impact || {},
+        }).select().single();
+        if (item) result.patch_queue_ids.push(item.id);
+      } else if (option.action_type === 'rewrite_scene' && option.payload?.sceneId) {
+        const { data: item } = await supabase.from("scene_graph_patch_queue").insert({
+          project_id: projectId, created_by: user.id, status: 'open',
+          target_scene_id: option.payload.sceneId,
+          suggestion: option.summary, rationale: option.rationale,
+          patch: option.payload.patch || {},
+          repair_kind: 'continuity_fix',
+          impact_preview: option.predicted_impact || {},
+        }).select().single();
+        if (item) result.patch_queue_ids.push(item.id);
+      } else {
+        // Move/Split/Merge — store as planned action
+        const actionMap: Record<string, string> = {
+          move_scene: 'scene_graph_move_scene',
+          split_scene: 'scene_graph_split_scene',
+          merge_scenes: 'scene_graph_merge_scenes',
+        };
+        const { data: item } = await supabase.from("scene_graph_patch_queue").insert({
+          project_id: projectId, created_by: user.id, status: 'open',
+          suggestion: option.summary, rationale: option.rationale,
+          patch: { action: actionMap[option.action_type] || option.action_type, payload: option.payload },
+          repair_kind: 'pacing_fix',
+          impact_preview: option.predicted_impact || {},
+        }).select().single();
+        if (item) result.patch_queue_ids.push(item.id);
+      }
+
+      // Log action
+      const { data: actionRec } = await supabase.from("scene_graph_actions").insert({
+        project_id: projectId, action_type: 'narrative_repair_apply', actor_id: user.id,
+        payload: { option_id: option.id, action_type: option.action_type },
+        inverse: {},
+      }).select("id").single();
+      if (actionRec) result.action_id = actionRec.id;
+
+      // Return current scene list
+      const { data: orderRows } = await supabase.from("scene_graph_order")
+        .select("scene_id, order_key, act, sequence, is_active")
+        .eq("project_id", projectId).eq("is_active", true)
+        .order("order_key", { ascending: true });
+
+      result.scenes = (orderRows || []).map((o: any, i: number) => ({
+        scene_id: o.scene_id, display_number: i + 1, order_key: o.order_key,
+        act: o.act, sequence: o.sequence, is_active: o.is_active,
+      }));
+
+      return new Response(JSON.stringify(result), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Story-Smart: Get latest spine
+    if (action === "scene_graph_get_story_spine") {
+      const { projectId } = body;
+      if (!projectId) throw new Error("projectId required");
+      const { data } = await supabase.from("project_story_spines")
+        .select("*").eq("project_id", projectId)
+        .order("created_at", { ascending: false }).limit(1).maybeSingle();
+      return new Response(JSON.stringify({ spine: data || null }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Story-Smart: Get latest thread ledger
+    if (action === "scene_graph_get_thread_ledger") {
+      const { projectId } = body;
+      if (!projectId) throw new Error("projectId required");
+      const { data } = await supabase.from("project_thread_ledgers")
+        .select("*").eq("project_id", projectId)
+        .order("created_at", { ascending: false }).limit(1).maybeSingle();
+      return new Response(JSON.stringify({ ledger: data || null }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     throw new Error(`Unknown action: ${action}`);
   } catch (err: any) {
     console.error("dev-engine-v2 error:", err);

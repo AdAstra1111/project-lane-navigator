@@ -27,6 +27,12 @@ import {
   coherenceRun,
   coherenceGetLatest,
   coherenceCloseFinding,
+  buildStorySpine,
+  buildThreadLedger,
+  tagSceneRoles,
+  tagAllSceneRoles,
+  narrativeRepair,
+  applyRepairOption,
 } from '@/lib/scene-graph/client';
 import type {
   SceneListItem,
@@ -38,6 +44,9 @@ import type {
   StoryMetricsRun,
   CoherenceRun,
   CoherenceFinding,
+  StorySpineRecord,
+  ThreadLedgerRecord,
+  NarrativeRepairResponse,
 } from '@/lib/scene-graph/types';
 
 export function useSceneGraph(projectId: string | undefined) {
@@ -131,6 +140,32 @@ export function useSceneGraph(projectId: string | undefined) {
       if (!projectId) return { run: null, findings: [] };
       const result = await coherenceGetLatest({ projectId });
       return { run: result.run, findings: result.findings || [] };
+    },
+    enabled: !!projectId && (stateQuery.data?.has_scenes ?? false),
+  });
+
+  // Phase 3 Story-Smart: Spine
+  const storySpineQuery = useQuery({
+    queryKey: ['scene-graph-story-spine', projectId],
+    queryFn: async () => {
+      if (!projectId) return null;
+      const { data } = await supabase.from('project_story_spines' as any)
+        .select('*').eq('project_id', projectId)
+        .order('created_at', { ascending: false }).limit(1).maybeSingle();
+      return data || null;
+    },
+    enabled: !!projectId && (stateQuery.data?.has_scenes ?? false),
+  });
+
+  // Phase 3 Story-Smart: Thread Ledger
+  const threadLedgerQuery = useQuery({
+    queryKey: ['scene-graph-thread-ledger', projectId],
+    queryFn: async () => {
+      if (!projectId) return null;
+      const { data } = await supabase.from('project_thread_ledgers' as any)
+        .select('*').eq('project_id', projectId)
+        .order('created_at', { ascending: false }).limit(1).maybeSingle();
+      return data || null;
     },
     enabled: !!projectId && (stateQuery.data?.has_scenes ?? false),
   });
@@ -345,6 +380,66 @@ export function useSceneGraph(projectId: string | undefined) {
     onError: (e: Error) => toast.error(`Close failed: ${e.message}`),
   });
 
+  // Phase 3 Story-Smart mutations
+  const buildSpineMutation = useMutation({
+    mutationFn: async (params?: { mode?: 'latest' | 'approved_prefer'; force?: boolean }) => {
+      if (!projectId) throw new Error('No project');
+      return buildStorySpine({ projectId, ...(params || {}) });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['scene-graph-story-spine', projectId] });
+      toast.success('Story spine built');
+    },
+    onError: (e: Error) => toast.error(`Spine failed: ${e.message}`),
+  });
+
+  const buildLedgerMutation = useMutation({
+    mutationFn: async (params?: { mode?: 'latest' | 'approved_prefer'; force?: boolean }) => {
+      if (!projectId) throw new Error('No project');
+      return buildThreadLedger({ projectId, ...(params || {}) });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['scene-graph-thread-ledger', projectId] });
+      toast.success('Thread ledger built');
+    },
+    onError: (e: Error) => toast.error(`Ledger failed: ${e.message}`),
+  });
+
+  const tagRolesMutation = useMutation({
+    mutationFn: async (params: { sceneId: string; versionId?: string }) => {
+      if (!projectId) throw new Error('No project');
+      return tagSceneRoles({ projectId, ...params });
+    },
+    onSuccess: () => { invalidate(); toast.success('Scene roles tagged'); },
+    onError: (e: Error) => toast.error(`Tag failed: ${e.message}`),
+  });
+
+  const tagAllRolesMutation = useMutation({
+    mutationFn: async () => {
+      if (!projectId) throw new Error('No project');
+      return tagAllSceneRoles({ projectId });
+    },
+    onSuccess: () => { invalidate(); toast.success('All scenes tagged'); },
+    onError: (e: Error) => toast.error(`Tag all failed: ${e.message}`),
+  });
+
+  const narrativeRepairMutation = useMutation({
+    mutationFn: async (params: { problem: any; mode?: 'latest' | 'approved_prefer' }) => {
+      if (!projectId) throw new Error('No project');
+      return narrativeRepair({ projectId, ...params });
+    },
+    onError: (e: Error) => toast.error(`Repair failed: ${e.message}`),
+  });
+
+  const applyRepairMutation = useMutation({
+    mutationFn: async (params: { option: any; applyMode?: 'draft' | 'propose' }) => {
+      if (!projectId) throw new Error('No project');
+      return applyRepairOption({ projectId, ...params });
+    },
+    onSuccess: (data) => { handleActionResult(data); invalidate(); toast.success('Repair option queued'); },
+    onError: (e: Error) => toast.error(`Apply repair failed: ${e.message}`),
+  });
+
   return {
     // State
     projectState: stateQuery.data,
@@ -358,6 +453,12 @@ export function useSceneGraph(projectId: string | undefined) {
     lastImpact,
     setLastImpact,
     lastActionId,
+
+    // Phase 3 Story-Smart state
+    storySpine: storySpineQuery.data as StorySpineRecord | null,
+    threadLedger: threadLedgerQuery.data as ThreadLedgerRecord | null,
+    isSpineLoading: storySpineQuery.isLoading,
+    isLedgerLoading: threadLedgerQuery.isLoading,
 
     // Phase 4 state
     latestMetrics: metricsQuery.data as StoryMetricsRun | null,
@@ -383,6 +484,14 @@ export function useSceneGraph(projectId: string | undefined) {
     rejectPatch: rejectPatchMutation,
     applyPatch: applyPatchMutation,
     rebalance: rebalanceMutation,
+
+    // Phase 3 Story-Smart Mutations
+    buildSpine: buildSpineMutation,
+    buildLedger: buildLedgerMutation,
+    tagRoles: tagRolesMutation,
+    tagAllRoles: tagAllRolesMutation,
+    narrativeRepairSuggest: narrativeRepairMutation,
+    applyRepair: applyRepairMutation,
 
     // Phase 4 Mutations
     runMetrics: runMetricsMutation,
