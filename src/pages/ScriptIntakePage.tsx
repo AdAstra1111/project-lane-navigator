@@ -17,11 +17,12 @@ import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
-  ArrowLeft, Upload, FileText, Loader2, Sparkles, Save,
+  ArrowLeft, Upload, FileText, Loader2, Sparkles, Save, Download,
   CheckCircle2, AlertTriangle, ChevronDown, BarChart3,
   BookOpen, Target, Lightbulb, Users, Map, Clapperboard,
 } from 'lucide-react';
 import { useScriptIntake, type CoverageResult, type BackfillDoc } from '@/hooks/useScriptIntake';
+import { exportCoveragePDF } from '@/lib/coverage-pdf-export';
 import { toast } from 'sonner';
 
 const BACKFILL_DOC_TYPES = [
@@ -194,6 +195,7 @@ export default function ScriptIntakePage() {
                   saving={saveCoverage.isPending}
                   onGenerate={() => generateCoverage.mutate()}
                   onSave={() => saveCoverage.mutate()}
+                  scriptTitle={intake?.titleGuess || project?.title || 'Script'}
                 />
               </TabsContent>
 
@@ -219,13 +221,14 @@ export default function ScriptIntakePage() {
 
 /* ── Coverage Tab ── */
 function CoverageTab({
-  coverage, generating, saving, onGenerate, onSave,
+  coverage, generating, saving, onGenerate, onSave, scriptTitle,
 }: {
   coverage: CoverageResult | null;
   generating: boolean;
   saving: boolean;
   onGenerate: () => void;
   onSave: () => void;
+  scriptTitle: string;
 }) {
   if (!coverage) {
     return (
@@ -250,6 +253,10 @@ function CoverageTab({
   return (
     <div className="space-y-4">
       <div className="flex justify-end gap-2">
+        <Button size="sm" variant="outline" className="gap-1 text-xs" onClick={() => exportCoveragePDF(coverage, scriptTitle)}>
+          <Download className="h-3 w-3" />
+          Export PDF
+        </Button>
         <Button size="sm" variant="outline" className="gap-1 text-xs" onClick={onSave} disabled={saving}>
           {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
           Save Coverage to Project
