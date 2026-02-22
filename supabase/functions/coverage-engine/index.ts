@@ -110,11 +110,14 @@ Deno.serve(async (req) => {
 
       // Fallback: if no active docs, use latest versions
       if (!docVersionIds.length) {
-        const { data: docs } = await db
+        console.log("No active docs matched, falling back to latest versions");
+        const { data: docs, error: docsErr } = await db
           .from("project_documents")
           .select("id, doc_type, title, file_name, latest_version_id")
           .eq("project_id", projectId)
           .not("latest_version_id", "is", null);
+        
+        console.log("Fallback docs found:", docs?.length, "error:", docsErr?.message);
 
         if (!docs?.length) {
           return new Response(JSON.stringify({ error: "No documents found" }), {
@@ -128,8 +131,18 @@ Deno.serve(async (req) => {
           .select("id, deliverable_type, label, stage")
           .in("id", versionIds);
         const versionMap = new Map((versions || []).map(v => [v.id, v]));
+        
+        // Debug: log each doc's resolved role
+        for (const doc of docs) {
+          const ver = versionMap.get(doc.latest_version_id);
+          const role = resolveRole(ver || {}, doc);
+          console.log(`Doc "${doc.title}" (doc_type=${doc.doc_type}, deliverable=${ver?.deliverable_type}) => role=${role}`);
+        }
+        
         const roleMap = buildRoleMap(bundleKey, project.format, docs, versionMap);
+        console.log("roleMap result:", JSON.stringify(roleMap));
         docVersionIds = roleMap.map(r => r.versionId);
+        console.log("Final docVersionIds:", docVersionIds);
       }
 
       bundleName = getBundleName(bundleKey);
