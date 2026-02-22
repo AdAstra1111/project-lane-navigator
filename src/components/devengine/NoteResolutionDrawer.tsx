@@ -205,7 +205,7 @@ export function NoteResolutionDrawer({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col">
+      <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col overflow-hidden">
         <DialogHeader>
           <DialogTitle className="text-sm flex items-center gap-2">
             <Wand2 className="h-4 w-4 text-primary" />
@@ -213,7 +213,7 @@ export function NoteResolutionDrawer({
           </DialogTitle>
         </DialogHeader>
 
-        <ScrollArea className="flex-1 min-h-0">
+        <ScrollArea className="flex-1 min-h-0 overflow-y-auto">
           <div className="space-y-3 pr-2">
             {/* Note summary */}
             <div className="p-3 rounded-lg border border-border bg-muted/30 space-y-1.5">
@@ -312,7 +312,7 @@ export function NoteResolutionDrawer({
           </div>
         </ScrollArea>
 
-        <DialogFooter className="gap-2 pt-2 border-t border-border/30 flex-wrap">
+        <DialogFooter className="gap-2 pt-2 border-t border-border/30 flex-wrap shrink-0">
           <div className="flex items-center gap-1.5 mr-auto">
             <Button variant="ghost" size="sm" className="h-7 text-xs gap-1 text-muted-foreground" onClick={handleMarkResolved}>
               <Check className="h-3 w-3" />Mark Resolved
