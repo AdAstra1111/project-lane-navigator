@@ -11809,6 +11809,11 @@ CRITICAL:
         totalScenesInAssembly = outputs.length;
       }
 
+      const trulySelective =
+        Array.isArray(rewriteScopePlan?.target_scene_numbers) &&
+        rewriteScopePlan.target_scene_numbers.length > 0 &&
+        rewriteScopePlan.target_scene_numbers.length < totalScenesInAssembly;
+
       // Create new version with retry for version_number collision
       let newVersion: any = null;
       for (let _retry = 0; _retry < 3; _retry++) {
@@ -11819,10 +11824,7 @@ CRITICAL:
           .limit(1)
           .single();
         const nextVersion = (maxRow?.version_number ?? 0) + 1;
-        const trulySelective =
-          Array.isArray(rewriteScopePlan?.target_scene_numbers) &&
-          rewriteScopePlan.target_scene_numbers.length > 0 &&
-          rewriteScopePlan.target_scene_numbers.length < totalScenesInAssembly;
+        // trulySelective is defined above the retry loop
         const { data: nv, error: vErr } = await supabase.from("project_document_versions").insert({
           document_id: sourceDocId,
           version_number: nextVersion,
