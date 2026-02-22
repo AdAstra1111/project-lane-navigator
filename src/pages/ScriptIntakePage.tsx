@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { useScriptIntake, type CoverageResult, type BackfillDoc } from '@/hooks/useScriptIntake';
 import { exportCoveragePDF } from '@/lib/coverage-pdf-export';
+import { ProcessStageProgress, UPLOAD_STAGES, COVERAGE_STAGES, SAVE_COVERAGE_STAGES, BACKFILL_STAGES } from '@/components/ProcessStageProgress';
 import { toast } from 'sonner';
 
 const BACKFILL_DOC_TYPES = [
@@ -131,9 +132,9 @@ export default function ScriptIntakePage() {
                 >
                   {upload.isPending ? (
                     <div className="space-y-3">
-                      <Loader2 className="h-10 w-10 animate-spin text-primary mx-auto" />
-                      <p className="text-sm text-muted-foreground">Uploading and parsing script…</p>
-                      <p className="text-xs text-muted-foreground">This may take a minute for longer scripts.</p>
+                      <Upload className="h-10 w-10 text-primary mx-auto mb-1" />
+                      <p className="text-sm font-medium">Uploading and parsing script…</p>
+                      <ProcessStageProgress isActive={true} stages={UPLOAD_STAGES} className="max-w-md mx-auto" />
                     </div>
                   ) : (
                     <>
@@ -243,7 +244,7 @@ function CoverageTab({
             {generating ? 'Generating Coverage…' : 'Generate Coverage'}
           </Button>
           {generating && (
-            <p className="text-[10px] text-muted-foreground mt-2">This may take 1–2 minutes for full coverage.</p>
+            <ProcessStageProgress isActive={true} stages={COVERAGE_STAGES} className="mt-4" />
           )}
         </CardContent>
       </Card>
@@ -262,6 +263,9 @@ function CoverageTab({
           Save Coverage to Project
         </Button>
       </div>
+      {saving && (
+        <ProcessStageProgress isActive={true} stages={SAVE_COVERAGE_STAGES} />
+      )}
 
       {/* Scorecard */}
       <Card>
@@ -524,7 +528,7 @@ function BackfillTab({
             {generating ? 'Generating…' : `Generate ${selectedTypes.length} Documents`}
           </Button>
           {generating && (
-            <p className="text-[10px] text-muted-foreground mt-2">Generating each document from the script. This may take a few minutes.</p>
+            <ProcessStageProgress isActive={true} stages={BACKFILL_STAGES} className="mt-4" />
           )}
         </CardContent>
       </Card>
