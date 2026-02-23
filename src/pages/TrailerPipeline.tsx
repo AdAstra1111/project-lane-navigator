@@ -4,6 +4,7 @@
 import { useState, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, Film, Layers, Play, Square, Loader2, Star, Check, Download, RefreshCw, Music, Volume2, Type, Clapperboard, ExternalLink, ChevronDown, ChevronRight } from 'lucide-react';
+import { StagedProgressBar } from '@/components/system/StagedProgressBar';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -247,6 +248,17 @@ export default function TrailerPipelinePage() {
                 {createBlueprint.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Layers className="h-3 w-3 mr-1" />}
                 Generate Blueprint
               </Button>
+
+              {createBlueprint.isPending && (
+                <StagedProgressBar
+                  title="Generating Blueprint"
+                  stages={['Analysing storyboard', 'Building narrative arc', 'Generating beat structure', 'Assigning clip specs', 'Finalising blueprint']}
+                  currentStageIndex={Math.min(4, Math.floor(Date.now() / 8000) % 5)}
+                  progressPercent={0}
+                  etaSeconds={30}
+                  detailMessage="AI is constructing your editorial decision list…"
+                />
+              )}
             </CardContent>
           </Card>
 
@@ -314,6 +326,17 @@ export default function TrailerPipelinePage() {
                   {generateClips.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Play className="h-3 w-3 mr-1" />}
                   Generate All Clips
                 </Button>
+
+                {generateClips.isPending && (
+                  <StagedProgressBar
+                    title="Generating Clips"
+                    stages={['Enqueueing beat jobs', 'Processing clip queue', 'Calling AI providers', 'Uploading to storage', 'Registering clips']}
+                    currentStageIndex={0}
+                    progressPercent={0}
+                    etaSeconds={120}
+                    detailMessage="Generating video clips for each beat via AI providers…"
+                  />
+                )}
               </CardContent>
             </Card>
           )}
@@ -387,13 +410,14 @@ export default function TrailerPipelinePage() {
                 )}
 
                 {isRendering && renderProgress && (
-                  <div className="space-y-1 mt-2">
-                    <div className="flex items-center gap-2 text-xs">
-                      <Badge variant="default" className="text-[10px] animate-pulse">Rendering</Badge>
-                      <span className="text-muted-foreground">{renderProgress.done}/{renderProgress.total}</span>
-                    </div>
-                    <Progress value={renderProgress.total > 0 ? (renderProgress.done / renderProgress.total) * 100 : 0} className="h-2" />
-                  </div>
+                  <StagedProgressBar
+                    title="Rendering Trailer"
+                    stages={['Preparing timeline', 'Rendering frames', 'Encoding video', 'Uploading to storage']}
+                    currentStageIndex={renderProgress.done < renderProgress.total ? 1 : 2}
+                    progressPercent={renderProgress.total > 0 ? (renderProgress.done / renderProgress.total) * 100 : 0}
+                    etaSeconds={Math.max(0, (renderProgress.total - renderProgress.done) * 2)}
+                    detailMessage={`Rendered ${renderProgress.done} of ${renderProgress.total} segments`}
+                  />
                 )}
               </CardContent>
             </Card>
@@ -411,9 +435,15 @@ export default function TrailerPipelinePage() {
             </Card>
           ) : blueprint?.status === 'generating' ? (
             <Card>
-              <CardContent className="py-12 text-center text-sm">
-                <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2 text-primary" />
-                Generating editorial blueprint…
+              <CardContent className="py-8">
+                <StagedProgressBar
+                  title="Generating Editorial Blueprint"
+                  stages={['Loading storyboard data', 'Analysing narrative structure', 'Building beat sequence', 'Assigning shot specs & prompts', 'Finalising EDL']}
+                  currentStageIndex={1}
+                  progressPercent={0}
+                  etaSeconds={25}
+                  detailMessage="AI is building your editorial decision list from storyboard materials…"
+                />
               </CardContent>
             </Card>
           ) : blueprint?.status === 'failed' ? (

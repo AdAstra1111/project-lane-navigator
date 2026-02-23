@@ -5,7 +5,7 @@ import { useState, useMemo } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
 import {
   ArrowLeft, Film, Play, Loader2, Check, RefreshCw,
-  ChevronDown, ChevronRight, Zap, AlertTriangle, XCircle, Clapperboard,
+  ChevronDown, ChevronRight, Zap, AlertTriangle, XCircle, Clapperboard, Clock,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -13,6 +13,7 @@ import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Progress } from '@/components/ui/progress';
 import { Separator } from '@/components/ui/separator';
+import { StagedProgressBar } from '@/components/system/StagedProgressBar';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useBlueprints, useBlueprint } from '@/lib/trailerPipeline/useTrailerPipeline';
 import { useClipProgress, useClipsList, useClipEngineMutations } from '@/lib/trailerPipeline/clipHooks';
@@ -211,33 +212,50 @@ export default function ClipCandidatesStudio() {
           {blueprintId && counts.total > 0 && (
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm">Progress</CardTitle>
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <Clock className="h-4 w-4" />
+                  Progress
+                </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-2">
-                <Progress value={progressPct} className="h-2" />
-                <div className="grid grid-cols-2 gap-1 text-[10px]">
-                  <div className="flex items-center gap-1">
-                    <div className="w-2 h-2 rounded-full bg-muted-foreground" />
-                    Queued: {counts.queued}
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
-                    Running: {counts.running}
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <div className="w-2 h-2 rounded-full bg-green-500" />
-                    Done: {counts.succeeded}
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <div className="w-2 h-2 rounded-full bg-destructive" />
-                    Failed: {counts.failed}
-                  </div>
-                </div>
-                <p className="text-[10px] text-muted-foreground">
-                  {(clipsData?.clips || []).length} clips produced
-                </p>
+              <CardContent className="space-y-3">
+                <StagedProgressBar
+                  title={counts.running > 0 ? "Processing Clips" : counts.queued > 0 ? "Clips Queued" : progressPct >= 100 ? "Complete" : "Clip Generation"}
+                  stages={['Enqueueing jobs', 'Processing queue', 'AI generation', 'Uploading clips', 'Done']}
+                  currentStageIndex={
+                    counts.succeeded === counts.total ? 4 :
+                    counts.running > 0 ? 2 :
+                    counts.queued > 0 ? 1 : 0
+                  }
+                  progressPercent={progressPct}
+                  etaSeconds={counts.running > 0 || counts.queued > 0 ? (counts.queued + counts.running) * 8 : undefined}
+                  detailMessage={`${counts.succeeded} succeeded · ${counts.running} running · ${counts.queued} queued · ${counts.failed} failed · ${(clipsData?.clips || []).length} clips produced`}
+                />
               </CardContent>
             </Card>
+          )}
+
+          {/* Enqueue progress */}
+          {enqueueForRun.isPending && (
+            <StagedProgressBar
+              title="Enqueueing Clip Jobs"
+              stages={['Reading blueprint beats', 'Building job specs', 'Inserting into queue']}
+              currentStageIndex={1}
+              progressPercent={0}
+              etaSeconds={5}
+              detailMessage="Creating clip generation jobs for each beat…"
+            />
+          )}
+
+          {/* Processing progress */}
+          {(isProcessing || processQueue.isPending) && (
+            <StagedProgressBar
+              title="Processing Clip Queue"
+              stages={['Claiming jobs', 'Calling AI providers', 'Downloading video', 'Uploading to storage', 'Recording metadata']}
+              currentStageIndex={1}
+              progressPercent={0}
+              etaSeconds={counts.queued * 8}
+              detailMessage={`Processing up to 50 jobs via AI providers…`}
+            />
           )}
         </div>
 
