@@ -18,6 +18,12 @@ import { NoteDrawer } from '@/components/notes/NoteDrawer';
 import type { ProjectNote, NoteStatus, NoteTiming, NoteCategory, NoteSeverity } from '@/lib/types/notes';
 import { toast } from 'sonner';
 
+const DOC_TYPES = [
+  'concept_brief', 'market_sheet', 'blueprint', 'character_bible', 'beat_sheet',
+  'script', 'screenplay_draft', 'episode_grid', 'season_arc', 'series_overview',
+  'episode_script', 'production_draft', 'pitch_deck', 'treatment',
+];
+
 const SEVERITY_STYLES: Record<string, string> = {
   blocker: 'bg-destructive/20 text-destructive border-destructive/30',
   high: 'bg-amber-500/20 text-amber-400 border-amber-500/30',
@@ -52,9 +58,10 @@ function NotesInbox() {
   const { data: notes = [], isLoading } = useProjectNotes(projectId, filters);
   const { bulkTriageMutation } = useNotesMutations(projectId);
 
-  const [selectedNote, setSelectedNote] = useState<ProjectNote | null>(null);
+  const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkDeferDocType, setBulkDeferDocType] = useState('');
 
   const toggleSelect = (id: string) => {
     setSelectedIds(prev => {
@@ -74,9 +81,13 @@ function NotesInbox() {
 
   const handleBulkDefer = () => {
     if (!projectId || selectedIds.size === 0) return;
+    if (!bulkDeferDocType) {
+      toast.error('Select a destination doc type for defer');
+      return;
+    }
     bulkTriageMutation.mutate(
-      { noteIds: Array.from(selectedIds), triage: { status: 'deferred', timing: 'later' } },
-      { onSuccess: () => setSelectedIds(new Set()) }
+      { noteIds: Array.from(selectedIds), triage: { status: 'deferred', timing: 'later', destinationDocType: bulkDeferDocType } },
+      { onSuccess: () => { setSelectedIds(new Set()); setBulkDeferDocType(''); } }
     );
   };
 
@@ -131,13 +142,21 @@ function NotesInbox() {
             </Select>
 
             {selectedIds.size > 0 && (
-              <div className="flex gap-1 ml-auto">
+              <div className="flex gap-1 ml-auto items-center">
                 <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={handleBulkDismiss}
                   disabled={bulkTriageMutation.isPending}>
                   <Trash2 className="h-3 w-3" />Dismiss {selectedIds.size}
                 </Button>
+                <Select value={bulkDeferDocType} onValueChange={setBulkDeferDocType}>
+                  <SelectTrigger className="h-7 text-xs w-32"><SelectValue placeholder="Defer to…" /></SelectTrigger>
+                  <SelectContent>
+                    {DOC_TYPES.map(d => (
+                      <SelectItem key={d} value={d} className="text-xs">{d.replace(/_/g, ' ')}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={handleBulkDefer}
-                  disabled={bulkTriageMutation.isPending}>
+                  disabled={bulkTriageMutation.isPending || !bulkDeferDocType}>
                   <Clock className="h-3 w-3" />Defer {selectedIds.size}
                 </Button>
               </div>
@@ -160,7 +179,7 @@ function NotesInbox() {
               {notes.map((note) => (
                 <div key={note.id}
                   className="flex items-start gap-2 p-3 rounded-lg border border-border/40 bg-background hover:border-border/70 cursor-pointer transition-colors"
-                  onClick={() => { setSelectedNote(note); setDrawerOpen(true); }}>
+                  onClick={() => { setSelectedNoteId(note.id); setDrawerOpen(true); }}>
                   <Checkbox
                     checked={selectedIds.has(note.id)}
                     onCheckedChange={() => toggleSelect(note.id)}
@@ -199,10 +218,9 @@ function NotesInbox() {
       <NoteDrawer
         open={drawerOpen}
         projectId={projectId || ''}
-        noteId={selectedNote?.id || null}
-        note={selectedNote}
+        noteId={selectedNoteId}
         onApplied={() => {}}
-        onClose={() => { setDrawerOpen(false); setSelectedNote(null); }}
+        onClose={() => { setDrawerOpen(false); setSelectedNoteId(null); }}
       />
     </PageTransition>
   );

@@ -1,5 +1,6 @@
 /**
  * NoteDrawer — THE canonical single drawer for all note interactions.
+ * ID-DRIVEN: can open with just noteId (fetches from DB).
  * Sections: Header → Summary → Anchor → Triage → Fix Options → Change Plan → Apply → Verify
  */
 import { useState, useCallback, useEffect } from 'react';
@@ -16,8 +17,8 @@ import {
   Loader2, Check, X, Wand2, AlertTriangle, Clock, ChevronDown, ExternalLink,
   Sparkles, Shield, FileText, RotateCcw, ArrowRight,
 } from 'lucide-react';
-import type { ProjectNote, NoteSuggestedFix, NoteTiming, NoteStatus, PatchSection } from '@/lib/types/notes';
-import { useNotesMutations } from '@/lib/notes/useProjectNotes';
+import type { ProjectNote, NoteSuggestedFix, NoteTiming, NoteStatus, PatchSection, NoteEvent } from '@/lib/types/notes';
+import { useNote, useNotesMutations } from '@/lib/notes/useProjectNotes';
 
 const DOC_TYPES = [
   'concept_brief', 'market_sheet', 'blueprint', 'character_bible', 'beat_sheet',
@@ -41,14 +42,23 @@ const TIMING_STYLES: Record<string, string> = {
 interface NoteDrawerProps {
   projectId: string;
   noteId: string | null;
-  note: ProjectNote | null;
+  note?: ProjectNote | null; // optional — if not provided, fetches by noteId
   context?: { docType?: string; documentId?: string; versionId?: string };
   onApplied?: (newVersionId: string) => void;
   onClose: () => void;
   open: boolean;
 }
 
-export function NoteDrawer({ projectId, noteId, note, context, onApplied, onClose, open }: NoteDrawerProps) {
+export function NoteDrawer({ projectId, noteId, note: noteProp, context, onApplied, onClose, open }: NoteDrawerProps) {
+  // Fetch note from DB if not provided as prop
+  const { data: fetchedData, isLoading: noteLoading } = useNote(
+    open ? projectId : undefined,
+    open && !noteProp && noteId ? noteId : null
+  );
+
+  const note = noteProp || fetchedData?.note || null;
+  const events: NoteEvent[] = fetchedData?.events || [];
+
   const { triageMutation, proposeMutation, applyMutation, verifyMutation } = useNotesMutations(projectId);
 
   // Local state
@@ -62,6 +72,7 @@ export function NoteDrawer({ projectId, noteId, note, context, onApplied, onClos
   const [confirmed, setConfirmed] = useState(false);
   const [verifyComment, setVerifyComment] = useState('');
   const [detailOpen, setDetailOpen] = useState(false);
+  const [applyError, setApplyError] = useState<any>(null);
 
   // Reset state when note changes
   useEffect(() => {
@@ -72,6 +83,7 @@ export function NoteDrawer({ projectId, noteId, note, context, onApplied, onClos
     setVerifyComment('');
     setDetailOpen(false);
     setDeferDocType('');
+    setApplyError(null);
   }, [noteId]);
 
   const fixes = (note?.suggested_fixes || []) as NoteSuggestedFix[];
@@ -80,20 +92,24 @@ export function NoteDrawer({ projectId, noteId, note, context, onApplied, onClos
 
   // Triage actions
   const handleTriage = useCallback((status: NoteStatus, timing?: NoteTiming) => {
-    if (!noteId) return;
-    triageMutation.mutate({ noteId, triage: { status, timing, destinationDocType: timing === 'later' ? deferDocType : undefined } });
-  }, [noteId, deferDocType, triageMutation]);
+    if (!noteId && !note?.id) return;
+    const id = noteId || note!.id;
+    triageMutation.mutate({ noteId: id, triage: { status, timing, destinationDocType: timing === 'later' ? deferDocType : undefined } });
+  }, [noteId, note, deferDocType, triageMutation]);
 
   const handleDefer = useCallback(() => {
-    if (!noteId || !deferDocType) { toast.error('Select a destination doc type'); return; }
-    triageMutation.mutate({ noteId, triage: { status: 'deferred', timing: 'later', destinationDocType: deferDocType } });
-  }, [noteId, deferDocType, triageMutation]);
+    if ((!noteId && !note?.id) || !deferDocType) { toast.error('Select a destination doc type'); return; }
+    const id = noteId || note!.id;
+    triageMutation.mutate({ noteId: id, triage: { status: 'deferred', timing: 'later', destinationDocType: deferDocType } });
+  }, [noteId, note, deferDocType, triageMutation]);
 
-  // Propose change plan
+  // Propose change plan (enabled even without fix selection)
   const handlePropose = useCallback(() => {
-    if (!noteId) return;
+    if (!noteId && !note?.id) return;
+    const id = noteId || note!.id;
+    setApplyError(null);
     proposeMutation.mutate(
-      { noteId, fixId: selectedFixId || undefined, customInstruction: customInstruction || undefined, scope, baseVersionId: context?.versionId },
+      { noteId: id, fixId: selectedFixId || undefined, customInstruction: customInstruction || undefined, scope, baseVersionId: context?.versionId },
       {
         onSuccess: (data) => {
           setChangePlan({
@@ -105,26 +121,49 @@ export function NoteDrawer({ projectId, noteId, note, context, onApplied, onClos
         },
       }
     );
-  }, [noteId, selectedFixId, customInstruction, scope, context, proposeMutation]);
+  }, [noteId, note, selectedFixId, customInstruction, scope, context, proposeMutation]);
 
   // Apply
   const handleApply = useCallback(() => {
     if (!changePlan?.changeEventId) return;
+    setApplyError(null);
     applyMutation.mutate(changePlan.changeEventId, {
       onSuccess: (data) => {
         onApplied?.(data.newVersionId);
         onClose();
+      },
+      onError: (err: any) => {
+        if (err.needs_user_disambiguation) {
+          setApplyError(err);
+        }
       },
     });
   }, [changePlan, applyMutation, onApplied, onClose]);
 
   // Verify
   const handleVerify = useCallback((result: 'resolved' | 'reopen') => {
-    if (!noteId) return;
-    verifyMutation.mutate({ noteId, result, comment: verifyComment || undefined }, {
+    if (!noteId && !note?.id) return;
+    const id = noteId || note!.id;
+    verifyMutation.mutate({ noteId: id, result, comment: verifyComment || undefined }, {
       onSuccess: () => onClose(),
     });
-  }, [noteId, verifyComment, verifyMutation, onClose]);
+  }, [noteId, note, verifyComment, verifyMutation, onClose]);
+
+  if (!open) return null;
+
+  // Loading state
+  if (noteLoading && !note) {
+    return (
+      <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
+        <DialogContent className="max-w-xl">
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            <span className="ml-2 text-sm text-muted-foreground">Loading note…</span>
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
+  }
 
   if (!note) return null;
 
@@ -274,7 +313,7 @@ export function NoteDrawer({ projectId, noteId, note, context, onApplied, onClos
                     ))}
                   </div>
                 ) : (
-                  <p className="text-[10px] text-muted-foreground italic">No suggested fixes yet. Use "Custom" or generate a change plan.</p>
+                  <p className="text-[10px] text-muted-foreground italic">No suggested fixes yet. Use "Custom" or generate a change plan directly.</p>
                 )}
                 {/* Custom instruction */}
                 <div className="space-y-1">
@@ -302,7 +341,7 @@ export function NoteDrawer({ projectId, noteId, note, context, onApplied, onClos
                 <div className="flex items-center justify-between">
                   <p className="text-[10px] font-semibold text-foreground uppercase tracking-wide">Change Plan</p>
                   <Button variant="outline" size="sm" className="h-6 text-[10px] gap-1"
-                    disabled={proposeMutation.isPending || (!selectedFixId && !customInstruction)}
+                    disabled={proposeMutation.isPending}
                     onClick={handlePropose}>
                     {proposeMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wand2 className="h-3 w-3" />}
                     Generate Change Plan
@@ -343,6 +382,30 @@ export function NoteDrawer({ projectId, noteId, note, context, onApplied, onClos
               </div>
             )}
 
+            {/* Disambiguation error */}
+            {applyError?.needs_user_disambiguation && (
+              <div className="p-2.5 rounded border border-amber-500/30 bg-amber-500/10 space-y-2">
+                <div className="flex items-center gap-1.5 text-[10px] font-semibold text-amber-400">
+                  <AlertTriangle className="h-3 w-3" />
+                  Patch ambiguous — multiple occurrences found
+                </div>
+                <p className="text-[9px] text-muted-foreground">{applyError.hint}</p>
+                {applyError.patch_errors?.map((pe: any, i: number) => (
+                  pe.matches && (
+                    <div key={i} className="space-y-1">
+                      <p className="text-[9px] text-foreground font-medium">Patch {pe.patch_index + 1}: {pe.matches.length} matches</p>
+                      {pe.matches.map((m: any, j: number) => (
+                        <p key={j} className="text-[8px] font-mono bg-muted/20 px-1.5 py-1 rounded truncate">
+                          #{m.idx}: …{m.preview}…
+                        </p>
+                      ))}
+                    </div>
+                  )
+                ))}
+                <p className="text-[9px] text-muted-foreground italic">Please re-generate the change plan with a more specific custom instruction.</p>
+              </div>
+            )}
+
             {/* 7. Apply */}
             {changePlan && !isApplied && (
               <Button size="sm" className="h-8 text-xs gap-1.5 w-full"
@@ -373,6 +436,27 @@ export function NoteDrawer({ projectId, noteId, note, context, onApplied, onClos
                   </Button>
                 </div>
               </div>
+            )}
+
+            {/* Activity log */}
+            {events.length > 0 && (
+              <Collapsible>
+                <CollapsibleTrigger className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground">
+                  <ChevronDown className="h-2.5 w-2.5" />
+                  Activity ({events.length})
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <div className="mt-1 space-y-1 max-h-32 overflow-y-auto">
+                    {events.map(ev => (
+                      <div key={ev.id} className="text-[9px] text-muted-foreground flex items-center gap-1">
+                        <span className="font-mono">{new Date(ev.created_at).toLocaleString()}</span>
+                        <Badge variant="outline" className="text-[7px] px-1 py-0">{ev.event_type}</Badge>
+                        {(ev.payload as any)?.comment && <span className="italic">"{(ev.payload as any).comment}"</span>}
+                      </div>
+                    ))}
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
             )}
           </div>
         </ScrollArea>

@@ -9426,6 +9426,58 @@ export type Database = {
           },
         ]
       }
+      project_note_events: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          event_type: string
+          id: string
+          note_id: string
+          payload: Json
+          project_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          event_type: string
+          id?: string
+          note_id: string
+          payload?: Json
+          project_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          event_type?: string
+          id?: string
+          note_id?: string
+          payload?: Json
+          project_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_note_events_note_id_fkey"
+            columns: ["note_id"]
+            isOneToOne: false
+            referencedRelation: "project_notes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_note_events_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "project_note_events_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       project_notes: {
         Row: {
           anchor: Json | null
@@ -9439,6 +9491,7 @@ export type Database = {
           doc_type: string | null
           document_id: string | null
           id: string
+          legacy_key: string | null
           project_id: string
           severity: string
           source: string
@@ -9463,6 +9516,7 @@ export type Database = {
           doc_type?: string | null
           document_id?: string | null
           id?: string
+          legacy_key?: string | null
           project_id: string
           severity?: string
           source?: string
@@ -9487,6 +9541,7 @@ export type Database = {
           doc_type?: string | null
           document_id?: string | null
           id?: string
+          legacy_key?: string | null
           project_id?: string
           severity?: string
           source?: string

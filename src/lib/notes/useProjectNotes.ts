@@ -1,7 +1,7 @@
-/** useProjectNotes — React Query hook for canonical project notes */
+/** useProjectNotes — React Query hooks for canonical project notes */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { listNotes, createNote, triageNote, proposeChangePlan, applyChangePlan, verifyNote, bulkTriageNotes } from './notesApi';
-import type { ProjectNote, NoteFilters, TriagePayload } from '@/lib/types/notes';
+import { listNotes, getNote, createNote, ensureNote, triageNote, proposeChangePlan, applyChangePlan, verifyNote, bulkTriageNotes } from './notesApi';
+import type { ProjectNote, NoteFilters, TriagePayload, EnsureNoteLegacy } from '@/lib/types/notes';
 import { toast } from 'sonner';
 
 export function useProjectNotes(projectId: string | undefined, filters?: NoteFilters) {
@@ -13,9 +13,21 @@ export function useProjectNotes(projectId: string | undefined, filters?: NoteFil
   });
 }
 
+export function useNote(projectId: string | undefined, noteId: string | null) {
+  return useQuery({
+    queryKey: ['project-note', projectId, noteId],
+    queryFn: () => getNote(projectId!, noteId!),
+    enabled: !!projectId && !!noteId,
+    staleTime: 15_000,
+  });
+}
+
 export function useNotesMutations(projectId: string | undefined) {
   const qc = useQueryClient();
-  const invalidate = () => qc.invalidateQueries({ queryKey: ['project-notes', projectId] });
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ['project-notes', projectId] });
+    qc.invalidateQueries({ queryKey: ['project-note', projectId] });
+  };
 
   const triageMutation = useMutation({
     mutationFn: ({ noteId, triage }: { noteId: string; triage: TriagePayload }) =>
@@ -33,7 +45,13 @@ export function useNotesMutations(projectId: string | undefined) {
   const applyMutation = useMutation({
     mutationFn: (changeEventId: string) => applyChangePlan(projectId!, changeEventId),
     onSuccess: () => { invalidate(); toast.success('Change plan applied — new version created'); },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: any) => {
+      if (e.needs_user_disambiguation) {
+        toast.error('Patch ambiguous — see details in drawer');
+      } else {
+        toast.error(e.message);
+      }
+    },
   });
 
   const verifyMutation = useMutation({
@@ -56,5 +74,10 @@ export function useNotesMutations(projectId: string | undefined) {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  return { triageMutation, proposeMutation, applyMutation, verifyMutation, bulkTriageMutation, createMutation };
+  const ensureMutation = useMutation({
+    mutationFn: (legacy: EnsureNoteLegacy) => ensureNote(projectId!, legacy),
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  return { triageMutation, proposeMutation, applyMutation, verifyMutation, bulkTriageMutation, createMutation, ensureMutation };
 }

@@ -81,6 +81,9 @@ import { useEpisodeHandoff } from '@/hooks/useEpisodeHandoff';
 import { EpisodeHandoffBanner } from '@/components/devengine/EpisodeHandoffBanner';
 import { SceneGraphPanel } from '@/components/devengine/SceneGraphPanel';
 import { NoteWritersRoomDrawer } from '@/components/notes/NoteWritersRoomDrawer';
+import { NextActionsPanel } from '@/components/notes/NextActionsPanel';
+import { NoteDrawer } from '@/components/notes/NoteDrawer';
+import { useProjectNotes } from '@/lib/notes/useProjectNotes';
 import { MessageSquare } from 'lucide-react';
 
 // ── Main Page ──
@@ -200,7 +203,14 @@ export default function ProjectDevelopmentEngine() {
   const [driftOverrideOpen, setDriftOverrideOpen] = useState(false);
   const [timelineOpen, setTimelineOpen] = useState(false);
   const [globalWritersRoomOpen, setGlobalWritersRoomOpen] = useState(false);
-  
+  const [nextActionNoteId, setNextActionNoteId] = useState<string | null>(null);
+  const [nextActionDrawerOpen, setNextActionDrawerOpen] = useState(false);
+
+  // Canonical notes for NextActionsPanel
+  const { data: canonicalNotes = [] } = useProjectNotes(projectId, {
+    statuses: ['open', 'reopened', 'needs_decision', 'in_progress'],
+    timing: 'now',
+  });
 
   const {
     documents, docsLoading, versions, versionsLoading,
@@ -1340,6 +1350,19 @@ export default function ProjectDevelopmentEngine() {
             </TabsList>
 
             <TabsContent value="notes" className="mt-3 space-y-3">
+              {/* Next Actions Panel */}
+              {projectId && (
+                <NextActionsPanel
+                  notes={canonicalNotes}
+                  currentDocType={selectedDoc?.doc_type}
+                  currentDocumentId={selectedDocId || undefined}
+                  projectId={projectId}
+                  onOpenNote={(note) => {
+                    setNextActionNoteId(note.id);
+                    setNextActionDrawerOpen(true);
+                  }}
+                />
+              )}
               {/* Decisions first, full width */}
               {(() => {
                 const optionsRun = (runs || []).filter((r: any) => r.run_type === 'OPTIONS').sort((a: any, b: any) => (a.created_at || '').localeCompare(b.created_at || '')).pop();
