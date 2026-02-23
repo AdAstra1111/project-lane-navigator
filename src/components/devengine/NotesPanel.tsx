@@ -94,7 +94,7 @@ interface NotesPanelProps {
   carriedNotes?: any[];
   currentDocType?: string;
   currentVersionId?: string;
-  onResolveCarriedNote?: (noteId: string, action: 'mark_resolved' | 'dismiss' | 'ai_patch' | 'apply_patch', extra?: any) => Promise<any>;
+  onResolveCarriedNote?: (noteId: string, action: 'mark_resolved' | 'dismiss' | 'ai_patch' | 'apply_patch', extra?: any, noteSnapshot?: any) => Promise<any>;
   bundles?: NoteBundle[];
   decisionSets?: DecisionSet[];
   mutedByDecision?: string[];
@@ -618,26 +618,30 @@ export function NotesPanel({
     onApplyRewrite(Object.keys(activeDecisions).length > 0 ? activeDecisions : undefined, globalDirections);
   }, [selectedDecisions, onApplyRewrite, globalDirections]);
 
+  const findCarriedNote = useCallback((noteId: string) => {
+    return (carriedNotes || []).find((n: any) => (n.id || n.note_key) === noteId);
+  }, [carriedNotes]);
+
   const handleMarkResolved = useCallback(async (noteId: string) => {
     if (!onResolveCarriedNote) return;
     setResolvingNoteId(noteId);
-    try { await onResolveCarriedNote(noteId, 'mark_resolved'); setResolvedNoteIds(prev => new Set([...prev, noteId])); }
+    try { await onResolveCarriedNote(noteId, 'mark_resolved', undefined, findCarriedNote(noteId)); setResolvedNoteIds(prev => new Set([...prev, noteId])); }
     finally { setResolvingNoteId(null); }
-  }, [onResolveCarriedNote]);
+  }, [onResolveCarriedNote, findCarriedNote]);
 
   const handleDismiss = useCallback(async (noteId: string) => {
     if (!onResolveCarriedNote) return;
     setResolvingNoteId(noteId);
-    try { await onResolveCarriedNote(noteId, 'dismiss'); setResolvedNoteIds(prev => new Set([...prev, noteId])); }
+    try { await onResolveCarriedNote(noteId, 'dismiss', undefined, findCarriedNote(noteId)); setResolvedNoteIds(prev => new Set([...prev, noteId])); }
     finally { setResolvingNoteId(null); }
-  }, [onResolveCarriedNote]);
+  }, [onResolveCarriedNote, findCarriedNote]);
 
   const handleAIPatch = useCallback(async (noteId: string, noteText: string) => {
     if (!onResolveCarriedNote) return;
     if (!currentVersionId) { alert('Please select a document version before applying an AI fix.'); return; }
     setResolvingNoteId(noteId);
     try {
-      const result = await onResolveCarriedNote(noteId, 'ai_patch');
+      const result = await onResolveCarriedNote(noteId, 'ai_patch', undefined, findCarriedNote(noteId));
       if (result?.proposed_edits !== undefined || result?.fix_options !== undefined) {
         setPatchDialog({
           noteId, noteText,
