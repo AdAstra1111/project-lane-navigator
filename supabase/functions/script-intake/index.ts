@@ -80,117 +80,122 @@ async function verifyUser(req: Request) {
 
 async function nativeExtractPages(arrayBuffer: ArrayBuffer): Promise<{ pageNumber: number; text: string }[]> {
   try {
-    // @ts-ignore - dynamic esm import
-    const pdfjsLib = await import("https://esm.sh/pdfjs-dist@4.8.69/legacy/build/pdf.mjs");
-    pdfjsLib.GlobalWorkerOptions.workerSrc = "";
+    const { Buffer } = await import("node:buffer");
+    const pdfParse = (await import("npm:pdf-parse@1.1.1/lib/pdf-parse.js")).default;
 
-    const doc = await pdfjsLib.getDocument({
-      data: new Uint8Array(arrayBuffer),
-      useWorkerFetch: false,
-      isEvalSupported: false,
-      useSystemFonts: true,
-    }).promise;
+    const data = await pdfParse(Buffer.from(arrayBuffer));
+    const rawText = data.text || "";
+    const numPages = data.numpages || 1;
 
-    const results: { pageNumber: number; text: string }[] = [];
-    const totalPages = Math.min(doc.numPages, 200);
-
-    for (let i = 1; i <= totalPages; i++) {
-      const page = await doc.getPage(i);
-      const content = await page.getTextContent();
-      const text = content.items
-        .filter((item: any) => "str" in item)
-        .map((item: any) => item.str)
-        .join(" ")
-        .trim();
-      results.push({ pageNumber: i, text });
+    // If we got good text, split it evenly across estimated pages
+    if (rawText.length > 100) {
+      // Try to split on form feeds or large whitespace gaps
+      const pageSplits = rawText.split(/\f/);
+      if (pageSplits.length > 1 && pageSplits.length <= numPages * 2) {
+        return pageSplits.map((text: string, i: number) => ({
+          pageNumber: i + 1,
+          text: text.trim(),
+        })).filter((p: any) => p.text.length > 0);
+      }
+      // Fallback: split by estimated page length
+      const charsPerPage = Math.ceil(rawText.length / numPages);
+      const results: { pageNumber: number; text: string }[] = [];
+      for (let i = 0; i < numPages; i++) {
+        const start = i * charsPerPage;
+        const end = Math.min(start + charsPerPage, rawText.length);
+        const pageText = rawText.slice(start, end).trim();
+        if (pageText) results.push({ pageNumber: i + 1, text: pageText });
+      }
+      return results;
     }
-    return results;
+
+    return [];
   } catch (err) {
-    console.warn("[script-intake] pdf.js extraction failed:", err);
+    console.warn("[script-intake] pdf-parse extraction failed:", err);
     return [];
   }
 }
 
-async function ocrPdfChunkWithGemini(base64Pdf: string, startPage: number, endPage: number): Promise<{ pageNumber: number; text: string }[]> {
-  const result = await callLLM(
-    [
-      {
-        role: "user",
-        content: [
-          {
-            type: "image_url",
-            image_url: { url: `data:application/pdf;base64,${base64Pdf}` },
-          },
-          {
-            type: "text",
-            text: `Extract ALL text from pages ${startPage} to ${endPage} of this PDF. For each page in that range, provide the page number and full text content. Use the extract_pdf_pages tool.`,
-          },
-        ],
-      },
-    ],
-    [
-      {
-        type: "function",
-        function: {
-          name: "extract_pdf_pages",
-          description: "Return extracted pages from a PDF",
-          parameters: {
-            type: "object",
-            properties: {
-              pages: {
-                type: "array",
-                items: {
-                  type: "object",
-                  properties: {
-                    page_number: { type: "integer" },
-                    text: { type: "string" },
-                  },
-                  required: ["page_number", "text"],
-                  additionalProperties: false,
-                },
-              },
-            },
-            required: ["pages"],
-            additionalProperties: false,
-          },
-        },
-      },
-    ],
-    { type: "function", function: { name: "extract_pdf_pages" } }
-  );
-
-  return (result.pages || []).map((p: any) => ({ pageNumber: p.page_number, text: p.text || "" }));
-}
-
-async function ocrPdfWithGemini(bytes: Uint8Array, totalPages: number): Promise<{ pageNumber: number; text: string }[]> {
+async function ocrPdfWithGemini(bytes: Uint8Array, estimatedPages: number): Promise<{ pageNumber: number; text: string }[]> {
   const { encodeBase64 } = await import("https://deno.land/std@0.224.0/encoding/base64.ts");
 
   const totalSizeMB = bytes.length / (1024 * 1024);
-  console.log(`[script-intake] OCR fallback: ${totalSizeMB.toFixed(1)}MB PDF, ${totalPages} pages`);
+  console.log(`[script-intake] OCR fallback: ${totalSizeMB.toFixed(1)}MB PDF, ~${estimatedPages} pages`);
 
   const base64Pdf = encodeBase64(bytes);
 
-  // Process in chunks of ~10 pages to avoid timeouts
-  const CHUNK_SIZE = 10;
-  const allPages: { pageNumber: number; text: string }[] = [];
-  const pageCount = totalPages || 20; // fallback estimate
+  // Use a simpler prompt that's less likely to timeout — just extract text, no tool call
+  const resp = await fetch(AI_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${LOVABLE_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "google/gemini-2.5-flash",
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "image_url",
+              image_url: { url: `data:application/pdf;base64,${base64Pdf}` },
+            },
+            {
+              type: "text",
+              text: "Extract ALL text from every page of this PDF document. Output the text with clear page separators like '--- PAGE 1 ---', '--- PAGE 2 ---' etc. Return ONLY the extracted text, no commentary.",
+            },
+          ],
+        },
+      ],
+      temperature: 0,
+      max_tokens: 16000,
+    }),
+  });
 
-  for (let start = 1; start <= pageCount; start += CHUNK_SIZE) {
-    const end = Math.min(start + CHUNK_SIZE - 1, pageCount);
-    console.log(`[script-intake] OCR chunk: pages ${start}-${end}`);
-    try {
-      const chunkPages = await ocrPdfChunkWithGemini(base64Pdf, start, end);
-      allPages.push(...chunkPages);
-    } catch (err: any) {
-      console.error(`[script-intake] OCR chunk ${start}-${end} failed:`, err.message);
-      // Add empty pages for this chunk so we don't lose page numbering
-      for (let p = start; p <= end; p++) {
-        allPages.push({ pageNumber: p, text: "" });
-      }
+  if (!resp.ok) {
+    const errText = await resp.text();
+    console.error("[script-intake] Gemini OCR HTTP error:", resp.status, errText);
+    throw new Error(`OCR failed: ${resp.status}`);
+  }
+
+  const json = await resp.json();
+
+  // Check for gateway errors in response body
+  if (json.error) {
+    const code = json.error?.code;
+    const msg = json.error?.message || JSON.stringify(json.error);
+    console.error("[script-intake] OCR gateway error:", msg, "code:", code);
+    throw new Error(`OCR error: ${msg}`);
+  }
+
+  const content = json.choices?.[0]?.message?.content || "";
+  console.log(`[script-intake] OCR returned ${content.length} chars`);
+
+  if (content.length < 50) {
+    throw new Error("OCR returned insufficient text");
+  }
+
+  // Parse page separators
+  const pagePattern = /---\s*PAGE\s*(\d+)\s*---/gi;
+  const sections = content.split(pagePattern);
+  const pages: { pageNumber: number; text: string }[] = [];
+
+  if (sections.length > 1) {
+    // sections alternates: [preamble, pageNum, text, pageNum, text, ...]
+    for (let i = 1; i < sections.length; i += 2) {
+      const pageNum = parseInt(sections[i], 10);
+      const text = (sections[i + 1] || "").trim();
+      if (text) pages.push({ pageNumber: pageNum, text });
     }
   }
 
-  return allPages;
+  // If no page markers found, treat as single block
+  if (pages.length === 0) {
+    pages.push({ pageNumber: 1, text: content.trim() });
+  }
+
+  return pages;
 }
 
 /* ── action: ingest_pdf ── */
