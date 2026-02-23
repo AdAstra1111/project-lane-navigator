@@ -15,6 +15,36 @@ function err(msg: string, status = 400) {
   return new Response(JSON.stringify({ error: msg }), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 }
 
+// ── PRESET DOC TYPE GROUPS ──
+const PRESET_DOC_TYPES: Record<string, string[]> = {
+  script_pack: [
+    "script", "screenplay", "script_pdf", "feature_script", "screenplay_draft",
+    "production_draft", "pilot_script", "episode_script", "season_script", "master_script",
+  ],
+  development_pack: [
+    "idea", "concept_brief", "brief", "topline", "market_sheet", "convergence",
+    "blueprint", "architecture", "format_rules", "beat_sheet",
+  ],
+  canon_pack: [
+    "character_bible", "world_bible", "rules", "timeline", "relationships",
+    "threads", "canon",
+  ],
+  production_pack: [
+    "scene_list", "shot_plan", "shot_list", "storyboard", "schedule",
+    "location_list", "call_sheet",
+  ],
+  approved_pack: [], // special: resolved at runtime
+};
+
+// Priority order for trimming when over budget
+const DOC_TYPE_PRIORITY: Record<string, number> = {
+  script: 10, screenplay: 10, script_pdf: 10, feature_script: 10, screenplay_draft: 10,
+  production_draft: 10, pilot_script: 10, episode_script: 10, season_script: 10, master_script: 10,
+  character_bible: 8, world_bible: 7, blueprint: 6, architecture: 6,
+  idea: 5, concept_brief: 5, brief: 5, market_sheet: 5, beat_sheet: 5,
+  convergence: 4, format_rules: 3,
+};
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -26,7 +56,6 @@ serve(async (req) => {
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const apiKey = Deno.env.get("LOVABLE_API_KEY") || supabaseServiceKey;
 
-    // Auth check
     const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
     const userClient = createClient(supabaseUrl, anonKey, {
       global: { headers: { Authorization: authHeader } },
@@ -40,95 +69,235 @@ serve(async (req) => {
 
     if (action === "ping") return ok({ pong: true });
 
-    // ── Context pack builder ──
-    async function buildContextPack(projectId: string, versionId?: string, userMessage?: string) {
-      // Fetch project metadata
-      const { data: project } = await admin.from("projects").select("title, format, budget_range, tone, target_audience, genres").eq("id", projectId).single();
-      
-      // Fetch current script plaintext
-      let scriptText = "";
-      let scriptDocInfo: any = null;
-      
-      if (versionId) {
-        const { data: ver } = await admin.from("project_document_versions")
-          .select("id, plaintext, version_number, label, created_at, document_id")
-          .eq("id", versionId)
-          .single();
-        if (ver?.plaintext) {
-          scriptText = ver.plaintext;
-          scriptDocInfo = { versionId: ver.id, versionNumber: ver.version_number, label: ver.label, updatedAt: ver.created_at, documentId: ver.document_id };
-        }
+    // ── Helper: resolve best version for a document ──
+    async function resolveVersion(documentId: string, preference: string = "current") {
+      // Try current first
+      if (preference === "current" || preference === "latest") {
+        const { data: cur } = await admin.from("project_document_versions")
+          .select("id, plaintext, version_number, label, created_at, document_id, is_current, status")
+          .eq("document_id", documentId)
+          .eq("is_current", true)
+          .maybeSingle();
+        if (cur?.plaintext) return cur;
       }
-      
-      // If no version specified or no plaintext, try finding a script document
-      if (!scriptText) {
-        const { data: docs } = await admin.from("project_documents")
-          .select("id, doc_type")
-          .eq("project_id", projectId)
-          .ilike("doc_type", "%script%")
+
+      // Try approved
+      if (preference === "approved") {
+        const { data: approved } = await admin.from("project_document_versions")
+          .select("id, plaintext, version_number, label, created_at, document_id, is_current, status")
+          .eq("document_id", documentId)
+          .eq("status", "final")
+          .order("version_number", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (approved?.plaintext) return approved;
+      }
+
+      // Fallback: latest by version_number
+      const { data: latest } = await admin.from("project_document_versions")
+        .select("id, plaintext, version_number, label, created_at, document_id, is_current, status")
+        .eq("document_id", documentId)
+        .order("version_number", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      return latest?.plaintext ? latest : null;
+    }
+
+    // ── Helper: build excerpt from plaintext ──
+    function buildExcerpt(plaintext: string, mode: string, charsPerDoc: number): string {
+      if (!plaintext) return "";
+      if (plaintext.length <= charsPerDoc) return plaintext;
+      if (mode === "start") return plaintext.slice(0, charsPerDoc);
+      if (mode === "end") return plaintext.slice(-charsPerDoc);
+      // default: mixed
+      const half = Math.floor(charsPerDoc / 2);
+      return plaintext.slice(0, half) + "\n\n[...MIDDLE OMITTED...]\n\n" + plaintext.slice(-half);
+    }
+
+    // ── Helper: infer excerpt mode from user message ──
+    function inferMode(message: string): string {
+      const msg = (message || "").toLowerCase();
+      if (/\b(end|ending|final|last|climax|conclusion|denouement|third act|act\s*3)\b/.test(msg)) return "end";
+      if (/\b(begin|beginning|start|opening|first|act\s*1|inciting)\b/.test(msg)) return "start";
+      return "end"; // default to end (most relevant for active dev)
+    }
+
+    // ── Helper: infer which preset or doc types from user message ──
+    function inferPresetFromMessage(message: string): string {
+      const msg = (message || "").toLowerCase();
+      if (/\b(market\s*sheet|market|commercial)\b/.test(msg)) return "development_pack";
+      if (/\b(character|bible|world|canon|relationship|timeline)\b/.test(msg)) return "canon_pack";
+      if (/\b(brief|idea|topline|concept|convergence|blueprint|architecture|format)\b/.test(msg)) return "development_pack";
+      if (/\b(scene\s*list|shot|storyboard|schedule|production)\b/.test(msg)) return "production_pack";
+      return "script_pack";
+    }
+
+    // ── ACTION: list_project_documents ──
+    if (action === "list_project_documents") {
+      const { projectId } = body;
+      if (!projectId) return err("Missing projectId");
+
+      const { data: access } = await admin.rpc("has_project_access", { _user_id: user.id, _project_id: projectId });
+      if (!access) return err("Access denied", 403);
+
+      const { data: docs } = await admin.from("project_documents")
+        .select("id, doc_type, file_name, created_at, updated_at")
+        .eq("project_id", projectId)
+        .order("doc_type");
+
+      if (!docs || docs.length === 0) return ok({ docs: [] });
+
+      // Get version info for each doc
+      const docList = await Promise.all(docs.map(async (doc: any) => {
+        const { data: versions } = await admin.from("project_document_versions")
+          .select("id, version_number, is_current, status, created_at, label")
+          .eq("document_id", doc.id)
+          .order("version_number", { ascending: false })
           .limit(5);
-        if (docs && docs.length > 0) {
-          // Prefer script_pdf, script, screenplay in that order
-          const sorted = docs.sort((a: any, b: any) => {
-            const prio = (t: string) => t === 'script' ? 0 : t === 'screenplay' ? 1 : t === 'script_pdf' ? 2 : 3;
-            return prio(a.doc_type) - prio(b.doc_type);
-          });
-          for (const doc of sorted) {
-            // Try is_current=true first, then fall back to latest version
-            let { data: curVer } = await admin.from("project_document_versions")
-              .select("id, plaintext, version_number, label, created_at, document_id")
-              .eq("document_id", doc.id)
-              .eq("is_current", true)
-              .maybeSingle();
-            if (!curVer?.plaintext) {
-              const { data: latestVer } = await admin.from("project_document_versions")
-                .select("id, plaintext, version_number, label, created_at, document_id")
-                .eq("document_id", doc.id)
-                .order("version_number", { ascending: false })
-                .limit(1)
-                .maybeSingle();
-              if (latestVer?.plaintext) curVer = latestVer;
-            }
-            if (curVer?.plaintext) {
-              scriptText = curVer.plaintext;
-              scriptDocInfo = { versionId: curVer.id, versionNumber: curVer.version_number, label: curVer.label, updatedAt: curVer.created_at, documentId: curVer.document_id, docType: doc.doc_type };
-              break;
-            }
-          }
-        }
+
+        const current = versions?.find((v: any) => v.is_current);
+        const latest = versions?.[0];
+        const approved = versions?.find((v: any) => v.status === "final");
+
+        return {
+          documentId: doc.id,
+          docType: doc.doc_type,
+          title: doc.file_name || doc.doc_type,
+          updatedAt: doc.updated_at || doc.created_at,
+          currentVersionId: current?.id || null,
+          currentVersionNumber: current?.version_number || null,
+          latestVersionId: latest?.id || null,
+          latestVersionNumber: latest?.version_number || null,
+          approvedVersionId: approved?.id || null,
+          versionCount: versions?.length || 0,
+        };
+      }));
+
+      return ok({ docs: docList });
+    }
+
+    // ── ACTION: load_context_pack ──
+    if (action === "load_context_pack") {
+      const {
+        projectId,
+        presetKey = "script_pack",
+        includeDocTypes,
+        includeDocumentIds,
+        versionPreference = "current",
+        mode = "end",
+        charsPerDoc = 8000,
+        maxTotalChars = 24000,
+      } = body;
+      if (!projectId) return err("Missing projectId");
+
+      const { data: access } = await admin.rpc("has_project_access", { _user_id: user.id, _project_id: projectId });
+      if (!access) return err("Access denied", 403);
+
+      // Fetch project metadata
+      const { data: project } = await admin.from("projects")
+        .select("title, format, budget_range, tone, target_audience, genres")
+        .eq("id", projectId).single();
+
+      // Resolve which docs to fetch
+      let docFilter: any;
+      let resolvedPreset = presetKey;
+
+      if (includeDocumentIds && includeDocumentIds.length > 0) {
+        // Exact doc IDs
+        const { data: docs } = await admin.from("project_documents")
+          .select("id, doc_type, file_name")
+          .eq("project_id", projectId)
+          .in("id", includeDocumentIds);
+        docFilter = docs || [];
+        resolvedPreset = "custom";
+      } else if (includeDocTypes && includeDocTypes.length > 0) {
+        const { data: docs } = await admin.from("project_documents")
+          .select("id, doc_type, file_name")
+          .eq("project_id", projectId)
+          .in("doc_type", includeDocTypes);
+        docFilter = docs || [];
+        resolvedPreset = "custom";
+      } else if (presetKey === "approved_pack") {
+        // Special: all docs that have an approved (status=final) version
+        const { data: allDocs } = await admin.from("project_documents")
+          .select("id, doc_type, file_name")
+          .eq("project_id", projectId);
+        docFilter = allDocs || [];
+        // Will filter below to only those with final versions
+      } else {
+        const types = PRESET_DOC_TYPES[presetKey] || PRESET_DOC_TYPES.script_pack;
+        // Use ilike pattern matching for flexibility
+        const { data: allDocs } = await admin.from("project_documents")
+          .select("id, doc_type, file_name")
+          .eq("project_id", projectId);
+        docFilter = (allDocs || []).filter((d: any) =>
+          types.some(t => d.doc_type === t || d.doc_type.includes(t) || t.includes(d.doc_type))
+        );
       }
-      
-      // Smart excerpt based on user message intent
-      let scriptExcerpt = "";
-      const msg = (userMessage || "").toLowerCase();
-      const wantsEnd = /\b(end|ending|final|last|climax|conclusion|denouement|third act|act\s*3)\b/.test(msg);
-      const wantsBeginning = /\b(begin|beginning|start|opening|first|act\s*1|inciting)\b/.test(msg);
-      
-      if (scriptText) {
-        if (wantsEnd) {
-          scriptExcerpt = scriptText.slice(-12000);
-        } else if (wantsBeginning) {
-          scriptExcerpt = scriptText.slice(0, 12000);
-        } else if (scriptText.length <= 8000) {
-          scriptExcerpt = scriptText;
-        } else {
-          // Default: last 6000 chars (most relevant for active development)
-          scriptExcerpt = scriptText.slice(0, 2000) + "\n\n[...MIDDLE OMITTED...]\n\n" + scriptText.slice(-6000);
-        }
+
+      if (!docFilter || docFilter.length === 0) {
+        return ok({ ok: false, reason: "no_documents", contextPack: null });
       }
-      
-      return {
-        project: project ? { title: project.title, format: project.format, genres: project.genres, tone: project.tone, targetAudience: project.target_audience, budgetRange: project.budget_range } : null,
-        scriptExcerpt,
-        scriptDocInfo,
-        hasScript: !!scriptText,
-        scriptLength: scriptText.length,
-      };
+
+      // Sort by priority (highest first)
+      docFilter.sort((a: any, b: any) => {
+        const pa = DOC_TYPE_PRIORITY[a.doc_type] || 1;
+        const pb = DOC_TYPE_PRIORITY[b.doc_type] || 1;
+        return pb - pa;
+      });
+
+      // Build doc excerpts
+      const docResults: any[] = [];
+      let totalChars = 0;
+
+      for (const doc of docFilter) {
+        if (totalChars >= maxTotalChars) break;
+
+        const vPref = presetKey === "approved_pack" ? "approved" : versionPreference;
+        const ver = await resolveVersion(doc.id, vPref);
+        if (!ver || !ver.plaintext) continue;
+
+        const remainingBudget = maxTotalChars - totalChars;
+        const excerptBudget = Math.min(charsPerDoc, remainingBudget);
+        const excerpt = buildExcerpt(ver.plaintext, mode, excerptBudget);
+
+        docResults.push({
+          documentId: doc.id,
+          docType: doc.doc_type,
+          title: doc.file_name || doc.doc_type,
+          versionId: ver.id,
+          versionNumber: ver.version_number,
+          label: ver.label,
+          updatedAt: ver.created_at,
+          excerptChars: excerpt.length,
+          totalChars: ver.plaintext.length,
+          excerptText: excerpt,
+        });
+        totalChars += excerpt.length;
+      }
+
+      if (docResults.length === 0) {
+        return ok({ ok: false, reason: "no_documents_with_text", contextPack: null });
+      }
+
+      return ok({
+        ok: true,
+        contextPack: {
+          presetKey: resolvedPreset,
+          mode,
+          versionPreference,
+          totalChars,
+          project: project ? {
+            title: project.title, format: project.format, genres: project.genres,
+            tone: project.tone, targetAudience: project.target_audience,
+          } : null,
+          docs: docResults,
+        },
+      });
     }
 
     // ── get_or_create thread helper ──
     async function getOrCreateThread(projectId: string, documentId: string, noteHash: string, versionId?: string, noteSnapshot?: any) {
-      // Try to find existing
       const { data: existing } = await admin
         .from("note_threads")
         .select("*")
@@ -137,11 +306,9 @@ serve(async (req) => {
         .maybeSingle();
 
       if (existing) {
-        // Update version_id if provided and different
         if (versionId && existing.version_id !== versionId) {
           await admin.from("note_threads").update({ version_id: versionId }).eq("id", existing.id);
         }
-        // Ensure state row exists
         const { data: stateExists } = await admin.from("note_thread_state").select("thread_id").eq("thread_id", existing.id).maybeSingle();
         if (!stateExists) {
           await admin.from("note_thread_state").insert({ thread_id: existing.id, updated_by: user!.id });
@@ -149,7 +316,6 @@ serve(async (req) => {
         return existing;
       }
 
-      // Create new
       const { data: newThread, error: createErr } = await admin
         .from("note_threads")
         .insert({
@@ -164,9 +330,57 @@ serve(async (req) => {
         .single();
       if (createErr) throw new Error(createErr.message);
 
-      // Create state row
       await admin.from("note_thread_state").insert({ thread_id: newThread.id, updated_by: user!.id });
       return newThread;
+    }
+
+    // ── Build the IFFY system prompt + context block ──
+    function buildSystemPrompt(
+      projectMeta: any,
+      noteInfo: any,
+      state: any,
+      contextPack: any,
+    ): string {
+      const projectLabel = projectMeta
+        ? `${projectMeta.title} (${projectMeta.format || 'unknown format'})`
+        : 'Unknown project';
+
+      const docsLoaded = contextPack?.docs?.length || 0;
+      const docsSummary = docsLoaded > 0
+        ? contextPack.docs.map((d: any) => `${d.docType} v${d.versionNumber}${d.label ? ' — ' + d.label : ''} (${d.excerptChars} chars)`).join(', ')
+        : 'None';
+
+      let prompt = `You are the IFFY Writers' Room assistant, operating INSIDE the IFFY film/TV development application. You have DIRECT ACCESS to project documents loaded by the server via the CONTEXT PACK below.
+
+PROJECT: ${projectLabel}
+${projectMeta?.genres ? `Genres: ${projectMeta.genres.join(', ')}` : ''}
+${projectMeta?.tone ? `Tone: ${projectMeta.tone}` : ''}
+
+DOCUMENTS LOADED: ${docsLoaded} (${docsSummary})
+
+Note under discussion:
+${JSON.stringify(noteInfo, null, 2)}
+
+Direction preferences: ${JSON.stringify(state?.direction || {})}
+Pinned constraints: ${JSON.stringify(state?.pinned_constraints || [])}
+
+CRITICAL RULES:
+1. You CAN read project documents — they are provided to you in the CONTEXT PACK below. NEVER say "I can't read your script", "paste the text", or "I don't have access to your documents."
+2. If you have document excerpts, USE THEM to answer. Reference specific details, quotes, page elements.
+3. When answering, briefly state which docs you're using: "Using Script v12…" or "Using Brief v3 + Market Sheet v2…"
+4. If the CONTEXT PACK is empty AND the user asks about documents, say: "No documents are currently loaded in the context. Use the 'Change context' button above the chat to load documents."
+5. Be concise, creative, and practical. Focus on actionable solutions.`;
+
+      // Append document excerpts
+      if (contextPack?.docs?.length > 0) {
+        prompt += "\n\n═══ CONTEXT PACK ═══";
+        for (const doc of contextPack.docs) {
+          prompt += `\n\n── ${doc.docType.toUpperCase()} (v${doc.versionNumber}${doc.label ? ' — ' + doc.label : ''}, ${doc.totalChars} chars total, showing ${doc.excerptChars} chars) ──\n${doc.excerptText}`;
+        }
+        prompt += "\n\n═══ END CONTEXT PACK ═══";
+      }
+
+      return prompt;
     }
 
     // ── ACTION: get ──
@@ -174,7 +388,6 @@ serve(async (req) => {
       const { projectId, documentId, noteHash, versionId, noteSnapshot } = body;
       if (!projectId || !documentId || !noteHash) return err("Missing projectId/documentId/noteHash");
 
-      // Check access
       const { data: access } = await admin.rpc("has_project_access", { _user_id: user.id, _project_id: projectId });
       if (!access) return err("Access denied", 403);
 
@@ -191,23 +404,6 @@ serve(async (req) => {
         state: stateRes.data,
         messages: msgsRes.data || [],
         optionSets: setsRes.data || [],
-      });
-    }
-
-    // ── ACTION: get_context_info ──
-    if (action === "get_context_info") {
-      const { projectId, versionId } = body;
-      if (!projectId) return err("Missing projectId");
-
-      const { data: access } = await admin.rpc("has_project_access", { _user_id: user.id, _project_id: projectId });
-      if (!access) return err("Access denied", 403);
-
-      const ctx = await buildContextPack(projectId, versionId);
-      return ok({
-        project: ctx.project,
-        hasScript: ctx.hasScript,
-        scriptLength: ctx.scriptLength,
-        scriptDocInfo: ctx.scriptDocInfo,
       });
     }
 
@@ -232,7 +428,7 @@ serve(async (req) => {
 
     // ── ACTION: post_message ──
     if (action === "post_message") {
-      const { projectId, documentId, noteHash, versionId, noteSnapshot, content, role } = body;
+      const { projectId, documentId, noteHash, versionId, noteSnapshot, content, role, contextPack: clientContextPack } = body;
       if (!projectId || !documentId || !noteHash || !content) return err("Missing fields");
 
       const { data: access } = await admin.rpc("has_project_access", { _user_id: user.id, _project_id: projectId });
@@ -248,51 +444,76 @@ serve(async (req) => {
         created_by: user.id,
       }).select().single();
 
-      // Get context for AI response
-      const [stateRes, msgsRes, contextPack] = await Promise.all([
+      // Get state + messages
+      const [stateRes, msgsRes] = await Promise.all([
         admin.from("note_thread_state").select("*").eq("thread_id", thread.id).single(),
         admin.from("note_thread_messages").select("*").eq("thread_id", thread.id).order("created_at", { ascending: true }).limit(30),
-        buildContextPack(projectId, versionId, content),
       ]);
 
       const state = stateRes.data;
       const noteInfo = thread.note_snapshot || {};
 
-      const projectLabel = contextPack.project ? `${contextPack.project.title} (${contextPack.project.format || 'unknown format'})` : 'Unknown project';
-      const scriptLabel = contextPack.scriptDocInfo ? `Script v${contextPack.scriptDocInfo.versionNumber}${contextPack.scriptDocInfo.label ? ' — ' + contextPack.scriptDocInfo.label : ''}` : null;
+      // Use client-provided context pack, or auto-load one
+      let contextPack = clientContextPack;
+      if (!contextPack || !contextPack.docs || contextPack.docs.length === 0) {
+        // Auto-load based on message intent
+        const autoPreset = inferPresetFromMessage(content);
+        const autoMode = inferMode(content);
+        console.log(`[writers-room] Auto-loading context: preset=${autoPreset}, mode=${autoMode}`);
 
-      const systemPrompt = `You are the IFFY Writers' Room assistant, operating INSIDE a film/TV development application. You have DIRECT ACCESS to project documents loaded by the server.
+        // Fetch project metadata
+        const { data: project } = await admin.from("projects")
+          .select("title, format, budget_range, tone, target_audience, genres")
+          .eq("id", projectId).single();
 
-PROJECT: ${projectLabel}
-${contextPack.project?.genres ? `Genres: ${contextPack.project.genres.join(', ')}` : ''}
-${contextPack.project?.tone ? `Tone: ${contextPack.project.tone}` : ''}
+        // Find matching docs
+        const types = PRESET_DOC_TYPES[autoPreset] || PRESET_DOC_TYPES.script_pack;
+        const { data: allDocs } = await admin.from("project_documents")
+          .select("id, doc_type, file_name")
+          .eq("project_id", projectId);
 
-${contextPack.hasScript ? `SCRIPT LOADED: ${scriptLabel} (${contextPack.scriptLength} characters total)` : 'NO SCRIPT CURRENTLY LOADED.'}
+        const matchingDocs = (allDocs || []).filter((d: any) =>
+          types.some((t: string) => d.doc_type === t || d.doc_type.includes(t) || t.includes(d.doc_type))
+        );
 
-Note under discussion:
-${JSON.stringify(noteInfo, null, 2)}
+        // Sort by priority
+        matchingDocs.sort((a: any, b: any) => (DOC_TYPE_PRIORITY[b.doc_type] || 1) - (DOC_TYPE_PRIORITY[a.doc_type] || 1));
 
-Direction preferences: ${JSON.stringify(state?.direction || {})}
-Pinned constraints: ${JSON.stringify(state?.pinned_constraints || [])}
+        const docResults: any[] = [];
+        let totalChars = 0;
+        const maxTotal = 24000;
+        const perDoc = 8000;
 
-RULES:
-- You CAN read the project's script because it is provided to you as a context pack by the server. NEVER say "I can't read your script" or "paste the text."
-- If the user asks to read the end/beginning/a section of the script, use the SCRIPT EXCERPT provided below.
-- If script context is missing and the user asks about the script, say: "I don't currently have the script loaded. Click 'Load current script' above the chat or tell me which document to use."
-- Be concise, creative, and practical. Focus on actionable solutions.
-- When referencing script content, cite specific details from the excerpt.`;
+        for (const doc of matchingDocs) {
+          if (totalChars >= maxTotal) break;
+          const ver = await resolveVersion(doc.id, "current");
+          if (!ver || !ver.plaintext) continue;
+          const budget = Math.min(perDoc, maxTotal - totalChars);
+          const excerpt = buildExcerpt(ver.plaintext, autoMode, budget);
+          docResults.push({
+            documentId: doc.id, docType: doc.doc_type, title: doc.file_name || doc.doc_type,
+            versionId: ver.id, versionNumber: ver.version_number, label: ver.label,
+            updatedAt: ver.created_at, excerptChars: excerpt.length, totalChars: ver.plaintext.length,
+            excerptText: excerpt,
+          });
+          totalChars += excerpt.length;
+        }
 
-      let contextBlock = "";
-      if (contextPack.scriptExcerpt) {
-        contextBlock = `\n\nSCRIPT EXCERPT (from ${scriptLabel || 'current script'}):\n---\n${contextPack.scriptExcerpt}\n---`;
+        contextPack = {
+          presetKey: autoPreset, mode: autoMode, docs: docResults,
+          project: project ? { title: project.title, format: project.format, genres: project.genres, tone: project.tone } : null,
+        };
       }
+
+      const projectMeta = contextPack?.project || null;
+      const systemPrompt = buildSystemPrompt(projectMeta, noteInfo, state, contextPack);
 
       const chatHistory = (msgsRes.data || []).map((m: any) => `${m.role}: ${m.content}`).join("\n");
 
       const result = await callLLM({
         apiKey,
         model: MODELS.FAST,
-        system: systemPrompt + contextBlock,
+        system: systemPrompt,
         user: chatHistory,
         temperature: 0.5,
         maxTokens: 2000,
@@ -329,7 +550,7 @@ RULES:
 
     // ── ACTION: generate_options ──
     if (action === "generate_options") {
-      const { projectId, documentId, noteHash, versionId, noteSnapshot, scriptContext } = body;
+      const { projectId, documentId, noteHash, versionId, noteSnapshot, contextPack: clientCtx } = body;
       if (!projectId || !documentId || !noteHash) return err("Missing fields");
 
       const { data: access } = await admin.rpc("has_project_access", { _user_id: user.id, _project_id: projectId });
@@ -337,12 +558,10 @@ RULES:
 
       const thread = await getOrCreateThread(projectId, documentId, noteHash, versionId, noteSnapshot);
 
-      // Get current state, messages, prior option sets, and context pack
-      const [stateRes, msgsRes, setsRes, contextPack] = await Promise.all([
+      const [stateRes, msgsRes, setsRes] = await Promise.all([
         admin.from("note_thread_state").select("*").eq("thread_id", thread.id).single(),
         admin.from("note_thread_messages").select("*").eq("thread_id", thread.id).order("created_at", { ascending: true }).limit(20),
         admin.from("note_option_sets").select("*").eq("thread_id", thread.id).order("option_set_index", { ascending: true }),
-        buildContextPack(projectId, versionId),
       ]);
 
       const state = stateRes.data;
@@ -350,7 +569,6 @@ RULES:
       const lastIndex = state?.last_generated_set || priorSets.length;
       const newIndex = lastIndex + 1;
 
-      // Compact prior options for anti-repeat
       const priorCompact = priorSets.flatMap((s: any) =>
         (s.options || []).map((o: any) => ({ id: o.id, pitch: o.pitch }))
       );
@@ -360,13 +578,19 @@ RULES:
       const pins = state?.pinned_constraints || [];
       const chatHistory = (msgsRes.data || []).map((m: any) => `${m.role}: ${m.content}`).join("\n").slice(0, 4000);
 
-      const projectLabel = contextPack.project ? `${contextPack.project.title} (${contextPack.project.format || 'unknown'})` : '';
+      // Build context excerpt for options generation
+      let contextExcerpt = "";
+      if (clientCtx?.docs?.length > 0) {
+        contextExcerpt = clientCtx.docs.map((d: any) => `[${d.docType} v${d.versionNumber}]: ${d.excerptText?.slice(0, 3000) || ''}`).join("\n\n");
+      }
+
+      const projectLabel = clientCtx?.project ? `${clientCtx.project.title} (${clientCtx.project.format || 'unknown'})` : '';
 
       const systemPrompt = `You are the IFFY Writers' Room options generator for ${projectLabel || 'a film/TV project'}.
-You have access to the project's script via the server context pack.
+You have access to project documents via the server context pack.
 Generate 5-9 NEW creative solutions for the given note/issue.
 
-HARD RULE: Do NOT repeat any prior solutions or close variants. Avoid same core idea, same twist, same mechanism.
+HARD RULE: Do NOT repeat any prior solutions or close variants.
 
 Prior solutions to AVOID repeating (id + pitch):
 ${JSON.stringify(priorCompact)}
@@ -400,7 +624,7 @@ Locked constraints: ${JSON.stringify(pins)}
 Recent discussion:
 ${chatHistory}
 
-${contextPack.scriptExcerpt ? `Script context (from ${contextPack.scriptDocInfo?.label || 'current script'}):\n${contextPack.scriptExcerpt.slice(0, 4000)}` : "No script loaded."}
+${contextExcerpt ? `Project documents context:\n${contextExcerpt.slice(0, 6000)}` : "No documents loaded."}
 
 Generate 5-9 completely new options. Do NOT repeat prior solutions.`;
 
@@ -417,24 +641,18 @@ Generate 5-9 completely new options. Do NOT repeat prior solutions.`;
 
         try {
           parsed = JSON.parse(extractJSON(result.content));
-          if (parsed.new_options && Array.isArray(parsed.new_options) && parsed.new_options.length >= 3) {
-            break;
-          }
+          if (parsed.new_options && Array.isArray(parsed.new_options) && parsed.new_options.length >= 3) break;
           parsed = null;
-        } catch {
-          parsed = null;
-        }
+        } catch { parsed = null; }
       }
 
       if (!parsed) return err("Failed to generate valid options after retries");
 
-      // Ensure each option has an id
       parsed.new_options = parsed.new_options.map((o: any, i: number) => ({
         ...o,
         id: o.id || `opt_${newIndex}_${i}`,
       }));
 
-      // Insert option set (retry once on conflict)
       let insertIndex = newIndex;
       for (let attempt = 0; attempt < 2; attempt++) {
         const { error: insertErr } = await admin.from("note_option_sets").insert({
@@ -447,7 +665,6 @@ Generate 5-9 completely new options. Do NOT repeat prior solutions.`;
         });
         if (insertErr) {
           if (insertErr.message.includes("unique") || insertErr.message.includes("duplicate")) {
-            // Refetch last index
             const { data: latestSets } = await admin.from("note_option_sets").select("option_set_index").eq("thread_id", thread.id).order("option_set_index", { ascending: false }).limit(1);
             insertIndex = (latestSets?.[0]?.option_set_index || insertIndex) + 1;
             continue;
@@ -457,7 +674,6 @@ Generate 5-9 completely new options. Do NOT repeat prior solutions.`;
         break;
       }
 
-      // Update state
       await admin.from("note_thread_state").update({
         last_generated_set: insertIndex,
         updated_by: user.id,
@@ -474,7 +690,7 @@ Generate 5-9 completely new options. Do NOT repeat prior solutions.`;
 
     // ── ACTION: synthesize_best ──
     if (action === "synthesize_best") {
-      const { projectId, documentId, noteHash, versionId, noteSnapshot, scriptContext } = body;
+      const { projectId, documentId, noteHash, versionId, noteSnapshot, contextPack: clientCtx } = body;
       if (!projectId || !documentId || !noteHash) return err("Missing fields");
 
       const { data: access } = await admin.rpc("has_project_access", { _user_id: user.id, _project_id: projectId });
@@ -495,6 +711,11 @@ Generate 5-9 completely new options. Do NOT repeat prior solutions.`;
       const direction = state.direction || {};
       const chatHistory = (msgsRes.data || []).map((m: any) => `${m.role}: ${m.content}`).join("\n").slice(0, 5000);
       const recentOptions = (setsRes.data || []).flatMap((s: any) => s.options || []);
+
+      let contextExcerpt = "";
+      if (clientCtx?.docs?.length > 0) {
+        contextExcerpt = clientCtx.docs.map((d: any) => `[${d.docType} v${d.versionNumber}]: ${d.excerptText?.slice(0, 3000) || ''}`).join("\n\n");
+      }
 
       const systemPrompt = `You are a Writers' Room synthesis engine. Produce a consolidated direction based on the selected option, discussion, and constraints.
 
@@ -519,7 +740,7 @@ ${chatHistory}
 All recent options considered:
 ${JSON.stringify(recentOptions.map((o: any) => ({ id: o.id, pitch: o.pitch })))}
 
-${scriptContext ? `Script context:\n${scriptContext.slice(0, 3000)}` : ""}
+${contextExcerpt ? `Project documents context:\n${contextExcerpt.slice(0, 4000)}` : ""}
 
 Synthesize the best consolidated direction with a clear rewrite plan and verification checks.`;
 
@@ -538,20 +759,16 @@ Synthesize the best consolidated direction with a clear rewrite plan and verific
           parsed = JSON.parse(extractJSON(result.content));
           if (parsed.rewrite_plan && Array.isArray(parsed.rewrite_plan)) break;
           parsed = null;
-        } catch {
-          parsed = null;
-        }
+        } catch { parsed = null; }
       }
 
       if (!parsed) return err("Failed to generate valid synthesis after retries");
 
-      // Persist synthesis
       await admin.from("note_thread_state").update({
         synthesis: parsed,
         updated_by: user.id,
       }).eq("thread_id", thread.id);
 
-      // Mark thread as chosen
       await admin.from("note_threads").update({ status: "chosen" }).eq("id", thread.id);
 
       return ok({ synthesis: parsed });
@@ -576,40 +793,43 @@ Synthesize the best consolidated direction with a clear rewrite plan and verific
 
     // ── ACTION: propose_change_plan ──
     if (action === "propose_change_plan") {
-      const { threadId } = body;
+      const { threadId, contextPack: clientCtx } = body;
       if (!threadId) return err("Missing threadId");
 
-      // Load thread
       const { data: thread, error: threadErr } = await admin.from("note_threads").select("*").eq("id", threadId).single();
       if (threadErr || !thread) return err("Thread not found");
 
       const { data: access } = await admin.rpc("has_project_access", { _user_id: user.id, _project_id: thread.project_id });
       if (!access) return err("Access denied", 403);
 
-      // Load messages (last 30)
       const { data: msgs } = await admin.from("note_thread_messages")
         .select("role, content")
         .eq("thread_id", threadId)
         .order("created_at", { ascending: true })
         .limit(30);
 
-      // Load state for pinned constraints
       const { data: state } = await admin.from("note_thread_state").select("*").eq("thread_id", threadId).maybeSingle();
 
-      // Load script plaintext (capped at 12k chars)
+      // Use client context pack or fall back to auto-load script
       let scriptExcerpt = "";
-      if (thread.version_id) {
-        const { data: ver } = await admin.from("project_document_versions")
-          .select("plaintext")
-          .eq("id", thread.version_id)
-          .single();
+      if (clientCtx?.docs?.length > 0) {
+        scriptExcerpt = clientCtx.docs.map((d: any) => `[${d.docType} v${d.versionNumber}]:\n${d.excerptText?.slice(0, 6000) || ''}`).join("\n\n");
+      } else if (thread.version_id) {
+        const ver = await resolveVersion(thread.document_id || "", "current");
         if (ver?.plaintext) {
-          const txt = ver.plaintext;
-          if (txt.length <= 12000) {
-            scriptExcerpt = txt;
-          } else {
-            scriptExcerpt = txt.slice(0, 6000) + "\n\n[...TRUNCATED...]\n\n" + txt.slice(-6000);
-          }
+          scriptExcerpt = buildExcerpt(ver.plaintext, "end", 12000);
+        }
+      }
+      // Additional fallback: find any script doc
+      if (!scriptExcerpt) {
+        const { data: allDocs } = await admin.from("project_documents")
+          .select("id, doc_type").eq("project_id", thread.project_id);
+        const scriptDoc = (allDocs || []).find((d: any) =>
+          PRESET_DOC_TYPES.script_pack.some(t => d.doc_type === t || d.doc_type.includes(t) || t.includes(d.doc_type))
+        );
+        if (scriptDoc) {
+          const ver = await resolveVersion(scriptDoc.id, "current");
+          if (ver?.plaintext) scriptExcerpt = buildExcerpt(ver.plaintext, "end", 12000);
         }
       }
 
@@ -617,7 +837,7 @@ Synthesize the best consolidated direction with a clear rewrite plan and verific
       const pins = state?.pinned_constraints || [];
       const chatHistory = (msgs || []).map((m: any) => `${m.role}: ${m.content}`).join("\n").slice(0, 5000);
 
-      const systemPrompt = `You are a script development engine. Given a note, discussion thread, and script excerpt, generate a structured Change Plan as valid JSON.
+      const systemPrompt = `You are a script development engine. Given a note, discussion thread, and document excerpts, generate a structured Change Plan as valid JSON.
 
 You MUST respond with ONLY valid JSON matching this EXACT schema:
 {
@@ -668,7 +888,7 @@ Pinned constraints: ${JSON.stringify(pins)}
 Discussion:
 ${chatHistory}
 
-Script excerpt:
+Document excerpts:
 ${scriptExcerpt.slice(0, 8000)}
 
 Generate a Change Plan with atomic, testable changes.`;
@@ -692,20 +912,17 @@ Generate a Change Plan with atomic, testable changes.`;
 
       if (!parsed) return err("Failed to generate valid change plan after retries");
 
-      // Ensure IDs on changes
       parsed.changes = (parsed.changes || []).map((c: any, i: number) => ({
         ...c,
         id: c.id || `chg_${Date.now()}_${i}`,
         enabled: c.enabled !== false,
       }));
 
-      // Supersede old draft/confirmed plans for this thread
       await admin.from("note_change_plans")
         .update({ status: "superseded" })
         .eq("thread_id", threadId)
         .in("status", ["draft", "confirmed"]);
 
-      // Insert new plan
       const { data: planRow, error: planErr } = await admin.from("note_change_plans").insert({
         thread_id: threadId,
         project_id: thread.project_id,
@@ -734,12 +951,10 @@ Generate a Change Plan with atomic, testable changes.`;
 
       const updates: any = { status: "confirmed" };
       if (planPatch) {
-        // Basic validation
         if (typeof planPatch !== 'object' || !planPatch.changes) return err("Invalid planPatch");
         updates.plan = planPatch;
       }
 
-      // Supersede other plans
       await admin.from("note_change_plans")
         .update({ status: "superseded" })
         .eq("thread_id", plan.thread_id)
@@ -768,14 +983,12 @@ Generate a Change Plan with atomic, testable changes.`;
       const enabledChanges = (changePlan.changes || []).filter((c: any) => c.enabled !== false);
       if (enabledChanges.length === 0) return err("No enabled changes to apply");
 
-      // Load source version plaintext
       const { data: sourceVer } = await admin.from("project_document_versions")
         .select("plaintext, version_number, document_id")
         .eq("id", plan.version_id)
         .single();
       if (!sourceVer) return err("Source version not found");
 
-      // Build rewrite prompt
       const rewritePrompt = `You are a script rewriter. Apply the following changes to the script below.
 
 Direction: ${changePlan.direction_summary || ''}
@@ -804,7 +1017,6 @@ IMPORTANT: Return the COMPLETE rewritten script. Do not omit any sections. Prese
 
       const rewrittenText = result.content;
 
-      // Minimal verification
       const verification: any = { ok: true, checks: [], warnings: [] };
       if (!rewrittenText || rewrittenText.trim().length < 50) {
         verification.ok = false;
@@ -814,7 +1026,6 @@ IMPORTANT: Return the COMPLETE rewritten script. Do not omit any sections. Prese
         verification.warnings.push("Rewritten text is significantly shorter than original");
       }
 
-      // Get next version number
       const { data: maxVer } = await admin.from("project_document_versions")
         .select("version_number")
         .eq("document_id", sourceVer.document_id)
@@ -823,7 +1034,6 @@ IMPORTANT: Return the COMPLETE rewritten script. Do not omit any sections. Prese
         .single();
       const nextVersion = (maxVer?.version_number || 0) + 1;
 
-      // Use set_current_version pattern: insert new version
       const { data: newVer, error: newVerErr } = await admin.from("project_document_versions").insert({
         document_id: sourceVer.document_id,
         version_number: nextVersion,
@@ -839,7 +1049,6 @@ IMPORTANT: Return the COMPLETE rewritten script. Do not omit any sections. Prese
 
       if (newVerErr) throw new Error(newVerErr.message);
 
-      // Set as current via RPC
       try {
         await admin.rpc("set_current_version", {
           p_document_id: sourceVer.document_id,
@@ -849,7 +1058,6 @@ IMPORTANT: Return the COMPLETE rewritten script. Do not omit any sections. Prese
         console.warn("set_current_version failed, falling back:", e.message);
       }
 
-      // Update plan + thread status
       await admin.from("note_change_plans").update({ status: "applied" }).eq("id", planId);
       await admin.from("note_threads").update({ status: "applied" }).eq("id", plan.thread_id);
 

@@ -1,5 +1,6 @@
 /**
  * useNoteWritersRoom — React Query hook for Writers' Room edge function.
+ * Now includes context pack management (list docs, load packs, pass to LLM).
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
@@ -8,7 +9,47 @@ import type { WritersRoomData, NoteOption, ChangePlan, ChangePlanRow } from '@/l
 
 const QUERY_KEY = (docId: string, noteHash: string) => ['writers-room', docId, noteHash];
 const PLAN_KEY = (threadId: string) => ['writers-room-plan', threadId];
-const CONTEXT_KEY = (projectId: string) => ['writers-room-context', projectId];
+const DOCS_KEY = (projectId: string) => ['writers-room-docs', projectId];
+
+export interface ContextPackDoc {
+  documentId: string;
+  docType: string;
+  title: string;
+  versionId: string;
+  versionNumber: number;
+  label?: string;
+  updatedAt: string;
+  excerptChars: number;
+  totalChars: number;
+  excerptText: string;
+}
+
+export interface ContextPack {
+  presetKey: string;
+  mode: string;
+  versionPreference?: string;
+  totalChars: number;
+  project?: {
+    title: string;
+    format: string;
+    genres?: string[];
+    tone?: string;
+  };
+  docs: ContextPackDoc[];
+}
+
+export interface ProjectDocInfo {
+  documentId: string;
+  docType: string;
+  title: string;
+  updatedAt: string;
+  currentVersionId: string | null;
+  currentVersionNumber: number | null;
+  latestVersionId: string | null;
+  latestVersionNumber: number | null;
+  approvedVersionId: string | null;
+  versionCount: number;
+}
 
 async function invoke(action: string, params: Record<string, any>) {
   const { data, error } = await supabase.functions.invoke('notes-writers-room', {
@@ -44,12 +85,15 @@ export function useNoteWritersRoom(opts: {
 
   const threadId = query.data?.thread?.id;
 
-  // Context info query — which doc/version is loaded
-  const contextQuery = useQuery({
-    queryKey: CONTEXT_KEY(projectId),
-    queryFn: () => invoke('get_context_info', { projectId, versionId }),
+  // List all project documents
+  const docsQuery = useQuery<ProjectDocInfo[]>({
+    queryKey: DOCS_KEY(projectId),
+    queryFn: async () => {
+      const res = await invoke('list_project_documents', { projectId });
+      return res.docs || [];
+    },
     enabled: enabled && !!projectId,
-    staleTime: 60_000,
+    staleTime: 120_000,
   });
 
   const planQuery = useQuery<ChangePlanRow | null>({
@@ -72,8 +116,23 @@ export function useNoteWritersRoom(opts: {
     onSuccess: invalidate,
   });
 
+  // Load context pack
+  const loadContextPack = useMutation({
+    mutationFn: (params: {
+      presetKey?: string;
+      includeDocTypes?: string[];
+      includeDocumentIds?: string[];
+      versionPreference?: string;
+      mode?: string;
+      charsPerDoc?: number;
+      maxTotalChars?: number;
+    }) => invoke('load_context_pack', { projectId, ...params }),
+    onError: (e: Error) => toast.error(`Context load failed: ${e.message}`),
+  });
+
   const postMessage = useMutation({
-    mutationFn: (content: string) => invoke('post_message', { ...baseParams, content }),
+    mutationFn: (params: { content: string; contextPack?: ContextPack }) =>
+      invoke('post_message', { ...baseParams, content: params.content, contextPack: params.contextPack }),
     onSuccess: invalidate,
     onError: (e: Error) => toast.error(e.message),
   });
@@ -86,7 +145,8 @@ export function useNoteWritersRoom(opts: {
   });
 
   const generateOptions = useMutation({
-    mutationFn: (scriptContext?: string) => invoke('generate_options', { ...baseParams, scriptContext }),
+    mutationFn: (contextPack?: ContextPack) =>
+      invoke('generate_options', { ...baseParams, contextPack }),
     onSuccess: (data) => {
       invalidate();
       toast.success(`Generated ${data.options?.length || 0} new options`);
@@ -101,7 +161,8 @@ export function useNoteWritersRoom(opts: {
   });
 
   const synthesizeBest = useMutation({
-    mutationFn: (scriptContext?: string) => invoke('synthesize_best', { ...baseParams, scriptContext }),
+    mutationFn: (contextPack?: ContextPack) =>
+      invoke('synthesize_best', { ...baseParams, contextPack }),
     onSuccess: () => {
       invalidate();
       toast.success('Synthesis complete');
@@ -110,9 +171,9 @@ export function useNoteWritersRoom(opts: {
   });
 
   const proposeChangePlan = useMutation({
-    mutationFn: () => {
+    mutationFn: (contextPack?: ContextPack) => {
       if (!threadId) throw new Error('No thread');
-      return invoke('propose_change_plan', { threadId });
+      return invoke('propose_change_plan', { threadId, contextPack });
     },
     onSuccess: () => {
       invalidatePlan();
@@ -133,7 +194,7 @@ export function useNoteWritersRoom(opts: {
 
   const applyChangePlan = useMutation({
     mutationFn: (planId: string) => invoke('apply_change_plan', { planId }),
-    onSuccess: (data) => {
+    onSuccess: () => {
       invalidatePlan();
       invalidate();
       toast.success(`Applied! New version created.`);
@@ -144,8 +205,9 @@ export function useNoteWritersRoom(opts: {
   return {
     query,
     planQuery,
-    contextQuery,
+    docsQuery,
     ensureThread,
+    loadContextPack,
     postMessage,
     updateState,
     generateOptions,
