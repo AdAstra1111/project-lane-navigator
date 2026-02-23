@@ -15780,6 +15780,7 @@ export type Database = {
           id: string
           items: Json
           project_id: string
+          selected_indices: number[] | null
           source_moment_ids: string[]
           status: string
         }
@@ -15789,6 +15790,7 @@ export type Database = {
           id?: string
           items?: Json
           project_id: string
+          selected_indices?: number[] | null
           source_moment_ids?: string[]
           status?: string
         }
@@ -15798,6 +15800,7 @@ export type Database = {
           id?: string
           items?: Json
           project_id?: string
+          selected_indices?: number[] | null
           source_moment_ids?: string[]
           status?: string
         }

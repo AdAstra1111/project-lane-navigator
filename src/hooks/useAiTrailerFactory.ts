@@ -146,6 +146,18 @@ export function useAiTrailerFactory(projectId: string | undefined) {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  const saveSelectedIndices = useMutation({
+    mutationFn: async ({ shotlistId, selectedIndices }: { shotlistId: string; selectedIndices: number[] }) => {
+      const { error } = await (supabase as any)
+        .from('trailer_shotlists')
+        .update({ selected_indices: selectedIndices })
+        .eq('id', shotlistId);
+      if (error) throw error;
+    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['trailer-shotlists', projectId] }); },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   const generateTrailerAssets = useMutation({
     mutationFn: (trailerShotlistId: string) =>
       callFactory('generate_trailer_assets', { projectId, trailerShotlistId }),
@@ -171,6 +183,6 @@ export function useAiTrailerFactory(projectId: string | undefined) {
     isLoadingMoments: momentsQuery.isLoading,
     isLoadingShotlists: shotlistsQuery.isLoading,
     labelReadiness, generateFrames, selectMedia, generateMotionStill,
-    extractMoments, buildShotlist, generateTrailerAssets, assembleTrailer,
+    extractMoments, buildShotlist, saveSelectedIndices, generateTrailerAssets, assembleTrailer,
   };
 }

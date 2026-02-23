@@ -1,0 +1,1 @@
+alter table public.trailer_shotlists add column if not exists selected_indices int[] null;
