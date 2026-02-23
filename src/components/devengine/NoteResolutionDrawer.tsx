@@ -61,6 +61,7 @@ export function NoteResolutionDrawer({
   const [approveAfter, setApproveAfter] = useState(false);
   const [loading, setLoading] = useState(false);
   const [applying, setApplying] = useState(false);
+  const [applied, setApplied] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Reset state when note changes
@@ -120,6 +121,7 @@ export function NoteResolutionDrawer({
       setSelectedFixId(note.recommended_fix_id || null);
       setRecommendedId(note.recommended_fix_id || null);
       setApproveAfter(false);
+      setApplied(false);
       setError(null);
       if (!note.fix_options?.length) {
         // Defer to next tick so state is set
@@ -176,8 +178,8 @@ export function NoteResolutionDrawer({
       }
 
       toast.success(`Fix applied → v${data.new_version_number}${data.approved ? ' (approved)' : ''}`);
+      setApplied(true);
       onApplied?.(data);
-      onOpenChange(false);
     } catch (e: any) {
       setError(e.message);
       toast.error(e.message || 'Failed to apply fix');
@@ -332,12 +334,12 @@ export function NoteResolutionDrawer({
           <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button
             size="sm"
-            className="h-7 text-xs gap-1.5"
-            onClick={handleApplyFix}
-            disabled={applying || !selectedFixId || fixOptions.length === 0}
+            className={`h-7 text-xs gap-1.5 ${applied ? 'bg-emerald-600 hover:bg-emerald-700' : ''}`}
+            onClick={applied ? () => onOpenChange(false) : handleApplyFix}
+            disabled={applying || (!applied && (!selectedFixId || fixOptions.length === 0))}
           >
             {applying ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
-            Apply Fix
+            {applied ? 'Applied ✓' : 'Apply Fix'}
           </Button>
         </DialogFooter>
       </DialogContent>
