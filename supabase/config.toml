@@ -233,3 +233,6 @@ verify_jwt = false
 
 [functions.trailer-assembler]
 verify_jwt = false
+
+[functions.trailer-audio-engine]
+verify_jwt = false
