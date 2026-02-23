@@ -142,7 +142,7 @@ export function VisualProductionPanel({ projectId, scenes, selectedSceneId, onSe
                 </div>
               </div>
             )}
-            {/* Completed/failed banner */}
+            {/* Completed banner */}
             {fullShotPlan.isComplete && fullShotPlan.job && (
               <div className="mb-2 p-2 rounded border border-primary/30 bg-primary/5 flex items-center justify-between">
                 <div className="text-[10px]">
@@ -154,14 +154,32 @@ export function VisualProductionPanel({ projectId, scenes, selectedSceneId, onSe
                 </Button>
               </div>
             )}
+            {/* Failed banner */}
             {fullShotPlan.isFailed && fullShotPlan.job && (
               <div className="mb-2 p-2 rounded border border-destructive/30 bg-destructive/5 flex items-center justify-between">
                 <div className="text-[10px] text-destructive">
                   <AlertTriangle className="h-3 w-3 inline mr-1" />
                   Shot plan failed: {fullShotPlan.job.last_error || 'Unknown error'}
                 </div>
+                <div className="flex gap-1">
+                  <Button size="sm" variant="ghost" className="h-5 text-[8px] gap-1 px-1.5" onClick={() => fullShotPlan.actions.recover()}>
+                    <RotateCcw className="h-2.5 w-2.5" /> Recover
+                  </Button>
+                  <Button size="sm" variant="ghost" className="h-5 text-[8px] gap-1 px-1.5" onClick={() => fullShotPlan.actions.reset()}>
+                    <RefreshCw className="h-2.5 w-2.5" /> Reset
+                  </Button>
+                </div>
+              </div>
+            )}
+            {/* Canceled banner */}
+            {fullShotPlan.isCanceled && fullShotPlan.job && (
+              <div className="mb-2 p-2 rounded border border-muted-foreground/30 bg-muted/10 flex items-center justify-between">
+                <div className="text-[10px] text-muted-foreground">
+                  <Square className="h-3 w-3 inline mr-1" />
+                  Shot plan canceled. Generated shots have been kept.
+                </div>
                 <Button size="sm" variant="ghost" className="h-5 text-[8px] gap-1 px-1.5" onClick={() => fullShotPlan.actions.reset()}>
-                  <RefreshCw className="h-2.5 w-2.5" /> Retry
+                  <RefreshCw className="h-2.5 w-2.5" /> Restart
                 </Button>
               </div>
             )}
@@ -172,6 +190,7 @@ export function VisualProductionPanel({ projectId, scenes, selectedSceneId, onSe
                 <span className="text-primary">✓ {fullShotPlan.counts.complete}</span>
                 {fullShotPlan.counts.failed > 0 && <span className="text-destructive">✗ {fullShotPlan.counts.failed}</span>}
                 <span>⏳ {fullShotPlan.counts.pending}</span>
+                {fullShotPlan.counts.running > 0 && <span className="text-amber-500">▶ {fullShotPlan.counts.running}</span>}
                 {fullShotPlan.job && <span>Shots: {fullShotPlan.job.inserted_shots}</span>}
               </div>
             )}

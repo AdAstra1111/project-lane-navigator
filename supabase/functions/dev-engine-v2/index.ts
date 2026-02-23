@@ -7511,7 +7511,7 @@ Rules:
     // ═══════════════════════════════════════════════════════════
 
     if (action === "shots_generate_for_scene") {
-      const { projectId, sceneId, mode: shotMode, aspectRatio, preferApprovedScene } = body;
+      const { projectId, sceneId, mode: shotMode, aspectRatio, preferApprovedScene, meta } = body;
       if (!projectId || !sceneId) throw new Error("projectId and sceneId required");
       const useMode = shotMode || 'coverage';
       const useAR = aspectRatio || '2.39:1';
@@ -7598,7 +7598,7 @@ Rules:
         const locationHint = sceneVer?.slugline?.match(/(?:INT|EXT)\.\s*(.+?)(?:\s*-|$)/)?.[1] || null;
         const todHint = sceneVer?.slugline?.match(/-\s*(\w+)\s*$/)?.[1] || null;
 
-        const { data: shot } = await supabase.from("scene_shots").insert({
+        const shotInsert: any = {
           project_id: projectId, shot_set_id: shotSetId, scene_id: sceneId, scene_version_id: sceneVersionId,
           order_key: orderKey, shot_number: i + 1,
           shot_type: s.shot_type || 'shot', coverage_role: s.coverage_role || null,
@@ -7615,7 +7615,13 @@ Rules:
           lighting_style: s.lighting_style || null,
           location_hint: locationHint, time_of_day_hint: todHint,
           status: 'draft',
-        }).select().single();
+        };
+        // Tag with shot plan job IDs if provided
+        if (meta?.shot_plan_job_id) shotInsert.shot_plan_job_id = meta.shot_plan_job_id;
+        if (meta?.shot_plan_job_scene_id) shotInsert.shot_plan_job_scene_id = meta.shot_plan_job_scene_id;
+        if (meta?.shot_plan_job_id) shotInsert.shot_plan_source = 'ai_shot_plan';
+
+        const { data: shot } = await supabase.from("scene_shots").insert(shotInsert).select().single();
         if (shot) insertedShots.push(shot);
 
         // Create version 1

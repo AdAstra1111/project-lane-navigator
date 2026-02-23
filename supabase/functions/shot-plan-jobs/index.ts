@@ -1,6 +1,7 @@
 /**
  * shot-plan-jobs — Durable edge function for "Generate Full Shot Plan"
- * Actions: create_job, get_active_job, pause_job, resume_job, cancel_job, reset_job, tick
+ * Actions: create_job, get_active_job, pause_job, resume_job, cancel_job, reset_job, recover_job, tick
+ * Hardened: atomic claim via RPC, idempotent shots, retries, dead-heartbeat recovery
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
@@ -12,8 +13,9 @@ const corsHeaders = {
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY") || "";
-const GATEWAY_URL = "https://api.lovable.dev/v1/chat/completions";
+
+const MAX_ATTEMPTS = 3;
+const STALE_SECONDS = 90;
 
 function json(body: any, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -37,9 +39,7 @@ async function getUserId(req: Request): Promise<string> {
   return user.id;
 }
 
-// Fetch scenes for a project from scene_graph_nodes
 async function fetchProjectScenes(admin: any, projectId: string) {
-  // Get active scenes ordered by order_key
   const { data, error } = await admin
     .from("scene_graph_nodes")
     .select("id, project_id, display_number, order_key, latest_version_id")
@@ -50,7 +50,6 @@ async function fetchProjectScenes(admin: any, projectId: string) {
   return data || [];
 }
 
-// Get counts for a job
 async function getJobCounts(admin: any, jobId: string) {
   const { data } = await admin
     .from("shot_plan_job_scenes")
@@ -64,12 +63,50 @@ async function getJobCounts(admin: any, jobId: string) {
   return counts;
 }
 
-// Generate shots for a single scene via dev-engine-v2
+async function findActiveJobId(admin: any, projectId: string): Promise<string | null> {
+  if (!projectId) return null;
+  const { data } = await admin
+    .from("shot_plan_jobs")
+    .select("id")
+    .eq("project_id", projectId)
+    .in("status", ["running", "paused", "queued"])
+    .order("started_at", { ascending: false })
+    .limit(1);
+  return data?.[0]?.id || null;
+}
+
+/** Atomic claim via RPC — returns claimed scene row or null */
+async function claimNextScene(admin: any, jobId: string): Promise<any | null> {
+  const { data, error } = await admin.rpc("claim_next_shot_plan_scene", {
+    p_job_id: jobId,
+    p_stale_seconds: STALE_SECONDS,
+    p_max_attempts: MAX_ATTEMPTS,
+  });
+  if (error) {
+    console.error("claim_next_shot_plan_scene RPC error:", error);
+    return null;
+  }
+  return data?.[0] || null;
+}
+
+/** Delete prior shots created by this job for a given scene (idempotency) */
+async function deleteJobShotsForScene(admin: any, sceneId: string, jobId: string, jobSceneId: string) {
+  const { error } = await admin
+    .from("scene_shots")
+    .delete()
+    .eq("scene_id", sceneId)
+    .eq("shot_plan_job_id", jobId)
+    .eq("shot_plan_job_scene_id", jobSceneId);
+  if (error) console.error("Failed to delete prior job shots:", error);
+}
+
+/** Generate shots for a single scene via dev-engine-v2 */
 async function generateShotsForScene(
   token: string,
   projectId: string,
   sceneId: string,
   mode: string,
+  meta: { shot_plan_job_id: string; shot_plan_job_scene_id: string },
 ): Promise<{ shots: any[]; shot_set: any }> {
   const resp = await fetch(`${SUPABASE_URL}/functions/v1/dev-engine-v2`, {
     method: "POST",
@@ -82,6 +119,7 @@ async function generateShotsForScene(
       projectId,
       sceneId,
       mode: mode || "coverage",
+      meta,
     }),
   });
   if (!resp.ok) {
@@ -91,6 +129,31 @@ async function generateShotsForScene(
     throw new Error(msg);
   }
   return resp.json();
+}
+
+/** Recover stale running scenes for a job */
+async function recoverStaleScenes(admin: any, jobId: string) {
+  // Find scenes stuck in 'running' with stale started_at
+  const { data: staleScenes } = await admin
+    .from("shot_plan_job_scenes")
+    .select("id, attempts")
+    .eq("job_id", jobId)
+    .eq("status", "running")
+    .lt("started_at", new Date(Date.now() - STALE_SECONDS * 1000).toISOString());
+
+  if (!staleScenes || staleScenes.length === 0) return 0;
+
+  let recovered = 0;
+  for (const s of staleScenes) {
+    const newStatus = (s.attempts || 0) >= MAX_ATTEMPTS ? "failed" : "pending";
+    await admin.from("shot_plan_job_scenes").update({
+      status: newStatus,
+      error_message: newStatus === "failed" ? "Max attempts exceeded (stale recovery)" : "Recovered from stale state",
+      finished_at: newStatus === "failed" ? new Date().toISOString() : null,
+    }).eq("id", s.id);
+    recovered++;
+  }
+  return recovered;
 }
 
 Deno.serve(async (req) => {
@@ -110,7 +173,7 @@ Deno.serve(async (req) => {
         const { projectId, mode = "coverage" } = params;
         if (!projectId) return json({ error: "projectId required" }, 400);
 
-        // Check for existing active job (idempotent)
+        // Idempotent: return existing active job
         const { data: existing } = await admin
           .from("shot_plan_jobs")
           .select("*")
@@ -124,11 +187,9 @@ Deno.serve(async (req) => {
           return json({ job: existing[0], counts, message: "Active job already exists" });
         }
 
-        // Fetch scenes
         const scenes = await fetchProjectScenes(admin, projectId);
         if (scenes.length === 0) return json({ error: "No scenes found" }, 400);
 
-        // Insert job
         const { data: job, error: jobErr } = await admin
           .from("shot_plan_jobs")
           .insert({
@@ -147,7 +208,6 @@ Deno.serve(async (req) => {
           .single();
         if (jobErr) throw new Error(jobErr.message);
 
-        // Insert scene rows
         const sceneRows = scenes.map((s: any, i: number) => ({
           job_id: job.id,
           project_id: projectId,
@@ -235,13 +295,13 @@ Deno.serve(async (req) => {
         const { projectId, mode = "coverage" } = params;
         if (!projectId) return json({ error: "projectId required" }, 400);
 
-        // Cancel any existing active job
+        // Cancel any existing active jobs
         await admin.from("shot_plan_jobs")
           .update({ status: "canceled", finished_at: new Date().toISOString(), last_message: "Reset" })
           .eq("project_id", projectId)
           .in("status", ["running", "paused", "queued"]);
 
-        // Inline create_job logic
+        // Create fresh job inline
         const scenes = await fetchProjectScenes(admin, projectId);
         if (scenes.length === 0) return json({ error: "No scenes found" }, 400);
 
@@ -278,13 +338,36 @@ Deno.serve(async (req) => {
         return json({ job: newJob, counts, message: "Job reset and created" });
       }
 
+      // ─── RECOVER JOB ───
+      case "recover_job": {
+        const { projectId, jobId } = params;
+        const id = jobId || (await findActiveJobId(admin, projectId));
+        if (!id) return json({ error: "No active job" }, 404);
+
+        const { data: job } = await admin.from("shot_plan_jobs").select("*").eq("id", id).single();
+        if (!job) return json({ error: "Job not found" }, 404);
+
+        // Recover stale scenes
+        const recovered = await recoverStaleScenes(admin, id);
+
+        // Update heartbeat
+        await admin.from("shot_plan_jobs").update({
+          last_heartbeat_at: new Date().toISOString(),
+          last_message: `Recovered ${recovered} stale scene(s)`,
+          status: "running",
+        }).eq("id", id);
+
+        const { data: updatedJob } = await admin.from("shot_plan_jobs").select("*").eq("id", id).single();
+        const counts = await getJobCounts(admin, id);
+        return json({ job: updatedJob, counts, message: `Recovered ${recovered} stale scenes` });
+      }
+
       // ─── TICK ───
       case "tick": {
         const { projectId, jobId } = params;
         const id = jobId || (await findActiveJobId(admin, projectId));
         if (!id) return json({ error: "No active job" }, 404);
 
-        // Fetch job
         const { data: job } = await admin.from("shot_plan_jobs").select("*").eq("id", id).single();
         if (!job) return json({ error: "Job not found" }, 404);
         if (job.status !== "running") {
@@ -297,50 +380,58 @@ Deno.serve(async (req) => {
           .update({ last_heartbeat_at: new Date().toISOString() })
           .eq("id", id);
 
-        // Claim next pending scene (ordered by scene_order)
-        const { data: pendingScenes } = await admin
-          .from("shot_plan_job_scenes")
-          .select("*")
-          .eq("job_id", id)
-          .eq("status", "pending")
-          .order("scene_order", { ascending: true })
-          .limit(1);
+        // Atomic claim via RPC
+        const claimed = await claimNextScene(admin, id);
 
-        if (!pendingScenes || pendingScenes.length === 0) {
-          // No more pending — finalize
+        if (!claimed) {
+          // No claimable scenes — check if done
           const counts = await getJobCounts(admin, id);
-          await admin.from("shot_plan_jobs").update({
-            status: "complete",
-            finished_at: new Date().toISOString(),
-            last_message: `Complete: ${job.inserted_shots} shots across ${job.total_scenes} scenes`,
-            current_scene_id: null,
-          }).eq("id", id);
+          if (counts.pending === 0 && counts.running === 0) {
+            // Finalize
+            await admin.from("shot_plan_jobs").update({
+              status: "complete",
+              finished_at: new Date().toISOString(),
+              last_message: `Complete: ${job.inserted_shots} shots across ${job.total_scenes} scenes`,
+              current_scene_id: null,
+            }).eq("id", id);
 
-          const { data: finalJob } = await admin.from("shot_plan_jobs").select("*").eq("id", id).single();
-          return json({ job: finalJob, counts, sceneResult: null, message: "Job complete" });
+            const { data: finalJob } = await admin.from("shot_plan_jobs").select("*").eq("id", id).single();
+            return json({ job: finalJob, counts, sceneResult: null, message: "Job complete" });
+          }
+          // Scenes still running (in another tab/tick) — wait
+          return json({ job, counts, sceneResult: null, message: "Waiting for running scenes" });
         }
-
-        const sceneRow = pendingScenes[0];
-
-        // Mark scene as running
-        await admin.from("shot_plan_job_scenes").update({
-          status: "running",
-          attempts: (sceneRow.attempts || 0) + 1,
-          error_message: null,
-        }).eq("id", sceneRow.id);
 
         // Update job current scene
         await admin.from("shot_plan_jobs").update({
-          current_scene_id: sceneRow.scene_id,
-          current_scene_index: sceneRow.scene_order,
-          last_message: `Processing scene ${sceneRow.scene_order + 1}/${job.total_scenes}`,
+          current_scene_id: claimed.scene_id,
+          current_scene_index: claimed.scene_order,
+          last_message: `Processing scene ${claimed.scene_order + 1}/${job.total_scenes}`,
         }).eq("id", id);
 
-        let sceneResult: any = { scene_id: sceneRow.scene_id, status: "failed", shots_inserted: 0, error: null };
+        // Idempotent: delete prior shots for this job+scene before generating
+        await deleteJobShotsForScene(admin, claimed.scene_id, id, claimed.id);
+
+        let sceneResult: any = { scene_id: claimed.scene_id, status: "failed", shots_inserted: 0, error: null };
 
         try {
-          const result = await generateShotsForScene(authToken, job.project_id, sceneRow.scene_id, job.mode);
+          const result = await generateShotsForScene(
+            authToken, job.project_id, claimed.scene_id, job.mode,
+            { shot_plan_job_id: id, shot_plan_job_scene_id: claimed.id },
+          );
           const shotCount = result.shots?.length || 0;
+
+          // Tag inserted shots with job IDs (best-effort if dev-engine-v2 didn't)
+          if (result.shots?.length > 0) {
+            const shotIds = result.shots.map((s: any) => s.id).filter(Boolean);
+            if (shotIds.length > 0) {
+              await admin.from("scene_shots").update({
+                shot_plan_job_id: id,
+                shot_plan_job_scene_id: claimed.id,
+                shot_plan_source: "ai_shot_plan",
+              }).in("id", shotIds);
+            }
+          }
 
           // Mark scene complete
           await admin.from("shot_plan_job_scenes").update({
@@ -348,42 +439,45 @@ Deno.serve(async (req) => {
             inserted_shots: shotCount,
             error_message: null,
             finished_at: new Date().toISOString(),
-          }).eq("id", sceneRow.id);
+          }).eq("id", claimed.id);
 
-          // Update job counters
+          // Update job counters from fresh counts
+          const freshCounts = await getJobCounts(admin, id);
           await admin.from("shot_plan_jobs").update({
-            completed_scenes: (job.completed_scenes || 0) + 1,
+            completed_scenes: freshCounts.complete,
             inserted_shots: (job.inserted_shots || 0) + shotCount,
-            last_message: `Completed scene ${sceneRow.scene_order + 1}/${job.total_scenes} (${shotCount} shots)`,
+            last_message: `Completed scene ${claimed.scene_order + 1}/${job.total_scenes} (${shotCount} shots)`,
             last_error: null,
           }).eq("id", id);
 
-          sceneResult = { scene_id: sceneRow.scene_id, status: "complete", shots_inserted: shotCount, error: null };
+          sceneResult = { scene_id: claimed.scene_id, status: "complete", shots_inserted: shotCount, error: null };
         } catch (err: any) {
           const errMsg = err?.message || "Unknown error";
-          console.error(`Shot gen failed for scene ${sceneRow.scene_id}:`, errMsg);
+          console.error(`Shot gen failed for scene ${claimed.scene_id} (attempt ${claimed.attempts}):`, errMsg);
 
-          // Mark scene failed but continue job
+          // Retry logic: if under max attempts, set back to pending; else mark failed
+          const newStatus = (claimed.attempts || 0) >= MAX_ATTEMPTS ? "failed" : "pending";
           await admin.from("shot_plan_job_scenes").update({
-            status: "failed",
+            status: newStatus,
             error_message: errMsg,
-            finished_at: new Date().toISOString(),
-          }).eq("id", sceneRow.id);
+            finished_at: newStatus === "failed" ? new Date().toISOString() : null,
+          }).eq("id", claimed.id);
 
           await admin.from("shot_plan_jobs").update({
-            completed_scenes: (job.completed_scenes || 0) + 1,
             last_error: errMsg,
-            last_message: `Scene ${sceneRow.scene_order + 1} failed: ${errMsg}`,
+            last_message: newStatus === "failed"
+              ? `Scene ${claimed.scene_order + 1} failed permanently after ${claimed.attempts} attempts`
+              : `Scene ${claimed.scene_order + 1} failed (attempt ${claimed.attempts}/${MAX_ATTEMPTS}), will retry`,
           }).eq("id", id);
 
-          sceneResult = { scene_id: sceneRow.scene_id, status: "failed", shots_inserted: 0, error: errMsg };
+          sceneResult = { scene_id: claimed.scene_id, status: newStatus, shots_inserted: 0, error: errMsg };
         }
 
         // Re-fetch job and counts
         const { data: updatedJob } = await admin.from("shot_plan_jobs").select("*").eq("id", id).single();
         const counts = await getJobCounts(admin, id);
 
-        // Auto-complete if no more pending
+        // Auto-complete if no more pending/running
         if (counts.pending === 0 && counts.running === 0) {
           await admin.from("shot_plan_jobs").update({
             status: "complete",
@@ -392,7 +486,7 @@ Deno.serve(async (req) => {
             current_scene_id: null,
           }).eq("id", id);
           const { data: finalJob } = await admin.from("shot_plan_jobs").select("*").eq("id", id).single();
-          return json({ job: finalJob, counts: { ...counts, pending: 0 }, sceneResult, message: "Job complete" });
+          return json({ job: finalJob, counts: { ...counts, pending: 0, running: 0 }, sceneResult, message: "Job complete" });
         }
 
         return json({ job: updatedJob, counts, sceneResult, message: "Tick processed" });
@@ -406,16 +500,3 @@ Deno.serve(async (req) => {
     return json({ error: err.message || "Internal error" }, 500);
   }
 });
-
-// Helper to find active job id for a project
-async function findActiveJobId(admin: any, projectId: string): Promise<string | null> {
-  if (!projectId) return null;
-  const { data } = await admin
-    .from("shot_plan_jobs")
-    .select("id")
-    .eq("project_id", projectId)
-    .in("status", ["running", "paused", "queued"])
-    .order("started_at", { ascending: false })
-    .limit(1);
-  return data?.[0]?.id || null;
-}

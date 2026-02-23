@@ -1,6 +1,7 @@
 /**
  * useGenerateFullShotPlan — Durable hook backed by shot-plan-jobs edge function.
- * Hydrates from DB on mount; tick-loops through scenes; supports pause/resume/reset/cancel.
+ * Hydrates from DB on mount; tick-loops through scenes; supports pause/resume/reset/cancel/recover.
+ * Hardened: atomic claims, retry-aware, dead-heartbeat recovery.
  */
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -30,6 +31,7 @@ export interface FullShotPlanJob {
   last_error: string | null;
   started_at: string;
   finished_at: string | null;
+  last_heartbeat_at: string | null;
 }
 
 const STAGES = [
@@ -40,7 +42,7 @@ const STAGES = [
   'Complete',
 ];
 
-const TICK_DELAY_MS = 400;
+const TICK_DELAY_MS = 800;
 
 async function callShotPlanApi(action: string, params: Record<string, any>) {
   const { data: { session } } = await supabase.auth.getSession();
@@ -86,7 +88,7 @@ export function useGenerateFullShotPlan(projectId: string | undefined) {
   const progressPercent = !job || !counts ? 0
     : job.status === 'complete' ? 100
     : counts.total === 0 ? 0
-    : Math.min(95, Math.round(((counts.complete + counts.failed) / counts.total) * 100));
+    : Math.min(99, Math.round(((counts.complete + counts.failed + counts.skipped) / counts.total) * 100));
 
   const avgTickTime = tickTimesRef.current.length > 0
     ? tickTimesRef.current.reduce((a, b) => a + b, 0) / tickTimesRef.current.length / 1000
@@ -104,7 +106,6 @@ export function useGenerateFullShotPlan(projectId: string | undefined) {
         if (!mountedRef.current) return;
         setJob(res.job);
         setCounts(res.counts);
-        // Auto-start loop if job is running
         if (res.job?.status === 'running') {
           startLoop();
         }
@@ -132,7 +133,6 @@ export function useGenerateFullShotPlan(projectId: string | undefined) {
           tickTimesRef.current.push(elapsed);
           if (tickTimesRef.current.length > 10) tickTimesRef.current.shift();
 
-          // Check if terminal
           if (res.job?.status !== 'running') {
             loopRef.current = false;
             break;
@@ -140,14 +140,15 @@ export function useGenerateFullShotPlan(projectId: string | undefined) {
         } catch (err: any) {
           console.error('Tick error:', err);
           loopRef.current = false;
+          if (mountedRef.current) {
+            toast.error('Shot plan tick stopped. You can resume to continue.');
+          }
           break;
         }
-        // Small delay between ticks
         await new Promise(r => setTimeout(r, TICK_DELAY_MS));
       }
       if (mountedRef.current) {
         setIsLooping(false);
-        // Invalidate shot queries on completion
         qc.invalidateQueries({ queryKey: ['vp-shots', projectId] });
       }
     };
@@ -158,7 +159,6 @@ export function useGenerateFullShotPlan(projectId: string | undefined) {
     loopRef.current = false;
   }, []);
 
-  // Actions
   const start = useCallback(async (mode: string = 'coverage') => {
     if (!projectId) return;
     try {
@@ -212,19 +212,17 @@ export function useGenerateFullShotPlan(projectId: string | undefined) {
       setJob(res.job);
       setCounts(res.counts);
       toast.info('Shot plan canceled');
+      qc.invalidateQueries({ queryKey: ['vp-shots', projectId] });
     } catch (err: any) {
       toast.error(`Cancel failed: ${err.message}`);
     }
-  }, [projectId, stopLoop]);
+  }, [projectId, stopLoop, qc]);
 
   const reset = useCallback(async (mode: string = 'coverage') => {
     if (!projectId) return;
     stopLoop();
     try {
-      // Cancel existing
-      await callShotPlanApi('cancel_job', { projectId }).catch(() => {});
-      // Create new
-      const res = await callShotPlanApi('create_job', { projectId, mode });
+      const res = await callShotPlanApi('reset_job', { projectId, mode });
       setJob(res.job);
       setCounts(res.counts);
       tickTimesRef.current = [];
@@ -236,6 +234,21 @@ export function useGenerateFullShotPlan(projectId: string | undefined) {
       toast.error(`Reset failed: ${err.message}`);
     }
   }, [projectId, stopLoop, startLoop]);
+
+  const recover = useCallback(async () => {
+    if (!projectId) return;
+    try {
+      const res = await callShotPlanApi('recover_job', { projectId });
+      setJob(res.job);
+      setCounts(res.counts);
+      if (res.job?.status === 'running') {
+        startLoop();
+        toast.success('Shot plan recovered');
+      }
+    } catch (err: any) {
+      toast.error(`Recovery failed: ${err.message}`);
+    }
+  }, [projectId, startLoop]);
 
   return {
     job,
@@ -250,6 +263,7 @@ export function useGenerateFullShotPlan(projectId: string | undefined) {
     isPaused: stage === 'paused',
     isComplete: stage === 'complete',
     isFailed: stage === 'failed',
-    actions: { start, pause, resume, reset, cancel },
+    isCanceled: stage === 'canceled',
+    actions: { start, pause, resume, reset, cancel, recover },
   };
 }
