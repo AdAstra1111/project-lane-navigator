@@ -17,6 +17,41 @@ const DEFAULT_OPTIONS: RenderOptions = {
   fps: 24,
 };
 
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function probeVideoDuration(blob: Blob): Promise<number> {
+  return new Promise((resolve) => {
+    const video = document.createElement('video');
+    const objectUrl = URL.createObjectURL(blob);
+    const cleanup = () => {
+      URL.revokeObjectURL(objectUrl);
+      video.src = '';
+      video.load();
+    };
+
+    const timeout = setTimeout(() => {
+      cleanup();
+      resolve(0);
+    }, 5000);
+
+    video.preload = 'metadata';
+    video.onloadedmetadata = () => {
+      clearTimeout(timeout);
+      const duration = Number.isFinite(video.duration) ? video.duration : 0;
+      cleanup();
+      resolve(duration);
+    };
+    video.onerror = () => {
+      clearTimeout(timeout);
+      cleanup();
+      resolve(0);
+    };
+    video.src = objectUrl;
+  });
+}
+
 async function loadImage(url: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -166,9 +201,18 @@ export async function renderTrailerCut(
     })
   );
 
-  // Setup MediaRecorder — use captureStream(0) so we control frame timing
-  const stream = canvas.captureStream(0);
-  const videoTrack = stream.getVideoTracks()[0];
+  // Setup MediaRecorder — prefer manual frame control, fallback to timed stream
+  let stream = canvas.captureStream(0);
+  let videoTrack = stream.getVideoTracks()[0] as (MediaStreamTrack & { requestFrame?: () => void }) | undefined;
+  let canRequestFrame = !!videoTrack && typeof videoTrack.requestFrame === 'function';
+
+  if (!canRequestFrame) {
+    stream.getTracks().forEach((track) => track.stop());
+    stream = canvas.captureStream(fps);
+    videoTrack = stream.getVideoTracks()[0] as (MediaStreamTrack & { requestFrame?: () => void }) | undefined;
+    canRequestFrame = !!videoTrack && typeof videoTrack.requestFrame === 'function';
+  }
+
   const mimeTypes = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
   let mimeType = '';
   for (const mt of mimeTypes) {
@@ -180,18 +224,35 @@ export async function renderTrailerCut(
   const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 4_000_000 });
   recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
 
-  const recordingDone = new Promise<void>((resolve) => { recorder.onstop = () => resolve(); });
+  const recordingDone = new Promise<void>((resolve, reject) => {
+    recorder.onstop = () => resolve();
+    recorder.onerror = () => reject(new Error('MediaRecorder failed while encoding trailer'));
+  });
   recorder.start(100);
 
   const frameDuration = 1000 / fps;
+  const commitDelayMs = canRequestFrame ? 10 : Math.max(16, Math.round(frameDuration / 2));
 
   // Helper: commit current canvas to the video stream
   const commitFrame = async () => {
-    if (videoTrack && 'requestFrame' in videoTrack) {
-      (videoTrack as any).requestFrame();
+    if (canRequestFrame && videoTrack?.requestFrame) {
+      videoTrack.requestFrame();
     }
-    // Give the recorder time to capture the frame
-    await new Promise((r) => setTimeout(r, frameDuration));
+    await sleep(commitDelayMs);
+  };
+
+  const waitForSeek = async (video: HTMLVideoElement, timeoutMs = 60) => {
+    await new Promise<void>((resolve) => {
+      const onSeeked = () => {
+        clearTimeout(timeout);
+        resolve();
+      };
+      const timeout = setTimeout(() => {
+        video.removeEventListener('seeked', onSeeked);
+        resolve();
+      }, timeoutMs);
+      video.addEventListener('seeked', onSeeked, { once: true });
+    });
   };
 
   // Draw initial frame
@@ -216,21 +277,13 @@ export async function renderTrailerCut(
       const playbackDuration = Math.min(clipDurationS, videoDuration);
 
       video.currentTime = 0;
-      await new Promise<void>((resolve) => {
-        const onSeeked = () => { video.removeEventListener('seeked', onSeeked); resolve(); };
-        video.addEventListener('seeked', onSeeked);
-        setTimeout(resolve, 200);
-      });
+      await waitForSeek(video, 120);
 
       for (let f = 0; f < totalFrames; f++) {
         const t = (f / totalFrames) * playbackDuration;
         video.currentTime = Math.min(t, videoDuration - 0.01);
 
-        await new Promise<void>((resolve) => {
-          const onSeeked = () => { video.removeEventListener('seeked', onSeeked); resolve(); };
-          video.addEventListener('seeked', onSeeked);
-          setTimeout(resolve, 150);
-        });
+        await waitForSeek(video);
 
         drawMediaToCanvas(ctx, video, width, height);
         if (entry.text_overlay) drawTextOverlay(ctx, entry.text_overlay, width, height);
@@ -257,8 +310,13 @@ export async function renderTrailerCut(
   await commitFrame();
   await commitFrame();
 
+  try { recorder.requestData(); } catch {
+    // Some browsers throw if requestData is not available in current state.
+  }
+
   recorder.stop();
   await recordingDone;
+  stream.getTracks().forEach((track) => track.stop());
 
   // Clean up videos
   for (const asset of Object.values(mediaCache)) {
@@ -268,9 +326,15 @@ export async function renderTrailerCut(
     }
   }
 
-  const blob = new Blob(chunks, { type: 'video/webm' });
+  const blob = new Blob(chunks, { type: mimeType || 'video/webm' });
   if (blob.size < 100) {
     throw new Error('Render produced empty video. Try again or check browser compatibility.');
   }
+
+  const seconds = await probeVideoDuration(blob);
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    throw new Error('Render finished but video duration is invalid (0s). Please retry after refreshing the page.');
+  }
+
   return blob;
 }

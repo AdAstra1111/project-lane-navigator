@@ -98,6 +98,12 @@ export default function TrailerTimelineStudio() {
   const timeline: any[] = cut?.timeline || [];
   const clips = clipsData?.clips || [];
   const totalDurationMs = cut?.duration_ms || 0;
+  const renderedPublicUrl = useMemo(() => {
+    if (!cut?.public_url) return null;
+    const version = cut.updated_at || cut.created_at || `${cut.duration_ms || Date.now()}`;
+    const separator = cut.public_url.includes('?') ? '&' : '?';
+    return `${cut.public_url}${separator}v=${encodeURIComponent(version)}`;
+  }, [cut?.public_url, cut?.updated_at, cut?.created_at, cut?.duration_ms]);
 
   const audioAssets = audioAssetsData?.assets || [];
   const musicBeds = audioAssets.filter((a: any) => a.kind === 'music_bed');
@@ -181,7 +187,7 @@ export default function TrailerTimelineStudio() {
         onProgress: (done, total) => setRenderProgress({ done, total }),
       });
       await setCutStatus.mutateAsync({ cutId, status: 'uploading' });
-      const storagePath = `${projectId}/runs/${cutId}/final.webm`;
+      const storagePath = `${projectId}/runs/${cutId}/final-${Date.now()}.webm`;
       const { error: uploadErr } = await supabase.storage.from('trailers').upload(storagePath, blob, {
         contentType: 'video/webm', upsert: true,
       });
@@ -305,8 +311,8 @@ export default function TrailerTimelineStudio() {
           <Badge variant="outline" className="text-[10px]">v1.1</Badge>
 
           <div className="ml-auto flex items-center gap-2">
-            {cut?.status === 'ready' && cut?.public_url && (
-              <a href={cut.public_url} target="_blank" rel="noopener noreferrer">
+            {cut?.status === 'ready' && renderedPublicUrl && (
+              <a href={renderedPublicUrl} target="_blank" rel="noopener noreferrer">
                 <Button variant="outline" size="sm" className="text-xs">
                   <Play className="h-3 w-3 mr-1" /> Watch
                 </Button>
@@ -452,11 +458,11 @@ export default function TrailerTimelineStudio() {
               {/* ─── TIMELINE TAB ─── */}
               <TabsContent value="timeline" className="space-y-4">
                 {/* Video Preview */}
-                {cut?.status === 'ready' && cut?.public_url && (
+                {cut?.status === 'ready' && renderedPublicUrl && (
                   <Card>
                     <CardHeader className="pb-2"><CardTitle className="text-sm">Preview</CardTitle></CardHeader>
                     <CardContent>
-                      <video controls className="w-full rounded border border-border" src={cut.public_url} />
+                      <video controls className="w-full rounded border border-border" src={renderedPublicUrl} />
                     </CardContent>
                   </Card>
                 )}
