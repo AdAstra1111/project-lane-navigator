@@ -15548,6 +15548,7 @@ export type Database = {
           error: string | null
           export_type: string
           id: string
+          meta: Json
           options: Json
           project_id: string
           public_url: string | null
@@ -15563,6 +15564,7 @@ export type Database = {
           error?: string | null
           export_type?: string
           id?: string
+          meta?: Json
           options?: Json
           project_id: string
           public_url?: string | null
@@ -15578,6 +15580,7 @@ export type Database = {
           error?: string | null
           export_type?: string
           id?: string
+          meta?: Json
           options?: Json
           project_id?: string
           public_url?: string | null
