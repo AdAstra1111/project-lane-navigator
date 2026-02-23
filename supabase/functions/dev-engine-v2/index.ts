@@ -7781,11 +7781,40 @@ Rules:
       for (let i = 0; i < count; i++) {
         const prompt = `${style} film still, ${ar} aspect ratio. ${shot?.framing || 'MS'} shot${shot?.lens_mm ? ` ${shot.lens_mm}mm lens` : ''}. ${shot?.camera_movement || 'static'}. ${shot?.angle || 'eye level'} angle. ${sceneVer?.slugline || ''}. ${shot?.composition_notes || ''}. ${shot?.blocking_notes || ''}. Characters: ${(shot?.characters_in_frame || []).join(', ')}. Mood: ${shot?.emotional_intent || 'neutral'}. Lighting: ${shot?.lighting_style || 'naturalistic'}. Location: ${shot?.location_hint || 'interior'}. Time: ${shot?.time_of_day_hint || 'day'}.`;
 
+        // Generate actual image via Lovable AI gateway
+        let imageUrl: string | null = null;
+        try {
+          const imgResp = await fetch('https://ai.gateway.lovable.dev/v1/images/generations', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: 'dall-e-3',
+              prompt: prompt.slice(0, 4000),
+              n: 1,
+              size: '1792x1024',
+              quality: 'standard',
+            }),
+          });
+          if (imgResp.ok) {
+            const imgData = await imgResp.json();
+            imageUrl = imgData?.data?.[0]?.url || null;
+            console.log(`[storyboard] Generated frame image for shot ${shotId}, frame ${i + 1}`);
+          } else {
+            console.error(`[storyboard] Image generation failed: ${imgResp.status} ${await imgResp.text()}`);
+          }
+        } catch (imgErr) {
+          console.error(`[storyboard] Image generation error:`, imgErr);
+        }
+
         const { data: frame } = await supabase.from("storyboard_frames").insert({
           project_id: projectId, scene_id: shot?.scene_id, scene_version_id: shot?.scene_version_id,
           shot_id: shotId, shot_version_id: resolvedSVId,
           frame_index: i + 1, aspect_ratio: ar, prompt,
           style_preset: style, status: 'draft', is_stale: false,
+          image_url: imageUrl,
         }).select().single();
         if (frame) frames.push(frame);
       }
