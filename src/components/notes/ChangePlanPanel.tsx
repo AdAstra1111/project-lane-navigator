@@ -90,7 +90,7 @@ export function ChangePlanPanel({
   const statusBadge = STATUS_BADGES[status] || STATUS_BADGES.draft;
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
       <div className="flex items-center gap-2 px-4 py-3 border-b border-border/40">
         <Button variant="ghost" size="sm" className="h-7 px-2" onClick={onBack}>

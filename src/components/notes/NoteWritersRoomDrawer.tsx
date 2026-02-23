@@ -222,15 +222,17 @@ export function NoteWritersRoomDrawer({
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
         ) : showPlan && currentPlan ? (
-          <ChangePlanPanel
-            planRow={currentPlan}
-            onConfirm={handleConfirmPlan}
-            onApply={handleApplyPlan}
-            onRevise={handleRevisePlan}
-            onBack={() => { setShowPlan(false); setTab('discuss'); }}
-            isConfirming={confirmChangePlan.isPending}
-            isApplying={applyChangePlan.isPending}
-          />
+          <div className="flex-1 min-h-0 flex flex-col">
+            <ChangePlanPanel
+              planRow={currentPlan}
+              onConfirm={handleConfirmPlan}
+              onApply={handleApplyPlan}
+              onRevise={handleRevisePlan}
+              onBack={() => { setShowPlan(false); setTab('discuss'); }}
+              isConfirming={confirmChangePlan.isPending}
+              isApplying={applyChangePlan.isPending}
+            />
+          </div>
         ) : (
           <Tabs value={tab} onValueChange={setTab} className="flex-1 flex flex-col min-h-0">
             <TabsList className="mx-4 mt-2">
