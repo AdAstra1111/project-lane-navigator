@@ -38,6 +38,7 @@ export interface AiGeneratedMedia {
   selected: boolean;
   created_by: string | null;
   created_at: string;
+  trailer_shotlist_id: string | null;
   public_url?: string;
 }
 
@@ -124,10 +125,10 @@ export function useAiTrailerFactory(projectId: string | undefined) {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const animateClip = useMutation({
-    mutationFn: (params: { shotId: string; options?: { durationSec?: number; motion?: string } }) =>
+  const generateMotionStill = useMutation({
+    mutationFn: (params: { shotId: string; options?: { motion?: string } }) =>
       callFactory('animate_shot_clip', { projectId, ...params }),
-    onSuccess: () => { toast.success('Clip animated'); qc.invalidateQueries({ queryKey: ['ai-media', projectId] }); },
+    onSuccess: () => { toast.success('Motion still generated'); qc.invalidateQueries({ queryKey: ['ai-media', projectId] }); },
     onError: (e: Error) => toast.error(e.message),
   });
 
@@ -149,7 +150,7 @@ export function useAiTrailerFactory(projectId: string | undefined) {
     mutationFn: (trailerShotlistId: string) =>
       callFactory('generate_trailer_assets', { projectId, trailerShotlistId }),
     onSuccess: (data) => {
-      toast.success(`Generated ${data.framesGenerated} frames, ${data.clipsGenerated} clips`);
+      toast.success(`Generated ${data.framesGenerated} frames, ${data.motionStillsGenerated} motion stills`);
       qc.invalidateQueries({ queryKey: ['ai-media', projectId] });
     },
     onError: (e: Error) => toast.error(e.message),
@@ -169,7 +170,7 @@ export function useAiTrailerFactory(projectId: string | undefined) {
     isLoadingMedia: mediaQuery.isLoading,
     isLoadingMoments: momentsQuery.isLoading,
     isLoadingShotlists: shotlistsQuery.isLoading,
-    labelReadiness, generateFrames, selectMedia, animateClip,
+    labelReadiness, generateFrames, selectMedia, generateMotionStill,
     extractMoments, buildShotlist, generateTrailerAssets, assembleTrailer,
   };
 }

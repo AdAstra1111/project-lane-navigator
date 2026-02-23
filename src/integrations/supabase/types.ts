@@ -25,6 +25,7 @@ export type Database = {
           selected: boolean
           shot_id: string | null
           storage_path: string
+          trailer_shotlist_id: string | null
         }
         Insert: {
           created_at?: string
@@ -36,6 +37,7 @@ export type Database = {
           selected?: boolean
           shot_id?: string | null
           storage_path: string
+          trailer_shotlist_id?: string | null
         }
         Update: {
           created_at?: string
@@ -47,6 +49,7 @@ export type Database = {
           selected?: boolean
           shot_id?: string | null
           storage_path?: string
+          trailer_shotlist_id?: string | null
         }
         Relationships: [
           {
@@ -68,6 +71,13 @@ export type Database = {
             columns: ["shot_id"]
             isOneToOne: false
             referencedRelation: "scene_shots"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_generated_media_trailer_shotlist_id_fkey"
+            columns: ["trailer_shotlist_id"]
+            isOneToOne: false
+            referencedRelation: "trailer_shotlists"
             referencedColumns: ["id"]
           },
         ]

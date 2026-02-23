@@ -2,14 +2,14 @@
  * ai-trailer-factory — Edge function for AI Trailer Factory MVP.
  *
  * Actions:
- *   label_ai_readiness       — Score a shot for AI feasibility
+ *   label_ai_readiness         — Score a shot for AI feasibility
  *   generate_storyboard_frames — Generate storyboard frame variations
- *   select_media              — Select/deselect generated media
- *   animate_shot_clip         — Generate short animated clip from keyframe (A/B only)
- *   extract_trailer_moments   — Extract trailer beats from a script
- *   build_trailer_shotlist    — Build an AI-optimised trailer shotlist
- *   generate_trailer_assets   — Batch-generate frames + clips for a trailer shotlist
- *   assemble_taster_trailer   — Assemble a taster trailer package
+ *   select_media               — Select/deselect generated media
+ *   animate_shot_clip          — Generate motion still from keyframe (A/B only)
+ *   extract_trailer_moments    — Extract trailer beats from a script
+ *   build_trailer_shotlist     — Build an AI-optimised trailer shotlist
+ *   generate_trailer_assets    — Batch-generate frames + motion stills for a trailer shotlist
+ *   assemble_taster_trailer    — Assemble a taster trailer package
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { callLLM, MODELS, parseJsonSafe } from "../_shared/llm.ts";
@@ -82,17 +82,41 @@ function buildImagePrompt(shot: any, style?: string): string {
   ].join("\n");
 }
 
-// ─── Upload helper ───
-async function uploadImage(base64Url: string, storagePath: string): Promise<string | null> {
-  const base64Data = base64Url.replace(/^data:image\/\w+;base64,/, "");
-  const binaryData = Uint8Array.from(atob(base64Data), (c) => c.charCodeAt(0));
-  const admin = adminClient();
-  const { error } = await admin.storage
-    .from("ai-media")
-    .upload(storagePath, binaryData, { contentType: "image/png", upsert: true });
-  if (error) { console.error("Upload error:", error); return null; }
-  const { data } = admin.storage.from("ai-media").getPublicUrl(storagePath);
-  return data?.publicUrl || null;
+// ─── Upload helper: fetches URL bytes and uploads to Storage ───
+async function uploadImageFromUrl(imageUrl: string, storagePath: string): Promise<string | null> {
+  try {
+    // If it's a data URL, decode base64
+    if (imageUrl.startsWith("data:")) {
+      const base64Data = imageUrl.replace(/^data:image\/\w+;base64,/, "");
+      const binaryData = Uint8Array.from(atob(base64Data), (c) => c.charCodeAt(0));
+      const admin = adminClient();
+      const { error } = await admin.storage
+        .from("ai-media")
+        .upload(storagePath, binaryData, { contentType: "image/png", upsert: true });
+      if (error) { console.error("Upload error:", error); return null; }
+      const { data } = admin.storage.from("ai-media").getPublicUrl(storagePath);
+      return data?.publicUrl || null;
+    }
+
+    // Otherwise it's a hosted URL — fetch bytes
+    const resp = await fetch(imageUrl);
+    if (!resp.ok) { console.error("Failed to fetch image URL:", resp.status); return null; }
+    const arrayBuffer = await resp.arrayBuffer();
+    const bytes = new Uint8Array(arrayBuffer);
+
+    // Detect content type from response or default to png
+    const contentType = resp.headers.get("content-type") || "image/png";
+    const admin = adminClient();
+    const { error } = await admin.storage
+      .from("ai-media")
+      .upload(storagePath, bytes, { contentType, upsert: true });
+    if (error) { console.error("Upload error:", error); return null; }
+    const { data } = admin.storage.from("ai-media").getPublicUrl(storagePath);
+    return data?.publicUrl || null;
+  } catch (err) {
+    console.error("uploadImageFromUrl error:", err);
+    return null;
+  }
 }
 
 // ─── Generate image via Gemini ───
@@ -187,7 +211,7 @@ async function handleGenerateFrames(db: any, body: any, userId: string, apiKey: 
       if (!imageUrl) continue;
 
       const storagePath = `${projectId}/shots/${shotId}/frames/${Date.now()}_${i}.png`;
-      const publicUrl = await uploadImage(imageUrl, storagePath);
+      const publicUrl = await uploadImageFromUrl(imageUrl, storagePath);
       if (!publicUrl) continue;
 
       const { data: row } = await db.from("ai_generated_media").insert({
@@ -234,7 +258,7 @@ async function handleAnimateClip(db: any, body: any, userId: string, apiKey: str
 
   const tier = shot.ai_readiness_tier;
   if (!tier || tier === "C" || tier === "D") {
-    return json({ error: `Tier ${tier || "unscored"}: animation requires Tier A or B. Label readiness first or rewrite the shot.`, tier_blocked: true }, 400);
+    return json({ error: `Tier ${tier || "unscored"}: motion stills require Tier A or B. Label readiness first or rewrite the shot.`, tier_blocked: true }, 400);
   }
 
   // Get selected frame
@@ -247,11 +271,10 @@ async function handleAnimateClip(db: any, body: any, userId: string, apiKey: str
     const frameResp = await handleGenerateFrames(db, { projectId, shotId, options: { variations: 1 } }, userId, apiKey);
     const frameData = await frameResp.json();
     if (frameData.media?.[0]) {
-      // Auto-select it
       await db.from("ai_generated_media").update({ selected: true }).eq("id", frameData.media[0].id);
       frames = [frameData.media[0]];
     } else {
-      return json({ error: "Could not generate keyframe for animation" }, 500);
+      return json({ error: "Could not generate keyframe for motion still" }, 500);
     }
   }
 
@@ -263,11 +286,9 @@ async function handleAnimateClip(db: any, body: any, userId: string, apiKey: str
   if (!keyframeUrl) return json({ error: "No keyframe URL available" }, 500);
 
   const motion = options.motion || "push_in";
-  const duration = Math.min(Math.max(options.durationSec || 3, 2), 4);
 
-  // Use Gemini image model to create an "animated" version (MVP: generate a new stylized frame with motion blur hint)
-  // In production this would call a proper image-to-video API
-  const animPrompt = `Take this cinematic keyframe and create a ${duration}-second ${motion} camera movement version. Subtle, gentle motion. No lip-sync. Cinematic quality. NEGATIVES: no text, no watermarks, no logos.`;
+  // Generate a motion still: a second frame implying camera movement
+  const animPrompt = `Take this cinematic keyframe and create a version with a subtle ${motion} camera movement implied. Gentle, cinematic motion. Show slight perspective shift. No lip-sync. NEGATIVES: no text, no watermarks, no logos.`;
 
   const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
     method: "POST",
@@ -285,19 +306,19 @@ async function handleAnimateClip(db: any, body: any, userId: string, apiKey: str
     }),
   });
 
-  if (!resp.ok) return json({ error: "Animation generation failed" }, 500);
+  if (!resp.ok) return json({ error: "Motion still generation failed" }, 500);
   const animData = await resp.json();
   const animImageUrl = animData.choices?.[0]?.message?.images?.[0]?.image_url?.url;
-  if (!animImageUrl) return json({ error: "No animation output" }, 500);
+  if (!animImageUrl) return json({ error: "No motion still output" }, 500);
 
   const storagePath = `${projectId}/shots/${shotId}/clips/${Date.now()}_0.png`;
-  const publicUrl = await uploadImage(animImageUrl, storagePath);
+  const publicUrl = await uploadImageFromUrl(animImageUrl, storagePath);
   if (!publicUrl) return json({ error: "Upload failed" }, 500);
 
   const { data: row } = await db.from("ai_generated_media").insert({
-    project_id: projectId, shot_id: shotId, media_type: "animated_panel",
+    project_id: projectId, shot_id: shotId, media_type: "motion_still",
     storage_path: storagePath, selected: true, created_by: userId,
-    generation_params: { motion, duration, keyframe_id: frames[0].id, model: "gemini-2.5-flash-image" },
+    generation_params: { motion, keyframe_id: frames[0].id, model: "gemini-2.5-flash-image" },
   }).select().single();
 
   return json({ media: row, public_url: publicUrl });
@@ -381,16 +402,13 @@ async function handleGenerateTrailerAssets(db: any, body: any, userId: string, a
   const items = shotlist.items || [];
   const results: any[] = [];
   let framesGenerated = 0;
-  let clipsGenerated = 0;
+  let motionStillsGenerated = 0;
 
-  // Sort by hook strength for animation priority
-  const animationBudget = 8; // max clips
-  let animCount = 0;
+  const motionStillBudget = 8;
+  let motionStillCount = 0;
 
   for (const item of items) {
     try {
-      // Create a virtual shot for each beat if needed, or generate frames directly
-      // Generate 1 frame per beat
       const prompt = buildImagePrompt({
         characters_in_frame: [],
         blocking_notes: item.shot_description,
@@ -407,19 +425,20 @@ async function handleGenerateTrailerAssets(db: any, body: any, userId: string, a
       if (!imageUrl) { results.push({ index: item.index, status: "frame_failed" }); continue; }
 
       const storagePath = `${projectId}/trailers/${trailerShotlistId}/frames/${Date.now()}_${item.index}.png`;
-      const publicUrl = await uploadImage(imageUrl, storagePath);
+      const publicUrl = await uploadImageFromUrl(imageUrl, storagePath);
       if (!publicUrl) { results.push({ index: item.index, status: "upload_failed" }); continue; }
 
       const { data: mediaRow } = await db.from("ai_generated_media").insert({
         project_id: projectId, media_type: "storyboard_frame",
         storage_path: storagePath, selected: true, created_by: userId,
-        generation_params: { prompt, trailer_shotlist_id: trailerShotlistId, beat_index: item.index, model: "gemini-2.5-flash-image" },
+        trailer_shotlist_id: trailerShotlistId,
+        generation_params: { prompt, beat_index: item.index, model: "gemini-2.5-flash-image" },
       }).select().single();
 
       framesGenerated++;
 
-      // Animate top beats (A/B tier, within budget)
-      if (item.ai_suggested_tier !== "C" && animCount < animationBudget && item.hook_strength >= 6) {
+      // Generate motion stills for top beats (A/B tier, within budget)
+      if (item.ai_suggested_tier !== "C" && motionStillCount < motionStillBudget && item.hook_strength >= 6) {
         try {
           const animResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
             method: "POST",
@@ -429,7 +448,7 @@ async function handleGenerateTrailerAssets(db: any, body: any, userId: string, a
               messages: [{
                 role: "user",
                 content: [
-                  { type: "text", text: "Create a subtle push-in camera movement version of this cinematic frame. Gentle, slow. No text, no watermarks." },
+                  { type: "text", text: "Create a subtle push-in camera movement version of this cinematic frame. Gentle, slow perspective shift. No text, no watermarks." },
                   { type: "image_url", image_url: { url: publicUrl } },
                 ],
               }],
@@ -441,20 +460,21 @@ async function handleGenerateTrailerAssets(db: any, body: any, userId: string, a
             const animData = await animResp.json();
             const animUrl = animData.choices?.[0]?.message?.images?.[0]?.image_url?.url;
             if (animUrl) {
-              const clipPath = `${projectId}/trailers/${trailerShotlistId}/clips/${Date.now()}_${item.index}.png`;
-              const clipPublicUrl = await uploadImage(animUrl, clipPath);
+              const clipPath = `${projectId}/trailers/${trailerShotlistId}/stills/${Date.now()}_${item.index}.png`;
+              const clipPublicUrl = await uploadImageFromUrl(animUrl, clipPath);
               if (clipPublicUrl) {
                 await db.from("ai_generated_media").insert({
-                  project_id: projectId, media_type: "animated_panel",
+                  project_id: projectId, media_type: "motion_still",
                   storage_path: clipPath, selected: true, created_by: userId,
-                  generation_params: { keyframe_id: mediaRow?.id, trailer_shotlist_id: trailerShotlistId, beat_index: item.index },
+                  trailer_shotlist_id: trailerShotlistId,
+                  generation_params: { keyframe_id: mediaRow?.id, beat_index: item.index },
                 });
-                clipsGenerated++;
-                animCount++;
+                motionStillsGenerated++;
+                motionStillCount++;
               }
             }
           }
-        } catch (animErr) { console.error("Anim error for beat", item.index, animErr); }
+        } catch (animErr) { console.error("Motion still error for beat", item.index, animErr); }
       }
 
       results.push({ index: item.index, status: "ok", frame_url: publicUrl });
@@ -464,7 +484,7 @@ async function handleGenerateTrailerAssets(db: any, body: any, userId: string, a
     }
   }
 
-  return json({ framesGenerated, clipsGenerated, results, total: items.length });
+  return json({ framesGenerated, motionStillsGenerated, results, total: items.length });
 }
 
 async function handleAssembleTrailer(db: any, body: any, userId: string, _apiKey: string) {
@@ -477,31 +497,31 @@ async function handleAssembleTrailer(db: any, body: any, userId: string, _apiKey
 
   const items = shotlist.items || [];
 
-  // Gather generated media for this shotlist
-  const { data: allMedia } = await db.from("ai_generated_media").select("*")
-    .eq("project_id", projectId).order("created_at", { ascending: false });
+  // Query media efficiently using trailer_shotlist_id column
+  const { data: shotlistMedia } = await db.from("ai_generated_media").select("*")
+    .eq("project_id", projectId)
+    .eq("trailer_shotlist_id", trailerShotlistId)
+    .order("created_at", { ascending: false });
 
-  const shotlistMedia = (allMedia || []).filter((m: any) =>
-    m.generation_params?.trailer_shotlist_id === trailerShotlistId
-  );
+  const mediaList = shotlistMedia || [];
 
   const timeline: any[] = [];
   const missingFrames: string[] = [];
 
   for (const item of items) {
-    const beatMedia = shotlistMedia.filter((m: any) => m.generation_params?.beat_index === item.index);
+    const beatMedia = mediaList.filter((m: any) => m.generation_params?.beat_index === item.index);
     const frame = beatMedia.find((m: any) => m.media_type === "storyboard_frame");
-    const clip = beatMedia.find((m: any) => m.media_type === "animated_panel");
+    const motionStill = beatMedia.find((m: any) => m.media_type === "motion_still");
 
     const admin = adminClient();
     const frameUrl = frame ? admin.storage.from("ai-media").getPublicUrl(frame.storage_path).data?.publicUrl : null;
-    const clipUrl = clip ? admin.storage.from("ai-media").getPublicUrl(clip.storage_path).data?.publicUrl : null;
+    const motionStillUrl = motionStill ? admin.storage.from("ai-media").getPublicUrl(motionStill.storage_path).data?.publicUrl : null;
 
     timeline.push({
       index: item.index, shot_title: item.shot_title, shot_description: item.shot_description,
       intended_duration: item.intended_duration,
       has_frame: !!frame, frame_url: frameUrl,
-      has_clip: !!clip, clip_url: clipUrl,
+      has_motion_still: !!motionStill, motion_still_url: motionStillUrl,
       text_card: item.text_card_suggestion,
     });
 
@@ -512,7 +532,7 @@ async function handleAssembleTrailer(db: any, body: any, userId: string, _apiKey
     project_id: projectId, shotlist_id: trailerShotlistId,
     total_duration: timeline.reduce((sum: number, t: any) => sum + (t.intended_duration || 2), 0),
     frame_count: timeline.filter((t: any) => t.has_frame).length,
-    clip_count: timeline.filter((t: any) => t.has_clip).length,
+    motion_still_count: timeline.filter((t: any) => t.has_motion_still).length,
     missing_frames: missingFrames, timeline,
     created_at: new Date().toISOString(),
   };
@@ -527,6 +547,7 @@ async function handleAssembleTrailer(db: any, body: any, userId: string, _apiKey
   await db.from("ai_generated_media").insert({
     project_id: projectId, media_type: "trailer_cut",
     storage_path: timelinePath, selected: false, created_by: userId,
+    trailer_shotlist_id: trailerShotlistId,
     generation_params: { type: "timeline_json", shotlist_id: trailerShotlistId },
   });
 

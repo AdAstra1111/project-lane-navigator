@@ -280,7 +280,7 @@ export default function AiTrailerBuilder() {
                   <div className="space-y-3 py-4">
                     <div className="flex items-center gap-2">
                       <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                      <p className="text-xs text-muted-foreground">Generating frames and animating clips… This may take a few minutes.</p>
+                      <p className="text-xs text-muted-foreground">Generating frames and motion stills… This may take a few minutes.</p>
                     </div>
                     <Progress value={50} className="h-2" />
                   </div>
@@ -292,8 +292,8 @@ export default function AiTrailerBuilder() {
                         <p className="text-[10px] text-muted-foreground">Frames</p>
                       </div>
                       <div className="p-3 rounded border border-border">
-                        <p className="text-2xl font-bold text-primary">{generateProgress.clipsGenerated}</p>
-                        <p className="text-[10px] text-muted-foreground">Clips</p>
+                        <p className="text-2xl font-bold text-primary">{generateProgress.motionStillsGenerated}</p>
+                        <p className="text-[10px] text-muted-foreground">Motion Stills</p>
                       </div>
                       <div className="p-3 rounded border border-border">
                         <p className="text-2xl font-bold text-primary">{generateProgress.total}</p>
@@ -322,10 +322,10 @@ export default function AiTrailerBuilder() {
                   <div className="text-center py-8">
                     <Image className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
                     <p className="text-xs text-muted-foreground mb-2">
-                      Generate AI storyboard frames and animated clips for each beat in the trailer shotlist.
+                      Generate AI storyboard frames and motion stills for each beat in the trailer shotlist.
                     </p>
                     <p className="text-[10px] text-muted-foreground">
-                      Up to 4 frames per beat • Up to 8 animated clips for top beats
+                      Up to 4 frames per beat • Up to 8 motion stills for top beats
                     </p>
                   </div>
                 )}
@@ -354,8 +354,8 @@ export default function AiTrailerBuilder() {
                         <p className="text-[10px] text-muted-foreground">Frames</p>
                       </div>
                       <div className="p-3 rounded border border-border">
-                        <p className="text-2xl font-bold">{ai.assembleTrailer.data.timeline?.clip_count || 0}</p>
-                        <p className="text-[10px] text-muted-foreground">Clips</p>
+                        <p className="text-2xl font-bold">{ai.assembleTrailer.data.timeline?.motion_still_count || 0}</p>
+                        <p className="text-[10px] text-muted-foreground">Motion Stills</p>
                       </div>
                       <div className="p-3 rounded border border-border">
                         <p className="text-2xl font-bold">{Math.round(ai.assembleTrailer.data.timeline?.total_duration || 0)}s</p>
@@ -391,7 +391,7 @@ export default function AiTrailerBuilder() {
                                 <p className="text-[10px] font-medium truncate">{t.shot_title}</p>
                                 <p className="text-[9px] text-muted-foreground">{t.intended_duration}s</p>
                               </div>
-                              {t.has_clip && <Play className="h-3 w-3 text-primary" />}
+                              {t.has_motion_still && <Image className="h-3 w-3 text-primary" />}
                               {t.text_card && <Badge variant="outline" className="text-[7px]">{t.text_card}</Badge>}
                             </div>
                           ))}
