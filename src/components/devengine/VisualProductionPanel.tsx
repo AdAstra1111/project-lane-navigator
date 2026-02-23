@@ -50,7 +50,7 @@ export function VisualProductionPanel({ projectId, scenes, selectedSceneId, onSe
           <CardHeader className="px-2 py-1.5">
             <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Scenes</span>
           </CardHeader>
-          <ScrollArea className="max-h-[500px]">
+          <ScrollArea className="h-[calc(100vh-320px)]">
             <div className="px-1 pb-1 space-y-0.5">
               {scenes.map((scene) => (
                 <div
