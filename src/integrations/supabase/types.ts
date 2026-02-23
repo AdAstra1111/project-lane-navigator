@@ -13396,6 +13396,9 @@ export type Database = {
           scene_version_id: string
           sfx_vfx_flags: Json
           shot_number: number | null
+          shot_plan_job_id: string | null
+          shot_plan_job_scene_id: string | null
+          shot_plan_source: string | null
           shot_set_id: string
           shot_type: string
           status: string
@@ -13438,6 +13441,9 @@ export type Database = {
           scene_version_id: string
           sfx_vfx_flags?: Json
           shot_number?: number | null
+          shot_plan_job_id?: string | null
+          shot_plan_job_scene_id?: string | null
+          shot_plan_source?: string | null
           shot_set_id: string
           shot_type?: string
           status?: string
@@ -13480,6 +13486,9 @@ export type Database = {
           scene_version_id?: string
           sfx_vfx_flags?: Json
           shot_number?: number | null
+          shot_plan_job_id?: string | null
+          shot_plan_job_scene_id?: string | null
+          shot_plan_source?: string | null
           shot_set_id?: string
           shot_type?: string
           status?: string
@@ -16517,6 +16526,33 @@ export type Database = {
         SetofOptions: {
           from: "*"
           to: "rewrite_jobs"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      claim_next_shot_plan_scene: {
+        Args: {
+          p_job_id: string
+          p_max_attempts?: number
+          p_stale_seconds?: number
+        }
+        Returns: {
+          attempts: number
+          error_message: string | null
+          finished_at: string | null
+          id: string
+          inserted_shots: number
+          job_id: string
+          project_id: string
+          scene_id: string
+          scene_order: number
+          started_at: string
+          status: string
+          updated_at: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "shot_plan_job_scenes"
           isOneToOne: false
           isSetofReturn: true
         }
