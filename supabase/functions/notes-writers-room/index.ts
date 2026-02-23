@@ -230,9 +230,14 @@ serve(async (req) => {
         const { data: allDocs } = await admin.from("project_documents")
           .select("id, doc_type, file_name")
           .eq("project_id", projectId);
-        docFilter = (allDocs || []).filter((d: any) =>
+      docFilter = (allDocs || []).filter((d: any) =>
           types.some(t => d.doc_type === t || d.doc_type.includes(t) || t.includes(d.doc_type))
         );
+        // Fallback: if preset matched nothing, load ALL project docs
+        if (docFilter.length === 0 && allDocs && allDocs.length > 0) {
+          docFilter = allDocs;
+          resolvedPreset = "all_available";
+        }
       }
 
       if (!docFilter || docFilter.length === 0) {
