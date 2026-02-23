@@ -155,70 +155,88 @@ Deno.serve(async (req) => {
       .single();
     if (!project) return json({ error: "Project not found" }, 404);
 
-    // 2) Find newest script_pdf document
-    const { data: pdfDoc } = await admin
-      .from("project_documents")
-      .select("id, title, file_path, storage_path")
-      .eq("project_id", projectId)
-      .eq("doc_type", "script_pdf")
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .single();
+    // 2) Find newest script document — try script_pdf first, then fallback doc types
+    const scriptDocTypes = ["script_pdf", "complete_season_script", "season_master_script", "production_draft", "screenplay_draft", "feature_script", "script"];
+    let pdfDoc: any = null;
+    for (const docType of scriptDocTypes) {
+      const { data } = await admin
+        .from("project_documents")
+        .select("id, title, file_path, storage_path, doc_type")
+        .eq("project_id", projectId)
+        .eq("doc_type", docType)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .single();
+      if (data) { pdfDoc = data; break; }
+    }
 
     if (!pdfDoc)
       return json(
-        { error: "No script_pdf document found for this project. Upload a PDF script first." },
+        { error: "No script document found for this project. Upload or generate a script first." },
         400
       );
 
-    // 3) Determine storage path
-    const storagePath = pdfDoc.storage_path || pdfDoc.file_path;
-    if (!storagePath)
-      return json({ error: "No storage path found for the PDF document" }, 400);
+    // 3) Try to get existing plaintext from version (dev-engine docs already have text)
+    let extractedText = "";
+    const { data: existingVersions } = await admin
+      .from("project_document_versions")
+      .select("id, plaintext, version_number")
+      .eq("document_id", pdfDoc.id)
+      .order("version_number", { ascending: false })
+      .limit(1);
+    
+    if (existingVersions?.[0]?.plaintext && existingVersions[0].plaintext.length >= 500) {
+      console.log(`Using existing plaintext from version (${existingVersions[0].plaintext.length} chars)`);
+      extractedText = existingVersions[0].plaintext;
+    } else {
+      // 4) Determine storage path for PDF extraction
+      const storagePath = pdfDoc.storage_path || pdfDoc.file_path;
+      if (!storagePath)
+        return json({ error: "No storage path or existing text found for the document" }, 400);
 
-    // 4) Download PDF bytes from storage
-    // Try 'scripts' bucket first (where useScriptIntake uploads), then 'project-documents' fallback
-    let fileData: Blob | null = null;
-    let dlError: any = null;
-    for (const bucket of ["scripts", "project-documents"]) {
-      const result = await admin.storage.from(bucket).download(storagePath);
-      if (!result.error && result.data) {
-        fileData = result.data;
-        dlError = null;
-        break;
+      // 5) Download PDF bytes from storage
+      let fileData: Blob | null = null;
+      let dlError: any = null;
+      for (const bucket of ["scripts", "project-documents"]) {
+        const result = await admin.storage.from(bucket).download(storagePath);
+        if (!result.error && result.data) {
+          fileData = result.data;
+          dlError = null;
+          break;
+        }
+        dlError = result.error;
       }
-      dlError = result.error;
-    }
 
-    if (dlError || !fileData) {
-      console.error("PDF download error:", dlError);
-      return json({ error: "Failed to download PDF: " + (dlError?.message || "unknown") }, 500);
-    }
-
-    const pdfBytes = new Uint8Array(await fileData.arrayBuffer());
-    const pdfBase64 = encodeBase64(pdfBytes);
-
-    // 5) Create signed URL for fallback strategy
-    let signedUrl: string | null = null;
-    for (const bucket of ["scripts", "project-documents"]) {
-      try {
-        const { data: signedData } = await admin.storage
-          .from(bucket)
-          .createSignedUrl(storagePath, 600);
-        if (signedData?.signedUrl) { signedUrl = signedData.signedUrl; break; }
-      } catch (e) {
-        console.warn("Signed URL creation failed (non-fatal):", e);
+      if (dlError || !fileData) {
+        console.error("PDF download error:", dlError);
+        return json({ error: "Failed to download PDF: " + (dlError?.message || "unknown") }, 500);
       }
-    }
 
-    // 6) Extract text via LLM (inline base64 first, signed URL fallback)
-    const extractedText = await extractViaLLM(apiKey, pdfBase64, signedUrl);
+      const pdfBytes = new Uint8Array(await fileData.arrayBuffer());
+      const pdfBase64 = encodeBase64(pdfBytes);
 
-    if (!extractedText || extractedText.length < 500) {
-      return json(
-        { error: `Extraction produced only ${extractedText.length} characters (minimum 500 required). The PDF may be image-only, empty, or corrupted.` },
-        400
-      );
+      // 6) Create signed URL for fallback strategy
+      let signedUrl: string | null = null;
+      for (const bucket of ["scripts", "project-documents"]) {
+        try {
+          const { data: signedData } = await admin.storage
+            .from(bucket)
+            .createSignedUrl(storagePath, 600);
+          if (signedData?.signedUrl) { signedUrl = signedData.signedUrl; break; }
+        } catch (e) {
+          console.warn("Signed URL creation failed (non-fatal):", e);
+        }
+      }
+
+      // 7) Extract text via LLM
+      extractedText = await extractViaLLM(apiKey, pdfBase64, signedUrl);
+
+      if (!extractedText || extractedText.length < 500) {
+        return json(
+          { error: `Extraction produced only ${extractedText?.length || 0} characters (minimum 500 required). The document may be empty or corrupted.` },
+          400
+        );
+      }
     }
 
     // 7) Create project_documents row with ONLY safe/known columns
