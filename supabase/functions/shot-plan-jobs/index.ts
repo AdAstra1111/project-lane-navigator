@@ -394,10 +394,10 @@ Deno.serve(async (req) => {
       case "tick": {
         const { projectId, jobId } = params;
         const id = jobId || (await findActiveJobId(admin, projectId));
-        if (!id) return json({ error: "No active job" }, 404);
+        if (!id) return json({ job: null, counts: null, sceneResult: null, message: "No active job" });
 
         const { data: job } = await admin.from("shot_plan_jobs").select("*").eq("id", id).single();
-        if (!job) return json({ error: "Job not found" }, 404);
+        if (!job) return json({ job: null, counts: null, sceneResult: null, message: "Job not found" });
         if (job.status !== "running") {
           const counts = await getJobCounts(admin, id);
           return json({ job, counts, sceneResult: null, message: `Job is ${job.status}, not running` });
