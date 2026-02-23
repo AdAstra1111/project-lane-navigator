@@ -17,7 +17,7 @@ import {
   CheckCircle2, XCircle, Wand2,
 } from 'lucide-react';
 import { AiReadinessBadge } from './AiReadinessBadge';
-import type { AiGeneratedMedia } from '@/hooks/useAiProduction';
+import type { AiGeneratedMedia } from '@/hooks/useAiTrailerFactory';
 
 interface AiShotActionPanelProps {
   open: boolean;
@@ -26,7 +26,7 @@ interface AiShotActionPanelProps {
   media: AiGeneratedMedia[];
   onLabelReadiness: () => void;
   onGenerateFrame: () => void;
-  onAnimate: () => void;
+  onMotionStill: () => void;
   isLabeling: boolean;
   isGenerating: boolean;
 }
@@ -38,14 +38,14 @@ export function AiShotActionPanel({
   media,
   onLabelReadiness,
   onGenerateFrame,
-  onAnimate,
+  onMotionStill,
   isLabeling,
   isGenerating,
 }: AiShotActionPanelProps) {
   const tier = shot?.ai_readiness_tier;
   const shotMedia = media.filter(m => m.shot_id === shot?.id);
   const frames = shotMedia.filter(m => m.media_type === 'storyboard_frame');
-  const panels = shotMedia.filter(m => m.media_type === 'animated_panel');
+  const motionStills = shotMedia.filter(m => m.media_type === 'motion_still' || m.media_type === 'animated_panel');
 
   return (
     <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
@@ -132,11 +132,11 @@ export function AiShotActionPanel({
                   size="sm"
                   variant="outline"
                   className="w-full text-xs gap-1"
-                  onClick={onAnimate}
+                  onClick={onMotionStill}
                   disabled={isGenerating || !tier || tier === 'C' || tier === 'D'}
                 >
                   <Film className="h-3 w-3" />
-                  {tier === 'C' ? 'Tier C — Previz only' : tier === 'D' ? 'Not available' : 'Animate Panel'}
+                  {tier === 'C' ? 'Tier C — Previz only' : tier === 'D' ? 'Not available' : 'Generate Motion Still'}
                 </Button>
 
                 {tier === 'D' && (

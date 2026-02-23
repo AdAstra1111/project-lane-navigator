@@ -3,7 +3,7 @@
  */
 import { useState, useMemo, useCallback } from 'react';
 import { useVisualProduction } from '@/hooks/useVisualProduction';
-import { useAiProduction } from '@/hooks/useAiProduction';
+import { useAiTrailerFactory } from '@/hooks/useAiTrailerFactory';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -31,7 +31,7 @@ interface VisualProductionPanelProps {
 
 export function VisualProductionPanel({ projectId, scenes, selectedSceneId, onSelectScene }: VisualProductionPanelProps) {
   const vp = useVisualProduction(projectId, selectedSceneId);
-  const ai = useAiProduction(projectId);
+  const ai = useAiTrailerFactory(projectId);
   const [vpTab, setVpTab] = useState<string>('shots');
   const [aiPanelShot, setAiPanelShot] = useState<any>(null);
 
@@ -139,20 +139,18 @@ export function VisualProductionPanel({ projectId, scenes, selectedSceneId, onSe
           if (aiPanelShot) ai.labelReadiness.mutate(aiPanelShot.id);
         }}
         onGenerateFrame={() => {
-          if (aiPanelShot) ai.generateMedia.mutate({
+          if (aiPanelShot) ai.generateFrames.mutate({
             shotId: aiPanelShot.id,
-            generationType: 'storyboard_frame',
             options: { variations: 1 },
           });
         }}
-        onAnimate={() => {
-          if (aiPanelShot) ai.generateMedia.mutate({
+        onMotionStill={() => {
+          if (aiPanelShot) ai.generateMotionStill.mutate({
             shotId: aiPanelShot.id,
-            generationType: 'animated_panel',
           });
         }}
         isLabeling={ai.labelReadiness.isPending}
-        isGenerating={ai.generateMedia.isPending}
+        isGenerating={ai.generateFrames.isPending || ai.generateMotionStill.isPending}
       />
     </div>
   );
