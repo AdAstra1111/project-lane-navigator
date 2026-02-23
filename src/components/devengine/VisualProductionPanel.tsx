@@ -239,7 +239,7 @@ function StoryboardPanel({ projectId, frames, shots, onGenerateFrames, onApprove
   projectId: string;
   frames: any[];
   shots: any[];
-  onGenerateFrames: (shotId: string) => void;
+  onGenerateFrames: (shotId: string) => Promise<any>;
   onApproveFrame: (frameId: string) => void;
   onDeleteFrame?: (frameId: string) => Promise<any>;
   onRestoreFrame?: (frameId: string) => Promise<any>;
@@ -248,9 +248,31 @@ function StoryboardPanel({ projectId, frames, shots, onGenerateFrames, onApprove
   hasScene: boolean;
 }) {
   const [previewFrame, setPreviewFrame] = useState<any | null>(null);
+  const [isGeneratingAll, setIsGeneratingAll] = useState(false);
+  const [genAllProgress, setGenAllProgress] = useState({ done: 0, total: 0 });
   const [deletedFrameIds, setDeletedFrameIds] = useState<Set<string>>(new Set());
 
-  // Group frames by shot
+  const handleGenerateAll = useCallback(async () => {
+    if (!shots.length || isGeneratingAll || isGenerating) return;
+    const shotsNeedingFrames = shots.filter(shot => {
+      const existing = frames.filter(f => f.shot_id === shot.id && !deletedFrameIds.has(f.id));
+      return existing.length === 0;
+    });
+    const toGenerate = shotsNeedingFrames.length > 0 ? shotsNeedingFrames : shots;
+    setIsGeneratingAll(true);
+    setGenAllProgress({ done: 0, total: toGenerate.length });
+    for (let i = 0; i < toGenerate.length; i++) {
+      try {
+        await onGenerateFrames(toGenerate[i].id);
+      } catch (e) {
+        console.error(`Gen frame failed for shot ${toGenerate[i].id}:`, e);
+      }
+      setGenAllProgress({ done: i + 1, total: toGenerate.length });
+    }
+    setIsGeneratingAll(false);
+    toast.success(`Generated frames for ${toGenerate.length} shots`);
+  }, [shots, frames, deletedFrameIds, isGeneratingAll, isGenerating, onGenerateFrames]);
+
   const groupedFrames = useMemo(() => {
     const map = new Map<string, any[]>();
     for (const f of frames) {
@@ -312,9 +334,27 @@ function StoryboardPanel({ projectId, frames, shots, onGenerateFrames, onApprove
     <TooltipProvider>
       <Card className="border-border/50">
         <CardHeader className="px-3 py-2">
-          <CardTitle className="text-xs flex items-center gap-1">
-            <Image className="h-3.5 w-3.5" /> Storyboard Frames
-          </CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-xs flex items-center gap-1">
+              <Image className="h-3.5 w-3.5" /> Storyboard Frames
+            </CardTitle>
+            {shots.length > 0 && (
+              <Button size="sm" variant="outline" className="h-5 text-[8px] px-2 gap-1"
+                onClick={handleGenerateAll} disabled={isGenerating || isGeneratingAll}>
+                {isGeneratingAll ? (
+                  <>
+                    <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                    {genAllProgress.done}/{genAllProgress.total}
+                  </>
+                ) : (
+                  <>
+                    <Camera className="h-2.5 w-2.5" />
+                    Generate All
+                  </>
+                )}
+              </Button>
+            )}
+          </div>
         </CardHeader>
         <CardContent className="px-3 pb-3">
           {isLoading ? (
