@@ -56,6 +56,17 @@ async function logCutEvent(db: any, e: {
   });
 }
 
+// Compute trim_out_ms from clip duration and planned duration
+function computeTrims(beat: any, clipDurationMs?: number | null): { trim_in_ms: number; trim_out_ms: number } {
+  const plannedMs = beat.duration_ms || 3000;
+  const trimIn = beat.trim_in_ms || 0;
+  if (clipDurationMs && clipDurationMs > 0) {
+    return { trim_in_ms: trimIn, trim_out_ms: Math.min(clipDurationMs, plannedMs) };
+  }
+  // No clip duration known — use planned duration
+  return { trim_in_ms: trimIn, trim_out_ms: plannedMs };
+}
+
 // Recompute start_ms for timeline entries
 function recomputeTimeline(timeline: any[]): any[] {
   let currentMs = 0;
@@ -104,16 +115,20 @@ async function handleCreateCut(db: any, body: any, userId: string) {
       ? (textCardPlan.find((tc: any) => tc.beat_index === idx)?.text || beat.clip_spec?.text_overlay || beat.role.toUpperCase())
       : null;
 
+    const clipDurationMs = clip?.duration_ms || clip?.metadata?.duration_ms || null;
+    const trims = computeTrims({ duration_ms: durationMs }, clipDurationMs);
+
     return {
       beat_index: idx,
       role: beat.role,
       duration_ms: durationMs,
-      trim_in_ms: 0,
-      trim_out_ms: 0,
+      trim_in_ms: trims.trim_in_ms,
+      trim_out_ms: trims.trim_out_ms,
       start_ms: 0,
-      effective_duration_ms: durationMs,
+      effective_duration_ms: Math.max(0, durationMs - trims.trim_in_ms - trims.trim_out_ms) || durationMs,
       clip_id: clip?.id || null,
       clip_url: clip?.public_url || null,
+      clip_duration_ms: clipDurationMs,
       media_type: clip?.media_type || "video",
       text_overlay: beat.clip_spec?.text_overlay || null,
       audio_cue: beat.clip_spec?.audio_cue || null,
@@ -205,12 +220,16 @@ async function handleUpdateBeat(db: any, body: any, userId: string) {
   if (trim_in_ms !== undefined) beat.trim_in_ms = trim_in_ms;
   if (trim_out_ms !== undefined) beat.trim_out_ms = trim_out_ms;
 
-  // Clip swap
+  // Clip swap — auto-recompute trims
   if (clip_id !== undefined) {
     if (clip_id === null) {
       beat.clip_id = null;
       beat.clip_url = null;
       beat.has_clip = false;
+      beat.clip_duration_ms = null;
+      const trims = computeTrims(beat, null);
+      beat.trim_in_ms = trims.trim_in_ms;
+      beat.trim_out_ms = trims.trim_out_ms;
     } else {
       const { data: newClip } = await db.from("trailer_clips").select("*")
         .eq("id", clip_id).eq("project_id", projectId).single();
@@ -220,6 +239,14 @@ async function handleUpdateBeat(db: any, body: any, userId: string) {
         beat.media_type = newClip.media_type;
         beat.provider = newClip.provider;
         beat.has_clip = true;
+        const clipDurMs = newClip.duration_ms || newClip.metadata?.duration_ms || null;
+        beat.clip_duration_ms = clipDurMs;
+        // Auto-recompute trims only if user hasn't manually set them
+        if ((beat.trim_out_ms || 0) === 0 || trim_in_ms === undefined && trim_out_ms === undefined) {
+          const trims = computeTrims(beat, clipDurMs);
+          beat.trim_in_ms = trims.trim_in_ms;
+          beat.trim_out_ms = trims.trim_out_ms;
+        }
       }
     }
   }
@@ -441,6 +468,85 @@ async function handleGetTimeline(db: any, body: any) {
   return json({ beats, audioPlan: bp.audio_plan, textCardPlan: bp.text_card_plan, arcType: bp.arc_type });
 }
 
+// ─── Fix Trims (backfill) ───
+async function handleFixTrims(db: any, body: any, userId: string) {
+  const { projectId, cutId } = body;
+  if (!cutId) return json({ error: "cutId required" }, 400);
+
+  const { data: cut } = await db.from("trailer_cuts").select("*")
+    .eq("id", cutId).eq("project_id", projectId).single();
+  if (!cut) return json({ error: "Cut not found" }, 404);
+
+  let timeline = [...(cut.timeline || [])];
+  let fixedCount = 0;
+
+  // Batch-fetch all clip IDs used in timeline
+  const clipIds = timeline.map((t: any) => t.clip_id).filter(Boolean);
+  const clipDurMap: Record<string, number> = {};
+  if (clipIds.length > 0) {
+    const { data: clipRows } = await db.from("trailer_clips").select("id, duration_ms, metadata")
+      .in("id", clipIds).eq("project_id", projectId);
+    for (const c of (clipRows || [])) {
+      clipDurMap[c.id] = c.duration_ms || c.metadata?.duration_ms || 0;
+    }
+  }
+
+  for (let i = 0; i < timeline.length; i++) {
+    const beat = timeline[i];
+    const plannedMs = beat.duration_ms || 3000;
+    // Fix if trim_out is 0 (or missing) and beat has positive duration
+    if ((!beat.trim_out_ms || beat.trim_out_ms <= 0) && plannedMs > 0) {
+      const clipDur = beat.clip_id ? (clipDurMap[beat.clip_id] || null) : null;
+      const trims = computeTrims(beat, clipDur);
+      timeline[i] = { ...beat, ...trims, clip_duration_ms: clipDur };
+      fixedCount++;
+    }
+  }
+
+  if (fixedCount > 0) {
+    timeline = recomputeTimeline(timeline);
+    const totalDurationMs = timeline.reduce((s: number, t: any) => s + (t.effective_duration_ms || t.duration_ms), 0);
+    await db.from("trailer_cuts").update({ timeline, duration_ms: totalDurationMs }).eq("id", cutId);
+    await logCutEvent(db, {
+      project_id: projectId, cut_id: cutId,
+      event_type: "fix_trims",
+      payload: { fixedCount },
+      created_by: userId,
+    });
+    return json({ ok: true, fixedCount, timeline, totalDurationMs });
+  }
+
+  return json({ ok: true, fixedCount: 0, message: "All trims already valid" });
+}
+
+// ─── Validate Trims (pre-render check) ───
+async function handleValidateTrims(db: any, body: any) {
+  const { projectId, cutId } = body;
+  if (!cutId) return json({ error: "cutId required" }, 400);
+
+  const { data: cut } = await db.from("trailer_cuts").select("timeline")
+    .eq("id", cutId).eq("project_id", projectId).single();
+  if (!cut) return json({ error: "Cut not found" }, 404);
+
+  const issues: Array<{ beat_index: number; role: string; issue: string }> = [];
+  for (const beat of (cut.timeline || [])) {
+    if (beat.is_text_card) continue;
+    const trimIn = beat.trim_in_ms || 0;
+    const trimOut = beat.trim_out_ms || 0;
+    if (trimOut <= 0 && (beat.duration_ms || 0) > 0) {
+      issues.push({ beat_index: beat.beat_index, role: beat.role, issue: "trim_out_ms is 0" });
+    }
+    if (trimIn >= trimOut && trimOut > 0) {
+      issues.push({ beat_index: beat.beat_index, role: beat.role, issue: "trim_in_ms >= trim_out_ms" });
+    }
+    if (beat.clip_duration_ms && trimOut > beat.clip_duration_ms) {
+      issues.push({ beat_index: beat.beat_index, role: beat.role, issue: "trim_out exceeds clip duration" });
+    }
+  }
+
+  return json({ ok: true, valid: issues.length === 0, issues });
+}
+
 // ─── Main handler ───
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -472,6 +578,8 @@ Deno.serve(async (req) => {
       case "get_cut": return await handleGetCut(db, body);
       case "set_cut_status": return await handleSetCutStatus(db, body, userId);
       case "get_timeline": return await handleGetTimeline(db, body);
+      case "fix_trims": return await handleFixTrims(db, body, userId);
+      case "validate_trims": return await handleValidateTrims(db, body);
       default: return json({ error: `Unknown action: ${action}` }, 400);
     }
   } catch (err: any) {

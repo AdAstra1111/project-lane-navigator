@@ -71,4 +71,8 @@ export const assemblerApi = {
     callFn('trailer-assembler', 'set_cut_status', { projectId, cutId, status, ...extra }),
   getTimeline: (projectId: string, blueprintId: string) =>
     callFn('trailer-assembler', 'get_timeline', { projectId, blueprintId }),
+  fixTrims: (projectId: string, cutId: string) =>
+    callFn('trailer-assembler', 'fix_trims', { projectId, cutId }),
+  validateTrims: (projectId: string, cutId: string) =>
+    callFn('trailer-assembler', 'validate_trims', { projectId, cutId }),
 };
