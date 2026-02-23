@@ -16231,6 +16231,234 @@ export type Database = {
         }
         Relationships: []
       }
+      trailer_blueprints: {
+        Row: {
+          arc_type: string
+          audio_plan: Json
+          created_at: string
+          created_by: string
+          edl: Json
+          error: string | null
+          id: string
+          options: Json
+          project_id: string
+          rhythm_analysis: Json
+          status: string
+          storyboard_run_id: string | null
+          text_card_plan: Json
+          updated_at: string
+        }
+        Insert: {
+          arc_type?: string
+          audio_plan?: Json
+          created_at?: string
+          created_by: string
+          edl?: Json
+          error?: string | null
+          id?: string
+          options?: Json
+          project_id: string
+          rhythm_analysis?: Json
+          status?: string
+          storyboard_run_id?: string | null
+          text_card_plan?: Json
+          updated_at?: string
+        }
+        Update: {
+          arc_type?: string
+          audio_plan?: Json
+          created_at?: string
+          created_by?: string
+          edl?: Json
+          error?: string | null
+          id?: string
+          options?: Json
+          project_id?: string
+          rhythm_analysis?: Json
+          status?: string
+          storyboard_run_id?: string | null
+          text_card_plan?: Json
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trailer_blueprints_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "trailer_blueprints_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trailer_blueprints_storyboard_run_id_fkey"
+            columns: ["storyboard_run_id"]
+            isOneToOne: false
+            referencedRelation: "storyboard_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      trailer_clips: {
+        Row: {
+          beat_index: number
+          blueprint_id: string
+          created_at: string
+          created_by: string
+          duration_ms: number | null
+          error: string | null
+          gen_params: Json
+          id: string
+          media_type: string
+          project_id: string
+          provider: string
+          public_url: string | null
+          rating: number | null
+          status: string
+          storage_path: string | null
+          updated_at: string
+          used_in_cut: boolean
+        }
+        Insert: {
+          beat_index: number
+          blueprint_id: string
+          created_at?: string
+          created_by: string
+          duration_ms?: number | null
+          error?: string | null
+          gen_params?: Json
+          id?: string
+          media_type?: string
+          project_id: string
+          provider?: string
+          public_url?: string | null
+          rating?: number | null
+          status?: string
+          storage_path?: string | null
+          updated_at?: string
+          used_in_cut?: boolean
+        }
+        Update: {
+          beat_index?: number
+          blueprint_id?: string
+          created_at?: string
+          created_by?: string
+          duration_ms?: number | null
+          error?: string | null
+          gen_params?: Json
+          id?: string
+          media_type?: string
+          project_id?: string
+          provider?: string
+          public_url?: string | null
+          rating?: number | null
+          status?: string
+          storage_path?: string | null
+          updated_at?: string
+          used_in_cut?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trailer_clips_blueprint_id_fkey"
+            columns: ["blueprint_id"]
+            isOneToOne: false
+            referencedRelation: "trailer_blueprints"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trailer_clips_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "trailer_clips_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      trailer_cuts: {
+        Row: {
+          blueprint_id: string
+          created_at: string
+          created_by: string
+          duration_ms: number | null
+          edl_export: Json | null
+          error: string | null
+          id: string
+          options: Json
+          project_id: string
+          public_url: string | null
+          status: string
+          storage_path: string | null
+          timeline: Json
+          updated_at: string
+        }
+        Insert: {
+          blueprint_id: string
+          created_at?: string
+          created_by: string
+          duration_ms?: number | null
+          edl_export?: Json | null
+          error?: string | null
+          id?: string
+          options?: Json
+          project_id: string
+          public_url?: string | null
+          status?: string
+          storage_path?: string | null
+          timeline?: Json
+          updated_at?: string
+        }
+        Update: {
+          blueprint_id?: string
+          created_at?: string
+          created_by?: string
+          duration_ms?: number | null
+          edl_export?: Json | null
+          error?: string | null
+          id?: string
+          options?: Json
+          project_id?: string
+          public_url?: string | null
+          status?: string
+          storage_path?: string | null
+          timeline?: Json
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trailer_cuts_blueprint_id_fkey"
+            columns: ["blueprint_id"]
+            isOneToOne: false
+            referencedRelation: "trailer_blueprints"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trailer_cuts_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "trailer_cuts_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       trailer_definition_pack_items: {
         Row: {
           created_at: string

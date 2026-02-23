@@ -224,3 +224,12 @@ verify_jwt = false
 
 [functions.animatic-manager]
 verify_jwt = false
+
+[functions.trailer-blueprint-engine]
+verify_jwt = false
+
+[functions.trailer-clip-generator]
+verify_jwt = false
+
+[functions.trailer-assembler]
+verify_jwt = false
