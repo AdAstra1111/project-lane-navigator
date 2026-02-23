@@ -80,6 +80,8 @@ import { useDeferredNotes } from '@/hooks/useDeferredNotes';
 import { useEpisodeHandoff } from '@/hooks/useEpisodeHandoff';
 import { EpisodeHandoffBanner } from '@/components/devengine/EpisodeHandoffBanner';
 import { SceneGraphPanel } from '@/components/devengine/SceneGraphPanel';
+import { NoteWritersRoomDrawer } from '@/components/notes/NoteWritersRoomDrawer';
+import { MessageSquare } from 'lucide-react';
 
 // ── Main Page ──
 export default function ProjectDevelopmentEngine() {
@@ -197,6 +199,7 @@ export default function ProjectDevelopmentEngine() {
   const [pendingStageAction, setPendingStageAction] = useState<(() => void) | null>(null);
   const [driftOverrideOpen, setDriftOverrideOpen] = useState(false);
   const [timelineOpen, setTimelineOpen] = useState(false);
+  const [globalWritersRoomOpen, setGlobalWritersRoomOpen] = useState(false);
   
 
   const {
@@ -1752,6 +1755,29 @@ export default function ProjectDevelopmentEngine() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Floating Writers' Room button */}
+      <Button
+        size="icon"
+        className="fixed bottom-6 right-6 z-50 h-12 w-12 rounded-full shadow-lg"
+        onClick={() => setGlobalWritersRoomOpen(true)}
+        title="Open Writers' Room"
+      >
+        <MessageSquare className="h-5 w-5" />
+      </Button>
+
+      {/* Global Writers' Room Drawer */}
+      {projectId && selectedDocId && (
+        <NoteWritersRoomDrawer
+          open={globalWritersRoomOpen}
+          onOpenChange={setGlobalWritersRoomOpen}
+          projectId={projectId}
+          documentId={selectedDocId}
+          versionId={selectedVersionId || undefined}
+          note={{ description: 'General discussion', category: 'general', note_hash: `general-${selectedDocId}` }}
+          scriptContext={versionText?.slice(0, 6000)}
+        />
+      )}
 
     </PageTransition>
   );
