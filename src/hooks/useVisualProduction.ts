@@ -24,6 +24,28 @@ import type {
   ProductionBreakdown,
 } from '@/lib/scene-graph/types';
 
+// Helper to call scene graph actions directly
+async function callSceneGraphDirect(action: string, payload: Record<string, any>) {
+  const { supabase } = await import('@/integrations/supabase/client');
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('Not authenticated');
+  const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/dev-engine-v2`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify({ action, ...payload }),
+  });
+  if (!resp.ok) {
+    const text = await resp.text();
+    let msg = 'Engine error';
+    try { msg = JSON.parse(text).error || msg; } catch {}
+    throw new Error(msg);
+  }
+  return resp.json();
+}
+
 export function useVisualProduction(projectId: string | undefined, sceneId?: string | null) {
   const qc = useQueryClient();
 
@@ -124,6 +146,26 @@ export function useVisualProduction(projectId: string | undefined, sceneId?: str
     onError: (e: Error) => toast.error(`Approve failed: ${e.message}`),
   });
 
+  // Delete frame (soft delete)
+  const deleteFrameMutation = useMutation({
+    mutationFn: async (frameId: string) => {
+      if (!projectId) throw new Error('No project');
+      return callSceneGraphDirect('delete_storyboard_frame', { projectId, frameId });
+    },
+    onSuccess: () => { invalidate(); },
+    onError: (e: Error) => toast.error(`Delete failed: ${e.message}`),
+  });
+
+  // Restore frame
+  const restoreFrameMutation = useMutation({
+    mutationFn: async (frameId: string) => {
+      if (!projectId) throw new Error('No project');
+      return callSceneGraphDirect('restore_storyboard_frame', { projectId, frameId });
+    },
+    onSuccess: () => { invalidate(); },
+    onError: (e: Error) => toast.error(`Restore failed: ${e.message}`),
+  });
+
   // Compute breakdown
   const computeBreakdownMutation = useMutation({
     mutationFn: async (params?: { mode?: 'latest' | 'approved_prefer' }) => {
@@ -155,6 +197,8 @@ export function useVisualProduction(projectId: string | undefined, sceneId?: str
     approveShotSet: approveShotSetMutation,
     generateFrames: generateFramesMutation,
     approveFrame: approveFrameMutation,
+    deleteFrame: deleteFrameMutation,
+    restoreFrame: restoreFrameMutation,
     computeBreakdown: computeBreakdownMutation,
   };
 }

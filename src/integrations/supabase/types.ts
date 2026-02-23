@@ -15011,10 +15011,12 @@ export type Database = {
         Row: {
           aspect_ratio: string
           created_at: string
+          deleted_at: string | null
           frame_index: number
           id: string
           image_url: string | null
           is_stale: boolean
+          mime_type: string | null
           notes: string | null
           project_id: string
           prompt: string
@@ -15023,16 +15025,19 @@ export type Database = {
           shot_id: string
           shot_version_id: string | null
           status: string
+          storage_path: string | null
           style_preset: string
           thumb_url: string | null
         }
         Insert: {
           aspect_ratio?: string
           created_at?: string
+          deleted_at?: string | null
           frame_index?: number
           id?: string
           image_url?: string | null
           is_stale?: boolean
+          mime_type?: string | null
           notes?: string | null
           project_id: string
           prompt?: string
@@ -15041,16 +15046,19 @@ export type Database = {
           shot_id: string
           shot_version_id?: string | null
           status?: string
+          storage_path?: string | null
           style_preset?: string
           thumb_url?: string | null
         }
         Update: {
           aspect_ratio?: string
           created_at?: string
+          deleted_at?: string | null
           frame_index?: number
           id?: string
           image_url?: string | null
           is_stale?: boolean
+          mime_type?: string | null
           notes?: string | null
           project_id?: string
           prompt?: string
@@ -15059,6 +15067,7 @@ export type Database = {
           shot_id?: string
           shot_version_id?: string | null
           status?: string
+          storage_path?: string | null
           style_preset?: string
           thumb_url?: string | null
         }
