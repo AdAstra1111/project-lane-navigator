@@ -158,7 +158,7 @@ export default function ClipCandidatesStudio() {
 
       <div className="max-w-[1600px] mx-auto p-4 grid grid-cols-1 lg:grid-cols-12 gap-4">
         {/* LEFT: Controls */}
-        <div className="lg:col-span-3 space-y-4">
+        <div className="lg:col-span-3 space-y-4 lg:max-h-[calc(100vh-100px)] lg:overflow-y-auto lg:pr-1">
           {/* Blueprint Selector */}
           <Card>
             <CardHeader className="pb-2">
@@ -354,8 +354,8 @@ export default function ClipCandidatesStudio() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <ScrollArea className="max-h-[calc(100vh-200px)]">
-                  <div className="space-y-1.5">
+                <ScrollArea className="h-[calc(100vh-220px)]">
+                  <div className="space-y-2 pr-3">
                     {beats.map((beat, idx) => {
                       const beatClips = clipsByBeat[idx] || [];
                       const beatProgress = progress?.beatSummary?.[idx];
@@ -363,91 +363,96 @@ export default function ClipCandidatesStudio() {
                       const isExpanded = expandedBeats.has(idx);
                       const hint = beat.generator_hint;
                       const jobStatuses = beatProgress?.jobs || [];
-                      const hasQueued = jobStatuses.some((j: any) => j.status === 'queued');
                       const hasRunning = jobStatuses.some((j: any) => j.status === 'running');
                       const hasFailed = jobStatuses.some((j: any) => j.status === 'failed');
 
                       return (
-                        <div key={idx} className="border border-border rounded overflow-hidden">
+                        <div key={idx} className="border border-border rounded-lg overflow-hidden">
+                          {/* Beat header row */}
                           <button
                             onClick={() => toggleBeat(idx)}
-                            className="w-full text-left px-3 py-2 flex items-center gap-2 hover:bg-muted/30 transition-colors"
+                            className="w-full text-left px-3 py-2.5 hover:bg-muted/30 transition-colors"
                           >
-                            {isExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                            <div className="flex items-center gap-2">
+                              {isExpanded ? <ChevronDown className="h-3.5 w-3.5 shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0" />}
 
-                            <span className="text-[10px] font-mono text-muted-foreground w-5">#{idx}</span>
+                              <span className="text-[10px] font-mono text-muted-foreground shrink-0">#{idx}</span>
 
-                            <Badge className={`text-[10px] ${ROLE_COLORS[beat.role] || 'bg-muted text-muted-foreground'}`}>
-                              {beat.role}
-                            </Badge>
+                              <Badge className={`text-[10px] shrink-0 ${ROLE_COLORS[beat.role] || 'bg-muted text-muted-foreground'}`}>
+                                {beat.role}
+                              </Badge>
 
-                            <span className="text-xs font-mono">{beat.duration_s}s</span>
+                              <span className="text-xs font-mono shrink-0">{beat.duration_s}s</span>
 
-                            {/* Provider hint badges */}
-                            {hint && (
-                              <>
-                                <Badge
-                                  variant="outline"
-                                  className={`text-[9px] px-1.5 py-0 ${
-                                    hint.preferred_provider === 'runway'
-                                      ? 'border-rose-500/50 text-rose-400'
-                                      : 'border-sky-500/50 text-sky-400'
-                                  }`}
-                                >
-                                  {hint.preferred_provider === 'runway' ? 'RUNWAY' : 'VEO'}
-                                </Badge>
-                                {hint.candidates > 1 && (
-                                  <Badge variant="outline" className="text-[9px] px-1.5 py-0 border-amber-500/50 text-amber-400">
-                                    ×{hint.candidates}
+                              {hint && (
+                                <>
+                                  <Badge
+                                    variant="outline"
+                                    className={`text-[9px] px-1.5 py-0 shrink-0 ${
+                                      hint.preferred_provider === 'runway'
+                                        ? 'border-rose-500/50 text-rose-400'
+                                        : 'border-sky-500/50 text-sky-400'
+                                    }`}
+                                  >
+                                    {hint.preferred_provider === 'runway' ? 'RUNWAY' : 'VEO'}
                                   </Badge>
-                                )}
-                              </>
+                                  {hint.candidates > 1 && (
+                                    <Badge variant="outline" className="text-[9px] px-1.5 py-0 shrink-0 border-amber-500/50 text-amber-400">
+                                      ×{hint.candidates}
+                                    </Badge>
+                                  )}
+                                </>
+                              )}
+
+                              {hasRunning && <Loader2 className="h-3 w-3 animate-spin text-primary shrink-0" />}
+                              {hasFailed && <AlertTriangle className="h-3 w-3 text-destructive shrink-0" />}
+
+                              <Badge variant="outline" className="text-[10px] shrink-0">
+                                {beatClips.length} clip{beatClips.length !== 1 ? 's' : ''}
+                              </Badge>
+
+                              {selectedClipId && <Check className="h-3 w-3 text-green-400 shrink-0" />}
+
+                              <div className="ml-auto shrink-0">
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="text-[10px] h-6 px-2"
+                                  disabled={enqueueForRun.isPending || processQueue.isPending}
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
+                                    if (!blueprintId) return;
+                                    if (enabledProviders.length === 0) {
+                                      toast.error('Enable at least one AI provider');
+                                      return;
+                                    }
+                                    try {
+                                      await enqueueForRun.mutateAsync({ blueprintId, force: true, enabledProviders, beatIndices: [idx] });
+                                      await processQueue.mutateAsync({ blueprintId, maxJobs: 5 });
+                                    } catch {}
+                                  }}
+                                >
+                                  <Zap className="h-2.5 w-2.5 mr-0.5" /> Generate
+                                </Button>
+                              </div>
+                            </div>
+
+                            {/* Action description on its own line so it's never cropped */}
+                            {beat.clip_spec?.action_description && (
+                              <p className="text-[11px] text-muted-foreground mt-1.5 ml-6 leading-relaxed">
+                                {beat.clip_spec.action_description}
+                              </p>
                             )}
-
-                            <span className="text-[10px] text-muted-foreground truncate flex-1">
-                              {beat.clip_spec?.action_description}
-                            </span>
-
-                            {/* Status indicators */}
-                            {hasRunning && <Loader2 className="h-3 w-3 animate-spin text-primary" />}
-                            {hasFailed && <AlertTriangle className="h-3 w-3 text-destructive" />}
-
-                            <Badge variant="outline" className="text-[10px]">
-                              {beatClips.length} clip{beatClips.length !== 1 ? 's' : ''}
-                            </Badge>
-
-                            {selectedClipId && <Check className="h-3 w-3 text-green-400" />}
-
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="text-[10px] h-5 px-1.5 ml-auto"
-                              disabled={enqueueForRun.isPending || processQueue.isPending}
-                              onClick={async (e) => {
-                                e.stopPropagation();
-                                if (!blueprintId) return;
-                                if (enabledProviders.length === 0) {
-                                  toast.error('Enable at least one AI provider');
-                                  return;
-                                }
-                                try {
-                                  await enqueueForRun.mutateAsync({ blueprintId, force: true, enabledProviders, beatIndices: [idx] });
-                                  await processQueue.mutateAsync({ blueprintId, maxJobs: 5 });
-                                } catch {}
-                              }}
-                            >
-                              <Zap className="h-2.5 w-2.5 mr-0.5" /> Generate
-                            </Button>
                           </button>
 
                           {isExpanded && (
-                            <div className="px-3 pb-3 pt-1 space-y-3 border-t border-border bg-muted/10">
+                            <div className="px-3 pb-3 pt-2 space-y-3 border-t border-border bg-muted/10">
                               {/* Beat details */}
-                              <div className="grid grid-cols-2 gap-2 text-[10px]">
-                                <div><span className="text-muted-foreground">Shot:</span> {beat.clip_spec?.shot_type}</div>
-                                <div><span className="text-muted-foreground">Camera:</span> {beat.clip_spec?.camera_move}</div>
-                                <div className="col-span-2"><span className="text-muted-foreground">Prompt:</span> {beat.clip_spec?.visual_prompt}</div>
-                                <div className="col-span-2"><span className="text-muted-foreground">Audio:</span> {beat.clip_spec?.audio_cue}</div>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-[11px]">
+                                <div><span className="text-muted-foreground font-medium">Shot:</span> {beat.clip_spec?.shot_type}</div>
+                                <div><span className="text-muted-foreground font-medium">Camera:</span> {beat.clip_spec?.camera_move}</div>
+                                <div className="sm:col-span-2"><span className="text-muted-foreground font-medium">Prompt:</span> <span className="break-words">{beat.clip_spec?.visual_prompt}</span></div>
+                                <div className="sm:col-span-2"><span className="text-muted-foreground font-medium">Audio:</span> <span className="break-words">{beat.clip_spec?.audio_cue}</span></div>
                               </div>
 
                               <Separator />
