@@ -617,99 +617,96 @@ async function handleBuildShotlist(db: any, body: any, userId: string, _apiKey: 
 }
 
 async function handleGenerateTrailerAssets(db: any, body: any, userId: string, apiKey: string) {
-  const { projectId, trailerShotlistId } = body;
+  // Single-beat generation: processes ONE beat per call to stay within CPU limits
+  const { projectId, trailerShotlistId, beatIndex, skipMotionStill } = body;
   if (!projectId || !trailerShotlistId) return json({ error: "projectId and trailerShotlistId required" }, 400);
 
+  // If no beatIndex, return the list of beats to process (planning mode)
+  if (beatIndex === undefined || beatIndex === null) {
+    const { data: shotlist } = await db.from("trailer_shotlists").select("*")
+      .eq("id", trailerShotlistId).eq("project_id", projectId).single();
+    if (!shotlist) return json({ error: "Shotlist not found" }, 404);
+
+    const allItems = shotlist.items || [];
+    const selectedIndices: number[] | null = shotlist.selected_indices;
+    const filteredByIndices = selectedIndices && selectedIndices.length > 0
+      ? allItems.filter((item: any) => selectedIndices.includes(item.index))
+      : allItems;
+    const items = filteredByIndices.filter((item: any) => item.included !== false);
+    return json({ mode: "plan", beats: items.map((i: any) => ({ index: i.index, shot_title: i.shot_title })), total: items.length });
+  }
+
+  // Process single beat
   const { data: shotlist } = await db.from("trailer_shotlists").select("*")
     .eq("id", trailerShotlistId).eq("project_id", projectId).single();
   if (!shotlist) return json({ error: "Shotlist not found" }, 404);
 
-  const allItems = shotlist.items || [];
-  const selectedIndices: number[] | null = shotlist.selected_indices;
-  const filteredByIndices = selectedIndices && selectedIndices.length > 0
-    ? allItems.filter((item: any) => selectedIndices.includes(item.index))
-    : allItems;
-  const items = filteredByIndices.filter((item: any) => item.included !== false);
-  const results: any[] = [];
-  let framesGenerated = 0;
+  const item = (shotlist.items || []).find((i: any) => i.index === beatIndex);
+  if (!item) return json({ error: `Beat ${beatIndex} not found` }, 404);
+
+  const prompt = buildImagePrompt({
+    characters_in_frame: [],
+    blocking_notes: item.shot_description,
+    location_hint: "", time_of_day_hint: "day",
+    shot_type: "WS", framing: "wide", camera_movement: "static",
+    lighting_style: "cinematic", emotional_intent: "dramatic",
+  }, "cinematic trailer frame");
+
+  const imageUrl = await generateImage(apiKey, prompt);
+  if (!imageUrl) return json({ index: beatIndex, status: "frame_failed", framesGenerated: 0, motionStillsGenerated: 0 });
+
+  const storagePath = `${projectId}/trailers/${trailerShotlistId}/frames/${Date.now()}_${beatIndex}.png`;
+  const publicUrl = await uploadImageFromUrl(imageUrl, storagePath);
+  if (!publicUrl) return json({ index: beatIndex, status: "upload_failed", framesGenerated: 0, motionStillsGenerated: 0 });
+
+  const { data: mediaRow } = await db.from("ai_generated_media").insert({
+    project_id: projectId, media_type: "storyboard_frame",
+    storage_path: storagePath, selected: true, created_by: userId,
+    trailer_shotlist_id: trailerShotlistId,
+    generation_params: { prompt, beat_index: beatIndex, model: "gemini-2.5-flash-image" },
+  }).select().single();
+
   let motionStillsGenerated = 0;
 
-  const motionStillBudget = 8;
-  let motionStillCount = 0;
-
-  for (const item of items) {
+  if (!skipMotionStill && item.ai_suggested_tier !== "C" && item.hook_strength >= 6) {
     try {
-      const prompt = buildImagePrompt({
-        characters_in_frame: [],
-        blocking_notes: item.shot_description,
-        location_hint: "", time_of_day_hint: "day",
-        shot_type: "WS", framing: "wide", camera_movement: "static",
-        lighting_style: "cinematic", emotional_intent: "dramatic",
-      }, "cinematic trailer frame");
+      const animResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "google/gemini-2.5-flash-image",
+          messages: [{
+            role: "user",
+            content: [
+              { type: "text", text: "Create a subtle push-in camera movement version of this cinematic frame. Gentle, slow perspective shift. No text, no watermarks." },
+              { type: "image_url", image_url: { url: publicUrl } },
+            ],
+          }],
+          modalities: ["image", "text"],
+        }),
+      });
 
-      const imageUrl = await generateImage(apiKey, prompt);
-      if (!imageUrl) { results.push({ index: item.index, status: "frame_failed" }); continue; }
-
-      const storagePath = `${projectId}/trailers/${trailerShotlistId}/frames/${Date.now()}_${item.index}.png`;
-      const publicUrl = await uploadImageFromUrl(imageUrl, storagePath);
-      if (!publicUrl) { results.push({ index: item.index, status: "upload_failed" }); continue; }
-
-      const { data: mediaRow } = await db.from("ai_generated_media").insert({
-        project_id: projectId, media_type: "storyboard_frame",
-        storage_path: storagePath, selected: true, created_by: userId,
-        trailer_shotlist_id: trailerShotlistId,
-        generation_params: { prompt, beat_index: item.index, model: "gemini-2.5-flash-image" },
-      }).select().single();
-
-      framesGenerated++;
-
-      if (item.ai_suggested_tier !== "C" && motionStillCount < motionStillBudget && item.hook_strength >= 6) {
-        try {
-          const animResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-            method: "POST",
-            headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-            body: JSON.stringify({
-              model: "google/gemini-2.5-flash-image",
-              messages: [{
-                role: "user",
-                content: [
-                  { type: "text", text: "Create a subtle push-in camera movement version of this cinematic frame. Gentle, slow perspective shift. No text, no watermarks." },
-                  { type: "image_url", image_url: { url: publicUrl } },
-                ],
-              }],
-              modalities: ["image", "text"],
-            }),
-          });
-
-          if (animResp.ok) {
-            const animData = await animResp.json();
-            const animUrl = animData.choices?.[0]?.message?.images?.[0]?.image_url?.url;
-            if (animUrl) {
-              const clipPath = `${projectId}/trailers/${trailerShotlistId}/motion/${Date.now()}_${item.index}.png`;
-              const clipPublicUrl = await uploadImageFromUrl(animUrl, clipPath);
-              if (clipPublicUrl) {
-                await db.from("ai_generated_media").insert({
-                  project_id: projectId, media_type: "motion_still",
-                  storage_path: clipPath, selected: true, created_by: userId,
-                  trailer_shotlist_id: trailerShotlistId,
-                  generation_params: { keyframe_id: mediaRow?.id, beat_index: item.index },
-                });
-                motionStillsGenerated++;
-                motionStillCount++;
-              }
-            }
+      if (animResp.ok) {
+        const animData = await animResp.json();
+        const animUrl = animData.choices?.[0]?.message?.images?.[0]?.image_url?.url;
+        if (animUrl) {
+          const clipPath = `${projectId}/trailers/${trailerShotlistId}/motion/${Date.now()}_${beatIndex}.png`;
+          const clipPublicUrl = await uploadImageFromUrl(animUrl, clipPath);
+          if (clipPublicUrl) {
+            await db.from("ai_generated_media").insert({
+              project_id: projectId, media_type: "motion_still",
+              storage_path: clipPath, selected: true, created_by: userId,
+              trailer_shotlist_id: trailerShotlistId,
+              generation_params: { keyframe_id: mediaRow?.id, beat_index: beatIndex },
+            });
+            motionStillsGenerated = 1;
           }
-        } catch (animErr) { console.error("Motion still error for beat", item.index, animErr); }
+        }
       }
-
-      results.push({ index: item.index, status: "ok", frame_url: publicUrl });
-    } catch (err) {
-      console.error("Asset gen error:", err);
-      results.push({ index: item.index, status: "error" });
-    }
+    } catch (animErr) { console.error("Motion still error for beat", beatIndex, animErr); }
   }
 
-  return json({ framesGenerated, motionStillsGenerated, results, total: items.length });
+  return json({ index: beatIndex, status: "ok", frame_url: publicUrl, framesGenerated: 1, motionStillsGenerated });
 }
 
 async function handleAssembleTrailer(db: any, body: any, userId: string, _apiKey: string) {
