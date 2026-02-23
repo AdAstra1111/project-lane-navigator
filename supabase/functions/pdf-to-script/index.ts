@@ -177,9 +177,18 @@ Deno.serve(async (req) => {
       return json({ error: "No storage path found for the PDF document" }, 400);
 
     // 4) Download PDF bytes from storage
-    const { data: fileData, error: dlError } = await admin.storage
-      .from("project-documents")
-      .download(storagePath);
+    // Try 'scripts' bucket first (where useScriptIntake uploads), then 'project-documents' fallback
+    let fileData: Blob | null = null;
+    let dlError: any = null;
+    for (const bucket of ["scripts", "project-documents"]) {
+      const result = await admin.storage.from(bucket).download(storagePath);
+      if (!result.error && result.data) {
+        fileData = result.data;
+        dlError = null;
+        break;
+      }
+      dlError = result.error;
+    }
 
     if (dlError || !fileData) {
       console.error("PDF download error:", dlError);
@@ -191,13 +200,15 @@ Deno.serve(async (req) => {
 
     // 5) Create signed URL for fallback strategy
     let signedUrl: string | null = null;
-    try {
-      const { data: signedData } = await admin.storage
-        .from("project-documents")
-        .createSignedUrl(storagePath, 600);
-      signedUrl = signedData?.signedUrl || null;
-    } catch (e) {
-      console.warn("Signed URL creation failed (non-fatal):", e);
+    for (const bucket of ["scripts", "project-documents"]) {
+      try {
+        const { data: signedData } = await admin.storage
+          .from(bucket)
+          .createSignedUrl(storagePath, 600);
+        if (signedData?.signedUrl) { signedUrl = signedData.signedUrl; break; }
+      } catch (e) {
+        console.warn("Signed URL creation failed (non-fatal):", e);
+      }
     }
 
     // 6) Extract text via LLM (inline base64 first, signed URL fallback)
