@@ -1,6 +1,6 @@
 /** Hook for canonical notes engine API calls */
 import { supabase } from '@/integrations/supabase/client';
-import type { ProjectNote, NoteFilters, TriagePayload, NoteSuggestedFix } from '@/lib/types/notes';
+import type { ProjectNote, NoteFilters, TriagePayload, EnsureNoteLegacy, NoteEvent } from '@/lib/types/notes';
 
 async function callNotesEngine(action: string, payload: Record<string, unknown>) {
   const { data: { session } } = await supabase.auth.getSession();
@@ -10,7 +10,14 @@ async function callNotesEngine(action: string, payload: Record<string, unknown>)
     body: { action, ...payload },
   });
   if (error) throw new Error(error.message);
-  if (data?.error) throw new Error(data.error);
+  if (data?.error) {
+    // Preserve disambiguation data
+    const err: any = new Error(data.error);
+    err.needs_user_disambiguation = data.needs_user_disambiguation;
+    err.patch_errors = data.patch_errors;
+    err.hint = data.hint;
+    throw err;
+  }
   return data;
 }
 
@@ -19,8 +26,17 @@ export async function listNotes(projectId: string, filters?: NoteFilters): Promi
   return data.notes || [];
 }
 
+export async function getNote(projectId: string, noteId: string): Promise<{ note: ProjectNote; events: NoteEvent[] }> {
+  return callNotesEngine('get_note', { projectId, noteId });
+}
+
 export async function createNote(projectId: string, note: Partial<ProjectNote>): Promise<ProjectNote> {
   const data = await callNotesEngine('create_note', { projectId, note });
+  return data.note;
+}
+
+export async function ensureNote(projectId: string, legacy: EnsureNoteLegacy): Promise<ProjectNote> {
+  const data = await callNotesEngine('ensure_note', { projectId, legacy });
   return data.note;
 }
 

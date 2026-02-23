@@ -45,6 +45,7 @@ export interface ProjectNote {
   detail: string | null;
   suggested_fixes: NoteSuggestedFix[] | null;
   applied_change_event_id: string | null;
+  legacy_key: string | null;
   created_at: string;
   created_by: string | null;
   updated_at: string;
@@ -63,6 +64,16 @@ export interface NoteChangeEvent {
   error: string | null;
   result_version_id: string | null;
   created_at: string;
+}
+
+export interface NoteEvent {
+  id: string;
+  project_id: string;
+  note_id: string;
+  event_type: string;
+  payload: Record<string, unknown>;
+  created_at: string;
+  created_by: string | null;
 }
 
 export interface PatchSection {
@@ -89,4 +100,21 @@ export interface NoteFilters {
   timing?: NoteTiming;
   category?: NoteCategory;
   severity?: NoteSeverity;
+}
+
+export interface EnsureNoteLegacy {
+  legacy_key?: string;
+  source?: string;
+  doc_type?: string | null;
+  document_id?: string | null;
+  version_id?: string | null;
+  category?: string;
+  severity?: string;
+  timing?: 'now' | 'later' | 'dependent';
+  destination_doc_type?: string | null;
+  title: string;
+  summary: string;
+  detail?: string | null;
+  suggested_fixes?: any[] | null;
+  anchor?: any | null;
 }

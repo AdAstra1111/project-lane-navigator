@@ -19,6 +19,7 @@ import { useState, useCallback, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { NoteDrawer } from '@/components/notes/NoteDrawer';
 import type { ProjectNote, NoteSuggestedFix } from '@/lib/types/notes';
+import { useNotesMutations } from '@/lib/notes/useProjectNotes';
 
 /** Compat type — maps legacy note shapes to NoteDrawer's ProjectNote interface */
 interface NoteForResolution {
@@ -771,6 +772,9 @@ export function NotesPanel({
   const [customDirections, setCustomDirections] = useState<Record<string, string>>({});
   const [resolutionNote, setResolutionNote] = useState<NoteForResolution | null>(null);
   const [resolutionOpen, setResolutionOpen] = useState(false);
+  const [canonicalNoteId, setCanonicalNoteId] = useState<string | null>(null);
+  const [legacyToCanonicalMap, setLegacyToCanonicalMap] = useState<Record<string, string>>({});
+  const { ensureMutation } = useNotesMutations(projectId);
   const [noteFilter, setNoteFilter] = useState<NoteFilter>('all');
   const [statusVersion, setStatusVersion] = useState(0);
   const [writersRoomNote, setWritersRoomNote] = useState<any>(null);
@@ -865,6 +869,50 @@ export function NotesPanel({
       setPatchDialog(null);
     } finally { setPatchApplying(false); }
   }, [patchDialog, onResolveCarriedNote]);
+
+  // Bridge: ensure legacy note → canonical DB note, then open NoteDrawer by ID
+  const handleOpenResolutionWithEnsure = useCallback(async (n: NoteForResolution) => {
+    setResolutionNote(n);
+    const legacyKey = n.note_key || n.id || '';
+    // Check local cache
+    if (legacyKey && legacyToCanonicalMap[legacyKey]) {
+      setCanonicalNoteId(legacyToCanonicalMap[legacyKey]);
+      setResolutionOpen(true);
+      return;
+    }
+    // Ensure canonical note via edge function
+    if (projectId) {
+      try {
+        const canonical = await ensureMutation.mutateAsync({
+          legacy_key: legacyKey || undefined,
+          source: 'dev_engine',
+          doc_type: n.target_doc_type || currentDocType || undefined,
+          document_id: documentId || undefined,
+          version_id: currentVersionId || undefined,
+          category: n.category || 'story',
+          severity: n.severity || 'med',
+          timing: 'now',
+          title: n.summary || 'Note',
+          summary: n.summary || '',
+          detail: n.detail || undefined,
+          suggested_fixes: n.fix_options?.map((f: any, i: number) => ({
+            id: f.id || `fix_${i}`,
+            title: f.title || f.patch_name || `Option ${i + 1}`,
+            description: f.description || f.what || '',
+            patch_strategy: f.patch_strategy,
+            instructions: f.instructions,
+            expected_effect: f.expected_effect,
+            risk_level: f.risk_level,
+          })) || undefined,
+        });
+        if (canonical?.id) {
+          if (legacyKey) setLegacyToCanonicalMap(prev => ({ ...prev, [legacyKey]: canonical.id }));
+          setCanonicalNoteId(canonical.id);
+        }
+      } catch { /* fallback: open without canonical */ }
+    }
+    setResolutionOpen(true);
+  }, [projectId, documentId, currentDocType, currentVersionId, ensureMutation, legacyToCanonicalMap]);
 
   const handleOpenWritersRoom = useCallback((note: any) => {
     setWritersRoomNote(note);
@@ -1033,7 +1081,7 @@ export function NotesPanel({
                     selectedOptionId={selectedDecisions[noteId]} onSelectOption={(optionId) => handleSelectOption(noteId, optionId)}
                     customDirection={customDirections[noteId]} onCustomDirection={(text) => handleCustomDirection(noteId, text)}
                     projectId={projectId} currentDocType={currentDocType} onStatusChange={() => setStatusVersion(v => v + 1)}
-                    onOpenResolution={(n) => { setResolutionNote(n); setResolutionOpen(true); }}
+                    onOpenResolution={(n) => handleOpenResolutionWithEnsure(n)}
                     onOpenWritersRoom={handleOpenWritersRoom}
                     onFindOtherSolutions={handleFindOtherSolutions}
                     isFindingSolutions={findingSolutionsNote === noteFingerprint(enrichedNote)} />;
@@ -1053,7 +1101,7 @@ export function NotesPanel({
                     selectedOptionId={selectedDecisions[noteId]} onSelectOption={(optionId) => handleSelectOption(noteId, optionId)}
                     customDirection={customDirections[noteId]} onCustomDirection={(text) => handleCustomDirection(noteId, text)}
                     projectId={projectId} currentDocType={currentDocType} onStatusChange={() => setStatusVersion(v => v + 1)}
-                    onOpenResolution={(n) => { setResolutionNote(n); setResolutionOpen(true); }}
+                    onOpenResolution={(n) => handleOpenResolutionWithEnsure(n)}
                     onOpenWritersRoom={handleOpenWritersRoom}
                     onFindOtherSolutions={handleFindOtherSolutions}
                     isFindingSolutions={findingSolutionsNote === noteFingerprint(enrichedNote)} />;
@@ -1073,7 +1121,7 @@ export function NotesPanel({
                     const idx = blockerCount + highCount + i;
                     return <NoteItem key={`p-${i}`} note={{ ...note, severity: 'polish' }} index={idx} checked={selectedNotes.has(idx)} onToggle={() => toggle(idx)}
                       projectId={projectId} currentDocType={currentDocType} onStatusChange={() => setStatusVersion(v => v + 1)}
-                      onOpenResolution={(n) => { setResolutionNote(n); setResolutionOpen(true); }} />;
+                      onOpenResolution={(n) => handleOpenResolutionWithEnsure(n)} />;
                   })}
                 </CollapsibleContent>
               </Collapsible>
@@ -1369,43 +1417,11 @@ export function NotesPanel({
         </DialogContent>
       </Dialog>
 
-      {/* Unified Note Drawer */}
+      {/* Unified Note Drawer — ID-driven */}
       <NoteDrawer
         open={resolutionOpen}
         projectId={projectId || ''}
-        noteId={resolutionNote?.id || resolutionNote?.note_key || null}
-        note={resolutionNote ? {
-          id: resolutionNote.id || resolutionNote.note_key || '',
-          project_id: projectId || '',
-          source: resolutionNote.source === 'regular' ? 'dev_engine' : resolutionNote.source === 'carried' ? 'dev_engine' : 'dev_engine',
-          doc_type: resolutionNote.target_doc_type || null,
-          document_id: documentId || null,
-          version_id: currentVersionId || null,
-          anchor: null,
-          category: (resolutionNote.category as any) || 'story',
-          severity: (resolutionNote.severity as any) || 'med',
-          timing: 'now' as const,
-          destination_doc_type: null,
-          dependent_on_note_id: null,
-          status: 'open' as const,
-          title: resolutionNote.summary || '',
-          summary: resolutionNote.summary || '',
-          detail: resolutionNote.detail || null,
-          suggested_fixes: resolutionNote.fix_options?.map((f: any, i: number) => ({
-            id: f.id || `fix_${i}`,
-            title: f.title || f.patch_name || `Option ${i + 1}`,
-            description: f.description || f.what || '',
-            patch_strategy: f.patch_strategy,
-            instructions: f.instructions,
-            expected_effect: f.expected_effect,
-            risk_level: f.risk_level,
-          })) || null,
-          applied_change_event_id: null,
-          created_at: new Date().toISOString(),
-          created_by: null,
-          updated_at: new Date().toISOString(),
-          updated_by: null,
-        } as ProjectNote : null}
+        noteId={canonicalNoteId}
         context={{ docType: resolutionNote?.target_doc_type, documentId, versionId: currentVersionId }}
         onApplied={(newVersionId) => {
           const noteId = resolutionNote?.id || resolutionNote?.note_key;
@@ -1415,7 +1431,7 @@ export function NotesPanel({
           }
           onDecisionApplied?.();
         }}
-        onClose={() => setResolutionOpen(false)}
+        onClose={() => { setResolutionOpen(false); setCanonicalNoteId(null); }}
       />
 
       {/* Writers' Room Drawer */}
