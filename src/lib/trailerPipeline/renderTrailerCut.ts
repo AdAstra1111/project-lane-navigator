@@ -166,8 +166,9 @@ export async function renderTrailerCut(
     })
   );
 
-  // Setup MediaRecorder
+  // Setup MediaRecorder — use captureStream(0) so we control frame timing
   const stream = canvas.captureStream(0);
+  const videoTrack = stream.getVideoTracks()[0];
   const mimeTypes = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
   let mimeType = '';
   for (const mt of mimeTypes) {
@@ -184,10 +185,19 @@ export async function renderTrailerCut(
 
   const frameDuration = 1000 / fps;
 
+  // Helper: commit current canvas to the video stream
+  const commitFrame = async () => {
+    if (videoTrack && 'requestFrame' in videoTrack) {
+      (videoTrack as any).requestFrame();
+    }
+    // Give the recorder time to capture the frame
+    await new Promise((r) => setTimeout(r, frameDuration));
+  };
+
   // Draw initial frame
   ctx.fillStyle = '#000000';
   ctx.fillRect(0, 0, width, height);
-  await new Promise((r) => setTimeout(r, 50));
+  await commitFrame();
 
   for (let tIdx = 0; tIdx < timeline.length; tIdx++) {
     const entry = timeline[tIdx];
@@ -195,63 +205,57 @@ export async function renderTrailerCut(
     const asset = entry.clip_url ? mediaCache[entry.clip_url] : undefined;
 
     if (entry.text_overlay && entry.role === 'title_card') {
-      // Text card — static frame
       for (let f = 0; f < totalFrames; f++) {
         drawTextCard(ctx, entry.text_overlay, width, height);
-        await new Promise((r) => setTimeout(r, 10));
+        await commitFrame();
       }
     } else if (asset?.type === 'video') {
-      // Video clip — seek through frames
       const video = asset.el;
       const videoDuration = video.duration || 1;
       const clipDurationS = entry.duration_ms / 1000;
       const playbackDuration = Math.min(clipDurationS, videoDuration);
 
-      // Start playback from beginning
       video.currentTime = 0;
       await new Promise<void>((resolve) => {
         const onSeeked = () => { video.removeEventListener('seeked', onSeeked); resolve(); };
         video.addEventListener('seeked', onSeeked);
+        setTimeout(resolve, 200);
       });
 
       for (let f = 0; f < totalFrames; f++) {
-        // Seek to the proportional position in the video
         const t = (f / totalFrames) * playbackDuration;
         video.currentTime = Math.min(t, videoDuration - 0.01);
 
-        // Wait for seek to complete
         await new Promise<void>((resolve) => {
           const onSeeked = () => { video.removeEventListener('seeked', onSeeked); resolve(); };
           video.addEventListener('seeked', onSeeked);
-          // Timeout fallback in case seeked doesn't fire
-          setTimeout(resolve, 100);
+          setTimeout(resolve, 150);
         });
 
         drawMediaToCanvas(ctx, video, width, height);
         if (entry.text_overlay) drawTextOverlay(ctx, entry.text_overlay, width, height);
-        await new Promise((r) => setTimeout(r, 10));
+        await commitFrame();
       }
     } else if (asset?.type === 'image') {
-      // Image — static frame with overlay
       for (let f = 0; f < totalFrames; f++) {
         drawMediaToCanvas(ctx, asset.el, width, height);
         if (entry.text_overlay) drawTextOverlay(ctx, entry.text_overlay, width, height);
-        await new Promise((r) => setTimeout(r, 10));
+        await commitFrame();
       }
     } else {
-      // No media — placeholder
       for (let f = 0; f < totalFrames; f++) {
         drawPlaceholder(ctx, width, height, entry.role);
         if (entry.text_overlay) drawTextOverlay(ctx, entry.text_overlay, width, height);
-        await new Promise((r) => setTimeout(r, 10));
+        await commitFrame();
       }
     }
 
     onProgress?.(tIdx + 1, timeline.length);
   }
 
-  // Final flush
-  await new Promise((r) => setTimeout(r, 200));
+  // Final flush — ensure last frames are captured
+  await commitFrame();
+  await commitFrame();
 
   recorder.stop();
   await recordingDone;
