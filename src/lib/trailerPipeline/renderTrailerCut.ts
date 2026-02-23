@@ -1,6 +1,6 @@
 /**
  * Client-side trailer cut renderer using Canvas + MediaRecorder.
- * Draws timeline entries as image frames with text overlays.
+ * Draws timeline entries as video/image frames with text overlays.
  */
 import type { TimelineEntry } from './types';
 
@@ -25,6 +25,35 @@ async function loadImage(url: string): Promise<HTMLImageElement> {
     img.onerror = () => reject(new Error(`Failed to load image: ${url}`));
     img.src = url;
   });
+}
+
+async function loadVideo(url: string): Promise<HTMLVideoElement> {
+  return new Promise((resolve, reject) => {
+    const video = document.createElement('video');
+    video.crossOrigin = 'anonymous';
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = 'auto';
+
+    const timeout = setTimeout(() => reject(new Error(`Video load timeout: ${url}`)), 30000);
+
+    video.onloadeddata = () => {
+      clearTimeout(timeout);
+      resolve(video);
+    };
+    video.onerror = () => {
+      clearTimeout(timeout);
+      reject(new Error(`Failed to load video: ${url}`));
+    };
+    video.src = url;
+    video.load();
+  });
+}
+
+function isVideoUrl(url: string): boolean {
+  const lower = url.toLowerCase();
+  return lower.includes('.mp4') || lower.includes('.webm') || lower.includes('.mov')
+    || lower.includes('video') || lower.includes('/object/');
 }
 
 function drawTextOverlay(ctx: CanvasRenderingContext2D, text: string, w: number, h: number) {
@@ -56,7 +85,6 @@ function drawTextCard(ctx: CanvasRenderingContext2D, text: string, w: number, h:
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
 
-  // Word wrap
   const words = text.split(' ');
   const lines: string[] = [];
   let line = '';
@@ -76,6 +104,26 @@ function drawTextCard(ctx: CanvasRenderingContext2D, text: string, w: number, h:
   lines.forEach((l, i) => ctx.fillText(l, w / 2, startY + i * lineH));
 }
 
+function drawMediaToCanvas(
+  ctx: CanvasRenderingContext2D,
+  source: HTMLImageElement | HTMLVideoElement,
+  w: number,
+  h: number
+) {
+  const srcW = source instanceof HTMLVideoElement ? source.videoWidth : source.width;
+  const srcH = source instanceof HTMLVideoElement ? source.videoHeight : source.height;
+  if (srcW === 0 || srcH === 0) return;
+
+  const scale = Math.min(w / srcW, h / srcH);
+  const dw = srcW * scale;
+  const dh = srcH * scale;
+  ctx.fillStyle = '#000000';
+  ctx.fillRect(0, 0, w, h);
+  ctx.drawImage(source, (w - dw) / 2, (h - dh) / 2, dw, dh);
+}
+
+type MediaAsset = { type: 'image'; el: HTMLImageElement } | { type: 'video'; el: HTMLVideoElement };
+
 export async function renderTrailerCut(
   timeline: TimelineEntry[],
   opts: Partial<RenderOptions> = {}
@@ -91,18 +139,34 @@ export async function renderTrailerCut(
   canvas.height = height;
   const ctx = canvas.getContext('2d')!;
 
-  // Preload images
-  const imageCache: Record<string, HTMLImageElement> = {};
-  const imageUrls = timeline.filter(t => t.clip_url && t.media_type === 'video').map(t => t.clip_url!);
-  const uniqueUrls = [...new Set(imageUrls)];
+  // Preload all media assets (images AND videos)
+  const mediaCache: Record<string, MediaAsset> = {};
+  const urlsToLoad = timeline
+    .filter(t => t.clip_url)
+    .map(t => t.clip_url!)
+    .filter((url, i, arr) => arr.indexOf(url) === i);
 
   await Promise.allSettled(
-    uniqueUrls.map(async (url) => {
-      try { imageCache[url] = await loadImage(url); } catch { /* skip */ }
+    urlsToLoad.map(async (url) => {
+      try {
+        if (isVideoUrl(url)) {
+          const video = await loadVideo(url);
+          mediaCache[url] = { type: 'video', el: video };
+        } else {
+          const img = await loadImage(url);
+          mediaCache[url] = { type: 'image', el: img };
+        }
+      } catch {
+        // Try the other type as fallback
+        try {
+          const img = await loadImage(url);
+          mediaCache[url] = { type: 'image', el: img };
+        } catch { /* skip — will show placeholder */ }
+      }
     })
   );
 
-  // Setup MediaRecorder — use captureStream(0) for manual frame capture
+  // Setup MediaRecorder
   const stream = canvas.captureStream(0);
   const mimeTypes = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
   let mimeType = '';
@@ -119,49 +183,86 @@ export async function renderTrailerCut(
   recorder.start(100);
 
   const frameDuration = 1000 / fps;
-  // Speed up rendering: use a shorter delay per frame (10ms vs real-time ~42ms)
-  const renderDelay = Math.min(frameDuration, 10);
 
-  const drawEntry = (entry: TimelineEntry) => {
-    if (entry.text_overlay && entry.role === 'title_card') {
-      drawTextCard(ctx, entry.text_overlay, width, height);
-    } else if (entry.clip_url && imageCache[entry.clip_url]) {
-      const img = imageCache[entry.clip_url];
-      const scale = Math.min(width / img.width, height / img.height);
-      const dw = img.width * scale;
-      const dh = img.height * scale;
-      ctx.fillStyle = '#000000';
-      ctx.fillRect(0, 0, width, height);
-      ctx.drawImage(img, (width - dw) / 2, (height - dh) / 2, dw, dh);
-      if (entry.text_overlay) drawTextOverlay(ctx, entry.text_overlay, width, height);
-    } else {
-      drawPlaceholder(ctx, width, height, entry.role);
-      if (entry.text_overlay) drawTextOverlay(ctx, entry.text_overlay, width, height);
-    }
-  };
-
-  // Draw an initial frame to ensure stream has data
-  drawEntry(timeline[0]);
+  // Draw initial frame
+  ctx.fillStyle = '#000000';
+  ctx.fillRect(0, 0, width, height);
   await new Promise((r) => setTimeout(r, 50));
 
   for (let tIdx = 0; tIdx < timeline.length; tIdx++) {
     const entry = timeline[tIdx];
-    const frames = Math.max(1, Math.round(entry.duration_ms / frameDuration));
+    const totalFrames = Math.max(1, Math.round(entry.duration_ms / frameDuration));
+    const asset = entry.clip_url ? mediaCache[entry.clip_url] : undefined;
 
-    for (let f = 0; f < frames; f++) {
-      drawEntry(entry);
-      // Yield to the event loop so MediaRecorder can capture the frame
-      await new Promise((r) => setTimeout(r, renderDelay));
+    if (entry.text_overlay && entry.role === 'title_card') {
+      // Text card — static frame
+      for (let f = 0; f < totalFrames; f++) {
+        drawTextCard(ctx, entry.text_overlay, width, height);
+        await new Promise((r) => setTimeout(r, 10));
+      }
+    } else if (asset?.type === 'video') {
+      // Video clip — seek through frames
+      const video = asset.el;
+      const videoDuration = video.duration || 1;
+      const clipDurationS = entry.duration_ms / 1000;
+      const playbackDuration = Math.min(clipDurationS, videoDuration);
+
+      // Start playback from beginning
+      video.currentTime = 0;
+      await new Promise<void>((resolve) => {
+        const onSeeked = () => { video.removeEventListener('seeked', onSeeked); resolve(); };
+        video.addEventListener('seeked', onSeeked);
+      });
+
+      for (let f = 0; f < totalFrames; f++) {
+        // Seek to the proportional position in the video
+        const t = (f / totalFrames) * playbackDuration;
+        video.currentTime = Math.min(t, videoDuration - 0.01);
+
+        // Wait for seek to complete
+        await new Promise<void>((resolve) => {
+          const onSeeked = () => { video.removeEventListener('seeked', onSeeked); resolve(); };
+          video.addEventListener('seeked', onSeeked);
+          // Timeout fallback in case seeked doesn't fire
+          setTimeout(resolve, 100);
+        });
+
+        drawMediaToCanvas(ctx, video, width, height);
+        if (entry.text_overlay) drawTextOverlay(ctx, entry.text_overlay, width, height);
+        await new Promise((r) => setTimeout(r, 10));
+      }
+    } else if (asset?.type === 'image') {
+      // Image — static frame with overlay
+      for (let f = 0; f < totalFrames; f++) {
+        drawMediaToCanvas(ctx, asset.el, width, height);
+        if (entry.text_overlay) drawTextOverlay(ctx, entry.text_overlay, width, height);
+        await new Promise((r) => setTimeout(r, 10));
+      }
+    } else {
+      // No media — placeholder
+      for (let f = 0; f < totalFrames; f++) {
+        drawPlaceholder(ctx, width, height, entry.role);
+        if (entry.text_overlay) drawTextOverlay(ctx, entry.text_overlay, width, height);
+        await new Promise((r) => setTimeout(r, 10));
+      }
     }
 
     onProgress?.(tIdx + 1, timeline.length);
   }
 
-  // Final flush — give recorder time to capture last frames
+  // Final flush
   await new Promise((r) => setTimeout(r, 200));
 
   recorder.stop();
   await recordingDone;
+
+  // Clean up videos
+  for (const asset of Object.values(mediaCache)) {
+    if (asset.type === 'video') {
+      asset.el.src = '';
+      asset.el.load();
+    }
+  }
 
   const blob = new Blob(chunks, { type: 'video/webm' });
   if (blob.size < 100) {
