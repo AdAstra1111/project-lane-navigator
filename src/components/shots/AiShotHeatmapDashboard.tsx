@@ -24,7 +24,7 @@ import {
 } from '@/components/ui/tooltip';
 import {
   Loader2, Sparkles, CheckCircle2, AlertTriangle, XCircle,
-  BarChart3, Grid3X3, Filter, Image, Zap,
+  BarChart3, Grid3X3, Filter, Image, Zap, Clapperboard,
 } from 'lucide-react';
 
 interface AiShotHeatmapDashboardProps {
@@ -86,9 +86,21 @@ export function AiShotHeatmapDashboard({ projectId }: AiShotHeatmapDashboardProp
   if (shots.length === 0) {
     return (
       <Card className="border-border/50">
-        <CardContent className="p-6 text-center">
-          <Grid3X3 className="h-6 w-6 mx-auto text-muted-foreground/40 mb-2" />
-          <p className="text-xs text-muted-foreground">No shots found for this project. Generate shot plans first.</p>
+        <CardContent className="p-6 text-center space-y-3">
+          <Grid3X3 className="h-8 w-8 mx-auto text-muted-foreground/30" />
+          <div className="space-y-1">
+            <p className="text-sm font-medium text-foreground">No shot plans generated yet</p>
+            <p className="text-xs text-muted-foreground max-w-xs mx-auto">
+              AI Readiness works on <strong>shots</strong>, not scenes. Go to the <strong>Shot Plan</strong> tab, select a scene, and generate a shot plan first. Then return here to see readiness scores.
+            </p>
+          </div>
+          <div className="flex items-center justify-center gap-2 text-[10px] text-muted-foreground">
+            <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-muted-foreground/20" /> 1. Select scene</span>
+            <span>→</span>
+            <span className="flex items-center gap-1"><Clapperboard className="h-3 w-3" /> 2. Generate shots</span>
+            <span>→</span>
+            <span className="flex items-center gap-1"><Sparkles className="h-3 w-3" /> 3. AI labels them</span>
+          </div>
         </CardContent>
       </Card>
     );
