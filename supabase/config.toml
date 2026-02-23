@@ -203,3 +203,6 @@ verify_jwt = false
 
 [functions.ai-production-layer]
 verify_jwt = false
+
+[functions.ai-trailer-factory]
+verify_jwt = false
