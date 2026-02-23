@@ -212,3 +212,6 @@ verify_jwt = false
 
 [functions.visual-unit-engine]
 verify_jwt = false
+
+[functions.storyboard-engine]
+verify_jwt = false

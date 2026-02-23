@@ -15590,6 +15590,195 @@ export type Database = {
           },
         ]
       }
+      storyboard_panels: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          panel_index: number
+          panel_payload: Json
+          project_id: string
+          run_id: string
+          status: string
+          unit_key: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          panel_index: number
+          panel_payload: Json
+          project_id: string
+          run_id: string
+          status?: string
+          unit_key: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          panel_index?: number
+          panel_payload?: Json
+          project_id?: string
+          run_id?: string
+          status?: string
+          unit_key?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "storyboard_panels_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "storyboard_panels_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "storyboard_panels_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "storyboard_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      storyboard_pipeline_frames: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          gen_params: Json
+          height: number | null
+          id: string
+          model: string
+          panel_id: string
+          project_id: string
+          public_url: string
+          seed: string | null
+          status: string
+          storage_path: string
+          width: number | null
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          gen_params?: Json
+          height?: number | null
+          id?: string
+          model?: string
+          panel_id: string
+          project_id: string
+          public_url: string
+          seed?: string | null
+          status?: string
+          storage_path: string
+          width?: number | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          gen_params?: Json
+          height?: number | null
+          id?: string
+          model?: string
+          panel_id?: string
+          project_id?: string
+          public_url?: string
+          seed?: string | null
+          status?: string
+          storage_path?: string
+          width?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "storyboard_pipeline_frames_panel_id_fkey"
+            columns: ["panel_id"]
+            isOneToOne: false
+            referencedRelation: "storyboard_panels"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "storyboard_pipeline_frames_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "storyboard_pipeline_frames_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      storyboard_runs: {
+        Row: {
+          aspect_ratio: string
+          created_at: string
+          created_by: string | null
+          error: string | null
+          id: string
+          project_id: string
+          source_visual_unit_run_id: string | null
+          status: string
+          style_preset: string
+          unit_keys: string[]
+        }
+        Insert: {
+          aspect_ratio?: string
+          created_at?: string
+          created_by?: string | null
+          error?: string | null
+          id?: string
+          project_id: string
+          source_visual_unit_run_id?: string | null
+          status?: string
+          style_preset?: string
+          unit_keys?: string[]
+        }
+        Update: {
+          aspect_ratio?: string
+          created_at?: string
+          created_by?: string | null
+          error?: string | null
+          id?: string
+          project_id?: string
+          source_visual_unit_run_id?: string | null
+          status?: string
+          style_preset?: string
+          unit_keys?: string[]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "storyboard_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "storyboard_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "storyboard_runs_source_visual_unit_run_id_fkey"
+            columns: ["source_visual_unit_run_id"]
+            isOneToOne: false
+            referencedRelation: "visual_unit_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       subscriptions: {
         Row: {
           cancel_at_period_end: boolean
