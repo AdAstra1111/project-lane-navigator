@@ -382,186 +382,188 @@ async function handleProcessJob(db: any, body: any, userId: string) {
   const useStub = Deno.env.get("CLIP_GEN_PROVIDER_STUB") === "true";
 
   try {
-    let videoUrl: string | null = null;
-    let model = "stub";
-    let storagePath: string;
-    let contentType = "image/png";
-
+    // ── Stub mode ──
     if (useStub || (job.provider === "veo" && !Deno.env.get("VEO_API_KEY") && !Deno.env.get("GOOGLE_API_KEY")) ||
         (job.provider === "runway" && !Deno.env.get("RUNWAY_API_KEY"))) {
-      // Stub mode
       const { bytes, mimeType } = generateStubVideo();
-      storagePath = `${projectId}/clips/${job.blueprint_id}/${job.beat_index}/${jobId}.png`;
+      const storagePath = `${projectId}/clips/${job.blueprint_id}/${job.beat_index}/${jobId}.png`;
       const blob = new Blob([bytes], { type: mimeType });
       await db.storage.from(STORAGE_BUCKET).upload(storagePath, blob, { contentType: mimeType, upsert: true });
-      model = "stub";
-      contentType = mimeType;
-    } else if (job.provider === "veo") {
-      // Real Veo call
+      return await finalizeClip(db, job, jobId, projectId, userId, storagePath, mimeType, "stub");
+    }
+
+    // ── Real provider: fire-and-forget ──
+    if (job.provider === "veo") {
       const veoResult = await callVeo({
-        prompt: job.prompt,
-        lengthMs: job.length_ms,
-        aspectRatio: job.aspect_ratio,
-        fps: job.fps,
-        seed: job.seed,
-        initImagePaths: job.init_image_paths || [],
+        prompt: job.prompt, lengthMs: job.length_ms, aspectRatio: job.aspect_ratio,
+        fps: job.fps, seed: job.seed, initImagePaths: job.init_image_paths || [],
         paramsJson: job.params_json || {},
       });
-      model = veoResult.model;
 
       if (veoResult.status === "polling" && veoResult.providerJobId) {
-        // Store provider job ID and poll
+        // Save provider job ID and set status to "polling" — return immediately
         await db.from("trailer_clip_jobs").update({
           provider_job_id: veoResult.providerJobId,
+          status: "polling",
         }).eq("id", jobId);
-
-        // Poll up to 120s
-        for (let i = 0; i < 24; i++) {
-          await sleep(5000);
-          const pollResult = await pollVeo(veoResult.providerJobId);
-          if (pollResult.status === "complete" && pollResult.videoUrl) {
-            videoUrl = pollResult.videoUrl;
-            break;
-          }
-        }
-        if (!videoUrl) throw new Error("Veo generation timed out after 120s");
-      } else if (veoResult.videoUrl) {
-        videoUrl = veoResult.videoUrl;
+        console.log(`[process_job] Veo submitted, polling: ${veoResult.providerJobId}`);
+        return json({ ok: true, status: "polling", providerJobId: veoResult.providerJobId });
       }
-
-      // Download and store
-      const videoResp = await fetch(videoUrl!);
-      if (!videoResp.ok) throw new Error("Failed to download Veo video");
-      const videoBytes = await videoResp.arrayBuffer();
-      storagePath = `${projectId}/clips/${job.blueprint_id}/${job.beat_index}/${jobId}.mp4`;
-      contentType = "video/mp4";
-      const blob = new Blob([videoBytes], { type: contentType });
-      await db.storage.from(STORAGE_BUCKET).upload(storagePath, blob, { contentType, upsert: true });
+      // Direct result (unlikely)
+      if (veoResult.videoUrl) {
+        const storagePath = await downloadAndStore(db, veoResult.videoUrl, projectId, job.blueprint_id, job.beat_index, jobId);
+        return await finalizeClip(db, job, jobId, projectId, userId, storagePath, "video/mp4", veoResult.model);
+      }
     } else if (job.provider === "runway") {
-      // Real Runway call
       const rwResult = await callRunway({
-        prompt: job.prompt,
-        lengthMs: job.length_ms,
-        aspectRatio: job.aspect_ratio,
-        seed: job.seed,
-        initImagePaths: job.init_image_paths || [],
+        prompt: job.prompt, lengthMs: job.length_ms, aspectRatio: job.aspect_ratio,
+        seed: job.seed, initImagePaths: job.init_image_paths || [],
         paramsJson: job.params_json || {},
       });
-      model = rwResult.model;
 
       if (rwResult.status === "polling" && rwResult.providerJobId) {
         await db.from("trailer_clip_jobs").update({
           provider_job_id: rwResult.providerJobId,
+          status: "polling",
         }).eq("id", jobId);
-
-        // Poll up to 180s (Runway can be slower)
-        for (let i = 0; i < 36; i++) {
-          await sleep(5000);
-          const pollResult = await pollRunway(rwResult.providerJobId);
-          if (pollResult.status === "complete" && pollResult.videoUrl) {
-            videoUrl = pollResult.videoUrl;
-            break;
-          }
-        }
-        if (!videoUrl) throw new Error("Runway generation timed out after 180s");
-      } else if (rwResult.videoUrl) {
-        videoUrl = rwResult.videoUrl;
+        return json({ ok: true, status: "polling", providerJobId: rwResult.providerJobId });
       }
-
-      // Download and store
-      const videoResp = await fetch(videoUrl!);
-      if (!videoResp.ok) throw new Error("Failed to download Runway video");
-      const videoBytes = await videoResp.arrayBuffer();
-      storagePath = `${projectId}/clips/${job.blueprint_id}/${job.beat_index}/${jobId}.mp4`;
-      contentType = "video/mp4";
-      const blob = new Blob([videoBytes], { type: contentType });
-      await db.storage.from(STORAGE_BUCKET).upload(storagePath, blob, { contentType, upsert: true });
     } else {
       throw new Error(`Unknown provider: ${job.provider}`);
     }
 
-    // Get public URL
-    const { data: pubData } = db.storage.from(STORAGE_BUCKET).getPublicUrl(storagePath!);
-    const publicUrl = pubData?.publicUrl || "";
-
-    // Create trailer_clips row
-    const { data: clip } = await db.from("trailer_clips").insert({
-      project_id: projectId,
-      blueprint_id: job.blueprint_id,
-      beat_index: job.beat_index,
-      provider: job.provider,
-      status: "complete",
-      media_type: "video",
-      storage_path: storagePath!,
-      public_url: publicUrl,
-      duration_ms: job.length_ms,
-      gen_params: job.params_json,
-      created_by: userId,
-      job_id: jobId,
-      clip_run_id: job.clip_run_id,
-      candidate_index: job.candidate_index,
-      seed: job.seed,
-      model,
-      mode: job.mode,
-      aspect_ratio: job.aspect_ratio,
-      fps: job.fps,
-    }).select().single();
-
-    // Mark job succeeded
-    await db.from("trailer_clip_jobs").update({ status: "succeeded" }).eq("id", jobId);
-
-    // Update run counters
-    if (job.clip_run_id) {
-      await db.rpc("", {}).catch(() => {}); // no-op; just update directly
-      const { data: runJobs } = await db.from("trailer_clip_jobs")
-        .select("status").eq("clip_run_id", job.clip_run_id);
-      const done = (runJobs || []).filter((j: any) => j.status === "succeeded").length;
-      const failed = (runJobs || []).filter((j: any) => j.status === "failed").length;
-      const allDone = (runJobs || []).every((j: any) => ["succeeded", "failed", "canceled"].includes(j.status));
-      await db.from("trailer_clip_runs").update({
-        done_jobs: done,
-        failed_jobs: failed,
-        status: allDone ? (failed > 0 ? "complete" : "complete") : "running",
-      }).eq("id", job.clip_run_id);
-    }
-
-    await logEvent(db, {
-      project_id: projectId, blueprint_id: job.blueprint_id,
-      beat_index: job.beat_index, job_id: jobId, clip_id: clip?.id,
-      event_type: "job_succeeded",
-      payload: { provider: job.provider, model, candidate_index: job.candidate_index },
-      created_by: userId,
-    });
-
-    return json({ ok: true, clipId: clip?.id, publicUrl });
+    throw new Error("Provider returned no job ID or video URL");
   } catch (err: any) {
-    await db.from("trailer_clip_jobs").update({
-      status: "failed", error: err.message,
-    }).eq("id", jobId);
-
-    // Update run counters
-    if (job.clip_run_id) {
-      const { data: runJobs } = await db.from("trailer_clip_jobs")
-        .select("status").eq("clip_run_id", job.clip_run_id);
-      const done = (runJobs || []).filter((j: any) => j.status === "succeeded").length;
-      const failed = (runJobs || []).filter((j: any) => j.status === "failed").length;
-      const allDone = (runJobs || []).every((j: any) => ["succeeded", "failed", "canceled"].includes(j.status));
-      await db.from("trailer_clip_runs").update({
-        done_jobs: done, failed_jobs: failed,
-        status: allDone ? "complete" : "running",
-      }).eq("id", job.clip_run_id);
-    }
-
-    await logEvent(db, {
-      project_id: projectId, blueprint_id: job.blueprint_id,
-      beat_index: job.beat_index, job_id: jobId,
-      event_type: "job_failed",
-      payload: { provider: job.provider, error: err.message, attempt: job.attempt },
-      created_by: userId,
-    });
-
+    console.error(`[process_job] Error:`, err.message);
+    await markJobFailed(db, job, jobId, projectId, userId, err.message);
     return json({ error: err.message }, 500);
   }
+}
+
+// ─── Helper: download video and store ───
+
+async function downloadAndStore(db: any, videoUrl: string, projectId: string, blueprintId: string, beatIndex: number, jobId: string): Promise<string> {
+  const videoResp = await fetch(videoUrl);
+  if (!videoResp.ok) throw new Error("Failed to download video");
+  const videoBytes = await videoResp.arrayBuffer();
+  const storagePath = `${projectId}/clips/${blueprintId}/${beatIndex}/${jobId}.mp4`;
+  const blob = new Blob([videoBytes], { type: "video/mp4" });
+  await db.storage.from(STORAGE_BUCKET).upload(storagePath, blob, { contentType: "video/mp4", upsert: true });
+  return storagePath;
+}
+
+// ─── Helper: finalize a completed clip ───
+
+async function finalizeClip(db: any, job: any, jobId: string, projectId: string, userId: string, storagePath: string, contentType: string, model: string) {
+  const { data: pubData } = db.storage.from(STORAGE_BUCKET).getPublicUrl(storagePath);
+  const publicUrl = pubData?.publicUrl || "";
+
+  const { data: clip } = await db.from("trailer_clips").insert({
+    project_id: projectId, blueprint_id: job.blueprint_id, beat_index: job.beat_index,
+    provider: job.provider, status: "complete", media_type: contentType.startsWith("video") ? "video" : "image",
+    storage_path: storagePath, public_url: publicUrl, duration_ms: job.length_ms,
+    gen_params: job.params_json, created_by: userId, job_id: jobId,
+    clip_run_id: job.clip_run_id, candidate_index: job.candidate_index,
+    seed: job.seed, model, mode: job.mode, aspect_ratio: job.aspect_ratio, fps: job.fps,
+  }).select().single();
+
+  await db.from("trailer_clip_jobs").update({ status: "succeeded" }).eq("id", jobId);
+  await updateRunCounters(db, job.clip_run_id);
+
+  await logEvent(db, {
+    project_id: projectId, blueprint_id: job.blueprint_id,
+    beat_index: job.beat_index, job_id: jobId, clip_id: clip?.id,
+    event_type: "job_succeeded",
+    payload: { provider: job.provider, model, candidate_index: job.candidate_index },
+    created_by: userId,
+  });
+
+  return json({ ok: true, clipId: clip?.id, publicUrl });
+}
+
+// ─── Helper: mark job failed ───
+
+async function markJobFailed(db: any, job: any, jobId: string, projectId: string, userId: string, errorMsg: string) {
+  await db.from("trailer_clip_jobs").update({ status: "failed", error: errorMsg }).eq("id", jobId);
+  await updateRunCounters(db, job.clip_run_id);
+  await logEvent(db, {
+    project_id: projectId, blueprint_id: job.blueprint_id,
+    beat_index: job.beat_index, job_id: jobId,
+    event_type: "job_failed",
+    payload: { provider: job.provider, error: errorMsg, attempt: job.attempt },
+    created_by: userId,
+  });
+}
+
+// ─── Helper: update run counters ───
+
+async function updateRunCounters(db: any, clipRunId: string | null) {
+  if (!clipRunId) return;
+  const { data: runJobs } = await db.from("trailer_clip_jobs")
+    .select("status").eq("clip_run_id", clipRunId);
+  const done = (runJobs || []).filter((j: any) => j.status === "succeeded").length;
+  const failed = (runJobs || []).filter((j: any) => j.status === "failed").length;
+  const allDone = (runJobs || []).every((j: any) => ["succeeded", "failed", "canceled"].includes(j.status));
+  await db.from("trailer_clip_runs").update({
+    done_jobs: done, failed_jobs: failed,
+    status: allDone ? "complete" : "running",
+  }).eq("id", clipRunId);
+}
+
+// ─── Action: poll_pending_jobs ───
+
+async function handlePollPendingJobs(db: any, body: any, userId: string) {
+  const { projectId, blueprintId } = body;
+  if (!blueprintId) return json({ error: "blueprintId required" }, 400);
+
+  const { data: pollingJobs } = await db.from("trailer_clip_jobs")
+    .select("*")
+    .eq("project_id", projectId)
+    .eq("blueprint_id", blueprintId)
+    .eq("status", "polling");
+
+  if (!pollingJobs || pollingJobs.length === 0) {
+    return json({ ok: true, polled: 0, completed: 0, stillPolling: 0 });
+  }
+
+  let completed = 0;
+  let stillPolling = 0;
+  let failed = 0;
+
+  for (const job of pollingJobs) {
+    try {
+      let pollResult: { videoUrl?: string; status: string };
+
+      if (job.provider === "veo") {
+        pollResult = await pollVeo(job.provider_job_id);
+      } else if (job.provider === "runway") {
+        pollResult = await pollRunway(job.provider_job_id);
+      } else {
+        continue;
+      }
+
+      if (pollResult.status === "complete" && pollResult.videoUrl) {
+        const storagePath = await downloadAndStore(db, pollResult.videoUrl, projectId, job.blueprint_id, job.beat_index, job.id);
+        await finalizeClip(db, job, job.id, projectId, userId, storagePath, "video/mp4", job.provider === "veo" ? "veo-2.0-generate-001" : "gen4.5");
+        completed++;
+      } else {
+        stillPolling++;
+        // Check if job has been polling too long (>10 min)
+        const claimedAt = new Date(job.claimed_at).getTime();
+        if (Date.now() - claimedAt > 10 * 60 * 1000) {
+          await markJobFailed(db, job, job.id, projectId, userId, "Veo generation timed out after 10 minutes");
+          failed++;
+          stillPolling--;
+        }
+      }
+    } catch (err: any) {
+      console.error(`[poll_pending] Job ${job.id} error:`, err.message);
+      await markJobFailed(db, job, job.id, projectId, userId, err.message);
+      failed++;
+    }
+  }
+
+  return json({ ok: true, polled: pollingJobs.length, completed, stillPolling, failed });
 }
 
 // ─── Action: progress ───
@@ -576,7 +578,7 @@ async function handleProgress(db: any, body: any) {
   const { data: clips } = await db.from("trailer_clips").select("beat_index, selected, id, provider, candidate_index, public_url, status")
     .eq("project_id", projectId).eq("blueprint_id", blueprintId);
 
-  const counts = { queued: 0, running: 0, succeeded: 0, failed: 0, canceled: 0, total: 0 };
+  const counts: Record<string, number> = { queued: 0, running: 0, polling: 0, succeeded: 0, failed: 0, canceled: 0, total: 0 };
   for (const j of (jobs || [])) {
     counts.total++;
     counts[j.status as keyof typeof counts] = ((counts[j.status as keyof typeof counts] as number) || 0) + 1;
@@ -777,6 +779,48 @@ async function handleResetFailed(db: any, body: any, userId: string) {
   return json({ ok: true, reset: count });
 }
 
+// ─── Action: test_veo (diagnostic) ───
+
+async function handleTestVeo() {
+  const apiKey = Deno.env.get("VEO_API_KEY") || Deno.env.get("GOOGLE_API_KEY");
+  if (!apiKey) return json({ error: "VEO_API_KEY not configured", keyPresent: false }, 400);
+
+  const model = "veo-2.0-generate-001";
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:predictLongRunning?key=${apiKey}`;
+
+  const body = {
+    instances: [{ prompt: "A calm ocean wave at sunset, cinematic, 4K" }],
+    parameters: { aspectRatio: "16:9", durationSeconds: 5 },
+  };
+
+  console.log(`[test_veo] Calling Veo API...`);
+
+  try {
+    const resp = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    const text = await resp.text();
+    console.log(`[test_veo] Status: ${resp.status}, Response: ${text.slice(0, 2000)}`);
+
+    let parsed: any = null;
+    try { parsed = JSON.parse(text); } catch {}
+
+    return json({
+      ok: resp.ok,
+      status: resp.status,
+      keyPresent: true,
+      keyPrefix: apiKey.slice(0, 8) + "...",
+      response: parsed || text.slice(0, 1000),
+    }, resp.ok ? 200 : 400);
+  } catch (err: any) {
+    console.error(`[test_veo] Fetch error:`, err.message);
+    return json({ error: err.message, keyPresent: true }, 500);
+  }
+}
+
 // ─── Main handler ───
 
 Deno.serve(async (req) => {
@@ -791,6 +835,10 @@ Deno.serve(async (req) => {
 
     const body = await req.json();
     const action = body.action;
+
+    // test_veo doesn't need projectId
+    if (action === "test_veo") return await handleTestVeo();
+
     const projectId = body.projectId || body.project_id;
     if (!projectId) return json({ error: "projectId required" }, 400);
 
@@ -799,11 +847,13 @@ Deno.serve(async (req) => {
     if (!hasAccess) return json({ error: "Forbidden" }, 403);
 
     switch (action) {
+      case "test_veo": return await handleTestVeo();
       case "enqueue_for_run": return await handleEnqueueForRun(db, body, userId);
       case "claim_next_job": return await handleClaimNextJob(db, body);
       case "process_job": return await handleProcessJob(db, body, userId);
       case "process_queue": return await handleProcessQueue(db, body, userId);
       case "progress": return await handleProgress(db, body);
+      case "poll_pending_jobs": return await handlePollPendingJobs(db, body, userId);
       case "retry_job": return await handleRetryJob(db, body, userId);
       case "cancel_job": return await handleCancelJob(db, body, userId);
       case "cancel_all": return await handleCancelAll(db, body, userId);

@@ -11,10 +11,28 @@ export function useClipProgress(projectId: string | undefined, blueprintId: stri
     queryFn: () => clipEngineApi.progress(projectId!, blueprintId!),
     enabled: !!projectId && !!blueprintId,
     refetchInterval: (query) => {
-      const data = query.state.data as { counts?: { queued: number; running: number } } | undefined;
+      const data = query.state.data as { counts?: { queued: number; running: number; polling?: number } } | undefined;
       if (!data?.counts) return 5000;
-      return data.counts.queued > 0 || data.counts.running > 0 ? 5000 : false;
+      return (data.counts.queued > 0 || data.counts.running > 0 || (data.counts.polling || 0) > 0) ? 5000 : false;
     },
+  });
+}
+
+export function useClipPolling(projectId: string | undefined, blueprintId: string | undefined, hasPollingJobs: boolean) {
+  const qc = useQueryClient();
+  return useQuery({
+    queryKey: ['trailer-clip-polling', projectId, blueprintId],
+    queryFn: async () => {
+      const result = await clipEngineApi.pollPendingJobs(projectId!, blueprintId!);
+      if (result.completed > 0 || result.failed > 0) {
+        qc.invalidateQueries({ queryKey: ['trailer-clip-progress', projectId] });
+        qc.invalidateQueries({ queryKey: ['trailer-clips-list', projectId] });
+        qc.invalidateQueries({ queryKey: ['trailer-clips', projectId] });
+      }
+      return result;
+    },
+    enabled: !!projectId && !!blueprintId && hasPollingJobs,
+    refetchInterval: hasPollingJobs ? 10000 : false,
   });
 }
 

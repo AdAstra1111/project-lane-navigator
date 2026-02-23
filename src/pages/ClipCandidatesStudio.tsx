@@ -19,7 +19,7 @@ import { Label } from '@/components/ui/label';
 import { StagedProgressBar } from '@/components/system/StagedProgressBar';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useBlueprints, useBlueprint } from '@/lib/trailerPipeline/useTrailerPipeline';
-import { useClipProgress, useClipsList, useClipEngineMutations } from '@/lib/trailerPipeline/clipHooks';
+import { useClipProgress, useClipPolling, useClipsList, useClipEngineMutations } from '@/lib/trailerPipeline/clipHooks';
 import { toast } from 'sonner';
 import type { EDLBeat, TrailerClip } from '@/lib/trailerPipeline/types';
 
@@ -46,6 +46,7 @@ const ROLE_COLORS: Record<string, string> = {
 const STATUS_ICON: Record<string, React.ReactNode> = {
   queued: <Loader2 className="h-3 w-3 text-muted-foreground" />,
   running: <Loader2 className="h-3 w-3 animate-spin text-primary" />,
+  polling: <Loader2 className="h-3 w-3 animate-spin text-amber-400" />,
   succeeded: <Check className="h-3 w-3 text-green-400" />,
   failed: <AlertTriangle className="h-3 w-3 text-destructive" />,
   canceled: <XCircle className="h-3 w-3 text-muted-foreground" />,
@@ -71,6 +72,8 @@ export default function ClipCandidatesStudio() {
   const { data: bpListData } = useBlueprints(projectId);
   const { data: bpData } = useBlueprint(projectId, blueprintId);
   const { data: progressData } = useClipProgress(projectId, blueprintId);
+  const hasPollingJobs = (progressData?.counts?.polling || 0) > 0 || (progressData?.counts?.running || 0) > 0;
+  useClipPolling(projectId, blueprintId, hasPollingJobs);
   const { data: clipsData } = useClipsList(projectId, blueprintId);
 
   // Mutations
