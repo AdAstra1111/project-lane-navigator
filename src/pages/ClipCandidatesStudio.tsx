@@ -535,11 +535,25 @@ export default function ClipCandidatesStudio() {
                                               size="sm"
                                               variant="ghost"
                                               className="text-[10px] h-6 px-2"
-                                              asChild
+                                              onClick={async (e) => {
+                                                e.stopPropagation();
+                                                try {
+                                                  const res = await fetch(clip.public_url);
+                                                  const blob = await res.blob();
+                                                  const url = URL.createObjectURL(blob);
+                                                  const a = document.createElement('a');
+                                                  a.href = url;
+                                                  a.download = `clip-beat${clip.beat_index}-${clip.candidate_index || 1}.mp4`;
+                                                  document.body.appendChild(a);
+                                                  a.click();
+                                                  a.remove();
+                                                  URL.revokeObjectURL(url);
+                                                } catch {
+                                                  toast.error('Download failed');
+                                                }
+                                              }}
                                             >
-                                              <a href={clip.public_url} download={`clip-beat${clip.beat_index}-${clip.candidate_index || 1}.mp4`} target="_blank" rel="noopener noreferrer">
-                                                <Download className="h-2.5 w-2.5" />
-                                              </a>
+                                              <Download className="h-2.5 w-2.5" />
                                             </Button>
                                           )}
                                           {clip.selected && (
