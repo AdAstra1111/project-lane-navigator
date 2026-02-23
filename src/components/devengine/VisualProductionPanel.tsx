@@ -4,6 +4,7 @@
 import { useState, useMemo, useCallback } from 'react';
 import { useVisualProduction } from '@/hooks/useVisualProduction';
 import { useAiTrailerFactory } from '@/hooks/useAiTrailerFactory';
+import { AiShotHeatmapDashboard } from '@/components/shots/AiShotHeatmapDashboard';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -86,6 +87,9 @@ export function VisualProductionPanel({ projectId, scenes, selectedSceneId, onSe
             <TabsTrigger value="storyboard" className="text-[10px] flex-1 gap-1">
               <Image className="h-2.5 w-2.5" /> Storyboard
             </TabsTrigger>
+            <TabsTrigger value="ai-heatmap" className="text-[10px] flex-1 gap-1">
+              <Sparkles className="h-2.5 w-2.5" /> AI Readiness
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="shots" className="mt-2">
@@ -115,6 +119,10 @@ export function VisualProductionPanel({ projectId, scenes, selectedSceneId, onSe
               isLoading={vp.isLoadingFrames}
               hasScene={!!selectedSceneId}
             />
+          </TabsContent>
+
+          <TabsContent value="ai-heatmap" className="mt-2">
+            <AiShotHeatmapDashboard projectId={projectId} />
           </TabsContent>
         </Tabs>
       </div>
