@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, ArrowRight, Check, Loader2, Building2, Lightbulb, Sparkles } from 'lucide-react';
+import { ProcessStageProgress, type ProcessStage } from '@/components/ProcessStageProgress';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -16,6 +17,21 @@ import { FORMAT_META } from '@/lib/mode-engine';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
+
+const ANALYSE_STAGES: ProcessStage[] = [
+  { label: 'Uploading documents…', durationSec: 5 },
+  { label: 'Extracting text from files…', durationSec: 15 },
+  { label: 'Analysing structure & genre…', durationSec: 20 },
+  { label: 'Evaluating market positioning…', durationSec: 15 },
+  { label: 'Classifying monetisation lane…', durationSec: 10 },
+  { label: 'Finalising analysis…', durationSec: 8 },
+];
+
+const CLASSIFY_STAGES: ProcessStage[] = [
+  { label: 'Processing project details…', durationSec: 5 },
+  { label: 'Classifying monetisation lane…', durationSec: 15 },
+  { label: 'Finalising…', durationSec: 5 },
+];
 
 const STEPS = ['Basics', 'Material', 'Creative', 'Commercial'];
 
@@ -422,23 +438,33 @@ export default function NewProject() {
               <ArrowRight className="h-4 w-4 ml-1.5" />
             </Button>
           ) : (
-            <Button
-              onClick={handleSubmit}
-              disabled={!canProceed() || createProject.isPending}
-              className="bg-primary text-primary-foreground hover:bg-primary/90"
-            >
-              {createProject.isPending ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
-                  {files.length > 0 ? 'Analysing Material…' : 'Classifying…'}
-                </>
-              ) : (
-                <>
-                  {files.length > 0 ? 'Analyse & Classify' : 'Classify Project'}
-                  <ArrowRight className="h-4 w-4 ml-1.5" />
-                </>
+            <>
+              <Button
+                onClick={handleSubmit}
+                disabled={!canProceed() || createProject.isPending}
+                className="bg-primary text-primary-foreground hover:bg-primary/90"
+              >
+                {createProject.isPending ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+                    {files.length > 0 ? 'Analysing Material…' : 'Classifying…'}
+                  </>
+                ) : (
+                  <>
+                    {files.length > 0 ? 'Analyse & Classify' : 'Classify Project'}
+                    <ArrowRight className="h-4 w-4 ml-1.5" />
+                  </>
+                )}
+              </Button>
+              {createProject.isPending && (
+                <div className="w-full mt-3">
+                  <ProcessStageProgress
+                    isActive={createProject.isPending}
+                    stages={files.length > 0 ? ANALYSE_STAGES : CLASSIFY_STAGES}
+                  />
+                </div>
               )}
-            </Button>
+            </>
           )}
         </div>
       </main>
