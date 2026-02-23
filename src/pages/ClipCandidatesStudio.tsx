@@ -14,6 +14,8 @@ import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Progress } from '@/components/ui/progress';
 import { Separator } from '@/components/ui/separator';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 import { StagedProgressBar } from '@/components/system/StagedProgressBar';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useBlueprints, useBlueprint } from '@/lib/trailerPipeline/useTrailerPipeline';
@@ -55,6 +57,15 @@ export default function ClipCandidatesStudio() {
   const blueprintId = searchParams.get('runId') || searchParams.get('blueprintId') || undefined;
   const [expandedBeats, setExpandedBeats] = useState<Set<number>>(new Set());
   const [isProcessing, setIsProcessing] = useState(false);
+  const [providerVeo, setProviderVeo] = useState(true);
+  const [providerRunway, setProviderRunway] = useState(false);
+
+  const enabledProviders = useMemo(() => {
+    const p: string[] = [];
+    if (providerVeo) p.push('veo');
+    if (providerRunway) p.push('runway');
+    return p;
+  }, [providerVeo, providerRunway]);
 
   // Queries
   const { data: bpListData } = useBlueprints(projectId);
@@ -96,7 +107,11 @@ export default function ClipCandidatesStudio() {
 
   const handleEnqueue = (force: boolean) => {
     if (!blueprintId) return;
-    enqueueForRun.mutate({ blueprintId, force });
+    if (enabledProviders.length === 0) {
+      toast.error('Enable at least one AI provider');
+      return;
+    }
+    enqueueForRun.mutate({ blueprintId, force, enabledProviders });
   };
 
   const handleProcessAll = async () => {
@@ -167,6 +182,38 @@ export default function ClipCandidatesStudio() {
                   {beats.reduce((s: number, b: EDLBeat) => s + (b.duration_s || 0), 0).toFixed(1)}s
                 </p>
               )}
+            </CardContent>
+          </Card>
+
+          {/* AI Provider Toggles */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Zap className="h-4 w-4" />
+                AI Providers
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-sky-500" />
+                  <Label htmlFor="toggle-veo" className="text-xs font-medium">Google Veo</Label>
+                </div>
+                <Switch id="toggle-veo" checked={providerVeo} onCheckedChange={setProviderVeo} />
+              </div>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-rose-500" />
+                  <Label htmlFor="toggle-runway" className="text-xs font-medium">Runway</Label>
+                </div>
+                <Switch id="toggle-runway" checked={providerRunway} onCheckedChange={setProviderRunway} />
+              </div>
+              {enabledProviders.length === 0 && (
+                <p className="text-[10px] text-destructive">Enable at least one provider</p>
+              )}
+              <p className="text-[10px] text-muted-foreground">
+                Disabled providers will be rerouted to the first enabled one.
+              </p>
             </CardContent>
           </Card>
 

@@ -218,8 +218,13 @@ function generateStubVideo(): { bytes: Uint8Array; mimeType: string } {
 // ─── Action: enqueue_for_run ───
 
 async function handleEnqueueForRun(db: any, body: any, userId: string) {
-  const { projectId, blueprintId, force = false } = body;
+  const { projectId, blueprintId, force = false, enabledProviders } = body;
   if (!blueprintId) return json({ error: "blueprintId required" }, 400);
+
+  // Provider filter: if enabledProviders is provided, only use those providers
+  const allowedProviders: Set<string> | null = Array.isArray(enabledProviders) && enabledProviders.length > 0
+    ? new Set(enabledProviders as string[])
+    : null;
 
   const { data: bp } = await db.from("trailer_blueprints")
     .select("id, edl, status")
@@ -246,7 +251,12 @@ async function handleEnqueueForRun(db: any, body: any, userId: string) {
   for (let beatIndex = 0; beatIndex < edl.length; beatIndex++) {
     const beat = edl[beatIndex];
     const hint = beat.generator_hint || {};
-    const provider = hint.preferred_provider || "veo";
+    let provider = hint.preferred_provider || "veo";
+
+    // Override provider if not in allowed set — fallback to first allowed provider
+    if (allowedProviders && !allowedProviders.has(provider)) {
+      provider = allowedProviders.values().next().value || "veo";
+    }
     const mode = hint.preferred_mode || "text_to_video";
     const candidates = hint.candidates || 1;
     const lengthMs = hint.length_ms || Math.round((beat.duration_s || 3) * 1000);
