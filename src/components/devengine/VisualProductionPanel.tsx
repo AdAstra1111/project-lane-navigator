@@ -20,7 +20,7 @@ import { toast } from 'sonner';
 import {
   Loader2, Camera, Check, Film, Image, BarChart3,
   AlertTriangle, Clapperboard, Aperture, Move, Trash2, RotateCcw, X,
-  Sparkles, Wand2, Pause, Play, Square, RefreshCw,
+  Sparkles, Wand2, Pause, Play, Square, RefreshCw, Layers,
 } from 'lucide-react';
 import { AiReadinessBadge } from '@/components/shots/AiReadinessBadge';
 import { AiShotActionPanel } from '@/components/shots/AiShotActionPanel';
@@ -56,8 +56,26 @@ export function VisualProductionPanel({ projectId, scenes, selectedSceneId, onSe
 
   return (
     <div className="grid grid-cols-12 gap-3">
-      {/* Header with AI Trailer Factory button */}
-      <div className="col-span-12 flex items-center justify-end mb-1">
+      {/* Header with Visual Dev Hub + AI Trailer links */}
+      <div className="col-span-12 flex items-center justify-end gap-1.5 mb-1">
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-6 text-[9px] gap-1 px-2"
+          onClick={() => navigate(`/projects/${projectId}/visual-dev`)}
+        >
+          <Layers className="h-3 w-3" />
+          Visual Dev Hub
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-6 text-[9px] gap-1 px-2"
+          onClick={() => navigate(`/projects/${projectId}/visual-dev/trailer`)}
+        >
+          <Film className="h-3 w-3" />
+          Trailer Intelligence
+        </Button>
         <Button
           size="sm"
           variant="secondary"

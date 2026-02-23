@@ -74,6 +74,8 @@ const StoryboardPipeline = lazy(() => import("./pages/StoryboardPipeline"));
 const TrailerPipeline = lazy(() => import("./pages/TrailerPipeline"));
 const ClipCandidatesStudio = lazy(() => import("./pages/ClipCandidatesStudio"));
 const TrailerTimelineStudio = lazy(() => import("./pages/TrailerTimelineStudio"));
+const VisualDevHub = lazy(() => import("./pages/VisualDevHub"));
+const TrailerHub = lazy(() => import("./pages/TrailerHub"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -153,6 +155,11 @@ const AnimatedRoutes = () => {
           <Route path="/projects/:id/trailer-pipeline" element={<ProtectedRoute><TrailerPipeline /></ProtectedRoute>} />
           <Route path="/projects/:id/trailer-clips" element={<ProtectedRoute><ClipCandidatesStudio /></ProtectedRoute>} />
           <Route path="/projects/:id/trailer-assemble" element={<ProtectedRoute><TrailerTimelineStudio /></ProtectedRoute>} />
+          <Route path="/projects/:id/visual-dev" element={<ProtectedRoute><VisualDevHub /></ProtectedRoute>} />
+          <Route path="/projects/:id/visual-dev/trailer" element={<ProtectedRoute><TrailerHub /></ProtectedRoute>} />
+          <Route path="/projects/:id/visual-dev/trailer/blueprints" element={<ProtectedRoute><TrailerPipeline /></ProtectedRoute>} />
+          <Route path="/projects/:id/visual-dev/trailer/clips" element={<ProtectedRoute><ClipCandidatesStudio /></ProtectedRoute>} />
+          <Route path="/projects/:id/visual-dev/trailer/assemble" element={<ProtectedRoute><TrailerTimelineStudio /></ProtectedRoute>} />
           <Route path="/invite" element={<AcceptInvite />} />
           <Route path="/share/pack/:token" element={<SharePackView />} />
           <Route path="*" element={<NotFound />} />
