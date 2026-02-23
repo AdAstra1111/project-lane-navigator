@@ -60,22 +60,40 @@ serve(async (req) => {
         }
       }
       
-      // If no version specified or no plaintext, try current script
+      // If no version specified or no plaintext, try finding a script document
       if (!scriptText) {
         const { data: docs } = await admin.from("project_documents")
           .select("id, doc_type")
           .eq("project_id", projectId)
-          .in("doc_type", ["script", "screenplay", "pilot_script", "episode_script"])
-          .limit(1);
+          .ilike("doc_type", "%script%")
+          .limit(5);
         if (docs && docs.length > 0) {
-          const { data: curVer } = await admin.from("project_document_versions")
-            .select("id, plaintext, version_number, label, created_at, document_id")
-            .eq("document_id", docs[0].id)
-            .eq("is_current", true)
-            .single();
-          if (curVer?.plaintext) {
-            scriptText = curVer.plaintext;
-            scriptDocInfo = { versionId: curVer.id, versionNumber: curVer.version_number, label: curVer.label, updatedAt: curVer.created_at, documentId: curVer.document_id, docType: docs[0].doc_type };
+          // Prefer script_pdf, script, screenplay in that order
+          const sorted = docs.sort((a: any, b: any) => {
+            const prio = (t: string) => t === 'script' ? 0 : t === 'screenplay' ? 1 : t === 'script_pdf' ? 2 : 3;
+            return prio(a.doc_type) - prio(b.doc_type);
+          });
+          for (const doc of sorted) {
+            // Try is_current=true first, then fall back to latest version
+            let { data: curVer } = await admin.from("project_document_versions")
+              .select("id, plaintext, version_number, label, created_at, document_id")
+              .eq("document_id", doc.id)
+              .eq("is_current", true)
+              .maybeSingle();
+            if (!curVer?.plaintext) {
+              const { data: latestVer } = await admin.from("project_document_versions")
+                .select("id, plaintext, version_number, label, created_at, document_id")
+                .eq("document_id", doc.id)
+                .order("version_number", { ascending: false })
+                .limit(1)
+                .maybeSingle();
+              if (latestVer?.plaintext) curVer = latestVer;
+            }
+            if (curVer?.plaintext) {
+              scriptText = curVer.plaintext;
+              scriptDocInfo = { versionId: curVer.id, versionNumber: curVer.version_number, label: curVer.label, updatedAt: curVer.created_at, documentId: curVer.document_id, docType: doc.doc_type };
+              break;
+            }
           }
         }
       }
