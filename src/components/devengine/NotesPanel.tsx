@@ -105,6 +105,8 @@ interface NotesPanelProps {
   onClearOldNotes?: () => void;
   /** Called after a decision is successfully applied — parent should invalidate + refresh */
   onDecisionApplied?: () => void;
+  /** Called when a note is locally resolved/applied so parent can update counts */
+  onNoteResolvedLocally?: (noteId: string) => void;
 }
 
 // ── Tier pill ──
@@ -743,7 +745,7 @@ export function NotesPanel({
   deferredNotes, persistedDeferredNotes, dismissedDeferredNotes, onPinDeferred, onUnpinDeferred, onDismissDeferred, onRepinDeferred,
   carriedNotes, currentDocType, currentVersionId, onResolveCarriedNote,
   bundles, decisionSets, mutedByDecision, projectId, documentId, onDecisionApplied,
-  onClearOldNotes,
+  onClearOldNotes, onNoteResolvedLocally,
 }: NotesPanelProps) {
   const [polishOpen, setPolishOpen] = useState(false);
   const [deferredOpen, setDeferredOpen] = useState(false);
@@ -884,8 +886,13 @@ export function NotesPanel({
   const mutedSet = useMemo(() => new Set(mutedByDecision || []), [mutedByDecision]);
 
   const applyMutingAndFilter = (notes: any[]) => {
-    // First remove muted notes
-    const unmuted = notes.filter(n => !n.note_fingerprint || !mutedSet.has(n.note_fingerprint));
+    // First remove resolved notes (applied fixes)
+    const unresolved = notes.filter(n => {
+      const id = n.id || n.note_key;
+      return !id || !resolvedNoteIds.has(id);
+    });
+    // Then remove muted notes
+    const unmuted = unresolved.filter(n => !n.note_fingerprint || !mutedSet.has(n.note_fingerprint));
     // Then apply filter
     if (noteFilter === 'all') return unmuted;
     if (noteFilter === 'open') return unmuted.filter(n => !n.state_status || n.state_status === 'open');
@@ -1354,10 +1361,16 @@ export function NotesPanel({
         currentVersionId={currentVersionId}
         onApplied={(result) => {
           toast.success(`Fix applied → v${result.new_version_number}${result.approved ? ' (approved)' : ''}`);
-          if (resolutionNote?.id) setResolvedNoteIds(prev => new Set([...prev, resolutionNote.id!]));
+          const noteId = resolutionNote?.id || resolutionNote?.note_key;
+          if (noteId) {
+            setResolvedNoteIds(prev => new Set([...prev, noteId]));
+            onNoteResolvedLocally?.(noteId);
+          }
           onDecisionApplied?.();
         }}
         onResolved={(noteId) => {
+          setResolvedNoteIds(prev => new Set([...prev, noteId]));
+          onNoteResolvedLocally?.(noteId);
           handleMarkResolved(noteId);
         }}
         onDeferred={onDismissDeferred ? (noteId) => {

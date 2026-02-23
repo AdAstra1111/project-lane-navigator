@@ -421,17 +421,35 @@ export default function ProjectDevelopmentEngine() {
     return src?.carried_deferred_notes || [];
   }, [latestNotes, latestAnalysis]);
 
+  // Track locally resolved/applied notes to filter from counts
+  const [locallyResolvedNoteIds, setLocallyResolvedNoteIds] = useState<Set<string>>(new Set());
+
+  // Reset locally resolved notes when analysis data changes (new run)
+  useEffect(() => {
+    setLocallyResolvedNoteIds(new Set());
+  }, [latestNotes, latestAnalysis]);
+
   const allPrioritizedMoves = useMemo(() => {
     const all = [
       ...tieredNotes.blockers.map((n: any) => ({ ...n, note: n.description || n.note, severity: 'blocker' })),
       ...tieredNotes.high.map((n: any) => ({ ...n, note: n.description || n.note, severity: 'high' })),
       ...tieredNotes.polish.map((n: any) => ({ ...n, note: n.description || n.note, severity: 'polish' })),
     ];
-    if (all.length > 0) return all;
-    const notes = latestNotes?.actionable_notes || latestNotes?.prioritized_moves;
-    if (!notes) return [];
-    return notes as any[];
-  }, [tieredNotes, latestNotes]);
+    let result: any[];
+    if (all.length > 0) result = all;
+    else {
+      const notes = latestNotes?.actionable_notes || latestNotes?.prioritized_moves;
+      result = notes ? (notes as any[]) : [];
+    }
+    // Filter out locally resolved notes
+    if (locallyResolvedNoteIds.size > 0) {
+      result = result.filter((n: any) => {
+        const id = n.id || n.note_key;
+        return !id || !locallyResolvedNoteIds.has(id);
+      });
+    }
+    return result;
+  }, [tieredNotes, latestNotes, locallyResolvedNoteIds]);
 
   // No sync effect needed — effective values derive from project data directly
 
@@ -1479,6 +1497,9 @@ export default function ProjectDevelopmentEngine() {
                       return result;
                     }}
                     onClearOldNotes={() => deferred.bulkDismissAll.mutate()}
+                    onNoteResolvedLocally={(noteId) => {
+                      setLocallyResolvedNoteIds(prev => new Set([...prev, noteId]));
+                    }}
                   />
                 );
               })()}
