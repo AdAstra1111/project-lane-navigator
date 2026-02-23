@@ -17126,6 +17126,7 @@ export type Database = {
     }
     Functions: {
       accept_invite_link: { Args: { _token: string }; Returns: Json }
+      can_access_project: { Args: { p_project_id: string }; Returns: boolean }
       check_document_access: {
         Args: { _file_path: string; _user_id: string }
         Returns: boolean

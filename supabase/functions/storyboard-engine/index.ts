@@ -7,6 +7,7 @@ import { callLLM, MODELS, parseJsonSafe } from "../_shared/llm.ts";
 
 const GATEWAY_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
 const IMAGE_MODEL = "google/gemini-2.5-flash-image";
+const STORAGE_BUCKET = "storyboards";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -31,6 +32,76 @@ function adminClient() {
   return createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 }
 
+/** Verify project access using a direct query (service role bypasses RLS, so we check ownership/collaboration). */
+async function verifyAccess(db: any, userId: string, projectId: string): Promise<boolean> {
+  // Use the existing has_project_access SQL function via a raw select
+  const { data, error } = await db.rpc("has_project_access", { _user_id: userId, _project_id: projectId });
+  if (error) {
+    // Fallback: check project ownership directly
+    console.warn("rpc has_project_access failed, falling back to direct check:", error.message);
+    const { data: proj } = await db.from("projects").select("id").eq("id", projectId).eq("user_id", userId).limit(1).maybeSingle();
+    if (proj) return true;
+    // Check collaborator
+    const { data: collab } = await db.from("project_collaborators").select("id").eq("project_id", projectId).eq("user_id", userId).eq("status", "accepted").limit(1).maybeSingle();
+    return !!collab;
+  }
+  return !!data;
+}
+
+/**
+ * Robust extraction of image data URL from Gemini chat/completions response.
+ * Tries multiple response shapes.
+ */
+function extractDataUrl(genResult: any): string | null {
+  try {
+    const choice = genResult?.choices?.[0]?.message;
+    if (!choice) return null;
+
+    // Shape 1: images array
+    const imgUrl1 = choice.images?.[0]?.image_url?.url;
+    if (imgUrl1 && imgUrl1.startsWith("data:image")) return imgUrl1;
+
+    // Shape 2: content is array of parts
+    if (Array.isArray(choice.content)) {
+      for (const part of choice.content) {
+        // inline_data / image_url part
+        if (part.type === "image_url" && part.image_url?.url?.startsWith("data:image")) {
+          return part.image_url.url;
+        }
+        if (part.type === "image" && part.image?.url?.startsWith("data:image")) {
+          return part.image.url;
+        }
+        // inline_data format (Gemini native)
+        if (part.inline_data?.data) {
+          const mime = part.inline_data.mime_type || "image/png";
+          return `data:${mime};base64,${part.inline_data.data}`;
+        }
+        // String part that IS a data URL
+        if (typeof part === "string" && part.startsWith("data:image")) return part;
+        if (typeof part.text === "string" && part.text.startsWith("data:image")) return part.text;
+      }
+    }
+
+    // Shape 3: content is a string that is a data URL
+    if (typeof choice.content === "string" && choice.content.startsWith("data:image")) {
+      return choice.content;
+    }
+  } catch (e) {
+    console.error("extractDataUrl error:", e);
+  }
+  return null;
+}
+
+/** Decode a data:image/...;base64,... URL to raw bytes */
+function dataUrlToBytes(dataUrl: string): Uint8Array {
+  const base64Part = dataUrl.split(",")[1];
+  if (!base64Part) throw new Error("Invalid data URL — no base64 part");
+  const binaryStr = atob(base64Part);
+  const bytes = new Uint8Array(binaryStr.length);
+  for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
+  return bytes;
+}
+
 // ─── list_canonical_units ───
 async function handleListCanonicalUnits(db: any, body: any) {
   const { projectId, unitKeys } = body;
@@ -40,7 +111,6 @@ async function handleListCanonicalUnits(db: any, body: any) {
   }
   const { data, error } = await query.order("unit_key");
   if (error) return json({ error: error.message }, 500);
-  // Attach scores from canonical_payload
   const units = (data || []).map((u: any) => ({
     ...u,
     scores: {
@@ -57,17 +127,13 @@ async function handleListCanonicalUnits(db: any, body: any) {
 async function handleCreateRunAndPanels(db: any, body: any, userId: string, apiKey: string) {
   const { projectId, unitKeys: requestedKeys, stylePreset = "cinematic_realism", aspectRatio = "16:9" } = body;
 
-  // Fetch canonical units
-  let query = db.from("visual_units").select("*").eq("project_id", projectId);
-  const { data: allUnits } = await query;
+  const { data: allUnits } = await db.from("visual_units").select("*").eq("project_id", projectId);
   if (!allUnits || allUnits.length === 0) return json({ error: "No canonical visual units found" }, 400);
 
-  // Select units
   let selectedUnits: any[];
   if (requestedKeys && Array.isArray(requestedKeys) && requestedKeys.length > 0) {
     selectedUnits = allUnits.filter((u: any) => requestedKeys.includes(u.unit_key));
   } else {
-    // Top 12 by storyboard_value
     selectedUnits = allUnits
       .sort((a: any, b: any) =>
         (b.canonical_payload?.storyboard_value || b.canonical_payload?.trailer_value || 0) -
@@ -77,10 +143,9 @@ async function handleCreateRunAndPanels(db: any, body: any, userId: string, apiK
   }
 
   if (selectedUnits.length === 0) return json({ error: "No matching units" }, 400);
-
   const chosenKeys = selectedUnits.map((u: any) => u.unit_key);
 
-  // Insert run
+  // Insert run — created_by set explicitly
   const { data: run, error: runErr } = await db.from("storyboard_runs").insert({
     project_id: projectId,
     unit_keys: chosenKeys,
@@ -92,7 +157,6 @@ async function handleCreateRunAndPanels(db: any, body: any, userId: string, apiK
   if (runErr) return json({ error: "Failed to create run: " + runErr.message }, 500);
 
   try {
-    // Build LLM context
     const unitDescriptions = selectedUnits.map((u: any) => {
       const p = u.canonical_payload || {};
       return `unit_key: ${u.unit_key}\nlogline: ${p.logline || ""}\nvisual_intention: ${p.visual_intention || ""}\nlocation: ${p.location || ""}\ntime: ${p.time || ""}\ntone: ${(p.tone || []).join(", ")}\ncharacters: ${(p.characters_present || []).join(", ")}\nsuggested_shots: ${JSON.stringify(p.suggested_shots || [])}`;
@@ -144,12 +208,12 @@ Rules:
     const parsed = await parseJsonSafe(result.content, apiKey);
     const panelsByUnit: any[] = parsed.panels_by_unit || parsed;
 
-    // Insert panels
+    // Insert panels — created_by set explicitly
     const panelRows: any[] = [];
     for (const unitPanels of panelsByUnit) {
       const uk = unitPanels.unit_key;
       if (!uk) continue;
-      const panels = (unitPanels.panels || []).slice(0, 6); // clamp
+      const panels = (unitPanels.panels || []).slice(0, 6);
       for (const panel of panels) {
         panelRows.push({
           project_id: projectId,
@@ -220,7 +284,6 @@ async function handleGenerateFrame(db: any, body: any, userId: string, apiKey: s
   const { projectId, panelId, seed, override_prompt, override_negative } = body;
   if (!panelId) return json({ error: "panelId required" }, 400);
 
-  // Fetch panel + run
   const { data: panel } = await db.from("storyboard_panels").select("*, storyboard_runs(style_preset, aspect_ratio)")
     .eq("id", panelId).eq("project_id", projectId).single();
   if (!panel) return json({ error: "Panel not found" }, 404);
@@ -243,7 +306,6 @@ async function handleGenerateFrame(db: any, body: any, userId: string, apiKey: s
   const finalPrompt = `${basePrompt}. ${styleGuide[stylePreset] || styleGuide.cinematic_realism}. Aspect ratio ${aspectRatio}.${negativePrompt ? ` Avoid: ${negativePrompt}` : ""}`;
 
   try {
-    // Call Gemini image generation
     const response = await fetch(GATEWAY_URL, {
       method: "POST",
       headers: {
@@ -263,25 +325,26 @@ async function handleGenerateFrame(db: any, body: any, userId: string, apiKey: s
       if (response.status === 429) return json({ error: "Rate limit exceeded" }, 429);
       if (response.status === 402) return json({ error: "AI credits exhausted" }, 402);
       await db.from("storyboard_panels").update({ status: "failed" }).eq("id", panelId);
-      return json({ error: "Image generation failed" }, 500);
+      return json({ error: "Image generation failed: " + response.status }, 500);
     }
 
     const genResult = await response.json();
-    const imageData = genResult.choices?.[0]?.message?.images?.[0]?.image_url?.url;
-    if (!imageData || !imageData.startsWith("data:image")) {
+
+    // Robust image extraction
+    const imageDataUrl = extractDataUrl(genResult);
+    if (!imageDataUrl) {
+      console.error("No image found in response. Shape:", JSON.stringify(Object.keys(genResult || {})), JSON.stringify(Object.keys(genResult?.choices?.[0]?.message || {})));
       await db.from("storyboard_panels").update({ status: "failed" }).eq("id", panelId);
-      return json({ error: "No image returned from AI" }, 500);
+      return json({ error: "No image returned from AI. Check logs for response shape." }, 500);
     }
 
-    // Decode base64
-    const base64Part = imageData.split(",")[1];
-    const binaryStr = atob(base64Part);
-    const bytes = new Uint8Array(binaryStr.length);
-    for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
+    // Decode to bytes
+    const bytes = dataUrlToBytes(imageDataUrl);
 
     // Upload to storage
     const storagePath = `${projectId}/storyboard-frames/${panelId}_${Date.now()}.png`;
-    const { error: uploadErr } = await db.storage.from("storyboards").upload(storagePath, bytes, {
+    const blob = new Blob([bytes], { type: "image/png" });
+    const { error: uploadErr } = await db.storage.from(STORAGE_BUCKET).upload(storagePath, blob, {
       contentType: "image/png",
       upsert: false,
     });
@@ -291,11 +354,23 @@ async function handleGenerateFrame(db: any, body: any, userId: string, apiKey: s
       return json({ error: "Failed to upload image: " + uploadErr.message }, 500);
     }
 
-    // Get public URL (storyboards bucket is public)
-    const { data: urlData } = db.storage.from("storyboards").getPublicUrl(storagePath);
-    const publicUrl = urlData?.publicUrl || "";
+    // Generate signed URL (private bucket — 7 day expiry)
+    let publicUrl = "";
+    const { data: signedData, error: signedErr } = await db.storage.from(STORAGE_BUCKET).createSignedUrl(storagePath, 60 * 60 * 24 * 7);
+    if (signedErr || !signedData?.signedUrl) {
+      // Fallback: try public URL
+      console.warn("Signed URL failed, trying public URL:", signedErr?.message);
+      const { data: pubData } = db.storage.from(STORAGE_BUCKET).getPublicUrl(storagePath);
+      publicUrl = pubData?.publicUrl || "";
+      if (!publicUrl) {
+        await db.from("storyboard_panels").update({ status: "failed" }).eq("id", panelId);
+        return json({ error: "Failed to create URL for uploaded image" }, 500);
+      }
+    } else {
+      publicUrl = signedData.signedUrl;
+    }
 
-    // Insert frame record
+    // Insert frame record — created_by set explicitly
     const { data: frame, error: frameErr } = await db.from("storyboard_pipeline_frames").insert({
       project_id: projectId,
       panel_id: panelId,
@@ -344,9 +419,9 @@ Deno.serve(async (req) => {
 
     const db = adminClient();
 
-    // Verify access
-    const { data: access } = await db.rpc("has_project_access", { _user_id: userId, _project_id: projectId });
-    if (!access) return json({ error: "Forbidden" }, 403);
+    // Verify access with fallback
+    const hasAccess = await verifyAccess(db, userId, projectId);
+    if (!hasAccess) return json({ error: "Forbidden" }, 403);
 
     const apiKey = Deno.env.get("LOVABLE_API_KEY") || "";
 
