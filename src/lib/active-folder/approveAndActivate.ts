@@ -76,6 +76,25 @@ export async function setActiveVersion(opts: {
 }
 
 /**
+ * Unapprove a document version (reverts to draft) and removes it from active folder.
+ */
+export async function unapproveVersion(opts: {
+  projectId: string;
+  documentVersionId: string;
+}) {
+  const { data, error } = await supabase.functions.invoke('project-folder-engine', {
+    body: {
+      action: 'unapprove',
+      projectId: opts.projectId,
+      documentVersionId: opts.documentVersionId,
+    },
+  });
+
+  if (error) throw error;
+  return data;
+}
+
+/**
  * Initialize the active folder for a project.
  * Returns candidates (does NOT auto-activate). UI should present them for approval.
  */

@@ -356,6 +356,48 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ candidates }), { headers: JSON_HEADERS });
     }
 
+    // ─── ACTION: unapprove ───
+    if (action === "unapprove") {
+      const { documentVersionId } = body;
+      if (!documentVersionId) {
+        return new Response(JSON.stringify({ error: "Missing documentVersionId" }), { status: 400, headers: JSON_HEADERS });
+      }
+
+      // Fetch version
+      const { data: version } = await db.from("project_document_versions")
+        .select("id, deliverable_type, label, stage, document_id, approval_status")
+        .eq("id", documentVersionId).single();
+      if (!version) {
+        return new Response(JSON.stringify({ error: "Version not found" }), { status: 404, headers: JSON_HEADERS });
+      }
+
+      // Revert approval_status to draft
+      await db.from("project_document_versions")
+        .update({ approval_status: "draft", approved_at: null, approved_by: null })
+        .eq("id", documentVersionId);
+
+      // Remove from project_active_docs if this version is the active one
+      const { data: parentDoc } = await db.from("project_documents")
+        .select("id, doc_type, title, file_name")
+        .eq("id", version.document_id).single();
+
+      const docTypeKey = resolveDocTypeKey(version, parentDoc, isSeries);
+
+      const { data: activeDoc } = await db.from("project_active_docs")
+        .select("id, document_version_id")
+        .eq("project_id", projectId)
+        .eq("doc_type_key", docTypeKey)
+        .single();
+
+      if (activeDoc && activeDoc.document_version_id === documentVersionId) {
+        await db.from("project_active_docs")
+          .delete()
+          .eq("id", activeDoc.id);
+      }
+
+      return new Response(JSON.stringify({ unapproved: true, docTypeKey }), { headers: JSON_HEADERS });
+    }
+
     // ─── ACTION: list ───
     if (action === "list") {
       const { data: activeDocs } = await db.from("project_active_docs")
