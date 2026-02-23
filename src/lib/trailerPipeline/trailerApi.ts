@@ -39,11 +39,11 @@ export const blueprintApi = {
 // ─── Clip Generator ───
 export const clipApi = {
   generateClips: (projectId: string, blueprintId: string, provider?: string, beatIndices?: number[], candidateCount?: number) =>
-    callFn('trailer-clip-generator', 'generate_clips', { projectId, blueprintId, provider, beatIndices, candidateCount }),
+    callFn('trailer-clip-generator', 'enqueue_for_run', { projectId, blueprintId, provider, beatIndices, candidateCount }),
   listClips: (projectId: string, blueprintId: string) =>
     callFn('trailer-clip-generator', 'list_clips', { projectId, blueprintId }),
   rateClip: (projectId: string, clipId: string, rating: number) =>
-    callFn('trailer-clip-generator', 'rate_clip', { projectId, clipId, rating }),
+    callFn('trailer-clip-generator', 'select_clip', { projectId, clipId, rating }),
   selectClip: (projectId: string, clipId: string, blueprintId: string, beatIndex: number) =>
     callFn('trailer-clip-generator', 'select_clip', { projectId, clipId, blueprintId, beatIndex }),
 };
