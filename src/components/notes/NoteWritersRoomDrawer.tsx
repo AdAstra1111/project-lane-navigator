@@ -1,6 +1,7 @@
 /**
  * NoteWritersRoomDrawer — Sheet-based Writers' Room for a single note.
- * Tabs: Discuss, Options, Synthesis.
+ * Tabs: Discuss, Options, Synthesis, Plan.
+ * Detects "apply" intent in chat to auto-propose a change plan.
  */
 import { useState, useEffect, useRef } from 'react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
@@ -14,11 +15,12 @@ import { Separator } from '@/components/ui/separator';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   Loader2, Send, Pin, X, Sparkles, Check, CheckCircle2,
-  AlertTriangle, Lightbulb, Layers, Zap,
+  AlertTriangle, Lightbulb, Layers, Zap, FileEdit,
 } from 'lucide-react';
 import { useNoteWritersRoom } from '@/hooks/useNoteWritersRoom';
 import { noteFingerprint } from '@/lib/decisions/fingerprint';
-import type { NoteOption, NoteOptionSet, NoteThreadSynthesis } from '@/lib/types/writers-room';
+import { ChangePlanPanel } from './ChangePlanPanel';
+import type { NoteOption, NoteOptionSet, NoteThreadSynthesis, ChangePlan } from '@/lib/types/writers-room';
 import ReactMarkdown from 'react-markdown';
 
 interface NoteWritersRoomDrawerProps {
@@ -37,6 +39,21 @@ function computeNoteHash(note: any): string {
   return noteFingerprint(note);
 }
 
+const APPLY_INTENT_PATTERNS = [
+  /\bok\b.*\bapply/i,
+  /\bapply\s+that/i,
+  /\blet'?s\s+apply/i,
+  /\bdo\s+it\b/i,
+  /\bgo\s+with\s+that/i,
+  /\bapply\s+this/i,
+  /\bapply\s+changes/i,
+  /\bmake\s+(the\s+)?changes/i,
+];
+
+function hasApplyIntent(text: string): boolean {
+  return APPLY_INTENT_PATTERNS.some(p => p.test(text));
+}
+
 export function NoteWritersRoomDrawer({
   open, onOpenChange, projectId, documentId, versionId, note, scriptContext,
 }: NoteWritersRoomDrawerProps) {
@@ -51,14 +68,16 @@ export function NoteWritersRoomDrawer({
   };
 
   const {
-    query, ensureThread, postMessage, updateState, generateOptions,
-    selectOption, synthesizeBest,
+    query, planQuery, ensureThread, postMessage, updateState, generateOptions,
+    selectOption, synthesizeBest, proposeChangePlan, confirmChangePlan, applyChangePlan,
+    threadId,
   } = useNoteWritersRoom({
     projectId, documentId, noteHash, versionId,
     noteSnapshot, enabled: open,
   });
 
   const [tab, setTab] = useState('discuss');
+  const [showPlan, setShowPlan] = useState(false);
   const [message, setMessage] = useState('');
   const [newPin, setNewPin] = useState('');
   const [directionMode, setDirectionMode] = useState('writers_room');
@@ -72,6 +91,7 @@ export function NoteWritersRoomDrawer({
   const selectedOption = state?.selected_option;
   const synthesis = state?.synthesis;
   const pins = state?.pinned_constraints || [];
+  const currentPlan = planQuery.data;
 
   useEffect(() => {
     if (open && !query.data && !query.isLoading) {
@@ -92,10 +112,26 @@ export function NoteWritersRoomDrawer({
     }
   }, [state?.direction]);
 
+  // Auto-show plan panel when plan arrives
+  useEffect(() => {
+    if (currentPlan && (currentPlan.status === 'draft' || currentPlan.status === 'confirmed')) {
+      setShowPlan(true);
+      setTab('plan');
+    }
+  }, [currentPlan?.id]);
+
   function handleSendMessage() {
     if (!message.trim()) return;
-    postMessage.mutate(message.trim());
+    const text = message.trim();
+    postMessage.mutate(text);
     setMessage('');
+
+    // Detect apply intent → auto-propose plan
+    if (hasApplyIntent(text)) {
+      setTimeout(() => {
+        proposeChangePlan.mutate();
+      }, 1500); // Let message post first
+    }
   }
 
   function handleAddPin() {
@@ -123,7 +159,24 @@ export function NoteWritersRoomDrawer({
     selectOption.mutate(option);
   }
 
+  function handleConfirmPlan(planId: string, editedPlan: ChangePlan) {
+    confirmChangePlan.mutate({ planId, planPatch: editedPlan });
+  }
+
+  function handleApplyPlan(planId: string) {
+    applyChangePlan.mutate(planId);
+  }
+
+  function handleRevisePlan(summary: string) {
+    // Pin the plan summary as a constraint and go back to chat
+    const updated = [...pins, `Previous plan: ${summary.slice(0, 200)}`];
+    updateState.mutate({ pinnedConstraints: updated });
+    setShowPlan(false);
+    setTab('discuss');
+  }
+
   const isLoading = query.isLoading || ensureThread.isPending;
+  const hasPlan = !!currentPlan;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -168,6 +221,16 @@ export function NoteWritersRoomDrawer({
           <div className="flex-1 flex items-center justify-center">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
+        ) : showPlan && currentPlan ? (
+          <ChangePlanPanel
+            planRow={currentPlan}
+            onConfirm={handleConfirmPlan}
+            onApply={handleApplyPlan}
+            onRevise={handleRevisePlan}
+            onBack={() => { setShowPlan(false); setTab('discuss'); }}
+            isConfirming={confirmChangePlan.isPending}
+            isApplying={applyChangePlan.isPending}
+          />
         ) : (
           <Tabs value={tab} onValueChange={setTab} className="flex-1 flex flex-col min-h-0">
             <TabsList className="mx-4 mt-2">
@@ -176,6 +239,11 @@ export function NoteWritersRoomDrawer({
                 Options {optionSets.length > 0 && <Badge variant="secondary" className="ml-1 text-[9px] px-1">{optionSets.length}</Badge>}
               </TabsTrigger>
               <TabsTrigger value="synthesis" className="text-xs">Synthesis</TabsTrigger>
+              {hasPlan && (
+                <TabsTrigger value="plan" className="text-xs">
+                  <FileEdit className="h-3 w-3 mr-1" />Plan
+                </TabsTrigger>
+              )}
             </TabsList>
 
             {/* ── DISCUSS TAB ── */}
@@ -226,28 +294,59 @@ export function NoteWritersRoomDrawer({
                       </div>
                     </div>
                   ))}
-                  {postMessage.isPending && (
+                  {(postMessage.isPending || proposeChangePlan.isPending) && (
                     <div className="flex justify-start">
                       <div className="bg-muted rounded-lg px-3 py-2">
-                        <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+                        <div className="flex items-center gap-2">
+                          <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+                          {proposeChangePlan.isPending && (
+                            <span className="text-[10px] text-muted-foreground">Generating change plan...</span>
+                          )}
+                        </div>
                       </div>
                     </div>
                   )}
                 </div>
               </ScrollArea>
 
-              {/* Message input */}
-              <div className="flex gap-1 mt-2">
-                <Textarea
-                  placeholder="Discuss this note..."
-                  value={message}
-                  onChange={(e) => setMessage(e.target.value)}
-                  className="min-h-[40px] h-10 text-xs flex-1 resize-none"
-                  onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(); } }}
-                />
-                <Button size="sm" className="h-10 px-3" onClick={handleSendMessage} disabled={postMessage.isPending || !message.trim()}>
-                  <Send className="h-3 w-3" />
-                </Button>
+              {/* Message input + action buttons */}
+              <div className="space-y-2 mt-2">
+                <div className="flex gap-1">
+                  <Textarea
+                    placeholder="Discuss this note... (say 'apply that' to generate a change plan)"
+                    value={message}
+                    onChange={(e) => setMessage(e.target.value)}
+                    className="min-h-[40px] h-10 text-xs flex-1 resize-none"
+                    onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(); } }}
+                  />
+                  <Button size="sm" className="h-10 px-3" onClick={handleSendMessage} disabled={postMessage.isPending || !message.trim()}>
+                    <Send className="h-3 w-3" />
+                  </Button>
+                </div>
+                <div className="flex gap-1">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-xs h-7 gap-1 flex-1"
+                    onClick={() => proposeChangePlan.mutate()}
+                    disabled={proposeChangePlan.isPending || !threadId}
+                  >
+                    {proposeChangePlan.isPending
+                      ? <><Loader2 className="h-3 w-3 animate-spin" /> Proposing...</>
+                      : <><FileEdit className="h-3 w-3" /> Propose changes</>
+                    }
+                  </Button>
+                  {hasPlan && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="text-xs h-7 gap-1"
+                      onClick={() => setShowPlan(true)}
+                    >
+                      <FileEdit className="h-3 w-3" /> View plan
+                    </Button>
+                  )}
+                </div>
               </div>
             </TabsContent>
 
@@ -381,6 +480,21 @@ export function NoteWritersRoomDrawer({
                 </div>
               )}
             </TabsContent>
+
+            {/* ── PLAN TAB ── */}
+            {hasPlan && (
+              <TabsContent value="plan" className="flex-1 min-h-0 m-0">
+                <ChangePlanPanel
+                  planRow={currentPlan!}
+                  onConfirm={handleConfirmPlan}
+                  onApply={handleApplyPlan}
+                  onRevise={handleRevisePlan}
+                  onBack={() => setTab('discuss')}
+                  isConfirming={confirmChangePlan.isPending}
+                  isApplying={applyChangePlan.isPending}
+                />
+              </TabsContent>
+            )}
           </Tabs>
         )}
       </SheetContent>

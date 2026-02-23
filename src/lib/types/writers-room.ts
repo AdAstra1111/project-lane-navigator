@@ -1,6 +1,7 @@
 /** Writers' Room for Notes — frontend types */
 
 export type NoteThreadStatus = 'open' | 'chosen' | 'applied' | 'discarded';
+export type ChangePlanStatus = 'draft' | 'confirmed' | 'applied' | 'superseded';
 
 export interface NoteThread {
   id: string;
@@ -72,4 +73,62 @@ export interface WritersRoomData {
   state: NoteThreadState;
   messages: NoteThreadMessage[];
   optionSets: NoteOptionSet[];
+}
+
+/* ── Change Plan types ── */
+
+export interface ChangePlanChange {
+  id: string;
+  title: string;
+  type: 'dialogue' | 'action' | 'character' | 'plot' | 'structure' | 'tone' | 'setup_payoff' | 'world' | 'other';
+  scope: 'micro' | 'scene' | 'sequence' | 'act' | 'global';
+  target: {
+    scene_numbers?: number[];
+    characters?: string[];
+    locations?: string[];
+    beats?: string[];
+    lines?: { from?: number; to?: number };
+  };
+  instructions: string;
+  rationale: string;
+  risk_flags?: string[];
+  cost_flags?: string[];
+  acceptance_criteria?: string[];
+  enabled?: boolean;
+}
+
+export interface ChangePlanImpact {
+  area: 'continuity' | 'character_arc' | 'theme' | 'budget' | 'schedule' | 'rating' | 'format_rules';
+  note: string;
+}
+
+export interface ChangePlanRewritePayload {
+  mode: 'selective' | 'full';
+  target_scene_numbers?: number[];
+  patch_strategy: 'surgical' | 'rewrite_scene' | 'rewrite_sequence';
+  prompt: string;
+}
+
+export interface ChangePlan {
+  id: string;
+  thread_id: string;
+  created_at: string;
+  status: ChangePlanStatus;
+  direction_summary: string;
+  changes: ChangePlanChange[];
+  impacts: ChangePlanImpact[];
+  rewrite_payload: ChangePlanRewritePayload;
+}
+
+export interface ChangePlanRow {
+  id: string;
+  thread_id: string;
+  project_id: string;
+  document_id: string;
+  version_id: string;
+  status: ChangePlanStatus;
+  plan: ChangePlan;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
 }

@@ -431,6 +431,305 @@ Synthesize the best consolidated direction with a clear rewrite plan and verific
       return ok({ synthesis: parsed });
     }
 
+    // ── ACTION: get_latest_plan ──
+    if (action === "get_latest_plan") {
+      const { threadId } = body;
+      if (!threadId) return err("Missing threadId");
+
+      const { data: plan } = await admin
+        .from("note_change_plans")
+        .select("*")
+        .eq("thread_id", threadId)
+        .in("status", ["draft", "confirmed", "applied"])
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      return ok({ plan: plan || null });
+    }
+
+    // ── ACTION: propose_change_plan ──
+    if (action === "propose_change_plan") {
+      const { threadId } = body;
+      if (!threadId) return err("Missing threadId");
+
+      // Load thread
+      const { data: thread, error: threadErr } = await admin.from("note_threads").select("*").eq("id", threadId).single();
+      if (threadErr || !thread) return err("Thread not found");
+
+      const { data: access } = await admin.rpc("has_project_access", { _user_id: user.id, _project_id: thread.project_id });
+      if (!access) return err("Access denied", 403);
+
+      // Load messages (last 30)
+      const { data: msgs } = await admin.from("note_thread_messages")
+        .select("role, content")
+        .eq("thread_id", threadId)
+        .order("created_at", { ascending: true })
+        .limit(30);
+
+      // Load state for pinned constraints
+      const { data: state } = await admin.from("note_thread_state").select("*").eq("thread_id", threadId).maybeSingle();
+
+      // Load script plaintext (capped at 12k chars)
+      let scriptExcerpt = "";
+      if (thread.version_id) {
+        const { data: ver } = await admin.from("project_document_versions")
+          .select("plaintext")
+          .eq("id", thread.version_id)
+          .single();
+        if (ver?.plaintext) {
+          const txt = ver.plaintext;
+          if (txt.length <= 12000) {
+            scriptExcerpt = txt;
+          } else {
+            scriptExcerpt = txt.slice(0, 6000) + "\n\n[...TRUNCATED...]\n\n" + txt.slice(-6000);
+          }
+        }
+      }
+
+      const noteInfo = thread.note_snapshot || {};
+      const pins = state?.pinned_constraints || [];
+      const chatHistory = (msgs || []).map((m: any) => `${m.role}: ${m.content}`).join("\n").slice(0, 5000);
+
+      const systemPrompt = `You are a script development engine. Given a note, discussion thread, and script excerpt, generate a structured Change Plan as valid JSON.
+
+You MUST respond with ONLY valid JSON matching this EXACT schema:
+{
+  "direction_summary": "2-3 sentence summary of what changes and why",
+  "changes": [
+    {
+      "id": "chg_<unique>",
+      "title": "short title",
+      "type": "dialogue|action|character|plot|structure|tone|setup_payoff|world|other",
+      "scope": "micro|scene|sequence|act|global",
+      "target": {
+        "scene_numbers": [number],
+        "characters": ["string"],
+        "locations": ["string"],
+        "beats": ["string"],
+        "lines": { "from": number, "to": number }
+      },
+      "instructions": "imperative instruction for the rewriter",
+      "rationale": "why this change addresses the note",
+      "risk_flags": ["string"],
+      "cost_flags": ["string"],
+      "acceptance_criteria": ["testable criterion"],
+      "enabled": true
+    }
+  ],
+  "impacts": [
+    { "area": "continuity|character_arc|theme|budget|schedule|rating|format_rules", "note": "string" }
+  ],
+  "rewrite_payload": {
+    "mode": "selective|full",
+    "target_scene_numbers": [number],
+    "patch_strategy": "surgical|rewrite_scene|rewrite_sequence",
+    "prompt": "concise final rewrite prompt for applying all changes"
+  }
+}
+
+Rules:
+- Each change must be atomic, imperative, testable
+- Include acceptance_criteria for each change
+- Set mode='selective' when specific scene_numbers exist, else 'full'
+- Fill rewrite_payload.prompt with a concise final prompt`;
+
+      const userPrompt = `Note to address:
+${JSON.stringify(noteInfo, null, 2)}
+
+Pinned constraints: ${JSON.stringify(pins)}
+
+Discussion:
+${chatHistory}
+
+Script excerpt:
+${scriptExcerpt.slice(0, 8000)}
+
+Generate a Change Plan with atomic, testable changes.`;
+
+      let parsed: any = null;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const result = await callLLM({
+          apiKey,
+          model: MODELS.FAST,
+          system: systemPrompt,
+          user: userPrompt,
+          temperature: 0.4,
+          maxTokens: 6000,
+        });
+        try {
+          parsed = JSON.parse(extractJSON(result.content));
+          if (parsed.changes && Array.isArray(parsed.changes) && parsed.changes.length > 0) break;
+          parsed = null;
+        } catch { parsed = null; }
+      }
+
+      if (!parsed) return err("Failed to generate valid change plan after retries");
+
+      // Ensure IDs on changes
+      parsed.changes = (parsed.changes || []).map((c: any, i: number) => ({
+        ...c,
+        id: c.id || `chg_${Date.now()}_${i}`,
+        enabled: c.enabled !== false,
+      }));
+
+      // Supersede old draft/confirmed plans for this thread
+      await admin.from("note_change_plans")
+        .update({ status: "superseded" })
+        .eq("thread_id", threadId)
+        .in("status", ["draft", "confirmed"]);
+
+      // Insert new plan
+      const { data: planRow, error: planErr } = await admin.from("note_change_plans").insert({
+        thread_id: threadId,
+        project_id: thread.project_id,
+        document_id: thread.document_id,
+        version_id: thread.version_id,
+        status: "draft",
+        plan: parsed,
+        created_by: user.id,
+      }).select().single();
+
+      if (planErr) throw new Error(planErr.message);
+
+      return ok({ planRow });
+    }
+
+    // ── ACTION: confirm_change_plan ──
+    if (action === "confirm_change_plan") {
+      const { planId, planPatch } = body;
+      if (!planId) return err("Missing planId");
+
+      const { data: plan, error: pErr } = await admin.from("note_change_plans").select("*").eq("id", planId).single();
+      if (pErr || !plan) return err("Plan not found");
+
+      const { data: access } = await admin.rpc("has_project_access", { _user_id: user.id, _project_id: plan.project_id });
+      if (!access) return err("Access denied", 403);
+
+      const updates: any = { status: "confirmed" };
+      if (planPatch) {
+        // Basic validation
+        if (typeof planPatch !== 'object' || !planPatch.changes) return err("Invalid planPatch");
+        updates.plan = planPatch;
+      }
+
+      // Supersede other plans
+      await admin.from("note_change_plans")
+        .update({ status: "superseded" })
+        .eq("thread_id", plan.thread_id)
+        .in("status", ["draft", "confirmed"])
+        .neq("id", planId);
+
+      await admin.from("note_change_plans").update(updates).eq("id", planId);
+
+      const { data: updated } = await admin.from("note_change_plans").select("*").eq("id", planId).single();
+      return ok({ planRow: updated });
+    }
+
+    // ── ACTION: apply_change_plan ──
+    if (action === "apply_change_plan") {
+      const { planId } = body;
+      if (!planId) return err("Missing planId");
+
+      const { data: plan, error: pErr } = await admin.from("note_change_plans").select("*").eq("id", planId).single();
+      if (pErr || !plan) return err("Plan not found");
+      if (plan.status !== "confirmed") return err("Plan must be confirmed before applying");
+
+      const { data: access } = await admin.rpc("has_project_access", { _user_id: user.id, _project_id: plan.project_id });
+      if (!access) return err("Access denied", 403);
+
+      const changePlan = plan.plan as any;
+      const enabledChanges = (changePlan.changes || []).filter((c: any) => c.enabled !== false);
+      if (enabledChanges.length === 0) return err("No enabled changes to apply");
+
+      // Load source version plaintext
+      const { data: sourceVer } = await admin.from("project_document_versions")
+        .select("plaintext, version_number, document_id")
+        .eq("id", plan.version_id)
+        .single();
+      if (!sourceVer) return err("Source version not found");
+
+      // Build rewrite prompt
+      const rewritePrompt = `You are a script rewriter. Apply the following changes to the script below.
+
+Direction: ${changePlan.direction_summary || ''}
+
+Changes to apply:
+${enabledChanges.map((c: any, i: number) => `${i + 1}. [${c.type}/${c.scope}] ${c.title}: ${c.instructions}`).join('\n')}
+
+Acceptance criteria:
+${enabledChanges.flatMap((c: any) => (c.acceptance_criteria || []).map((a: string) => `- ${a}`)).join('\n')}
+
+IMPORTANT: Return the COMPLETE rewritten script. Do not omit any sections. Preserve all formatting conventions.`;
+
+      const scriptText = sourceVer.plaintext || '';
+      const cappedScript = scriptText.length > 12000
+        ? scriptText.slice(0, 6000) + "\n[...]\n" + scriptText.slice(-6000)
+        : scriptText;
+
+      const result = await callLLM({
+        apiKey,
+        model: MODELS.PRO,
+        system: rewritePrompt,
+        user: cappedScript,
+        temperature: 0.3,
+        maxTokens: 16000,
+      });
+
+      const rewrittenText = result.content;
+
+      // Minimal verification
+      const verification: any = { ok: true, checks: [], warnings: [] };
+      if (!rewrittenText || rewrittenText.trim().length < 50) {
+        verification.ok = false;
+        verification.warnings.push("Rewritten text is suspiciously short or empty");
+      }
+      if (rewrittenText.length < scriptText.length * 0.3) {
+        verification.warnings.push("Rewritten text is significantly shorter than original");
+      }
+
+      // Get next version number
+      const { data: maxVer } = await admin.from("project_document_versions")
+        .select("version_number")
+        .eq("document_id", sourceVer.document_id)
+        .order("version_number", { ascending: false })
+        .limit(1)
+        .single();
+      const nextVersion = (maxVer?.version_number || 0) + 1;
+
+      // Use set_current_version pattern: insert new version
+      const { data: newVer, error: newVerErr } = await admin.from("project_document_versions").insert({
+        document_id: sourceVer.document_id,
+        version_number: nextVersion,
+        plaintext: rewrittenText,
+        label: `Writers' Room rewrite v${nextVersion}`,
+        created_by: user.id,
+        parent_version_id: plan.version_id,
+        applied_change_plan_id: planId,
+        applied_change_plan: changePlan,
+        verification_json: verification,
+        change_summary: changePlan.direction_summary || 'Applied Writers\' Room change plan',
+      }).select("id").single();
+
+      if (newVerErr) throw new Error(newVerErr.message);
+
+      // Set as current via RPC
+      try {
+        await admin.rpc("set_current_version", {
+          p_document_id: sourceVer.document_id,
+          p_new_version_id: newVer.id,
+        });
+      } catch (e: any) {
+        console.warn("set_current_version failed, falling back:", e.message);
+      }
+
+      // Update plan + thread status
+      await admin.from("note_change_plans").update({ status: "applied" }).eq("id", planId);
+      await admin.from("note_threads").update({ status: "applied" }).eq("id", plan.thread_id);
+
+      return ok({ newVersionId: newVer.id, verification });
+    }
+
     return err(`Unknown action: ${action}`);
   } catch (e: any) {
     console.error("notes-writers-room error:", e);
