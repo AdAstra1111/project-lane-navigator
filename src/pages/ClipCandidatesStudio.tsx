@@ -73,6 +73,8 @@ export default function ClipCandidatesStudio() {
   const counts = progress?.counts || { queued: 0, running: 0, succeeded: 0, failed: 0, canceled: 0, total: 0 };
   const totalDone = counts.succeeded + counts.failed + counts.canceled;
   const progressPct = counts.total > 0 ? (totalDone / counts.total) * 100 : 0;
+  const isTerminal = counts.total > 0 && counts.queued === 0 && counts.running === 0;
+  const terminalTitle = counts.failed > 0 ? 'Failed' : counts.canceled === counts.total ? 'Stopped' : 'Complete';
 
   // Group clips by beat
   const clipsByBeat = useMemo(() => {
@@ -242,15 +244,15 @@ export default function ClipCandidatesStudio() {
               </CardHeader>
               <CardContent className="space-y-3">
                 <StagedProgressBar
-                  title={counts.running > 0 ? "Processing Clips" : counts.queued > 0 ? "Clips Queued" : progressPct >= 100 ? "Complete" : "Clip Generation"}
+                  title={isTerminal ? terminalTitle : counts.running > 0 ? 'Processing Clips' : counts.queued > 0 ? 'Clips Queued' : 'Clip Generation'}
                   stages={['Enqueueing jobs', 'Processing queue', 'AI generation', 'Uploading clips', 'Done']}
                   currentStageIndex={
-                    counts.succeeded === counts.total ? 4 :
+                    isTerminal ? 4 :
                     counts.running > 0 ? 2 :
                     counts.queued > 0 ? 1 : 0
                   }
-                  progressPercent={progressPct}
-                  etaSeconds={counts.running > 0 || counts.queued > 0 ? (counts.queued + counts.running) * 8 : undefined}
+                  progressPercent={isTerminal ? 100 : progressPct}
+                  etaSeconds={isTerminal ? undefined : (counts.running > 0 || counts.queued > 0 ? (counts.queued + counts.running) * 8 : undefined)}
                   detailMessage={`${counts.succeeded} succeeded · ${counts.running} running · ${counts.queued} queued · ${counts.failed} failed · ${(clipsData?.clips || []).length} clips produced`}
                 />
               </CardContent>

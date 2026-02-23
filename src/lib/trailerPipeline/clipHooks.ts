@@ -10,7 +10,11 @@ export function useClipProgress(projectId: string | undefined, blueprintId: stri
     queryKey: ['trailer-clip-progress', projectId, blueprintId],
     queryFn: () => clipEngineApi.progress(projectId!, blueprintId!),
     enabled: !!projectId && !!blueprintId,
-    refetchInterval: 5000, // poll every 5s while viewing
+    refetchInterval: (query) => {
+      const data = query.state.data as { counts?: { queued: number; running: number } } | undefined;
+      if (!data?.counts) return 5000;
+      return data.counts.queued > 0 || data.counts.running > 0 ? 5000 : false;
+    },
   });
 }
 
