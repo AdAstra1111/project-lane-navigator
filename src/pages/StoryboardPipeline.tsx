@@ -3,7 +3,7 @@
  */
 import { useState, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Layers, Image, RefreshCw, Check, Loader2, Camera, ChevronDown, ChevronRight, Play, Square, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Layers, Image, RefreshCw, Check, Loader2, Camera, ChevronDown, ChevronRight, Play, Square, AlertTriangle, FileDown, Archive, ExternalLink, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -15,6 +15,7 @@ import { Separator } from '@/components/ui/separator';
 import { Progress } from '@/components/ui/progress';
 import { useCanonicalUnits, useStoryboardRuns, useStoryboardPanels, useStoryboardPanel, useStoryboardMutations } from '@/lib/storyboard/useStoryboard';
 import { useRenderRuns, useRenderRun, useRenderMutations, useRenderWorker } from '@/lib/storyboardRender/useStoryboardRender';
+import { useExports, useExportMutations } from '@/lib/storyboardExport/useStoryboardExport';
 import type { CanonicalUnitSummary, StoryboardPanel } from '@/lib/types/storyboard';
 
 export default function StoryboardPipeline() {
@@ -37,6 +38,11 @@ export default function StoryboardPipeline() {
   const { data: renderRunsData } = useRenderRuns(projectId, selectedRunId);
   const { data: renderRunDetail } = useRenderRun(projectId, activeRenderRunId);
   const { enqueue, cancel } = useRenderMutations(projectId);
+
+  // Export hooks
+  const { data: exportsData } = useExports(projectId, selectedRunId);
+  const { createExport, deleteExport } = useExportMutations(projectId);
+  const exports = exportsData?.exports || [];
 
   const renderRun = renderRunDetail?.renderRun;
   const renderJobs = renderRunDetail?.jobs || [];
@@ -342,6 +348,74 @@ export default function StoryboardPipeline() {
                   )}
                 </CardContent>
               </Card>
+
+              {/* Export Controls */}
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <FileDown className="h-4 w-4" />
+                    Export
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="flex gap-2 flex-wrap">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={createExport.isPending}
+                      onClick={() => createExport.mutate({ runId: selectedRunId!, exportType: 'pdf_contact_sheet' })}
+                    >
+                      {createExport.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <FileDown className="h-3 w-3 mr-1" />}
+                      PDF Contact Sheet
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={createExport.isPending}
+                      onClick={() => createExport.mutate({ runId: selectedRunId!, exportType: 'zip_frames' })}
+                    >
+                      {createExport.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Archive className="h-3 w-3 mr-1" />}
+                      ZIP Frames
+                    </Button>
+                  </div>
+
+                  {exports.length > 0 && (
+                    <div className="space-y-1">
+                      <p className="text-[10px] text-muted-foreground">Recent exports:</p>
+                      {exports.slice(0, 8).map((exp: any) => (
+                        <div key={exp.id} className="flex items-center gap-2 text-xs bg-muted/30 rounded px-2 py-1.5">
+                          <Badge variant={
+                            exp.status === 'complete' ? 'default' :
+                            exp.status === 'failed' ? 'destructive' :
+                            exp.status === 'processing' ? 'secondary' : 'outline'
+                          } className="text-[10px]">{exp.status}</Badge>
+                          <span className="text-muted-foreground">{exp.export_type === 'pdf_contact_sheet' ? 'PDF' : 'ZIP'}</span>
+                          <span className="text-muted-foreground/60 text-[10px]">{new Date(exp.created_at).toLocaleString()}</span>
+                          {exp.status === 'complete' && exp.public_url && (
+                            <a href={exp.public_url} target="_blank" rel="noopener noreferrer">
+                              <Button size="sm" variant="ghost" className="h-5 px-1.5 text-[10px]">
+                                <ExternalLink className="h-3 w-3 mr-0.5" /> Open
+                              </Button>
+                            </a>
+                          )}
+                          {exp.status === 'failed' && (
+                            <span className="text-destructive text-[10px] truncate max-w-[150px]">{exp.error}</span>
+                          )}
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-5 px-1 ml-auto text-muted-foreground hover:text-destructive"
+                            onClick={() => deleteExport.mutate(exp.id)}
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
               {panels.length === 0 ? (
                 <Card>
                   <CardContent className="py-8 text-center text-muted-foreground text-sm">

@@ -15433,29 +15433,47 @@ export type Database = {
         Row: {
           created_at: string
           created_by: string
+          error: string | null
           export_type: string
           id: string
+          options: Json
           project_id: string
+          public_url: string | null
+          run_id: string | null
           shot_list_id: string
+          status: string
           storage_path: string
+          updated_at: string
         }
         Insert: {
           created_at?: string
           created_by: string
+          error?: string | null
           export_type?: string
           id?: string
+          options?: Json
           project_id: string
+          public_url?: string | null
+          run_id?: string | null
           shot_list_id: string
+          status?: string
           storage_path?: string
+          updated_at?: string
         }
         Update: {
           created_at?: string
           created_by?: string
+          error?: string | null
           export_type?: string
           id?: string
+          options?: Json
           project_id?: string
+          public_url?: string | null
+          run_id?: string | null
           shot_list_id?: string
+          status?: string
           storage_path?: string
+          updated_at?: string
         }
         Relationships: [
           {
