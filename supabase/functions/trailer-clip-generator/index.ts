@@ -38,6 +38,13 @@ async function verifyAccess(db: any, userId: string, projectId: string): Promise
 
 // ─── Helpers ───
 
+class RateLimitError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "RateLimitError";
+  }
+}
+
 async function sha256Short(input: string): Promise<string> {
   const encoded = new TextEncoder().encode(input);
   const hash = await crypto.subtle.digest("SHA-256", encoded);
@@ -71,12 +78,10 @@ async function logEvent(db: any, e: {
 async function callVeo(params: {
   prompt: string; lengthMs: number; aspectRatio: string; fps: number;
   seed: string; initImagePaths: string[]; paramsJson: any;
-}): Promise<{ videoUrl?: string; providerJobId?: string; model: string; status: string }> {
+}, maxRetries = 3): Promise<{ videoUrl?: string; providerJobId?: string; model: string; status: string }> {
   const apiKey = Deno.env.get("VEO_API_KEY") || Deno.env.get("GOOGLE_API_KEY");
   if (!apiKey) throw new Error("VEO_API_KEY not configured — using stub mode");
 
-  // Veo 2 via Gemini API (generativelanguage)
-  // POST https://generativelanguage.googleapis.com/v1beta/models/veo-2.0-generate-001:predictLongRunning
   const model = "veo-2.0-generate-001";
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:predictLongRunning?key=${apiKey}`;
 
@@ -94,33 +99,52 @@ async function callVeo(params: {
 
   console.log(`[Veo] Calling ${endpoint.replace(apiKey, 'REDACTED')} with duration=${durationSec}s`);
 
-  const resp = await fetch(endpoint, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    const resp = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
 
-  if (!resp.ok) {
-    const errText = await resp.text();
-    console.error(`[Veo] API error ${resp.status}:`, errText.slice(0, 800));
-    throw new Error(`Veo API error ${resp.status}: ${errText.slice(0, 500)}`);
+    if (resp.status === 429) {
+      const retryAfter = resp.headers.get("Retry-After");
+      const retryMs = retryAfter ? parseInt(retryAfter, 10) * 1000 : NaN;
+      const waitMs = retryMs > 0 ? retryMs : Math.pow(2, attempt + 1) * 5000 + Math.random() * 2000;
+      console.log(`[Veo] Rate limited (429), attempt ${attempt + 1}/${maxRetries}, waiting ${Math.round(waitMs)}ms`);
+      await resp.text(); // consume body
+      if (attempt < maxRetries - 1) {
+        await sleep(waitMs);
+        continue;
+      }
+      // Last attempt still 429 — throw a special error
+      throw new RateLimitError(`Veo rate limited after ${maxRetries} retries`);
+    }
+
+    if (!resp.ok) {
+      const errText = await resp.text();
+      console.error(`[Veo] API error ${resp.status}:`, errText.slice(0, 800));
+      throw new Error(`Veo API error ${resp.status}: ${errText.slice(0, 500)}`);
+    }
+
+    const result = await resp.json();
+    console.log(`[Veo] Response:`, JSON.stringify(result).slice(0, 1000));
+
+    // Veo returns a long-running operation — we need to poll
+    if (result.name) {
+      return { providerJobId: result.name, model, status: "polling" };
+    }
+
+    // Direct result (unlikely for video but handle it)
+    const videoUri = result?.predictions?.[0]?.videoUri;
+    if (videoUri) {
+      return { videoUrl: videoUri, model, status: "complete" };
+    }
+
+    throw new Error("Unexpected Veo response format: " + JSON.stringify(result).slice(0, 500));
   }
 
-  const result = await resp.json();
-  console.log(`[Veo] Response:`, JSON.stringify(result).slice(0, 1000));
-
-  // Veo returns a long-running operation — we need to poll
-  if (result.name) {
-    return { providerJobId: result.name, model, status: "polling" };
-  }
-
-  // Direct result (unlikely for video but handle it)
-  const videoUri = result?.predictions?.[0]?.videoUri;
-  if (videoUri) {
-    return { videoUrl: videoUri, model, status: "complete" };
-  }
-
-  throw new Error("Unexpected Veo response format: " + JSON.stringify(result).slice(0, 500));
+  // Should not reach here
+  throw new Error("Veo: exhausted retries without result");
 }
 
 async function pollVeo(operationName: string): Promise<{ videoUrl?: string; status: string }> {
@@ -434,6 +458,16 @@ async function handleProcessJob(db: any, body: any, userId: string) {
 
     throw new Error("Provider returned no job ID or video URL");
   } catch (err: any) {
+    // On rate limit, re-queue the job instead of failing permanently
+    if (err instanceof RateLimitError || err.name === "RateLimitError") {
+      console.log(`[process_job] Rate limited — re-queuing job ${jobId}`);
+      await db.from("trailer_clip_jobs").update({
+        status: "queued",
+        error: "Rate limited — will retry automatically",
+        claimed_at: null,
+      }).eq("id", jobId);
+      return json({ ok: true, status: "requeued", message: "Rate limited, job re-queued for later" });
+    }
     console.error(`[process_job] Error:`, err.message);
     await markJobFailed(db, job, jobId, projectId, userId, err.message);
     return json({ error: err.message }, 500);
@@ -729,8 +763,14 @@ async function handleProcessQueue(db: any, body: any, userId: string) {
     const resultBody = await processResult.json();
     results.push({ jobId, ...resultBody });
 
-    // Delay between jobs to avoid Veo 429 rate limits
-    if (i < maxJobs - 1) await sleep(3000);
+    // If we got rate limited, stop submitting more jobs this cycle
+    if (resultBody.status === "requeued") {
+      console.log(`[process_queue] Rate limited — stopping batch after ${results.length} jobs`);
+      break;
+    }
+
+    // Delay between jobs to respect Veo rate limits (~2 req/min on free tier)
+    if (i < maxJobs - 1) await sleep(5000);
   }
 
   return json({ ok: true, processed: results.length, results });
