@@ -52,6 +52,17 @@ export const clipApi = {
 export const assemblerApi = {
   createCut: (projectId: string, blueprintId: string, options?: any) =>
     callFn('trailer-assembler', 'create_cut', { projectId, blueprintId, options }),
+  updateBeat: (projectId: string, cutId: string, beatIndex: number, updates: {
+    duration_ms?: number; trim_in_ms?: number; trim_out_ms?: number; clip_id?: string | null;
+  }) => callFn('trailer-assembler', 'update_beat', { projectId, cutId, beatIndex, ...updates }),
+  reorderBeats: (projectId: string, cutId: string, orderedBeatIndices: number[]) =>
+    callFn('trailer-assembler', 'reorder_beats', { projectId, cutId, orderedBeatIndices }),
+  renderManifest: (projectId: string, cutId: string) =>
+    callFn('trailer-assembler', 'render_manifest', { projectId, cutId }),
+  finalizeRun: (projectId: string, cutId: string, outputPath?: string, publicUrl?: string) =>
+    callFn('trailer-assembler', 'finalize_run', { projectId, cutId, outputPath, publicUrl }),
+  exportBeatlist: (projectId: string, cutId: string) =>
+    callFn('trailer-assembler', 'export_beatlist', { projectId, cutId }),
   listCuts: (projectId: string, blueprintId?: string) =>
     callFn('trailer-assembler', 'list_cuts', { projectId, blueprintId }),
   getCut: (projectId: string, cutId: string) =>
