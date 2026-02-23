@@ -3,6 +3,7 @@
  */
 import { useState, useMemo, useCallback } from 'react';
 import { useVisualProduction } from '@/hooks/useVisualProduction';
+import { useAiProduction } from '@/hooks/useAiProduction';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -15,7 +16,10 @@ import { toast } from 'sonner';
 import {
   Loader2, Camera, Check, Film, Image, BarChart3,
   AlertTriangle, Clapperboard, Aperture, Move, Trash2, RotateCcw, X,
+  Sparkles, Wand2,
 } from 'lucide-react';
+import { AiReadinessBadge } from '@/components/shots/AiReadinessBadge';
+import { AiShotActionPanel } from '@/components/shots/AiShotActionPanel';
 import type { SceneListItem } from '@/lib/scene-graph/types';
 
 interface VisualProductionPanelProps {
@@ -27,7 +31,9 @@ interface VisualProductionPanelProps {
 
 export function VisualProductionPanel({ projectId, scenes, selectedSceneId, onSelectScene }: VisualProductionPanelProps) {
   const vp = useVisualProduction(projectId, selectedSceneId);
+  const ai = useAiProduction(projectId);
   const [vpTab, setVpTab] = useState<string>('shots');
+  const [aiPanelShot, setAiPanelShot] = useState<any>(null);
 
   const selectedScene = useMemo(() => scenes.find(s => s.scene_id === selectedSceneId), [scenes, selectedSceneId]);
 
@@ -122,6 +128,32 @@ export function VisualProductionPanel({ projectId, scenes, selectedSceneId, onSe
           isLoading={vp.isLoadingBreakdown}
         />
       </div>
+
+      {/* AI Shot Action Panel */}
+      <AiShotActionPanel
+        open={!!aiPanelShot}
+        onClose={() => setAiPanelShot(null)}
+        shot={aiPanelShot}
+        media={ai.media}
+        onLabelReadiness={() => {
+          if (aiPanelShot) ai.labelReadiness.mutate(aiPanelShot.id);
+        }}
+        onGenerateFrame={() => {
+          if (aiPanelShot) ai.generateMedia.mutate({
+            shotId: aiPanelShot.id,
+            generationType: 'storyboard_frame',
+            options: { variations: 1 },
+          });
+        }}
+        onAnimate={() => {
+          if (aiPanelShot) ai.generateMedia.mutate({
+            shotId: aiPanelShot.id,
+            generationType: 'animated_panel',
+          });
+        }}
+        isLabeling={ai.labelReadiness.isPending}
+        isGenerating={ai.generateMedia.isPending}
+      />
     </div>
   );
 }
@@ -214,6 +246,16 @@ function ShotPlanPanel({ projectId, scene, shotSets, shots, staleSets, onGenerat
                     {shot.camera_movement && shot.camera_movement !== 'static' && (
                       <Badge variant="outline" className="text-[7px] h-3.5 px-1 gap-0.5"><Move className="h-2 w-2" />{shot.camera_movement}</Badge>
                     )}
+                    <AiReadinessBadge
+                      tier={shot.ai_readiness_tier}
+                      confidence={shot.ai_confidence}
+                      maxQuality={shot.ai_max_quality}
+                      blockingConstraints={shot.ai_blocking_constraints}
+                      requiredAssets={shot.ai_required_assets}
+                      legalRiskFlags={shot.ai_legal_risk_flags}
+                      costBand={shot.ai_estimated_cost_band}
+                      compact
+                    />
                     <Badge variant={shot.status === 'approved' ? 'default' : 'secondary'} className="text-[7px] h-3.5 px-1 ml-auto">
                       {shot.status}
                     </Badge>
