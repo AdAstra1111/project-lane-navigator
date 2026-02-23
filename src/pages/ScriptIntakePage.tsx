@@ -596,9 +596,9 @@ function BackfillTab({
                 {doc.error ? (
                   <p className="text-xs text-destructive">{doc.error}</p>
                 ) : (
-                  <ScrollArea className="max-h-64 rounded-md border border-border/30 p-3">
+                  <div className="rounded-md border border-border/30 p-3">
                     <pre className="text-[11px] whitespace-pre-wrap font-sans">{doc.content_markdown}</pre>
-                  </ScrollArea>
+                  </div>
                 )}
               </CardContent>
             </Card>
