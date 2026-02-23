@@ -19,18 +19,18 @@ import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 
 const ANALYSE_STAGES: ProcessStage[] = [
-  { label: 'Uploading documents…', durationSec: 5 },
-  { label: 'Extracting text from files…', durationSec: 15 },
-  { label: 'Analysing structure & genre…', durationSec: 20 },
-  { label: 'Evaluating market positioning…', durationSec: 15 },
-  { label: 'Classifying monetisation lane…', durationSec: 10 },
-  { label: 'Finalising analysis…', durationSec: 8 },
+  { label: 'Uploading documents…', durationSec: 10 },
+  { label: 'Extracting text from files…', durationSec: 45 },
+  { label: 'Analysing structure & genre…', durationSec: 40 },
+  { label: 'Evaluating market positioning…', durationSec: 30 },
+  { label: 'Classifying monetisation lane…', durationSec: 20 },
+  { label: 'Finalising analysis…', durationSec: 15 },
 ];
 
 const CLASSIFY_STAGES: ProcessStage[] = [
-  { label: 'Processing project details…', durationSec: 5 },
-  { label: 'Classifying monetisation lane…', durationSec: 15 },
-  { label: 'Finalising…', durationSec: 5 },
+  { label: 'Processing project details…', durationSec: 10 },
+  { label: 'Classifying monetisation lane…', durationSec: 25 },
+  { label: 'Finalising…', durationSec: 10 },
 ];
 
 const STEPS = ['Basics', 'Material', 'Creative', 'Commercial'];

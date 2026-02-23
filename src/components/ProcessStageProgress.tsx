@@ -58,12 +58,12 @@ export function ProcessStageProgress({ isActive, stages, className }: ProcessSta
     }
   }
 
-  // Progress: use asymptotic approach so it never quite hits 100%
-  const linearPercent = Math.min((elapsed / totalDuration) * 100, 100);
-  // Asymptotic: slows down as it approaches 97%
-  const percent = elapsed >= totalDuration
-    ? 97 - 2 / (1 + (elapsed - totalDuration) * 0.1)
-    : linearPercent * 0.95;
+  // Smooth progress: ease-out curve that decelerates naturally
+  // Uses 1 - e^(-kt) so it starts fast and gradually slows, never hitting 100%
+  const ratio = elapsed / totalDuration;
+  const percent = ratio < 1
+    ? (1 - Math.exp(-2.5 * ratio)) * 90  // ease-out to ~90% over estimated duration
+    : 90 + 7 * (1 - Math.exp(-0.03 * (elapsed - totalDuration)));  // slowly creep toward 97%
 
   const currentStage = stages[currentStageIndex];
   const remainingSec = Math.max(0, totalDuration - elapsed);
@@ -107,20 +107,20 @@ export function ProcessStageProgress({ isActive, stages, className }: ProcessSta
 // ── Pre-built stage configs ──
 
 export const UPLOAD_STAGES: ProcessStage[] = [
-  { label: 'Uploading file…', durationSec: 5 },
-  { label: 'Creating document record…', durationSec: 3 },
-  { label: 'Extracting text from PDF…', durationSec: 20 },
-  { label: 'Parsing scenes…', durationSec: 15 },
-  { label: 'Finalising intake…', durationSec: 5 },
+  { label: 'Uploading file…', durationSec: 10 },
+  { label: 'Creating document record…', durationSec: 5 },
+  { label: 'Extracting text from PDF…', durationSec: 60 },
+  { label: 'Parsing scenes…', durationSec: 45 },
+  { label: 'Finalising intake…', durationSec: 15 },
 ];
 
 export const COVERAGE_STAGES: ProcessStage[] = [
-  { label: 'Reading script text…', durationSec: 5 },
-  { label: 'Analysing structure & characters…', durationSec: 25 },
-  { label: 'Evaluating market positioning…', durationSec: 20 },
-  { label: 'Scoring and writing coverage…', durationSec: 30 },
-  { label: 'Building evidence map…', durationSec: 15 },
-  { label: 'Finalising report…', durationSec: 10 },
+  { label: 'Reading script text…', durationSec: 10 },
+  { label: 'Analysing structure & characters…', durationSec: 45 },
+  { label: 'Evaluating market positioning…', durationSec: 35 },
+  { label: 'Scoring and writing coverage…', durationSec: 50 },
+  { label: 'Building evidence map…', durationSec: 25 },
+  { label: 'Finalising report…', durationSec: 15 },
 ];
 
 export const SAVE_COVERAGE_STAGES: ProcessStage[] = [
@@ -130,8 +130,8 @@ export const SAVE_COVERAGE_STAGES: ProcessStage[] = [
 ];
 
 export const BACKFILL_STAGES: ProcessStage[] = [
-  { label: 'Reading script context…', durationSec: 8 },
-  { label: 'Generating project documents…', durationSec: 45 },
-  { label: 'Building evidence references…', durationSec: 15 },
-  { label: 'Formatting output…', durationSec: 10 },
+  { label: 'Reading script context…', durationSec: 15 },
+  { label: 'Generating project documents…', durationSec: 90 },
+  { label: 'Building evidence references…', durationSec: 30 },
+  { label: 'Formatting output…', durationSec: 20 },
 ];
