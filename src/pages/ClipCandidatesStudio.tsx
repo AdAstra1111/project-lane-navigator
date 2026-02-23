@@ -526,23 +526,31 @@ export default function ClipCandidatesStudio() {
                               {/* Failed job retry buttons */}
                               {hasFailed && (
                                 <div className="flex gap-1 flex-wrap">
-                                  {jobStatuses.filter((j: any) => j.status === 'failed').map((j: any, i: number) => (
-                                    <Button
-                                      key={i}
-                                      size="sm"
-                                      variant="ghost"
-                                      className="text-[10px] h-5 text-destructive"
-                                      onClick={() => {
-                                        // Need job ID — we have it from progress
-                                        const fullJobs = progress?.beatSummary?.[idx]?.jobs || [];
-                                        const failedJob = fullJobs.find((fj: any) => fj.status === 'failed');
-                                        // job IDs aren't in summary — would need list_jobs. For now, show toast
-                                        toast.info('Use "Process Queue" to retry failed jobs');
-                                      }}
-                                    >
-                                      <RefreshCw className="h-2.5 w-2.5 mr-0.5" /> Retry {j.provider} #{j.candidate_index}
-                                    </Button>
-                                  ))}
+                                  {(() => {
+                                    const fullJobs = progress?.beatSummary?.[idx]?.jobs || [];
+                                    const failedJobs = fullJobs.filter((fj: any) => fj.status === 'failed');
+                                    return failedJobs.map((j: any, i: number) => (
+                                      <Button
+                                        key={j.id || i}
+                                        size="sm"
+                                        variant="ghost"
+                                        className="text-[10px] h-5 text-destructive"
+                                        disabled={retryJob.isPending}
+                                        onClick={async () => {
+                                          if (!j.id) {
+                                            toast.error('No job ID available');
+                                            return;
+                                          }
+                                          try {
+                                            await retryJob.mutateAsync(j.id);
+                                            await processQueue.mutateAsync({ blueprintId: blueprintId!, maxJobs: 1 });
+                                          } catch {}
+                                        }}
+                                      >
+                                        <RefreshCw className="h-2.5 w-2.5 mr-0.5" /> Retry {j.provider} #{j.candidate_index}
+                                      </Button>
+                                    ));
+                                  })()}
                                 </div>
                               )}
                             </div>
