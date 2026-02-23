@@ -3,7 +3,7 @@
  */
 import { useState, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Layers, Image, RefreshCw, Check, Loader2, Camera, ChevronDown, ChevronRight } from 'lucide-react';
+import { ArrowLeft, Layers, Image, RefreshCw, Check, Loader2, Camera, ChevronDown, ChevronRight, Play, Square, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -12,7 +12,9 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Separator } from '@/components/ui/separator';
+import { Progress } from '@/components/ui/progress';
 import { useCanonicalUnits, useStoryboardRuns, useStoryboardPanels, useStoryboardPanel, useStoryboardMutations } from '@/lib/storyboard/useStoryboard';
+import { useRenderRuns, useRenderRun, useRenderMutations, useRenderWorker } from '@/lib/storyboardRender/useStoryboardRender';
 import type { CanonicalUnitSummary, StoryboardPanel } from '@/lib/types/storyboard';
 
 export default function StoryboardPipeline() {
@@ -23,12 +25,32 @@ export default function StoryboardPipeline() {
   const [selectedPanelId, setSelectedPanelId] = useState<string | undefined>();
   const [stylePreset, setStylePreset] = useState('cinematic_realism');
   const [aspectRatio, setAspectRatio] = useState('16:9');
+  const [activeRenderRunId, setActiveRenderRunId] = useState<string | undefined>();
 
   const { data: unitsData, isLoading: unitsLoading } = useCanonicalUnits(projectId);
   const { data: runsData } = useStoryboardRuns(projectId);
   const { data: panelsData } = useStoryboardPanels(projectId, selectedRunId);
   const { data: panelDetail } = useStoryboardPanel(projectId, selectedPanelId);
   const { createRunAndPanels, generateFrame, regenerateFrame } = useStoryboardMutations(projectId);
+
+  // Render queue hooks
+  const { data: renderRunsData } = useRenderRuns(projectId, selectedRunId);
+  const { data: renderRunDetail } = useRenderRun(projectId, activeRenderRunId);
+  const { enqueue, cancel } = useRenderMutations(projectId);
+
+  const renderRun = renderRunDetail?.renderRun;
+  const renderJobs = renderRunDetail?.jobs || [];
+  const isRenderRunning = renderRun?.status === 'running';
+
+  // Auto-select latest active render run
+  const renderRuns = renderRunsData?.renderRuns || [];
+  if (!activeRenderRunId && renderRuns.length > 0) {
+    const active = renderRuns.find((r: any) => r.status === 'running');
+    if (active) setActiveRenderRunId(active.id);
+  }
+
+  // Polling worker
+  useRenderWorker(projectId, activeRenderRunId, isRenderRunning);
 
   const units: CanonicalUnitSummary[] = unitsData?.units || [];
   const runs = runsData?.runs || [];
@@ -221,6 +243,105 @@ export default function StoryboardPipeline() {
             </Card>
           ) : (
             <>
+              {/* Render Queue Controls */}
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm flex items-center justify-between">
+                    <span>Batch Render</span>
+                    {isRenderRunning && <Badge variant="default" className="text-[10px] animate-pulse">Rendering…</Badge>}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="flex gap-2 flex-wrap">
+                    <Button
+                      size="sm"
+                      variant="default"
+                      disabled={enqueue.isPending || isRenderRunning}
+                      onClick={() => {
+                        enqueue.mutate({ runId: selectedRunId! }, {
+                          onSuccess: (data: any) => { if (data.renderRunId) setActiveRenderRunId(data.renderRunId); },
+                        });
+                      }}
+                    >
+                      <Play className="h-3 w-3 mr-1" />
+                      Render Missing Frames
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={enqueue.isPending || isRenderRunning}
+                      onClick={() => {
+                        enqueue.mutate({ runId: selectedRunId!, mode: 'force' }, {
+                          onSuccess: (data: any) => { if (data.renderRunId) setActiveRenderRunId(data.renderRunId); },
+                        });
+                      }}
+                    >
+                      <RefreshCw className="h-3 w-3 mr-1" />
+                      Force Render All
+                    </Button>
+                    {isRenderRunning && activeRenderRunId && (
+                      <Button size="sm" variant="destructive" onClick={() => cancel.mutate(activeRenderRunId)}>
+                        <Square className="h-3 w-3 mr-1" />
+                        Cancel
+                      </Button>
+                    )}
+                  </div>
+
+                  {/* Progress */}
+                  {renderRun && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 text-xs">
+                        <Badge variant={
+                          renderRun.status === 'running' ? 'default' :
+                          renderRun.status === 'complete' ? 'secondary' :
+                          renderRun.status === 'failed' ? 'destructive' : 'outline'
+                        } className="text-[10px]">{renderRun.status}</Badge>
+                        <span className="text-muted-foreground">
+                          {renderRun.succeeded}/{renderRun.total} done
+                          {renderRun.failed > 0 && <span className="text-destructive ml-1">· {renderRun.failed} failed</span>}
+                          {renderRun.running > 0 && <span className="text-primary ml-1">· {renderRun.running} in progress</span>}
+                        </span>
+                      </div>
+                      <Progress value={renderRun.total > 0 ? ((renderRun.succeeded + renderRun.failed) / renderRun.total) * 100 : 0} className="h-2" />
+
+                      {/* Failed jobs */}
+                      {renderRun.failed > 0 && (
+                        <div className="space-y-1 mt-2">
+                          <p className="text-xs font-medium text-destructive flex items-center gap-1">
+                            <AlertTriangle className="h-3 w-3" /> Failed jobs:
+                          </p>
+                          {renderJobs.filter((j: any) => j.status === 'failed').slice(0, 10).map((j: any) => (
+                            <div key={j.id} className="text-[10px] text-muted-foreground bg-destructive/5 border border-destructive/20 rounded px-2 py-1">
+                              <span className="font-mono">{j.unit_key}</span> — {j.last_error?.slice(0, 80)}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Recent render runs */}
+                  {renderRuns.length > 1 && (
+                    <div className="pt-1">
+                      <p className="text-[10px] text-muted-foreground mb-1">Recent renders:</p>
+                      <div className="flex gap-1 flex-wrap">
+                        {renderRuns.slice(0, 5).map((rr: any) => (
+                          <button
+                            key={rr.id}
+                            onClick={() => setActiveRenderRunId(rr.id)}
+                            className={`text-[10px] px-1.5 py-0.5 rounded border transition-colors ${
+                              activeRenderRunId === rr.id ? 'border-primary bg-primary/10' : 'border-border hover:border-primary/40'
+                            }`}
+                          >
+                            {rr.succeeded}/{rr.total}
+                            <Badge variant={rr.status === 'complete' ? 'secondary' : rr.status === 'failed' ? 'destructive' : 'outline'} className="text-[8px] ml-1 px-0.5">{rr.status}</Badge>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
               {panels.length === 0 ? (
                 <Card>
                   <CardContent className="py-8 text-center text-muted-foreground text-sm">
@@ -232,11 +353,25 @@ export default function StoryboardPipeline() {
                 <div className="space-y-3">
                   {Object.entries(panelsByUnit).map(([unitKey, unitPanels]) => (
                     <Card key={unitKey}>
-                      <CardHeader className="pb-2 cursor-pointer" onClick={() => toggleExpand(unitKey)}>
-                        <CardTitle className="text-sm flex items-center gap-2">
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm flex items-center gap-2 cursor-pointer" onClick={() => toggleExpand(unitKey)}>
                           {expandedUnits.has(unitKey) ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
                           {unitKey}
                           <Badge variant="outline" className="text-[10px]">{unitPanels.length} panels</Badge>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="ml-auto text-[10px] h-6 px-2"
+                            disabled={enqueue.isPending || isRenderRunning}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              enqueue.mutate({ runId: selectedRunId!, unitKeys: [unitKey] }, {
+                                onSuccess: (data: any) => { if (data.renderRunId) setActiveRenderRunId(data.renderRunId); },
+                              });
+                            }}
+                          >
+                            <Play className="h-2.5 w-2.5 mr-0.5" /> Render Unit
+                          </Button>
                         </CardTitle>
                       </CardHeader>
                       {expandedUnits.has(unitKey) && (

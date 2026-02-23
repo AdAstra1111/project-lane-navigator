@@ -215,3 +215,6 @@ verify_jwt = false
 
 [functions.storyboard-engine]
 verify_jwt = false
+
+[functions.storyboard-render-queue]
+verify_jwt = false

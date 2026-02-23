@@ -15718,6 +15718,172 @@ export type Database = {
           },
         ]
       }
+      storyboard_render_jobs: {
+        Row: {
+          attempts: number
+          claimed_at: string | null
+          claimed_by: string | null
+          completed_at: string | null
+          created_at: string
+          created_by: string
+          id: string
+          last_error: string | null
+          max_attempts: number
+          panel_id: string
+          priority: number
+          project_id: string
+          render_run_id: string
+          run_id: string
+          status: string
+          unit_key: string
+        }
+        Insert: {
+          attempts?: number
+          claimed_at?: string | null
+          claimed_by?: string | null
+          completed_at?: string | null
+          created_at?: string
+          created_by: string
+          id?: string
+          last_error?: string | null
+          max_attempts?: number
+          panel_id: string
+          priority?: number
+          project_id: string
+          render_run_id: string
+          run_id: string
+          status?: string
+          unit_key: string
+        }
+        Update: {
+          attempts?: number
+          claimed_at?: string | null
+          claimed_by?: string | null
+          completed_at?: string | null
+          created_at?: string
+          created_by?: string
+          id?: string
+          last_error?: string | null
+          max_attempts?: number
+          panel_id?: string
+          priority?: number
+          project_id?: string
+          render_run_id?: string
+          run_id?: string
+          status?: string
+          unit_key?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "storyboard_render_jobs_panel_id_fkey"
+            columns: ["panel_id"]
+            isOneToOne: false
+            referencedRelation: "storyboard_panels"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "storyboard_render_jobs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "storyboard_render_jobs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "storyboard_render_jobs_render_run_id_fkey"
+            columns: ["render_run_id"]
+            isOneToOne: false
+            referencedRelation: "storyboard_render_runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "storyboard_render_jobs_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "storyboard_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      storyboard_render_runs: {
+        Row: {
+          completed_at: string | null
+          created_by: string
+          failed: number
+          id: string
+          last_error: string | null
+          project_id: string
+          queued: number
+          run_id: string
+          running: number
+          started_at: string
+          status: string
+          succeeded: number
+          total: number
+          unit_keys: string[] | null
+        }
+        Insert: {
+          completed_at?: string | null
+          created_by: string
+          failed?: number
+          id?: string
+          last_error?: string | null
+          project_id: string
+          queued?: number
+          run_id: string
+          running?: number
+          started_at?: string
+          status?: string
+          succeeded?: number
+          total?: number
+          unit_keys?: string[] | null
+        }
+        Update: {
+          completed_at?: string | null
+          created_by?: string
+          failed?: number
+          id?: string
+          last_error?: string | null
+          project_id?: string
+          queued?: number
+          run_id?: string
+          running?: number
+          started_at?: string
+          status?: string
+          succeeded?: number
+          total?: number
+          unit_keys?: string[] | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "storyboard_render_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "storyboard_render_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "storyboard_render_runs_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "storyboard_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       storyboard_runs: {
         Row: {
           aspect_ratio: string
@@ -17192,6 +17358,37 @@ export type Database = {
         SetofOptions: {
           from: "*"
           to: "shot_plan_job_scenes"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      claim_next_storyboard_render_job: {
+        Args: {
+          p_claimed_by?: string
+          p_project_id: string
+          p_render_run_id?: string
+        }
+        Returns: {
+          attempts: number
+          claimed_at: string | null
+          claimed_by: string | null
+          completed_at: string | null
+          created_at: string
+          created_by: string
+          id: string
+          last_error: string | null
+          max_attempts: number
+          panel_id: string
+          priority: number
+          project_id: string
+          render_run_id: string
+          run_id: string
+          status: string
+          unit_key: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "storyboard_render_jobs"
           isOneToOne: false
           isSetofReturn: true
         }
