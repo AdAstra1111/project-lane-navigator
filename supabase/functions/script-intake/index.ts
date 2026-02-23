@@ -76,6 +76,100 @@ async function verifyUser(req: Request) {
   return user.id;
 }
 
+/* ── pdf text extraction helpers ── */
+
+async function nativeExtractPages(arrayBuffer: ArrayBuffer): Promise<{ pageNumber: number; text: string }[]> {
+  try {
+    // @ts-ignore - dynamic esm import
+    const pdfjsLib = await import("https://esm.sh/pdfjs-dist@4.8.69/legacy/build/pdf.mjs");
+    pdfjsLib.GlobalWorkerOptions.workerSrc = "";
+
+    const doc = await pdfjsLib.getDocument({
+      data: new Uint8Array(arrayBuffer),
+      useWorkerFetch: false,
+      isEvalSupported: false,
+      useSystemFonts: true,
+    }).promise;
+
+    const results: { pageNumber: number; text: string }[] = [];
+    const totalPages = Math.min(doc.numPages, 200);
+
+    for (let i = 1; i <= totalPages; i++) {
+      const page = await doc.getPage(i);
+      const content = await page.getTextContent();
+      const text = content.items
+        .filter((item: any) => "str" in item)
+        .map((item: any) => item.str)
+        .join(" ")
+        .trim();
+      results.push({ pageNumber: i, text });
+    }
+    return results;
+  } catch (err) {
+    console.warn("[script-intake] pdf.js extraction failed:", err);
+    return [];
+  }
+}
+
+async function ocrPdfWithGemini(bytes: Uint8Array): Promise<{ pageNumber: number; text: string }[]> {
+  const { encodeBase64 } = await import("https://deno.land/std@0.224.0/encoding/base64.ts");
+
+  // For large PDFs, chunk into segments to avoid timeouts
+  const totalSizeMB = bytes.length / (1024 * 1024);
+  console.log(`[script-intake] OCR fallback: ${totalSizeMB.toFixed(1)}MB PDF`);
+
+  const base64Pdf = encodeBase64(bytes);
+
+  const result = await callLLM(
+    [
+      {
+        role: "user",
+        content: [
+          {
+            type: "image_url",
+            image_url: { url: `data:application/pdf;base64,${base64Pdf}` },
+          },
+          {
+            type: "text",
+            text: `Extract ALL text from this screenplay PDF. For each page, provide the page number and full text. Use the extract_pdf_pages tool.`,
+          },
+        ],
+      },
+    ],
+    [
+      {
+        type: "function",
+        function: {
+          name: "extract_pdf_pages",
+          description: "Return extracted pages from a PDF",
+          parameters: {
+            type: "object",
+            properties: {
+              pages: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    page_number: { type: "integer" },
+                    text: { type: "string" },
+                  },
+                  required: ["page_number", "text"],
+                  additionalProperties: false,
+                },
+              },
+            },
+            required: ["pages"],
+            additionalProperties: false,
+          },
+        },
+      },
+    ],
+    { type: "function", function: { name: "extract_pdf_pages" } }
+  );
+
+  return (result.pages || []).map((p: any) => ({ pageNumber: p.page_number, text: p.text || "" }));
+}
+
 /* ── action: ingest_pdf ── */
 async function ingestPdf(
   supabase: any,
@@ -90,89 +184,98 @@ async function ingestPdf(
   const arrayBuffer = await fileData.arrayBuffer();
   const bytes = new Uint8Array(arrayBuffer);
 
-  // Use Deno's native base64 encoding to avoid call stack overflow on large files
-  const { encodeBase64 } = await import("https://deno.land/std@0.224.0/encoding/base64.ts");
-  const base64Pdf = encodeBase64(bytes);
+  // Step 1: Try native text extraction first (fast, no AI needed)
+  console.log(`[script-intake] Attempting native PDF extraction (${(bytes.length / 1024 / 1024).toFixed(1)}MB)...`);
+  let pages = await nativeExtractPages(arrayBuffer);
 
-  const extractionResult = await callLLM(
-    [
-      {
-        role: "system",
-        content: `You are a PDF text extraction assistant. Extract the text content from each page of the uploaded screenplay PDF. Preserve page boundaries carefully. Return structured JSON.`,
-      },
-      {
-        role: "user",
-        content: [
-          {
-            type: "image_url",
-            image_url: {
-              url: `data:application/pdf;base64,${base64Pdf}`,
-            },
-          },
-          {
-            type: "text",
-            text: `Extract ALL text from this screenplay PDF. For each page, provide the page number and the full text content. Also detect: the likely title (from the title page), and a list of scene headings with their page numbers. Return using the extract_pdf_pages tool.`,
-          },
-        ],
-      },
-    ],
-    [
-      {
-        type: "function",
-        function: {
-          name: "extract_pdf_pages",
-          description: "Return extracted pages and metadata from a screenplay PDF",
-          parameters: {
-            type: "object",
-            properties: {
-              title_guess: { type: "string", description: "Best guess at the screenplay title" },
-              pages: {
-                type: "array",
-                items: {
-                  type: "object",
-                  properties: {
-                    page_number: { type: "integer" },
-                    text: { type: "string" },
+  // Check quality — if most pages are empty, fall back to OCR
+  const goodPages = pages.filter(p => p.text.length > 30);
+  const nativeQuality = pages.length > 0 ? goodPages.length / pages.length : 0;
+  console.log(`[script-intake] Native extraction: ${goodPages.length}/${pages.length} pages with text (quality: ${(nativeQuality * 100).toFixed(0)}%)`);
+
+  if (nativeQuality < 0.5) {
+    // PDF is likely image-based — use Gemini Vision OCR
+    console.log(`[script-intake] Low native quality, falling back to Gemini OCR...`);
+    try {
+      pages = await ocrPdfWithGemini(bytes);
+      console.log(`[script-intake] OCR extracted ${pages.length} pages`);
+    } catch (ocrErr: any) {
+      console.error("[script-intake] OCR fallback failed:", ocrErr.message);
+      // If we had some native pages, use those rather than failing completely
+      if (goodPages.length > 0) {
+        console.log(`[script-intake] Using partial native extraction (${goodPages.length} pages)`);
+        pages = goodPages.map(p => ({ ...p }));
+      } else {
+        throw new Error("Could not extract text from this PDF. It may be a scanned document — try exporting as a text-based PDF.");
+      }
+    }
+  }
+
+  // Step 2: Detect scenes from extracted text (lightweight AI call on text only, not the PDF)
+  const fullText = pages.map(p => `[PAGE ${p.pageNumber}]\n${p.text}`).join("\n\n");
+  const cappedForScenes = fullText.slice(0, 60000); // Scene detection doesn't need full text
+
+  let titleGuess = "Untitled";
+  let scenes: any[] = [];
+
+  try {
+    const sceneResult = await callLLM(
+      [
+        {
+          role: "system",
+          content: "You are a screenplay parser. Detect the title and scene headings from screenplay text. Be precise with page numbers.",
+        },
+        {
+          role: "user",
+          content: `Parse this screenplay text for the title and scene headings:\n\n${cappedForScenes}\n\nUse the parse_scenes tool.`,
+        },
+      ],
+      [
+        {
+          type: "function",
+          function: {
+            name: "parse_scenes",
+            description: "Parse title and scene headings from screenplay text",
+            parameters: {
+              type: "object",
+              properties: {
+                title_guess: { type: "string" },
+                scenes: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    properties: {
+                      scene_number: { type: "string" },
+                      heading: { type: "string" },
+                      page_start: { type: "integer" },
+                      page_end: { type: "integer" },
+                    },
+                    required: ["heading", "page_start"],
+                    additionalProperties: false,
                   },
-                  required: ["page_number", "text"],
-                  additionalProperties: false,
                 },
               },
-              scenes: {
-                type: "array",
-                items: {
-                  type: "object",
-                  properties: {
-                    scene_number: { type: "string" },
-                    heading: { type: "string" },
-                    page_start: { type: "integer" },
-                    page_end: { type: "integer" },
-                  },
-                  required: ["heading", "page_start"],
-                  additionalProperties: false,
-                },
-              },
+              required: ["title_guess", "scenes"],
+              additionalProperties: false,
             },
-            required: ["title_guess", "pages", "scenes"],
-            additionalProperties: false,
           },
         },
-      },
-    ],
-    { type: "function", function: { name: "extract_pdf_pages" } }
-  );
+      ],
+      { type: "function", function: { name: "parse_scenes" } }
+    );
+    titleGuess = sceneResult.title_guess || "Untitled";
+    scenes = sceneResult.scenes || [];
+  } catch (sceneErr: any) {
+    console.warn("[script-intake] Scene parsing failed (non-fatal):", sceneErr.message);
+  }
 
-  const pages = extractionResult.pages || [];
-  const scenes = extractionResult.scenes || [];
-  const titleGuess = extractionResult.title_guess || "Untitled";
-
-  // Store pages in script_pdf_pages
+  // Step 3: Store pages in script_pdf_pages
   if (pages.length > 0) {
-    const rows = pages.map((p: any) => ({
+    const rows = pages.map((p) => ({
       project_id: projectId,
       document_id: documentId,
       version_id: versionId,
-      page_number: p.page_number,
+      page_number: p.pageNumber,
       page_text: p.text || "",
     }));
 
@@ -182,11 +285,11 @@ async function ingestPdf(
     if (insertErr) console.error("Page insert error:", insertErr);
   }
 
-  // Also store full plaintext on the version
-  const fullText = pages.map((p: any) => p.text).join("\n\n--- PAGE BREAK ---\n\n");
+  // Store full plaintext on the version
+  const plaintextFull = pages.map(p => p.text).join("\n\n--- PAGE BREAK ---\n\n");
   await supabase
     .from("project_document_versions")
-    .update({ plaintext: fullText })
+    .update({ plaintext: plaintextFull })
     .eq("id", versionId);
 
   // Update extraction run
@@ -200,7 +303,7 @@ async function ingestPdf(
   return {
     pageCount: pages.length,
     titleGuess,
-    scenes: scenes.slice(0, 100), // cap
+    scenes: scenes.slice(0, 100),
   };
 }
 
