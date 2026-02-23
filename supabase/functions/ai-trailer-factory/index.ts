@@ -411,10 +411,11 @@ async function handleGenerateTrailerAssets(db: any, body: any, userId: string, a
 
   const allItems = shotlist.items || [];
   const selectedIndices: number[] | null = shotlist.selected_indices;
-  // Filter to selected beats only; if no selection saved, use all
-  const items = selectedIndices && selectedIndices.length > 0
+  // Filter: by selected_indices if saved, then by included flag
+  const filteredByIndices = selectedIndices && selectedIndices.length > 0
     ? allItems.filter((item: any) => selectedIndices.includes(item.index))
     : allItems;
+  const items = filteredByIndices.filter((item: any) => item.included !== false);
   const results: any[] = [];
   let framesGenerated = 0;
   let motionStillsGenerated = 0;
@@ -512,10 +513,11 @@ async function handleAssembleTrailer(db: any, body: any, userId: string, _apiKey
 
   const allItems = shotlist.items || [];
   const selectedIndices: number[] | null = shotlist.selected_indices;
-  // Filter to selected beats only; if no selection saved, use all
-  const items = selectedIndices && selectedIndices.length > 0
+  // Filter: by selected_indices if saved, then by included flag
+  const filteredByIndices = selectedIndices && selectedIndices.length > 0
     ? allItems.filter((item: any) => selectedIndices.includes(item.index))
     : allItems;
+  const items = filteredByIndices.filter((item: any) => item.included !== false);
 
   // Query media efficiently using trailer_shotlist_id column
   const { data: shotlistMedia } = await db.from("ai_generated_media").select("*")

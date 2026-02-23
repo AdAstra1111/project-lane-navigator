@@ -6,8 +6,7 @@
  * Returns { documentId, versionId, title, chars, message }
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { encode as encodeBase64 } from "https://deno.land/std@0.208.0/encoding/base64.ts";
-import { callLLM, MODELS } from "../_shared/llm.ts";
+import { MODELS } from "../_shared/llm.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -56,12 +55,12 @@ Deno.serve(async (req) => {
     const { projectId } = body;
     if (!projectId) return json({ error: "projectId required" }, 400);
 
-    const db = adminClient();
+    const admin = adminClient();
     const apiKey = Deno.env.get("LOVABLE_API_KEY");
     if (!apiKey) return json({ error: "AI key not configured" }, 500);
 
     // 1) Lookup project title
-    const { data: project } = await db
+    const { data: project } = await admin
       .from("projects")
       .select("id, title")
       .eq("id", projectId)
@@ -69,7 +68,7 @@ Deno.serve(async (req) => {
     if (!project) return json({ error: "Project not found" }, 404);
 
     // 2) Find newest script_pdf document
-    const { data: pdfDoc } = await db
+    const { data: pdfDoc } = await admin
       .from("project_documents")
       .select("id, title, file_path, storage_path")
       .eq("project_id", projectId)
@@ -80,10 +79,7 @@ Deno.serve(async (req) => {
 
     if (!pdfDoc)
       return json(
-        {
-          error:
-            "No script_pdf document found for this project. Upload a PDF script first.",
-        },
+        { error: "No script_pdf document found for this project. Upload a PDF script first." },
         400
       );
 
@@ -92,24 +88,22 @@ Deno.serve(async (req) => {
     if (!storagePath)
       return json({ error: "No storage path found for the PDF document" }, 400);
 
-    // 4) Download PDF bytes
-    const { data: fileData, error: dlError } = await db.storage
+    // 4) Create a signed URL for the PDF (valid 10 min)
+    const { data: signedData, error: signError } = await admin.storage
       .from("project-documents")
-      .download(storagePath);
+      .createSignedUrl(storagePath, 600);
 
-    if (dlError || !fileData)
-      return json(
-        { error: "Failed to download PDF: " + (dlError?.message || "unknown") },
-        500
-      );
+    if (signError || !signedData?.signedUrl) {
+      console.error("Signed URL error:", signError);
+      return json({ error: "Failed to create signed URL for the PDF: " + (signError?.message || "unknown") }, 500);
+    }
 
-    // 5) Convert to base64 for AI extraction
-    const arrayBuffer = await fileData.arrayBuffer();
-    const bytes = new Uint8Array(arrayBuffer);
-    const base64 = encodeBase64(bytes);
+    const pdfUrl = signedData.signedUrl;
 
-    // 6) Extract text via multimodal AI
-    const extractionPrompt = `You are a screenplay text extraction specialist. Extract the COMPLETE screenplay/script text from this PDF document accurately.
+    // 5) Extract text via LLM with signed URL reference
+    const extractionPrompt = `You are a screenplay text extraction specialist. You will be given a URL to a PDF screenplay document. Extract the COMPLETE screenplay/script text from this PDF accurately.
+
+PDF URL: ${pdfUrl}
 
 REQUIREMENTS:
 - Preserve ALL scene headings (sluglines like INT./EXT.)
@@ -122,6 +116,7 @@ REQUIREMENTS:
 
 Begin extraction:`;
 
+    // Use text-only prompt with signed URL — avoids invalid image_url modality for PDFs
     const response = await fetch(GATEWAY_URL, {
       method: "POST",
       headers: {
@@ -135,10 +130,7 @@ Begin extraction:`;
             role: "user",
             content: [
               { type: "text", text: extractionPrompt },
-              {
-                type: "image_url",
-                image_url: { url: `data:application/pdf;base64,${base64}` },
-              },
+              { type: "image_url", image_url: { url: pdfUrl } },
             ],
           },
         ],
@@ -150,23 +142,22 @@ Begin extraction:`;
     if (!response.ok) {
       const errText = await response.text();
       console.error("AI extraction failed:", response.status, errText);
-      return json({ error: "AI text extraction failed" }, 500);
+      return json({ error: "AI text extraction failed: " + response.status }, 500);
     }
 
     const aiData = await response.json();
-    const extractedText =
-      aiData.choices?.[0]?.message?.content || "";
+    const extractedText = aiData.choices?.[0]?.message?.content || "";
 
-    if (!extractedText || extractedText.length < 100) {
+    if (!extractedText || extractedText.length < 500) {
       return json(
-        { error: "Extraction produced insufficient text. The PDF may be image-only or corrupted." },
+        { error: `Extraction produced only ${extractedText.length} characters (minimum 500 required). The PDF may be image-only, empty, or corrupted.` },
         400
       );
     }
 
-    // 7) Create project_documents row with doc_type='script'
+    // 6) Create project_documents row with ONLY known safe columns
     const docTitle = `${project.title} — Trailer Source Script`;
-    const { data: newDoc, error: docErr } = await db
+    const { data: newDoc, error: docErr } = await admin
       .from("project_documents")
       .insert({
         project_id: projectId,
@@ -176,22 +167,19 @@ Begin extraction:`;
         file_name: `${project.title}_trailer_source.txt`,
         file_path: storagePath,
         extraction_status: "complete",
-        plaintext: extractedText,
-        extracted_text: extractedText,
         char_count: extractedText.length,
         source: "pdf-to-script",
       })
-      .select()
+      .select("id")
       .single();
 
-    if (docErr || !newDoc)
-      return json(
-        { error: "Failed to create document: " + (docErr?.message || "unknown") },
-        500
-      );
+    if (docErr || !newDoc) {
+      console.error("Doc insert error:", docErr);
+      return json({ error: "Failed to create document: " + (docErr?.message || "unknown") }, 500);
+    }
 
-    // 8) Create project_document_versions row
-    const { data: newVersion, error: verErr } = await db
+    // 7) Create project_document_versions row — plaintext stored HERE
+    const { data: newVersion, error: verErr } = await admin
       .from("project_document_versions")
       .insert({
         document_id: newDoc.id,
@@ -200,22 +188,20 @@ Begin extraction:`;
         created_by: userId,
         is_current: true,
         label: "Extracted from PDF",
-        approval_status: "approved",
+        approval_status: "draft",
       })
-      .select()
+      .select("id")
       .single();
 
-    if (verErr || !newVersion)
-      return json(
-        {
-          error:
-            "Failed to create version: " + (verErr?.message || "unknown"),
-        },
-        500
-      );
+    if (verErr || !newVersion) {
+      console.error("Version insert error:", verErr);
+      // Clean up the doc we just created
+      await admin.from("project_documents").delete().eq("id", newDoc.id);
+      return json({ error: "Failed to create version: " + (verErr?.message || "unknown") }, 500);
+    }
 
-    // Update latest_version_id on the document
-    await db
+    // 8) Update latest_version_id on the document
+    await admin
       .from("project_documents")
       .update({ latest_version_id: newVersion.id })
       .eq("id", newDoc.id);

@@ -25,6 +25,7 @@ type Step = 'source' | 'moments' | 'shotlist' | 'generate' | 'assemble';
 const EXTRACT_STAGES = ['Reading Script', 'Analyzing Structure', 'Extracting Moments', 'Saving Moments', 'Complete'];
 const GENERATE_STAGES = ['Preparing Prompts', 'Generating Frames', 'Generating Motion Stills', 'Saving Media', 'Complete'];
 const ASSEMBLE_STAGES = ['Collecting Assets', 'Building Timeline', 'Writing Timeline File', 'Finalizing', 'Complete'];
+const PDF_EXTRACT_STAGES = ['Locating Script PDF', 'Creating Signed URL', 'Extracting Text', 'Creating Script Document', 'Saving Version'];
 
 export default function AiTrailerBuilder() {
   const { id: projectId } = useParams<{ id: string }>();
@@ -34,6 +35,8 @@ export default function AiTrailerBuilder() {
   const [selectedMomentIds, setSelectedMomentIds] = useState<Set<string>>(new Set());
   const [activeShotlistId, setActiveShotlistId] = useState<string | null>(null);
   const [selectedBeatIndices, setSelectedBeatIndices] = useState<Set<number>>(new Set());
+  const [pdfStageIndex, setPdfStageIndex] = useState(0);
+  const [pdfProgress, setPdfProgress] = useState(0);
 
   const qc = useQueryClient();
   const ai = useAiTrailerFactory(projectId);
@@ -152,13 +155,25 @@ export default function AiTrailerBuilder() {
                     <FileText className="h-10 w-10 text-muted-foreground mx-auto" />
                     <p className="text-xs text-muted-foreground">No script documents found for trailer extraction.</p>
                     <Button size="sm" className="text-xs gap-1.5"
-                      onClick={() => ai.createTrailerSourceScript.mutate(undefined, {
-                        onSuccess: (data: any) => {
-                          qc.invalidateQueries({ queryKey: ['ai-trailer-docs', projectId] });
-                          setSelectedDocId(data.documentId);
-                          setSelectedVersionId(data.versionId);
-                        },
-                      })}
+                      onClick={() => {
+                        setPdfStageIndex(0); setPdfProgress(10);
+                        // Simulate staged progress while waiting
+                        const interval = setInterval(() => {
+                          setPdfStageIndex(prev => Math.min(prev + 1, 3));
+                          setPdfProgress(prev => Math.min(prev + 20, 85));
+                        }, 8000);
+                        ai.createTrailerSourceScript.mutate(undefined, {
+                          onSuccess: (data: any) => {
+                            clearInterval(interval);
+                            setPdfStageIndex(4); setPdfProgress(100);
+                            qc.invalidateQueries({ queryKey: ['ai-trailer-docs', projectId] });
+                            setSelectedDocId(data.documentId);
+                            setSelectedVersionId(data.versionId);
+                            setTimeout(() => setStep('moments'), 300);
+                          },
+                          onError: () => { clearInterval(interval); setPdfStageIndex(0); setPdfProgress(0); },
+                        });
+                      }}
                       disabled={ai.createTrailerSourceScript.isPending}>
                       <Sparkles className="h-3 w-3" />
                       Create Trailer Source Script from PDF
@@ -169,11 +184,11 @@ export default function AiTrailerBuilder() {
                   <div className="py-4">
                     <StagedProgressBar
                       title="Creating Trailer Source Script"
-                      stages={['Locating Script PDF', 'Extracting Text', 'Creating Script Document', 'Saving Version', 'Complete']}
-                      currentStageIndex={1}
-                      progressPercent={40}
-                      etaSeconds={60}
-                      detailMessage="Extracting screenplay text from PDF via AI…"
+                      stages={PDF_EXTRACT_STAGES}
+                      currentStageIndex={pdfStageIndex}
+                      progressPercent={pdfProgress}
+                      etaSeconds={Math.max(0, Math.round((100 - pdfProgress) * 0.6))}
+                      detailMessage={PDF_EXTRACT_STAGES[pdfStageIndex] + '…'}
                     />
                   </div>
                 )}
@@ -191,13 +206,24 @@ export default function AiTrailerBuilder() {
                     ))}
                     {/* Always show CTA to create from PDF as secondary option */}
                     <Button variant="outline" size="sm" className="text-xs gap-1.5 w-full"
-                      onClick={() => ai.createTrailerSourceScript.mutate(undefined, {
-                        onSuccess: (data: any) => {
-                          qc.invalidateQueries({ queryKey: ['ai-trailer-docs', projectId] });
-                          setSelectedDocId(data.documentId);
-                          setSelectedVersionId(data.versionId);
-                        },
-                      })}
+                      onClick={() => {
+                        setPdfStageIndex(0); setPdfProgress(10);
+                        const interval = setInterval(() => {
+                          setPdfStageIndex(prev => Math.min(prev + 1, 3));
+                          setPdfProgress(prev => Math.min(prev + 20, 85));
+                        }, 8000);
+                        ai.createTrailerSourceScript.mutate(undefined, {
+                          onSuccess: (data: any) => {
+                            clearInterval(interval);
+                            setPdfStageIndex(4); setPdfProgress(100);
+                            qc.invalidateQueries({ queryKey: ['ai-trailer-docs', projectId] });
+                            setSelectedDocId(data.documentId);
+                            setSelectedVersionId(data.versionId);
+                            setTimeout(() => setStep('moments'), 300);
+                          },
+                          onError: () => { clearInterval(interval); setPdfStageIndex(0); setPdfProgress(0); },
+                        });
+                      }}
                       disabled={ai.createTrailerSourceScript.isPending}>
                       {ai.createTrailerSourceScript.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
                       Create New Source from PDF
@@ -333,11 +359,23 @@ export default function AiTrailerBuilder() {
                   <>
                     <div className="flex items-center gap-2 mb-3">
                       <Button variant="ghost" size="sm" className="text-[10px] h-6 px-2"
-                        onClick={() => setSelectedBeatIndices(new Set(shotlistItems.map((i: any) => i.index)))}>
+                        onClick={() => {
+                          setSelectedBeatIndices(new Set(shotlistItems.map((i: any) => i.index)));
+                          if (activeShotlist) {
+                            const updatedItems = shotlistItems.map((it: any) => ({ ...it, included: true }));
+                            ai.updateShotlistItems.mutate({ shotlistId: activeShotlist.id, items: updatedItems });
+                          }
+                        }}>
                         Select All
                       </Button>
                       <Button variant="ghost" size="sm" className="text-[10px] h-6 px-2"
-                        onClick={() => setSelectedBeatIndices(new Set())}>
+                        onClick={() => {
+                          setSelectedBeatIndices(new Set());
+                          if (activeShotlist) {
+                            const updatedItems = shotlistItems.map((it: any) => ({ ...it, included: false }));
+                            ai.updateShotlistItems.mutate({ shotlistId: activeShotlist.id, items: updatedItems });
+                          }
+                        }}>
                         Deselect All
                       </Button>
                       <span className="text-[10px] text-muted-foreground ml-auto">
@@ -358,6 +396,13 @@ export default function AiTrailerBuilder() {
                                   const next = new Set(selectedBeatIndices);
                                   if (checked) next.add(item.index); else next.delete(item.index);
                                   setSelectedBeatIndices(next);
+                                  // Also update included flag in items array and persist
+                                  if (activeShotlist) {
+                                    const updatedItems = shotlistItems.map((it: any) =>
+                                      it.index === item.index ? { ...it, included: !!checked } : it
+                                    );
+                                    ai.updateShotlistItems.mutate({ shotlistId: activeShotlist.id, items: updatedItems });
+                                  }
                                 }}
                               />
                               <span className="text-xs font-mono text-muted-foreground w-6">{item.index}</span>
