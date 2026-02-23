@@ -124,6 +124,13 @@ export default function ClipCandidatesStudio() {
           <Film className="h-5 w-5 text-primary" />
           <h1 className="text-lg font-semibold">Clip Candidates</h1>
           <Badge variant="outline" className="text-[10px]">v1</Badge>
+          {blueprintId && (
+            <Link to={`/projects/${projectId}/trailer-assemble?blueprintId=${blueprintId}`}>
+              <Button variant="outline" size="sm" className="text-xs ml-2">
+                <Film className="h-3 w-3 mr-1" /> Timeline Studio
+              </Button>
+            </Link>
+          )}
         </div>
       </header>
 

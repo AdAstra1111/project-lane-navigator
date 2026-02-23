@@ -16618,8 +16618,53 @@ export type Database = {
           },
         ]
       }
+      trailer_cut_events: {
+        Row: {
+          beat_index: number | null
+          blueprint_id: string | null
+          created_at: string
+          created_by: string
+          cut_id: string
+          event_type: string
+          id: string
+          payload: Json
+          project_id: string
+        }
+        Insert: {
+          beat_index?: number | null
+          blueprint_id?: string | null
+          created_at?: string
+          created_by: string
+          cut_id: string
+          event_type: string
+          id?: string
+          payload?: Json
+          project_id: string
+        }
+        Update: {
+          beat_index?: number | null
+          blueprint_id?: string | null
+          created_at?: string
+          created_by?: string
+          cut_id?: string
+          event_type?: string
+          id?: string
+          payload?: Json
+          project_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trailer_cut_events_cut_id_fkey"
+            columns: ["cut_id"]
+            isOneToOne: false
+            referencedRelation: "trailer_cuts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       trailer_cuts: {
         Row: {
+          arc_type: string | null
           blueprint_id: string
           created_at: string
           created_by: string
@@ -16630,12 +16675,17 @@ export type Database = {
           options: Json
           project_id: string
           public_url: string | null
+          render_fps: number
+          render_height: number
+          render_width: number
           status: string
           storage_path: string | null
           timeline: Json
+          title: string | null
           updated_at: string
         }
         Insert: {
+          arc_type?: string | null
           blueprint_id: string
           created_at?: string
           created_by: string
@@ -16646,12 +16696,17 @@ export type Database = {
           options?: Json
           project_id: string
           public_url?: string | null
+          render_fps?: number
+          render_height?: number
+          render_width?: number
           status?: string
           storage_path?: string | null
           timeline?: Json
+          title?: string | null
           updated_at?: string
         }
         Update: {
+          arc_type?: string | null
           blueprint_id?: string
           created_at?: string
           created_by?: string
@@ -16662,9 +16717,13 @@ export type Database = {
           options?: Json
           project_id?: string
           public_url?: string | null
+          render_fps?: number
+          render_height?: number
+          render_width?: number
           status?: string
           storage_path?: string | null
           timeline?: Json
+          title?: string | null
           updated_at?: string
         }
         Relationships: [
