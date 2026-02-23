@@ -209,3 +209,6 @@ verify_jwt = false
 
 [functions.shot-plan-jobs]
 verify_jwt = false
+
+[functions.visual-unit-engine]
+verify_jwt = false

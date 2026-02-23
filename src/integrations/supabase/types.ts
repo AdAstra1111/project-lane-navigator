@@ -16570,6 +16570,332 @@ export type Database = {
           },
         ]
       }
+      visual_unit_candidates: {
+        Row: {
+          candidate_payload: Json
+          created_at: string
+          created_by: string | null
+          extracted_from: Json
+          id: string
+          project_id: string
+          run_id: string
+          scores: Json
+          status: string
+          unit_key: string
+        }
+        Insert: {
+          candidate_payload: Json
+          created_at?: string
+          created_by?: string | null
+          extracted_from?: Json
+          id?: string
+          project_id: string
+          run_id: string
+          scores?: Json
+          status?: string
+          unit_key: string
+        }
+        Update: {
+          candidate_payload?: Json
+          created_at?: string
+          created_by?: string | null
+          extracted_from?: Json
+          id?: string
+          project_id?: string
+          run_id?: string
+          scores?: Json
+          status?: string
+          unit_key?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "visual_unit_candidates_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "visual_unit_candidates_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "visual_unit_candidates_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "visual_unit_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      visual_unit_diffs: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          diff_json: Json
+          diff_summary: string
+          from_candidate_id: string | null
+          from_unit_id: string | null
+          id: string
+          project_id: string
+          to_candidate_id: string | null
+          to_unit_id: string | null
+          unit_key: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          diff_json?: Json
+          diff_summary?: string
+          from_candidate_id?: string | null
+          from_unit_id?: string | null
+          id?: string
+          project_id: string
+          to_candidate_id?: string | null
+          to_unit_id?: string | null
+          unit_key?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          diff_json?: Json
+          diff_summary?: string
+          from_candidate_id?: string | null
+          from_unit_id?: string | null
+          id?: string
+          project_id?: string
+          to_candidate_id?: string | null
+          to_unit_id?: string | null
+          unit_key?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "visual_unit_diffs_from_candidate_id_fkey"
+            columns: ["from_candidate_id"]
+            isOneToOne: false
+            referencedRelation: "visual_unit_candidates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "visual_unit_diffs_from_unit_id_fkey"
+            columns: ["from_unit_id"]
+            isOneToOne: false
+            referencedRelation: "visual_units"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "visual_unit_diffs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "visual_unit_diffs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "visual_unit_diffs_to_candidate_id_fkey"
+            columns: ["to_candidate_id"]
+            isOneToOne: false
+            referencedRelation: "visual_unit_candidates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "visual_unit_diffs_to_unit_id_fkey"
+            columns: ["to_unit_id"]
+            isOneToOne: false
+            referencedRelation: "visual_units"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      visual_unit_events: {
+        Row: {
+          candidate_id: string | null
+          created_at: string
+          created_by: string | null
+          event_type: string
+          id: string
+          payload: Json
+          project_id: string
+          unit_id: string | null
+        }
+        Insert: {
+          candidate_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          event_type: string
+          id?: string
+          payload?: Json
+          project_id: string
+          unit_id?: string | null
+        }
+        Update: {
+          candidate_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          event_type?: string
+          id?: string
+          payload?: Json
+          project_id?: string
+          unit_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "visual_unit_events_candidate_id_fkey"
+            columns: ["candidate_id"]
+            isOneToOne: false
+            referencedRelation: "visual_unit_candidates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "visual_unit_events_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "visual_unit_events_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "visual_unit_events_unit_id_fkey"
+            columns: ["unit_id"]
+            isOneToOne: false
+            referencedRelation: "visual_units"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      visual_unit_runs: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          engine_version: string
+          error: string | null
+          id: string
+          project_id: string
+          prompt_version: string
+          source_versions: Json
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          engine_version?: string
+          error?: string | null
+          id?: string
+          project_id: string
+          prompt_version?: string
+          source_versions?: Json
+          status?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          engine_version?: string
+          error?: string | null
+          id?: string
+          project_id?: string
+          prompt_version?: string
+          source_versions?: Json
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "visual_unit_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "visual_unit_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      visual_units: {
+        Row: {
+          candidate_id: string | null
+          canonical_payload: Json
+          created_at: string
+          created_by: string | null
+          id: string
+          locked: boolean
+          project_id: string
+          source_versions: Json
+          stale: boolean
+          unit_key: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          candidate_id?: string | null
+          canonical_payload: Json
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          locked?: boolean
+          project_id: string
+          source_versions?: Json
+          stale?: boolean
+          unit_key: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          candidate_id?: string | null
+          canonical_payload?: Json
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          locked?: boolean
+          project_id?: string
+          source_versions?: Json
+          stale?: boolean
+          unit_key?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "visual_units_candidate_id_fkey"
+            columns: ["candidate_id"]
+            isOneToOne: false
+            referencedRelation: "visual_unit_candidates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "visual_units_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "visual_units_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       outcome_accuracy_summary: {
