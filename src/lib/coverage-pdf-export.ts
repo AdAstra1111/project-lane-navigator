@@ -126,12 +126,13 @@ export function exportCoveragePDF(coverage: CoverageResult, scriptTitle: string)
   // ── Loglines ──
   sectionTitle('Loglines');
   coverage.loglines.forEach((l, i) => {
-    checkPage(8);
     doc.setFontSize(8);
     doc.setTextColor(...COLORS.dark);
     const lines = doc.splitTextToSize(`${i + 1}. ${l}`, contentWidth);
+    const needed = lines.length * 3.5 + 2;
+    checkPage(needed);
     doc.text(lines, margin, y);
-    y += lines.length * 3.5 + 2;
+    y += needed;
   });
 
   // ── One-Page Synopsis ──
@@ -140,7 +141,7 @@ export function exportCoveragePDF(coverage: CoverageResult, scriptTitle: string)
   doc.setTextColor(...COLORS.dark);
   const synLines = doc.splitTextToSize(coverage.one_page_synopsis, contentWidth);
   synLines.forEach((line: string) => {
-    checkPage(4);
+    checkPage(5);
     doc.text(line, margin, y);
     y += 3.5;
   });
@@ -153,7 +154,7 @@ export function exportCoveragePDF(coverage: CoverageResult, scriptTitle: string)
     doc.setTextColor(...COLORS.dark);
     const cmtLines = doc.splitTextToSize(coverage.comments, contentWidth);
     cmtLines.forEach((line: string) => {
-      checkPage(4);
+      checkPage(5);
       doc.text(line, margin, y);
       y += 3.5;
     });
@@ -163,26 +164,28 @@ export function exportCoveragePDF(coverage: CoverageResult, scriptTitle: string)
   // ── Strengths & Weaknesses ──
   sectionTitle('Strengths');
   coverage.strengths.forEach(s => {
-    checkPage(6);
     doc.setFontSize(8);
+    const lines = doc.splitTextToSize(s, contentWidth - 6);
+    const needed = lines.length * 3.5 + 1.5;
+    checkPage(needed);
     doc.setTextColor(...COLORS.success);
     doc.text('✓', margin, y);
     doc.setTextColor(...COLORS.dark);
-    const lines = doc.splitTextToSize(s, contentWidth - 6);
     doc.text(lines, margin + 5, y);
-    y += lines.length * 3.5 + 1.5;
+    y += needed;
   });
 
   sectionTitle('Weaknesses');
   coverage.weaknesses.forEach(w => {
-    checkPage(6);
     doc.setFontSize(8);
+    const lines = doc.splitTextToSize(w, contentWidth - 6);
+    const needed = lines.length * 3.5 + 1.5;
+    checkPage(needed);
     doc.setTextColor(...COLORS.warning);
     doc.text('⚠', margin, y);
     doc.setTextColor(...COLORS.dark);
-    const lines = doc.splitTextToSize(w, contentWidth - 6);
     doc.text(lines, margin + 5, y);
-    y += lines.length * 3.5 + 1.5;
+    y += needed;
   });
 
   // ── Market Positioning ──
