@@ -3,7 +3,7 @@
  */
 import { useState, useMemo, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Layers, Image, RefreshCw, Check, Loader2, Camera, ChevronDown, ChevronRight, Play, Square, AlertTriangle, FileDown, Archive, ExternalLink, Trash2, Film, Settings2 } from 'lucide-react';
+import { ArrowLeft, Layers, Image, RefreshCw, Check, Loader2, Camera, ChevronDown, ChevronRight, Play, Square, AlertTriangle, FileDown, Archive, ExternalLink, Trash2, Film, Settings2, Copy, Link2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -391,7 +391,7 @@ export default function StoryboardPipeline() {
                       onClick={() => createExport.mutate({ runId: selectedRunId!, exportType: 'zip_frames' })}
                     >
                       {createExport.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Archive className="h-3 w-3 mr-1" />}
-                      ZIP Frames
+                      ZIP + Manifest
                     </Button>
                   </div>
 
@@ -403,19 +403,38 @@ export default function StoryboardPipeline() {
                           <Badge variant={
                             exp.status === 'complete' ? 'default' :
                             exp.status === 'failed' ? 'destructive' :
-                            exp.status === 'processing' ? 'secondary' : 'outline'
+                            exp.status === 'running' ? 'secondary' : 'outline'
                           } className="text-[10px]">{exp.status}</Badge>
                           <span className="text-muted-foreground">{exp.export_type === 'pdf_contact_sheet' ? 'PDF' : 'ZIP'}</span>
-                          <span className="text-muted-foreground/60 text-[10px]">{new Date(exp.created_at).toLocaleString()}</span>
+                          {exp.meta?.frame_count != null && (
+                            <span className="text-muted-foreground/50 text-[10px]">{exp.meta.frame_count}/{exp.meta.panel_count} frames</span>
+                          )}
+                          <span className="text-muted-foreground/40 text-[10px]">{new Date(exp.created_at).toLocaleString()}</span>
                           {exp.status === 'complete' && exp.public_url && (
-                            <a href={exp.public_url} target="_blank" rel="noopener noreferrer">
-                              <Button size="sm" variant="ghost" className="h-5 px-1.5 text-[10px]">
-                                <ExternalLink className="h-3 w-3 mr-0.5" /> Open
+                            <>
+                              <a href={exp.public_url} target="_blank" rel="noopener noreferrer">
+                                <Button size="sm" variant="ghost" className="h-5 px-1.5 text-[10px]">
+                                  <ExternalLink className="h-3 w-3 mr-0.5" /> Open
+                                </Button>
+                              </a>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-5 px-1.5 text-[10px]"
+                                onClick={() => {
+                                  navigator.clipboard.writeText(exp.public_url);
+                                  import('sonner').then(m => m.toast.success('Link copied!'));
+                                }}
+                              >
+                                <Link2 className="h-3 w-3 mr-0.5" /> Copy Link
                               </Button>
-                            </a>
+                            </>
                           )}
                           {exp.status === 'failed' && (
                             <span className="text-destructive text-[10px] truncate max-w-[150px]">{exp.error}</span>
+                          )}
+                          {exp.meta?.missing_count > 0 && exp.status !== 'failed' && (
+                            <span className="text-amber-500 text-[10px]">⚠ {exp.meta.missing_count} missing</span>
                           )}
                           <Button
                             size="sm"

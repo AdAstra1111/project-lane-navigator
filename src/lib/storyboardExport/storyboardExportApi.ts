@@ -29,9 +29,16 @@ export const storyboardExportApi = {
   createExport: (projectId: string, runId: string, exportType: string, options?: any) =>
     callExport('create_export', { projectId, runId, exportType, options }),
 
-  getExports: (projectId: string, runId?: string) =>
-    callExport('get_exports', { projectId, runId }),
+  listExports: (projectId: string, runId?: string) =>
+    callExport('list_exports', { projectId, runId }),
+
+  getExport: (projectId: string, exportId: string) =>
+    callExport('get_export', { projectId, exportId }),
 
   deleteExport: (projectId: string, exportId: string) =>
     callExport('delete_export', { projectId, exportId }),
+
+  // Backward compat alias
+  getExports: (projectId: string, runId?: string) =>
+    callExport('list_exports', { projectId, runId }),
 };
