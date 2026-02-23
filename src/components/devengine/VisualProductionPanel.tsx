@@ -2,9 +2,12 @@
  * Visual Production Panel — Phase 5 UI for Shot Lists, Storyboards, Production Intelligence
  */
 import { useState, useMemo, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useVisualProduction } from '@/hooks/useVisualProduction';
 import { useAiTrailerFactory } from '@/hooks/useAiTrailerFactory';
+import { useGenerateFullShotPlan } from '@/hooks/useGenerateFullShotPlan';
 import { AiShotHeatmapDashboard } from '@/components/shots/AiShotHeatmapDashboard';
+import { StagedProgressBar } from '@/components/system/StagedProgressBar';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -31,8 +34,10 @@ interface VisualProductionPanelProps {
 }
 
 export function VisualProductionPanel({ projectId, scenes, selectedSceneId, onSelectScene }: VisualProductionPanelProps) {
+  const navigate = useNavigate();
   const vp = useVisualProduction(projectId, selectedSceneId);
   const ai = useAiTrailerFactory(projectId);
+  const fullShotPlan = useGenerateFullShotPlan(projectId, scenes);
   const [vpTab, setVpTab] = useState<string>('shots');
   const [aiPanelShot, setAiPanelShot] = useState<any>(null);
 
@@ -51,6 +56,19 @@ export function VisualProductionPanel({ projectId, scenes, selectedSceneId, onSe
 
   return (
     <div className="grid grid-cols-12 gap-3">
+      {/* Header with AI Trailer Factory button */}
+      <div className="col-span-12 flex items-center justify-end mb-1">
+        <Button
+          size="sm"
+          variant="secondary"
+          className="h-6 text-[9px] gap-1 px-2"
+          onClick={() => navigate(`/projects/${projectId}/ai-trailer`)}
+        >
+          <Film className="h-3 w-3" />
+          AI Trailer Factory
+        </Button>
+      </div>
+
       {/* Scene List (left) */}
       <div className="col-span-3">
         <Card className="border-border/50">
@@ -90,9 +108,25 @@ export function VisualProductionPanel({ projectId, scenes, selectedSceneId, onSe
             <TabsTrigger value="ai-heatmap" className="text-[10px] flex-1 gap-1">
               <Sparkles className="h-2.5 w-2.5" /> AI Readiness
             </TabsTrigger>
+            <TabsTrigger value="ai-trailer" className="text-[10px] flex-1 gap-1">
+              <Film className="h-2.5 w-2.5" /> AI Trailer
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="shots" className="mt-2">
+            {/* Generate Full Shot Plan progress */}
+            {fullShotPlan.isRunning && (
+              <div className="mb-2">
+                <StagedProgressBar
+                  title="Generating Full Shot Plan"
+                  stages={fullShotPlan.stages}
+                  currentStageIndex={fullShotPlan.progress.stageIndex}
+                  progressPercent={fullShotPlan.progress.progress}
+                  etaSeconds={fullShotPlan.progress.etaSeconds}
+                  detailMessage={fullShotPlan.progress.detail}
+                />
+              </div>
+            )}
             <ShotPlanPanel
               projectId={projectId}
               scene={selectedScene || null}
@@ -103,6 +137,9 @@ export function VisualProductionPanel({ projectId, scenes, selectedSceneId, onSe
               onApproveSet={(id) => vp.approveShotSet.mutateAsync(id)}
               isGenerating={vp.generateShots.isPending}
               isLoading={vp.isLoadingShots}
+              onGenerateFullPlan={() => fullShotPlan.generateFullShotPlan.mutate()}
+              isGeneratingFullPlan={fullShotPlan.isRunning}
+              hasScenes={scenes.length > 0}
             />
           </TabsContent>
 
@@ -123,6 +160,23 @@ export function VisualProductionPanel({ projectId, scenes, selectedSceneId, onSe
 
           <TabsContent value="ai-heatmap" className="mt-2">
             <AiShotHeatmapDashboard projectId={projectId} />
+          </TabsContent>
+
+          <TabsContent value="ai-trailer" className="mt-2">
+            <Card className="border-border/50">
+              <CardContent className="p-6 text-center space-y-3">
+                <Film className="h-8 w-8 mx-auto text-primary/60" />
+                <div className="space-y-1">
+                  <p className="text-sm font-medium">AI Trailer Factory</p>
+                  <p className="text-xs text-muted-foreground">
+                    Build a pitch-ready taster trailer from your script using AI-generated storyboard frames and motion stills.
+                  </p>
+                </div>
+                <Button size="sm" className="text-xs gap-1" onClick={() => navigate(`/projects/${projectId}/ai-trailer`)}>
+                  <Film className="h-3 w-3" /> Open AI Trailer Factory
+                </Button>
+              </CardContent>
+            </Card>
           </TabsContent>
         </Tabs>
       </div>
@@ -166,7 +220,7 @@ export function VisualProductionPanel({ projectId, scenes, selectedSceneId, onSe
 
 // ── Shot Plan Panel ──
 
-function ShotPlanPanel({ projectId, scene, shotSets, shots, staleSets, onGenerate, onApproveSet, isGenerating, isLoading }: {
+function ShotPlanPanel({ projectId, scene, shotSets, shots, staleSets, onGenerate, onApproveSet, isGenerating, isLoading, onGenerateFullPlan, isGeneratingFullPlan, hasScenes }: {
   projectId: string;
   scene: SceneListItem | null;
   shotSets: any[];
@@ -176,12 +230,30 @@ function ShotPlanPanel({ projectId, scene, shotSets, shots, staleSets, onGenerat
   onApproveSet: (id: string) => void;
   isGenerating: boolean;
   isLoading: boolean;
+  onGenerateFullPlan?: () => void;
+  isGeneratingFullPlan?: boolean;
+  hasScenes?: boolean;
 }) {
   if (!scene) {
     return (
       <Card className="border-border/50">
-        <CardContent className="p-6 text-center">
+        <CardContent className="p-6 text-center space-y-3">
           <p className="text-xs text-muted-foreground">Select a scene to manage shot plans</p>
+          {onGenerateFullPlan && hasScenes && (
+            <div className="pt-2 border-t border-border/30">
+              <Button
+                size="sm"
+                variant="default"
+                className="text-[9px] gap-1 h-7"
+                onClick={onGenerateFullPlan}
+                disabled={isGeneratingFullPlan}
+              >
+                {isGeneratingFullPlan ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wand2 className="h-3 w-3" />}
+                Generate Full Shot Plan
+              </Button>
+              <p className="text-[9px] text-muted-foreground mt-1">Create structured shots for entire script</p>
+            </div>
+          )}
         </CardContent>
       </Card>
     );

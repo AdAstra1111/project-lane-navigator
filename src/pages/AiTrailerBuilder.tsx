@@ -12,8 +12,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Progress } from '@/components/ui/progress';
 import { Checkbox } from '@/components/ui/checkbox';
+import { StagedProgressBar } from '@/components/system/StagedProgressBar';
 import {
   ArrowLeft, ArrowRight, Sparkles, Film, FileText, Image,
   Loader2, Star, Zap, Heart, Download, Package, Play,
@@ -21,6 +21,10 @@ import {
 import { useAiTrailerFactory } from '@/hooks/useAiTrailerFactory';
 
 type Step = 'source' | 'moments' | 'shotlist' | 'generate' | 'assemble';
+
+const EXTRACT_STAGES = ['Reading Script', 'Analyzing Structure', 'Extracting Moments', 'Saving Moments', 'Complete'];
+const GENERATE_STAGES = ['Preparing Prompts', 'Generating Frames', 'Generating Motion Stills', 'Saving Media', 'Complete'];
+const ASSEMBLE_STAGES = ['Collecting Assets', 'Building Timeline', 'Writing Timeline File', 'Finalizing', 'Complete'];
 
 export default function AiTrailerBuilder() {
   const { id: projectId } = useParams<{ id: string }>();
@@ -176,11 +180,23 @@ export default function AiTrailerBuilder() {
                 </Button>
               </CardHeader>
               <CardContent>
+                {ai.extractMoments.isPending && (
+                  <div className="mb-4">
+                    <StagedProgressBar
+                      title="Extracting Trailer Moments"
+                      stages={EXTRACT_STAGES}
+                      currentStageIndex={1}
+                      progressPercent={40}
+                      etaSeconds={30}
+                      detailMessage="Analyzing script structure and identifying high-impact beats…"
+                    />
+                  </div>
+                )}
                 {ai.isLoadingMoments ? (
                   <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
-                ) : ai.moments.length === 0 ? (
+                ) : ai.moments.length === 0 && !ai.extractMoments.isPending ? (
                   <p className="text-xs text-muted-foreground text-center py-8">No moments extracted yet. Click "Extract Moments" to analyze the script.</p>
-                ) : (
+                ) : !ai.extractMoments.isPending && (
                   <ScrollArea className="max-h-[60vh]">
                     <div className="space-y-2">
                       {ai.moments.map(m => (
@@ -278,11 +294,14 @@ export default function AiTrailerBuilder() {
               <CardContent>
                 {ai.generateTrailerAssets.isPending ? (
                   <div className="space-y-3 py-4">
-                    <div className="flex items-center gap-2">
-                      <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                      <p className="text-xs text-muted-foreground">Generating frames and motion stills… This may take a few minutes.</p>
-                    </div>
-                    <Progress value={50} className="h-2" />
+                    <StagedProgressBar
+                      title="Generating Trailer Assets"
+                      stages={GENERATE_STAGES}
+                      currentStageIndex={1}
+                      progressPercent={35}
+                      etaSeconds={90}
+                      detailMessage="Generating storyboard frames and motion stills for each beat…"
+                    />
                   </div>
                 ) : generateProgress ? (
                   <div className="space-y-3 py-4">
@@ -346,6 +365,18 @@ export default function AiTrailerBuilder() {
                 </Button>
               </CardHeader>
               <CardContent>
+                {ai.assembleTrailer.isPending && (
+                  <div className="mb-4">
+                    <StagedProgressBar
+                      title="Assembling Taster Trailer"
+                      stages={ASSEMBLE_STAGES}
+                      currentStageIndex={1}
+                      progressPercent={30}
+                      etaSeconds={20}
+                      detailMessage="Building timeline from shotlist and generated assets…"
+                    />
+                  </div>
+                )}
                 {ai.assembleTrailer.isSuccess && ai.assembleTrailer.data ? (
                   <div className="space-y-4 py-4">
                     <div className="grid grid-cols-3 gap-3 text-center">
@@ -377,7 +408,6 @@ export default function AiTrailerBuilder() {
                       </a>
                     )}
 
-                    {/* Timeline preview */}
                     {ai.assembleTrailer.data.timeline?.timeline && (
                       <ScrollArea className="max-h-[40vh]">
                         <div className="space-y-1">
@@ -401,7 +431,7 @@ export default function AiTrailerBuilder() {
 
                     <p className="text-xs text-muted-foreground text-center">{ai.assembleTrailer.data.message}</p>
                   </div>
-                ) : (
+                ) : !ai.assembleTrailer.isPending && (
                   <div className="text-center py-8">
                     <Package className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
                     <p className="text-xs text-muted-foreground">
