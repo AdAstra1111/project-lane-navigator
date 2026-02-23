@@ -1,8 +1,8 @@
 /**
  * AiTrailerBuilder — Wizard page for building an AI taster trailer.
- * Uses the ai-trailer-factory edge function for all operations.
+ * Uses multi-source "Trailer Definition Pack" for source selection.
  */
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
@@ -17,21 +17,41 @@ import { StagedProgressBar } from '@/components/system/StagedProgressBar';
 import {
   ArrowLeft, ArrowRight, Sparkles, Film, FileText, Image,
   Loader2, Star, Zap, Heart, Download, Package, Play,
+  ChevronUp, ChevronDown, X, Search,
 } from 'lucide-react';
-import { useAiTrailerFactory } from '@/hooks/useAiTrailerFactory';
+import { useAiTrailerFactory, TrailerDefinitionPackItem } from '@/hooks/useAiTrailerFactory';
+import { Input } from '@/components/ui/input';
 
 type Step = 'source' | 'moments' | 'shotlist' | 'generate' | 'assemble';
 
-const EXTRACT_STAGES = ['Reading Script', 'Analyzing Structure', 'Extracting Moments', 'Saving Moments', 'Complete'];
+const EXTRACT_STAGES = ['Reading Materials', 'Analyzing Structure', 'Extracting Moments', 'Saving Moments', 'Complete'];
 const GENERATE_STAGES = ['Preparing Prompts', 'Generating Frames', 'Generating Motion Stills', 'Saving Media', 'Complete'];
 const ASSEMBLE_STAGES = ['Collecting Assets', 'Building Timeline', 'Writing Timeline File', 'Finalizing', 'Complete'];
 const PDF_EXTRACT_STAGES = ['Locating Script PDF', 'Creating Signed URL', 'Extracting Text', 'Creating Script Document', 'Saving Version'];
 
+// Doc type categories for grouping
+const DOC_CATEGORIES: Record<string, string[]> = {
+  'Script-like': ['script', 'screenplay', 'episode_script', 'treatment'],
+  'Story': ['beat_sheet', 'blueprint', 'story_outline', 'episode_grid', 'pilot_story'],
+  'World / Canon': ['character_bible', 'world_bible', 'architecture', 'series_bible', 'tone_doc'],
+  'Market': ['market_sheet', 'pitch_deck', 'one_pager', 'concept_brief', 'sales_sheet'],
+  'Visual': ['lookbook', 'mood_board', 'storyboard', 'visual_references'],
+  'Other': [],
+};
+
+const PRIMARY_DOC_TYPES = ['script', 'screenplay', 'treatment', 'beat_sheet', 'blueprint', 'concept_brief', 'idea'];
+
+interface SelectedItem {
+  documentId: string;
+  versionId?: string;
+  role: 'primary' | 'supporting';
+  sortOrder: number;
+  include: boolean;
+}
+
 export default function AiTrailerBuilder() {
   const { id: projectId } = useParams<{ id: string }>();
   const [step, setStep] = useState<Step>('source');
-  const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
-  const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null);
   const [selectedMomentIds, setSelectedMomentIds] = useState<Set<string>>(new Set());
   const [activeShotlistId, setActiveShotlistId] = useState<string | null>(null);
   const [selectedBeatIndices, setSelectedBeatIndices] = useState<Set<number>>(new Set());
@@ -39,6 +59,11 @@ export default function AiTrailerBuilder() {
   const [pdfProgress, setPdfProgress] = useState(0);
   const [pdfDetail, setPdfDetail] = useState('');
   const pdfTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  // Pack builder state
+  const [packSelection, setPackSelection] = useState<SelectedItem[]>([]);
+  const [activePackId, setActivePackId] = useState<string | null>(null);
+  const [docSearch, setDocSearch] = useState('');
 
   const qc = useQueryClient();
   const ai = useAiTrailerFactory(projectId);
@@ -49,6 +74,96 @@ export default function AiTrailerBuilder() {
   }, []);
 
   useEffect(() => () => clearPdfTimers(), [clearPdfTimers]);
+
+  // Load ALL project documents (not filtered by doc_type)
+  const { data: allDocuments = [] } = useQuery({
+    queryKey: ['ai-trailer-all-docs', projectId],
+    queryFn: async () => {
+      const { data } = await (supabase as any)
+        .from('project_documents')
+        .select('id, title, doc_type, created_at, updated_at')
+        .eq('project_id', projectId)
+        .order('created_at', { ascending: false });
+      return data || [];
+    },
+    enabled: !!projectId,
+  });
+
+  // Load versions for selected docs
+  const selectedDocIds = packSelection.map(s => s.documentId);
+  const { data: docVersionsMap = {} } = useQuery({
+    queryKey: ['ai-trailer-doc-versions', selectedDocIds.sort().join(',')],
+    queryFn: async () => {
+      if (selectedDocIds.length === 0) return {};
+      const { data } = await (supabase as any)
+        .from('project_document_versions')
+        .select('id, document_id, version_number, created_at')
+        .in('document_id', selectedDocIds)
+        .order('version_number', { ascending: false });
+      const map: Record<string, any[]> = {};
+      for (const v of (data || [])) {
+        if (!map[v.document_id]) map[v.document_id] = [];
+        map[v.document_id].push(v);
+      }
+      return map;
+    },
+    enabled: selectedDocIds.length > 0,
+  });
+
+  const { data: project } = useQuery({
+    queryKey: ['ai-trailer-project', projectId],
+    queryFn: async () => {
+      const { data } = await supabase.from('projects').select('title').eq('id', projectId!).single();
+      return data;
+    },
+    enabled: !!projectId,
+  });
+
+  // Hydrate from existing pack on mount
+  useEffect(() => {
+    if (ai.packs.length > 0 && packSelection.length === 0) {
+      const pack = ai.packs[0];
+      setActivePackId(pack.id);
+      const items = pack.trailer_definition_pack_items || [];
+      setPackSelection(items.map((item: TrailerDefinitionPackItem) => ({
+        documentId: item.document_id,
+        versionId: item.version_id || undefined,
+        role: item.role as 'primary' | 'supporting',
+        sortOrder: item.sort_order,
+        include: item.include,
+      })));
+    }
+  }, [ai.packs]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-select heuristic when no pack and docs loaded
+  useEffect(() => {
+    if (packSelection.length === 0 && ai.packs.length === 0 && allDocuments.length > 0) {
+      const priorityOrder = ['script', 'screenplay', 'treatment', 'beat_sheet', 'blueprint', 'concept_brief', 'idea'];
+      const supportingTypes = ['character_bible', 'market_sheet', 'architecture', 'script_coverage', 'tone_doc'];
+
+      const auto: SelectedItem[] = [];
+      let order = 0;
+
+      // Pick primary docs
+      for (const dt of priorityOrder) {
+        const doc = allDocuments.find((d: any) => d.doc_type === dt && !auto.some(a => a.documentId === d.id));
+        if (doc) {
+          auto.push({ documentId: doc.id, role: auto.length < 2 ? 'primary' : 'supporting', sortOrder: order++, include: true });
+          if (auto.length >= 3) break;
+        }
+      }
+
+      // Pick supporting docs
+      for (const dt of supportingTypes) {
+        const doc = allDocuments.find((d: any) => d.doc_type === dt && !auto.some(a => a.documentId === d.id));
+        if (doc) {
+          auto.push({ documentId: doc.id, role: 'supporting', sortOrder: order++, include: true });
+        }
+      }
+
+      if (auto.length > 0) setPackSelection(auto);
+    }
+  }, [allDocuments, ai.packs.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const startPdfExtraction = useCallback(() => {
     clearPdfTimers();
@@ -75,11 +190,18 @@ export default function AiTrailerBuilder() {
           setPdfStageIndex(4);
           setPdfProgress(100);
           setPdfDetail('Complete');
-          qc.invalidateQueries({ queryKey: ['ai-trailer-docs', projectId] });
-          if (data.documentId) setSelectedDocId(data.documentId);
-          if (data.versionId) setSelectedVersionId(data.versionId);
-          const navTimer = setTimeout(() => setStep('moments'), 300);
-          pdfTimersRef.current.push(navTimer);
+          qc.invalidateQueries({ queryKey: ['ai-trailer-all-docs', projectId] });
+          // Auto-add extracted script to pack as primary at top
+          if (data.documentId) {
+            setPackSelection(prev => {
+              const exists = prev.some(p => p.documentId === data.documentId);
+              if (exists) return prev;
+              return [
+                { documentId: data.documentId, versionId: data.versionId, role: 'primary' as const, sortOrder: 0, include: true },
+                ...prev.map((p, i) => ({ ...p, sortOrder: i + 1 })),
+              ];
+            });
+          }
         }, 500);
         pdfTimersRef.current.push(doneTimer);
       },
@@ -92,41 +214,80 @@ export default function AiTrailerBuilder() {
     });
   }, [ai.createTrailerSourceScript, clearPdfTimers, projectId, qc]);
 
-  const { data: documents = [] } = useQuery({
-    queryKey: ['ai-trailer-docs', projectId],
-    queryFn: async () => {
-      const { data } = await (supabase as any)
-        .from('project_documents').select('id, title, doc_type')
-        .eq('project_id', projectId)
-        .in('doc_type', ['script', 'screenplay', 'treatment', 'episode_script'])
-        .order('created_at', { ascending: false });
-      return data || [];
-    },
-    enabled: !!projectId,
-  });
+  // Group documents by category
+  const groupedDocs = useMemo(() => {
+    const filtered = docSearch
+      ? allDocuments.filter((d: any) =>
+          d.title.toLowerCase().includes(docSearch.toLowerCase()) ||
+          d.doc_type.toLowerCase().includes(docSearch.toLowerCase()))
+      : allDocuments;
 
-  const { data: versions = [] } = useQuery({
-    queryKey: ['ai-trailer-versions', selectedDocId],
-    queryFn: async () => {
-      const { data } = await (supabase as any)
-        .from('project_document_versions').select('id, version_number, created_at')
-        .eq('document_id', selectedDocId).order('version_number', { ascending: false });
-      return data || [];
-    },
-    enabled: !!selectedDocId,
-  });
+    const groups: Record<string, any[]> = {};
+    for (const [cat, types] of Object.entries(DOC_CATEGORIES)) {
+      if (cat === 'Other') continue;
+      const docs = filtered.filter((d: any) => types.includes(d.doc_type));
+      if (docs.length > 0) groups[cat] = docs;
+    }
+    // Other
+    const knownTypes = Object.values(DOC_CATEGORIES).flat();
+    const otherDocs = filtered.filter((d: any) => !knownTypes.includes(d.doc_type));
+    if (otherDocs.length > 0) groups['Other'] = otherDocs;
+    return groups;
+  }, [allDocuments, docSearch]);
 
-  const { data: project } = useQuery({
-    queryKey: ['ai-trailer-project', projectId],
-    queryFn: async () => {
-      const { data } = await supabase.from('projects').select('title').eq('id', projectId!).single();
-      return data;
-    },
-    enabled: !!projectId,
-  });
+  const isDocSelected = (docId: string) => packSelection.some(s => s.documentId === docId);
+
+  const toggleDoc = (docId: string, docType: string) => {
+    setPackSelection(prev => {
+      if (prev.some(s => s.documentId === docId)) {
+        return prev.filter(s => s.documentId !== docId);
+      }
+      const isPrimary = PRIMARY_DOC_TYPES.includes(docType) && prev.filter(p => p.role === 'primary').length < 2;
+      return [...prev, {
+        documentId: docId,
+        role: isPrimary ? 'primary' as const : 'supporting' as const,
+        sortOrder: prev.length,
+        include: true,
+      }];
+    });
+  };
+
+  const moveItem = (docId: string, direction: 'up' | 'down') => {
+    setPackSelection(prev => {
+      const idx = prev.findIndex(s => s.documentId === docId);
+      if (idx < 0) return prev;
+      const newIdx = direction === 'up' ? Math.max(0, idx - 1) : Math.min(prev.length - 1, idx + 1);
+      if (newIdx === idx) return prev;
+      const next = [...prev];
+      [next[idx], next[newIdx]] = [next[newIdx], next[idx]];
+      return next.map((s, i) => ({ ...s, sortOrder: i }));
+    });
+  };
+
+  const toggleRole = (docId: string) => {
+    setPackSelection(prev => prev.map(s =>
+      s.documentId === docId ? { ...s, role: s.role === 'primary' ? 'supporting' as const : 'primary' as const } : s
+    ));
+  };
+
+  const savePack = async () => {
+    await ai.upsertPack.mutateAsync({
+      packId: activePackId || undefined,
+      title: 'Trailer Definition Pack',
+      items: packSelection.map(s => ({
+        documentId: s.documentId,
+        versionId: s.versionId,
+        role: s.role,
+        sortOrder: s.sortOrder,
+        include: s.include,
+      })),
+    });
+    // Set active pack from response
+    qc.invalidateQueries({ queryKey: ['trailer-packs', projectId] });
+  };
 
   const steps: { key: Step; label: string; icon: React.ReactNode }[] = [
-    { key: 'source', label: 'Source', icon: <FileText className="h-4 w-4" /> },
+    { key: 'source', label: 'Sources', icon: <FileText className="h-4 w-4" /> },
     { key: 'moments', label: 'Moments', icon: <Sparkles className="h-4 w-4" /> },
     { key: 'shotlist', label: 'Shotlist', icon: <Film className="h-4 w-4" /> },
     { key: 'generate', label: 'Generate', icon: <Image className="h-4 w-4" /> },
@@ -135,7 +296,7 @@ export default function AiTrailerBuilder() {
 
   const stepIndex = steps.findIndex(s => s.key === step);
   const canNext = (() => {
-    if (step === 'source') return !!selectedVersionId;
+    if (step === 'source') return packSelection.length > 0;
     if (step === 'moments') return ai.moments.length > 0;
     if (step === 'shotlist') return ai.shotlists.length > 0;
     return true;
@@ -145,7 +306,6 @@ export default function AiTrailerBuilder() {
   const shotlistItems = activeShotlist?.items || [];
   const dbSelectedIndices = (activeShotlist as any)?.selected_indices as number[] | null;
 
-  // Sync selectedBeatIndices from DB when shotlist changes
   useEffect(() => {
     if (!activeShotlist || shotlistItems.length === 0) return;
     const initial = dbSelectedIndices && dbSelectedIndices.length > 0
@@ -153,7 +313,11 @@ export default function AiTrailerBuilder() {
       : new Set(shotlistItems.map((item: any) => item.index as number));
     setSelectedBeatIndices(initial);
   }, [activeShotlist?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const generateProgress = ai.generateTrailerAssets.data;
+
+  // Get the active pack ID for downstream actions
+  const currentPackId = activePackId || (ai.packs.length > 0 ? ai.packs[0].id : null);
 
   return (
     <PageTransition>
@@ -196,71 +360,157 @@ export default function AiTrailerBuilder() {
             ))}
           </div>
 
-          {/* Step: Source */}
+          {/* Step: Define Trailer Sources */}
           {step === 'source' && (
-            <Card>
-              <CardHeader><CardTitle className="text-sm">Choose Source Script</CardTitle></CardHeader>
-              <CardContent className="space-y-3">
-                {documents.length === 0 && !ai.createTrailerSourceScript.isPending && !ai.createTrailerSourceScript.isSuccess && (
-                  <div className="text-center py-6 space-y-3">
-                    <FileText className="h-10 w-10 text-muted-foreground mx-auto" />
-                    <p className="text-xs text-muted-foreground">No script documents found for trailer extraction.</p>
-                    <Button size="sm" className="text-xs gap-1.5"
-                      onClick={startPdfExtraction}
-                      disabled={ai.createTrailerSourceScript.isPending}>
-                      <Sparkles className="h-3 w-3" />
-                      Create Trailer Source Script from PDF
-                    </Button>
-                  </div>
-                )}
-                {ai.createTrailerSourceScript.isPending && (
-                  <div className="py-4">
-                    <StagedProgressBar
-                      title="Creating Trailer Source Script"
-                      stages={PDF_EXTRACT_STAGES}
-                      currentStageIndex={pdfStageIndex}
-                      progressPercent={pdfProgress}
-                      etaSeconds={Math.max(0, Math.round((100 - pdfProgress) * 0.8))}
-                      detailMessage={pdfDetail || PDF_EXTRACT_STAGES[pdfStageIndex] + '…'}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Left: Available Documents */}
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm">Available Project Documents</CardTitle>
+                  <div className="relative mt-2">
+                    <Search className="absolute left-2.5 top-2.5 h-3 w-3 text-muted-foreground" />
+                    <Input
+                      placeholder="Search documents…"
+                      value={docSearch}
+                      onChange={e => setDocSearch(e.target.value)}
+                      className="pl-8 h-8 text-xs"
                     />
                   </div>
-                )}
-                {documents.length > 0 && (
-                  <>
-                    {documents.map((doc: any) => (
-                      <button key={doc.id}
-                        onClick={() => { setSelectedDocId(doc.id); setSelectedVersionId(null); }}
-                        className={`w-full text-left p-3 rounded border transition-colors ${
-                          selectedDocId === doc.id ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted/30'
-                        }`}>
-                        <p className="text-sm font-medium">{doc.title}</p>
-                        <p className="text-[10px] text-muted-foreground">{doc.doc_type}</p>
-                      </button>
+                </CardHeader>
+                <CardContent className="p-3">
+                  <ScrollArea className="max-h-[55vh]">
+                    {Object.entries(groupedDocs).map(([cat, docs]) => (
+                      <div key={cat} className="mb-3">
+                        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">{cat}</p>
+                        <div className="space-y-1">
+                          {docs.map((doc: any) => (
+                            <button
+                              key={doc.id}
+                              onClick={() => toggleDoc(doc.id, doc.doc_type)}
+                              className={`w-full text-left flex items-center gap-2 p-2 rounded border transition-colors text-xs ${
+                                isDocSelected(doc.id)
+                                  ? 'border-primary bg-primary/5'
+                                  : 'border-border hover:bg-muted/30'
+                              }`}
+                            >
+                              <Checkbox checked={isDocSelected(doc.id)} className="pointer-events-none" />
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs font-medium truncate">{doc.title}</p>
+                                <p className="text-[10px] text-muted-foreground">{doc.doc_type}</p>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
                     ))}
-                    {/* Always show CTA to create from PDF as secondary option */}
+                    {allDocuments.length === 0 && (
+                      <p className="text-xs text-muted-foreground text-center py-6">No project documents found.</p>
+                    )}
+                  </ScrollArea>
+                </CardContent>
+              </Card>
+
+              {/* Right: Selected for Trailer */}
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm">Selected for Trailer ({packSelection.length})</CardTitle>
+                </CardHeader>
+                <CardContent className="p-3">
+                  <ScrollArea className="max-h-[45vh]">
+                    {packSelection.length === 0 ? (
+                      <p className="text-xs text-muted-foreground text-center py-6">
+                        Select documents from the left to define your trailer sources.
+                      </p>
+                    ) : (
+                      <div className="space-y-1.5">
+                        {packSelection.map((item, idx) => {
+                          const doc = allDocuments.find((d: any) => d.id === item.documentId);
+                          if (!doc) return null;
+                          const versions = docVersionsMap[item.documentId] || [];
+                          return (
+                            <div key={item.documentId} className="flex items-center gap-1.5 p-2 rounded border border-border bg-card">
+                              <div className="flex flex-col gap-0.5">
+                                <button onClick={() => moveItem(item.documentId, 'up')} disabled={idx === 0}
+                                  className="text-muted-foreground hover:text-foreground disabled:opacity-30">
+                                  <ChevronUp className="h-3 w-3" />
+                                </button>
+                                <button onClick={() => moveItem(item.documentId, 'down')} disabled={idx === packSelection.length - 1}
+                                  className="text-muted-foreground hover:text-foreground disabled:opacity-30">
+                                  <ChevronDown className="h-3 w-3" />
+                                </button>
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs font-medium truncate">{doc.title}</p>
+                                <p className="text-[10px] text-muted-foreground">{doc.doc_type}</p>
+                                {versions.length > 1 && (
+                                  <select
+                                    value={item.versionId || ''}
+                                    onChange={e => {
+                                      setPackSelection(prev => prev.map(s =>
+                                        s.documentId === item.documentId ? { ...s, versionId: e.target.value || undefined } : s
+                                      ));
+                                    }}
+                                    className="mt-0.5 text-[10px] bg-muted border-border rounded px-1 py-0.5"
+                                  >
+                                    <option value="">Latest</option>
+                                    {versions.map((v: any) => (
+                                      <option key={v.id} value={v.id}>v{v.version_number}</option>
+                                    ))}
+                                  </select>
+                                )}
+                              </div>
+                              <Badge
+                                variant={item.role === 'primary' ? 'default' : 'outline'}
+                                className="text-[8px] cursor-pointer shrink-0"
+                                onClick={() => toggleRole(item.documentId)}
+                              >
+                                {item.role === 'primary' ? 'Primary' : 'Supporting'}
+                              </Badge>
+                              <button onClick={() => toggleDoc(item.documentId, doc.doc_type)}
+                                className="text-muted-foreground hover:text-destructive shrink-0">
+                                <X className="h-3 w-3" />
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </ScrollArea>
+
+                  <div className="space-y-2 mt-3 border-t border-border pt-3">
+                    <Button size="sm" className="text-xs gap-1 w-full"
+                      onClick={savePack}
+                      disabled={ai.upsertPack.isPending || packSelection.length === 0}>
+                      {ai.upsertPack.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Package className="h-3 w-3" />}
+                      Save Definition Pack
+                    </Button>
+
+                    {/* Optional PDF extraction CTA */}
                     <Button variant="outline" size="sm" className="text-xs gap-1.5 w-full"
                       onClick={startPdfExtraction}
                       disabled={ai.createTrailerSourceScript.isPending}>
-                      {ai.createTrailerSourceScript.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-                      Create New Source from PDF
+                      {ai.createTrailerSourceScript.isPending
+                        ? <Loader2 className="h-3 w-3 animate-spin" />
+                        : <Sparkles className="h-3 w-3" />}
+                      Extract Script From PDF (adds to pack)
                     </Button>
-                  </>
-                )}
-                {selectedDocId && versions.length > 0 && (
-                  <div className="mt-4">
-                    <p className="text-xs text-muted-foreground mb-2">Select version:</p>
-                    <div className="flex flex-wrap gap-2">
-                      {versions.map((v: any) => (
-                        <Badge key={v.id} variant={selectedVersionId === v.id ? 'default' : 'outline'}
-                          className="cursor-pointer text-xs" onClick={() => setSelectedVersionId(v.id)}>
-                          v{v.version_number}
-                        </Badge>
-                      ))}
-                    </div>
                   </div>
-                )}
-              </CardContent>
-            </Card>
+
+                  {ai.createTrailerSourceScript.isPending && (
+                    <div className="mt-3">
+                      <StagedProgressBar
+                        title="Extracting Script from PDF"
+                        stages={PDF_EXTRACT_STAGES}
+                        currentStageIndex={pdfStageIndex}
+                        progressPercent={pdfProgress}
+                        etaSeconds={Math.max(0, Math.round((100 - pdfProgress) * 0.8))}
+                        detailMessage={pdfDetail || PDF_EXTRACT_STAGES[pdfStageIndex] + '…'}
+                      />
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
           )}
 
           {/* Step: Moments */}
@@ -270,10 +520,17 @@ export default function AiTrailerBuilder() {
                 <CardTitle className="text-sm">Trailer Moments</CardTitle>
                 <Button size="sm" className="text-xs gap-1"
                   onClick={() => {
-                    if (selectedDocId && selectedVersionId)
-                      ai.extractMoments.mutate({ documentId: selectedDocId, versionId: selectedVersionId });
+                    if (currentPackId) {
+                      ai.extractMoments.mutate({ packId: currentPackId });
+                    } else if (packSelection.length > 0) {
+                      // Auto-save pack first, then extract
+                      savePack().then(() => {
+                        const packId = ai.packs[0]?.id;
+                        if (packId) ai.extractMoments.mutate({ packId });
+                      });
+                    }
                   }}
-                  disabled={ai.extractMoments.isPending || !selectedVersionId}>
+                  disabled={ai.extractMoments.isPending || packSelection.length === 0}>
                   {ai.extractMoments.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
                   Extract Moments
                 </Button>
@@ -287,14 +544,14 @@ export default function AiTrailerBuilder() {
                       currentStageIndex={1}
                       progressPercent={40}
                       etaSeconds={30}
-                      detailMessage="Analyzing script structure and identifying high-impact beats…"
+                      detailMessage="Analyzing project materials and identifying high-impact beats…"
                     />
                   </div>
                 )}
                 {ai.isLoadingMoments ? (
                   <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
                 ) : ai.moments.length === 0 && !ai.extractMoments.isPending ? (
-                  <p className="text-xs text-muted-foreground text-center py-8">No moments extracted yet. Click "Extract Moments" to analyze the script.</p>
+                  <p className="text-xs text-muted-foreground text-center py-8">No moments extracted yet. Click "Extract Moments" to analyze your selected documents.</p>
                 ) : !ai.extractMoments.isPending && (
                   <ScrollArea className="max-h-[60vh]">
                     <div className="space-y-2">
@@ -412,7 +669,6 @@ export default function AiTrailerBuilder() {
                                   const next = new Set(selectedBeatIndices);
                                   if (checked) next.add(item.index); else next.delete(item.index);
                                   setSelectedBeatIndices(next);
-                                  // Also update included flag in items array and persist
                                   if (activeShotlist) {
                                     const updatedItems = shotlistItems.map((it: any) =>
                                       it.index === item.index ? { ...it, included: !!checked } : it
@@ -451,7 +707,6 @@ export default function AiTrailerBuilder() {
                 <Button size="sm" className="text-xs gap-1"
                   onClick={async () => {
                     if (!activeShotlist) return;
-                    // Auto-save selection before generating
                     await ai.saveSelectedIndices.mutateAsync({
                       shotlistId: activeShotlist.id,
                       selectedIndices: Array.from(selectedBeatIndices),
@@ -630,7 +885,14 @@ export default function AiTrailerBuilder() {
               <ArrowLeft className="h-3 w-3" />Previous
             </Button>
             <Button size="sm" className="text-xs gap-1"
-              onClick={() => setStep(steps[Math.min(steps.length - 1, stepIndex + 1)].key)}
+              onClick={() => {
+                // Auto-save pack on first "Next" from source
+                if (step === 'source' && packSelection.length > 0 && !activePackId) {
+                  savePack().then(() => setStep(steps[Math.min(steps.length - 1, stepIndex + 1)].key));
+                  return;
+                }
+                setStep(steps[Math.min(steps.length - 1, stepIndex + 1)].key);
+              }}
               disabled={stepIndex >= steps.length - 1 || !canNext}>
               Next<ArrowRight className="h-3 w-3" />
             </Button>
