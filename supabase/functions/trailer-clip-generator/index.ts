@@ -92,6 +92,8 @@ async function callVeo(params: {
     },
   };
 
+  console.log(`[Veo] Calling ${endpoint.replace(apiKey, 'REDACTED')} with duration=${durationSec}s`);
+
   const resp = await fetch(endpoint, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -100,10 +102,12 @@ async function callVeo(params: {
 
   if (!resp.ok) {
     const errText = await resp.text();
+    console.error(`[Veo] API error ${resp.status}:`, errText.slice(0, 800));
     throw new Error(`Veo API error ${resp.status}: ${errText.slice(0, 500)}`);
   }
 
   const result = await resp.json();
+  console.log(`[Veo] Response:`, JSON.stringify(result).slice(0, 1000));
 
   // Veo returns a long-running operation — we need to poll
   if (result.name) {
@@ -116,7 +120,7 @@ async function callVeo(params: {
     return { videoUrl: videoUri, model, status: "complete" };
   }
 
-  throw new Error("Unexpected Veo response format");
+  throw new Error("Unexpected Veo response format: " + JSON.stringify(result).slice(0, 500));
 }
 
 async function pollVeo(operationName: string): Promise<{ videoUrl?: string; status: string }> {
@@ -125,15 +129,26 @@ async function pollVeo(operationName: string): Promise<{ videoUrl?: string; stat
 
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/${operationName}?key=${apiKey}`;
   const resp = await fetch(endpoint);
-  if (!resp.ok) throw new Error(`Veo poll error ${resp.status}`);
+  if (!resp.ok) {
+    const errText = await resp.text();
+    console.error(`[Veo poll] Error ${resp.status}:`, errText.slice(0, 500));
+    throw new Error(`Veo poll error ${resp.status}`);
+  }
 
   const result = await resp.json();
+  console.log(`[Veo poll] Response:`, JSON.stringify(result).slice(0, 1500));
+
   if (result.done) {
+    // Try multiple known response shapes
     const videoUri = result.response?.predictions?.[0]?.videoUri ||
-                     result.response?.generatedSamples?.[0]?.video?.uri;
+                     result.response?.generatedSamples?.[0]?.video?.uri ||
+                     result.response?.generateVideoResponse?.generatedSamples?.[0]?.video?.uri ||
+                     result.metadata?.generatedSamples?.[0]?.video?.uri;
     if (videoUri) return { videoUrl: videoUri, status: "complete" };
     if (result.error) throw new Error(`Veo generation failed: ${result.error.message}`);
-    throw new Error("Veo completed but no video returned");
+    // Log full response for debugging
+    console.error(`[Veo poll] Done but no video URI found. Full response:`, JSON.stringify(result));
+    throw new Error("Veo completed but no video returned. Response: " + JSON.stringify(result).slice(0, 500));
   }
   return { status: "polling" };
 }
