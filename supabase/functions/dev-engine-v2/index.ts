@@ -7784,23 +7784,35 @@ Rules:
         // Generate actual image via Lovable AI gateway
         let imageUrl: string | null = null;
         try {
-          const imgResp = await fetch('https://ai.gateway.lovable.dev/v1/images/generations', {
+          const imgResp = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${LOVABLE_API_KEY}`,
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              model: 'dall-e-3',
-              prompt: prompt.slice(0, 4000),
-              n: 1,
-              size: '1792x1024',
-              quality: 'standard',
+              model: 'google/gemini-2.5-flash-image',
+              messages: [{ role: 'user', content: `Generate a cinematic film still: ${prompt.slice(0, 3500)}` }],
+              modalities: ['image', 'text'],
             }),
           });
           if (imgResp.ok) {
             const imgData = await imgResp.json();
-            imageUrl = imgData?.data?.[0]?.url || null;
+            const img = imgData?.choices?.[0]?.message?.images?.[0]?.image_url?.url;
+            if (img) {
+              // Upload base64 to storage
+              const base64 = img.replace(/^data:image\/\w+;base64,/, '');
+              const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+              const storagePath = `${projectId}/storyboard-frames/${shotId}_${Date.now()}_${i}.png`;
+              const { error: upErr } = await supabase.storage.from('storyboards').upload(storagePath, bytes, { contentType: 'image/png', upsert: true });
+              if (!upErr) {
+                const { data: pubUrl } = supabase.storage.from('storyboards').getPublicUrl(storagePath);
+                imageUrl = pubUrl?.publicUrl || null;
+              } else {
+                console.error(`[storyboard] Storage upload failed:`, upErr);
+                imageUrl = img; // fallback to base64
+              }
+            }
             console.log(`[storyboard] Generated frame image for shot ${shotId}, frame ${i + 1}`);
           } else {
             console.error(`[storyboard] Image generation failed: ${imgResp.status} ${await imgResp.text()}`);
