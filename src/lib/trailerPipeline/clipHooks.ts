@@ -88,5 +88,25 @@ export function useClipEngineMutations(projectId: string | undefined) {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  return { enqueueForRun, processQueue, retryJob, cancelJob, selectClip };
+  const cancelAll = useMutation({
+    mutationFn: (blueprintId: string) =>
+      clipEngineApi.cancelAll(projectId!, blueprintId),
+    onSuccess: (data) => {
+      toast.success(`Stopped — ${data.canceled} jobs canceled`);
+      invalidateAll();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const resetFailed = useMutation({
+    mutationFn: (blueprintId: string) =>
+      clipEngineApi.resetFailed(projectId!, blueprintId),
+    onSuccess: (data) => {
+      toast.success(`Reset ${data.reset} failed jobs back to queue`);
+      invalidateAll();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  return { enqueueForRun, processQueue, retryJob, cancelJob, selectClip, cancelAll, resetFailed };
 }

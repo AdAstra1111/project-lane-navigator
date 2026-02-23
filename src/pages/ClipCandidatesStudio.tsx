@@ -6,6 +6,7 @@ import { useParams, useSearchParams, Link } from 'react-router-dom';
 import {
   ArrowLeft, Film, Play, Loader2, Check, RefreshCw,
   ChevronDown, ChevronRight, Zap, AlertTriangle, XCircle, Clapperboard, Clock,
+  Square, RotateCcw,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -62,7 +63,7 @@ export default function ClipCandidatesStudio() {
   const { data: clipsData } = useClipsList(projectId, blueprintId);
 
   // Mutations
-  const { enqueueForRun, processQueue, retryJob, selectClip } = useClipEngineMutations(projectId);
+  const { enqueueForRun, processQueue, retryJob, selectClip, cancelAll, resetFailed } = useClipEngineMutations(projectId);
 
   const blueprints = (bpListData?.blueprints || []).filter((bp: any) => bp.status === 'complete');
   const blueprint = bpData?.blueprint || null;
@@ -204,6 +205,28 @@ export default function ClipCandidatesStudio() {
                   {isProcessing ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Zap className="h-3 w-3 mr-1" />}
                   Process Queue ({counts.queued} pending)
                 </Button>
+
+                <Separator />
+
+                {/* Stop & Reset controls */}
+                <div className="flex gap-2">
+                  <Button
+                    size="sm" variant="destructive" className="flex-1"
+                    onClick={() => blueprintId && cancelAll.mutate(blueprintId)}
+                    disabled={cancelAll.isPending || (counts.queued === 0 && counts.running === 0)}
+                  >
+                    {cancelAll.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Square className="h-3 w-3 mr-1" />}
+                    Stop All
+                  </Button>
+                  <Button
+                    size="sm" variant="outline" className="flex-1"
+                    onClick={() => blueprintId && resetFailed.mutate(blueprintId)}
+                    disabled={resetFailed.isPending || counts.failed === 0}
+                  >
+                    {resetFailed.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <RotateCcw className="h-3 w-3 mr-1" />}
+                    Reset Failed ({counts.failed})
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           )}
