@@ -1,0 +1,4 @@
+UPDATE public.trailer_clip_jobs 
+SET status = 'queued', error = null, provider_job_id = null, claimed_at = null, attempt = 0
+WHERE blueprint_id = '25f690db-d860-44e4-913c-3330affccfd7'
+  AND status IN ('failed', 'running');
