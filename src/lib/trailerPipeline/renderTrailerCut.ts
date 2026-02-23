@@ -116,16 +116,12 @@ export async function renderTrailerCut(
 
   const frameDuration = 1000 / fps;
 
-  for (let tIdx = 0; tIdx < timeline.length; tIdx++) {
-    const entry = timeline[tIdx];
-    const frames = Math.max(1, Math.round(entry.duration_ms / frameDuration));
-
-    // Draw the frame
+  // Helper to draw a single entry onto the canvas
+  const drawEntry = (entry: TimelineEntry) => {
     if (entry.text_overlay && entry.role === 'title_card') {
       drawTextCard(ctx, entry.text_overlay, width, height);
     } else if (entry.clip_url && imageCache[entry.clip_url]) {
       const img = imageCache[entry.clip_url];
-      // Letterbox fit
       const scale = Math.min(width / img.width, height / img.height);
       const dw = img.width * scale;
       const dh = img.height * scale;
@@ -137,9 +133,15 @@ export async function renderTrailerCut(
       drawPlaceholder(ctx, width, height, entry.role);
       if (entry.text_overlay) drawTextOverlay(ctx, entry.text_overlay, width, height);
     }
+  };
 
-    // Hold frame for duration
+  for (let tIdx = 0; tIdx < timeline.length; tIdx++) {
+    const entry = timeline[tIdx];
+    const frames = Math.max(1, Math.round(entry.duration_ms / frameDuration));
+
+    // Redraw the canvas every frame so captureStream picks up each one
     for (let f = 0; f < frames; f++) {
+      drawEntry(entry);
       await new Promise((r) => setTimeout(r, frameDuration));
     }
 
