@@ -1,9 +1,8 @@
 /**
  * NoteWritersRoomDrawer — Sheet-based Writers' Room for a single note.
- * Tabs: Discuss, Options, Synthesis, Plan.
- * Detects "apply" intent in chat to auto-propose a change plan.
+ * Full context pack support: preset loading, custom doc selection, auto-load.
  */
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
@@ -13,11 +12,13 @@ import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
   Loader2, Send, Pin, X, Sparkles, Check, CheckCircle2,
-  AlertTriangle, Lightbulb, Layers, Zap, FileEdit, FileText, RefreshCw,
+  AlertTriangle, Lightbulb, Layers, Zap, FileEdit, FileText, Settings2, Trash2,
 } from 'lucide-react';
-import { useNoteWritersRoom } from '@/hooks/useNoteWritersRoom';
+import { useNoteWritersRoom, type ContextPack, type ProjectDocInfo } from '@/hooks/useNoteWritersRoom';
 import { noteFingerprint } from '@/lib/decisions/fingerprint';
 import { ChangePlanPanel } from './ChangePlanPanel';
 import type { NoteOption, NoteOptionSet, NoteThreadSynthesis, ChangePlan } from '@/lib/types/writers-room';
@@ -40,22 +41,24 @@ function computeNoteHash(note: any): string {
 }
 
 const APPLY_INTENT_PATTERNS = [
-  /\bok\b.*\bapply/i,
-  /\bapply\s+that/i,
-  /\blet'?s\s+apply/i,
-  /\bdo\s+it\b/i,
-  /\bgo\s+with\s+that/i,
-  /\bapply\s+this/i,
-  /\bapply\s+changes/i,
-  /\bmake\s+(the\s+)?changes/i,
+  /\bok\b.*\bapply/i, /\bapply\s+that/i, /\blet'?s\s+apply/i, /\bdo\s+it\b/i,
+  /\bgo\s+with\s+that/i, /\bapply\s+this/i, /\bapply\s+changes/i, /\bmake\s+(the\s+)?changes/i,
 ];
 
 function hasApplyIntent(text: string): boolean {
   return APPLY_INTENT_PATTERNS.some(p => p.test(text));
 }
 
+const PRESETS = [
+  { key: 'script_pack', label: 'Script Pack', desc: 'Script / screenplay documents' },
+  { key: 'development_pack', label: 'Development Pack', desc: 'Idea, brief, market sheet, blueprint, architecture' },
+  { key: 'canon_pack', label: 'Canon Pack', desc: 'Character bible, world bible, timeline' },
+  { key: 'production_pack', label: 'Production Pack', desc: 'Scene list, shot plan, storyboard' },
+  { key: 'approved_pack', label: 'Everything Approved', desc: 'All docs with approved versions' },
+];
+
 export function NoteWritersRoomDrawer({
-  open, onOpenChange, projectId, documentId, versionId, note, scriptContext,
+  open, onOpenChange, projectId, documentId, versionId, note,
 }: NoteWritersRoomDrawerProps) {
   const noteHash = computeNoteHash(note);
   const noteSnapshot = {
@@ -68,9 +71,9 @@ export function NoteWritersRoomDrawer({
   };
 
   const {
-    query, planQuery, contextQuery, ensureThread, postMessage, updateState, generateOptions,
-    selectOption, synthesizeBest, proposeChangePlan, confirmChangePlan, applyChangePlan,
-    threadId,
+    query, planQuery, docsQuery, ensureThread, loadContextPack, postMessage, updateState,
+    generateOptions, selectOption, synthesizeBest, proposeChangePlan, confirmChangePlan,
+    applyChangePlan, threadId,
   } = useNoteWritersRoom({
     projectId, documentId, noteHash, versionId,
     noteSnapshot, enabled: open,
@@ -84,6 +87,18 @@ export function NoteWritersRoomDrawer({
   const [directionNotes, setDirectionNotes] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // Context state
+  const [contextPack, setContextPack] = useState<ContextPack | null>(null);
+  const [contextLoading, setContextLoading] = useState(false);
+  const [contextError, setContextError] = useState<string | null>(null);
+  const [showContextModal, setShowContextModal] = useState(false);
+  const [autoLoaded, setAutoLoaded] = useState(false);
+
+  // Custom selection state
+  const [selectedDocIds, setSelectedDocIds] = useState<string[]>([]);
+  const [customVersionPref, setCustomVersionPref] = useState('current');
+  const [customMode, setCustomMode] = useState('end');
+
   const data = query.data;
   const state = data?.state;
   const messages = data?.messages || [];
@@ -92,9 +107,50 @@ export function NoteWritersRoomDrawer({
   const synthesis = state?.synthesis;
   const pins = state?.pinned_constraints || [];
   const currentPlan = planQuery.data;
-  const ctxData = contextQuery.data;
-  const hasScript = ctxData?.hasScript ?? false;
-  const scriptDocInfo = ctxData?.scriptDocInfo;
+  const projectDocs = docsQuery.data || [];
+
+  // ── Auto-load context on drawer open ──
+  const loadPreset = useCallback(async (presetKey: string, mode = 'end') => {
+    setContextLoading(true);
+    setContextError(null);
+    try {
+      const result = await loadContextPack.mutateAsync({ presetKey, mode });
+      if (result.ok && result.contextPack) {
+        setContextPack(result.contextPack);
+      } else {
+        // Try fallback: script_pack
+        if (presetKey !== 'script_pack') {
+          const fallback = await loadContextPack.mutateAsync({ presetKey: 'script_pack', mode });
+          if (fallback.ok && fallback.contextPack) {
+            setContextPack(fallback.contextPack);
+          } else {
+            setContextError('No documents found for this preset');
+          }
+        } else {
+          setContextError('No script documents found');
+        }
+      }
+    } catch (e: any) {
+      setContextError(e.message);
+    } finally {
+      setContextLoading(false);
+    }
+  }, [loadContextPack]);
+
+  useEffect(() => {
+    if (open && !autoLoaded && !contextPack) {
+      setAutoLoaded(true);
+      // Default to script_pack
+      loadPreset('script_pack', 'end');
+    }
+  }, [open, autoLoaded, contextPack, loadPreset]);
+
+  // Reset auto-loaded when drawer closes
+  useEffect(() => {
+    if (!open) {
+      setAutoLoaded(false);
+    }
+  }, [open]);
 
   useEffect(() => {
     if (open && !query.data && !query.isLoading) {
@@ -115,7 +171,6 @@ export function NoteWritersRoomDrawer({
     }
   }, [state?.direction]);
 
-  // Auto-show plan panel when plan arrives
   useEffect(() => {
     if (currentPlan && (currentPlan.status === 'draft' || currentPlan.status === 'confirmed')) {
       setShowPlan(true);
@@ -126,14 +181,13 @@ export function NoteWritersRoomDrawer({
   function handleSendMessage() {
     if (!message.trim()) return;
     const text = message.trim();
-    postMessage.mutate(text);
+    postMessage.mutate({ content: text, contextPack: contextPack || undefined });
     setMessage('');
 
-    // Detect apply intent → auto-propose plan
     if (hasApplyIntent(text)) {
       setTimeout(() => {
-        proposeChangePlan.mutate();
-      }, 1500); // Let message post first
+        proposeChangePlan.mutate(contextPack || undefined);
+      }, 1500);
     }
   }
 
@@ -150,12 +204,7 @@ export function NoteWritersRoomDrawer({
   }
 
   function handleSaveDirection() {
-    updateState.mutate({
-      direction: {
-        mode: directionMode,
-        notes: directionNotes,
-      },
-    });
+    updateState.mutate({ direction: { mode: directionMode, notes: directionNotes } });
   }
 
   function handleSelectOption(option: NoteOption) {
@@ -171,15 +220,50 @@ export function NoteWritersRoomDrawer({
   }
 
   function handleRevisePlan(summary: string) {
-    // Pin the plan summary as a constraint and go back to chat
     const updated = [...pins, `Previous plan: ${summary.slice(0, 200)}`];
     updateState.mutate({ pinnedConstraints: updated });
     setShowPlan(false);
     setTab('discuss');
   }
 
+  async function handleLoadCustomContext() {
+    if (selectedDocIds.length === 0) return;
+    setContextLoading(true);
+    setContextError(null);
+    setShowContextModal(false);
+    try {
+      const result = await loadContextPack.mutateAsync({
+        includeDocumentIds: selectedDocIds,
+        versionPreference: customVersionPref,
+        mode: customMode,
+      });
+      if (result.ok && result.contextPack) {
+        setContextPack(result.contextPack);
+      } else {
+        setContextError('No text found for selected documents');
+      }
+    } catch (e: any) {
+      setContextError(e.message);
+    } finally {
+      setContextLoading(false);
+    }
+  }
+
+  function handleClearContext() {
+    setContextPack(null);
+    setContextError(null);
+  }
+
   const isLoading = query.isLoading || ensureThread.isPending;
   const hasPlan = !!currentPlan;
+
+  // Context indicator
+  const contextLabel = contextPack
+    ? `${contextPack.presetKey === 'custom' ? 'Custom' : PRESETS.find(p => p.key === contextPack.presetKey)?.label || contextPack.presetKey} • ${contextPack.docs.length} doc${contextPack.docs.length !== 1 ? 's' : ''}`
+    : null;
+  const latestUpdate = contextPack?.docs?.length
+    ? new Date(Math.max(...contextPack.docs.map(d => new Date(d.updatedAt).getTime()))).toLocaleDateString()
+    : null;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -218,6 +302,42 @@ export function NoteWritersRoomDrawer({
               {updateState.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Save'}
             </Button>
           </div>
+        </div>
+
+        {/* Context indicator bar */}
+        <div className="px-4 py-1.5 border-b border-border/30 flex items-center gap-1.5 text-[10px]">
+          <FileText className="h-3 w-3 text-muted-foreground shrink-0" />
+          {contextLoading ? (
+            <span className="flex items-center gap-1 text-muted-foreground">
+              <Loader2 className="h-2.5 w-2.5 animate-spin" /> Loading context…
+            </span>
+          ) : contextError ? (
+            <span className="flex items-center gap-1 text-destructive">
+              Context load failed
+              <Button variant="ghost" size="sm" className="h-4 text-[9px] px-1 py-0" onClick={() => loadPreset('script_pack')}>
+                Retry
+              </Button>
+            </span>
+          ) : contextPack ? (
+            <span className="flex items-center gap-1 text-muted-foreground flex-1 min-w-0">
+              <span className="truncate">
+                Context: {contextLabel}{latestUpdate ? ` • ${latestUpdate}` : ''}
+              </span>
+              <Button variant="ghost" size="sm" className="h-4 text-[9px] px-1 py-0 shrink-0" onClick={() => setShowContextModal(true)}>
+                <Settings2 className="h-2.5 w-2.5 mr-0.5" />Change
+              </Button>
+              <Button variant="ghost" size="sm" className="h-4 text-[9px] px-1 py-0 shrink-0 text-muted-foreground hover:text-destructive" onClick={handleClearContext}>
+                <Trash2 className="h-2.5 w-2.5" />
+              </Button>
+            </span>
+          ) : (
+            <span className="flex items-center gap-1 text-muted-foreground">
+              Context: None
+              <Button variant="ghost" size="sm" className="h-4 text-[9px] px-1.5 py-0 text-primary" onClick={() => setShowContextModal(true)}>
+                Load context
+              </Button>
+            </span>
+          )}
         </div>
 
         {isLoading ? (
@@ -279,26 +399,6 @@ export function NoteWritersRoomDrawer({
 
               <Separator className="my-1" />
 
-              {/* Context indicator */}
-              <div className="flex items-center gap-1.5 py-1 px-1 rounded bg-muted/50 text-[9px] text-muted-foreground">
-                <FileText className="h-3 w-3 shrink-0" />
-                {hasScript && scriptDocInfo ? (
-                  <span>
-                    Context: Script v{scriptDocInfo.versionNumber}
-                    {scriptDocInfo.label ? ` — ${scriptDocInfo.label}` : ''}
-                    {scriptDocInfo.updatedAt ? ` • ${new Date(scriptDocInfo.updatedAt).toLocaleDateString()}` : ''}
-                  </span>
-                ) : (
-                  <span className="flex items-center gap-1">
-                    Context: None
-                    <Button variant="ghost" size="sm" className="h-4 text-[9px] px-1.5 py-0 text-primary hover:text-primary/80"
-                      onClick={() => contextQuery.refetch()}>
-                      <RefreshCw className="h-2.5 w-2.5 mr-0.5" />Load current script
-                    </Button>
-                  </span>
-                )}
-              </div>
-
               {/* Chat messages */}
               <ScrollArea className="flex-1 min-h-0" ref={scrollRef}>
                 <div className="space-y-2 pr-2 py-1">
@@ -350,10 +450,8 @@ export function NoteWritersRoomDrawer({
                 </div>
                 <div className="flex gap-1">
                   <Button
-                    variant="outline"
-                    size="sm"
-                    className="text-xs h-7 gap-1 flex-1"
-                    onClick={() => proposeChangePlan.mutate()}
+                    variant="outline" size="sm" className="text-xs h-7 gap-1 flex-1"
+                    onClick={() => proposeChangePlan.mutate(contextPack || undefined)}
                     disabled={proposeChangePlan.isPending || !threadId}
                   >
                     {proposeChangePlan.isPending
@@ -362,12 +460,7 @@ export function NoteWritersRoomDrawer({
                     }
                   </Button>
                   {hasPlan && (
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      className="text-xs h-7 gap-1"
-                      onClick={() => setShowPlan(true)}
-                    >
+                    <Button variant="secondary" size="sm" className="text-xs h-7 gap-1" onClick={() => setShowPlan(true)}>
                       <FileEdit className="h-3 w-3" /> View plan
                     </Button>
                   )}
@@ -438,7 +531,7 @@ export function NoteWritersRoomDrawer({
                   ))}
 
                   <Button variant="outline" className="w-full text-xs h-8 gap-1"
-                    onClick={() => generateOptions.mutate(scriptContext)}
+                    onClick={() => generateOptions.mutate(contextPack || undefined)}
                     disabled={generateOptions.isPending}>
                     {generateOptions.isPending
                       ? <><Loader2 className="h-3 w-3 animate-spin" /> Generating...</>
@@ -495,7 +588,7 @@ export function NoteWritersRoomDrawer({
                       : 'Select an option from the Options tab first, then synthesize.'}
                   </p>
                   <Button variant="default" className="text-xs h-8 gap-1"
-                    onClick={() => synthesizeBest.mutate(scriptContext)}
+                    onClick={() => synthesizeBest.mutate(contextPack || undefined)}
                     disabled={synthesizeBest.isPending || !selectedOption}>
                     {synthesizeBest.isPending
                       ? <><Loader2 className="h-3 w-3 animate-spin" /> Synthesizing...</>
@@ -523,6 +616,119 @@ export function NoteWritersRoomDrawer({
           </Tabs>
         )}
       </SheetContent>
+
+      {/* ── Context Picker Modal ── */}
+      <Dialog open={showContextModal} onOpenChange={setShowContextModal}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-sm">Load Context</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {/* Presets */}
+            <div className="space-y-1.5">
+              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Presets (one-click)</p>
+              <div className="grid grid-cols-2 gap-1.5">
+                {PRESETS.map(preset => (
+                  <Button
+                    key={preset.key}
+                    variant="outline"
+                    size="sm"
+                    className="h-auto py-2 px-3 text-left flex flex-col items-start gap-0.5"
+                    disabled={contextLoading}
+                    onClick={() => {
+                      setShowContextModal(false);
+                      loadPreset(preset.key);
+                    }}
+                  >
+                    <span className="text-xs font-medium">{preset.label}</span>
+                    <span className="text-[9px] text-muted-foreground">{preset.desc}</span>
+                  </Button>
+                ))}
+              </div>
+            </div>
+
+            <Separator />
+
+            {/* Custom selection */}
+            <div className="space-y-2">
+              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Custom Selection</p>
+
+              {docsQuery.isLoading ? (
+                <div className="flex items-center gap-2 py-4 justify-center">
+                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                  <span className="text-xs text-muted-foreground">Loading docs…</span>
+                </div>
+              ) : projectDocs.length === 0 ? (
+                <p className="text-xs text-muted-foreground py-2">No documents in this project</p>
+              ) : (
+                <>
+                  <ScrollArea className="h-40 border rounded-md p-2">
+                    <div className="space-y-1">
+                      {projectDocs.map((doc) => (
+                        <label key={doc.documentId} className="flex items-center gap-2 py-0.5 cursor-pointer hover:bg-muted/50 rounded px-1">
+                          <Checkbox
+                            checked={selectedDocIds.includes(doc.documentId)}
+                            onCheckedChange={(checked) => {
+                              setSelectedDocIds(prev =>
+                                checked
+                                  ? [...prev, doc.documentId]
+                                  : prev.filter(id => id !== doc.documentId)
+                              );
+                            }}
+                          />
+                          <span className="text-xs flex-1 truncate">{doc.title}</span>
+                          <Badge variant="outline" className="text-[8px] px-1 shrink-0">{doc.docType}</Badge>
+                          {doc.currentVersionNumber && (
+                            <span className="text-[8px] text-muted-foreground shrink-0">v{doc.currentVersionNumber || doc.latestVersionNumber}</span>
+                          )}
+                        </label>
+                      ))}
+                    </div>
+                  </ScrollArea>
+
+                  <div className="flex gap-2">
+                    <div className="flex-1">
+                      <label className="text-[9px] text-muted-foreground">Version</label>
+                      <Select value={customVersionPref} onValueChange={setCustomVersionPref}>
+                        <SelectTrigger className="h-7 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="current">Current</SelectItem>
+                          <SelectItem value="latest">Latest</SelectItem>
+                          <SelectItem value="approved">Approved</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="flex-1">
+                      <label className="text-[9px] text-muted-foreground">Excerpt</label>
+                      <Select value={customMode} onValueChange={setCustomMode}>
+                        <SelectTrigger className="h-7 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="end">End</SelectItem>
+                          <SelectItem value="start">Start</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  <Button
+                    className="w-full text-xs h-8"
+                    disabled={selectedDocIds.length === 0 || contextLoading}
+                    onClick={handleLoadCustomContext}
+                  >
+                    {contextLoading ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
+                    Load {selectedDocIds.length} doc{selectedDocIds.length !== 1 ? 's' : ''}
+                  </Button>
+                </>
+              )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </Sheet>
   );
 }
