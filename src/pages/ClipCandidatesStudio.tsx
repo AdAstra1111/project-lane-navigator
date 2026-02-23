@@ -423,15 +423,19 @@ export default function ClipCandidatesStudio() {
                                   disabled={enqueueForRun.isPending || processQueue.isPending}
                                   onClick={async (e) => {
                                     e.stopPropagation();
+                                    e.preventDefault();
                                     if (!blueprintId) return;
                                     if (enabledProviders.length === 0) {
                                       toast.error('Enable at least one AI provider');
                                       return;
                                     }
                                     try {
+                                      toast.info(`Generating clips for beat #${idx}…`);
                                       await enqueueForRun.mutateAsync({ blueprintId, force: true, enabledProviders, beatIndices: [idx] });
                                       await processQueue.mutateAsync({ blueprintId, maxJobs: 5 });
-                                    } catch {}
+                                    } catch (err: any) {
+                                      toast.error(err?.message || 'Generation failed');
+                                    }
                                   }}
                                 >
                                   <Zap className="h-2.5 w-2.5 mr-0.5" /> Generate
