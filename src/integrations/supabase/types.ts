@@ -5740,6 +5740,81 @@ export type Database = {
         }
         Relationships: []
       }
+      note_change_plans: {
+        Row: {
+          created_at: string
+          created_by: string
+          document_id: string
+          id: string
+          plan: Json
+          project_id: string
+          status: string
+          thread_id: string
+          updated_at: string
+          version_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string
+          document_id: string
+          id?: string
+          plan?: Json
+          project_id: string
+          status?: string
+          thread_id: string
+          updated_at?: string
+          version_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          document_id?: string
+          id?: string
+          plan?: Json
+          project_id?: string
+          status?: string
+          thread_id?: string
+          updated_at?: string
+          version_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "note_change_plans_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "project_documents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "note_change_plans_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "note_change_plans_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "note_change_plans_thread_id_fkey"
+            columns: ["thread_id"]
+            isOneToOne: false
+            referencedRelation: "note_threads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "note_change_plans_version_id_fkey"
+            columns: ["version_id"]
+            isOneToOne: false
+            referencedRelation: "project_document_versions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       note_option_sets: {
         Row: {
           created_at: string
@@ -8522,6 +8597,8 @@ export type Database = {
       }
       project_document_versions: {
         Row: {
+          applied_change_plan: Json | null
+          applied_change_plan_id: string | null
           approval_status: string
           approved_at: string | null
           approved_by: string | null
@@ -8552,9 +8629,12 @@ export type Database = {
           status: string | null
           superseded_at: string | null
           superseded_by: string | null
+          verification_json: Json | null
           version_number: number
         }
         Insert: {
+          applied_change_plan?: Json | null
+          applied_change_plan_id?: string | null
           approval_status?: string
           approved_at?: string | null
           approved_by?: string | null
@@ -8585,9 +8665,12 @@ export type Database = {
           status?: string | null
           superseded_at?: string | null
           superseded_by?: string | null
+          verification_json?: Json | null
           version_number?: number
         }
         Update: {
+          applied_change_plan?: Json | null
+          applied_change_plan_id?: string | null
           approval_status?: string
           approved_at?: string | null
           approved_by?: string | null
@@ -8618,9 +8701,17 @@ export type Database = {
           status?: string | null
           superseded_at?: string | null
           superseded_by?: string | null
+          verification_json?: Json | null
           version_number?: number
         }
         Relationships: [
+          {
+            foreignKeyName: "project_document_versions_applied_change_plan_id_fkey"
+            columns: ["applied_change_plan_id"]
+            isOneToOne: false
+            referencedRelation: "note_change_plans"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "project_document_versions_branch_id_fkey"
             columns: ["branch_id"]

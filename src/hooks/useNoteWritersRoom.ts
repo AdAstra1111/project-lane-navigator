@@ -4,9 +4,10 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
-import type { WritersRoomData, NoteOption } from '@/lib/types/writers-room';
+import type { WritersRoomData, NoteOption, ChangePlan, ChangePlanRow } from '@/lib/types/writers-room';
 
 const QUERY_KEY = (docId: string, noteHash: string) => ['writers-room', docId, noteHash];
+const PLAN_KEY = (threadId: string) => ['writers-room-plan', threadId];
 
 async function invoke(action: string, params: Record<string, any>) {
   const { data, error } = await supabase.functions.invoke('notes-writers-room', {
@@ -39,6 +40,23 @@ export function useNoteWritersRoom(opts: {
   });
 
   const invalidate = () => qc.invalidateQueries({ queryKey: key });
+
+  const threadId = query.data?.thread?.id;
+
+  const planQuery = useQuery<ChangePlanRow | null>({
+    queryKey: PLAN_KEY(threadId || ''),
+    queryFn: async () => {
+      if (!threadId) return null;
+      const res = await invoke('get_latest_plan', { threadId });
+      return res.plan || null;
+    },
+    enabled: !!threadId,
+    staleTime: 10_000,
+  });
+
+  const invalidatePlan = () => {
+    if (threadId) qc.invalidateQueries({ queryKey: PLAN_KEY(threadId) });
+  };
 
   const ensureThread = useMutation({
     mutationFn: () => invoke('update_state', baseParams),
@@ -75,21 +93,59 @@ export function useNoteWritersRoom(opts: {
 
   const synthesizeBest = useMutation({
     mutationFn: (scriptContext?: string) => invoke('synthesize_best', { ...baseParams, scriptContext }),
-    onSuccess: (data) => {
+    onSuccess: () => {
       invalidate();
       toast.success('Synthesis complete');
     },
     onError: (e: Error) => toast.error(e.message),
   });
 
+  const proposeChangePlan = useMutation({
+    mutationFn: () => {
+      if (!threadId) throw new Error('No thread');
+      return invoke('propose_change_plan', { threadId });
+    },
+    onSuccess: () => {
+      invalidatePlan();
+      toast.success('Change plan generated');
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const confirmChangePlan = useMutation({
+    mutationFn: ({ planId, planPatch }: { planId: string; planPatch?: ChangePlan }) =>
+      invoke('confirm_change_plan', { planId, planPatch }),
+    onSuccess: () => {
+      invalidatePlan();
+      toast.success('Plan confirmed — ready to apply');
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const applyChangePlan = useMutation({
+    mutationFn: (planId: string) => invoke('apply_change_plan', { planId }),
+    onSuccess: (data) => {
+      invalidatePlan();
+      invalidate();
+      toast.success(`Applied! New version created.`);
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   return {
     query,
+    planQuery,
     ensureThread,
     postMessage,
     updateState,
     generateOptions,
     selectOption,
     synthesizeBest,
+    proposeChangePlan,
+    confirmChangePlan,
+    applyChangePlan,
     invalidate,
+    invalidatePlan,
+    threadId,
   };
 }
