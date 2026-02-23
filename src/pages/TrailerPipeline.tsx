@@ -26,7 +26,7 @@ import {
 import { useStoryboardRuns } from '@/lib/storyboard/useStoryboard';
 import { renderTrailerCut } from '@/lib/trailerPipeline/renderTrailerCut';
 import { toast } from 'sonner';
-import type { TrailerBlueprint, TrailerClip, EDLBeat, ClipProvider } from '@/lib/trailerPipeline/types';
+import type { TrailerBlueprint, TrailerClip, EDLBeat, ClipProvider, GeneratorHint } from '@/lib/trailerPipeline/types';
 
 const PROVIDER_LABELS: Record<string, string> = {
   stub: 'Placeholder',
@@ -540,6 +540,27 @@ export default function TrailerPipelinePage() {
                               <span className="text-[10px] text-muted-foreground truncate max-w-[120px]">{beat.unit_key}</span>
                             )}
                             <span className="text-[10px] text-muted-foreground truncate flex-1">{beat.clip_spec?.action_description}</span>
+
+                            {/* Provider routing badges */}
+                            {beat.generator_hint && (
+                              <>
+                                <Badge
+                                  variant="outline"
+                                  className={`text-[9px] px-1.5 py-0 ${
+                                    beat.generator_hint.preferred_provider === 'runway'
+                                      ? 'border-rose-500/50 text-rose-400'
+                                      : 'border-sky-500/50 text-sky-400'
+                                  }`}
+                                >
+                                  {beat.generator_hint.preferred_provider === 'runway' ? 'RUNWAY' : 'VEO'}
+                                </Badge>
+                                {beat.generator_hint.candidates > 1 && (
+                                  <Badge variant="outline" className="text-[9px] px-1.5 py-0 border-amber-500/50 text-amber-400">
+                                    ×{beat.generator_hint.candidates}
+                                  </Badge>
+                                )}
+                              </>
+                            )}
 
                             {beatClips.length > 0 && (
                               <Badge variant="outline" className="text-[10px]">
