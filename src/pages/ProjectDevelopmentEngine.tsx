@@ -1406,6 +1406,8 @@ export default function ProjectDevelopmentEngine() {
                     onPinDeferred={(id) => deferred.pinNote.mutate(id)}
                     onUnpinDeferred={(id) => deferred.unpinNote.mutate(id)}
                     onDismissDeferred={(id) => deferred.dismissNote.mutate(id)}
+                    dismissedDeferredNotes={deferred.dismissedNotes}
+                    onRepinDeferred={(id) => deferred.repinNote.mutate(id)}
                     carriedNotes={carriedNotes}
                     currentDocType={selectedDoc?.doc_type}
                     currentVersionId={selectedVersionId || undefined}
