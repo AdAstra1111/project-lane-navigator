@@ -16,8 +16,8 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { StagedProgressBar } from '@/components/system/StagedProgressBar';
 import {
   ArrowLeft, ArrowRight, Sparkles, Film, FileText, Image,
-  Loader2, Star, Zap, Heart, Download, Package, Play,
-  ChevronUp, ChevronDown, X, Search,
+  Loader2, Star, Zap, Heart, Download, Package, Play, Pause,
+  ChevronUp, ChevronDown, X, Search, CheckCircle2, AlertCircle,
 } from 'lucide-react';
 import { useAiTrailerFactory, TrailerDefinitionPackItem } from '@/hooks/useAiTrailerFactory';
 import { Input } from '@/components/ui/input';
@@ -59,6 +59,17 @@ export default function AiTrailerBuilder() {
   const [pdfProgress, setPdfProgress] = useState(0);
   const [pdfDetail, setPdfDetail] = useState('');
   const pdfTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  // Generation state
+  const [genRunning, setGenRunning] = useState(false);
+  const [genPaused, setGenPaused] = useState(false);
+  const genPausedRef = useRef(false);
+  const genAbortRef = useRef(false);
+  const [genResults, setGenResults] = useState<any[]>([]);
+  const [genCurrentBeat, setGenCurrentBeat] = useState<string | null>(null);
+  const [genTotalBeats, setGenTotalBeats] = useState(0);
+  const [genFrames, setGenFrames] = useState(0);
+  const [genMotionStills, setGenMotionStills] = useState(0);
 
   // Pack builder state
   const [packSelection, setPackSelection] = useState<SelectedItem[]>([]);
@@ -314,7 +325,85 @@ export default function AiTrailerBuilder() {
     setSelectedBeatIndices(initial);
   }, [activeShotlist?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const generateProgress = ai.generateTrailerAssets.data;
+  // Existing generated media for this shotlist (persisted in DB)
+  const shotlistMedia = ai.media.filter(m => m.trailer_shotlist_id === activeShotlist?.id);
+
+  const startGeneration = useCallback(async () => {
+    if (!activeShotlist) return;
+    setGenRunning(true);
+    setGenPaused(false);
+    genPausedRef.current = false;
+    genAbortRef.current = false;
+    setGenResults([]);
+    setGenFrames(0);
+    setGenMotionStills(0);
+    setGenCurrentBeat(null);
+
+    try {
+      // Save selected indices first
+      await ai.saveSelectedIndices.mutateAsync({
+        shotlistId: activeShotlist.id,
+        selectedIndices: Array.from(selectedBeatIndices),
+      });
+
+      // Get the plan
+      const plan = await ai.generateTrailerAssetsPlan.mutateAsync(activeShotlist.id);
+      if (plan.mode !== 'plan' || !plan.beats?.length) {
+        setGenRunning(false);
+        return;
+      }
+
+      setGenTotalBeats(plan.beats.length);
+      let motionStillsTotal = 0;
+      const motionStillBudget = 8;
+
+      for (const beat of plan.beats) {
+        if (genAbortRef.current) break;
+
+        // Wait while paused
+        while (genPausedRef.current) {
+          await new Promise(r => setTimeout(r, 300));
+          if (genAbortRef.current) break;
+        }
+        if (genAbortRef.current) break;
+
+        setGenCurrentBeat(`Beat ${beat.index}: ${beat.shot_title}`);
+
+        try {
+          const res = await ai.generateSingleBeat.mutateAsync({
+            trailerShotlistId: activeShotlist.id,
+            beatIndex: beat.index,
+            skipMotionStill: motionStillsTotal >= motionStillBudget,
+          });
+
+          setGenFrames(prev => prev + (res.framesGenerated || 0));
+          motionStillsTotal += res.motionStillsGenerated || 0;
+          setGenMotionStills(motionStillsTotal);
+          setGenResults(prev => [...prev, res]);
+        } catch (err) {
+          setGenResults(prev => [...prev, { index: beat.index, status: 'error' }]);
+        }
+      }
+    } catch (err) {
+      console.error('Generation failed:', err);
+    }
+
+    setGenCurrentBeat(null);
+    setGenRunning(false);
+  }, [activeShotlist, selectedBeatIndices, ai]);
+
+  const togglePause = useCallback(() => {
+    setGenPaused(prev => {
+      genPausedRef.current = !prev;
+      return !prev;
+    });
+  }, []);
+
+  const stopGeneration = useCallback(() => {
+    genAbortRef.current = true;
+    genPausedRef.current = false;
+    setGenPaused(false);
+  }, []);
 
   // Get the active pack ID for downstream actions
   const currentPackId = activePackId || (ai.packs.length > 0 ? ai.packs[0].id : null);
@@ -702,76 +791,157 @@ export default function AiTrailerBuilder() {
           {/* Step: Generate */}
           {step === 'generate' && (
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
+              <CardHeader className="flex flex-row items-center justify-between gap-2">
                 <CardTitle className="text-sm">Generate Trailer Assets</CardTitle>
-                <Button size="sm" className="text-xs gap-1"
-                  onClick={async () => {
-                    if (!activeShotlist) return;
-                    await ai.saveSelectedIndices.mutateAsync({
-                      shotlistId: activeShotlist.id,
-                      selectedIndices: Array.from(selectedBeatIndices),
-                    });
-                    ai.generateTrailerAssets.mutate(activeShotlist.id);
-                  }}
-                  disabled={ai.generateTrailerAssets.isPending || ai.saveSelectedIndices.isPending || !activeShotlist || selectedBeatIndices.size === 0}>
-                  {ai.generateTrailerAssets.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
-                  Generate Selected Assets ({selectedBeatIndices.size})
-                </Button>
+                <div className="flex items-center gap-1">
+                  {genRunning && (
+                    <>
+                      <Button size="sm" variant="outline" className="text-xs gap-1" onClick={togglePause}>
+                        {genPaused ? <Play className="h-3 w-3" /> : <Pause className="h-3 w-3" />}
+                        {genPaused ? 'Resume' : 'Pause'}
+                      </Button>
+                      <Button size="sm" variant="outline" className="text-xs gap-1 text-destructive" onClick={stopGeneration}>
+                        <X className="h-3 w-3" />Stop
+                      </Button>
+                    </>
+                  )}
+                  {!genRunning && (
+                    <Button size="sm" className="text-xs gap-1"
+                      onClick={startGeneration}
+                      disabled={ai.saveSelectedIndices.isPending || !activeShotlist || selectedBeatIndices.size === 0}>
+                      <Play className="h-3 w-3" />
+                      Generate Selected Assets ({selectedBeatIndices.size})
+                    </Button>
+                  )}
+                </div>
               </CardHeader>
-              <CardContent>
-                {ai.generateTrailerAssets.isPending ? (
-                  <div className="space-y-3 py-4">
-                    <StagedProgressBar
-                      title="Generating Trailer Assets"
-                      stages={GENERATE_STAGES}
-                      currentStageIndex={1}
-                      progressPercent={35}
-                      etaSeconds={90}
-                      detailMessage="Generating storyboard frames and motion stills for each beat…"
-                    />
-                  </div>
-                ) : generateProgress ? (
-                  <div className="space-y-3 py-4">
-                    <div className="grid grid-cols-3 gap-3 text-center">
-                      <div className="p-3 rounded border border-border">
-                        <p className="text-2xl font-bold text-primary">{generateProgress.framesGenerated}</p>
-                        <p className="text-[10px] text-muted-foreground">Frames</p>
+              <CardContent className="space-y-4">
+                {/* Live progress during generation */}
+                {genRunning && (
+                  <div className="space-y-3 py-2">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-muted-foreground">
+                        {genPaused ? '⏸ Paused' : `Processing beat ${genResults.length + 1} of ${genTotalBeats}`}
+                      </span>
+                      <span className="font-mono text-muted-foreground">
+                        {genResults.length}/{genTotalBeats}
+                      </span>
+                    </div>
+                    <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
+                      <div
+                        className="h-full bg-primary rounded-full transition-all duration-500"
+                        style={{ width: `${genTotalBeats > 0 ? (genResults.length / genTotalBeats) * 100 : 0}%` }}
+                      />
+                    </div>
+                    {genCurrentBeat && !genPaused && (
+                      <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        <span>{genCurrentBeat} — Generating frame{genResults.length > 0 && genResults[genResults.length - 1]?.motionStillsGenerated > 0 ? ' + motion still' : ''}…</span>
                       </div>
-                      <div className="p-3 rounded border border-border">
-                        <p className="text-2xl font-bold text-primary">{generateProgress.motionStillsGenerated}</p>
-                        <p className="text-[10px] text-muted-foreground">Motion Stills</p>
+                    )}
+                    <div className="grid grid-cols-3 gap-2 text-center">
+                      <div className="p-2 rounded border border-border">
+                        <p className="text-lg font-bold text-primary">{genFrames}</p>
+                        <p className="text-[9px] text-muted-foreground">Frames</p>
                       </div>
-                      <div className="p-3 rounded border border-border">
-                        <p className="text-2xl font-bold text-primary">{generateProgress.total}</p>
-                        <p className="text-[10px] text-muted-foreground">Total Beats</p>
+                      <div className="p-2 rounded border border-border">
+                        <p className="text-lg font-bold text-primary">{genMotionStills}</p>
+                        <p className="text-[9px] text-muted-foreground">Motion Stills</p>
+                      </div>
+                      <div className="p-2 rounded border border-border">
+                        <p className="text-lg font-bold text-primary">{genResults.length}</p>
+                        <p className="text-[9px] text-muted-foreground">Completed</p>
                       </div>
                     </div>
-                    {generateProgress.results && (
-                      <ScrollArea className="max-h-[40vh]">
-                        <div className="space-y-1">
-                          {generateProgress.results.map((r: any) => (
-                            <div key={r.index} className="flex items-center gap-2 text-[10px]">
-                              <span className="font-mono text-muted-foreground w-5">#{r.index}</span>
-                              <Badge variant="outline" className={`text-[8px] ${
-                                r.status === 'ok' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'
-                              }`}>{r.status}</Badge>
-                              {r.frame_url && (
-                                <img src={r.frame_url} alt={`Beat ${r.index}`} className="h-8 w-14 object-cover rounded" />
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      </ScrollArea>
-                    )}
                   </div>
-                ) : (
+                )}
+
+                {/* Live results feed — shows as each beat completes */}
+                {genResults.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                      {genRunning ? 'Assets generating…' : `Generation complete — ${genFrames} frames, ${genMotionStills} motion stills`}
+                    </p>
+                    <ScrollArea className="h-[30vh]">
+                      <div className="space-y-1.5">
+                        {genResults.map((r: any) => (
+                          <div key={r.index} className="flex items-center gap-2 p-1.5 rounded border border-border">
+                            <span className="font-mono text-[10px] text-muted-foreground w-6">#{r.index}</span>
+                            {r.status === 'ok' ? (
+                              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+                            ) : (
+                              <AlertCircle className="h-3.5 w-3.5 text-destructive shrink-0" />
+                            )}
+                            {r.frame_url && (
+                              <img src={r.frame_url} alt={`Beat ${r.index}`} className="h-10 w-16 object-cover rounded" />
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <p className="text-[10px] truncate">Beat {r.index}</p>
+                              <p className="text-[9px] text-muted-foreground">
+                                {r.framesGenerated || 0} frame{r.motionStillsGenerated ? ` + ${r.motionStillsGenerated} motion still` : ''}
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </ScrollArea>
+                  </div>
+                )}
+
+                {/* Previously generated assets from DB (persisted) */}
+                {!genRunning && genResults.length === 0 && shotlistMedia.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                      Previously Generated Assets ({shotlistMedia.length})
+                    </p>
+                    <div className="grid grid-cols-3 gap-2 text-center mb-3">
+                      <div className="p-2 rounded border border-border">
+                        <p className="text-lg font-bold text-primary">{shotlistMedia.filter(m => m.media_type === 'storyboard_frame').length}</p>
+                        <p className="text-[9px] text-muted-foreground">Frames</p>
+                      </div>
+                      <div className="p-2 rounded border border-border">
+                        <p className="text-lg font-bold text-primary">{shotlistMedia.filter(m => m.media_type === 'motion_still').length}</p>
+                        <p className="text-[9px] text-muted-foreground">Motion Stills</p>
+                      </div>
+                      <div className="p-2 rounded border border-border">
+                        <p className="text-lg font-bold text-primary">{shotlistMedia.length}</p>
+                        <p className="text-[9px] text-muted-foreground">Total</p>
+                      </div>
+                    </div>
+                    <ScrollArea className="h-[30vh]">
+                      <div className="grid grid-cols-4 gap-2">
+                        {shotlistMedia.filter(m => m.media_type === 'storyboard_frame').map(m => (
+                          <div key={m.id} className="space-y-1">
+                            {m.public_url || m.storage_path ? (
+                              <img
+                                src={m.public_url || `${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/public/ai-media/${m.storage_path}`}
+                                alt={`Beat ${(m.generation_params as any)?.beat_index || '?'}`}
+                                className="w-full aspect-video object-cover rounded border border-border"
+                              />
+                            ) : (
+                              <div className="w-full aspect-video bg-muted rounded border border-border flex items-center justify-center">
+                                <Image className="h-4 w-4 text-muted-foreground" />
+                              </div>
+                            )}
+                            <p className="text-[8px] text-muted-foreground text-center">
+                              Beat {(m.generation_params as any)?.beat_index || '?'} • {m.media_type === 'storyboard_frame' ? 'Frame' : 'Motion'}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </ScrollArea>
+                  </div>
+                )}
+
+                {/* Empty state */}
+                {!genRunning && genResults.length === 0 && shotlistMedia.length === 0 && (
                   <div className="text-center py-8">
                     <Image className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
                     <p className="text-xs text-muted-foreground mb-2">
-                      Generate AI storyboard frames and motion stills for each beat in the trailer shotlist.
+                      Generate AI storyboard frames and motion stills for each selected beat.
                     </p>
                     <p className="text-[10px] text-muted-foreground">
-                      Up to 4 frames per beat • Up to 8 motion stills for top beats
+                      1 frame per beat • Up to 8 motion stills for top beats • All assets saved to your project
                     </p>
                   </div>
                 )}

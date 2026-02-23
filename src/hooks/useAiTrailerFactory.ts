@@ -244,40 +244,16 @@ export function useAiTrailerFactory(projectId: string | undefined) {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const generateTrailerAssets = useMutation({
-    mutationFn: async (trailerShotlistId: string) => {
-      // Step 1: Get the plan (list of beats to process)
-      const plan = await callFactory('generate_trailer_assets', { projectId, trailerShotlistId });
-      if (plan.mode !== 'plan' || !plan.beats?.length) return plan;
+  const generateTrailerAssetsPlan = useMutation({
+    mutationFn: (trailerShotlistId: string) =>
+      callFactory('generate_trailer_assets', { projectId, trailerShotlistId }),
+    onError: (e: Error) => toast.error(e.message),
+  });
 
-      // Step 2: Process each beat one at a time
-      let framesGenerated = 0;
-      let motionStillsGenerated = 0;
-      const results: any[] = [];
-      const motionStillBudget = 8;
-
-      for (const beat of plan.beats) {
-        try {
-          const res = await callFactory('generate_trailer_assets', {
-            projectId, trailerShotlistId,
-            beatIndex: beat.index,
-            skipMotionStill: motionStillsGenerated >= motionStillBudget,
-          });
-          framesGenerated += res.framesGenerated || 0;
-          motionStillsGenerated += res.motionStillsGenerated || 0;
-          results.push(res);
-        } catch (err) {
-          console.error(`Beat ${beat.index} failed:`, err);
-          results.push({ index: beat.index, status: 'error' });
-        }
-      }
-
-      return { framesGenerated, motionStillsGenerated, results, total: plan.total };
-    },
-    onSuccess: (data) => {
-      if (data?.framesGenerated !== undefined) {
-        toast.success(`Generated ${data.framesGenerated} frames, ${data.motionStillsGenerated} motion stills`);
-      }
+  const generateSingleBeat = useMutation({
+    mutationFn: (params: { trailerShotlistId: string; beatIndex: number; skipMotionStill?: boolean }) =>
+      callFactory('generate_trailer_assets', { projectId, ...params }),
+    onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['ai-media', projectId] });
     },
     onError: (e: Error) => toast.error(e.message),
@@ -301,7 +277,7 @@ export function useAiTrailerFactory(projectId: string | undefined) {
     isLoadingPacks: packsQuery.isLoading,
     labelReadiness, generateFrames, selectMedia, generateMotionStill,
     extractMoments, buildShotlist, createTrailerSourceScript, saveSelectedIndices,
-    updateShotlistItems, generateTrailerAssets, assembleTrailer,
+    updateShotlistItems, generateTrailerAssetsPlan, generateSingleBeat, assembleTrailer,
     upsertPack,
   };
 }
