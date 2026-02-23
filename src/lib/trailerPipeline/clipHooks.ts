@@ -45,8 +45,8 @@ export function useClipEngineMutations(projectId: string | undefined) {
   };
 
   const enqueueForRun = useMutation({
-    mutationFn: (params: { blueprintId: string; force?: boolean; enabledProviders?: string[] }) =>
-      clipEngineApi.enqueueForRun(projectId!, params.blueprintId, params.force, params.enabledProviders),
+    mutationFn: (params: { blueprintId: string; force?: boolean; enabledProviders?: string[]; beatIndices?: number[] }) =>
+      clipEngineApi.enqueueForRun(projectId!, params.blueprintId, params.force, params.enabledProviders, params.beatIndices),
     onSuccess: (data) => {
       toast.success(`Enqueued ${data.totalJobs} clip jobs`);
       invalidateAll();

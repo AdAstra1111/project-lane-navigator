@@ -218,7 +218,7 @@ function generateStubVideo(): { bytes: Uint8Array; mimeType: string } {
 // ─── Action: enqueue_for_run ───
 
 async function handleEnqueueForRun(db: any, body: any, userId: string) {
-  const { projectId, blueprintId, force = false, enabledProviders } = body;
+  const { projectId, blueprintId, force = false, enabledProviders, beatIndices } = body;
   if (!blueprintId) return json({ error: "blueprintId required" }, 400);
 
   // Provider filter: if enabledProviders is provided, only use those providers
@@ -248,7 +248,13 @@ async function handleEnqueueForRun(db: any, body: any, userId: string) {
   let totalJobs = 0;
   const jobsToInsert: any[] = [];
 
+  // Optional beat filter
+  const beatFilter: Set<number> | null = Array.isArray(beatIndices) && beatIndices.length > 0
+    ? new Set(beatIndices as number[])
+    : null;
+
   for (let beatIndex = 0; beatIndex < edl.length; beatIndex++) {
+    if (beatFilter && !beatFilter.has(beatIndex)) continue;
     const beat = edl[beatIndex];
     const hint = beat.generator_hint || {};
     let provider = hint.preferred_provider || "veo";
