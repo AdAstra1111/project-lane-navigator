@@ -5759,6 +5759,8 @@ Return ONLY valid JSON:
         throw new Error("No usable script text found. Upload or paste a script first.");
       }
 
+      console.log(`[scene_graph_extract] Script text length: ${scriptText.length}`);
+
       // Parse into scenes by slugline detection
       const lines = scriptText.split('\n');
       // Match standard sluglines and numbered sluglines (e.g. "1  EXT. ROAD - DAY", "23. INT. OFFICE - NIGHT")
@@ -5770,6 +5772,8 @@ Return ONLY valid JSON:
           sceneBreaks.push({ startLine: i, headingLine: lines[i] });
         }
       }
+
+      console.log(`[scene_graph_extract] Detected ${sceneBreaks.length} scene breaks. First few:`, sceneBreaks.slice(0, 5).map(b => b.headingLine));
 
       // If no sluglines found, treat entire text as one scene
       if (sceneBreaks.length === 0) {
