@@ -200,3 +200,6 @@ verify_jwt = false
 
 [functions.notes-writers-room]
 verify_jwt = false
+
+[functions.ai-production-layer]
+verify_jwt = false

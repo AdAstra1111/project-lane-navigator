@@ -68,6 +68,7 @@ const VisualReferencesPage = lazy(() => import("./pages/VisualReferencesPage"));
 const ScriptIntakePage = lazy(() => import("./pages/ScriptIntakePage"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 const NotesInbox = lazy(() => import("./pages/NotesInbox"));
+const AiTrailerBuilder = lazy(() => import("./pages/AiTrailerBuilder"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -141,6 +142,7 @@ const AnimatedRoutes = () => {
           <Route path="/projects/:id/storyboards" element={<ProtectedRoute><StoryboardsPage /></ProtectedRoute>} />
           <Route path="/projects/:id/visual-references" element={<ProtectedRoute><VisualReferencesPage /></ProtectedRoute>} />
           <Route path="/projects/:id/script-intake" element={<ProtectedRoute><ScriptIntakePage /></ProtectedRoute>} />
+          <Route path="/projects/:id/ai-trailer" element={<ProtectedRoute><AiTrailerBuilder /></ProtectedRoute>} />
           <Route path="/invite" element={<AcceptInvite />} />
           <Route path="/share/pack/:token" element={<SharePackView />} />
           <Route path="*" element={<NotFound />} />

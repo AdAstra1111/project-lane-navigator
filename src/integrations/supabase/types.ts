@@ -14,6 +14,64 @@ export type Database = {
   }
   public: {
     Tables: {
+      ai_generated_media: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          generation_params: Json
+          id: string
+          media_type: string
+          project_id: string
+          selected: boolean
+          shot_id: string | null
+          storage_path: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          generation_params?: Json
+          id?: string
+          media_type: string
+          project_id: string
+          selected?: boolean
+          shot_id?: string | null
+          storage_path: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          generation_params?: Json
+          id?: string
+          media_type?: string
+          project_id?: string
+          selected?: boolean
+          shot_id?: string | null
+          storage_path?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_generated_media_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "ai_generated_media_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_generated_media_shot_id_fkey"
+            columns: ["shot_id"]
+            isOneToOne: false
+            referencedRelation: "scene_shots"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       animatic_markers: {
         Row: {
           animatic_id: string
@@ -10975,6 +11033,7 @@ export type Database = {
       projects: {
         Row: {
           active_company_profile_id: string | null
+          ai_production_mode: boolean
           analysis_passes: Json | null
           assigned_lane: string | null
           budget_range: string
@@ -11034,6 +11093,7 @@ export type Database = {
         }
         Insert: {
           active_company_profile_id?: string | null
+          ai_production_mode?: boolean
           analysis_passes?: Json | null
           assigned_lane?: string | null
           budget_range?: string
@@ -11093,6 +11153,7 @@ export type Database = {
         }
         Update: {
           active_company_profile_id?: string | null
+          ai_production_mode?: boolean
           analysis_passes?: Json | null
           assigned_lane?: string | null
           budget_range?: string
@@ -13289,6 +13350,18 @@ export type Database = {
       }
       scene_shots: {
         Row: {
+          ai_analysis_json: Json | null
+          ai_blocking_constraints: string[] | null
+          ai_candidate: boolean | null
+          ai_confidence: number | null
+          ai_estimated_cost_band: string | null
+          ai_last_labeled_at: string | null
+          ai_last_labeled_by: string | null
+          ai_legal_risk_flags: string[] | null
+          ai_max_quality: string | null
+          ai_model_route: string | null
+          ai_readiness_tier: string | null
+          ai_required_assets: string[] | null
           angle: string | null
           blocking_notes: string | null
           camera_movement: string | null
@@ -13319,6 +13392,18 @@ export type Database = {
           time_of_day_hint: string | null
         }
         Insert: {
+          ai_analysis_json?: Json | null
+          ai_blocking_constraints?: string[] | null
+          ai_candidate?: boolean | null
+          ai_confidence?: number | null
+          ai_estimated_cost_band?: string | null
+          ai_last_labeled_at?: string | null
+          ai_last_labeled_by?: string | null
+          ai_legal_risk_flags?: string[] | null
+          ai_max_quality?: string | null
+          ai_model_route?: string | null
+          ai_readiness_tier?: string | null
+          ai_required_assets?: string[] | null
           angle?: string | null
           blocking_notes?: string | null
           camera_movement?: string | null
@@ -13349,6 +13434,18 @@ export type Database = {
           time_of_day_hint?: string | null
         }
         Update: {
+          ai_analysis_json?: Json | null
+          ai_blocking_constraints?: string[] | null
+          ai_candidate?: boolean | null
+          ai_confidence?: number | null
+          ai_estimated_cost_band?: string | null
+          ai_last_labeled_at?: string | null
+          ai_last_labeled_by?: string | null
+          ai_legal_risk_flags?: string[] | null
+          ai_max_quality?: string | null
+          ai_model_route?: string | null
+          ai_readiness_tier?: string | null
+          ai_required_assets?: string[] | null
           angle?: string | null
           blocking_notes?: string | null
           camera_movement?: string | null
@@ -15484,6 +15581,111 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      trailer_moments: {
+        Row: {
+          ai_friendly: boolean
+          created_at: string
+          emotional_score: number
+          hook_strength: number
+          id: string
+          moment_summary: string
+          project_id: string
+          scene_number: number | null
+          source_document_id: string | null
+          source_version_id: string | null
+          spectacle_score: number
+          suggested_visual_approach: string | null
+        }
+        Insert: {
+          ai_friendly?: boolean
+          created_at?: string
+          emotional_score?: number
+          hook_strength?: number
+          id?: string
+          moment_summary: string
+          project_id: string
+          scene_number?: number | null
+          source_document_id?: string | null
+          source_version_id?: string | null
+          spectacle_score?: number
+          suggested_visual_approach?: string | null
+        }
+        Update: {
+          ai_friendly?: boolean
+          created_at?: string
+          emotional_score?: number
+          hook_strength?: number
+          id?: string
+          moment_summary?: string
+          project_id?: string
+          scene_number?: number | null
+          source_document_id?: string | null
+          source_version_id?: string | null
+          spectacle_score?: number
+          suggested_visual_approach?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trailer_moments_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "trailer_moments_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      trailer_shotlists: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          items: Json
+          project_id: string
+          source_moment_ids: string[]
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          items?: Json
+          project_id: string
+          source_moment_ids?: string[]
+          status?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          items?: Json
+          project_id?: string
+          source_moment_ids?: string[]
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trailer_shotlists_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "trailer_shotlists_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       trend_engines: {
         Row: {
