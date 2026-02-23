@@ -53,8 +53,28 @@ export function useDeferredNotes(projectId: string | undefined) {
     staleTime: 15_000,
   });
 
+  // Dismissed notes — available for re-pinning
+  const { data: dismissedNotes = [], isLoading: isDismissedLoading } = useQuery<DeferredNote[]>({
+    queryKey: [...KEY(projectId!), 'dismissed'],
+    queryFn: async () => {
+      if (!projectId) return [];
+      const { data, error } = await (supabase as any)
+        .from('project_deferred_notes')
+        .select('*')
+        .eq('project_id', projectId)
+        .in('status', ['dismissed', 'resolved'])
+        .order('resolved_at', { ascending: false })
+        .limit(50);
+      if (error) throw error;
+      return (data || []) as DeferredNote[];
+    },
+    enabled: !!projectId,
+    staleTime: 30_000,
+  });
+
   function invalidate() {
     qc.invalidateQueries({ queryKey: KEY(projectId!) });
+    qc.invalidateQueries({ queryKey: [...KEY(projectId!), 'dismissed'] });
   }
 
   // Pin a deferred note (show in current stage UI without changing target)
@@ -80,6 +100,19 @@ export function useDeferredNotes(projectId: string | undefined) {
       if (error) throw error;
     },
     onSuccess: () => { invalidate(); },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  // Re-pin a dismissed/resolved note — reopens it and pins it
+  const repinNote = useMutation({
+    mutationFn: async (noteId: string) => {
+      const { error } = await (supabase as any)
+        .from('project_deferred_notes')
+        .update({ status: 'open', pinned: true, resolved_at: null, resolution_method: null, resolution_summary: null })
+        .eq('id', noteId);
+      if (error) throw error;
+    },
+    onSuccess: () => { toast.success('Note re-pinned — visible again'); invalidate(); },
     onError: (e: Error) => toast.error(e.message),
   });
 
@@ -169,11 +202,13 @@ export function useDeferredNotes(projectId: string | undefined) {
 
   return {
     deferredNotes,
+    dismissedNotes,
     pinnedNotes,
     unpinnedNotes,
     isLoading,
     pinNote,
     unpinNote,
+    repinNote,
     dismissNote,
     resolveNote,
     resurfaceForStage,

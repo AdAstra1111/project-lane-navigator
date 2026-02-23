@@ -13,7 +13,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   Zap, ChevronDown, Sparkles, Loader2, CheckCircle2, ArrowRight, Lightbulb,
-  Pencil, Check, X, Wand2, Shield, Eye, Lock, AlertTriangle, Layers, Pin, Clock, Trash2,
+  Pencil, Check, X, Wand2, Shield, Eye, Lock, AlertTriangle, Layers, Pin, Clock, Trash2, RotateCcw,
 } from 'lucide-react';
 import { useState, useCallback, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
@@ -88,9 +88,11 @@ interface NotesPanelProps {
   externalDecisions?: Array<{ note_id: string; options: NoteDecisionOption[]; recommended_option_id?: string; recommended?: string }>;
   deferredNotes?: any[];
   persistedDeferredNotes?: any[];
+  dismissedDeferredNotes?: any[];
   onPinDeferred?: (noteId: string) => void;
   onUnpinDeferred?: (noteId: string) => void;
   onDismissDeferred?: (noteId: string) => void;
+  onRepinDeferred?: (noteId: string) => void;
   carriedNotes?: any[];
   currentDocType?: string;
   currentVersionId?: string;
@@ -560,7 +562,7 @@ export function NotesPanel({
   onApplyRewrite, isRewriting, isLoading,
   resolutionSummary, stabilityStatus, globalDirections,
   hideApplyButton, onDecisionsChange, onCustomDirectionsChange, externalDecisions,
-  deferredNotes, persistedDeferredNotes, onPinDeferred, onUnpinDeferred, onDismissDeferred,
+  deferredNotes, persistedDeferredNotes, dismissedDeferredNotes, onPinDeferred, onUnpinDeferred, onDismissDeferred, onRepinDeferred,
   carriedNotes, currentDocType, currentVersionId, onResolveCarriedNote,
   bundles, decisionSets, mutedByDecision, projectId, documentId, onDecisionApplied,
   onClearOldNotes,
@@ -998,6 +1000,39 @@ export function NotesPanel({
                               <X className="h-2 w-2" />Dismiss
                             </Button>
                           )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </CollapsibleContent>
+              </Collapsible>
+            )}
+
+            {/* Dismissed / Resolved notes — re-pin option */}
+            {dismissedDeferredNotes && dismissedDeferredNotes.length > 0 && onRepinDeferred && (
+              <Collapsible>
+                <CollapsibleTrigger className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors w-full py-1">
+                  <ChevronDown className="h-3 w-3" />
+                  <RotateCcw className="h-3 w-3" />
+                  {dismissedDeferredNotes.length} Dismissed Notes
+                  <span className="text-[8px] text-muted-foreground ml-1">(re-pin if needed)</span>
+                </CollapsibleTrigger>
+                <CollapsibleContent className="space-y-1 mt-1">
+                  {dismissedDeferredNotes.map((note: any) => {
+                    const nj = note.note_json || {};
+                    return (
+                      <div key={note.id} className="rounded border border-border/20 bg-muted/5 p-2 opacity-60 hover:opacity-80 transition-opacity">
+                        <div className="flex items-center gap-1 mb-0.5 flex-wrap">
+                          <Badge variant="outline" className="text-[8px] px-1 py-0 text-muted-foreground">{note.status === 'resolved' ? 'Resolved' : 'Dismissed'}</Badge>
+                          {note.source_doc_type && <Badge variant="outline" className="text-[8px] px-1 py-0">From: {note.source_doc_type.replace(/_/g, ' ')}</Badge>}
+                          {note.category && <Badge variant="outline" className="text-[8px] px-1 py-0">{note.category}</Badge>}
+                        </div>
+                        <p className="text-[10px] text-foreground">{nj.description || nj.note || note.note_key || 'Note'}</p>
+                        {note.resolution_summary && <p className="text-[9px] text-muted-foreground mt-0.5 italic">↳ {note.resolution_summary}</p>}
+                        <div className="flex items-center gap-1 mt-1 pt-1 border-t border-border/20">
+                          <Button variant="ghost" size="sm" className="h-4 text-[8px] px-1 gap-0.5 text-primary hover:text-primary/80" onClick={() => onRepinDeferred(note.id)}>
+                            <Pin className="h-2 w-2" />Re-pin
+                          </Button>
                         </div>
                       </div>
                     );
