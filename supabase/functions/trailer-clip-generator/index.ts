@@ -161,7 +161,7 @@ async function callRunway(params: {
     ...(params.seed ? { seed: parseInt(params.seed.slice(0, 8), 16) || 42 } : {}),
   };
 
-  const resp = await fetch("https://api.dev.runwayml.com/v1/tasks", {
+  const resp = await fetch("https://api.runwayml.com/v1/tasks", {
     method: "POST",
     headers: {
       "Authorization": `Bearer ${apiKey}`,
@@ -184,7 +184,7 @@ async function pollRunway(taskId: string): Promise<{ videoUrl?: string; status: 
   const apiKey = Deno.env.get("RUNWAY_API_KEY");
   if (!apiKey) throw new Error("RUNWAY_API_KEY not configured");
 
-  const resp = await fetch(`https://api.dev.runwayml.com/v1/tasks/${taskId}`, {
+  const resp = await fetch(`https://api.runwayml.com/v1/tasks/${taskId}`, {
     headers: {
       "Authorization": `Bearer ${apiKey}`,
       "X-Runway-Version": "2024-11-06",
