@@ -5694,8 +5694,9 @@ Return ONLY valid JSON:
 
     // --- Parse slugline helper ---
     function sgParseSlugline(line: string): { slugline: string; location: string; time_of_day: string } {
-      const sl = line.trim();
-      const match = sl.match(/^(INT\.|EXT\.|INT\.\/EXT\.|I\/E\.?)\s*(.+?)(?:\s*[-–—]\s*(.+))?$/i);
+      // Strip leading scene numbers (e.g. "1  EXT." or "23. INT.")
+      const sl = line.trim().replace(/^\d+\s*[\.\)\s]\s*/, '');
+      const match = sl.match(/^(INT\.|EXT\.|INT\.\/EXT\.|INT\/EXT\.|I\/E\.?)\s*(.+?)(?:\s*[-–—]\s*(.+))?$/i);
       if (match) {
         return {
           slugline: sl,
@@ -5707,9 +5708,24 @@ Return ONLY valid JSON:
     }
 
     if (action === "scene_graph_extract") {
-      const { projectId, sourceDocumentId, sourceVersionId, mode, text: rawText } = body;
+      const { projectId, sourceDocumentId, sourceVersionId, mode, text: rawText, force } = body;
       if (!projectId) throw new Error("projectId required");
 
+      // If force mode, clear existing scene graph data first
+      if (force) {
+        console.log(`[scene_graph_extract] Force mode — clearing existing scenes for project ${projectId}`);
+        // Delete in dependency order: snapshots, order, versions, scenes
+        await supabase.from("scene_graph_snapshots").delete().eq("project_id", projectId);
+        await supabase.from("scene_graph_order").delete().eq("project_id", projectId);
+        // Get all scene IDs for this project
+        const { data: existingScenes } = await supabase.from("scene_graph_scenes")
+          .select("id").eq("project_id", projectId);
+        if (existingScenes && existingScenes.length > 0) {
+          const sceneIds = existingScenes.map((s: any) => s.id);
+          await supabase.from("scene_graph_versions").delete().in("scene_id", sceneIds);
+          await supabase.from("scene_graph_scenes").delete().eq("project_id", projectId);
+        }
+      }
       let scriptText = rawText || '';
 
       if (mode !== 'from_text' || !scriptText) {
@@ -5745,7 +5761,8 @@ Return ONLY valid JSON:
 
       // Parse into scenes by slugline detection
       const lines = scriptText.split('\n');
-      const sluglinePattern = /^\s*(INT\.|EXT\.|INT\.\/EXT\.|I\/E\.?)\s/i;
+      // Match standard sluglines and numbered sluglines (e.g. "1  EXT. ROAD - DAY", "23. INT. OFFICE - NIGHT")
+      const sluglinePattern = /^\s*(\d+\s*[\.\)\s]\s*)?(INT\.|EXT\.|INT\.\/EXT\.|INT\/EXT\.|I\/E\.?)\s/i;
       const sceneBreaks: { startLine: number; headingLine: string }[] = [];
 
       for (let i = 0; i < lines.length; i++) {

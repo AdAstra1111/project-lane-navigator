@@ -178,7 +178,7 @@ export function useSceneGraph(projectId: string | undefined) {
 
   // Extract scenes from existing script
   const extractMutation = useMutation({
-    mutationFn: async (params: { sourceDocumentId?: string; sourceVersionId?: string; text?: string }) => {
+    mutationFn: async (params: { sourceDocumentId?: string; sourceVersionId?: string; text?: string; force?: boolean }) => {
       if (!projectId) throw new Error('No project');
       return sceneGraphExtract({
         projectId,
@@ -186,6 +186,7 @@ export function useSceneGraph(projectId: string | undefined) {
         sourceVersionId: params.sourceVersionId,
         mode: params.text ? 'from_text' : 'from_script_doc',
         text: params.text,
+        force: params.force,
       });
     },
     onSuccess: () => { invalidate(); toast.success('Scenes extracted successfully'); },
