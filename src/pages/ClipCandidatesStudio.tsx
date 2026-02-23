@@ -57,7 +57,7 @@ export default function ClipCandidatesStudio() {
   const [searchParams, setSearchParams] = useSearchParams();
   const blueprintId = searchParams.get('runId') || searchParams.get('blueprintId') || undefined;
   const [expandedBeats, setExpandedBeats] = useState<Set<number>>(new Set());
-  const [isProcessing] = useState(false); // kept for compat, driven by processQueue.isPending
+  const [showProcessingBar, setShowProcessingBar] = useState(false);
   const [providerVeo, setProviderVeo] = useState(true);
   const [providerRunway, setProviderRunway] = useState(false);
 
@@ -119,10 +119,13 @@ export default function ClipCandidatesStudio() {
 
   const handleProcessAll = async () => {
     if (!blueprintId || !projectId) return;
+    setShowProcessingBar(true);
     try {
       await processQueue.mutateAsync({ blueprintId, maxJobs: 50 });
     } catch {
       // error toast handled by mutation
+    } finally {
+      setShowProcessingBar(false);
     }
   };
 
@@ -251,9 +254,9 @@ export default function ClipCandidatesStudio() {
                 <Button
                   size="sm" className="w-full"
                   onClick={handleProcessAll}
-                  disabled={isProcessing || processQueue.isPending || counts.queued === 0}
+                  disabled={processQueue.isPending || counts.queued === 0}
                 >
-                  {isProcessing ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Zap className="h-3 w-3 mr-1" />}
+                  {processQueue.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Zap className="h-3 w-3 mr-1" />}
                   Process Queue ({counts.queued} pending)
                 </Button>
 
@@ -321,7 +324,7 @@ export default function ClipCandidatesStudio() {
           )}
 
           {/* Processing progress */}
-          {(isProcessing || processQueue.isPending) && (
+          {showProcessingBar && (
             <StagedProgressBar
               title="Processing Clip Queue"
               stages={['Claiming jobs', 'Calling AI providers', 'Downloading video', 'Uploading to storage', 'Recording metadata']}
