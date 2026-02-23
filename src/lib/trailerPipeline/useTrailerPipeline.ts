@@ -3,6 +3,7 @@
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { blueprintApi, clipApi, assemblerApi } from './trailerApi';
+import { clipEngineApi } from './clipApi';
 import { toast } from 'sonner';
 
 // ─── Blueprint hooks ───
@@ -61,12 +62,18 @@ export function useClipMutations(projectId: string | undefined) {
   const qc = useQueryClient();
 
   const generateClips = useMutation({
-    mutationFn: (params: { blueprintId: string; provider?: string; beatIndices?: number[]; candidateCount?: number }) =>
-      clipApi.generateClips(projectId!, params.blueprintId, params.provider, params.beatIndices, params.candidateCount),
+    mutationFn: async (params: { blueprintId: string; provider?: string; beatIndices?: number[]; candidateCount?: number }) => {
+      // Step 1: Enqueue jobs
+      const enqueueResult = await clipApi.generateClips(projectId!, params.blueprintId, params.provider, params.beatIndices, params.candidateCount);
+      // Step 2: Auto-process the queue
+      const processResult = await clipEngineApi.processQueue(projectId!, params.blueprintId, 50);
+      return { ...enqueueResult, processed: processResult.processed || 0 };
+    },
     onSuccess: (data) => {
-      const ok = data.results?.filter((r: any) => r.status === 'complete').length || 0;
-      toast.success(`Generated ${ok} clip(s)`);
+      toast.success(`Enqueued ${data.totalJobs || 0} jobs, processed ${data.processed}`);
       qc.invalidateQueries({ queryKey: ['trailer-clips', projectId] });
+      qc.invalidateQueries({ queryKey: ['trailer-clip-progress', projectId] });
+      qc.invalidateQueries({ queryKey: ['trailer-clip-jobs', projectId] });
     },
     onError: (e: Error) => toast.error(e.message),
   });
