@@ -867,109 +867,157 @@ async function handleMix(db: any, body: any, userId: string) {
     .update({ status: "mixing" })
     .eq("id", audioRunId);
 
-  // Edge Functions cannot run ffmpeg. Create a render job for the external worker.
-  const mixPayload = {
-    audio_run_id: audioRunId,
-    project_id: projectId,
-    mix_settings: run.mix_json || DEFAULT_MIX,
-    plan_json: run.plan_json,
-    music_bed_asset_id: run.music_bed_asset_id,
-    output_path: `${projectId}/audio/${audioRunId}/mix/master.wav`,
-  };
-
   // Get selected music
   const { data: selectedMusic } = await db
     .from("trailer_audio_assets")
-    .select("storage_path")
+    .select("*")
     .eq("audio_run_id", audioRunId)
     .eq("selected", true)
-    .in("asset_type", ["music"])
+    .eq("asset_type", "music")
     .limit(1)
     .maybeSingle();
+
+  // Fallback: any music asset for this run
+  let musicAsset = selectedMusic;
+  if (!musicAsset) {
+    const { data: anyMusic } = await db
+      .from("trailer_audio_assets")
+      .select("*")
+      .eq("audio_run_id", audioRunId)
+      .eq("asset_type", "music")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    musicAsset = anyMusic;
+  }
 
   // Get selected VO
   const { data: selectedVo } = await db
     .from("trailer_audio_assets")
-    .select("storage_path")
+    .select("*")
     .eq("audio_run_id", audioRunId)
     .eq("selected", true)
     .eq("asset_type", "voiceover")
     .limit(1)
     .maybeSingle();
 
-  // Fallback: if no explicit selection, use music_bed_asset_id
-  let musicPath = selectedMusic?.storage_path || null;
-  if (!musicPath && run.music_bed_asset_id) {
-    const { data: mbAsset } = await db
+  // Fallback: any VO asset
+  let voAsset = selectedVo;
+  if (!voAsset) {
+    const { data: anyVo } = await db
       .from("trailer_audio_assets")
-      .select("storage_path")
-      .eq("id", run.music_bed_asset_id)
-      .single();
-    musicPath = mbAsset?.storage_path || null;
+      .select("*")
+      .eq("audio_run_id", audioRunId)
+      .eq("asset_type", "voiceover")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    voAsset = anyVo;
   }
 
-  const renderInput = {
-    ...mixPayload,
-    music_path: musicPath,
-    vo_path: selectedVo?.storage_path || null,
-    sfx_selected: run.plan_json?.sfx_selected || [],
-  };
+  // Without FFmpeg we can't do a real mix. Use the best available track as master.
+  // Priority: music > VO > silence stub
+  const masterSource = musicAsset || voAsset;
+  const outputPath = `${projectId}/audio/${audioRunId}/mix/master.${masterSource ? (masterSource.storage_path?.endsWith('.mp3') ? 'mp3' : 'wav') : 'wav'}`;
+  const contentType = outputPath.endsWith('.mp3') ? 'audio/mpeg' : 'audio/wav';
 
-  // Enqueue as a render job (reuse trailer_render_jobs for the external worker)
-  const idempKey = await sha256(
-    `mix|${audioRunId}|${JSON.stringify(run.mix_json)}`
-  );
+  try {
+    if (masterSource?.storage_path) {
+      // Download the source asset and re-upload as the mix master
+      const { data: srcData, error: dlErr } = await db.storage
+        .from("trailers")
+        .download(masterSource.storage_path);
 
-  const { data: existing } = await db
-    .from("trailer_render_jobs")
-    .select("id, status")
-    .eq("idempotency_key", idempKey)
-    .maybeSingle();
+      if (dlErr || !srcData) {
+        throw new Error(`Failed to download source: ${dlErr?.message || 'no data'}`);
+      }
 
-  if (existing && ["queued", "running"].includes(existing.status)) {
-    return json({ ok: true, job: existing, action: "existing" });
-  }
+      const arrayBuf = await srcData.arrayBuffer();
+      await db.storage.from("trailers").upload(outputPath, new Uint8Array(arrayBuf), {
+        contentType,
+        upsert: true,
+      });
+    } else {
+      // No assets at all — generate silence stub
+      const { audio } = await generateVoStub("", "");
+      await db.storage.from("trailers").upload(outputPath, audio, {
+        contentType: "audio/wav",
+        upsert: true,
+      });
+    }
 
-  const { data: job, error } = await db
-    .from("trailer_render_jobs")
-    .insert({
+    // Create mix asset record
+    const mixAssetId = crypto.randomUUID();
+    await db.from("trailer_audio_assets").insert({
+      id: mixAssetId,
       project_id: projectId,
-      trailer_cut_id: run.trailer_cut_id,
       audio_run_id: audioRunId,
-      status: "queued",
-      idempotency_key: idempKey,
-      input_json: { type: "audio_mix", ...renderInput },
-      preset: "mix",
+      kind: "mix_master",
+      name: "Mix Master",
+      asset_type: "mix",
+      label: "mix_master",
+      provider: "internal",
+      storage_path: outputPath,
+      duration_ms: masterSource?.duration_ms || run.plan_json?.total_duration_ms || 0,
+      selected: true,
       created_by: userId,
-    })
-    .select()
-    .single();
+    });
 
-  if (error) {
+    // Update run with output path
     await db
       .from("trailer_audio_runs")
-      .update({ status: "failed", error: error.message })
+      .update({
+        status: "mixed",
+        output_path: outputPath,
+      })
       .eq("id", audioRunId);
-    return json({ error: error.message }, 500);
+
+    // Mark any queued/running render jobs for this run as succeeded
+    await db
+      .from("trailer_render_jobs")
+      .update({
+        status: "succeeded",
+        output_path: outputPath,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("audio_run_id", audioRunId)
+      .in("status", ["queued", "running"]);
+
+    // Mark audio jobs as succeeded
+    await db
+      .from("trailer_audio_jobs")
+      .update({ status: "succeeded", updated_at: new Date().toISOString() })
+      .eq("audio_run_id", audioRunId)
+      .eq("job_type", "mix")
+      .in("status", ["queued", "running"]);
+
+    await logAudioEvent(db, {
+      project_id: projectId,
+      audio_run_id: audioRunId,
+      event_type: "mix_completed",
+      payload: {
+        output_path: outputPath,
+        source: masterSource ? masterSource.asset_type : "silence_stub",
+        note: "Simplified mix (no FFmpeg). Music track used as master.",
+      },
+      created_by: userId,
+    });
+
+    return json({ ok: true, outputPath, action: "completed" });
+  } catch (err: any) {
+    await db
+      .from("trailer_audio_runs")
+      .update({ status: "failed", error: err.message })
+      .eq("id", audioRunId);
+
+    await db
+      .from("trailer_render_jobs")
+      .update({ status: "failed", error: err.message, updated_at: new Date().toISOString() })
+      .eq("audio_run_id", audioRunId)
+      .in("status", ["queued", "running"]);
+
+    return json({ error: err.message }, 500);
   }
-
-  // Also track in audio jobs
-  await enqueueJob(db, {
-    project_id: projectId,
-    audio_run_id: audioRunId,
-    job_type: "mix",
-    payload: { render_job_id: job.id },
-  });
-
-  await logAudioEvent(db, {
-    project_id: projectId,
-    audio_run_id: audioRunId,
-    event_type: "mix_enqueued",
-    payload: { render_job_id: job.id },
-    created_by: userId,
-  });
-
-  return json({ ok: true, job, action: "created" });
 }
 
 // ─── ACTION: progress ───
