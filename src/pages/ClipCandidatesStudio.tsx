@@ -4,7 +4,7 @@
 import { useState, useMemo } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
 import {
-  ArrowLeft, Film, Play, Loader2, Check, RefreshCw,
+  ArrowLeft, Film, Play, Loader2, Check, RefreshCw, Download,
   ChevronDown, ChevronRight, Zap, AlertTriangle, XCircle, Clapperboard, Clock,
   Square, RotateCcw,
 } from 'lucide-react';
@@ -493,6 +493,18 @@ export default function ClipCandidatesStudio() {
                                               disabled={selectClip.isPending}
                                             >
                                               <Check className="h-2.5 w-2.5 mr-0.5" /> Select
+                                            </Button>
+                                          )}
+                                          {clip.public_url && (
+                                            <Button
+                                              size="sm"
+                                              variant="ghost"
+                                              className="text-[10px] h-6 px-2"
+                                              asChild
+                                            >
+                                              <a href={clip.public_url} download={`clip-beat${clip.beat_index}-${clip.candidate_index || 1}.mp4`} target="_blank" rel="noopener noreferrer">
+                                                <Download className="h-2.5 w-2.5" />
+                                              </a>
                                             </Button>
                                           )}
                                           {clip.selected && (
