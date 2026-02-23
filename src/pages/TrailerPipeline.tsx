@@ -198,6 +198,14 @@ export default function TrailerPipelinePage() {
           <Film className="h-5 w-5 text-primary" />
           <h1 className="text-lg font-semibold">Trailer Pipeline</h1>
           <Badge variant="outline" className="text-[10px]">v2</Badge>
+          {selectedBlueprintId && (
+            <Link to={`/projects/${projectId}/trailer-clips?blueprintId=${selectedBlueprintId}`}>
+              <Button variant="outline" size="sm" className="text-xs ml-2">
+                <Clapperboard className="h-3 w-3 mr-1" />
+                Clip Studio
+              </Button>
+            </Link>
+          )}
         </div>
       </header>
 
