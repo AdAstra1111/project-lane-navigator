@@ -424,10 +424,10 @@ export default function ProjectDevelopmentEngine() {
   // Track locally resolved/applied notes to filter from counts
   const [locallyResolvedNoteIds, setLocallyResolvedNoteIds] = useState<Set<string>>(new Set());
 
-  // Reset locally resolved notes when analysis data changes (new run)
+  // Reset locally resolved notes only when the selected version changes (new version = fresh analysis)
   useEffect(() => {
     setLocallyResolvedNoteIds(new Set());
-  }, [latestNotes, latestAnalysis]);
+  }, [selectedVersionId]);
 
   const allPrioritizedMoves = useMemo(() => {
     const all = [
