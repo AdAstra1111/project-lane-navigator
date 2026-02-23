@@ -279,7 +279,7 @@ export function SceneGraphPanel({ projectId, documents }: SceneGraphPanelProps) 
                   </Button>
                 </div>
               </CardHeader>
-              <ScrollArea className="max-h-[500px]">
+              <ScrollArea className="h-[calc(100vh-320px)]">
                 <div className="px-1 pb-1 space-y-0.5">
                   {sg.scenes.map((scene, idx) => (
                     <SceneListRow
