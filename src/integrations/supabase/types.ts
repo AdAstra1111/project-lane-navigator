@@ -16231,6 +16231,108 @@ export type Database = {
         }
         Relationships: []
       }
+      trailer_audio_assets: {
+        Row: {
+          bpm: number | null
+          created_at: string
+          created_by: string
+          duration_ms: number | null
+          id: string
+          kind: string
+          name: string
+          project_id: string
+          storage_path: string
+          tags: string[]
+        }
+        Insert: {
+          bpm?: number | null
+          created_at?: string
+          created_by: string
+          duration_ms?: number | null
+          id?: string
+          kind: string
+          name: string
+          project_id: string
+          storage_path: string
+          tags?: string[]
+        }
+        Update: {
+          bpm?: number | null
+          created_at?: string
+          created_by?: string
+          duration_ms?: number | null
+          id?: string
+          kind?: string
+          name?: string
+          project_id?: string
+          storage_path?: string
+          tags?: string[]
+        }
+        Relationships: []
+      }
+      trailer_audio_runs: {
+        Row: {
+          blueprint_id: string | null
+          created_at: string
+          created_by: string
+          id: string
+          mix_json: Json
+          music_bed_asset_id: string | null
+          output_wav_path: string | null
+          plan_json: Json
+          project_id: string
+          sfx_pack_tag: string | null
+          status: string
+          trailer_cut_id: string
+          updated_at: string
+        }
+        Insert: {
+          blueprint_id?: string | null
+          created_at?: string
+          created_by: string
+          id?: string
+          mix_json?: Json
+          music_bed_asset_id?: string | null
+          output_wav_path?: string | null
+          plan_json?: Json
+          project_id: string
+          sfx_pack_tag?: string | null
+          status?: string
+          trailer_cut_id: string
+          updated_at?: string
+        }
+        Update: {
+          blueprint_id?: string | null
+          created_at?: string
+          created_by?: string
+          id?: string
+          mix_json?: Json
+          music_bed_asset_id?: string | null
+          output_wav_path?: string | null
+          plan_json?: Json
+          project_id?: string
+          sfx_pack_tag?: string | null
+          status?: string
+          trailer_cut_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trailer_audio_runs_music_bed_asset_id_fkey"
+            columns: ["music_bed_asset_id"]
+            isOneToOne: false
+            referencedRelation: "trailer_audio_assets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trailer_audio_runs_trailer_cut_id_fkey"
+            columns: ["trailer_cut_id"]
+            isOneToOne: false
+            referencedRelation: "trailer_cuts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       trailer_blueprints: {
         Row: {
           arc_type: string
@@ -16673,6 +16775,8 @@ export type Database = {
           error: string | null
           id: string
           options: Json
+          output_mp4_path: string | null
+          output_wav_path: string | null
           project_id: string
           public_url: string | null
           render_fps: number
@@ -16694,6 +16798,8 @@ export type Database = {
           error?: string | null
           id?: string
           options?: Json
+          output_mp4_path?: string | null
+          output_wav_path?: string | null
           project_id: string
           public_url?: string | null
           render_fps?: number
@@ -16715,6 +16821,8 @@ export type Database = {
           error?: string | null
           id?: string
           options?: Json
+          output_mp4_path?: string | null
+          output_wav_path?: string | null
           project_id?: string
           public_url?: string | null
           render_fps?: number
@@ -16929,6 +17037,116 @@ export type Database = {
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      trailer_render_events: {
+        Row: {
+          created_at: string
+          created_by: string
+          event_type: string
+          id: string
+          payload: Json
+          project_id: string
+          render_job_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          event_type: string
+          id?: string
+          payload?: Json
+          project_id: string
+          render_job_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          event_type?: string
+          id?: string
+          payload?: Json
+          project_id?: string
+          render_job_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trailer_render_events_render_job_id_fkey"
+            columns: ["render_job_id"]
+            isOneToOne: false
+            referencedRelation: "trailer_render_jobs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      trailer_render_jobs: {
+        Row: {
+          attempt: number
+          audio_run_id: string | null
+          claimed_at: string | null
+          created_at: string
+          created_by: string
+          error: string | null
+          id: string
+          idempotency_key: string
+          input_json: Json
+          output_audio_path: string | null
+          output_mp4_path: string | null
+          preset: string
+          project_id: string
+          status: string
+          trailer_cut_id: string
+          updated_at: string
+        }
+        Insert: {
+          attempt?: number
+          audio_run_id?: string | null
+          claimed_at?: string | null
+          created_at?: string
+          created_by: string
+          error?: string | null
+          id?: string
+          idempotency_key: string
+          input_json?: Json
+          output_audio_path?: string | null
+          output_mp4_path?: string | null
+          preset?: string
+          project_id: string
+          status?: string
+          trailer_cut_id: string
+          updated_at?: string
+        }
+        Update: {
+          attempt?: number
+          audio_run_id?: string | null
+          claimed_at?: string | null
+          created_at?: string
+          created_by?: string
+          error?: string | null
+          id?: string
+          idempotency_key?: string
+          input_json?: Json
+          output_audio_path?: string | null
+          output_mp4_path?: string | null
+          preset?: string
+          project_id?: string
+          status?: string
+          trailer_cut_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trailer_render_jobs_audio_run_id_fkey"
+            columns: ["audio_run_id"]
+            isOneToOne: false
+            referencedRelation: "trailer_audio_runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trailer_render_jobs_trailer_cut_id_fkey"
+            columns: ["trailer_cut_id"]
+            isOneToOne: false
+            referencedRelation: "trailer_cuts"
             referencedColumns: ["id"]
           },
         ]
@@ -18047,6 +18265,10 @@ export type Database = {
       }
       claim_next_trailer_clip_job: {
         Args: { _blueprint_id: string; _project_id: string }
+        Returns: string
+      }
+      claim_next_trailer_render_job: {
+        Args: { _project_id: string; _trailer_cut_id: string }
         Returns: string
       }
       compute_outcome_deltas: {
