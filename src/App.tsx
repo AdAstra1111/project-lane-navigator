@@ -67,6 +67,7 @@ const StoryboardsPage = lazy(() => import("./pages/StoryboardsPage"));
 const VisualReferencesPage = lazy(() => import("./pages/VisualReferencesPage"));
 const ScriptIntakePage = lazy(() => import("./pages/ScriptIntakePage"));
 const NotFound = lazy(() => import("./pages/NotFound"));
+const NotesInbox = lazy(() => import("./pages/NotesInbox"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -132,6 +133,7 @@ const AnimatedRoutes = () => {
           <Route path="/investor" element={<ProtectedRoute><InvestorPresentation /></ProtectedRoute>} />
           <Route path="/development-engine" element={<ProtectedRoute><DevelopmentEngine /></ProtectedRoute>} />
           <Route path="/projects/:id/development" element={<ProtectedRoute><ProjectDevelopmentEngine /></ProtectedRoute>} />
+          <Route path="/projects/:id/notes" element={<ProtectedRoute><NotesInbox /></ProtectedRoute>} />
           <Route path="/projects/:id/series-writer" element={<ProtectedRoute><SeriesWriterPage /></ProtectedRoute>} />
           <Route path="/projects/:id/feature-script" element={<ProtectedRoute><FeatureScript /></ProtectedRoute>} />
           <Route path="/projects/:id/cockpit" element={<ProtectedRoute><ProducerCockpit /></ProtectedRoute>} />

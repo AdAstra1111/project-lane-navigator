@@ -5740,6 +5740,70 @@ export type Database = {
         }
         Relationships: []
       }
+      note_change_events: {
+        Row: {
+          base_version_id: string | null
+          created_at: string
+          diff_summary: string | null
+          document_id: string
+          error: string | null
+          id: string
+          note_id: string
+          project_id: string
+          proposed_patch: Json
+          result_version_id: string | null
+          status: string
+        }
+        Insert: {
+          base_version_id?: string | null
+          created_at?: string
+          diff_summary?: string | null
+          document_id: string
+          error?: string | null
+          id?: string
+          note_id: string
+          project_id: string
+          proposed_patch?: Json
+          result_version_id?: string | null
+          status?: string
+        }
+        Update: {
+          base_version_id?: string | null
+          created_at?: string
+          diff_summary?: string | null
+          document_id?: string
+          error?: string | null
+          id?: string
+          note_id?: string
+          project_id?: string
+          proposed_patch?: Json
+          result_version_id?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "note_change_events_note_id_fkey"
+            columns: ["note_id"]
+            isOneToOne: false
+            referencedRelation: "project_notes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "note_change_events_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "note_change_events_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       note_change_plans: {
         Row: {
           created_at: string
@@ -9355,6 +9419,103 @@ export type Database = {
           },
           {
             foreignKeyName: "project_issues_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_notes: {
+        Row: {
+          anchor: Json | null
+          applied_change_event_id: string | null
+          category: string
+          created_at: string
+          created_by: string | null
+          dependent_on_note_id: string | null
+          destination_doc_type: string | null
+          detail: string | null
+          doc_type: string | null
+          document_id: string | null
+          id: string
+          project_id: string
+          severity: string
+          source: string
+          status: string
+          suggested_fixes: Json | null
+          summary: string
+          timing: string
+          title: string
+          updated_at: string
+          updated_by: string | null
+          version_id: string | null
+        }
+        Insert: {
+          anchor?: Json | null
+          applied_change_event_id?: string | null
+          category?: string
+          created_at?: string
+          created_by?: string | null
+          dependent_on_note_id?: string | null
+          destination_doc_type?: string | null
+          detail?: string | null
+          doc_type?: string | null
+          document_id?: string | null
+          id?: string
+          project_id: string
+          severity?: string
+          source?: string
+          status?: string
+          suggested_fixes?: Json | null
+          summary: string
+          timing?: string
+          title: string
+          updated_at?: string
+          updated_by?: string | null
+          version_id?: string | null
+        }
+        Update: {
+          anchor?: Json | null
+          applied_change_event_id?: string | null
+          category?: string
+          created_at?: string
+          created_by?: string | null
+          dependent_on_note_id?: string | null
+          destination_doc_type?: string | null
+          detail?: string | null
+          doc_type?: string | null
+          document_id?: string | null
+          id?: string
+          project_id?: string
+          severity?: string
+          source?: string
+          status?: string
+          suggested_fixes?: Json | null
+          summary?: string
+          timing?: string
+          title?: string
+          updated_at?: string
+          updated_by?: string | null
+          version_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_notes_dependent_on_note_id_fkey"
+            columns: ["dependent_on_note_id"]
+            isOneToOne: false
+            referencedRelation: "project_notes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_notes_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "project_notes_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"

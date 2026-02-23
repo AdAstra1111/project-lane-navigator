@@ -17,7 +17,24 @@ import {
 } from 'lucide-react';
 import { useState, useCallback, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
-import { NoteResolutionDrawer, type NoteForResolution } from './NoteResolutionDrawer';
+import { NoteDrawer } from '@/components/notes/NoteDrawer';
+import type { ProjectNote, NoteSuggestedFix } from '@/lib/types/notes';
+
+/** Compat type — maps legacy note shapes to NoteDrawer's ProjectNote interface */
+interface NoteForResolution {
+  id?: string;
+  note_key?: string;
+  source: 'regular' | 'carried' | 'deferred' | 'forwarded';
+  summary: string;
+  detail?: string;
+  category?: string;
+  severity?: string;
+  target_doc_type?: string;
+  source_doc_type?: string;
+  fix_options?: any[];
+  recommended_fix_id?: string;
+  note_data?: any;
+}
 import { NoteWritersRoomDrawer } from '@/components/notes/NoteWritersRoomDrawer';
 import { noteFingerprint } from '@/lib/decisions/fingerprint';
 import { toast } from 'sonner';
@@ -1352,15 +1369,45 @@ export function NotesPanel({
         </DialogContent>
       </Dialog>
 
-      {/* Unified Note Resolution Drawer */}
-      <NoteResolutionDrawer
+      {/* Unified Note Drawer */}
+      <NoteDrawer
         open={resolutionOpen}
-        onOpenChange={setResolutionOpen}
-        note={resolutionNote}
         projectId={projectId || ''}
-        currentVersionId={currentVersionId}
-        onApplied={(result) => {
-          toast.success(`Fix applied → v${result.new_version_number}${result.approved ? ' (approved)' : ''}`);
+        noteId={resolutionNote?.id || resolutionNote?.note_key || null}
+        note={resolutionNote ? {
+          id: resolutionNote.id || resolutionNote.note_key || '',
+          project_id: projectId || '',
+          source: resolutionNote.source === 'regular' ? 'dev_engine' : resolutionNote.source === 'carried' ? 'dev_engine' : 'dev_engine',
+          doc_type: resolutionNote.target_doc_type || null,
+          document_id: documentId || null,
+          version_id: currentVersionId || null,
+          anchor: null,
+          category: (resolutionNote.category as any) || 'story',
+          severity: (resolutionNote.severity as any) || 'med',
+          timing: 'now' as const,
+          destination_doc_type: null,
+          dependent_on_note_id: null,
+          status: 'open' as const,
+          title: resolutionNote.summary || '',
+          summary: resolutionNote.summary || '',
+          detail: resolutionNote.detail || null,
+          suggested_fixes: resolutionNote.fix_options?.map((f: any, i: number) => ({
+            id: f.id || `fix_${i}`,
+            title: f.title || f.patch_name || `Option ${i + 1}`,
+            description: f.description || f.what || '',
+            patch_strategy: f.patch_strategy,
+            instructions: f.instructions,
+            expected_effect: f.expected_effect,
+            risk_level: f.risk_level,
+          })) || null,
+          applied_change_event_id: null,
+          created_at: new Date().toISOString(),
+          created_by: null,
+          updated_at: new Date().toISOString(),
+          updated_by: null,
+        } as ProjectNote : null}
+        context={{ docType: resolutionNote?.target_doc_type, documentId, versionId: currentVersionId }}
+        onApplied={(newVersionId) => {
           const noteId = resolutionNote?.id || resolutionNote?.note_key;
           if (noteId) {
             setResolvedNoteIds(prev => new Set([...prev, noteId]));
@@ -1368,18 +1415,7 @@ export function NotesPanel({
           }
           onDecisionApplied?.();
         }}
-        onResolved={(noteId) => {
-          setResolvedNoteIds(prev => new Set([...prev, noteId]));
-          onNoteResolvedLocally?.(noteId);
-          handleMarkResolved(noteId);
-        }}
-        onDeferred={onDismissDeferred ? (noteId) => {
-          onDismissDeferred(noteId);
-        } : undefined}
-        onOpenWritersRoom={(note) => {
-          setWritersRoomNote(note.note_data || note);
-          setWritersRoomOpen(true);
-        }}
+        onClose={() => setResolutionOpen(false)}
       />
 
       {/* Writers' Room Drawer */}
