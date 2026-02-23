@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { useAiTrailerFactory, TrailerDefinitionPackItem } from '@/hooks/useAiTrailerFactory';
 import { Input } from '@/components/ui/input';
+import { TrailerPlayer } from '@/components/trailer/TrailerPlayer';
 
 type Step = 'source' | 'moments' | 'shotlist' | 'generate' | 'assemble';
 
@@ -983,6 +984,15 @@ export default function AiTrailerBuilder() {
                 )}
                 {ai.assembleTrailer.isSuccess && ai.assembleTrailer.data ? (
                   <div className="space-y-4 py-4">
+                    {/* Trailer Player */}
+                    {ai.assembleTrailer.data.timeline?.timeline && ai.assembleTrailer.data.timeline.timeline.length > 0 && (
+                      <TrailerPlayer
+                        timeline={ai.assembleTrailer.data.timeline.timeline}
+                        totalDuration={ai.assembleTrailer.data.timeline.total_duration || 0}
+                        projectTitle={project?.title}
+                      />
+                    )}
+
                     <div className="grid grid-cols-3 gap-3 text-center">
                       <div className="p-3 rounded border border-border">
                         <p className="text-2xl font-bold">{ai.assembleTrailer.data.timeline?.frame_count || 0}</p>
@@ -1013,24 +1023,29 @@ export default function AiTrailerBuilder() {
                     )}
 
                     {ai.assembleTrailer.data.timeline?.timeline && (
-                      <ScrollArea className="max-h-[40vh]">
-                        <div className="space-y-1">
-                          {ai.assembleTrailer.data.timeline.timeline.map((t: any) => (
-                            <div key={t.index} className="flex items-center gap-2 p-1.5 rounded border border-border">
-                              <span className="font-mono text-[10px] text-muted-foreground w-5">#{t.index}</span>
-                              {t.frame_url && (
-                                <img src={t.frame_url} alt={t.shot_title} className="h-8 w-14 object-cover rounded" />
-                              )}
-                              <div className="flex-1 min-w-0">
-                                <p className="text-[10px] font-medium truncate">{t.shot_title}</p>
-                                <p className="text-[9px] text-muted-foreground">{t.intended_duration}s</p>
+                      <details className="group">
+                        <summary className="text-[10px] text-muted-foreground cursor-pointer hover:text-foreground transition-colors">
+                          Show beat list ({ai.assembleTrailer.data.timeline.timeline.length} beats)
+                        </summary>
+                        <ScrollArea className="max-h-[30vh] mt-2">
+                          <div className="space-y-1">
+                            {ai.assembleTrailer.data.timeline.timeline.map((t: any) => (
+                              <div key={t.index} className="flex items-center gap-2 p-1.5 rounded border border-border">
+                                <span className="font-mono text-[10px] text-muted-foreground w-5">#{t.index}</span>
+                                {t.frame_url && (
+                                  <img src={t.frame_url} alt={t.shot_title} className="h-8 w-14 object-cover rounded" />
+                                )}
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-[10px] font-medium truncate">{t.shot_title}</p>
+                                  <p className="text-[9px] text-muted-foreground">{t.intended_duration}s</p>
+                                </div>
+                                {t.has_motion_still && <Image className="h-3 w-3 text-primary" />}
+                                {t.text_card && <Badge variant="outline" className="text-[7px]">{t.text_card}</Badge>}
                               </div>
-                              {t.has_motion_still && <Image className="h-3 w-3 text-primary" />}
-                              {t.text_card && <Badge variant="outline" className="text-[7px]">{t.text_card}</Badge>}
-                            </div>
-                          ))}
-                        </div>
-                      </ScrollArea>
+                            ))}
+                          </div>
+                        </ScrollArea>
+                      </details>
                     )}
 
                     <p className="text-xs text-muted-foreground text-center">{ai.assembleTrailer.data.message}</p>
@@ -1039,7 +1054,7 @@ export default function AiTrailerBuilder() {
                   <div className="text-center py-8">
                     <Package className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
                     <p className="text-xs text-muted-foreground">
-                      Click "Assemble" to create a trailer timeline from your shotlist and generated assets.
+                      Click "Assemble" to create a trailer timeline, then watch it right here.
                     </p>
                   </div>
                 )}
