@@ -143,8 +143,20 @@ Deno.serve(async (req) => {
       note = created;
     }
     if (note.status === "resolved" || note.status === "dismissed") {
-      // Idempotent: already in terminal state — return success so UI doesn't crash
-      return json({ ok: true, action, already_resolved: true });
+      // If note was re-pinned, auto-reopen it instead of returning early
+      if (note.pinned) {
+        console.log("[resolve-carried-note] re-pinned note detected, reopening:", note.id);
+        await db.from("project_deferred_notes").update({
+          status: "open",
+          resolved_at: null,
+          resolution_method: null,
+          resolution_summary: null,
+        }).eq("id", note.id);
+        note.status = "open";
+      } else {
+        // Idempotent: already in terminal state — return success so UI doesn't crash
+        return json({ ok: true, action, already_resolved: true });
+      }
     }
 
     // Use the real DB id (note.id) for all updates — note_id param may be a note_key string
