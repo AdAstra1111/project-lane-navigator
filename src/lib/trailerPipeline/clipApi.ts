@@ -54,4 +54,10 @@ export const clipEngineApi = {
 
   listJobs: (projectId: string, blueprintId: string) =>
     callClipEngine('list_jobs', { projectId, blueprintId }),
+
+  cancelAll: (projectId: string, blueprintId: string) =>
+    callClipEngine('cancel_all', { projectId, blueprintId }),
+
+  resetFailed: (projectId: string, blueprintId: string) =>
+    callClipEngine('reset_failed', { projectId, blueprintId }),
 };

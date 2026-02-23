@@ -694,6 +694,62 @@ async function handleProcessQueue(db: any, body: any, userId: string) {
   return json({ ok: true, processed: results.length, results });
 }
 
+// ─── Action: cancel_all (stop all queued/running jobs) ───
+
+async function handleCancelAll(db: any, body: any, userId: string) {
+  const { projectId, blueprintId } = body;
+  if (!blueprintId) return json({ error: "blueprintId required" }, 400);
+
+  const { data: affected } = await db.from("trailer_clip_jobs")
+    .update({ status: "canceled" })
+    .eq("project_id", projectId)
+    .eq("blueprint_id", blueprintId)
+    .in("status", ["queued", "running"])
+    .select("id");
+
+  const count = (affected || []).length;
+
+  // Update any active clip runs to reflect cancellation
+  await db.from("trailer_clip_runs")
+    .update({ status: "canceled" })
+    .eq("blueprint_id", blueprintId)
+    .eq("status", "running");
+
+  await logEvent(db, {
+    project_id: projectId, blueprint_id: blueprintId,
+    event_type: "cancel_all",
+    payload: { canceledCount: count },
+    created_by: userId,
+  });
+
+  return json({ ok: true, canceled: count });
+}
+
+// ─── Action: reset_failed (re-queue all failed jobs) ───
+
+async function handleResetFailed(db: any, body: any, userId: string) {
+  const { projectId, blueprintId } = body;
+  if (!blueprintId) return json({ error: "blueprintId required" }, 400);
+
+  const { data: affected } = await db.from("trailer_clip_jobs")
+    .update({ status: "queued", error: null, provider_job_id: null, claimed_at: null })
+    .eq("project_id", projectId)
+    .eq("blueprint_id", blueprintId)
+    .eq("status", "failed")
+    .select("id");
+
+  const count = (affected || []).length;
+
+  await logEvent(db, {
+    project_id: projectId, blueprint_id: blueprintId,
+    event_type: "reset_failed",
+    payload: { resetCount: count },
+    created_by: userId,
+  });
+
+  return json({ ok: true, reset: count });
+}
+
 // ─── Main handler ───
 
 Deno.serve(async (req) => {
@@ -723,6 +779,8 @@ Deno.serve(async (req) => {
       case "progress": return await handleProgress(db, body);
       case "retry_job": return await handleRetryJob(db, body, userId);
       case "cancel_job": return await handleCancelJob(db, body, userId);
+      case "cancel_all": return await handleCancelAll(db, body, userId);
+      case "reset_failed": return await handleResetFailed(db, body, userId);
       case "select_clip": return await handleSelectClip(db, body, userId);
       case "list_clips": return await handleListClips(db, body);
       case "list_jobs": return await handleListJobs(db, body);
