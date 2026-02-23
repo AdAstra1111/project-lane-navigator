@@ -64,7 +64,7 @@ function computeTier(rubric: Record<string, number>) {
     : riskScore <= 65 && confidence >= 35 ? "C" : "D";
 
   const maxQuality = tier === "A" ? "Broadcast" : tier === "B" ? "Pitch" : "Previz";
-  const modelRoute = tier <= "B" ? "image-to-video" : tier === "C" ? "hybrid" : "3D-assisted";
+  const modelRoute = tier === "A" || tier === "B" ? "image-to-video" : tier === "C" ? "hybrid" : "3D-assisted";
   const costBand = tier === "A" ? "low" : tier === "B" ? "medium" : "high";
 
   return { tier, confidence, maxQuality, modelRoute, costBand, riskScore };
@@ -311,7 +311,7 @@ async function handleAnimateClip(db: any, body: any, userId: string, apiKey: str
   const animImageUrl = animData.choices?.[0]?.message?.images?.[0]?.image_url?.url;
   if (!animImageUrl) return json({ error: "No motion still output" }, 500);
 
-  const storagePath = `${projectId}/shots/${shotId}/clips/${Date.now()}_0.png`;
+  const storagePath = `${projectId}/shots/${shotId}/motion/${Date.now()}_0.png`;
   const publicUrl = await uploadImageFromUrl(animImageUrl, storagePath);
   if (!publicUrl) return json({ error: "Upload failed" }, 500);
 
@@ -329,14 +329,15 @@ async function handleExtractMoments(db: any, body: any, _userId: string, apiKey:
   if (!projectId || !documentId || !versionId) return json({ error: "projectId, documentId, versionId required" }, 400);
 
   const { data: version } = await db.from("project_document_versions")
-    .select("content").eq("id", versionId).single();
-  if (!version?.content) return json({ error: "Version content not found" }, 404);
+    .select("content, plaintext").eq("id", versionId).single();
+  const scriptText = (version?.plaintext || version?.content || "").toString();
+  if (!scriptText) return json({ error: "Version content not found" }, 404);
 
   const systemPrompt = `You are a trailer editor. Analyze this script and extract 10-25 trailer moments.
 For each: moment_summary, scene_number (int or null), hook_strength (0-10), spectacle_score (0-10), emotional_score (0-10), ai_friendly (bool), suggested_visual_approach (rewrite to AI-friendly: silhouettes, VO montage, inserts, landscapes, symbols, text cards).
 Return JSON: { "moments": [...] }`;
 
-  const result = await callLLM({ apiKey, model: MODELS.BALANCED, system: systemPrompt, user: version.content.slice(0, 30000), temperature: 0.4, maxTokens: 8000 });
+  const result = await callLLM({ apiKey, model: MODELS.BALANCED, system: systemPrompt, user: scriptText.slice(0, 30000), temperature: 0.4, maxTokens: 8000 });
   const parsed = await parseJsonSafe(result.content, apiKey);
   const moments = parsed.moments || [];
 
@@ -460,7 +461,7 @@ async function handleGenerateTrailerAssets(db: any, body: any, userId: string, a
             const animData = await animResp.json();
             const animUrl = animData.choices?.[0]?.message?.images?.[0]?.image_url?.url;
             if (animUrl) {
-              const clipPath = `${projectId}/trailers/${trailerShotlistId}/stills/${Date.now()}_${item.index}.png`;
+              const clipPath = `${projectId}/trailers/${trailerShotlistId}/motion/${Date.now()}_${item.index}.png`;
               const clipPublicUrl = await uploadImageFromUrl(animUrl, clipPath);
               if (clipPublicUrl) {
                 await db.from("ai_generated_media").insert({
