@@ -78,6 +78,11 @@ export function SceneGraphPanel({ projectId, documents }: SceneGraphPanelProps) 
     setPasteText('');
   };
 
+  const handleReextract = async () => {
+    if (!confirm('This will delete all existing scenes and re-extract from the script. Continue?')) return;
+    await sg.extract.mutateAsync({ force: true });
+  };
+
   const handleInsert = async () => {
     await sg.insert.mutateAsync({
       position: insertPosition,
@@ -231,6 +236,10 @@ export function SceneGraphPanel({ projectId, documents }: SceneGraphPanelProps) 
       {/* Top toolbar */}
       <div className="flex items-center gap-2 flex-wrap">
         <Badge variant="secondary" className="text-[10px]">{sg.scenes.length} scenes</Badge>
+        <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={handleReextract} disabled={sg.extract.isPending}>
+          {sg.extract.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+          Re-extract
+        </Button>
         <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={handleRebuild} disabled={sg.rebuild.isPending}>
           {sg.rebuild.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Camera className="h-3 w-3" />}
           Rebuild Snapshot

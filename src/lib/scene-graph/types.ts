@@ -108,6 +108,7 @@ export interface SceneGraphExtractInput {
   sourceVersionId?: string;
   mode?: 'from_script_doc' | 'from_text';
   text?: string;
+  force?: boolean;
 }
 
 export interface SceneGraphListInput {
