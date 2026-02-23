@@ -549,7 +549,7 @@ async function handleProgress(db: any, body: any) {
   const { projectId, blueprintId } = body;
   if (!blueprintId) return json({ error: "blueprintId required" }, 400);
 
-  const { data: jobs } = await db.from("trailer_clip_jobs").select("beat_index, status, provider, candidate_index")
+  const { data: jobs } = await db.from("trailer_clip_jobs").select("id, beat_index, status, provider, candidate_index")
     .eq("project_id", projectId).eq("blueprint_id", blueprintId);
 
   const { data: clips } = await db.from("trailer_clips").select("beat_index, selected, id, provider, candidate_index, public_url, status")
