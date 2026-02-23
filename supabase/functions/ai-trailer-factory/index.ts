@@ -173,30 +173,51 @@ async function compileTrailerContext(db: any, projectId: string, packId: string)
     return a.sort_order - b.sort_order;
   });
 
-  const items: PackContext["items"] = [];
+  // Batch fetch all documents at once
+  const docIds = sorted.map((i: any) => i.document_id);
+  const { data: docs } = await db.from("project_documents")
+    .select("id, title, doc_type").in("id", docIds);
+  const docMap = new Map((docs || []).map((d: any) => [d.id, d]));
 
+  // Batch fetch versions: first get explicit version_ids, then latest for those without
+  const explicitVersionIds = sorted.filter((i: any) => i.version_id).map((i: any) => i.version_id);
+  const needLatest = sorted.filter((i: any) => !i.version_id).map((i: any) => i.document_id);
+
+  // Fetch latest versions for docs without explicit version
+  const latestMap = new Map<string, string>();
+  if (needLatest.length > 0) {
+    const { data: latestVers } = await db.from("project_document_versions")
+      .select("id, document_id").in("document_id", needLatest)
+      .order("version_number", { ascending: false });
+    // Take first (latest) per document_id
+    for (const v of (latestVers || [])) {
+      if (!latestMap.has(v.document_id)) latestMap.set(v.document_id, v.id);
+    }
+  }
+
+  // Collect all version IDs to fetch content in one query
+  const allVersionIds: string[] = [];
   for (const item of sorted) {
-    // Get document info
-    const { data: doc } = await db.from("project_documents")
-      .select("title, doc_type").eq("id", item.document_id).single();
+    const vid = item.version_id || latestMap.get(item.document_id);
+    if (vid) allVersionIds.push(vid);
+  }
+
+  const versionContentMap = new Map<string, string>();
+  if (allVersionIds.length > 0) {
+    const { data: versions } = await db.from("project_document_versions")
+      .select("id, plaintext, content").in("id", allVersionIds);
+    for (const v of (versions || [])) {
+      versionContentMap.set(v.id, (v.plaintext || v.content || "").toString());
+    }
+  }
+
+  // Build items
+  const items: PackContext["items"] = [];
+  for (const item of sorted) {
+    const doc = docMap.get(item.document_id);
     if (!doc) continue;
-
-    // Resolve version
-    let versionId = item.version_id;
-    if (!versionId) {
-      const { data: latestVer } = await db.from("project_document_versions")
-        .select("id").eq("document_id", item.document_id)
-        .order("version_number", { ascending: false }).limit(1).single();
-      versionId = latestVer?.id || null;
-    }
-
-    let plaintext = "";
-    if (versionId) {
-      const { data: ver } = await db.from("project_document_versions")
-        .select("plaintext, content").eq("id", versionId).single();
-      plaintext = (ver?.plaintext || ver?.content || "").toString();
-    }
-
+    const versionId = item.version_id || latestMap.get(item.document_id) || null;
+    const plaintext = versionId ? (versionContentMap.get(versionId) || "") : "";
     items.push({
       document_id: item.document_id,
       version_id: versionId,
@@ -209,10 +230,10 @@ async function compileTrailerContext(db: any, projectId: string, packId: string)
     });
   }
 
-  // Apply caps
-  const PRIMARY_CAP = 18000;
-  const SUPPORTING_CAP = 12000;
-  const MERGED_CAP = 24000;
+  // Apply caps — reduced to prevent compute timeouts
+  const PRIMARY_CAP = 12000;
+  const SUPPORTING_CAP = 6000;
+  const MERGED_CAP = 16000;
 
   function truncateItems(itemList: typeof items, cap: number): string {
     if (itemList.length === 0) return "";
@@ -230,11 +251,7 @@ async function compileTrailerContext(db: any, projectId: string, packId: string)
   const primaries = items.filter(i => i.role === "primary");
   const supporting = items.filter(i => i.role === "supporting");
 
-  const primariesText = truncateItems(primaries, PRIMARY_CAP);
-  const supportingText = truncateItems(supporting, SUPPORTING_CAP);
-  const mergedText = truncateItems(items, MERGED_CAP);
-
-  return { pack, items, mergedText, primariesText, supportingText };
+  return { pack, items, mergedText: truncateItems(items, MERGED_CAP), primariesText: truncateItems(primaries, PRIMARY_CAP), supportingText: truncateItems(supporting, SUPPORTING_CAP) };
 }
 
 // ═══════════════════════════════════════════
@@ -527,7 +544,7 @@ If no full screenplay exists, extract moments from available materials — label
 For each moment return: moment_summary, scene_number (int or null), hook_strength (0-10), spectacle_score (0-10), emotional_score (0-10), ai_friendly (bool), suggested_visual_approach (rewrite to AI-friendly: silhouettes, VO montage, inserts, landscapes, symbols, text cards), source_refs (which doc titles/sections it came from), spoiler_level (0-3).
 Return JSON: { "moments": [...] }`;
 
-  const result = await callLLM({ apiKey, model: MODELS.BALANCED, system: systemPrompt, user: contextText.slice(0, 30000), temperature: 0.4, maxTokens: 8000 });
+  const result = await callLLM({ apiKey, model: MODELS.FAST, system: systemPrompt, user: contextText.slice(0, 16000), temperature: 0.4, maxTokens: 4000 });
   const parsed = await parseJsonSafe(result.content, apiKey);
   const moments = parsed.moments || [];
 
