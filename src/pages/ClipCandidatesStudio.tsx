@@ -369,9 +369,12 @@ export default function ClipCandidatesStudio() {
                       return (
                         <div key={idx} className="border border-border rounded-lg overflow-hidden">
                           {/* Beat header row */}
-                          <button
+                          <div
+                            role="button"
+                            tabIndex={0}
                             onClick={() => toggleBeat(idx)}
-                            className="w-full text-left px-3 py-2.5 hover:bg-muted/30 transition-colors"
+                            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') toggleBeat(idx); }}
+                            className="w-full text-left px-3 py-2.5 hover:bg-muted/30 transition-colors cursor-pointer"
                           >
                             <div className="flex items-center gap-2">
                               {isExpanded ? <ChevronDown className="h-3.5 w-3.5 shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0" />}
@@ -443,7 +446,7 @@ export default function ClipCandidatesStudio() {
                                 {beat.clip_spec.action_description}
                               </p>
                             )}
-                          </button>
+                          </div>
 
                           {isExpanded && (
                             <div className="px-3 pb-3 pt-2 space-y-3 border-t border-border bg-muted/10">
