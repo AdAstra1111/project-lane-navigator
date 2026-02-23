@@ -443,12 +443,24 @@ async function handleProcessJob(db: any, body: any, userId: string) {
 // ─── Helper: download video and store ───
 
 async function downloadAndStore(db: any, videoUrl: string, projectId: string, blueprintId: string, beatIndex: number, jobId: string): Promise<string> {
-  const videoResp = await fetch(videoUrl);
-  if (!videoResp.ok) throw new Error("Failed to download video");
+  // Google generativelanguage file URIs require the API key
+  const apiKey = Deno.env.get("VEO_API_KEY") || Deno.env.get("GOOGLE_API_KEY") || "";
+  let fetchUrl = videoUrl;
+  if (videoUrl.includes("generativelanguage.googleapis.com") && !videoUrl.includes("key=")) {
+    fetchUrl += (videoUrl.includes("?") ? "&" : "?") + `key=${apiKey}`;
+  }
+  console.log(`[download] Fetching video from ${fetchUrl.replace(apiKey, 'REDACTED')}`);
+  const videoResp = await fetch(fetchUrl);
+  if (!videoResp.ok) {
+    const errText = await videoResp.text();
+    console.error(`[download] Failed ${videoResp.status}:`, errText.slice(0, 500));
+    throw new Error(`Failed to download video (${videoResp.status})`);
+  }
   const videoBytes = await videoResp.arrayBuffer();
   const storagePath = `${projectId}/clips/${blueprintId}/${beatIndex}/${jobId}.mp4`;
   const blob = new Blob([videoBytes], { type: "video/mp4" });
   await db.storage.from(STORAGE_BUCKET).upload(storagePath, blob, { contentType: "video/mp4", upsert: true });
+  console.log(`[download] Stored ${storagePath} (${videoBytes.byteLength} bytes)`);
   return storagePath;
 }
 
@@ -701,23 +713,24 @@ async function handleListJobs(db: any, body: any) {
 // ─── Action: process_queue (batch process N jobs) ───
 
 async function handleProcessQueue(db: any, body: any, userId: string) {
-  const { projectId, blueprintId, maxJobs = 5 } = body;
+  const { projectId, blueprintId, maxJobs = 2 } = body;
   if (!blueprintId) return json({ error: "blueprintId required" }, 400);
 
   const results: any[] = [];
 
   for (let i = 0; i < maxJobs; i++) {
-    // Claim next
     const { data: jobId } = await db.rpc("claim_next_trailer_clip_job", {
       _project_id: projectId,
       _blueprint_id: blueprintId,
     });
-    if (!jobId) break; // no more jobs
+    if (!jobId) break;
 
-    // Process it
     const processResult = await handleProcessJob(db, { projectId, jobId }, userId);
     const resultBody = await processResult.json();
     results.push({ jobId, ...resultBody });
+
+    // Delay between jobs to avoid Veo 429 rate limits
+    if (i < maxJobs - 1) await sleep(3000);
   }
 
   return json({ ok: true, processed: results.length, results });
