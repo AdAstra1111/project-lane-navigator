@@ -187,7 +187,7 @@ function splitIntoScenes(script: string): ParsedScene[] {
   let currentLines: string[] = [];
 
   const sluglineRegex = /^\s*(SCENE\s+\d+\s*[-:]?\s*)?((INT\.|EXT\.|INT\/EXT\.|I\/E\.)\s*.+)/i;
-  const numberedRegex = /^\s*(\d+)\s*[\.\)]\s*((INT\.|EXT\.|INT\/EXT\.|I\/E\.)\s*.+)/i;
+  const numberedRegex = /^\s*(\d+)\s*[\.\)\s]\s*((INT\.|EXT\.|INT\/EXT\.|I\/E\.)\s*.+)/i;
 
   for (const line of lines) {
     const slugMatch = line.match(sluglineRegex) || line.match(numberedRegex);
