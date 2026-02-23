@@ -2,7 +2,7 @@
  * AiTrailerBuilder — Wizard page for building an AI taster trailer.
  * Uses the ai-trailer-factory edge function for all operations.
  */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
@@ -38,44 +38,59 @@ export default function AiTrailerBuilder() {
   const [pdfStageIndex, setPdfStageIndex] = useState(0);
   const [pdfProgress, setPdfProgress] = useState(0);
   const [pdfDetail, setPdfDetail] = useState('');
+  const pdfTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
-  const startPdfExtraction = () => {
+  const qc = useQueryClient();
+  const ai = useAiTrailerFactory(projectId);
+
+  const clearPdfTimers = useCallback(() => {
+    pdfTimersRef.current.forEach(clearTimeout);
+    pdfTimersRef.current = [];
+  }, []);
+
+  useEffect(() => () => clearPdfTimers(), [clearPdfTimers]);
+
+  const startPdfExtraction = useCallback(() => {
+    clearPdfTimers();
     setPdfStageIndex(0);
     setPdfProgress(5);
     setPdfDetail('Locating script PDF…');
-    // Stage updates driven by timeout milestones (not fake interval)
-    // We advance stages on reasonable time-based estimates since the edge function is a single request
-    setTimeout(() => { setPdfStageIndex(1); setPdfProgress(15); setPdfDetail('Creating signed URL…'); }, 2000);
-    setTimeout(() => { setPdfStageIndex(2); setPdfProgress(30); setPdfDetail('Extracting text via AI…'); }, 5000);
-    // Stage 2 stays active for the bulk of processing (LLM extraction)
-    setTimeout(() => { setPdfProgress(50); setPdfDetail('AI is reading the screenplay…'); }, 15000);
-    setTimeout(() => { setPdfProgress(65); setPdfDetail('Still extracting — large scripts take longer…'); }, 30000);
+
+    const t = (fn: () => void, ms: number) => {
+      const id = setTimeout(fn, ms);
+      pdfTimersRef.current.push(id);
+    };
+    t(() => { setPdfStageIndex(1); setPdfProgress(15); setPdfDetail('Downloading PDF…'); }, 2000);
+    t(() => { setPdfStageIndex(2); setPdfProgress(30); setPdfDetail('Extracting text via AI…'); }, 5000);
+    t(() => { setPdfProgress(50); setPdfDetail('AI is reading the screenplay…'); }, 15000);
+    t(() => { setPdfProgress(65); setPdfDetail('Still extracting — large scripts take longer…'); }, 30000);
 
     ai.createTrailerSourceScript.mutate(undefined, {
       onSuccess: (data: any) => {
+        clearPdfTimers();
         setPdfStageIndex(3);
         setPdfProgress(85);
-        setPdfDetail('Creating script document…');
-        setTimeout(() => {
+        setPdfDetail('Saving script document…');
+        const doneTimer = setTimeout(() => {
           setPdfStageIndex(4);
           setPdfProgress(100);
           setPdfDetail('Complete');
           qc.invalidateQueries({ queryKey: ['ai-trailer-docs', projectId] });
           if (data.documentId) setSelectedDocId(data.documentId);
           if (data.versionId) setSelectedVersionId(data.versionId);
-          setTimeout(() => setStep('moments'), 300);
+          const navTimer = setTimeout(() => setStep('moments'), 300);
+          pdfTimersRef.current.push(navTimer);
         }, 500);
+        pdfTimersRef.current.push(doneTimer);
       },
       onError: () => {
+        clearPdfTimers();
         setPdfStageIndex(0);
         setPdfProgress(0);
         setPdfDetail('');
       },
     });
-  };
-
-  const qc = useQueryClient();
-  const ai = useAiTrailerFactory(projectId);
+  }, [ai.createTrailerSourceScript, clearPdfTimers, projectId, qc]);
 
   const { data: documents = [] } = useQuery({
     queryKey: ['ai-trailer-docs', projectId],

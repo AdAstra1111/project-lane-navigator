@@ -6,6 +6,7 @@
  * Returns { documentId, versionId, title, chars, message }
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { encode as encodeBase64 } from "https://deno.land/std@0.208.0/encoding/base64.ts";
 import { callLLM, MODELS } from "../_shared/llm.ts";
 
 const corsHeaders = {
@@ -33,6 +34,92 @@ function adminClient() {
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
   );
+}
+
+const GATEWAY_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
+
+const EXTRACTION_PROMPT = `You are a screenplay text extraction specialist.
+Extract the COMPLETE screenplay/script text from this PDF accurately.
+
+REQUIREMENTS:
+- Preserve ALL scene headings (sluglines like INT./EXT.)
+- Preserve ALL character names and dialogue
+- Preserve ALL action/description lines
+- Preserve ALL parentheticals
+- Maintain the original formatting structure as plaintext
+- Do NOT summarize or abbreviate — extract the FULL text
+- Output ONLY the extracted screenplay text, no commentary
+
+Begin extraction:`;
+
+/**
+ * Try LLM extraction using inline PDF base64 (input_file modality).
+ * Falls back to signed-URL text prompt if gateway rejects input_file.
+ */
+async function extractViaLLM(
+  apiKey: string,
+  pdfBase64: string,
+  signedUrl: string | null,
+): Promise<string> {
+  // Strategy 1: input_file modality with inline base64 PDF
+  try {
+    const resp = await fetch(GATEWAY_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: MODELS.PRO,
+        messages: [
+          {
+            role: "system",
+            content: "You are a document text extraction specialist. Extract the full text from the provided PDF accurately and completely. Output only the extracted text.",
+          },
+          {
+            role: "user",
+            content: [
+              { type: "text", text: EXTRACTION_PROMPT },
+              {
+                type: "image_url",
+                image_url: { url: `data:application/pdf;base64,${pdfBase64}` },
+              },
+            ],
+          },
+        ],
+        temperature: 0.05,
+        max_tokens: 32000,
+      }),
+    });
+
+    if (resp.ok) {
+      const data = await resp.json();
+      const text = data.choices?.[0]?.message?.content || "";
+      if (text.length >= 500) return text;
+      console.warn(`input_file extraction too short (${text.length} chars), trying fallback`);
+    } else {
+      console.warn(`input_file modality rejected (${resp.status}), trying fallback`);
+    }
+  } catch (e) {
+    console.warn("input_file extraction failed:", e);
+  }
+
+  // Strategy 2: text-only prompt with signed URL
+  if (!signedUrl) {
+    throw new Error("PDF extraction failed and no signed URL available for fallback");
+  }
+
+  const result = await callLLM({
+    apiKey,
+    model: MODELS.PRO,
+    system: "You are a document text extraction specialist. Extract the full text from the provided PDF URL accurately and completely. Output only the extracted text.",
+    user: `${EXTRACTION_PROMPT}\n\nPDF document URL (download and extract text from this): ${signedUrl}`,
+    temperature: 0.05,
+    maxTokens: 32000,
+    retries: 2,
+  });
+
+  return result.content || "";
 }
 
 Deno.serve(async (req) => {
@@ -86,47 +173,32 @@ Deno.serve(async (req) => {
     if (!storagePath)
       return json({ error: "No storage path found for the PDF document" }, 400);
 
-    // 4) Create a signed URL for the PDF (valid 10 min) — used for LLM text-only prompt
-    const { data: signedData, error: signError } = await admin.storage
+    // 4) Download PDF bytes from storage
+    const { data: fileData, error: dlError } = await admin.storage
       .from("project-documents")
-      .createSignedUrl(storagePath, 600);
+      .download(storagePath);
 
-    if (signError || !signedData?.signedUrl) {
-      console.error("Signed URL error:", signError);
-      return json({ error: "Failed to create signed URL for the PDF: " + (signError?.message || "unknown") }, 500);
+    if (dlError || !fileData) {
+      console.error("PDF download error:", dlError);
+      return json({ error: "Failed to download PDF: " + (dlError?.message || "unknown") }, 500);
     }
 
-    const pdfUrl = signedData.signedUrl;
+    const pdfBytes = new Uint8Array(await fileData.arrayBuffer());
+    const pdfBase64 = encodeBase64(pdfBytes);
 
-    // 5) Extract text via LLM — TEXT-ONLY prompt with signed URL (no image_url modality)
-    const extractionPrompt = `You are a screenplay text extraction specialist. I have a PDF screenplay document available at this URL:
+    // 5) Create signed URL for fallback strategy
+    let signedUrl: string | null = null;
+    try {
+      const { data: signedData } = await admin.storage
+        .from("project-documents")
+        .createSignedUrl(storagePath, 600);
+      signedUrl = signedData?.signedUrl || null;
+    } catch (e) {
+      console.warn("Signed URL creation failed (non-fatal):", e);
+    }
 
-${pdfUrl}
-
-Please download and extract the COMPLETE screenplay/script text from this PDF accurately.
-
-REQUIREMENTS:
-- Preserve ALL scene headings (sluglines like INT./EXT.)
-- Preserve ALL character names and dialogue
-- Preserve ALL action/description lines
-- Preserve ALL parentheticals
-- Maintain the original formatting structure as plaintext
-- Do NOT summarize or abbreviate — extract the FULL text
-- Output ONLY the extracted screenplay text, no commentary
-
-Begin extraction:`;
-
-    const result = await callLLM({
-      apiKey,
-      model: MODELS.PRO,
-      system: "You are a document text extraction specialist. Extract the full text from the provided PDF URL accurately and completely. Output only the extracted text.",
-      user: extractionPrompt,
-      temperature: 0.05,
-      maxTokens: 32000,
-      retries: 2,
-    });
-
-    const extractedText = result.content || "";
+    // 6) Extract text via LLM (inline base64 first, signed URL fallback)
+    const extractedText = await extractViaLLM(apiKey, pdfBase64, signedUrl);
 
     if (!extractedText || extractedText.length < 500) {
       return json(
@@ -135,7 +207,7 @@ Begin extraction:`;
       );
     }
 
-    // 6) Create project_documents row with ONLY safe/known columns
+    // 7) Create project_documents row with ONLY safe/known columns
     const docTitle = `${project.title} — Trailer Source Script`;
     const { data: newDoc, error: docErr } = await admin
       .from("project_documents")
@@ -153,7 +225,7 @@ Begin extraction:`;
       return json({ error: "Failed to create document: " + (docErr?.message || "unknown") }, 500);
     }
 
-    // 7) Create project_document_versions row — plaintext stored HERE
+    // 8) Create project_document_versions row — plaintext stored HERE
     // Try with content field first, fallback without it
     let newVersion: any = null;
     let verErr: any = null;
@@ -196,11 +268,18 @@ Begin extraction:`;
       return json({ error: "Failed to create version: " + (verErr?.message || "unknown") }, 500);
     }
 
-    // 8) Update latest_version_id on the document (if column exists)
-    await admin
-      .from("project_documents")
-      .update({ latest_version_id: newVersion.id })
-      .eq("id", newDoc.id);
+    // 9) Update latest_version_id on the document (if column exists)
+    try {
+      await admin
+        .from("project_documents")
+        .update({ latest_version_id: newVersion.id })
+        .eq("id", newDoc.id);
+    } catch (e: any) {
+      // Ignore if column doesn't exist
+      if (!e?.message?.includes("does not exist")) {
+        console.error("latest_version_id update error:", e);
+      }
+    }
 
     return json({
       documentId: newDoc.id,
