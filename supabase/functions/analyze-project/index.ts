@@ -89,17 +89,62 @@ function basicPDFExtract(bytes: Uint8Array): string {
     .trim();
 }
 
+async function ocrWithGemini(pdfBytes: Uint8Array): Promise<string> {
+  const apiKey = Deno.env.get("LOVABLE_API_KEY");
+  if (!apiKey) throw new Error("No API key for OCR");
+
+  // Use Deno's native base64 encoding to avoid stack overflow on large buffers
+  const { encodeBase64 } = await import("https://deno.land/std@0.224.0/encoding/base64.ts");
+  const base64Pdf = encodeBase64(pdfBytes);
+
+  console.log(`[analyze] OCR fallback: sending ${pdfBytes.length} bytes to Gemini Vision`);
+
+  const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "google/gemini-2.5-flash",
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "Extract ALL text from this PDF document. Return ONLY the extracted text content, preserving paragraph structure. Do not add commentary." },
+            { type: "image_url", image_url: { url: `data:application/pdf;base64,${base64Pdf}` } },
+          ],
+        },
+      ],
+      temperature: 0,
+      max_tokens: 16000,
+    }),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    console.error("[analyze] Gemini OCR failed:", response.status, errText);
+    throw new Error(`OCR failed: ${response.status}`);
+  }
+
+  const data = await response.json();
+  const text = data.choices?.[0]?.message?.content || "";
+  console.log(`[analyze] OCR extracted ${text.length} chars`);
+  return text.trim();
+}
+
 async function extractFromPDF(data: ArrayBuffer): Promise<ExtractionResult> {
+  let nativeText = "";
+  let totalPages: number | null = null;
+
   try {
     // Try pdf.js for reliable extraction
     // @ts-ignore - dynamic esm import
     const pdfjsLib = await import("https://esm.sh/pdfjs-dist@4.8.69/legacy/build/pdf.mjs");
-
-    // Disable worker to avoid workerSrc error in Deno edge runtime
     pdfjsLib.GlobalWorkerOptions.workerSrc = "";
 
     const doc = await pdfjsLib.getDocument({ data: new Uint8Array(data), useWorkerFetch: false, isEvalSupported: false, useSystemFonts: true }).promise;
-    const totalPages = doc.numPages;
+    totalPages = doc.numPages;
     const pagesToRead = Math.min(totalPages, MAX_PAGES);
 
     const pageTexts: string[] = [];
@@ -113,54 +158,57 @@ async function extractFromPDF(data: ArrayBuffer): Promise<ExtractionResult> {
       pageTexts.push(text);
     }
 
-    const fullText = pageTexts.join("\n\n");
-
-    if (fullText.trim().length < 50) {
-      return {
-        text: "",
-        totalPages,
-        pagesAnalyzed: null,
-        status: "failed",
-        error: "Couldn't read text from this file. Try exporting as a text-based PDF.",
-      };
-    }
-
-    return {
-      text: fullText.replace(/\u0000/g, "").trim(),
-      totalPages,
-      pagesAnalyzed: pagesToRead,
-      status: pagesToRead < totalPages ? "partial" : "success",
-      error: null,
-    };
+    nativeText = pageTexts.join("\n\n").replace(/\u0000/g, "").trim();
   } catch (pdfJsErr) {
     console.warn("pdf.js extraction failed, trying basic fallback:", pdfJsErr);
-
-    // Fallback to basic regex extraction
     const bytes = new Uint8Array(data);
-    const text = basicPDFExtract(bytes);
+    nativeText = basicPDFExtract(bytes);
+  }
 
-    if (text.length < 50) {
-      return {
-        text: "",
-        totalPages: null,
-        pagesAnalyzed: null,
-        status: "failed",
-        error: "Couldn't read text from this file. Try exporting as a text-based PDF.",
-      };
-    }
-
-    const wordCount = text.split(/\s+/).length;
-    const estimatedPages = Math.ceil(wordCount / WORDS_PER_PAGE);
+  // If native extraction yielded good text, use it
+  if (nativeText.length >= 50 && !isGarbageText(nativeText)) {
+    const wordCount = nativeText.split(/\s+/).length;
+    const estimatedPages = totalPages || Math.ceil(wordCount / WORDS_PER_PAGE);
+    const pagesToRead = Math.min(estimatedPages, MAX_PAGES);
     const isPartial = wordCount > MAX_WORDS;
 
     return {
-      text: isPartial ? text.split(/\s+/).slice(0, MAX_WORDS).join(" ") : text,
+      text: isPartial ? nativeText.split(/\s+/).slice(0, MAX_WORDS).join(" ") : nativeText,
       totalPages: estimatedPages,
-      pagesAnalyzed: isPartial ? MAX_PAGES : estimatedPages,
+      pagesAnalyzed: isPartial ? MAX_PAGES : pagesToRead,
       status: isPartial ? "partial" : "success",
       error: null,
     };
   }
+
+  // OCR fallback: PDF is likely image-based
+  console.log(`[analyze] Native extraction too thin (${nativeText.length} chars), trying Gemini OCR...`);
+  try {
+    const ocrText = await ocrWithGemini(new Uint8Array(data));
+    if (ocrText.length >= 50 && !isGarbageText(ocrText)) {
+      const wordCount = ocrText.split(/\s+/).length;
+      const estimatedPages = totalPages || Math.ceil(wordCount / WORDS_PER_PAGE);
+      const isPartial = wordCount > MAX_WORDS;
+
+      return {
+        text: isPartial ? ocrText.split(/\s+/).slice(0, MAX_WORDS).join(" ") : ocrText,
+        totalPages: estimatedPages,
+        pagesAnalyzed: estimatedPages,
+        status: isPartial ? "partial" : "success",
+        error: null,
+      };
+    }
+  } catch (ocrErr) {
+    console.error("[analyze] OCR fallback failed:", ocrErr);
+  }
+
+  return {
+    text: "",
+    totalPages,
+    pagesAnalyzed: null,
+    status: "failed",
+    error: "Couldn't read text from this file. Try exporting as a text-based PDF.",
+  };
 }
 
 async function extractFromDOCX(data: ArrayBuffer): Promise<ExtractionResult> {
