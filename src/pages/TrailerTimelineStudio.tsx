@@ -1,7 +1,7 @@
 /**
  * Trailer Timeline Studio — Editorial control, rendering, export, audio, and render jobs
  */
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, lazy, Suspense } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
 import {
   ArrowLeft, Film, Play, Loader2, Check, Download, RefreshCw,
@@ -29,6 +29,7 @@ import { renderTrailerCut } from '@/lib/trailerPipeline/renderTrailerCut';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import jsPDF from 'jspdf';
+import AudioIntelligencePanel from '@/components/trailer/AudioIntelligencePanel';
 
 const ROLE_COLORS: Record<string, string> = {
   hook: 'bg-red-500/20 text-red-300',
@@ -589,16 +590,26 @@ export default function TrailerTimelineStudio() {
 
               {/* ─── AUDIO TAB ─── */}
               <TabsContent value="audio" className="space-y-4">
+                {/* Audio Intelligence Panel */}
+                <AudioIntelligencePanel
+                  projectId={projectId!}
+                  blueprintId={blueprintId}
+                  cutId={cutId}
+                />
+
+                <Separator />
+
+                {/* Legacy Manual Controls */}
                 <Card>
                   <CardHeader className="pb-2">
                     <CardTitle className="text-sm flex items-center gap-2">
-                      <Music className="h-4 w-4" /> Audio Settings
+                      <Music className="h-4 w-4" /> Manual Audio Settings
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-4">
                     {/* Music Bed */}
                     <div>
-                      <Label className="text-xs">Music Bed</Label>
+                      <Label className="text-xs">Music Bed (Manual Upload)</Label>
                       <Select value={selectedMusicBed} onValueChange={setSelectedMusicBed}>
                         <SelectTrigger className="text-xs"><SelectValue placeholder="No music bed selected" /></SelectTrigger>
                         <SelectContent>
@@ -676,56 +687,6 @@ export default function TrailerTimelineStudio() {
                     </div>
                   </CardContent>
                 </Card>
-
-                {/* Audio Plan Summary */}
-                {audioRun?.plan_json?.sfx_hits && (
-                  <Card>
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-sm">Audio Plan</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="space-y-2">
-                        {audioRun.plan_json.music_segments?.length > 0 && (
-                          <div>
-                            <p className="text-[10px] font-medium text-muted-foreground mb-1">Music Segments</p>
-                            {audioRun.plan_json.music_segments.map((seg: any, i: number) => (
-                              <div key={i} className="text-xs flex items-center gap-2 py-0.5">
-                                <Badge variant="outline" className="text-[9px]">🎵</Badge>
-                                <span>{formatTimecode(seg.start_ms)} → {formatTimecode(seg.end_ms)}</span>
-                                <span className="text-muted-foreground">{seg.description}</span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                        {audioRun.plan_json.sfx_hits?.length > 0 && (
-                          <div>
-                            <p className="text-[10px] font-medium text-muted-foreground mb-1">SFX Hits ({audioRun.plan_json.sfx_hits.length})</p>
-                            <div className="grid grid-cols-2 gap-1">
-                              {audioRun.plan_json.sfx_hits.map((hit: any, i: number) => (
-                                <div key={i} className="text-[10px] flex items-center gap-1.5 py-0.5">
-                                  <span className="font-mono">{formatTimecode(hit.timestamp_ms)}</span>
-                                  <Badge variant="outline" className="text-[9px]">{hit.sfx_kind}</Badge>
-                                  <span className="text-muted-foreground truncate">{hit.role}</span>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                        {audioRun.plan_json.vo_lines?.length > 0 && (
-                          <div>
-                            <p className="text-[10px] font-medium text-muted-foreground mb-1">VO Lines</p>
-                            {audioRun.plan_json.vo_lines.map((vo: any, i: number) => (
-                              <div key={i} className="text-xs py-0.5">
-                                <span className="font-mono text-muted-foreground mr-2">{formatTimecode(vo.timestamp_ms)}</span>
-                                <span className="font-medium">{vo.character}:</span> {vo.line}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
 
                 {/* Enqueue MP4 Render */}
                 <Card>
