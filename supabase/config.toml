@@ -218,3 +218,6 @@ verify_jwt = false
 
 [functions.storyboard-render-queue]
 verify_jwt = false
+
+[functions.storyboard-export]
+verify_jwt = false
