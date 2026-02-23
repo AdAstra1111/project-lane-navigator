@@ -2,7 +2,7 @@
  * AiTrailerBuilder — Wizard page for building an AI taster trailer.
  * Uses the ai-trailer-factory edge function for all operations.
  */
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
@@ -33,6 +33,7 @@ export default function AiTrailerBuilder() {
   const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null);
   const [selectedMomentIds, setSelectedMomentIds] = useState<Set<string>>(new Set());
   const [activeShotlistId, setActiveShotlistId] = useState<string | null>(null);
+  const [selectedBeatIndices, setSelectedBeatIndices] = useState<Set<number>>(new Set());
 
   const ai = useAiTrailerFactory(projectId);
 
@@ -86,6 +87,17 @@ export default function AiTrailerBuilder() {
   })();
 
   const activeShotlist = ai.shotlists.find(s => s.id === activeShotlistId) || ai.shotlists[0];
+  const shotlistItems = activeShotlist?.items || [];
+  const dbSelectedIndices = (activeShotlist as any)?.selected_indices as number[] | null;
+
+  // Sync selectedBeatIndices from DB when shotlist changes
+  useEffect(() => {
+    if (!activeShotlist || shotlistItems.length === 0) return;
+    const initial = dbSelectedIndices && dbSelectedIndices.length > 0
+      ? new Set(dbSelectedIndices)
+      : new Set(shotlistItems.map((item: any) => item.index as number));
+    setSelectedBeatIndices(initial);
+  }, [activeShotlist?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const generateProgress = ai.generateTrailerAssets.data;
 
   return (
@@ -238,14 +250,29 @@ export default function AiTrailerBuilder() {
           {/* Step: Shotlist */}
           {step === 'shotlist' && (
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
+             <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle className="text-sm">Trailer Shotlist</CardTitle>
-                <Button size="sm" className="text-xs gap-1"
-                  onClick={() => ai.buildShotlist.mutate({ count: 16 })}
-                  disabled={ai.buildShotlist.isPending || ai.moments.length === 0}>
-                  {ai.buildShotlist.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Film className="h-3 w-3" />}
-                  Build Shotlist
-                </Button>
+                <div className="flex items-center gap-2">
+                  {activeShotlist && (
+                    <Button size="sm" variant="outline" className="text-xs gap-1"
+                      onClick={() => {
+                        ai.saveSelectedIndices.mutate({
+                          shotlistId: activeShotlist.id,
+                          selectedIndices: Array.from(selectedBeatIndices),
+                        });
+                      }}
+                      disabled={ai.saveSelectedIndices.isPending || selectedBeatIndices.size === 0}>
+                      {ai.saveSelectedIndices.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                      Save Selection ({selectedBeatIndices.size}/{shotlistItems.length})
+                    </Button>
+                  )}
+                  <Button size="sm" className="text-xs gap-1"
+                    onClick={() => ai.buildShotlist.mutate({ count: 16 })}
+                    disabled={ai.buildShotlist.isPending || ai.moments.length === 0}>
+                    {ai.buildShotlist.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Film className="h-3 w-3" />}
+                    Build Shotlist
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent>
                 {ai.isLoadingShotlists ? (
@@ -253,25 +280,53 @@ export default function AiTrailerBuilder() {
                 ) : !activeShotlist ? (
                   <p className="text-xs text-muted-foreground text-center py-8">No shotlist yet. Extract moments first, then build a shotlist.</p>
                 ) : (
-                  <ScrollArea className="max-h-[60vh]">
-                    <div className="space-y-2">
-                      {(activeShotlist.items || []).map((item: any, idx: number) => (
-                        <div key={idx} className="flex items-center gap-3 p-2 rounded border border-border">
-                          <span className="text-xs font-mono text-muted-foreground w-6">{item.index}</span>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-xs font-medium">{item.shot_title}</p>
-                            <p className="text-[10px] text-muted-foreground truncate">{item.shot_description}</p>
-                          </div>
-                          <Badge variant="outline" className={`text-[8px] ${
-                            item.ai_suggested_tier === 'A' ? 'bg-emerald-500/10 text-emerald-400' :
-                            item.ai_suggested_tier === 'B' ? 'bg-blue-500/10 text-blue-400' :
-                            'bg-amber-500/10 text-amber-400'
-                          }`}>{item.ai_suggested_tier}</Badge>
-                          <span className="text-[10px] text-muted-foreground">{item.intended_duration}s</span>
-                        </div>
-                      ))}
+                  <>
+                    <div className="flex items-center gap-2 mb-3">
+                      <Button variant="ghost" size="sm" className="text-[10px] h-6 px-2"
+                        onClick={() => setSelectedBeatIndices(new Set(shotlistItems.map((i: any) => i.index)))}>
+                        Select All
+                      </Button>
+                      <Button variant="ghost" size="sm" className="text-[10px] h-6 px-2"
+                        onClick={() => setSelectedBeatIndices(new Set())}>
+                        Deselect All
+                      </Button>
+                      <span className="text-[10px] text-muted-foreground ml-auto">
+                        {selectedBeatIndices.size} of {shotlistItems.length} beats selected
+                      </span>
                     </div>
-                  </ScrollArea>
+                    <ScrollArea className="max-h-[60vh]">
+                      <div className="space-y-2">
+                        {shotlistItems.map((item: any, idx: number) => {
+                          const isSelected = selectedBeatIndices.has(item.index);
+                          return (
+                            <div key={idx} className={`flex items-center gap-3 p-2 rounded border transition-colors ${
+                              isSelected ? 'border-primary bg-primary/5' : 'border-border opacity-60'
+                            }`}>
+                              <Checkbox
+                                checked={isSelected}
+                                onCheckedChange={(checked) => {
+                                  const next = new Set(selectedBeatIndices);
+                                  if (checked) next.add(item.index); else next.delete(item.index);
+                                  setSelectedBeatIndices(next);
+                                }}
+                              />
+                              <span className="text-xs font-mono text-muted-foreground w-6">{item.index}</span>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs font-medium">{item.shot_title}</p>
+                                <p className="text-[10px] text-muted-foreground truncate">{item.shot_description}</p>
+                              </div>
+                              <Badge variant="outline" className={`text-[8px] ${
+                                item.ai_suggested_tier === 'A' ? 'bg-emerald-500/10 text-emerald-400' :
+                                item.ai_suggested_tier === 'B' ? 'bg-blue-500/10 text-blue-400' :
+                                'bg-amber-500/10 text-amber-400'
+                              }`}>{item.ai_suggested_tier}</Badge>
+                              <span className="text-[10px] text-muted-foreground">{item.intended_duration}s</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </ScrollArea>
+                  </>
                 )}
               </CardContent>
             </Card>
@@ -283,12 +338,18 @@ export default function AiTrailerBuilder() {
               <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle className="text-sm">Generate Trailer Assets</CardTitle>
                 <Button size="sm" className="text-xs gap-1"
-                  onClick={() => {
-                    if (activeShotlist) ai.generateTrailerAssets.mutate(activeShotlist.id);
+                  onClick={async () => {
+                    if (!activeShotlist) return;
+                    // Auto-save selection before generating
+                    await ai.saveSelectedIndices.mutateAsync({
+                      shotlistId: activeShotlist.id,
+                      selectedIndices: Array.from(selectedBeatIndices),
+                    });
+                    ai.generateTrailerAssets.mutate(activeShotlist.id);
                   }}
-                  disabled={ai.generateTrailerAssets.isPending || !activeShotlist}>
+                  disabled={ai.generateTrailerAssets.isPending || ai.saveSelectedIndices.isPending || !activeShotlist || selectedBeatIndices.size === 0}>
                   {ai.generateTrailerAssets.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
-                  Generate All Assets
+                  Generate Selected Assets ({selectedBeatIndices.size})
                 </Button>
               </CardHeader>
               <CardContent>
@@ -358,7 +419,14 @@ export default function AiTrailerBuilder() {
               <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle className="text-sm">Assemble Taster Trailer</CardTitle>
                 <Button size="sm" className="text-xs gap-1"
-                  onClick={() => { if (activeShotlist) ai.assembleTrailer.mutate(activeShotlist.id); }}
+                  onClick={async () => {
+                    if (!activeShotlist) return;
+                    await ai.saveSelectedIndices.mutateAsync({
+                      shotlistId: activeShotlist.id,
+                      selectedIndices: Array.from(selectedBeatIndices),
+                    });
+                    ai.assembleTrailer.mutate(activeShotlist.id);
+                  }}
                   disabled={ai.assembleTrailer.isPending || !activeShotlist}>
                   {ai.assembleTrailer.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Package className="h-3 w-3" />}
                   Assemble
