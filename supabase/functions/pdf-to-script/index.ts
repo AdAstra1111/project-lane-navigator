@@ -6,7 +6,7 @@
  * Returns { documentId, versionId, title, chars, message }
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { MODELS } from "../_shared/llm.ts";
+import { callLLM, MODELS } from "../_shared/llm.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -34,8 +34,6 @@ function adminClient() {
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
   );
 }
-
-const GATEWAY_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS")
@@ -88,7 +86,7 @@ Deno.serve(async (req) => {
     if (!storagePath)
       return json({ error: "No storage path found for the PDF document" }, 400);
 
-    // 4) Create a signed URL for the PDF (valid 10 min)
+    // 4) Create a signed URL for the PDF (valid 10 min) — used for LLM text-only prompt
     const { data: signedData, error: signError } = await admin.storage
       .from("project-documents")
       .createSignedUrl(storagePath, 600);
@@ -100,10 +98,12 @@ Deno.serve(async (req) => {
 
     const pdfUrl = signedData.signedUrl;
 
-    // 5) Extract text via LLM with signed URL reference
-    const extractionPrompt = `You are a screenplay text extraction specialist. You will be given a URL to a PDF screenplay document. Extract the COMPLETE screenplay/script text from this PDF accurately.
+    // 5) Extract text via LLM — TEXT-ONLY prompt with signed URL (no image_url modality)
+    const extractionPrompt = `You are a screenplay text extraction specialist. I have a PDF screenplay document available at this URL:
 
-PDF URL: ${pdfUrl}
+${pdfUrl}
+
+Please download and extract the COMPLETE screenplay/script text from this PDF accurately.
 
 REQUIREMENTS:
 - Preserve ALL scene headings (sluglines like INT./EXT.)
@@ -116,37 +116,17 @@ REQUIREMENTS:
 
 Begin extraction:`;
 
-    // Use text-only prompt with signed URL — avoids invalid image_url modality for PDFs
-    const response = await fetch(GATEWAY_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: MODELS.PRO,
-        messages: [
-          {
-            role: "user",
-            content: [
-              { type: "text", text: extractionPrompt },
-              { type: "image_url", image_url: { url: pdfUrl } },
-            ],
-          },
-        ],
-        max_tokens: 32000,
-        temperature: 0.05,
-      }),
+    const result = await callLLM({
+      apiKey,
+      model: MODELS.PRO,
+      system: "You are a document text extraction specialist. Extract the full text from the provided PDF URL accurately and completely. Output only the extracted text.",
+      user: extractionPrompt,
+      temperature: 0.05,
+      maxTokens: 32000,
+      retries: 2,
     });
 
-    if (!response.ok) {
-      const errText = await response.text();
-      console.error("AI extraction failed:", response.status, errText);
-      return json({ error: "AI text extraction failed: " + response.status }, 500);
-    }
-
-    const aiData = await response.json();
-    const extractedText = aiData.choices?.[0]?.message?.content || "";
+    const extractedText = result.content || "";
 
     if (!extractedText || extractedText.length < 500) {
       return json(
@@ -155,7 +135,7 @@ Begin extraction:`;
       );
     }
 
-    // 6) Create project_documents row with ONLY known safe columns
+    // 6) Create project_documents row with ONLY safe/known columns
     const docTitle = `${project.title} — Trailer Source Script`;
     const { data: newDoc, error: docErr } = await admin
       .from("project_documents")
@@ -164,11 +144,6 @@ Begin extraction:`;
         user_id: userId,
         doc_type: "script",
         title: docTitle,
-        file_name: `${project.title}_trailer_source.txt`,
-        file_path: storagePath,
-        extraction_status: "complete",
-        char_count: extractedText.length,
-        source: "pdf-to-script",
       })
       .select("id")
       .single();
@@ -179,19 +154,40 @@ Begin extraction:`;
     }
 
     // 7) Create project_document_versions row — plaintext stored HERE
-    const { data: newVersion, error: verErr } = await admin
+    // Try with content field first, fallback without it
+    let newVersion: any = null;
+    let verErr: any = null;
+
+    const baseVersionInsert = {
+      document_id: newDoc.id,
+      version_number: 1,
+      plaintext: extractedText,
+      created_by: userId,
+      is_current: true,
+      label: "Extracted from PDF",
+      approval_status: "draft",
+    };
+
+    // Attempt 1: with content field
+    const attempt1 = await admin
       .from("project_document_versions")
-      .insert({
-        document_id: newDoc.id,
-        version_number: 1,
-        plaintext: extractedText,
-        created_by: userId,
-        is_current: true,
-        label: "Extracted from PDF",
-        approval_status: "draft",
-      })
+      .insert({ ...baseVersionInsert, content: extractedText })
       .select("id")
       .single();
+
+    if (attempt1.error) {
+      // Attempt 2: without content field (in case column doesn't exist)
+      console.warn("Version insert with content failed, retrying without:", attempt1.error.message);
+      const attempt2 = await admin
+        .from("project_document_versions")
+        .insert(baseVersionInsert)
+        .select("id")
+        .single();
+      newVersion = attempt2.data;
+      verErr = attempt2.error;
+    } else {
+      newVersion = attempt1.data;
+    }
 
     if (verErr || !newVersion) {
       console.error("Version insert error:", verErr);
@@ -200,7 +196,7 @@ Begin extraction:`;
       return json({ error: "Failed to create version: " + (verErr?.message || "unknown") }, 500);
     }
 
-    // 8) Update latest_version_id on the document
+    // 8) Update latest_version_id on the document (if column exists)
     await admin
       .from("project_documents")
       .update({ latest_version_id: newVersion.id })

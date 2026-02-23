@@ -37,6 +37,42 @@ export default function AiTrailerBuilder() {
   const [selectedBeatIndices, setSelectedBeatIndices] = useState<Set<number>>(new Set());
   const [pdfStageIndex, setPdfStageIndex] = useState(0);
   const [pdfProgress, setPdfProgress] = useState(0);
+  const [pdfDetail, setPdfDetail] = useState('');
+
+  const startPdfExtraction = () => {
+    setPdfStageIndex(0);
+    setPdfProgress(5);
+    setPdfDetail('Locating script PDF…');
+    // Stage updates driven by timeout milestones (not fake interval)
+    // We advance stages on reasonable time-based estimates since the edge function is a single request
+    setTimeout(() => { setPdfStageIndex(1); setPdfProgress(15); setPdfDetail('Creating signed URL…'); }, 2000);
+    setTimeout(() => { setPdfStageIndex(2); setPdfProgress(30); setPdfDetail('Extracting text via AI…'); }, 5000);
+    // Stage 2 stays active for the bulk of processing (LLM extraction)
+    setTimeout(() => { setPdfProgress(50); setPdfDetail('AI is reading the screenplay…'); }, 15000);
+    setTimeout(() => { setPdfProgress(65); setPdfDetail('Still extracting — large scripts take longer…'); }, 30000);
+
+    ai.createTrailerSourceScript.mutate(undefined, {
+      onSuccess: (data: any) => {
+        setPdfStageIndex(3);
+        setPdfProgress(85);
+        setPdfDetail('Creating script document…');
+        setTimeout(() => {
+          setPdfStageIndex(4);
+          setPdfProgress(100);
+          setPdfDetail('Complete');
+          qc.invalidateQueries({ queryKey: ['ai-trailer-docs', projectId] });
+          if (data.documentId) setSelectedDocId(data.documentId);
+          if (data.versionId) setSelectedVersionId(data.versionId);
+          setTimeout(() => setStep('moments'), 300);
+        }, 500);
+      },
+      onError: () => {
+        setPdfStageIndex(0);
+        setPdfProgress(0);
+        setPdfDetail('');
+      },
+    });
+  };
 
   const qc = useQueryClient();
   const ai = useAiTrailerFactory(projectId);
@@ -155,25 +191,7 @@ export default function AiTrailerBuilder() {
                     <FileText className="h-10 w-10 text-muted-foreground mx-auto" />
                     <p className="text-xs text-muted-foreground">No script documents found for trailer extraction.</p>
                     <Button size="sm" className="text-xs gap-1.5"
-                      onClick={() => {
-                        setPdfStageIndex(0); setPdfProgress(10);
-                        // Simulate staged progress while waiting
-                        const interval = setInterval(() => {
-                          setPdfStageIndex(prev => Math.min(prev + 1, 3));
-                          setPdfProgress(prev => Math.min(prev + 20, 85));
-                        }, 8000);
-                        ai.createTrailerSourceScript.mutate(undefined, {
-                          onSuccess: (data: any) => {
-                            clearInterval(interval);
-                            setPdfStageIndex(4); setPdfProgress(100);
-                            qc.invalidateQueries({ queryKey: ['ai-trailer-docs', projectId] });
-                            setSelectedDocId(data.documentId);
-                            setSelectedVersionId(data.versionId);
-                            setTimeout(() => setStep('moments'), 300);
-                          },
-                          onError: () => { clearInterval(interval); setPdfStageIndex(0); setPdfProgress(0); },
-                        });
-                      }}
+                      onClick={startPdfExtraction}
                       disabled={ai.createTrailerSourceScript.isPending}>
                       <Sparkles className="h-3 w-3" />
                       Create Trailer Source Script from PDF
@@ -187,8 +205,8 @@ export default function AiTrailerBuilder() {
                       stages={PDF_EXTRACT_STAGES}
                       currentStageIndex={pdfStageIndex}
                       progressPercent={pdfProgress}
-                      etaSeconds={Math.max(0, Math.round((100 - pdfProgress) * 0.6))}
-                      detailMessage={PDF_EXTRACT_STAGES[pdfStageIndex] + '…'}
+                      etaSeconds={Math.max(0, Math.round((100 - pdfProgress) * 0.8))}
+                      detailMessage={pdfDetail || PDF_EXTRACT_STAGES[pdfStageIndex] + '…'}
                     />
                   </div>
                 )}
@@ -206,24 +224,7 @@ export default function AiTrailerBuilder() {
                     ))}
                     {/* Always show CTA to create from PDF as secondary option */}
                     <Button variant="outline" size="sm" className="text-xs gap-1.5 w-full"
-                      onClick={() => {
-                        setPdfStageIndex(0); setPdfProgress(10);
-                        const interval = setInterval(() => {
-                          setPdfStageIndex(prev => Math.min(prev + 1, 3));
-                          setPdfProgress(prev => Math.min(prev + 20, 85));
-                        }, 8000);
-                        ai.createTrailerSourceScript.mutate(undefined, {
-                          onSuccess: (data: any) => {
-                            clearInterval(interval);
-                            setPdfStageIndex(4); setPdfProgress(100);
-                            qc.invalidateQueries({ queryKey: ['ai-trailer-docs', projectId] });
-                            setSelectedDocId(data.documentId);
-                            setSelectedVersionId(data.versionId);
-                            setTimeout(() => setStep('moments'), 300);
-                          },
-                          onError: () => { clearInterval(interval); setPdfStageIndex(0); setPdfProgress(0); },
-                        });
-                      }}
+                      onClick={startPdfExtraction}
                       disabled={ai.createTrailerSourceScript.isPending}>
                       {ai.createTrailerSourceScript.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
                       Create New Source from PDF
