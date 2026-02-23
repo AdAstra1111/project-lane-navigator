@@ -57,7 +57,7 @@ export default function ClipCandidatesStudio() {
   const [searchParams, setSearchParams] = useSearchParams();
   const blueprintId = searchParams.get('runId') || searchParams.get('blueprintId') || undefined;
   const [expandedBeats, setExpandedBeats] = useState<Set<number>>(new Set());
-  const [isProcessing, setIsProcessing] = useState(false);
+  const [isProcessing] = useState(false); // kept for compat, driven by processQueue.isPending
   const [providerVeo, setProviderVeo] = useState(true);
   const [providerRunway, setProviderRunway] = useState(false);
 
@@ -119,11 +119,10 @@ export default function ClipCandidatesStudio() {
 
   const handleProcessAll = async () => {
     if (!blueprintId || !projectId) return;
-    setIsProcessing(true);
     try {
       await processQueue.mutateAsync({ blueprintId, maxJobs: 50 });
-    } finally {
-      setIsProcessing(false);
+    } catch {
+      // error toast handled by mutation
     }
   };
 
