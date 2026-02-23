@@ -33,7 +33,7 @@ import { useProjects } from '@/hooks/useProjects';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { OperationProgress, DEV_ANALYZE_STAGES, DEV_NOTES_STAGES, DEV_REWRITE_STAGES, DEV_CONVERT_STAGES } from '@/components/OperationProgress';
 import { useSetAsLatestDraft } from '@/hooks/useSetAsLatestDraft';
-import { approveAndActivate } from '@/lib/active-folder/approveAndActivate';
+import { approveAndActivate, unapproveVersion } from '@/lib/active-folder/approveAndActivate';
 import { recordResolutions } from '@/lib/decisions/client';
 import { useSeasonTemplate } from '@/hooks/useSeasonTemplate';
 import { canPromoteToScript, getDocDisplayName } from '@/lib/can-promote-to-script';
@@ -756,7 +756,7 @@ export default function ProjectDevelopmentEngine() {
   const setAsDraft = useSetAsLatestDraft(projectId);
   const seasonTemplate = useSeasonTemplate(projectId);
 
-  // Approve version mutation
+   // Approve version mutation
   const [approvePending, setApprovePending] = useState(false);
   const handleApproveVersion = async () => {
     if (!projectId || !selectedVersionId) {
@@ -778,6 +778,28 @@ export default function ProjectDevelopmentEngine() {
       toast.error(err.message || 'Failed to approve');
     } finally {
       setApprovePending(false);
+    }
+  };
+
+  // Unapprove version mutation
+  const [unapproving, setUnapproving] = useState(false);
+  const handleUnapproveVersion = async () => {
+    if (!projectId || !selectedVersionId) return;
+    setUnapproving(true);
+    try {
+      await unapproveVersion({
+        projectId,
+        documentVersionId: selectedVersionId,
+      });
+      toast.success('Version unapproved');
+      qc.invalidateQueries({ queryKey: ['active-folder', projectId] });
+      qc.invalidateQueries({ queryKey: ['dev-v2-versions', selectedDocId] });
+      qc.invalidateQueries({ queryKey: ['dev-v2-approved', projectId] });
+      qc.invalidateQueries({ queryKey: ['project-package', projectId] });
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to unapprove');
+    } finally {
+      setUnapproving(false);
     }
   };
 
@@ -1117,7 +1139,9 @@ export default function ProjectDevelopmentEngine() {
                     beatSheetToScriptPending={beatSheetToScript.isPending}
                     nextAction={promotionIntel.data?.next_action}
                     onApproveVersion={selectedVersionId ? handleApproveVersion : undefined}
+                    onUnapproveVersion={selectedVersionId ? handleUnapproveVersion : undefined}
                     approvePending={approvePending}
+                    unapproving={unapproving}
                     isVersionApproved={selectedVersion?.approval_status === 'approved'}
                     autoReviewEnabled={autoReviewEnabled}
                     onAutoReviewToggle={setAutoReviewEnabled}

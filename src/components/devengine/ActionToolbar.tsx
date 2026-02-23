@@ -39,7 +39,9 @@ interface ActionToolbarProps {
   onSkipStage: () => void;
   onConvert: () => void;
   onApproveVersion?: () => void;
+  onUnapproveVersion?: () => void;
   approvePending?: boolean;
+  unapproving?: boolean;
   isVersionApproved?: boolean;
   selectedNoteCount: number;
   totalNoteCount: number;
@@ -74,7 +76,7 @@ export function ActionToolbar({
   projectId,
   hasAnalysis, isConverged, isLoading,
   onRunReview, onApplyRewrite, onPromote, onSkipStage, onConvert,
-  onApproveVersion, approvePending, isVersionApproved,
+  onApproveVersion, onUnapproveVersion, approvePending, unapproving, isVersionApproved,
   selectedNoteCount, totalNoteCount,
   nextBestDocument, selectedDeliverableType,
   hasUnresolvedDrift,
@@ -186,12 +188,12 @@ export function ActionToolbar({
           </Tooltip>
         )}
 
-        {/* Approve this version */}
+        {/* Approve / Unapprove this version */}
         {onApproveVersion && (
           <Button size="sm" variant={isVersionApproved ? "default" : "outline"}
             className={`h-8 text-xs gap-1 ${isVersionApproved ? 'bg-yellow-500 hover:bg-yellow-600 text-black border-yellow-500' : ''}`}
-            onClick={onApproveVersion} disabled={anyPending || approvePending || isVersionApproved}>
-            {approvePending ? <Loader2 className="h-3 w-3 animate-spin" /> : <ShieldCheck className="h-3 w-3" />}
+            onClick={isVersionApproved ? onUnapproveVersion : onApproveVersion} disabled={anyPending || approvePending || unapproving}>
+            {(approvePending || unapproving) ? <Loader2 className="h-3 w-3 animate-spin" /> : <ShieldCheck className="h-3 w-3" />}
             {isVersionApproved ? 'Approved' : 'Approve Version'}
           </Button>
         )}
