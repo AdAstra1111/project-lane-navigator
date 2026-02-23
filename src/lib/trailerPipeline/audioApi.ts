@@ -1,5 +1,5 @@
 /**
- * Trailer Audio Engine v1.1 — API wrappers
+ * Trailer Audio Intelligence Engine v1 — API wrappers
  */
 import { supabase } from '@/integrations/supabase/client';
 
@@ -24,8 +24,52 @@ async function callAudioFn(action: string, payload: Record<string, any>) {
 }
 
 export const audioApi = {
-  listAudioAssets: (projectId: string, kind?: string) =>
-    callAudioFn('list_audio_assets', { projectId, kind }),
+  // ─── Audio Intelligence v1 ───
+  createAudioRun: (projectId: string, opts: {
+    blueprintRunId?: string;
+    trailerCutId?: string;
+    inputs?: {
+      musicStyleTags?: string;
+      voiceStyle?: string;
+      voiceProvider?: string;
+      musicProvider?: string;
+      sfxTag?: string;
+      targetLufs?: number;
+      musicGainDb?: number;
+      sfxGainDb?: number;
+      duckingAmountDb?: number;
+      duckingAttackMs?: number;
+      duckingReleaseMs?: number;
+    };
+  }) => callAudioFn('create_audio_run', { projectId, ...opts }),
+
+  generatePlan: (projectId: string, audioRunId: string) =>
+    callAudioFn('generate_plan', { projectId, audioRunId }),
+
+  genMusic: (projectId: string, audioRunId: string) =>
+    callAudioFn('gen_music', { projectId, audioRunId }),
+
+  genVo: (projectId: string, audioRunId: string) =>
+    callAudioFn('gen_vo', { projectId, audioRunId }),
+
+  selectSfx: (projectId: string, audioRunId: string) =>
+    callAudioFn('select_sfx', { projectId, audioRunId }),
+
+  mix: (projectId: string, audioRunId: string) =>
+    callAudioFn('mix', { projectId, audioRunId }),
+
+  progress: (projectId: string, audioRunId: string) =>
+    callAudioFn('progress', { projectId, audioRunId }),
+
+  selectAsset: (projectId: string, audioRunId: string, assetId: string, assetType: string) =>
+    callAudioFn('select_asset', { projectId, audioRunId, assetId, assetType }),
+
+  updateMixSettings: (projectId: string, audioRunId: string, mixSettings: Record<string, any>) =>
+    callAudioFn('update_mix_settings', { projectId, audioRunId, mixSettings }),
+
+  // ─── Legacy v1.1 compat ───
+  listAudioAssets: (projectId: string, kind?: string, audioRunId?: string) =>
+    callAudioFn('list_audio_assets', { projectId, kind, audioRunId }),
 
   getAudioRun: (projectId: string, trailerCutId: string) =>
     callAudioFn('get_audio_run', { projectId, trailerCutId }),

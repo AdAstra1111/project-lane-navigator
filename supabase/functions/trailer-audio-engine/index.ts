@@ -1,7 +1,17 @@
 /**
- * trailer-audio-engine v1.1 — Audio plan generation, mix settings, render job orchestration.
- * Actions: upsert_audio_run, generate_audio_plan, enqueue_render, render_progress,
- *          retry_render, cancel_render, list_audio_assets, upload_audio_asset
+ * Trailer Audio Intelligence Engine v1 — Edge Function
+ *
+ * Actions:
+ *   create_audio_run, generate_plan, gen_music, gen_vo, select_sfx,
+ *   mix, progress, select_asset, update_mix_settings,
+ *   list_audio_assets, get_audio_run,
+ *   enqueue_render, render_progress, retry_render, cancel_render
+ *
+ * Storage paths:
+ *   trailers/{project_id}/audio/{audio_run_id}/music/{asset_id}.wav
+ *   trailers/{project_id}/audio/{audio_run_id}/vo/{asset_id}.wav
+ *   trailers/{project_id}/audio/{audio_run_id}/sfx/{asset_id}.wav
+ *   trailers/{project_id}/audio/{audio_run_id}/mix/{asset_id}.wav
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -20,38 +30,92 @@ function json(data: unknown, status = 200) {
 
 function parseUserId(token: string): string {
   const payload = JSON.parse(atob(token.split(".")[1]));
-  if (!payload.sub || (payload.exp && payload.exp < Date.now() / 1000)) throw new Error("expired");
+  if (!payload.sub || (payload.exp && payload.exp < Date.now() / 1000))
+    throw new Error("expired");
   return payload.sub;
 }
 
 function adminClient() {
-  return createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+  return createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+  );
 }
 
-async function verifyAccess(db: any, userId: string, projectId: string): Promise<boolean> {
-  const { data } = await db.rpc("has_project_access", { _user_id: userId, _project_id: projectId });
+async function verifyAccess(db: any, userId: string, projectId: string) {
+  const { data } = await db.rpc("has_project_access", {
+    _user_id: userId,
+    _project_id: projectId,
+  });
   return !!data;
 }
 
-async function logRenderEvent(db: any, e: {
-  project_id: string; render_job_id: string; event_type: string; payload?: any; created_by: string;
-}) {
-  await db.from("trailer_render_events").insert({
+// SHA-256 for idempotency keys
+async function sha256(text: string): Promise<string> {
+  const buf = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(text)
+  );
+  return Array.from(new Uint8Array(buf))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("")
+    .slice(0, 40);
+}
+
+async function logAudioEvent(
+  db: any,
+  e: {
+    project_id: string;
+    audio_run_id: string;
+    event_type: string;
+    payload?: any;
+    created_by: string;
+  }
+) {
+  await db.from("trailer_audio_events").insert({
     project_id: e.project_id,
-    render_job_id: e.render_job_id,
+    audio_run_id: e.audio_run_id,
     event_type: e.event_type,
     payload: e.payload || {},
     created_by: e.created_by,
   });
 }
 
-// SHA-256 hash for idempotency keys
-async function sha256(text: string): Promise<string> {
-  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
-  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("").slice(0, 40);
+async function enqueueJob(
+  db: any,
+  opts: {
+    project_id: string;
+    audio_run_id: string;
+    job_type: string;
+    payload?: any;
+  }
+) {
+  const key = await sha256(
+    `${opts.audio_run_id}|${opts.job_type}|${JSON.stringify(opts.payload || {})}`
+  );
+  const { data: existing } = await db
+    .from("trailer_audio_jobs")
+    .select("id, status")
+    .eq("idempotency_key", key)
+    .maybeSingle();
+  if (existing && ["queued", "running", "succeeded"].includes(existing.status)) {
+    return existing;
+  }
+  const { data: job } = await db
+    .from("trailer_audio_jobs")
+    .insert({
+      project_id: opts.project_id,
+      audio_run_id: opts.audio_run_id,
+      job_type: opts.job_type,
+      payload: opts.payload || {},
+      idempotency_key: key,
+    })
+    .select()
+    .single();
+  return job;
 }
 
-const DEFAULT_MIX: Record<string, any> = {
+const DEFAULT_MIX = {
   music_gain_db: -10,
   sfx_gain_db: -6,
   dialogue_duck_db: -8,
@@ -60,83 +124,254 @@ const DEFAULT_MIX: Record<string, any> = {
   target_lufs: -14,
 };
 
-// ─── Upsert Audio Run ───
-async function handleUpsertAudioRun(db: any, body: any, userId: string) {
-  const { projectId, trailerCutId, blueprintId, musicBedAssetId, sfxPackTag, mixOverrides } = body;
-  if (!trailerCutId) return json({ error: "trailerCutId required" }, 400);
-
-  const mixJson = { ...DEFAULT_MIX, ...(mixOverrides || {}) };
-
-  // Check if existing audio run for this cut
-  const { data: existing } = await db.from("trailer_audio_runs")
-    .select("*").eq("trailer_cut_id", trailerCutId).eq("project_id", projectId)
-    .order("created_at", { ascending: false }).limit(1).maybeSingle();
-
-  if (existing) {
-    const updates: any = { mix_json: mixJson, updated_at: new Date().toISOString() };
-    if (musicBedAssetId !== undefined) updates.music_bed_asset_id = musicBedAssetId;
-    if (sfxPackTag !== undefined) updates.sfx_pack_tag = sfxPackTag;
-    if (blueprintId) updates.blueprint_id = blueprintId;
-
-    await db.from("trailer_audio_runs").update(updates).eq("id", existing.id);
-    const { data: updated } = await db.from("trailer_audio_runs").select("*").eq("id", existing.id).single();
-    return json({ ok: true, audioRun: updated, action: "updated" });
-  }
-
-  const { data: audioRun, error } = await db.from("trailer_audio_runs").insert({
-    project_id: projectId,
-    trailer_cut_id: trailerCutId,
-    blueprint_id: blueprintId || null,
-    music_bed_asset_id: musicBedAssetId || null,
-    sfx_pack_tag: sfxPackTag || null,
-    plan_json: {},
-    mix_json: mixJson,
-    created_by: userId,
-  }).select().single();
-
-  if (error) return json({ error: error.message }, 500);
-  return json({ ok: true, audioRun, action: "created" });
+// ─── Provider helpers ───
+function getVoProvider(): string {
+  if (Deno.env.get("ELEVENLABS_API_KEY")) return "elevenlabs";
+  return "stub";
 }
 
-// ─── Generate Audio Plan ───
-async function handleGenerateAudioPlan(db: any, body: any, userId: string) {
+function getMusicProvider(): string {
+  const mp = Deno.env.get("MUSIC_PROVIDER");
+  if (mp) return mp;
+  return "library";
+}
+
+async function generateVoStub(
+  _text: string,
+  _style: string
+): Promise<{ audio: Uint8Array; format: string }> {
+  // Stub: return empty WAV header (44 bytes of silence, valid WAV)
+  const sampleRate = 44100;
+  const numChannels = 1;
+  const bitsPerSample = 16;
+  const dataSize = sampleRate * 2; // 1 second of silence
+  const buffer = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(buffer);
+  const writeStr = (offset: number, str: string) => {
+    for (let i = 0; i < str.length; i++)
+      view.setUint8(offset + i, str.charCodeAt(i));
+  };
+  writeStr(0, "RIFF");
+  view.setUint32(4, 36 + dataSize, true);
+  writeStr(8, "WAVE");
+  writeStr(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, numChannels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * numChannels * (bitsPerSample / 8), true);
+  view.setUint16(32, numChannels * (bitsPerSample / 8), true);
+  view.setUint16(34, bitsPerSample, true);
+  writeStr(36, "data");
+  view.setUint32(40, dataSize, true);
+  return { audio: new Uint8Array(buffer), format: "wav" };
+}
+
+async function generateVoElevenLabs(
+  text: string,
+  style: string
+): Promise<{ audio: Uint8Array; format: string }> {
+  const apiKey = Deno.env.get("ELEVENLABS_API_KEY");
+  if (!apiKey) throw new Error("ELEVENLABS_API_KEY not configured");
+
+  // Voice IDs by style
+  const voiceMap: Record<string, string> = {
+    calm: "EXAVITQu4vr4xnSDxMaL", // Sarah
+    intense: "CwhRBWXzGAHq8TQ4Fs17", // Roger
+    trailer_announcer: "nPczCjzI2devNBz1zQrb", // Brian
+    narrator: "JBFqnCBsd6RMkjVDRZzb", // George
+  };
+  const voiceId = voiceMap[style] || voiceMap.trailer_announcer;
+
+  const resp = await fetch(
+    `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=pcm_44100`,
+    {
+      method: "POST",
+      headers: {
+        "xi-api-key": apiKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        text,
+        model_id: "eleven_turbo_v2_5",
+        voice_settings: {
+          stability: style === "calm" ? 0.7 : 0.4,
+          similarity_boost: 0.75,
+          style: style === "intense" ? 0.7 : 0.3,
+          use_speaker_boost: true,
+        },
+      }),
+    }
+  );
+
+  if (!resp.ok) {
+    const errText = await resp.text();
+    throw new Error(`ElevenLabs error: ${resp.status} - ${errText.slice(0, 200)}`);
+  }
+
+  const pcmBuffer = await resp.arrayBuffer();
+  const pcmData = new Uint8Array(pcmBuffer);
+
+  // Wrap PCM in WAV header
+  const sampleRate = 44100;
+  const numChannels = 1;
+  const bitsPerSample = 16;
+  const dataSize = pcmData.length;
+  const wavBuffer = new ArrayBuffer(44 + dataSize);
+  const wavView = new DataView(wavBuffer);
+  const wavArray = new Uint8Array(wavBuffer);
+  const writeStr = (offset: number, str: string) => {
+    for (let i = 0; i < str.length; i++)
+      wavView.setUint8(offset + i, str.charCodeAt(i));
+  };
+  writeStr(0, "RIFF");
+  wavView.setUint32(4, 36 + dataSize, true);
+  writeStr(8, "WAVE");
+  writeStr(12, "fmt ");
+  wavView.setUint32(16, 16, true);
+  wavView.setUint16(20, 1, true);
+  wavView.setUint16(22, numChannels, true);
+  wavView.setUint32(24, sampleRate, true);
+  wavView.setUint32(28, sampleRate * numChannels * (bitsPerSample / 8), true);
+  wavView.setUint16(32, numChannels * (bitsPerSample / 8), true);
+  wavView.setUint16(34, bitsPerSample, true);
+  writeStr(36, "data");
+  wavView.setUint32(40, dataSize, true);
+  wavArray.set(pcmData, 44);
+
+  return { audio: wavArray, format: "wav" };
+}
+
+// ─── ACTION: create_audio_run ───
+async function handleCreateAudioRun(db: any, body: any, userId: string) {
+  const { projectId, blueprintRunId, trailerCutId, inputs } = body;
+  if (!blueprintRunId && !trailerCutId)
+    return json({ error: "blueprintRunId or trailerCutId required" }, 400);
+
+  const mixSettings = {
+    ...DEFAULT_MIX,
+    ...(inputs?.musicGainDb !== undefined && { music_gain_db: inputs.musicGainDb }),
+    ...(inputs?.sfxGainDb !== undefined && { sfx_gain_db: inputs.sfxGainDb }),
+    ...(inputs?.targetLufs !== undefined && { target_lufs: inputs.targetLufs }),
+    ...(inputs?.duckingAmountDb !== undefined && {
+      dialogue_duck_db: inputs.duckingAmountDb,
+    }),
+    ...(inputs?.duckingAttackMs !== undefined && {
+      duck_attack_ms: inputs.duckingAttackMs,
+    }),
+    ...(inputs?.duckingReleaseMs !== undefined && {
+      duck_release_ms: inputs.duckingReleaseMs,
+    }),
+  };
+
+  const inputsJson = {
+    musicStyleTags: inputs?.musicStyleTags || "epic, cinematic",
+    voiceStyle: inputs?.voiceStyle || "trailer_announcer",
+    voiceProvider: inputs?.voiceProvider || getVoProvider(),
+    musicProvider: inputs?.musicProvider || getMusicProvider(),
+    sfxTag: inputs?.sfxTag || "",
+  };
+
+  const { data: run, error } = await db
+    .from("trailer_audio_runs")
+    .insert({
+      project_id: projectId,
+      trailer_cut_id: trailerCutId || null,
+      blueprint_id: blueprintRunId || null,
+      status: "draft",
+      inputs_json: inputsJson,
+      plan_json: {},
+      mix_json: mixSettings,
+      created_by: userId,
+    })
+    .select()
+    .single();
+
+  if (error) return json({ error: error.message }, 500);
+
+  await logAudioEvent(db, {
+    project_id: projectId,
+    audio_run_id: run.id,
+    event_type: "audio_run_created",
+    payload: { inputsJson, mixSettings },
+    created_by: userId,
+  });
+
+  // Auto-enqueue plan job
+  await enqueueJob(db, {
+    project_id: projectId,
+    audio_run_id: run.id,
+    job_type: "plan",
+  });
+
+  return json({ ok: true, audioRun: run });
+}
+
+// ─── ACTION: generate_plan ───
+async function handleGeneratePlan(db: any, body: any, userId: string) {
   const { projectId, audioRunId } = body;
   if (!audioRunId) return json({ error: "audioRunId required" }, 400);
 
-  const { data: audioRun } = await db.from("trailer_audio_runs").select("*")
-    .eq("id", audioRunId).eq("project_id", projectId).single();
-  if (!audioRun) return json({ error: "Audio run not found" }, 404);
+  const { data: run } = await db
+    .from("trailer_audio_runs")
+    .select("*")
+    .eq("id", audioRunId)
+    .eq("project_id", projectId)
+    .single();
+  if (!run) return json({ error: "Audio run not found" }, 404);
 
   // Load cut timeline
-  const { data: cut } = await db.from("trailer_cuts").select("timeline, duration_ms, blueprint_id")
-    .eq("id", audioRun.trailer_cut_id).eq("project_id", projectId).single();
-  if (!cut) return json({ error: "Cut not found" }, 404);
+  let timeline: any[] = [];
+  let totalMs = 0;
+  if (run.trailer_cut_id) {
+    const { data: cut } = await db
+      .from("trailer_cuts")
+      .select("timeline, duration_ms, blueprint_id")
+      .eq("id", run.trailer_cut_id)
+      .eq("project_id", projectId)
+      .single();
+    if (cut) {
+      timeline = cut.timeline || [];
+      totalMs = cut.duration_ms || 0;
+    }
+  }
 
-  const timeline = cut.timeline || [];
-  const totalMs = cut.duration_ms || 0;
-
-  // Load blueprint audio plan if available
+  // Load blueprint audio plan
   let bpAudioPlan: any = {};
-  if (cut.blueprint_id || audioRun.blueprint_id) {
-    const bpId = cut.blueprint_id || audioRun.blueprint_id;
-    const { data: bp } = await db.from("trailer_blueprints").select("audio_plan")
-      .eq("id", bpId).eq("project_id", projectId).single();
+  const bpId = run.blueprint_id;
+  if (bpId) {
+    const { data: bp } = await db
+      .from("trailer_blueprints")
+      .select("audio_plan, text_card_plan, edl")
+      .eq("id", bpId)
+      .eq("project_id", projectId)
+      .single();
     if (bp) bpAudioPlan = bp.audio_plan || {};
   }
 
-  // Build plan_json
-  const sfxHits: any[] = [];
-  const segments: any[] = [];
+  // Build structural analysis
+  const hitRoles = new Set([
+    "inciting_incident", "climax_tease", "rupture", "stinger", "montage_peak", "twist",
+  ]);
+  const riserRoles = new Set([
+    "tension_build", "rising_action_1", "rising_action_2", "crescendo",
+  ]);
+  const voRoles = new Set([
+    "hook", "cold_open", "protagonist_intro", "emotional_beat",
+  ]);
 
-  // Identify structural boundaries for SFX placement
-  const hitRoles = new Set(["inciting_incident", "climax_tease", "rupture", "stinger", "montage_peak", "twist"]);
-  const riserRoles = new Set(["tension_build", "rising_action_1", "rising_action_2", "crescendo"]);
+  const sfxHits: any[] = [];
+  const voLines: any[] = [];
+  const musicSegments: any[] = [];
 
   for (const beat of timeline) {
+    const startMs = beat.start_ms || 0;
+    const durMs = beat.effective_duration_ms || beat.duration_ms || 0;
+
     if (hitRoles.has(beat.role)) {
       sfxHits.push({
         type: "hit",
-        timestamp_ms: beat.start_ms || 0,
+        timestamp_ms: startMs,
         beat_index: beat.beat_index,
         role: beat.role,
         sfx_kind: beat.role === "stinger" ? "impact" : "hit",
@@ -145,90 +380,753 @@ async function handleGenerateAudioPlan(db: any, body: any, userId: string) {
     if (riserRoles.has(beat.role)) {
       sfxHits.push({
         type: "riser",
-        timestamp_ms: beat.start_ms || 0,
-        duration_ms: beat.effective_duration_ms || beat.duration_ms,
+        timestamp_ms: startMs,
+        duration_ms: durMs,
         beat_index: beat.beat_index,
         role: beat.role,
         sfx_kind: "riser",
       });
     }
+
+    // Auto-generate VO cue points for key narrative beats
+    if (voRoles.has(beat.role) && beat.text_content) {
+      voLines.push({
+        type: "vo",
+        timestamp_ms: startMs,
+        beat_index: beat.beat_index,
+        line: beat.text_content,
+        character: "narrator",
+        role: beat.role,
+      });
+    }
   }
 
-  // Music bed segment spanning entire trailer
-  segments.push({
-    type: "music_bed",
-    start_ms: 0,
-    end_ms: totalMs,
-    description: "Full trailer music bed",
-    gain_db: audioRun.mix_json?.music_gain_db ?? DEFAULT_MIX.music_gain_db,
-  });
+  // Add blueprint VO lines
+  if (bpAudioPlan.vo_lines) {
+    for (const vo of bpAudioPlan.vo_lines) {
+      const beat = timeline.find((b: any) => b.beat_index === vo.beat_index);
+      voLines.push({
+        type: "vo",
+        timestamp_ms: beat?.start_ms || 0,
+        beat_index: vo.beat_index,
+        line: vo.line,
+        character: vo.character || "narrator",
+      });
+    }
+  }
 
-  // Add blueprint-derived SFX cues if available
+  // Add blueprint SFX cues
   if (bpAudioPlan.sfx_cues) {
     for (const cue of bpAudioPlan.sfx_cues) {
-      const beatIdx = cue.beat_index;
-      const beat = timeline.find((b: any) => b.beat_index === beatIdx);
+      const beat = timeline.find((b: any) => b.beat_index === cue.beat_index);
       if (beat) {
         sfxHits.push({
           type: "sfx_cue",
           timestamp_ms: beat.start_ms || 0,
-          beat_index: beatIdx,
+          beat_index: cue.beat_index,
           description: cue.description,
-          timing: cue.timing,
           sfx_kind: "sfx",
         });
       }
     }
   }
 
-  // VO lines from blueprint
-  const voLines = (bpAudioPlan.vo_lines || []).map((vo: any) => {
-    const beat = timeline.find((b: any) => b.beat_index === vo.beat_index);
-    return {
-      type: "vo",
-      timestamp_ms: beat?.start_ms || 0,
-      beat_index: vo.beat_index,
-      line: vo.line,
-      character: vo.character,
-    };
+  // Music: full trailer bed + structural segments
+  musicSegments.push({
+    type: "music_bed",
+    start_ms: 0,
+    end_ms: totalMs,
+    description: "Full trailer music bed",
+    gain_db: run.mix_json?.music_gain_db ?? DEFAULT_MIX.music_gain_db,
   });
 
+  // Ducking regions where VO is present
+  const duckingRegions = voLines.map((vo: any) => ({
+    start_ms: vo.timestamp_ms,
+    end_ms: vo.timestamp_ms + 5000, // estimated 5s per VO line
+    duck_db: run.mix_json?.dialogue_duck_db ?? DEFAULT_MIX.dialogue_duck_db,
+  }));
+
+  // Build VO script for generation
+  const voScript = voLines.map((v: any) => v.line).join("\n\n");
+
   const planJson = {
-    version: "1.1",
+    version: "2.0",
     total_duration_ms: totalMs,
-    music_segments: segments,
+    music_segments: musicSegments,
     sfx_hits: sfxHits,
     vo_lines: voLines,
+    ducking_regions: duckingRegions,
+    vo_script: voScript,
+    sfx_selected: [], // populated by select_sfx
     generated_at: new Date().toISOString(),
   };
 
-  await db.from("trailer_audio_runs").update({
-    plan_json: planJson,
-    status: "draft",
-  }).eq("id", audioRunId);
+  await db
+    .from("trailer_audio_runs")
+    .update({ plan_json: planJson, status: "planning" })
+    .eq("id", audioRunId);
+
+  // Mark plan job succeeded
+  await db
+    .from("trailer_audio_jobs")
+    .update({ status: "succeeded", updated_at: new Date().toISOString() })
+    .eq("audio_run_id", audioRunId)
+    .eq("job_type", "plan")
+    .eq("status", "running");
+
+  await logAudioEvent(db, {
+    project_id: projectId,
+    audio_run_id: audioRunId,
+    event_type: "plan_generated",
+    payload: {
+      sfx_count: sfxHits.length,
+      vo_count: voLines.length,
+      music_segments: musicSegments.length,
+    },
+    created_by: userId,
+  });
+
+  // Enqueue generation jobs
+  await enqueueJob(db, {
+    project_id: projectId,
+    audio_run_id: audioRunId,
+    job_type: "gen_music",
+    payload: { style: run.inputs_json?.musicStyleTags || "epic, cinematic" },
+  });
+  await enqueueJob(db, {
+    project_id: projectId,
+    audio_run_id: audioRunId,
+    job_type: "gen_vo",
+    payload: {
+      voiceStyle: run.inputs_json?.voiceStyle || "trailer_announcer",
+      voiceProvider: run.inputs_json?.voiceProvider || getVoProvider(),
+    },
+  });
+  await enqueueJob(db, {
+    project_id: projectId,
+    audio_run_id: audioRunId,
+    job_type: "select_sfx",
+    payload: { sfxTag: run.inputs_json?.sfxTag || "" },
+  });
+
+  // Update status
+  await db
+    .from("trailer_audio_runs")
+    .update({ status: "generating" })
+    .eq("id", audioRunId);
 
   return json({ ok: true, plan: planJson });
 }
 
-// ─── Enqueue Render MP4 ───
+// ─── ACTION: gen_music ───
+async function handleGenMusic(db: any, body: any, userId: string) {
+  const { projectId, audioRunId } = body;
+  if (!audioRunId) return json({ error: "audioRunId required" }, 400);
+
+  const { data: run } = await db
+    .from("trailer_audio_runs")
+    .select("*")
+    .eq("id", audioRunId)
+    .single();
+  if (!run) return json({ error: "Audio run not found" }, 404);
+
+  const provider = getMusicProvider();
+
+  if (provider === "library") {
+    // Look for uploaded music beds in the project
+    const { data: assets } = await db
+      .from("trailer_audio_assets")
+      .select("*")
+      .eq("project_id", projectId)
+      .eq("kind", "music_bed")
+      .order("created_at", { ascending: false })
+      .limit(5);
+
+    if (assets && assets.length > 0) {
+      // Link existing music beds as candidates
+      for (const asset of assets) {
+        await db
+          .from("trailer_audio_assets")
+          .update({
+            audio_run_id: audioRunId,
+            asset_type: "music",
+            provider: "library",
+            label: `library_${asset.name}`,
+          })
+          .eq("id", asset.id);
+      }
+
+      await logAudioEvent(db, {
+        project_id: projectId,
+        audio_run_id: audioRunId,
+        event_type: "music_library_linked",
+        payload: { count: assets.length },
+        created_by: userId,
+      });
+    } else {
+      await logAudioEvent(db, {
+        project_id: projectId,
+        audio_run_id: audioRunId,
+        event_type: "music_none_found",
+        payload: { provider, warning: "No music beds found in library" },
+        created_by: userId,
+      });
+    }
+  } else {
+    // Stub: create placeholder entries
+    for (const label of ["music_candidate_A", "music_candidate_B"]) {
+      const assetId = crypto.randomUUID();
+      const storagePath = `${projectId}/audio/${audioRunId}/music/${assetId}.wav`;
+
+      // Generate stub WAV
+      const { audio } = await generateVoStub("", "");
+      await db.storage.from("trailers").upload(storagePath, audio, {
+        contentType: "audio/wav",
+        upsert: true,
+      });
+
+      await db.from("trailer_audio_assets").insert({
+        project_id: projectId,
+        audio_run_id: audioRunId,
+        kind: "music_bed",
+        name: label,
+        asset_type: "music",
+        label,
+        provider: "stub",
+        storage_path: storagePath,
+        tags: (run.inputs_json?.musicStyleTags || "epic,cinematic")
+          .split(",")
+          .map((t: string) => t.trim()),
+        created_by: userId,
+      });
+    }
+
+    await logAudioEvent(db, {
+      project_id: projectId,
+      audio_run_id: audioRunId,
+      event_type: "music_generated",
+      payload: { provider: "stub", candidates: 2 },
+      created_by: userId,
+    });
+  }
+
+  // Mark job succeeded
+  await db
+    .from("trailer_audio_jobs")
+    .update({ status: "succeeded", updated_at: new Date().toISOString() })
+    .eq("audio_run_id", audioRunId)
+    .eq("job_type", "gen_music")
+    .in("status", ["queued", "running"]);
+
+  return json({ ok: true, provider });
+}
+
+// ─── ACTION: gen_vo ───
+async function handleGenVo(db: any, body: any, userId: string) {
+  const { projectId, audioRunId } = body;
+  if (!audioRunId) return json({ error: "audioRunId required" }, 400);
+
+  const { data: run } = await db
+    .from("trailer_audio_runs")
+    .select("*")
+    .eq("id", audioRunId)
+    .single();
+  if (!run) return json({ error: "Audio run not found" }, 404);
+
+  const voScript = run.plan_json?.vo_script || "";
+  if (!voScript) {
+    await logAudioEvent(db, {
+      project_id: projectId,
+      audio_run_id: audioRunId,
+      event_type: "vo_skipped",
+      payload: { reason: "No VO script in plan" },
+      created_by: userId,
+    });
+
+    await db
+      .from("trailer_audio_jobs")
+      .update({ status: "succeeded", updated_at: new Date().toISOString() })
+      .eq("audio_run_id", audioRunId)
+      .eq("job_type", "gen_vo")
+      .in("status", ["queued", "running"]);
+
+    return json({ ok: true, skipped: true, reason: "No VO lines" });
+  }
+
+  const voiceStyle = run.inputs_json?.voiceStyle || "trailer_announcer";
+  const provider = run.inputs_json?.voiceProvider || getVoProvider();
+
+  // Generate 1-2 takes
+  const takes = provider === "elevenlabs" ? ["intense", voiceStyle] : [voiceStyle];
+  const uniqueTakes = [...new Set(takes)];
+
+  for (let i = 0; i < uniqueTakes.length; i++) {
+    const style = uniqueTakes[i];
+    const assetId = crypto.randomUUID();
+    const storagePath = `${projectId}/audio/${audioRunId}/vo/${assetId}.wav`;
+
+    try {
+      const { audio } =
+        provider === "elevenlabs"
+          ? await generateVoElevenLabs(voScript, style)
+          : await generateVoStub(voScript, style);
+
+      await db.storage.from("trailers").upload(storagePath, audio, {
+        contentType: "audio/wav",
+        upsert: true,
+      });
+
+      const durationMs = Math.round(
+        (audio.length - 44) / (44100 * 2) * 1000
+      );
+
+      await db.from("trailer_audio_assets").insert({
+        project_id: projectId,
+        audio_run_id: audioRunId,
+        kind: "sfx", // using existing kind enum; asset_type differentiates
+        name: `VO Take ${i + 1} (${style})`,
+        asset_type: "voiceover",
+        label: `vo_take_${i + 1}_${style}`,
+        provider,
+        model: provider === "elevenlabs" ? "eleven_turbo_v2_5" : "stub",
+        storage_path: storagePath,
+        duration_ms: durationMs,
+        tags: ["voiceover", style],
+        meta_json: { voice_style: style, script: voScript },
+        created_by: userId,
+      });
+    } catch (err: any) {
+      console.error(`VO generation failed for take ${i + 1}:`, err);
+      await logAudioEvent(db, {
+        project_id: projectId,
+        audio_run_id: audioRunId,
+        event_type: "vo_generation_error",
+        payload: { take: i + 1, style, error: err.message },
+        created_by: userId,
+      });
+    }
+  }
+
+  await logAudioEvent(db, {
+    project_id: projectId,
+    audio_run_id: audioRunId,
+    event_type: "vo_generated",
+    payload: { provider, takes: uniqueTakes.length },
+    created_by: userId,
+  });
+
+  await db
+    .from("trailer_audio_jobs")
+    .update({ status: "succeeded", updated_at: new Date().toISOString() })
+    .eq("audio_run_id", audioRunId)
+    .eq("job_type", "gen_vo")
+    .in("status", ["queued", "running"]);
+
+  return json({ ok: true, provider, takes: uniqueTakes.length });
+}
+
+// ─── ACTION: select_sfx ───
+async function handleSelectSfx(db: any, body: any, userId: string) {
+  const { projectId, audioRunId } = body;
+  if (!audioRunId) return json({ error: "audioRunId required" }, 400);
+
+  const { data: run } = await db
+    .from("trailer_audio_runs")
+    .select("*")
+    .eq("id", audioRunId)
+    .single();
+  if (!run) return json({ error: "Audio run not found" }, 404);
+
+  const sfxTag = run.inputs_json?.sfxTag || run.sfx_pack_tag || "";
+  const sfxHits = run.plan_json?.sfx_hits || [];
+
+  // Look for user-uploaded SFX in the project
+  let query = db
+    .from("trailer_audio_assets")
+    .select("*")
+    .eq("project_id", projectId)
+    .eq("kind", "sfx");
+  if (sfxTag) {
+    query = query.contains("tags", [sfxTag]);
+  }
+  const { data: sfxAssets } = await query.order("created_at", { ascending: false });
+
+  const selected: any[] = [];
+  if (sfxAssets && sfxAssets.length > 0) {
+    // Map each hit point to a random SFX from library
+    for (const hit of sfxHits) {
+      const match =
+        sfxAssets.find((a: any) =>
+          a.tags?.some((t: string) => t.includes(hit.sfx_kind))
+        ) || sfxAssets[0];
+      selected.push({
+        ...hit,
+        asset_id: match.id,
+        storage_path: match.storage_path,
+        asset_name: match.name,
+      });
+    }
+  }
+
+  // Update plan_json with selected SFX
+  const updatedPlan = { ...run.plan_json, sfx_selected: selected };
+  await db
+    .from("trailer_audio_runs")
+    .update({ plan_json: updatedPlan })
+    .eq("id", audioRunId);
+
+  await logAudioEvent(db, {
+    project_id: projectId,
+    audio_run_id: audioRunId,
+    event_type: "sfx_selected",
+    payload: {
+      total_hits: sfxHits.length,
+      matched: selected.length,
+      available_sfx: sfxAssets?.length || 0,
+    },
+    created_by: userId,
+  });
+
+  await db
+    .from("trailer_audio_jobs")
+    .update({ status: "succeeded", updated_at: new Date().toISOString() })
+    .eq("audio_run_id", audioRunId)
+    .eq("job_type", "select_sfx")
+    .in("status", ["queued", "running"]);
+
+  return json({
+    ok: true,
+    matched: selected.length,
+    total_hits: sfxHits.length,
+  });
+}
+
+// ─── ACTION: mix ───
+async function handleMix(db: any, body: any, userId: string) {
+  const { projectId, audioRunId } = body;
+  if (!audioRunId) return json({ error: "audioRunId required" }, 400);
+
+  const { data: run } = await db
+    .from("trailer_audio_runs")
+    .select("*")
+    .eq("id", audioRunId)
+    .single();
+  if (!run) return json({ error: "Audio run not found" }, 404);
+
+  // Update status to mixing
+  await db
+    .from("trailer_audio_runs")
+    .update({ status: "mixing" })
+    .eq("id", audioRunId);
+
+  // Edge Functions cannot run ffmpeg. Create a render job for the external worker.
+  const mixPayload = {
+    audio_run_id: audioRunId,
+    project_id: projectId,
+    mix_settings: run.mix_json || DEFAULT_MIX,
+    plan_json: run.plan_json,
+    music_bed_asset_id: run.music_bed_asset_id,
+    output_path: `${projectId}/audio/${audioRunId}/mix/master.wav`,
+  };
+
+  // Get selected music
+  const { data: selectedMusic } = await db
+    .from("trailer_audio_assets")
+    .select("storage_path")
+    .eq("audio_run_id", audioRunId)
+    .eq("selected", true)
+    .in("asset_type", ["music"])
+    .limit(1)
+    .maybeSingle();
+
+  // Get selected VO
+  const { data: selectedVo } = await db
+    .from("trailer_audio_assets")
+    .select("storage_path")
+    .eq("audio_run_id", audioRunId)
+    .eq("selected", true)
+    .eq("asset_type", "voiceover")
+    .limit(1)
+    .maybeSingle();
+
+  // Fallback: if no explicit selection, use music_bed_asset_id
+  let musicPath = selectedMusic?.storage_path || null;
+  if (!musicPath && run.music_bed_asset_id) {
+    const { data: mbAsset } = await db
+      .from("trailer_audio_assets")
+      .select("storage_path")
+      .eq("id", run.music_bed_asset_id)
+      .single();
+    musicPath = mbAsset?.storage_path || null;
+  }
+
+  const renderInput = {
+    ...mixPayload,
+    music_path: musicPath,
+    vo_path: selectedVo?.storage_path || null,
+    sfx_selected: run.plan_json?.sfx_selected || [],
+  };
+
+  // Enqueue as a render job (reuse trailer_render_jobs for the external worker)
+  const idempKey = await sha256(
+    `mix|${audioRunId}|${JSON.stringify(run.mix_json)}`
+  );
+
+  const { data: existing } = await db
+    .from("trailer_render_jobs")
+    .select("id, status")
+    .eq("idempotency_key", idempKey)
+    .maybeSingle();
+
+  if (existing && ["queued", "running"].includes(existing.status)) {
+    return json({ ok: true, job: existing, action: "existing" });
+  }
+
+  const { data: job, error } = await db
+    .from("trailer_render_jobs")
+    .insert({
+      project_id: projectId,
+      trailer_cut_id: run.trailer_cut_id,
+      audio_run_id: audioRunId,
+      status: "queued",
+      idempotency_key: idempKey,
+      input_json: { type: "audio_mix", ...renderInput },
+      preset: "mix",
+      created_by: userId,
+    })
+    .select()
+    .single();
+
+  if (error) {
+    await db
+      .from("trailer_audio_runs")
+      .update({ status: "failed", error: error.message })
+      .eq("id", audioRunId);
+    return json({ error: error.message }, 500);
+  }
+
+  // Also track in audio jobs
+  await enqueueJob(db, {
+    project_id: projectId,
+    audio_run_id: audioRunId,
+    job_type: "mix",
+    payload: { render_job_id: job.id },
+  });
+
+  await logAudioEvent(db, {
+    project_id: projectId,
+    audio_run_id: audioRunId,
+    event_type: "mix_enqueued",
+    payload: { render_job_id: job.id },
+    created_by: userId,
+  });
+
+  return json({ ok: true, job, action: "created" });
+}
+
+// ─── ACTION: progress ───
+async function handleProgress(db: any, body: any) {
+  const { projectId, audioRunId } = body;
+  if (!audioRunId) return json({ error: "audioRunId required" }, 400);
+
+  const { data: run } = await db
+    .from("trailer_audio_runs")
+    .select("*")
+    .eq("id", audioRunId)
+    .eq("project_id", projectId)
+    .single();
+
+  const { data: jobs } = await db
+    .from("trailer_audio_jobs")
+    .select("*")
+    .eq("audio_run_id", audioRunId)
+    .order("created_at", { ascending: true });
+
+  const { data: assets } = await db
+    .from("trailer_audio_assets")
+    .select("*")
+    .eq("audio_run_id", audioRunId)
+    .order("created_at", { ascending: false });
+
+  const { data: events } = await db
+    .from("trailer_audio_events")
+    .select("*")
+    .eq("audio_run_id", audioRunId)
+    .order("created_at", { ascending: false })
+    .limit(20);
+
+  const jobList = jobs || [];
+  const warnings: string[] = [];
+
+  const allSucceeded = jobList.every((j: any) => j.status === "succeeded");
+  const anyFailed = jobList.some((j: any) => j.status === "failed");
+  const anyRunning = jobList.some((j: any) =>
+    ["queued", "running"].includes(j.status)
+  );
+
+  if (anyFailed) warnings.push("Some jobs failed. Check events for details.");
+
+  return json({
+    ok: true,
+    run,
+    jobs: jobList,
+    assets: assets || [],
+    events: events || [],
+    warnings,
+    summary: {
+      total_jobs: jobList.length,
+      succeeded: jobList.filter((j: any) => j.status === "succeeded").length,
+      failed: jobList.filter((j: any) => j.status === "failed").length,
+      running: jobList.filter((j: any) => j.status === "running").length,
+      queued: jobList.filter((j: any) => j.status === "queued").length,
+      all_complete: allSucceeded && !anyRunning,
+    },
+  });
+}
+
+// ─── ACTION: select_asset ───
+async function handleSelectAsset(db: any, body: any, userId: string) {
+  const { projectId, audioRunId, assetId, assetType } = body;
+  if (!audioRunId || !assetId)
+    return json({ error: "audioRunId and assetId required" }, 400);
+
+  // Deselect others of same type
+  if (assetType) {
+    await db
+      .from("trailer_audio_assets")
+      .update({ selected: false })
+      .eq("audio_run_id", audioRunId)
+      .eq("asset_type", assetType);
+  }
+
+  // Select this one
+  await db
+    .from("trailer_audio_assets")
+    .update({ selected: true })
+    .eq("id", assetId);
+
+  // If selecting music, also update music_bed_asset_id on the run
+  if (assetType === "music") {
+    await db
+      .from("trailer_audio_runs")
+      .update({ music_bed_asset_id: assetId })
+      .eq("id", audioRunId);
+  }
+
+  await logAudioEvent(db, {
+    project_id: projectId,
+    audio_run_id: audioRunId,
+    event_type: "asset_selected",
+    payload: { assetId, assetType },
+    created_by: userId,
+  });
+
+  return json({ ok: true });
+}
+
+// ─── ACTION: update_mix_settings ───
+async function handleUpdateMixSettings(db: any, body: any, userId: string) {
+  const { projectId, audioRunId, mixSettings } = body;
+  if (!audioRunId) return json({ error: "audioRunId required" }, 400);
+
+  const mix = { ...DEFAULT_MIX, ...(mixSettings || {}) };
+
+  await db
+    .from("trailer_audio_runs")
+    .update({ mix_json: mix })
+    .eq("id", audioRunId);
+
+  await logAudioEvent(db, {
+    project_id: projectId,
+    audio_run_id: audioRunId,
+    event_type: "mix_settings_updated",
+    payload: mix,
+    created_by: userId,
+  });
+
+  return json({ ok: true, mix });
+}
+
+// ─── Legacy actions (backward compat) ───
+async function handleUpsertAudioRun(db: any, body: any, userId: string) {
+  const { projectId, trailerCutId, blueprintId, musicBedAssetId, sfxPackTag, mixOverrides } = body;
+  if (!trailerCutId) return json({ error: "trailerCutId required" }, 400);
+
+  const mixJson = { ...DEFAULT_MIX, ...(mixOverrides || {}) };
+
+  const { data: existing } = await db
+    .from("trailer_audio_runs")
+    .select("*")
+    .eq("trailer_cut_id", trailerCutId)
+    .eq("project_id", projectId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (existing) {
+    const updates: any = { mix_json: mixJson, updated_at: new Date().toISOString() };
+    if (musicBedAssetId !== undefined) updates.music_bed_asset_id = musicBedAssetId;
+    if (sfxPackTag !== undefined) updates.sfx_pack_tag = sfxPackTag;
+    if (blueprintId) updates.blueprint_id = blueprintId;
+
+    await db.from("trailer_audio_runs").update(updates).eq("id", existing.id);
+    const { data: updated } = await db
+      .from("trailer_audio_runs")
+      .select("*")
+      .eq("id", existing.id)
+      .single();
+    return json({ ok: true, audioRun: updated, action: "updated" });
+  }
+
+  const { data: audioRun, error } = await db
+    .from("trailer_audio_runs")
+    .insert({
+      project_id: projectId,
+      trailer_cut_id: trailerCutId,
+      blueprint_id: blueprintId || null,
+      music_bed_asset_id: musicBedAssetId || null,
+      sfx_pack_tag: sfxPackTag || null,
+      plan_json: {},
+      mix_json: mixJson,
+      created_by: userId,
+    })
+    .select()
+    .single();
+
+  if (error) return json({ error: error.message }, 500);
+  return json({ ok: true, audioRun, action: "created" });
+}
+
+async function handleGenerateAudioPlan(db: any, body: any, userId: string) {
+  // Redirect to new generate_plan
+  return handleGeneratePlan(db, { ...body, audioRunId: body.audioRunId }, userId);
+}
+
+// ─── Render actions (unchanged from v1.1) ───
 async function handleEnqueueRender(db: any, body: any, userId: string) {
   const { projectId, trailerCutId, audioRunId, force, preset = "720p" } = body;
   if (!trailerCutId) return json({ error: "trailerCutId required" }, 400);
 
-  // Load cut
-  const { data: cut } = await db.from("trailer_cuts").select("*")
-    .eq("id", trailerCutId).eq("project_id", projectId).single();
+  const { data: cut } = await db
+    .from("trailer_cuts")
+    .select("*")
+    .eq("id", trailerCutId)
+    .eq("project_id", projectId)
+    .single();
   if (!cut) return json({ error: "Cut not found" }, 404);
 
-  // Load audio run if specified
   let audioRun: any = null;
   if (audioRunId) {
-    const { data: ar } = await db.from("trailer_audio_runs").select("*")
-      .eq("id", audioRunId).eq("project_id", projectId).single();
+    const { data: ar } = await db
+      .from("trailer_audio_runs")
+      .select("*")
+      .eq("id", audioRunId)
+      .eq("project_id", projectId)
+      .single();
     audioRun = ar;
   }
 
-  // Build input manifest
   const timeline = cut.timeline || [];
   const edl = timeline.map((t: any) => ({
     beat_index: t.beat_index,
@@ -246,32 +1144,46 @@ async function handleEnqueueRender(db: any, body: any, userId: string) {
   const audioPlan = audioRun?.plan_json || {};
   const mixSettings = audioRun?.mix_json || DEFAULT_MIX;
 
-  // Load music bed storage path if referenced
   let musicBedPath: string | null = null;
   if (audioRun?.music_bed_asset_id) {
-    const { data: asset } = await db.from("trailer_audio_assets")
-      .select("storage_path").eq("id", audioRun.music_bed_asset_id).single();
+    const { data: asset } = await db
+      .from("trailer_audio_assets")
+      .select("storage_path")
+      .eq("id", audioRun.music_bed_asset_id)
+      .single();
     musicBedPath = asset?.storage_path || null;
   }
 
-  // Load SFX asset paths by tag
   let sfxPaths: any[] = [];
   if (audioRun?.sfx_pack_tag) {
-    const { data: sfxAssets } = await db.from("trailer_audio_assets")
-      .select("*").eq("project_id", projectId).eq("kind", "sfx")
+    const { data: sfxAssets } = await db
+      .from("trailer_audio_assets")
+      .select("*")
+      .eq("project_id", projectId)
+      .eq("kind", "sfx")
       .contains("tags", [audioRun.sfx_pack_tag]);
-    sfxPaths = (sfxAssets || []).map((a: any) => ({ name: a.name, path: a.storage_path, tags: a.tags }));
+    sfxPaths = (sfxAssets || []).map((a: any) => ({
+      name: a.name,
+      path: a.storage_path,
+      tags: a.tags,
+    }));
   }
 
   const edlHash = await sha256(JSON.stringify(edl));
-  const audioHash = await sha256(JSON.stringify({ audioPlan, mixSettings, musicBedPath }));
+  const audioHash = await sha256(
+    JSON.stringify({ audioPlan, mixSettings, musicBedPath })
+  );
   const forceSuffix = force ? `-${Date.now()}` : "";
-  const idempotencyKey = await sha256(`${projectId}|${trailerCutId}|${audioRunId || "none"}|${preset}|${edlHash}|${audioHash}${forceSuffix}`);
+  const idempotencyKey = await sha256(
+    `${projectId}|${trailerCutId}|${audioRunId || "none"}|${preset}|${edlHash}|${audioHash}${forceSuffix}`
+  );
 
-  // Check existing
   if (!force) {
-    const { data: existing } = await db.from("trailer_render_jobs")
-      .select("*").eq("idempotency_key", idempotencyKey).maybeSingle();
+    const { data: existing } = await db
+      .from("trailer_render_jobs")
+      .select("*")
+      .eq("idempotency_key", idempotencyKey)
+      .maybeSingle();
     if (existing) return json({ ok: true, job: existing, action: "existing" });
   }
 
@@ -288,43 +1200,44 @@ async function handleEnqueueRender(db: any, body: any, userId: string) {
     music_bed_path: musicBedPath,
     sfx_paths: sfxPaths,
     output_paths: outputPaths,
-    resolution: preset === "1080p" ? { w: 1920, h: 1080 } : { w: 1280, h: 720 },
+    resolution:
+      preset === "1080p" ? { w: 1920, h: 1080 } : { w: 1280, h: 720 },
     fps: cut.render_fps || 24,
-    webm_source: cut.storage_path ? `${projectId}/runs/${trailerCutId}/final.webm` : null,
+    webm_source: cut.storage_path
+      ? `${projectId}/runs/${trailerCutId}/final.webm`
+      : null,
   };
 
-  const { data: job, error } = await db.from("trailer_render_jobs").insert({
-    project_id: projectId,
-    trailer_cut_id: trailerCutId,
-    audio_run_id: audioRunId || null,
-    status: "queued",
-    idempotency_key: idempotencyKey,
-    input_json: inputJson,
-    preset,
-    created_by: userId,
-  }).select().single();
+  const { data: job, error } = await db
+    .from("trailer_render_jobs")
+    .insert({
+      project_id: projectId,
+      trailer_cut_id: trailerCutId,
+      audio_run_id: audioRunId || null,
+      status: "queued",
+      idempotency_key: idempotencyKey,
+      input_json: inputJson,
+      preset,
+      created_by: userId,
+    })
+    .select()
+    .single();
 
   if (error) return json({ error: error.message }, 500);
-
-  await logRenderEvent(db, {
-    project_id: projectId,
-    render_job_id: job.id,
-    event_type: "render_enqueued",
-    payload: { preset, audioRunId, cutId: trailerCutId },
-    created_by: userId,
-  });
-
   return json({ ok: true, job, action: "created" });
 }
 
-// ─── Render Progress ───
 async function handleRenderProgress(db: any, body: any) {
   const { projectId, trailerCutId } = body;
   if (!trailerCutId) return json({ error: "trailerCutId required" }, 400);
 
-  const { data: jobs } = await db.from("trailer_render_jobs").select("*")
-    .eq("project_id", projectId).eq("trailer_cut_id", trailerCutId)
-    .order("created_at", { ascending: false }).limit(10);
+  const { data: jobs } = await db
+    .from("trailer_render_jobs")
+    .select("*")
+    .eq("project_id", projectId)
+    .eq("trailer_cut_id", trailerCutId)
+    .order("created_at", { ascending: false })
+    .limit(10);
 
   const list = jobs || [];
   const counts = {
@@ -339,81 +1252,103 @@ async function handleRenderProgress(db: any, body: any) {
   return json({ ok: true, jobs: list, counts, latest: list[0] || null });
 }
 
-// ─── Retry Render ───
 async function handleRetryRender(db: any, body: any, userId: string) {
   const { projectId, renderJobId } = body;
   if (!renderJobId) return json({ error: "renderJobId required" }, 400);
 
-  const { data: job } = await db.from("trailer_render_jobs").select("*")
-    .eq("id", renderJobId).eq("project_id", projectId).single();
+  const { data: job } = await db
+    .from("trailer_render_jobs")
+    .select("*")
+    .eq("id", renderJobId)
+    .eq("project_id", projectId)
+    .single();
   if (!job) return json({ error: "Job not found" }, 404);
-  if (job.status !== "failed") return json({ error: "Only failed jobs can be retried" }, 400);
+  if (job.status !== "failed")
+    return json({ error: "Only failed jobs can be retried" }, 400);
   if (job.attempt >= 3) return json({ error: "Max attempts reached" }, 400);
 
-  await db.from("trailer_render_jobs").update({
-    status: "queued", error: null, claimed_at: null,
-  }).eq("id", renderJobId);
-
-  await logRenderEvent(db, {
-    project_id: projectId, render_job_id: renderJobId,
-    event_type: "render_retried", payload: { attempt: job.attempt },
-    created_by: userId,
-  });
+  await db
+    .from("trailer_render_jobs")
+    .update({ status: "queued", error: null, claimed_at: null })
+    .eq("id", renderJobId);
 
   return json({ ok: true });
 }
 
-// ─── Cancel Render ───
-async function handleCancelRender(db: any, body: any, userId: string) {
+async function handleCancelRender(db: any, body: any, _userId: string) {
   const { projectId, renderJobId } = body;
   if (!renderJobId) return json({ error: "renderJobId required" }, 400);
 
-  const { data: job } = await db.from("trailer_render_jobs").select("*")
-    .eq("id", renderJobId).eq("project_id", projectId).single();
+  const { data: job } = await db
+    .from("trailer_render_jobs")
+    .select("*")
+    .eq("id", renderJobId)
+    .eq("project_id", projectId)
+    .single();
   if (!job) return json({ error: "Job not found" }, 404);
-  if (!["queued", "running"].includes(job.status)) return json({ error: "Cannot cancel" }, 400);
+  if (!["queued", "running"].includes(job.status))
+    return json({ error: "Cannot cancel" }, 400);
 
-  await db.from("trailer_render_jobs").update({ status: "canceled" }).eq("id", renderJobId);
-
-  await logRenderEvent(db, {
-    project_id: projectId, render_job_id: renderJobId,
-    event_type: "render_canceled", created_by: userId,
-  });
+  await db
+    .from("trailer_render_jobs")
+    .update({ status: "canceled" })
+    .eq("id", renderJobId);
 
   return json({ ok: true });
 }
 
-// ─── List Audio Assets ───
 async function handleListAudioAssets(db: any, body: any) {
-  const { projectId, kind } = body;
+  const { projectId, kind, audioRunId } = body;
   let query = db.from("trailer_audio_assets").select("*").eq("project_id", projectId);
   if (kind) query = query.eq("kind", kind);
+  if (audioRunId) query = query.eq("audio_run_id", audioRunId);
   const { data } = await query.order("created_at", { ascending: false });
   return json({ ok: true, assets: data || [] });
 }
 
-// ─── Get Audio Run ───
 async function handleGetAudioRun(db: any, body: any) {
-  const { projectId, trailerCutId } = body;
-  if (!trailerCutId) return json({ error: "trailerCutId required" }, 400);
+  const { projectId, trailerCutId, audioRunId } = body;
 
-  const { data } = await db.from("trailer_audio_runs").select("*")
-    .eq("trailer_cut_id", trailerCutId).eq("project_id", projectId)
-    .order("created_at", { ascending: false }).limit(1).maybeSingle();
+  if (audioRunId) {
+    const { data } = await db
+      .from("trailer_audio_runs")
+      .select("*")
+      .eq("id", audioRunId)
+      .eq("project_id", projectId)
+      .single();
+    return json({ ok: true, audioRun: data || null });
+  }
+
+  if (!trailerCutId) return json({ error: "trailerCutId or audioRunId required" }, 400);
+
+  const { data } = await db
+    .from("trailer_audio_runs")
+    .select("*")
+    .eq("trailer_cut_id", trailerCutId)
+    .eq("project_id", projectId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
 
   return json({ ok: true, audioRun: data || null });
 }
 
 // ─── Main handler ───
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  if (req.method === "OPTIONS")
+    return new Response(null, { headers: corsHeaders });
 
   try {
     const authHeader = req.headers.get("Authorization") || "";
-    if (!authHeader.startsWith("Bearer ")) return json({ error: "Unauthorized" }, 401);
+    if (!authHeader.startsWith("Bearer "))
+      return json({ error: "Unauthorized" }, 401);
     const token = authHeader.replace("Bearer ", "");
     let userId: string;
-    try { userId = parseUserId(token); } catch { return json({ error: "Invalid token" }, 401); }
+    try {
+      userId = parseUserId(token);
+    } catch {
+      return json({ error: "Invalid token" }, 401);
+    }
 
     const body = await req.json();
     const action = body.action;
@@ -425,15 +1360,50 @@ Deno.serve(async (req) => {
     if (!hasAccess) return json({ error: "Forbidden" }, 403);
 
     switch (action) {
-      case "upsert_audio_run": return await handleUpsertAudioRun(db, body, userId);
-      case "generate_audio_plan": return await handleGenerateAudioPlan(db, body, userId);
-      case "enqueue_render": return await handleEnqueueRender(db, body, userId);
-      case "render_progress": return await handleRenderProgress(db, body);
-      case "retry_render": return await handleRetryRender(db, body, userId);
-      case "cancel_render": return await handleCancelRender(db, body, userId);
-      case "list_audio_assets": return await handleListAudioAssets(db, body);
-      case "get_audio_run": return await handleGetAudioRun(db, body);
-      default: return json({ error: `Unknown action: ${action}` }, 400);
+      // New Audio Intelligence actions
+      case "create_audio_run":
+        return await handleCreateAudioRun(db, body, userId);
+      case "generate_plan":
+        return await handleGeneratePlan(db, body, userId);
+      case "gen_music":
+        return await handleGenMusic(db, body, userId);
+      case "gen_vo":
+        return await handleGenVo(db, body, userId);
+      case "select_sfx":
+        return await handleSelectSfx(db, body, userId);
+      case "mix":
+        return await handleMix(db, body, userId);
+      case "progress":
+        return await handleProgress(db, body);
+      case "select_asset":
+        return await handleSelectAsset(db, body, userId);
+      case "update_mix_settings":
+        return await handleUpdateMixSettings(db, body, userId);
+
+      // Legacy v1.1 compat
+      case "upsert_audio_run":
+        return await handleUpsertAudioRun(db, body, userId);
+      case "generate_audio_plan":
+        return await handleGenerateAudioPlan(db, body, userId);
+
+      // Render actions
+      case "enqueue_render":
+        return await handleEnqueueRender(db, body, userId);
+      case "render_progress":
+        return await handleRenderProgress(db, body);
+      case "retry_render":
+        return await handleRetryRender(db, body, userId);
+      case "cancel_render":
+        return await handleCancelRender(db, body, userId);
+
+      // Asset queries
+      case "list_audio_assets":
+        return await handleListAudioAssets(db, body);
+      case "get_audio_run":
+        return await handleGetAudioRun(db, body);
+
+      default:
+        return json({ error: `Unknown action: ${action}` }, 400);
     }
   } catch (err: any) {
     console.error("trailer-audio-engine error:", err);

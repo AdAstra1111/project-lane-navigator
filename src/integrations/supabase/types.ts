@@ -16233,54 +16233,180 @@ export type Database = {
       }
       trailer_audio_assets: {
         Row: {
+          asset_type: string | null
+          audio_run_id: string | null
           bpm: number | null
           created_at: string
           created_by: string
           duration_ms: number | null
           id: string
           kind: string
+          label: string
+          meta_json: Json
+          model: string | null
           name: string
           project_id: string
+          provider: string | null
+          selected: boolean
           storage_path: string
           tags: string[]
         }
         Insert: {
+          asset_type?: string | null
+          audio_run_id?: string | null
           bpm?: number | null
           created_at?: string
           created_by: string
           duration_ms?: number | null
           id?: string
           kind: string
+          label?: string
+          meta_json?: Json
+          model?: string | null
           name: string
           project_id: string
+          provider?: string | null
+          selected?: boolean
           storage_path: string
           tags?: string[]
         }
         Update: {
+          asset_type?: string | null
+          audio_run_id?: string | null
           bpm?: number | null
           created_at?: string
           created_by?: string
           duration_ms?: number | null
           id?: string
           kind?: string
+          label?: string
+          meta_json?: Json
+          model?: string | null
           name?: string
           project_id?: string
+          provider?: string | null
+          selected?: boolean
           storage_path?: string
           tags?: string[]
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "trailer_audio_assets_audio_run_id_fkey"
+            columns: ["audio_run_id"]
+            isOneToOne: false
+            referencedRelation: "trailer_audio_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      trailer_audio_events: {
+        Row: {
+          audio_run_id: string
+          created_at: string
+          created_by: string
+          event_type: string
+          id: string
+          payload: Json
+          project_id: string
+        }
+        Insert: {
+          audio_run_id: string
+          created_at?: string
+          created_by: string
+          event_type: string
+          id?: string
+          payload?: Json
+          project_id: string
+        }
+        Update: {
+          audio_run_id?: string
+          created_at?: string
+          created_by?: string
+          event_type?: string
+          id?: string
+          payload?: Json
+          project_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trailer_audio_events_audio_run_id_fkey"
+            columns: ["audio_run_id"]
+            isOneToOne: false
+            referencedRelation: "trailer_audio_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      trailer_audio_jobs: {
+        Row: {
+          attempt: number
+          audio_run_id: string
+          claimed_at: string | null
+          created_at: string
+          error: string | null
+          id: string
+          idempotency_key: string
+          job_type: string
+          payload: Json
+          project_id: string
+          provider_job_id: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          attempt?: number
+          audio_run_id: string
+          claimed_at?: string | null
+          created_at?: string
+          error?: string | null
+          id?: string
+          idempotency_key: string
+          job_type: string
+          payload?: Json
+          project_id: string
+          provider_job_id?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          attempt?: number
+          audio_run_id?: string
+          claimed_at?: string | null
+          created_at?: string
+          error?: string | null
+          id?: string
+          idempotency_key?: string
+          job_type?: string
+          payload?: Json
+          project_id?: string
+          provider_job_id?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trailer_audio_jobs_audio_run_id_fkey"
+            columns: ["audio_run_id"]
+            isOneToOne: false
+            referencedRelation: "trailer_audio_runs"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       trailer_audio_runs: {
         Row: {
           blueprint_id: string | null
           created_at: string
           created_by: string
+          error: string | null
           id: string
+          inputs_json: Json
           mix_json: Json
           music_bed_asset_id: string | null
           output_wav_path: string | null
           plan_json: Json
           project_id: string
+          score_json: Json
           sfx_pack_tag: string | null
           status: string
           trailer_cut_id: string
@@ -16290,12 +16416,15 @@ export type Database = {
           blueprint_id?: string | null
           created_at?: string
           created_by: string
+          error?: string | null
           id?: string
+          inputs_json?: Json
           mix_json?: Json
           music_bed_asset_id?: string | null
           output_wav_path?: string | null
           plan_json?: Json
           project_id: string
+          score_json?: Json
           sfx_pack_tag?: string | null
           status?: string
           trailer_cut_id: string
@@ -16305,12 +16434,15 @@ export type Database = {
           blueprint_id?: string | null
           created_at?: string
           created_by?: string
+          error?: string | null
           id?: string
+          inputs_json?: Json
           mix_json?: Json
           music_bed_asset_id?: string | null
           output_wav_path?: string | null
           plan_json?: Json
           project_id?: string
+          score_json?: Json
           sfx_pack_tag?: string | null
           status?: string
           trailer_cut_id?: string
@@ -18262,6 +18394,10 @@ export type Database = {
           isOneToOne: false
           isSetofReturn: true
         }
+      }
+      claim_next_trailer_audio_job: {
+        Args: { _audio_run_id: string; _project_id: string }
+        Returns: string
       }
       claim_next_trailer_clip_job: {
         Args: { _blueprint_id: string; _project_id: string }
