@@ -61,47 +61,50 @@ async function extractViaLLM(
   pdfBase64: string,
   signedUrl: string | null,
 ): Promise<string> {
-  // Strategy 1: input_file modality with inline base64 PDF
-  try {
-    const resp = await fetch(GATEWAY_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: MODELS.PRO,
-        messages: [
-          {
-            role: "system",
-            content: "You are a document text extraction specialist. Extract the full text from the provided PDF accurately and completely. Output only the extracted text.",
-          },
-          {
-            role: "user",
-            content: [
-              { type: "text", text: EXTRACTION_PROMPT },
-              {
-                type: "image_url",
-                image_url: { url: `data:application/pdf;base64,${pdfBase64}` },
-              },
-            ],
-          },
-        ],
-        temperature: 0.05,
-        max_tokens: 32000,
-      }),
-    });
+  const systemMsg = "You are a document text extraction specialist. Extract the full text from the provided PDF accurately and completely. Output only the extracted text.";
 
-    if (resp.ok) {
-      const data = await resp.json();
-      const text = data.choices?.[0]?.message?.content || "";
-      if (text.length >= 500) return text;
-      console.warn(`input_file extraction too short (${text.length} chars), trying fallback`);
-    } else {
-      console.warn(`input_file modality rejected (${resp.status}), trying fallback`);
+  // Modality attempts: input_file, then file, then signed-URL text fallback
+  const modalities = [
+    { type: "input_file", input_file: { mime_type: "application/pdf", data: pdfBase64 } },
+    { type: "file", file: { mime_type: "application/pdf", data: pdfBase64 } },
+  ];
+
+  for (const attachment of modalities) {
+    try {
+      const resp = await fetch(GATEWAY_URL, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: MODELS.PRO,
+          messages: [
+            { role: "system", content: systemMsg },
+            {
+              role: "user",
+              content: [
+                { type: "text", text: EXTRACTION_PROMPT },
+                attachment,
+              ],
+            },
+          ],
+          temperature: 0.05,
+          max_tokens: 32000,
+        }),
+      });
+
+      if (resp.ok) {
+        const data = await resp.json();
+        const text = data.choices?.[0]?.message?.content || "";
+        if (text.length >= 500) return text;
+        console.warn(`${attachment.type} extraction too short (${text.length} chars), trying next`);
+      } else {
+        console.warn(`${attachment.type} modality rejected (${resp.status}), trying next`);
+      }
+    } catch (e) {
+      console.warn(`${attachment.type} extraction failed:`, e);
     }
-  } catch (e) {
-    console.warn("input_file extraction failed:", e);
   }
 
   // Strategy 2: text-only prompt with signed URL
@@ -269,16 +272,12 @@ Deno.serve(async (req) => {
     }
 
     // 9) Update latest_version_id on the document (if column exists)
-    try {
-      await admin
-        .from("project_documents")
-        .update({ latest_version_id: newVersion.id })
-        .eq("id", newDoc.id);
-    } catch (e: any) {
-      // Ignore if column doesn't exist
-      if (!e?.message?.includes("does not exist")) {
-        console.error("latest_version_id update error:", e);
-      }
+    const { error: lvErr } = await admin
+      .from("project_documents")
+      .update({ latest_version_id: newVersion.id })
+      .eq("id", newDoc.id);
+    if (lvErr && !lvErr.message.includes("does not exist")) {
+      console.error("latest_version_id update error:", lvErr);
     }
 
     return json({
