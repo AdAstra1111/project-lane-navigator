@@ -40,14 +40,42 @@ async function getUserId(req: Request): Promise<string> {
 }
 
 async function fetchProjectScenes(admin: any, projectId: string) {
-  const { data, error } = await admin
-    .from("scene_graph_nodes")
-    .select("id, project_id, display_number, order_key, latest_version_id")
+  // Join scene_graph_order (for ordering + active flag) with scene_graph_scenes
+  const { data: orderRows, error: orderErr } = await admin
+    .from("scene_graph_order")
+    .select("scene_id, order_key, is_active")
     .eq("project_id", projectId)
     .eq("is_active", true)
     .order("order_key", { ascending: true });
-  if (error) throw new Error(`Failed to fetch scenes: ${error.message}`);
-  return data || [];
+  if (orderErr) throw new Error(`Failed to fetch scenes: ${orderErr.message}`);
+  if (!orderRows || orderRows.length === 0) return [];
+
+  // Get latest version for each scene
+  const sceneIds = orderRows.map((r: any) => r.scene_id);
+  const { data: versions, error: verErr } = await admin
+    .from("scene_graph_versions")
+    .select("id, scene_id, version_number, slugline")
+    .in("scene_id", sceneIds)
+    .order("version_number", { ascending: false });
+  if (verErr) throw new Error(`Failed to fetch scene versions: ${verErr.message}`);
+
+  // Map scene_id -> latest version
+  const latestVersionMap = new Map<string, any>();
+  for (const v of (versions || [])) {
+    if (!latestVersionMap.has(v.scene_id)) latestVersionMap.set(v.scene_id, v);
+  }
+
+  // Build result matching the shape the rest of the function expects
+  return orderRows.map((row: any, idx: number) => {
+    const latestVer = latestVersionMap.get(row.scene_id);
+    return {
+      id: row.scene_id,
+      project_id: projectId,
+      display_number: idx + 1,
+      order_key: row.order_key,
+      latest_version_id: latestVer?.id || null,
+    };
+  });
 }
 
 async function getJobCounts(admin: any, jobId: string) {
