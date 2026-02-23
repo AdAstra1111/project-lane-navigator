@@ -230,6 +230,7 @@ Deno.serve(async (req) => {
         user_id: userId,
         doc_type: "script",
         title: docTitle,
+        file_name: "trailer-source-script.txt",
       })
       .select("id")
       .single();
