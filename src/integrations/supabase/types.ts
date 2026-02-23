@@ -15743,6 +15743,129 @@ export type Database = {
         }
         Relationships: []
       }
+      trailer_definition_pack_items: {
+        Row: {
+          created_at: string
+          document_id: string
+          id: string
+          include: boolean
+          notes: string | null
+          pack_id: string
+          project_id: string
+          role: string
+          sort_order: number
+          version_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          document_id: string
+          id?: string
+          include?: boolean
+          notes?: string | null
+          pack_id: string
+          project_id: string
+          role?: string
+          sort_order?: number
+          version_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          document_id?: string
+          id?: string
+          include?: boolean
+          notes?: string | null
+          pack_id?: string
+          project_id?: string
+          role?: string
+          sort_order?: number
+          version_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trailer_definition_pack_items_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "project_documents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trailer_definition_pack_items_pack_id_fkey"
+            columns: ["pack_id"]
+            isOneToOne: false
+            referencedRelation: "trailer_definition_packs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trailer_definition_pack_items_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "trailer_definition_pack_items_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trailer_definition_pack_items_version_id_fkey"
+            columns: ["version_id"]
+            isOneToOne: false
+            referencedRelation: "project_document_versions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      trailer_definition_packs: {
+        Row: {
+          created_at: string
+          created_by: string
+          id: string
+          project_id: string
+          status: string
+          title: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          id?: string
+          project_id: string
+          status?: string
+          title?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          id?: string
+          project_id?: string
+          status?: string
+          title?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trailer_definition_packs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "trailer_definition_packs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       trailer_moments: {
         Row: {
           ai_friendly: boolean

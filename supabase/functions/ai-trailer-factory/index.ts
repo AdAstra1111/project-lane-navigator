@@ -6,10 +6,13 @@
  *   generate_storyboard_frames — Generate storyboard frame variations
  *   select_media               — Select/deselect generated media
  *   animate_shot_clip          — Generate motion still from keyframe (A/B only)
- *   extract_trailer_moments    — Extract trailer beats from a script
+ *   extract_trailer_moments    — Extract trailer beats from pack context
  *   build_trailer_shotlist     — Build an AI-optimised trailer shotlist
  *   generate_trailer_assets    — Batch-generate frames + motion stills for a trailer shotlist
  *   assemble_taster_trailer    — Assemble a taster trailer package
+ *   upsert_trailer_pack        — Create or update a trailer definition pack
+ *   get_trailer_packs          — List packs for a project
+ *   get_trailer_pack           — Get a single pack with items
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { callLLM, MODELS, parseJsonSafe } from "../_shared/llm.ts";
@@ -82,10 +85,9 @@ function buildImagePrompt(shot: any, style?: string): string {
   ].join("\n");
 }
 
-// ─── Upload helper: fetches URL bytes and uploads to Storage ───
+// ─── Upload helper ───
 async function uploadImageFromUrl(imageUrl: string, storagePath: string): Promise<string | null> {
   try {
-    // If it's a data URL, decode base64
     if (imageUrl.startsWith("data:")) {
       const base64Data = imageUrl.replace(/^data:image\/\w+;base64,/, "");
       const binaryData = Uint8Array.from(atob(base64Data), (c) => c.charCodeAt(0));
@@ -98,13 +100,10 @@ async function uploadImageFromUrl(imageUrl: string, storagePath: string): Promis
       return data?.publicUrl || null;
     }
 
-    // Otherwise it's a hosted URL — fetch bytes
     const resp = await fetch(imageUrl);
     if (!resp.ok) { console.error("Failed to fetch image URL:", resp.status); return null; }
     const arrayBuffer = await resp.arrayBuffer();
     const bytes = new Uint8Array(arrayBuffer);
-
-    // Detect content type from response or default to png
     const contentType = resp.headers.get("content-type") || "image/png";
     const admin = adminClient();
     const { error } = await admin.storage
@@ -133,6 +132,187 @@ async function generateImage(apiKey: string, prompt: string): Promise<string | n
   if (!resp.ok) { console.error("Image gen failed:", resp.status); return null; }
   const data = await resp.json();
   return data.choices?.[0]?.message?.images?.[0]?.image_url?.url || null;
+}
+
+// ═══════════════════════════════════════════
+// TRAILER DEFINITION PACK HELPERS
+// ═══════════════════════════════════════════
+
+interface PackContext {
+  pack: any;
+  items: Array<{
+    document_id: string;
+    version_id: string | null;
+    role: string;
+    sort_order: number;
+    doc_type: string;
+    title: string;
+    plaintext: string;
+    char_count: number;
+  }>;
+  mergedText: string;
+  primariesText: string;
+  supportingText: string;
+}
+
+async function compileTrailerContext(db: any, projectId: string, packId: string): Promise<PackContext> {
+  const { data: pack } = await db.from("trailer_definition_packs")
+    .select("*").eq("id", packId).eq("project_id", projectId).single();
+  if (!pack) throw new Error("Trailer definition pack not found");
+
+  const { data: packItems } = await db.from("trailer_definition_pack_items")
+    .select("*").eq("pack_id", packId).eq("include", true)
+    .order("sort_order", { ascending: true });
+
+  if (!packItems || packItems.length === 0) throw new Error("No documents selected in pack");
+
+  // Sort: primaries first, then by sort_order
+  const sorted = [...packItems].sort((a: any, b: any) => {
+    if (a.role === "primary" && b.role !== "primary") return -1;
+    if (a.role !== "primary" && b.role === "primary") return 1;
+    return a.sort_order - b.sort_order;
+  });
+
+  const items: PackContext["items"] = [];
+
+  for (const item of sorted) {
+    // Get document info
+    const { data: doc } = await db.from("project_documents")
+      .select("title, doc_type").eq("id", item.document_id).single();
+    if (!doc) continue;
+
+    // Resolve version
+    let versionId = item.version_id;
+    if (!versionId) {
+      const { data: latestVer } = await db.from("project_document_versions")
+        .select("id").eq("document_id", item.document_id)
+        .order("version_number", { ascending: false }).limit(1).single();
+      versionId = latestVer?.id || null;
+    }
+
+    let plaintext = "";
+    if (versionId) {
+      const { data: ver } = await db.from("project_document_versions")
+        .select("plaintext, content").eq("id", versionId).single();
+      plaintext = (ver?.plaintext || ver?.content || "").toString();
+    }
+
+    items.push({
+      document_id: item.document_id,
+      version_id: versionId,
+      role: item.role,
+      sort_order: item.sort_order,
+      doc_type: doc.doc_type,
+      title: doc.title,
+      plaintext,
+      char_count: plaintext.length,
+    });
+  }
+
+  // Apply caps
+  const PRIMARY_CAP = 18000;
+  const SUPPORTING_CAP = 12000;
+  const MERGED_CAP = 24000;
+
+  function truncateItems(itemList: typeof items, cap: number): string {
+    if (itemList.length === 0) return "";
+    const totalChars = itemList.reduce((s, i) => s + i.char_count, 0);
+    if (totalChars <= cap) {
+      return itemList.map(i => `--- ${i.title} (${i.doc_type}, ${i.role}) ---\n${i.plaintext}`).join("\n\n");
+    }
+    const perDoc = Math.floor(cap / itemList.length);
+    return itemList.map(i => {
+      const text = i.plaintext.length > perDoc ? i.plaintext.slice(0, perDoc) + "\n[… truncated]" : i.plaintext;
+      return `--- ${i.title} (${i.doc_type}, ${i.role}) ---\n${text}`;
+    }).join("\n\n");
+  }
+
+  const primaries = items.filter(i => i.role === "primary");
+  const supporting = items.filter(i => i.role === "supporting");
+
+  const primariesText = truncateItems(primaries, PRIMARY_CAP);
+  const supportingText = truncateItems(supporting, SUPPORTING_CAP);
+  const mergedText = truncateItems(items, MERGED_CAP);
+
+  return { pack, items, mergedText, primariesText, supportingText };
+}
+
+// ═══════════════════════════════════════════
+// PACK CRUD HANDLERS
+// ═══════════════════════════════════════════
+
+async function handleUpsertPack(db: any, body: any, userId: string) {
+  const { projectId, packId, title, items } = body;
+  if (!projectId || !items || !Array.isArray(items)) return json({ error: "projectId and items required" }, 400);
+
+  let pack: any;
+
+  if (packId) {
+    // Update existing
+    const updates: any = { updated_by: userId };
+    if (title) updates.title = title;
+    const { data, error } = await db.from("trailer_definition_packs")
+      .update(updates).eq("id", packId).eq("project_id", projectId).select().single();
+    if (error) return json({ error: "Pack update failed: " + error.message }, 500);
+    pack = data;
+
+    // Delete removed items
+    const docIds = items.map((i: any) => i.documentId);
+    await db.from("trailer_definition_pack_items")
+      .delete().eq("pack_id", packId).not("document_id", "in", `(${docIds.join(",")})`);
+  } else {
+    // Create new
+    const { data, error } = await db.from("trailer_definition_packs")
+      .insert({ project_id: projectId, title: title || "Trailer Definition Pack", created_by: userId })
+      .select().single();
+    if (error) return json({ error: "Pack creation failed: " + error.message }, 500);
+    pack = data;
+  }
+
+  // Upsert items
+  for (const item of items) {
+    await db.from("trailer_definition_pack_items").upsert({
+      pack_id: pack.id,
+      project_id: projectId,
+      document_id: item.documentId,
+      version_id: item.versionId || null,
+      role: item.role || "supporting",
+      sort_order: item.sortOrder ?? 0,
+      include: item.include !== false,
+    }, { onConflict: "pack_id,document_id" });
+  }
+
+  // Return pack with items
+  const { data: packItems } = await db.from("trailer_definition_pack_items")
+    .select("*").eq("pack_id", pack.id).order("sort_order", { ascending: true });
+
+  return json({ pack, items: packItems || [] });
+}
+
+async function handleGetPacks(db: any, body: any) {
+  const { projectId } = body;
+  if (!projectId) return json({ error: "projectId required" }, 400);
+
+  const { data: packs } = await db.from("trailer_definition_packs")
+    .select("*, trailer_definition_pack_items(*)")
+    .eq("project_id", projectId)
+    .order("created_at", { ascending: false });
+
+  return json({ packs: packs || [] });
+}
+
+async function handleGetPack(db: any, body: any) {
+  const { projectId, packId } = body;
+  if (!projectId || !packId) return json({ error: "projectId and packId required" }, 400);
+
+  const { data: pack } = await db.from("trailer_definition_packs")
+    .select("*").eq("id", packId).eq("project_id", projectId).single();
+  if (!pack) return json({ error: "Pack not found" }, 404);
+
+  const { data: items } = await db.from("trailer_definition_pack_items")
+    .select("*").eq("pack_id", packId).order("sort_order", { ascending: true });
+
+  return json({ pack, items: items || [] });
 }
 
 // ═══════════════════════════════════════════
@@ -191,7 +371,6 @@ async function handleGenerateFrames(db: any, body: any, userId: string, apiKey: 
     .eq("id", shotId).eq("project_id", projectId).single();
   if (!shot) return json({ error: "Shot not found" }, 404);
 
-  // Auto-label if not yet labeled
   if (!shot.ai_readiness_tier) {
     const labelResp = await handleLabelReadiness(db, body, userId, apiKey);
     const labelData = await labelResp.json();
@@ -235,7 +414,6 @@ async function handleSelectMedia(db: any, body: any, _userId: string) {
     .eq("id", mediaId).eq("project_id", projectId).single();
   if (!media) return json({ error: "Media not found" }, 404);
 
-  // If storyboard_frame, deselect others for the same shot
   if (media.media_type === "storyboard_frame" && media.shot_id) {
     await db.from("ai_generated_media").update({ selected: false })
       .eq("project_id", projectId).eq("shot_id", media.shot_id)
@@ -258,16 +436,14 @@ async function handleAnimateClip(db: any, body: any, userId: string, apiKey: str
 
   const tier = shot.ai_readiness_tier;
   if (!tier || tier === "C" || tier === "D") {
-    return json({ error: `Tier ${tier || "unscored"}: motion stills require Tier A or B. Label readiness first or rewrite the shot.`, tier_blocked: true }, 400);
+    return json({ error: `Tier ${tier || "unscored"}: motion stills require Tier A or B.`, tier_blocked: true }, 400);
   }
 
-  // Get selected frame
   let { data: frames } = await db.from("ai_generated_media").select("*")
     .eq("project_id", projectId).eq("shot_id", shotId)
     .eq("media_type", "storyboard_frame").eq("selected", true).limit(1);
 
   if (!frames || frames.length === 0) {
-    // Auto-generate a frame first
     const frameResp = await handleGenerateFrames(db, { projectId, shotId, options: { variations: 1 } }, userId, apiKey);
     const frameData = await frameResp.json();
     if (frameData.media?.[0]) {
@@ -286,8 +462,6 @@ async function handleAnimateClip(db: any, body: any, userId: string, apiKey: str
   if (!keyframeUrl) return json({ error: "No keyframe URL available" }, 500);
 
   const motion = options.motion || "push_in";
-
-  // Generate a motion still: a second frame implying camera movement
   const animPrompt = `Take this cinematic keyframe and create a version with a subtle ${motion} camera movement implied. Gentle, cinematic motion. Show slight perspective shift. No lip-sync. NEGATIVES: no text, no watermarks, no logos.`;
 
   const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
@@ -325,31 +499,56 @@ async function handleAnimateClip(db: any, body: any, userId: string, apiKey: str
 }
 
 async function handleExtractMoments(db: any, body: any, _userId: string, apiKey: string) {
-  const { projectId, documentId, versionId } = body;
-  if (!projectId || !documentId || !versionId) return json({ error: "projectId, documentId, versionId required" }, 400);
+  const { projectId, packId, documentId, versionId } = body;
+  if (!projectId) return json({ error: "projectId required" }, 400);
 
-  const { data: version } = await db.from("project_document_versions")
-    .select("content, plaintext").eq("id", versionId).single();
-  const scriptText = (version?.plaintext || version?.content || "").toString();
-  if (!scriptText) return json({ error: "Version content not found" }, 404);
+  let contextText = "";
+  let sourceDocId = documentId || null;
+  let sourceVersionId = versionId || null;
 
-  const systemPrompt = `You are a trailer editor. Analyze this script and extract 10-25 trailer moments.
-For each: moment_summary, scene_number (int or null), hook_strength (0-10), spectacle_score (0-10), emotional_score (0-10), ai_friendly (bool), suggested_visual_approach (rewrite to AI-friendly: silhouettes, VO montage, inserts, landscapes, symbols, text cards).
+  if (packId) {
+    // Use pack context
+    const ctx = await compileTrailerContext(db, projectId, packId);
+    const docList = ctx.items.map(i => `• ${i.title} (${i.doc_type}, ${i.role})`).join("\n");
+    contextText = `TRAILER DEFINITION PACK: "${ctx.pack.title}"\nSelected documents:\n${docList}\n\n=== PRIMARY MATERIALS ===\n${ctx.primariesText}\n\n=== SUPPORTING MATERIALS ===\n${ctx.supportingText}`;
+  } else if (documentId && versionId) {
+    // Legacy single-doc path
+    const { data: version } = await db.from("project_document_versions")
+      .select("content, plaintext").eq("id", versionId).single();
+    contextText = (version?.plaintext || version?.content || "").toString();
+    if (!contextText) return json({ error: "Version content not found" }, 404);
+  } else {
+    return json({ error: "packId or (documentId + versionId) required" }, 400);
+  }
+
+  const systemPrompt = `You are a trailer editor. Analyze the provided project materials and extract 10-25 trailer-worthy moments.
+These materials may include scripts, treatments, beat sheets, concept briefs, blueprints, character bibles, or market sheets.
+If no full screenplay exists, extract moments from available materials — label confidence proportionally lower for non-script sources.
+For each moment return: moment_summary, scene_number (int or null), hook_strength (0-10), spectacle_score (0-10), emotional_score (0-10), ai_friendly (bool), suggested_visual_approach (rewrite to AI-friendly: silhouettes, VO montage, inserts, landscapes, symbols, text cards), source_refs (which doc titles/sections it came from), spoiler_level (0-3).
 Return JSON: { "moments": [...] }`;
 
-  const result = await callLLM({ apiKey, model: MODELS.BALANCED, system: systemPrompt, user: scriptText.slice(0, 30000), temperature: 0.4, maxTokens: 8000 });
+  const result = await callLLM({ apiKey, model: MODELS.BALANCED, system: systemPrompt, user: contextText.slice(0, 30000), temperature: 0.4, maxTokens: 8000 });
   const parsed = await parseJsonSafe(result.content, apiKey);
   const moments = parsed.moments || [];
 
-  await db.from("trailer_moments").delete().eq("project_id", projectId).eq("source_version_id", versionId);
+  // Clear old moments for this project (if pack-based, clear all; if doc-based, clear per version)
+  if (packId) {
+    await db.from("trailer_moments").delete().eq("project_id", projectId);
+  } else if (sourceVersionId) {
+    await db.from("trailer_moments").delete().eq("project_id", projectId).eq("source_version_id", sourceVersionId);
+  }
 
   const rows = moments.map((m: any) => ({
-    project_id: projectId, source_document_id: documentId, source_version_id: versionId,
-    scene_number: m.scene_number ?? null, moment_summary: m.moment_summary || "Untitled",
+    project_id: projectId,
+    source_document_id: sourceDocId,
+    source_version_id: sourceVersionId,
+    scene_number: m.scene_number ?? null,
+    moment_summary: m.moment_summary || "Untitled",
     hook_strength: Math.max(0, Math.min(10, m.hook_strength ?? 5)),
     spectacle_score: Math.max(0, Math.min(10, m.spectacle_score ?? 5)),
     emotional_score: Math.max(0, Math.min(10, m.emotional_score ?? 5)),
-    ai_friendly: !!m.ai_friendly, suggested_visual_approach: m.suggested_visual_approach || null,
+    ai_friendly: !!m.ai_friendly,
+    suggested_visual_approach: m.suggested_visual_approach || null,
   }));
 
   if (rows.length > 0) await db.from("trailer_moments").insert(rows);
@@ -364,7 +563,6 @@ async function handleBuildShotlist(db: any, body: any, userId: string, _apiKey: 
     .eq("project_id", projectId).order("created_at", { ascending: false }).limit(100);
   if (!moments || moments.length === 0) return json({ error: "No trailer moments found. Extract moments first." }, 400);
 
-  // Filter to selected moment IDs if provided
   let filteredMoments = moments;
   if (momentIds && Array.isArray(momentIds) && momentIds.length > 0) {
     const idSet = new Set(momentIds);
@@ -411,7 +609,6 @@ async function handleGenerateTrailerAssets(db: any, body: any, userId: string, a
 
   const allItems = shotlist.items || [];
   const selectedIndices: number[] | null = shotlist.selected_indices;
-  // Filter: by selected_indices if saved, then by included flag
   const filteredByIndices = selectedIndices && selectedIndices.length > 0
     ? allItems.filter((item: any) => selectedIndices.includes(item.index))
     : allItems;
@@ -428,13 +625,9 @@ async function handleGenerateTrailerAssets(db: any, body: any, userId: string, a
       const prompt = buildImagePrompt({
         characters_in_frame: [],
         blocking_notes: item.shot_description,
-        location_hint: "",
-        time_of_day_hint: "day",
-        shot_type: "WS",
-        framing: "wide",
-        camera_movement: "static",
-        lighting_style: "cinematic",
-        emotional_intent: "dramatic",
+        location_hint: "", time_of_day_hint: "day",
+        shot_type: "WS", framing: "wide", camera_movement: "static",
+        lighting_style: "cinematic", emotional_intent: "dramatic",
       }, "cinematic trailer frame");
 
       const imageUrl = await generateImage(apiKey, prompt);
@@ -453,7 +646,6 @@ async function handleGenerateTrailerAssets(db: any, body: any, userId: string, a
 
       framesGenerated++;
 
-      // Generate motion stills for top beats (A/B tier, within budget)
       if (item.ai_suggested_tier !== "C" && motionStillCount < motionStillBudget && item.hook_strength >= 6) {
         try {
           const animResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
@@ -513,13 +705,11 @@ async function handleAssembleTrailer(db: any, body: any, userId: string, _apiKey
 
   const allItems = shotlist.items || [];
   const selectedIndices: number[] | null = shotlist.selected_indices;
-  // Filter: by selected_indices if saved, then by included flag
   const filteredByIndices = selectedIndices && selectedIndices.length > 0
     ? allItems.filter((item: any) => selectedIndices.includes(item.index))
     : allItems;
   const items = filteredByIndices.filter((item: any) => item.included !== false);
 
-  // Query media efficiently using trailer_shotlist_id column
   const { data: shotlistMedia } = await db.from("ai_generated_media").select("*")
     .eq("project_id", projectId)
     .eq("trailer_shotlist_id", trailerShotlistId)
@@ -614,6 +804,9 @@ Deno.serve(async (req) => {
       case "build_trailer_shotlist": return await handleBuildShotlist(db, body, userId, apiKey);
       case "generate_trailer_assets": return await handleGenerateTrailerAssets(db, body, userId, apiKey);
       case "assemble_taster_trailer": return await handleAssembleTrailer(db, body, userId, apiKey);
+      case "upsert_trailer_pack": return await handleUpsertPack(db, body, userId);
+      case "get_trailer_packs": return await handleGetPacks(db, body);
+      case "get_trailer_pack": return await handleGetPack(db, body);
       default: return json({ error: `Unknown action: ${action}` }, 400);
     }
   } catch (err) {

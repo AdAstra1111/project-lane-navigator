@@ -1,6 +1,6 @@
 /**
  * useAiTrailerFactory — Hook for AI Trailer Factory MVP.
- * Points to the ai-trailer-factory edge function with all 8 actions.
+ * Points to the ai-trailer-factory edge function with all actions.
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
@@ -67,6 +67,30 @@ export interface TrailerShotlist {
   created_at: string;
 }
 
+export interface TrailerDefinitionPack {
+  id: string;
+  project_id: string;
+  title: string;
+  status: string;
+  created_by: string;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TrailerDefinitionPackItem {
+  id: string;
+  pack_id: string;
+  project_id: string;
+  document_id: string;
+  version_id: string | null;
+  role: string;
+  sort_order: number;
+  include: boolean;
+  notes: string | null;
+  created_at: string;
+}
+
 export function useAiTrailerFactory(projectId: string | undefined) {
   const qc = useQueryClient();
 
@@ -106,6 +130,30 @@ export function useAiTrailerFactory(projectId: string | undefined) {
     enabled: !!projectId,
   });
 
+  // ─── Pack queries ───
+  const packsQuery = useQuery({
+    queryKey: ['trailer-packs', projectId],
+    queryFn: async () => {
+      const res = await callFactory('get_trailer_packs', { projectId });
+      return (res.packs || []) as (TrailerDefinitionPack & { trailer_definition_pack_items: TrailerDefinitionPackItem[] })[];
+    },
+    enabled: !!projectId,
+  });
+
+  const upsertPack = useMutation({
+    mutationFn: (params: {
+      packId?: string;
+      title?: string;
+      items: Array<{ documentId: string; versionId?: string; role: string; sortOrder: number; include: boolean }>;
+    }) => callFactory('upsert_trailer_pack', { projectId, ...params }),
+    onSuccess: () => {
+      toast.success('Trailer definition pack saved');
+      qc.invalidateQueries({ queryKey: ['trailer-packs', projectId] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  // ─── Existing mutations ───
   const labelReadiness = useMutation({
     mutationFn: (shotId: string) => callFactory('label_ai_readiness', { projectId, shotId }),
     onSuccess: () => { toast.success('AI readiness labeled'); qc.invalidateQueries({ queryKey: ['vp-shots', projectId] }); },
@@ -133,7 +181,7 @@ export function useAiTrailerFactory(projectId: string | undefined) {
   });
 
   const extractMoments = useMutation({
-    mutationFn: (params: { documentId: string; versionId: string }) =>
+    mutationFn: (params: { packId?: string; documentId?: string; versionId?: string }) =>
       callFactory('extract_trailer_moments', { projectId, ...params }),
     onSuccess: (data) => { toast.success(`Extracted ${data.inserted} trailer moments`); qc.invalidateQueries({ queryKey: ['trailer-moments', projectId] }); },
     onError: (e: Error) => toast.error(e.message),
@@ -217,11 +265,14 @@ export function useAiTrailerFactory(projectId: string | undefined) {
     media: mediaQuery.data || [],
     moments: momentsQuery.data || [],
     shotlists: shotlistsQuery.data || [],
+    packs: packsQuery.data || [],
     isLoadingMedia: mediaQuery.isLoading,
     isLoadingMoments: momentsQuery.isLoading,
     isLoadingShotlists: shotlistsQuery.isLoading,
+    isLoadingPacks: packsQuery.isLoading,
     labelReadiness, generateFrames, selectMedia, generateMotionStill,
     extractMoments, buildShotlist, createTrailerSourceScript, saveSelectedIndices,
     updateShotlistItems, generateTrailerAssets, assembleTrailer,
+    upsertPack,
   };
 }
