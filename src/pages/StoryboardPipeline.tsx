@@ -1,21 +1,25 @@
 /**
  * Storyboard Pipeline v1 — Main page
  */
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Layers, Image, RefreshCw, Check, Loader2, Camera, ChevronDown, ChevronRight, Play, Square, AlertTriangle, FileDown, Archive, ExternalLink, Trash2 } from 'lucide-react';
+import { ArrowLeft, Layers, Image, RefreshCw, Check, Loader2, Camera, ChevronDown, ChevronRight, Play, Square, AlertTriangle, FileDown, Archive, ExternalLink, Trash2, Film, Settings2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Separator } from '@/components/ui/separator';
 import { Progress } from '@/components/ui/progress';
 import { useCanonicalUnits, useStoryboardRuns, useStoryboardPanels, useStoryboardPanel, useStoryboardMutations } from '@/lib/storyboard/useStoryboard';
 import { useRenderRuns, useRenderRun, useRenderMutations, useRenderWorker } from '@/lib/storyboardRender/useStoryboardRender';
 import { useExports, useExportMutations } from '@/lib/storyboardExport/useStoryboardExport';
+import { useAnimaticRuns, useAnimaticRun, useAnimaticMutations, useAnimaticRenderer } from '@/lib/animatics/useAnimatics';
 import type { CanonicalUnitSummary, StoryboardPanel } from '@/lib/types/storyboard';
 
 export default function StoryboardPipeline() {
@@ -27,6 +31,10 @@ export default function StoryboardPipeline() {
   const [stylePreset, setStylePreset] = useState('cinematic_realism');
   const [aspectRatio, setAspectRatio] = useState('16:9');
   const [activeRenderRunId, setActiveRenderRunId] = useState<string | undefined>();
+  const [selectedAnimaticId, setSelectedAnimaticId] = useState<string | undefined>();
+  const [animaticFps, setAnimaticFps] = useState(24);
+  const [animaticDuration, setAnimaticDuration] = useState(900);
+  const [animaticCaption, setAnimaticCaption] = useState(true);
 
   const { data: unitsData, isLoading: unitsLoading } = useCanonicalUnits(projectId);
   const { data: runsData } = useStoryboardRuns(projectId);
@@ -43,6 +51,14 @@ export default function StoryboardPipeline() {
   const { data: exportsData } = useExports(projectId, selectedRunId);
   const { createExport, deleteExport } = useExportMutations(projectId);
   const exports = exportsData?.exports || [];
+
+  // Animatic hooks
+  const { data: animaticRunsData } = useAnimaticRuns(projectId, selectedRunId);
+  const { data: animaticRunDetail } = useAnimaticRun(projectId, selectedAnimaticId);
+  const { createRun: createAnimaticRun } = useAnimaticMutations(projectId);
+  const { render: renderAnimaticVideo, cancelRender, isRendering, progress: renderProgress } = useAnimaticRenderer(projectId);
+  const animaticRuns = animaticRunsData?.runs || [];
+  const selectedAnimatic = animaticRunDetail?.run;
 
   const renderRun = renderRunDetail?.renderRun;
   const renderJobs = renderRunDetail?.jobs || [];
@@ -409,6 +425,140 @@ export default function StoryboardPipeline() {
                           >
                             <Trash2 className="h-3 w-3" />
                           </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Animatic Builder */}
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <Film className="h-4 w-4" />
+                    Animatic
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {/* Controls */}
+                  <div className="flex gap-2 flex-wrap items-end">
+                    <div className="space-y-1">
+                      <Label className="text-[10px]">Duration (ms)</Label>
+                      <Input
+                        type="number"
+                        className="h-7 w-24 text-xs"
+                        value={animaticDuration}
+                        onChange={e => setAnimaticDuration(Number(e.target.value) || 900)}
+                        min={200}
+                        max={5000}
+                        step={100}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-[10px]">FPS</Label>
+                      <Select value={String(animaticFps)} onValueChange={v => setAnimaticFps(Number(v))}>
+                        <SelectTrigger className="h-7 w-20 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="12">12</SelectItem>
+                          <SelectItem value="24">24</SelectItem>
+                          <SelectItem value="30">30</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="flex items-center gap-1.5 pb-0.5">
+                      <Switch checked={animaticCaption} onCheckedChange={setAnimaticCaption} className="scale-75" />
+                      <Label className="text-[10px]">Captions</Label>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="default"
+                      disabled={createAnimaticRun.isPending || isRendering}
+                      onClick={async () => {
+                        const result = await createAnimaticRun.mutateAsync({
+                          storyboardRunId: selectedRunId!,
+                          options: { fps: animaticFps, default_duration_ms: animaticDuration, caption: animaticCaption },
+                        });
+                        if (result?.animaticRunId) {
+                          setSelectedAnimaticId(result.animaticRunId);
+                          renderAnimaticVideo(selectedRunId!, result.animaticRunId);
+                        }
+                      }}
+                    >
+                      {isRendering ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Film className="h-3 w-3 mr-1" />}
+                      Create Animatic
+                    </Button>
+                    {isRendering && (
+                      <Button size="sm" variant="destructive" onClick={cancelRender}>
+                        <Square className="h-3 w-3 mr-1" /> Cancel
+                      </Button>
+                    )}
+                  </div>
+
+                  {/* Render Progress */}
+                  {isRendering && renderProgress && (
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2 text-xs">
+                        <Badge variant="default" className="text-[10px] animate-pulse">Rendering</Badge>
+                        <span className="text-muted-foreground">{renderProgress.done}/{renderProgress.total} panels</span>
+                      </div>
+                      <Progress value={renderProgress.total > 0 ? (renderProgress.done / renderProgress.total) * 100 : 0} className="h-2" />
+                    </div>
+                  )}
+
+                  {/* Video preview for selected animatic */}
+                  {selectedAnimatic?.status === 'complete' && selectedAnimatic?.public_url && (
+                    <div className="mt-2">
+                      <video
+                        controls
+                        className="w-full rounded border border-border"
+                        src={selectedAnimatic.public_url}
+                      />
+                    </div>
+                  )}
+
+                  {/* Animatic runs list */}
+                  {animaticRuns.length > 0 && (
+                    <div className="space-y-1">
+                      <p className="text-[10px] text-muted-foreground">Recent animatics:</p>
+                      {animaticRuns.slice(0, 6).map((ar: any) => (
+                        <div
+                          key={ar.id}
+                          onClick={() => setSelectedAnimaticId(ar.id)}
+                          className={`flex items-center gap-2 text-xs rounded px-2 py-1.5 cursor-pointer transition-colors ${
+                            selectedAnimaticId === ar.id ? 'bg-primary/10 border border-primary/30' : 'bg-muted/30 hover:bg-muted/50 border border-transparent'
+                          }`}
+                        >
+                          <Badge variant={
+                            ar.status === 'complete' ? 'default' :
+                            ar.status === 'failed' ? 'destructive' :
+                            ar.status === 'rendering' || ar.status === 'uploading' ? 'secondary' : 'outline'
+                          } className="text-[10px]">{ar.status}</Badge>
+                          <span className="text-muted-foreground/60 text-[10px]">{new Date(ar.created_at).toLocaleString()}</span>
+                          {ar.status === 'complete' && ar.public_url && (
+                            <a href={ar.public_url} target="_blank" rel="noopener noreferrer" className="ml-auto" onClick={e => e.stopPropagation()}>
+                              <Button size="sm" variant="ghost" className="h-5 px-1.5 text-[10px]">
+                                <ExternalLink className="h-3 w-3 mr-0.5" /> Open
+                              </Button>
+                            </a>
+                          )}
+                          {ar.status === 'failed' && (
+                            <span className="text-destructive text-[10px] truncate max-w-[150px]">{ar.error}</span>
+                          )}
+                          {(ar.status === 'draft' || ar.status === 'failed') && !isRendering && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-5 px-1.5 text-[10px] ml-auto"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedAnimaticId(ar.id);
+                                renderAnimaticVideo(selectedRunId!, ar.id);
+                              }}
+                            >
+                              <RefreshCw className="h-3 w-3 mr-0.5" /> Retry
+                            </Button>
+                          )}
                         </div>
                       ))}
                     </div>
