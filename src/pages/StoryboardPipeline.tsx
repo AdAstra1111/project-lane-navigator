@@ -127,6 +127,15 @@ export default function StoryboardPipeline() {
           </Link>
           <Layers className="h-5 w-5 text-primary" />
           <h1 className="text-lg font-semibold">Storyboard Pipeline</h1>
+          <div className="ml-auto">
+            <Link to={`/projects/${projectId}/trailer-pipeline`}>
+              <Button variant="outline" size="sm" className="text-xs gap-1.5">
+                <Film className="h-3.5 w-3.5" />
+                Trailer Pipeline
+              </Button>
+            </Link>
+          </div>
+          <h1 className="text-lg font-semibold">Storyboard Pipeline</h1>
         </div>
       </header>
 
