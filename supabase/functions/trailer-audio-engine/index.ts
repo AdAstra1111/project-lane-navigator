@@ -133,6 +133,7 @@ function getVoProvider(): string {
 function getMusicProvider(): string {
   const mp = Deno.env.get("MUSIC_PROVIDER");
   if (mp) return mp;
+  if (Deno.env.get("ELEVENLABS_API_KEY")) return "elevenlabs";
   return "library";
 }
 
@@ -505,8 +506,81 @@ async function handleGenMusic(db: any, body: any, userId: string) {
   if (!run) return json({ error: "Audio run not found" }, 404);
 
   const provider = getMusicProvider();
+  const styleTags = run.inputs_json?.musicStyleTags || "epic, cinematic";
+  const totalMs = run.plan_json?.total_duration_ms || 60000;
 
-  if (provider === "library") {
+  if (provider === "elevenlabs") {
+    // Use ElevenLabs Music API
+    const apiKey = Deno.env.get("ELEVENLABS_API_KEY");
+    if (!apiKey) return json({ error: "ELEVENLABS_API_KEY not configured" }, 500);
+
+    const durationSec = Math.min(Math.max(Math.round(totalMs / 1000), 10), 120);
+    const prompt = `Cinematic trailer music. Style: ${styleTags}. Intense, building tension, dramatic orchestral. Suitable for a movie trailer.`;
+
+    const candidates = ["music_candidate_A", "music_candidate_B"];
+    let generatedCount = 0;
+
+    for (const label of candidates) {
+      const assetId = crypto.randomUUID();
+      const storagePath = `${projectId}/audio/${audioRunId}/music/${assetId}.mp3`;
+
+      try {
+        const resp = await fetch("https://api.elevenlabs.io/v1/music", {
+          method: "POST",
+          headers: {
+            "xi-api-key": apiKey,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            prompt: label === "music_candidate_A"
+              ? prompt
+              : `${prompt} Alternative variation with different mood.`,
+            duration_seconds: durationSec,
+          }),
+        });
+
+        if (!resp.ok) {
+          const errText = await resp.text();
+          console.error(`ElevenLabs music error: ${resp.status} - ${errText.slice(0, 300)}`);
+          continue;
+        }
+
+        const audioBuffer = await resp.arrayBuffer();
+        const audioData = new Uint8Array(audioBuffer);
+
+        await db.storage.from("trailers").upload(storagePath, audioData, {
+          contentType: "audio/mpeg",
+          upsert: true,
+        });
+
+        await db.from("trailer_audio_assets").insert({
+          project_id: projectId,
+          audio_run_id: audioRunId,
+          kind: "music_bed",
+          name: label,
+          asset_type: "music",
+          label,
+          provider: "elevenlabs",
+          storage_path: storagePath,
+          duration_ms: durationSec * 1000,
+          tags: styleTags.split(",").map((t: string) => t.trim()),
+          created_by: userId,
+        });
+
+        generatedCount++;
+      } catch (err: any) {
+        console.error(`Music gen failed for ${label}:`, err.message);
+      }
+    }
+
+    await logAudioEvent(db, {
+      project_id: projectId,
+      audio_run_id: audioRunId,
+      event_type: generatedCount > 0 ? "music_generated" : "music_none_found",
+      payload: { provider: "elevenlabs", candidates: generatedCount },
+      created_by: userId,
+    });
+  } else if (provider === "library") {
     // Look for uploaded music beds in the project
     const { data: assets } = await db
       .from("trailer_audio_assets")
@@ -517,7 +591,6 @@ async function handleGenMusic(db: any, body: any, userId: string) {
       .limit(5);
 
     if (assets && assets.length > 0) {
-      // Link existing music beds as candidates
       for (const asset of assets) {
         await db
           .from("trailer_audio_assets")
@@ -552,7 +625,6 @@ async function handleGenMusic(db: any, body: any, userId: string) {
       const assetId = crypto.randomUUID();
       const storagePath = `${projectId}/audio/${audioRunId}/music/${assetId}.wav`;
 
-      // Generate stub WAV
       const { audio } = await generateVoStub("", "");
       await db.storage.from("trailers").upload(storagePath, audio, {
         contentType: "audio/wav",
@@ -568,9 +640,7 @@ async function handleGenMusic(db: any, body: any, userId: string) {
         label,
         provider: "stub",
         storage_path: storagePath,
-        tags: (run.inputs_json?.musicStyleTags || "epic,cinematic")
-          .split(",")
-          .map((t: string) => t.trim()),
+        tags: styleTags.split(",").map((t: string) => t.trim()),
         created_by: userId,
       });
     }
