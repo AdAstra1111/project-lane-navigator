@@ -414,6 +414,27 @@ export default function ClipCandidatesStudio() {
                             </Badge>
 
                             {selectedClipId && <Check className="h-3 w-3 text-green-400" />}
+
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="text-[10px] h-5 px-1.5 ml-auto"
+                              disabled={enqueueForRun.isPending || processQueue.isPending}
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                if (!blueprintId) return;
+                                if (enabledProviders.length === 0) {
+                                  toast.error('Enable at least one AI provider');
+                                  return;
+                                }
+                                try {
+                                  await enqueueForRun.mutateAsync({ blueprintId, force: true, enabledProviders, beatIndices: [idx] });
+                                  await processQueue.mutateAsync({ blueprintId, maxJobs: 5 });
+                                } catch {}
+                              }}
+                            >
+                              <Zap className="h-2.5 w-2.5 mr-0.5" /> Generate
+                            </Button>
                           </button>
 
                           {isExpanded && (
