@@ -8,6 +8,7 @@ import type { WritersRoomData, NoteOption, ChangePlan, ChangePlanRow } from '@/l
 
 const QUERY_KEY = (docId: string, noteHash: string) => ['writers-room', docId, noteHash];
 const PLAN_KEY = (threadId: string) => ['writers-room-plan', threadId];
+const CONTEXT_KEY = (projectId: string) => ['writers-room-context', projectId];
 
 async function invoke(action: string, params: Record<string, any>) {
   const { data, error } = await supabase.functions.invoke('notes-writers-room', {
@@ -42,6 +43,14 @@ export function useNoteWritersRoom(opts: {
   const invalidate = () => qc.invalidateQueries({ queryKey: key });
 
   const threadId = query.data?.thread?.id;
+
+  // Context info query — which doc/version is loaded
+  const contextQuery = useQuery({
+    queryKey: CONTEXT_KEY(projectId),
+    queryFn: () => invoke('get_context_info', { projectId, versionId }),
+    enabled: enabled && !!projectId,
+    staleTime: 60_000,
+  });
 
   const planQuery = useQuery<ChangePlanRow | null>({
     queryKey: PLAN_KEY(threadId || ''),
@@ -135,6 +144,7 @@ export function useNoteWritersRoom(opts: {
   return {
     query,
     planQuery,
+    contextQuery,
     ensureThread,
     postMessage,
     updateState,

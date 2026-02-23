@@ -15,7 +15,7 @@ import { Separator } from '@/components/ui/separator';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   Loader2, Send, Pin, X, Sparkles, Check, CheckCircle2,
-  AlertTriangle, Lightbulb, Layers, Zap, FileEdit,
+  AlertTriangle, Lightbulb, Layers, Zap, FileEdit, FileText, RefreshCw,
 } from 'lucide-react';
 import { useNoteWritersRoom } from '@/hooks/useNoteWritersRoom';
 import { noteFingerprint } from '@/lib/decisions/fingerprint';
@@ -68,7 +68,7 @@ export function NoteWritersRoomDrawer({
   };
 
   const {
-    query, planQuery, ensureThread, postMessage, updateState, generateOptions,
+    query, planQuery, contextQuery, ensureThread, postMessage, updateState, generateOptions,
     selectOption, synthesizeBest, proposeChangePlan, confirmChangePlan, applyChangePlan,
     threadId,
   } = useNoteWritersRoom({
@@ -92,6 +92,9 @@ export function NoteWritersRoomDrawer({
   const synthesis = state?.synthesis;
   const pins = state?.pinned_constraints || [];
   const currentPlan = planQuery.data;
+  const ctxData = contextQuery.data;
+  const hasScript = ctxData?.hasScript ?? false;
+  const scriptDocInfo = ctxData?.scriptDocInfo;
 
   useEffect(() => {
     if (open && !query.data && !query.isLoading) {
@@ -275,6 +278,26 @@ export function NoteWritersRoomDrawer({
               </div>
 
               <Separator className="my-1" />
+
+              {/* Context indicator */}
+              <div className="flex items-center gap-1.5 py-1 px-1 rounded bg-muted/50 text-[9px] text-muted-foreground">
+                <FileText className="h-3 w-3 shrink-0" />
+                {hasScript && scriptDocInfo ? (
+                  <span>
+                    Context: Script v{scriptDocInfo.versionNumber}
+                    {scriptDocInfo.label ? ` — ${scriptDocInfo.label}` : ''}
+                    {scriptDocInfo.updatedAt ? ` • ${new Date(scriptDocInfo.updatedAt).toLocaleDateString()}` : ''}
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1">
+                    Context: None
+                    <Button variant="ghost" size="sm" className="h-4 text-[9px] px-1.5 py-0 text-primary hover:text-primary/80"
+                      onClick={() => contextQuery.refetch()}>
+                      <RefreshCw className="h-2.5 w-2.5 mr-0.5" />Load current script
+                    </Button>
+                  </span>
+                )}
+              </div>
 
               {/* Chat messages */}
               <ScrollArea className="flex-1 min-h-0" ref={scrollRef}>
