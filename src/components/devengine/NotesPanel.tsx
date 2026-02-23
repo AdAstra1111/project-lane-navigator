@@ -556,6 +556,184 @@ function DecisionSetsSection({ decisionSets, projectId, documentId, versionId, o
   );
 }
 
+// ── Pinned Deferred Notes as Decision Cards ──
+function PinnedNoteDecisions({ pinnedNotes, projectId, documentId, versionId, onResolved, onDismiss }: {
+  pinnedNotes: any[];
+  projectId?: string;
+  documentId?: string;
+  versionId?: string;
+  onResolved?: (noteId: string) => void;
+  onDismiss?: (noteId: string) => void;
+}) {
+  const [loadingFixes, setLoadingFixes] = useState<string | null>(null);
+  const [fixOptions, setFixOptions] = useState<Record<string, any[]>>({});
+  const [chosenFix, setChosenFix] = useState<Record<string, number>>({});
+  const [applying, setApplying] = useState<string | null>(null);
+
+  const fetchFixes = useCallback(async (note: any) => {
+    const noteId = note.id;
+    if (fixOptions[noteId]) return; // already fetched
+    if (!projectId || !versionId) { toast.error('No document version selected'); return; }
+    setLoadingFixes(noteId);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      const nj = note.note_json || {};
+      const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/resolve-carried-note`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({
+          note_id: noteId,
+          project_id: projectId,
+          action: 'ai_patch',
+          current_version_id: versionId,
+          note_snapshot: nj,
+        }),
+      });
+      const result = await resp.json();
+      if (result.fix_options && result.fix_options.length > 0) {
+        setFixOptions(prev => ({ ...prev, [noteId]: result.fix_options }));
+      } else if (result.proposed_edits) {
+        // Wrap single proposed edit as a single option
+        setFixOptions(prev => ({
+          ...prev,
+          [noteId]: [{ patch_name: result.recommended_option?.patch_name || 'Recommended fix', where: result.recommended_option?.rationale || '', what: result.summary || '', structural_impact: result.recommended_option?.estimated_impact || '', risk: '', _proposed_edits: result.proposed_edits }],
+        }));
+      } else {
+        toast.info('No fix options generated for this note');
+      }
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to generate fixes');
+    } finally {
+      setLoadingFixes(null);
+    }
+  }, [fixOptions, projectId, versionId]);
+
+  const applyFix = useCallback(async (note: any, fixIndex: number) => {
+    const noteId = note.id;
+    const fixes = fixOptions[noteId];
+    if (!fixes || !fixes[fixIndex]) return;
+    const fix = fixes[fixIndex];
+    if (!fix._proposed_edits || fix._proposed_edits.length === 0) {
+      // Just mark resolved if no edits
+      onResolved?.(noteId);
+      return;
+    }
+    if (!projectId || !versionId) return;
+    setApplying(noteId);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/resolve-carried-note`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({
+          note_id: noteId,
+          project_id: projectId,
+          action: 'apply_patch',
+          current_version_id: versionId,
+          patch_content: fix._proposed_edits,
+          note_snapshot: note.note_json || {},
+        }),
+      });
+      if (resp.ok) {
+        toast.success('Fix applied — new version created');
+        onResolved?.(noteId);
+      } else {
+        const err = await resp.json();
+        toast.error(err.error || 'Apply failed');
+      }
+    } catch { toast.error('Apply failed'); }
+    finally { setApplying(null); }
+  }, [fixOptions, projectId, versionId, onResolved]);
+
+  if (!pinnedNotes || pinnedNotes.length === 0) return null;
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-1 text-[10px] font-semibold text-primary">
+        <Pin className="h-3 w-3" />Pinned Notes — Decisions ({pinnedNotes.length})
+        <span className="text-[8px] text-muted-foreground font-normal ml-1">choose a resolution</span>
+      </div>
+      {pinnedNotes.map((note: any) => {
+        const nj = note.note_json || {};
+        const noteId = note.id;
+        const desc = nj.description || nj.note || note.note_key || 'Note';
+        const fixes = fixOptions[noteId] || [];
+        const chosen = chosenFix[noteId];
+        const isLoading = loadingFixes === noteId;
+        const isApplying = applying === noteId;
+
+        return (
+          <div key={noteId} className="rounded border border-primary/30 bg-primary/5 p-2 space-y-1.5">
+            <div className="flex items-center gap-1 flex-wrap">
+              <Badge variant="outline" className="text-[7px] px-1 py-0 border-primary/40 text-primary bg-primary/10">
+                <Pin className="h-2 w-2 mr-0.5 inline" />Pinned
+              </Badge>
+              {note.source_doc_type && (
+                <Badge variant="outline" className="text-[8px] px-1 py-0">From: {note.source_doc_type.replace(/_/g, ' ')}</Badge>
+              )}
+              {note.severity && (
+                <Badge variant="outline" className={`text-[8px] px-1 py-0 ${note.severity === 'blocker' ? 'text-destructive border-destructive/30' : note.severity === 'high' ? 'text-amber-400 border-amber-500/30' : 'text-muted-foreground'}`}>
+                  {note.severity}
+                </Badge>
+              )}
+            </div>
+            <p className="text-[10px] font-medium text-foreground">{desc}</p>
+            {nj.why_it_matters && <p className="text-[9px] text-muted-foreground italic">{nj.why_it_matters}</p>}
+
+            {/* Fix options (loaded on demand) */}
+            {fixes.length === 0 && (
+              <Button variant="outline" size="sm" className="h-5 text-[9px] px-2 gap-1 border-primary/30 text-primary"
+                onClick={() => fetchFixes(note)} disabled={isLoading}>
+                {isLoading ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Wand2 className="h-2.5 w-2.5" />}
+                Generate Solutions
+              </Button>
+            )}
+
+            {fixes.length > 0 && (
+              <div className="space-y-1">
+                {fixes.map((fix: any, idx: number) => (
+                  <button key={idx}
+                    onClick={() => setChosenFix(p => ({ ...p, [noteId]: idx }))}
+                    className={`w-full text-left rounded px-2 py-1.5 border transition-all text-[9px] ${chosen === idx ? 'border-primary/60 bg-primary/10' : 'border-border/30 bg-muted/20 hover:border-border/60'}`}>
+                    <span className="font-medium text-foreground">{fix.patch_name}</span>
+                    {fix.where && <span className="text-muted-foreground ml-1">· {fix.where}</span>}
+                    {fix.what && <p className="text-[8px] text-muted-foreground mt-0.5">{fix.what}</p>}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <div className="flex items-center gap-1 flex-wrap">
+              {chosen !== undefined && fixes[chosen] && (
+                <Button size="sm" className="h-5 text-[8px] px-2 gap-0.5 w-full"
+                  disabled={isApplying}
+                  onClick={() => applyFix(note, chosen)}>
+                  {isApplying ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Check className="h-2.5 w-2.5" />}
+                  Apply Fix
+                </Button>
+              )}
+              {fixes.length === 0 && !isLoading && (
+                <>
+                  <Button variant="outline" size="sm" className="h-5 text-[8px] px-1.5 gap-0.5 border-emerald-500/30 text-emerald-500"
+                    onClick={() => onResolved?.(noteId)}>
+                    <Check className="h-2.5 w-2.5" />Mark Resolved
+                  </Button>
+                  <Button variant="ghost" size="sm" className="h-5 text-[8px] px-1.5 gap-0.5 text-muted-foreground hover:text-destructive"
+                    onClick={() => onDismiss?.(noteId)}>
+                    <X className="h-2.5 w-2.5" />Dismiss
+                  </Button>
+                </>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ── Main Component ──
 export function NotesPanel({
   allNotes, tieredNotes, selectedNotes, setSelectedNotes,
@@ -771,6 +949,24 @@ export function NotesPanel({
               onDecisionApplied={() => {
                 setStatusVersion(v => v + 1);
                 onDecisionApplied?.();
+              }}
+            />
+          )}
+
+          {/* Pinned deferred notes as decision cards */}
+          {persistedDeferredNotes && persistedDeferredNotes.filter((n: any) => n.pinned).length > 0 && (
+            <PinnedNoteDecisions
+              pinnedNotes={persistedDeferredNotes.filter((n: any) => n.pinned)}
+              projectId={projectId}
+              documentId={documentId}
+              versionId={currentVersionId}
+              onResolved={(noteId) => {
+                onResolveCarriedNote?.(noteId, 'mark_resolved', undefined, persistedDeferredNotes.find((n: any) => n.id === noteId)?.note_json);
+                setStatusVersion(v => v + 1);
+              }}
+              onDismiss={(noteId) => {
+                onDismissDeferred?.(noteId);
+                setStatusVersion(v => v + 1);
               }}
             />
           )}
