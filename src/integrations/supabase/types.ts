@@ -15005,6 +15005,7 @@ export type Database = {
       }
       shot_plan_job_scenes: {
         Row: {
+          attempts: number
           error_message: string | null
           finished_at: string | null
           id: string
@@ -15012,11 +15013,13 @@ export type Database = {
           job_id: string
           project_id: string
           scene_id: string
+          scene_order: number
           started_at: string
           status: string
           updated_at: string
         }
         Insert: {
+          attempts?: number
           error_message?: string | null
           finished_at?: string | null
           id?: string
@@ -15024,11 +15027,13 @@ export type Database = {
           job_id: string
           project_id: string
           scene_id: string
+          scene_order?: number
           started_at?: string
           status?: string
           updated_at?: string
         }
         Update: {
+          attempts?: number
           error_message?: string | null
           finished_at?: string | null
           id?: string
@@ -15036,6 +15041,7 @@ export type Database = {
           job_id?: string
           project_id?: string
           scene_id?: string
+          scene_order?: number
           started_at?: string
           status?: string
           updated_at?: string
@@ -15068,11 +15074,16 @@ export type Database = {
         Row: {
           completed_scenes: number
           created_by: string | null
+          current_scene_id: string | null
+          current_scene_index: number
           finished_at: string | null
           id: string
           inserted_shots: number
+          last_error: string | null
+          last_heartbeat_at: string | null
           last_message: string | null
           last_scene_id: string | null
+          mode: string
           project_id: string
           started_at: string
           status: string
@@ -15082,11 +15093,16 @@ export type Database = {
         Insert: {
           completed_scenes?: number
           created_by?: string | null
+          current_scene_id?: string | null
+          current_scene_index?: number
           finished_at?: string | null
           id?: string
           inserted_shots?: number
+          last_error?: string | null
+          last_heartbeat_at?: string | null
           last_message?: string | null
           last_scene_id?: string | null
+          mode?: string
           project_id: string
           started_at?: string
           status?: string
@@ -15096,11 +15112,16 @@ export type Database = {
         Update: {
           completed_scenes?: number
           created_by?: string | null
+          current_scene_id?: string | null
+          current_scene_index?: number
           finished_at?: string | null
           id?: string
           inserted_shots?: number
+          last_error?: string | null
+          last_heartbeat_at?: string | null
           last_message?: string | null
           last_scene_id?: string | null
+          mode?: string
           project_id?: string
           started_at?: string
           status?: string

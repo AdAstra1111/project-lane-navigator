@@ -206,3 +206,6 @@ verify_jwt = false
 
 [functions.ai-trailer-factory]
 verify_jwt = false
+
+[functions.shot-plan-jobs]
+verify_jwt = false

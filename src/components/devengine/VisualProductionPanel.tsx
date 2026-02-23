@@ -20,7 +20,7 @@ import { toast } from 'sonner';
 import {
   Loader2, Camera, Check, Film, Image, BarChart3,
   AlertTriangle, Clapperboard, Aperture, Move, Trash2, RotateCcw, X,
-  Sparkles, Wand2, Pause, Play, Square,
+  Sparkles, Wand2, Pause, Play, Square, RefreshCw,
 } from 'lucide-react';
 import { AiReadinessBadge } from '@/components/shots/AiReadinessBadge';
 import { AiShotActionPanel } from '@/components/shots/AiShotActionPanel';
@@ -37,7 +37,7 @@ export function VisualProductionPanel({ projectId, scenes, selectedSceneId, onSe
   const navigate = useNavigate();
   const vp = useVisualProduction(projectId, selectedSceneId);
   const ai = useAiTrailerFactory(projectId);
-  const fullShotPlan = useGenerateFullShotPlan(projectId, scenes);
+  const fullShotPlan = useGenerateFullShotPlan(projectId);
   const [vpTab, setVpTab] = useState<string>('shots');
   const [aiPanelShot, setAiPanelShot] = useState<any>(null);
 
@@ -120,26 +120,59 @@ export function VisualProductionPanel({ projectId, scenes, selectedSceneId, onSe
                 <StagedProgressBar
                   title={fullShotPlan.isPaused ? "Shot Plan Paused" : "Generating Full Shot Plan"}
                   stages={fullShotPlan.stages}
-                  currentStageIndex={fullShotPlan.progress.stageIndex}
-                  progressPercent={fullShotPlan.progress.progress}
-                  etaSeconds={fullShotPlan.progress.etaSeconds}
-                  detailMessage={fullShotPlan.progress.detail}
+                  currentStageIndex={fullShotPlan.stageIndex}
+                  progressPercent={fullShotPlan.progressPercent}
+                  etaSeconds={fullShotPlan.etaSeconds}
+                  detailMessage={fullShotPlan.detailMessage}
                 />
                 <div className="flex items-center gap-1.5">
                   {fullShotPlan.isRunning && (
-                    <Button size="sm" variant="outline" className="h-6 text-[9px] gap-1 px-2" onClick={() => fullShotPlan.pause()}>
+                    <Button size="sm" variant="outline" className="h-6 text-[9px] gap-1 px-2" onClick={() => fullShotPlan.actions.pause()}>
                       <Pause className="h-2.5 w-2.5" /> Pause
                     </Button>
                   )}
                   {fullShotPlan.isPaused && (
-                    <Button size="sm" variant="default" className="h-6 text-[9px] gap-1 px-2" onClick={() => fullShotPlan.resumeShotPlan.mutate()}>
+                    <Button size="sm" variant="default" className="h-6 text-[9px] gap-1 px-2" onClick={() => fullShotPlan.actions.resume()}>
                       <Play className="h-2.5 w-2.5" /> Resume
                     </Button>
                   )}
-                  <Button size="sm" variant="ghost" className="h-6 text-[9px] gap-1 px-2 text-destructive" onClick={() => fullShotPlan.cancelShotPlan.mutate()}>
+                  <Button size="sm" variant="ghost" className="h-6 text-[9px] gap-1 px-2 text-destructive" onClick={() => fullShotPlan.actions.cancel()}>
                     <Square className="h-2.5 w-2.5" /> Cancel
                   </Button>
                 </div>
+              </div>
+            )}
+            {/* Completed/failed banner */}
+            {fullShotPlan.isComplete && fullShotPlan.job && (
+              <div className="mb-2 p-2 rounded border border-primary/30 bg-primary/5 flex items-center justify-between">
+                <div className="text-[10px]">
+                  <Check className="h-3 w-3 text-primary inline mr-1" />
+                  Shot plan complete: {fullShotPlan.job.inserted_shots} shots across {fullShotPlan.job.total_scenes} scenes
+                </div>
+                <Button size="sm" variant="ghost" className="h-5 text-[8px] gap-1 px-1.5" onClick={() => fullShotPlan.actions.reset()}>
+                  <RefreshCw className="h-2.5 w-2.5" /> Reset
+                </Button>
+              </div>
+            )}
+            {fullShotPlan.isFailed && fullShotPlan.job && (
+              <div className="mb-2 p-2 rounded border border-destructive/30 bg-destructive/5 flex items-center justify-between">
+                <div className="text-[10px] text-destructive">
+                  <AlertTriangle className="h-3 w-3 inline mr-1" />
+                  Shot plan failed: {fullShotPlan.job.last_error || 'Unknown error'}
+                </div>
+                <Button size="sm" variant="ghost" className="h-5 text-[8px] gap-1 px-1.5" onClick={() => fullShotPlan.actions.reset()}>
+                  <RefreshCw className="h-2.5 w-2.5" /> Retry
+                </Button>
+              </div>
+            )}
+            {/* Counts summary when active */}
+            {fullShotPlan.counts && (fullShotPlan.isRunning || fullShotPlan.isPaused) && (
+              <div className="mb-2 flex items-center gap-2 text-[9px] text-muted-foreground">
+                <span>Total: {fullShotPlan.counts.total}</span>
+                <span className="text-primary">✓ {fullShotPlan.counts.complete}</span>
+                {fullShotPlan.counts.failed > 0 && <span className="text-destructive">✗ {fullShotPlan.counts.failed}</span>}
+                <span>⏳ {fullShotPlan.counts.pending}</span>
+                {fullShotPlan.job && <span>Shots: {fullShotPlan.job.inserted_shots}</span>}
               </div>
             )}
             <ShotPlanPanel
@@ -152,11 +185,11 @@ export function VisualProductionPanel({ projectId, scenes, selectedSceneId, onSe
               onApproveSet={(id) => vp.approveShotSet.mutateAsync(id)}
               isGenerating={vp.generateShots.isPending}
               isLoading={vp.isLoadingShots}
-              onGenerateFullPlan={() => fullShotPlan.generateFullShotPlan.mutate()}
+              onGenerateFullPlan={() => fullShotPlan.actions.start()}
               isGeneratingFullPlan={fullShotPlan.isRunning || fullShotPlan.isPaused}
               hasScenes={scenes.length > 0}
               isPaused={fullShotPlan.isPaused}
-              onResume={() => fullShotPlan.resumeShotPlan.mutate()}
+              onResume={() => fullShotPlan.actions.resume()}
             />
           </TabsContent>
 

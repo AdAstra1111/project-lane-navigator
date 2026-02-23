@@ -1,340 +1,255 @@
 /**
- * useGenerateFullShotPlan — Durable one-click orchestration to generate shots for all scenes.
- * Persists job + per-scene progress in DB. Supports pause / resume / reset.
+ * useGenerateFullShotPlan — Durable hook backed by shot-plan-jobs edge function.
+ * Hydrates from DB on mount; tick-loops through scenes; supports pause/resume/reset/cancel.
  */
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
-import { shotsGenerateForScene } from '@/lib/scene-graph/client';
-import type { SceneListItem } from '@/lib/scene-graph/types';
 
-export interface FullShotPlanProgress {
-  stage: 'idle' | 'parsing_script' | 'segmenting_scenes' | 'generating_shots' | 'saving_to_database' | 'complete';
-  stageIndex: number;
-  progress: number;
-  etaSeconds: number;
-  detail: string;
-  inserted: number;
+export interface FullShotPlanCounts {
+  pending: number;
+  running: number;
+  complete: number;
+  failed: number;
+  skipped: number;
   total: number;
 }
 
-export interface ShotPlanJob {
+export interface FullShotPlanJob {
   id: string;
   project_id: string;
-  status: 'running' | 'paused' | 'cancelled' | 'completed' | 'failed';
+  status: string;
+  mode: string;
   total_scenes: number;
   completed_scenes: number;
   inserted_shots: number;
-  last_scene_id: string | null;
+  current_scene_index: number;
+  current_scene_id: string | null;
   last_message: string | null;
+  last_error: string | null;
   started_at: string;
   finished_at: string | null;
 }
 
 const STAGES = [
-  'Parsing Script',
-  'Segmenting Scenes',
-  'Generating Shots',
-  'Saving to Database',
+  'Preparing scenes',
+  'Generating shots',
+  'Saving checkpoints',
+  'Finalizing',
   'Complete',
 ];
 
-export function useGenerateFullShotPlan(projectId: string | undefined, scenes: SceneListItem[]) {
+const TICK_DELAY_MS = 400;
+
+async function callShotPlanApi(action: string, params: Record<string, any>) {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('Not authenticated');
+  const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/shot-plan-jobs`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify({ action, ...params }),
+  });
+  const data = await resp.json();
+  if (!resp.ok) throw new Error(data.error || 'Shot plan API error');
+  return data as { job: FullShotPlanJob | null; counts: FullShotPlanCounts | null; sceneResult?: any; message: string };
+}
+
+export function useGenerateFullShotPlan(projectId: string | undefined) {
   const qc = useQueryClient();
-  const [progress, setProgress] = useState<FullShotPlanProgress>({
-    stage: 'idle', stageIndex: 0, progress: 0, etaSeconds: 0, detail: '', inserted: 0, total: 0,
-  });
-  const startTimeRef = useRef(0);
-  const jobIdRef = useRef<string | null>(null);
-  const pauseRequestedRef = useRef(false);
-  const [isRunning, setIsRunning] = useState(false);
+  const [job, setJob] = useState<FullShotPlanJob | null>(null);
+  const [counts, setCounts] = useState<FullShotPlanCounts | null>(null);
+  const [isLooping, setIsLooping] = useState(false);
+  const loopRef = useRef(false);
+  const tickTimesRef = useRef<number[]>([]);
+  const mountedRef = useRef(true);
 
-  // Fetch active job for this project (running or paused)
-  const activeJobQuery = useQuery({
-    queryKey: ['shot-plan-job', projectId],
-    queryFn: async () => {
-      if (!projectId) return null;
-      const { data } = await supabase
-        .from('shot_plan_jobs')
-        .select('*')
-        .eq('project_id', projectId)
-        .in('status', ['running', 'paused'])
-        .order('started_at', { ascending: false })
-        .limit(1);
-      return (data?.[0] as ShotPlanJob | undefined) ?? null;
-    },
-    enabled: !!projectId,
-  });
+  // Derived state
+  const stage = !job ? 'idle'
+    : job.status === 'running' ? (isLooping ? 'running' : 'starting')
+    : job.status === 'paused' ? 'paused'
+    : job.status === 'complete' ? 'complete'
+    : job.status === 'failed' ? 'failed'
+    : job.status === 'canceled' ? 'canceled'
+    : 'idle';
 
-  const activeJob = activeJobQuery.data;
+  const stageIndex = stage === 'idle' ? 0
+    : stage === 'starting' ? 0
+    : stage === 'running' ? 1
+    : stage === 'complete' ? 4
+    : stage === 'paused' ? 1
+    : 1;
 
-  // Restore progress display from active job
+  const progressPercent = !job || !counts ? 0
+    : job.status === 'complete' ? 100
+    : counts.total === 0 ? 0
+    : Math.min(95, Math.round(((counts.complete + counts.failed) / counts.total) * 100));
+
+  const avgTickTime = tickTimesRef.current.length > 0
+    ? tickTimesRef.current.reduce((a, b) => a + b, 0) / tickTimesRef.current.length / 1000
+    : 8;
+  const etaSeconds = counts ? Math.max(0, Math.round(avgTickTime * counts.pending)) : 0;
+
+  const detailMessage = job?.last_message || '';
+
+  // Hydrate on mount
   useEffect(() => {
-    if (activeJob && !isRunning) {
-      const pct = activeJob.total_scenes > 0
-        ? 20 + Math.round((activeJob.completed_scenes / activeJob.total_scenes) * 65)
-        : 0;
-      setProgress({
-        stage: activeJob.status === 'paused' ? 'generating_shots' : 'generating_shots',
-        stageIndex: 2,
-        progress: pct,
-        etaSeconds: 0,
-        detail: activeJob.status === 'paused'
-          ? `Paused — ${activeJob.completed_scenes}/${activeJob.total_scenes} scenes done`
-          : `${activeJob.completed_scenes}/${activeJob.total_scenes} scenes`,
-        inserted: activeJob.inserted_shots,
-        total: activeJob.total_scenes,
-      });
-      jobIdRef.current = activeJob.id;
-    } else if (!activeJob && !isRunning) {
-      setProgress({ stage: 'idle', stageIndex: 0, progress: 0, etaSeconds: 0, detail: '', inserted: 0, total: 0 });
-      jobIdRef.current = null;
-    }
-  }, [activeJob, isRunning]);
+    mountedRef.current = true;
+    if (!projectId) return;
+    callShotPlanApi('get_active_job', { projectId })
+      .then((res) => {
+        if (!mountedRef.current) return;
+        setJob(res.job);
+        setCounts(res.counts);
+        // Auto-start loop if job is running
+        if (res.job?.status === 'running') {
+          startLoop();
+        }
+      })
+      .catch(() => {});
+    return () => { mountedRef.current = false; loopRef.current = false; };
+  }, [projectId]);
 
-  const reset = useCallback(() => {
-    pauseRequestedRef.current = false;
-    setIsRunning(false);
-    setProgress({ stage: 'idle', stageIndex: 0, progress: 0, etaSeconds: 0, detail: '', inserted: 0, total: 0 });
-  }, []);
+  // Tick loop
+  const startLoop = useCallback(() => {
+    if (loopRef.current) return;
+    loopRef.current = true;
+    setIsLooping(true);
 
-  // Helper: update job row
-  const updateJob = useCallback(async (jobId: string, patch: Record<string, any>) => {
-    await supabase.from('shot_plan_jobs').update(patch).eq('id', jobId);
-  }, []);
+    const loop = async () => {
+      while (loopRef.current && mountedRef.current) {
+        const tickStart = Date.now();
+        try {
+          const res = await callShotPlanApi('tick', { projectId });
+          if (!mountedRef.current) break;
+          setJob(res.job);
+          setCounts(res.counts);
 
-  // Core generation loop (works for both start and resume)
-  const runGeneration = useCallback(async (jobId: string, scenesToProcess: SceneListItem[], totalScenes: number, startedCompleted: number) => {
-    setIsRunning(true);
-    pauseRequestedRef.current = false;
-    startTimeRef.current = Date.now();
+          const elapsed = Date.now() - tickStart;
+          tickTimesRef.current.push(elapsed);
+          if (tickTimesRef.current.length > 10) tickTimesRef.current.shift();
 
-    let totalInserted = 0;
-    // Fetch already inserted shots count from job
-    const { data: jobRow } = await supabase.from('shot_plan_jobs').select('inserted_shots').eq('id', jobId).single();
-    totalInserted = jobRow?.inserted_shots ?? 0;
-
-    for (let i = 0; i < scenesToProcess.length; i++) {
-      // Check pause
-      if (pauseRequestedRef.current) {
-        await updateJob(jobId, {
-          status: 'paused',
-          last_message: `Paused at scene ${startedCompleted + i}/${totalScenes}`,
-        });
-        setProgress(p => ({
-          ...p,
-          detail: `Paused — ${startedCompleted + i}/${totalScenes} scenes done`,
-        }));
-        setIsRunning(false);
-        qc.invalidateQueries({ queryKey: ['shot-plan-job', projectId] });
-        return { paused: true, inserted: totalInserted };
+          // Check if terminal
+          if (res.job?.status !== 'running') {
+            loopRef.current = false;
+            break;
+          }
+        } catch (err: any) {
+          console.error('Tick error:', err);
+          loopRef.current = false;
+          break;
+        }
+        // Small delay between ticks
+        await new Promise(r => setTimeout(r, TICK_DELAY_MS));
       }
-
-      const scene = scenesToProcess[i];
-      const globalIdx = startedCompleted + i;
-      const sceneProgress = 20 + Math.round((globalIdx / totalScenes) * 65);
-      const elapsed = (Date.now() - startTimeRef.current) / 1000;
-      const perScene = i > 0 ? elapsed / i : 8;
-      const remaining = Math.max(0, Math.round(perScene * (scenesToProcess.length - i)));
-
-      setProgress({
-        stage: 'generating_shots',
-        stageIndex: 2,
-        progress: sceneProgress,
-        etaSeconds: remaining,
-        detail: `Scene ${globalIdx + 1}/${totalScenes}: ${scene.latest_version?.slugline || scene.display_number}`,
-        inserted: totalInserted,
-        total: totalScenes,
-      });
-
-      let shotCount = 0;
-      try {
-        const result = await shotsGenerateForScene({
-          projectId: projectId!,
-          sceneId: scene.scene_id,
-          mode: 'coverage',
-        });
-        shotCount = result.shots?.length || 0;
-        totalInserted += shotCount;
-
-        // Mark scene completed in DB
-        await supabase.from('shot_plan_job_scenes').update({
-          status: 'completed',
-          inserted_shots: shotCount,
-          finished_at: new Date().toISOString(),
-        }).eq('job_id', jobId).eq('scene_id', scene.scene_id);
-      } catch (err: any) {
-        console.warn(`Shot gen failed for scene ${scene.display_number}:`, err);
-        await supabase.from('shot_plan_job_scenes').update({
-          status: 'failed',
-          error_message: err?.message || 'Unknown error',
-          finished_at: new Date().toISOString(),
-        }).eq('job_id', jobId).eq('scene_id', scene.scene_id);
-      }
-
-      // Update job counters
-      await updateJob(jobId, {
-        completed_scenes: globalIdx + 1,
-        inserted_shots: totalInserted,
-        last_scene_id: scene.scene_id,
-        last_message: `Completed scene ${globalIdx + 1}/${totalScenes}`,
-      });
-    }
-
-    // Finalize
-    setProgress({
-      stage: 'complete', stageIndex: 4, progress: 100, etaSeconds: 0,
-      detail: `Generated ${totalInserted} shots across ${totalScenes} scenes`,
-      inserted: totalInserted, total: totalScenes,
-    });
-
-    await updateJob(jobId, {
-      status: 'completed',
-      finished_at: new Date().toISOString(),
-      last_message: `Complete: ${totalInserted} shots across ${totalScenes} scenes`,
-    });
-
-    setIsRunning(false);
-    qc.invalidateQueries({ queryKey: ['shot-plan-job', projectId] });
-    return { paused: false, inserted: totalInserted };
-  }, [projectId, qc, updateJob]);
-
-  // Start new job
-  const startMutation = useMutation({
-    mutationFn: async () => {
-      if (!projectId) throw new Error('No project');
-      if (scenes.length === 0) throw new Error('No scenes available');
-
-      // Stage 1: Parsing
-      setProgress({ stage: 'parsing_script', stageIndex: 0, progress: 5, etaSeconds: scenes.length * 8, detail: 'Validating script scenes…', inserted: 0, total: scenes.length });
-      setIsRunning(true);
-
-      // Create job row
-      const { data: job, error } = await supabase.from('shot_plan_jobs').insert({
-        project_id: projectId,
-        status: 'running',
-        total_scenes: scenes.length,
-        last_message: 'Starting…',
-      }).select().single();
-      if (error || !job) throw new Error(error?.message || 'Failed to create job');
-      jobIdRef.current = job.id;
-
-      // Stage 2: Segmenting — create scene rows
-      setProgress(p => ({ ...p, stage: 'segmenting_scenes', stageIndex: 1, progress: 15, detail: `Found ${scenes.length} scenes to process` }));
-
-      const sceneRows = scenes.map(s => ({
-        job_id: job.id,
-        project_id: projectId,
-        scene_id: s.scene_id,
-        status: 'pending' as const,
-      }));
-      await supabase.from('shot_plan_job_scenes').insert(sceneRows);
-
-      // Stage 3: Generate
-      const result = await runGeneration(job.id, scenes, scenes.length, 0);
-      return { inserted: result.inserted, total: scenes.length, paused: result.paused };
-    },
-    onSuccess: (data) => {
-      if (!data.paused) {
-        toast.success(`Shot plan generated: ${data.inserted} shots across ${data.total} scenes`);
+      if (mountedRef.current) {
+        setIsLooping(false);
+        // Invalidate shot queries on completion
         qc.invalidateQueries({ queryKey: ['vp-shots', projectId] });
-      } else {
-        toast.info('Shot plan paused. You can resume anytime.');
       }
-    },
-    onError: (e: Error) => {
-      toast.error(`Shot plan failed: ${e.message}`);
-      reset();
-    },
-  });
+    };
+    loop();
+  }, [projectId, qc]);
 
-  // Resume existing job
-  const resumeMutation = useMutation({
-    mutationFn: async () => {
-      if (!projectId || !activeJob) throw new Error('No active job to resume');
-
-      // Mark job as running
-      await updateJob(activeJob.id, { status: 'running', last_message: 'Resuming…' });
-      jobIdRef.current = activeJob.id;
-
-      // Find remaining scenes
-      const { data: jobScenes } = await supabase
-        .from('shot_plan_job_scenes')
-        .select('scene_id, status')
-        .eq('job_id', activeJob.id);
-
-      const completedSceneIds = new Set(
-        (jobScenes || []).filter(s => s.status === 'completed').map(s => s.scene_id)
-      );
-      const remainingScenes = scenes.filter(s => !completedSceneIds.has(s.scene_id));
-
-      if (remainingScenes.length === 0) {
-        await updateJob(activeJob.id, { status: 'completed', finished_at: new Date().toISOString() });
-        toast.success('All scenes already completed!');
-        qc.invalidateQueries({ queryKey: ['shot-plan-job', projectId] });
-        return { inserted: activeJob.inserted_shots, total: activeJob.total_scenes, paused: false };
-      }
-
-      setProgress(p => ({ ...p, detail: `Resuming — ${remainingScenes.length} scenes remaining` }));
-
-      const result = await runGeneration(
-        activeJob.id,
-        remainingScenes,
-        activeJob.total_scenes,
-        activeJob.completed_scenes,
-      );
-      return { inserted: result.inserted, total: activeJob.total_scenes, paused: result.paused };
-    },
-    onSuccess: (data) => {
-      if (!data.paused) {
-        toast.success(`Shot plan completed: ${data.inserted} shots across ${data.total} scenes`);
-        qc.invalidateQueries({ queryKey: ['vp-shots', projectId] });
-      } else {
-        toast.info('Shot plan paused.');
-      }
-    },
-    onError: (e: Error) => {
-      toast.error(`Resume failed: ${e.message}`);
-      reset();
-    },
-  });
-
-  // Pause
-  const pause = useCallback(() => {
-    pauseRequestedRef.current = true;
+  const stopLoop = useCallback(() => {
+    loopRef.current = false;
   }, []);
 
-  // Reset / cancel
-  const cancelMutation = useMutation({
-    mutationFn: async () => {
-      const jid = jobIdRef.current || activeJob?.id;
-      if (jid) {
-        await updateJob(jid, { status: 'cancelled', finished_at: new Date().toISOString() });
+  // Actions
+  const start = useCallback(async (mode: string = 'coverage') => {
+    if (!projectId) return;
+    try {
+      const res = await callShotPlanApi('create_job', { projectId, mode });
+      setJob(res.job);
+      setCounts(res.counts);
+      if (res.job?.status === 'running') {
+        startLoop();
+        toast.success('Full shot plan started');
+      } else {
+        toast.info(res.message);
       }
-      pauseRequestedRef.current = true;
-    },
-    onSuccess: () => {
-      reset();
-      qc.invalidateQueries({ queryKey: ['shot-plan-job', projectId] });
-      toast.info('Shot plan cancelled.');
-    },
-  });
+    } catch (err: any) {
+      toast.error(`Start failed: ${err.message}`);
+    }
+  }, [projectId, startLoop]);
 
-  const isPaused = activeJob?.status === 'paused' && !isRunning;
-  const hasActiveJob = !!activeJob && !isRunning;
+  const pause = useCallback(async () => {
+    if (!projectId) return;
+    stopLoop();
+    try {
+      const res = await callShotPlanApi('pause_job', { projectId });
+      setJob(res.job);
+      setCounts(res.counts);
+      toast.info('Shot plan paused');
+    } catch (err: any) {
+      toast.error(`Pause failed: ${err.message}`);
+    }
+  }, [projectId, stopLoop]);
+
+  const resume = useCallback(async () => {
+    if (!projectId) return;
+    try {
+      const res = await callShotPlanApi('resume_job', { projectId });
+      setJob(res.job);
+      setCounts(res.counts);
+      if (res.job?.status === 'running') {
+        startLoop();
+        toast.success('Shot plan resumed');
+      }
+    } catch (err: any) {
+      toast.error(`Resume failed: ${err.message}`);
+    }
+  }, [projectId, startLoop]);
+
+  const cancel = useCallback(async () => {
+    if (!projectId) return;
+    stopLoop();
+    try {
+      const res = await callShotPlanApi('cancel_job', { projectId });
+      setJob(res.job);
+      setCounts(res.counts);
+      toast.info('Shot plan canceled');
+    } catch (err: any) {
+      toast.error(`Cancel failed: ${err.message}`);
+    }
+  }, [projectId, stopLoop]);
+
+  const reset = useCallback(async (mode: string = 'coverage') => {
+    if (!projectId) return;
+    stopLoop();
+    try {
+      // Cancel existing
+      await callShotPlanApi('cancel_job', { projectId }).catch(() => {});
+      // Create new
+      const res = await callShotPlanApi('create_job', { projectId, mode });
+      setJob(res.job);
+      setCounts(res.counts);
+      tickTimesRef.current = [];
+      if (res.job?.status === 'running') {
+        startLoop();
+        toast.success('Shot plan reset and restarted');
+      }
+    } catch (err: any) {
+      toast.error(`Reset failed: ${err.message}`);
+    }
+  }, [projectId, stopLoop, startLoop]);
 
   return {
-    generateFullShotPlan: startMutation,
-    resumeShotPlan: resumeMutation,
-    cancelShotPlan: cancelMutation,
-    pause,
-    progress,
+    job,
+    counts,
+    stage,
     stages: STAGES,
-    isRunning,
-    isPaused,
-    hasActiveJob,
-    activeJob,
-    reset,
+    stageIndex,
+    progressPercent,
+    etaSeconds,
+    detailMessage,
+    isRunning: isLooping,
+    isPaused: stage === 'paused',
+    isComplete: stage === 'complete',
+    isFailed: stage === 'failed',
+    actions: { start, pause, resume, reset, cancel },
   };
 }
