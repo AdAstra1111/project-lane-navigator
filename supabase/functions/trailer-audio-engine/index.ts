@@ -184,7 +184,7 @@ async function generateVoElevenLabs(
   const voiceId = voiceMap[style] || voiceMap.trailer_announcer;
 
   const resp = await fetch(
-    `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=pcm_44100`,
+    `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_44100`,
     {
       method: "POST",
       headers: {
@@ -209,37 +209,10 @@ async function generateVoElevenLabs(
     throw new Error(`ElevenLabs error: ${resp.status} - ${errText.slice(0, 200)}`);
   }
 
-  const pcmBuffer = await resp.arrayBuffer();
-  const pcmData = new Uint8Array(pcmBuffer);
+  const mp3Buffer = await resp.arrayBuffer();
+  const mp3Data = new Uint8Array(mp3Buffer);
 
-  // Wrap PCM in WAV header
-  const sampleRate = 44100;
-  const numChannels = 1;
-  const bitsPerSample = 16;
-  const dataSize = pcmData.length;
-  const wavBuffer = new ArrayBuffer(44 + dataSize);
-  const wavView = new DataView(wavBuffer);
-  const wavArray = new Uint8Array(wavBuffer);
-  const writeStr = (offset: number, str: string) => {
-    for (let i = 0; i < str.length; i++)
-      wavView.setUint8(offset + i, str.charCodeAt(i));
-  };
-  writeStr(0, "RIFF");
-  wavView.setUint32(4, 36 + dataSize, true);
-  writeStr(8, "WAVE");
-  writeStr(12, "fmt ");
-  wavView.setUint32(16, 16, true);
-  wavView.setUint16(20, 1, true);
-  wavView.setUint16(22, numChannels, true);
-  wavView.setUint32(24, sampleRate, true);
-  wavView.setUint32(28, sampleRate * numChannels * (bitsPerSample / 8), true);
-  wavView.setUint16(32, numChannels * (bitsPerSample / 8), true);
-  wavView.setUint16(34, bitsPerSample, true);
-  writeStr(36, "data");
-  wavView.setUint32(40, dataSize, true);
-  wavArray.set(pcmData, 44);
-
-  return { audio: wavArray, format: "wav" };
+  return { audio: mp3Data, format: "mp3" };
 }
 
 // ─── ACTION: create_audio_run ───
@@ -664,22 +637,26 @@ async function handleGenVo(db: any, body: any, userId: string) {
   for (let i = 0; i < uniqueTakes.length; i++) {
     const style = uniqueTakes[i];
     const assetId = crypto.randomUUID();
-    const storagePath = `${projectId}/audio/${audioRunId}/vo/${assetId}.wav`;
+    const isElevenlabs = provider === "elevenlabs";
 
     try {
-      const { audio } =
-        provider === "elevenlabs"
-          ? await generateVoElevenLabs(voScript, style)
-          : await generateVoStub(voScript, style);
+      const { audio, format } = isElevenlabs
+        ? await generateVoElevenLabs(voScript, style)
+        : await generateVoStub(voScript, style);
+
+      const ext = format === "mp3" ? "mp3" : "wav";
+      const contentType = format === "mp3" ? "audio/mpeg" : "audio/wav";
+      const storagePath = `${projectId}/audio/${audioRunId}/vo/${assetId}.${ext}`;
 
       await db.storage.from("trailers").upload(storagePath, audio, {
-        contentType: "audio/wav",
+        contentType,
         upsert: true,
       });
 
-      const durationMs = Math.round(
-        (audio.length - 44) / (44100 * 2) * 1000
-      );
+      // Estimate duration: for WAV use header math, for MP3 estimate ~128kbps
+      const durationMs = format === "mp3"
+        ? Math.round((audio.length * 8) / 128 ) // ~128kbps MP3
+        : Math.round((audio.length - 44) / (44100 * 2) * 1000);
 
       await db.from("trailer_audio_assets").insert({
         project_id: projectId,
