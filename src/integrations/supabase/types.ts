@@ -16304,61 +16304,279 @@ export type Database = {
           },
         ]
       }
-      trailer_clips: {
+      trailer_clip_events: {
         Row: {
+          beat_index: number | null
+          blueprint_id: string
+          clip_id: string | null
+          clip_run_id: string | null
+          created_at: string
+          created_by: string
+          event_type: string
+          id: string
+          job_id: string | null
+          payload: Json
+          project_id: string
+        }
+        Insert: {
+          beat_index?: number | null
+          blueprint_id: string
+          clip_id?: string | null
+          clip_run_id?: string | null
+          created_at?: string
+          created_by: string
+          event_type: string
+          id?: string
+          job_id?: string | null
+          payload?: Json
+          project_id: string
+        }
+        Update: {
+          beat_index?: number | null
+          blueprint_id?: string
+          clip_id?: string | null
+          clip_run_id?: string | null
+          created_at?: string
+          created_by?: string
+          event_type?: string
+          id?: string
+          job_id?: string | null
+          payload?: Json
+          project_id?: string
+        }
+        Relationships: []
+      }
+      trailer_clip_jobs: {
+        Row: {
+          aspect_ratio: string
+          attempt: number
           beat_index: number
           blueprint_id: string
+          candidate_index: number
+          claimed_at: string | null
+          clip_run_id: string | null
+          created_at: string
+          error: string | null
+          fps: number
+          id: string
+          idempotency_key: string
+          init_image_paths: string[]
+          length_ms: number
+          max_attempts: number
+          mode: string
+          params_json: Json
+          project_id: string
+          prompt: string
+          provider: string
+          provider_job_id: string | null
+          seed: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          aspect_ratio?: string
+          attempt?: number
+          beat_index: number
+          blueprint_id: string
+          candidate_index?: number
+          claimed_at?: string | null
+          clip_run_id?: string | null
+          created_at?: string
+          error?: string | null
+          fps?: number
+          id?: string
+          idempotency_key?: string
+          init_image_paths?: string[]
+          length_ms?: number
+          max_attempts?: number
+          mode?: string
+          params_json?: Json
+          project_id: string
+          prompt?: string
+          provider?: string
+          provider_job_id?: string | null
+          seed?: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          aspect_ratio?: string
+          attempt?: number
+          beat_index?: number
+          blueprint_id?: string
+          candidate_index?: number
+          claimed_at?: string | null
+          clip_run_id?: string | null
+          created_at?: string
+          error?: string | null
+          fps?: number
+          id?: string
+          idempotency_key?: string
+          init_image_paths?: string[]
+          length_ms?: number
+          max_attempts?: number
+          mode?: string
+          params_json?: Json
+          project_id?: string
+          prompt?: string
+          provider?: string
+          provider_job_id?: string | null
+          seed?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trailer_clip_jobs_blueprint_id_fkey"
+            columns: ["blueprint_id"]
+            isOneToOne: false
+            referencedRelation: "trailer_blueprints"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trailer_clip_jobs_clip_run_id_fkey"
+            columns: ["clip_run_id"]
+            isOneToOne: false
+            referencedRelation: "trailer_clip_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      trailer_clip_runs: {
+        Row: {
+          blueprint_id: string
+          created_at: string
+          created_by: string
+          done_jobs: number
+          failed_jobs: number
+          id: string
+          project_id: string
+          status: string
+          total_jobs: number
+          updated_at: string
+        }
+        Insert: {
+          blueprint_id: string
+          created_at?: string
+          created_by: string
+          done_jobs?: number
+          failed_jobs?: number
+          id?: string
+          project_id: string
+          status?: string
+          total_jobs?: number
+          updated_at?: string
+        }
+        Update: {
+          blueprint_id?: string
+          created_at?: string
+          created_by?: string
+          done_jobs?: number
+          failed_jobs?: number
+          id?: string
+          project_id?: string
+          status?: string
+          total_jobs?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trailer_clip_runs_blueprint_id_fkey"
+            columns: ["blueprint_id"]
+            isOneToOne: false
+            referencedRelation: "trailer_blueprints"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      trailer_clips: {
+        Row: {
+          aspect_ratio: string
+          beat_index: number
+          blueprint_id: string
+          candidate_index: number
+          clip_run_id: string | null
           created_at: string
           created_by: string
           duration_ms: number | null
           error: string | null
+          fps: number
           gen_params: Json
           id: string
+          job_id: string | null
           media_type: string
+          mode: string
+          model: string | null
           project_id: string
           provider: string
           public_url: string | null
           rating: number | null
+          score_json: Json
+          seed: string | null
+          selected: boolean
           status: string
           storage_path: string | null
+          thumb_path: string | null
           updated_at: string
           used_in_cut: boolean
         }
         Insert: {
+          aspect_ratio?: string
           beat_index: number
           blueprint_id: string
+          candidate_index?: number
+          clip_run_id?: string | null
           created_at?: string
           created_by: string
           duration_ms?: number | null
           error?: string | null
+          fps?: number
           gen_params?: Json
           id?: string
+          job_id?: string | null
           media_type?: string
+          mode?: string
+          model?: string | null
           project_id: string
           provider?: string
           public_url?: string | null
           rating?: number | null
+          score_json?: Json
+          seed?: string | null
+          selected?: boolean
           status?: string
           storage_path?: string | null
+          thumb_path?: string | null
           updated_at?: string
           used_in_cut?: boolean
         }
         Update: {
+          aspect_ratio?: string
           beat_index?: number
           blueprint_id?: string
+          candidate_index?: number
+          clip_run_id?: string | null
           created_at?: string
           created_by?: string
           duration_ms?: number | null
           error?: string | null
+          fps?: number
           gen_params?: Json
           id?: string
+          job_id?: string | null
           media_type?: string
+          mode?: string
+          model?: string | null
           project_id?: string
           provider?: string
           public_url?: string | null
           rating?: number | null
+          score_json?: Json
+          seed?: string | null
+          selected?: boolean
           status?: string
           storage_path?: string | null
+          thumb_path?: string | null
           updated_at?: string
           used_in_cut?: boolean
         }
@@ -16368,6 +16586,20 @@ export type Database = {
             columns: ["blueprint_id"]
             isOneToOne: false
             referencedRelation: "trailer_blueprints"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trailer_clips_clip_run_id_fkey"
+            columns: ["clip_run_id"]
+            isOneToOne: false
+            referencedRelation: "trailer_clip_runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trailer_clips_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "trailer_clip_jobs"
             referencedColumns: ["id"]
           },
           {
@@ -17753,6 +17985,10 @@ export type Database = {
           isOneToOne: false
           isSetofReturn: true
         }
+      }
+      claim_next_trailer_clip_job: {
+        Args: { _blueprint_id: string; _project_id: string }
+        Returns: string
       }
       compute_outcome_deltas: {
         Args: { p_project_id: string }
