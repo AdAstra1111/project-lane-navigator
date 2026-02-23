@@ -20,7 +20,7 @@ import { toast } from 'sonner';
 import {
   Loader2, Camera, Check, Film, Image, BarChart3,
   AlertTriangle, Clapperboard, Aperture, Move, Trash2, RotateCcw, X,
-  Sparkles, Wand2,
+  Sparkles, Wand2, Pause, Play, Square,
 } from 'lucide-react';
 import { AiReadinessBadge } from '@/components/shots/AiReadinessBadge';
 import { AiShotActionPanel } from '@/components/shots/AiShotActionPanel';
@@ -115,16 +115,31 @@ export function VisualProductionPanel({ projectId, scenes, selectedSceneId, onSe
 
           <TabsContent value="shots" className="mt-2">
             {/* Generate Full Shot Plan progress */}
-            {fullShotPlan.isRunning && (
-              <div className="mb-2">
+            {(fullShotPlan.isRunning || fullShotPlan.isPaused) && (
+              <div className="mb-2 space-y-2">
                 <StagedProgressBar
-                  title="Generating Full Shot Plan"
+                  title={fullShotPlan.isPaused ? "Shot Plan Paused" : "Generating Full Shot Plan"}
                   stages={fullShotPlan.stages}
                   currentStageIndex={fullShotPlan.progress.stageIndex}
                   progressPercent={fullShotPlan.progress.progress}
                   etaSeconds={fullShotPlan.progress.etaSeconds}
                   detailMessage={fullShotPlan.progress.detail}
                 />
+                <div className="flex items-center gap-1.5">
+                  {fullShotPlan.isRunning && (
+                    <Button size="sm" variant="outline" className="h-6 text-[9px] gap-1 px-2" onClick={() => fullShotPlan.pause()}>
+                      <Pause className="h-2.5 w-2.5" /> Pause
+                    </Button>
+                  )}
+                  {fullShotPlan.isPaused && (
+                    <Button size="sm" variant="default" className="h-6 text-[9px] gap-1 px-2" onClick={() => fullShotPlan.resumeShotPlan.mutate()}>
+                      <Play className="h-2.5 w-2.5" /> Resume
+                    </Button>
+                  )}
+                  <Button size="sm" variant="ghost" className="h-6 text-[9px] gap-1 px-2 text-destructive" onClick={() => fullShotPlan.cancelShotPlan.mutate()}>
+                    <Square className="h-2.5 w-2.5" /> Cancel
+                  </Button>
+                </div>
               </div>
             )}
             <ShotPlanPanel
@@ -138,8 +153,10 @@ export function VisualProductionPanel({ projectId, scenes, selectedSceneId, onSe
               isGenerating={vp.generateShots.isPending}
               isLoading={vp.isLoadingShots}
               onGenerateFullPlan={() => fullShotPlan.generateFullShotPlan.mutate()}
-              isGeneratingFullPlan={fullShotPlan.isRunning}
+              isGeneratingFullPlan={fullShotPlan.isRunning || fullShotPlan.isPaused}
               hasScenes={scenes.length > 0}
+              isPaused={fullShotPlan.isPaused}
+              onResume={() => fullShotPlan.resumeShotPlan.mutate()}
             />
           </TabsContent>
 
@@ -220,7 +237,7 @@ export function VisualProductionPanel({ projectId, scenes, selectedSceneId, onSe
 
 // ── Shot Plan Panel ──
 
-function ShotPlanPanel({ projectId, scene, shotSets, shots, staleSets, onGenerate, onApproveSet, isGenerating, isLoading, onGenerateFullPlan, isGeneratingFullPlan, hasScenes }: {
+function ShotPlanPanel({ projectId, scene, shotSets, shots, staleSets, onGenerate, onApproveSet, isGenerating, isLoading, onGenerateFullPlan, isGeneratingFullPlan, hasScenes, isPaused, onResume }: {
   projectId: string;
   scene: SceneListItem | null;
   shotSets: any[];
@@ -233,13 +250,15 @@ function ShotPlanPanel({ projectId, scene, shotSets, shots, staleSets, onGenerat
   onGenerateFullPlan?: () => void;
   isGeneratingFullPlan?: boolean;
   hasScenes?: boolean;
+  isPaused?: boolean;
+  onResume?: () => void;
 }) {
   if (!scene) {
     return (
       <Card className="border-border/50">
         <CardContent className="p-6 text-center space-y-3">
           <p className="text-xs text-muted-foreground">Select a scene to manage shot plans</p>
-          {onGenerateFullPlan && hasScenes && (
+          {onGenerateFullPlan && hasScenes && !isPaused && (
             <div className="pt-2 border-t border-border/30">
               <Button
                 size="sm"
@@ -252,6 +271,20 @@ function ShotPlanPanel({ projectId, scene, shotSets, shots, staleSets, onGenerat
                 Generate Full Shot Plan
               </Button>
               <p className="text-[9px] text-muted-foreground mt-1">Create structured shots for entire script</p>
+            </div>
+          )}
+          {isPaused && onResume && (
+            <div className="pt-2 border-t border-border/30">
+              <Button
+                size="sm"
+                variant="default"
+                className="text-[9px] gap-1 h-7"
+                onClick={onResume}
+              >
+                <Play className="h-3 w-3" />
+                Resume Shot Plan
+              </Button>
+              <p className="text-[9px] text-muted-foreground mt-1">Continue from where you left off</p>
             </div>
           )}
         </CardContent>

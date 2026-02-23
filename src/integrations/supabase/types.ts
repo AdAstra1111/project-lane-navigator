@@ -15003,6 +15003,127 @@ export type Database = {
           },
         ]
       }
+      shot_plan_job_scenes: {
+        Row: {
+          error_message: string | null
+          finished_at: string | null
+          id: string
+          inserted_shots: number
+          job_id: string
+          project_id: string
+          scene_id: string
+          started_at: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          error_message?: string | null
+          finished_at?: string | null
+          id?: string
+          inserted_shots?: number
+          job_id: string
+          project_id: string
+          scene_id: string
+          started_at?: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          error_message?: string | null
+          finished_at?: string | null
+          id?: string
+          inserted_shots?: number
+          job_id?: string
+          project_id?: string
+          scene_id?: string
+          started_at?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shot_plan_job_scenes_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "shot_plan_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shot_plan_job_scenes_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "shot_plan_job_scenes_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      shot_plan_jobs: {
+        Row: {
+          completed_scenes: number
+          created_by: string | null
+          finished_at: string | null
+          id: string
+          inserted_shots: number
+          last_message: string | null
+          last_scene_id: string | null
+          project_id: string
+          started_at: string
+          status: string
+          total_scenes: number
+          updated_at: string
+        }
+        Insert: {
+          completed_scenes?: number
+          created_by?: string | null
+          finished_at?: string | null
+          id?: string
+          inserted_shots?: number
+          last_message?: string | null
+          last_scene_id?: string | null
+          project_id: string
+          started_at?: string
+          status?: string
+          total_scenes?: number
+          updated_at?: string
+        }
+        Update: {
+          completed_scenes?: number
+          created_by?: string | null
+          finished_at?: string | null
+          id?: string
+          inserted_shots?: number
+          last_message?: string | null
+          last_scene_id?: string | null
+          project_id?: string
+          started_at?: string
+          status?: string
+          total_scenes?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shot_plan_jobs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "shot_plan_jobs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       stage_gates: {
         Row: {
           blockers: string[] | null
