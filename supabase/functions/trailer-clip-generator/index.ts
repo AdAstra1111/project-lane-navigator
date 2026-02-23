@@ -87,11 +87,8 @@ async function callVeo(params: {
       prompt: params.prompt,
     }],
     parameters: {
-      aspectRatio: params.aspectRatio.replace(":", ":"),
-      personGeneration: "allow_all",
-      numberOfVideos: 1,
+      aspectRatio: params.aspectRatio,
       durationSeconds: durationSec,
-      ...(params.seed ? { seed: parseInt(params.seed.slice(0, 8), 16) || 42 } : {}),
     },
   };
 
@@ -150,18 +147,17 @@ async function callRunway(params: {
   const apiKey = Deno.env.get("RUNWAY_API_KEY");
   if (!apiKey) throw new Error("RUNWAY_API_KEY not configured — using stub mode");
 
-  const model = "gen4_turbo";
+  const model = "gen4.5";
   const durationSec = Math.max(5, Math.min(10, Math.round(params.lengthMs / 1000)));
 
   const body: any = {
     model,
     promptText: params.prompt,
     duration: durationSec,
-    ratio: params.aspectRatio === "16:9" ? "1280:768" : params.aspectRatio,
-    ...(params.seed ? { seed: parseInt(params.seed.slice(0, 8), 16) || 42 } : {}),
+    ratio: params.aspectRatio === "16:9" ? "1280:720" : params.aspectRatio,
   };
 
-  const resp = await fetch("https://api.dev.runwayml.com/v1/tasks", {
+  const resp = await fetch("https://api.dev.runwayml.com/v1/text_to_video", {
     method: "POST",
     headers: {
       "Authorization": `Bearer ${apiKey}`,
