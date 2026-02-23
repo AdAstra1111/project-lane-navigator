@@ -111,15 +111,7 @@ async function nativeExtractPages(arrayBuffer: ArrayBuffer): Promise<{ pageNumbe
   }
 }
 
-async function ocrPdfWithGemini(bytes: Uint8Array): Promise<{ pageNumber: number; text: string }[]> {
-  const { encodeBase64 } = await import("https://deno.land/std@0.224.0/encoding/base64.ts");
-
-  // For large PDFs, chunk into segments to avoid timeouts
-  const totalSizeMB = bytes.length / (1024 * 1024);
-  console.log(`[script-intake] OCR fallback: ${totalSizeMB.toFixed(1)}MB PDF`);
-
-  const base64Pdf = encodeBase64(bytes);
-
+async function ocrPdfChunkWithGemini(base64Pdf: string, startPage: number, endPage: number): Promise<{ pageNumber: number; text: string }[]> {
   const result = await callLLM(
     [
       {
@@ -131,7 +123,7 @@ async function ocrPdfWithGemini(bytes: Uint8Array): Promise<{ pageNumber: number
           },
           {
             type: "text",
-            text: `Extract ALL text from this screenplay PDF. For each page, provide the page number and full text. Use the extract_pdf_pages tool.`,
+            text: `Extract ALL text from pages ${startPage} to ${endPage} of this PDF. For each page in that range, provide the page number and full text content. Use the extract_pdf_pages tool.`,
           },
         ],
       },
@@ -170,6 +162,37 @@ async function ocrPdfWithGemini(bytes: Uint8Array): Promise<{ pageNumber: number
   return (result.pages || []).map((p: any) => ({ pageNumber: p.page_number, text: p.text || "" }));
 }
 
+async function ocrPdfWithGemini(bytes: Uint8Array, totalPages: number): Promise<{ pageNumber: number; text: string }[]> {
+  const { encodeBase64 } = await import("https://deno.land/std@0.224.0/encoding/base64.ts");
+
+  const totalSizeMB = bytes.length / (1024 * 1024);
+  console.log(`[script-intake] OCR fallback: ${totalSizeMB.toFixed(1)}MB PDF, ${totalPages} pages`);
+
+  const base64Pdf = encodeBase64(bytes);
+
+  // Process in chunks of ~10 pages to avoid timeouts
+  const CHUNK_SIZE = 10;
+  const allPages: { pageNumber: number; text: string }[] = [];
+  const pageCount = totalPages || 20; // fallback estimate
+
+  for (let start = 1; start <= pageCount; start += CHUNK_SIZE) {
+    const end = Math.min(start + CHUNK_SIZE - 1, pageCount);
+    console.log(`[script-intake] OCR chunk: pages ${start}-${end}`);
+    try {
+      const chunkPages = await ocrPdfChunkWithGemini(base64Pdf, start, end);
+      allPages.push(...chunkPages);
+    } catch (err: any) {
+      console.error(`[script-intake] OCR chunk ${start}-${end} failed:`, err.message);
+      // Add empty pages for this chunk so we don't lose page numbering
+      for (let p = start; p <= end; p++) {
+        allPages.push({ pageNumber: p, text: "" });
+      }
+    }
+  }
+
+  return allPages;
+}
+
 /* ── action: ingest_pdf ── */
 async function ingestPdf(
   supabase: any,
@@ -197,7 +220,7 @@ async function ingestPdf(
     // PDF is likely image-based — use Gemini Vision OCR
     console.log(`[script-intake] Low native quality, falling back to Gemini OCR...`);
     try {
-      pages = await ocrPdfWithGemini(bytes);
+      pages = await ocrPdfWithGemini(bytes, pages.length || 20);
       console.log(`[script-intake] OCR extracted ${pages.length} pages`);
     } catch (ocrErr: any) {
       console.error("[script-intake] OCR fallback failed:", ocrErr.message);
