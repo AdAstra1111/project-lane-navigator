@@ -1850,6 +1850,18 @@ export default function ProjectDevelopmentEngine() {
         />
       )}
 
+      {/* Next Actions → Unified NoteDrawer */}
+      <NoteDrawer
+        open={nextActionDrawerOpen}
+        projectId={projectId || ''}
+        noteId={nextActionNoteId}
+        onApplied={() => {}}
+        onClose={() => {
+          setNextActionDrawerOpen(false);
+          setNextActionNoteId(null);
+        }}
+      />
+
     </PageTransition>
   );
 }
