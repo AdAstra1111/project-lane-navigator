@@ -46,7 +46,7 @@ Deno.serve(async (req) => {
     }
 
     const body = await req.json();
-    const { note_id, project_id, action, current_doc_type, current_version_id, patch_content } = body;
+    const { note_id, project_id, action, current_doc_type, current_version_id, patch_content, note_snapshot } = body;
 
     if (!note_id || !project_id || !action) return json({ error: "note_id, project_id, and action required" }, 400);
 
@@ -94,7 +94,19 @@ Deno.serve(async (req) => {
       note = data;
     }
 
-    // Final fallback: fetch all project notes and find in-memory
+    // Third fallback: look up by hash field inside note_json
+    if (!note) {
+      const { data, error } = await db
+        .from("project_deferred_notes")
+        .select("*")
+        .eq("project_id", project_id)
+        .filter("note_json->>hash", "eq", note_id)
+        .maybeSingle();
+      console.log("[resolve-carried-note] note_json hash filter lookup:", data?.id, "err:", error?.message);
+      note = data;
+    }
+
+    // Final fallback: fetch all project notes and find in-memory (checks all possible key fields)
     if (!note) {
       const { data: allNotes } = await db
         .from("project_deferred_notes")
@@ -103,13 +115,33 @@ Deno.serve(async (req) => {
       if (allNotes) {
         note = allNotes.find((n: any) => {
           const nj = n.note_json as any;
-          return nj?.note_key === note_id || nj?.id === note_id || n.id === note_id;
+          return nj?.note_key === note_id || nj?.id === note_id || nj?.hash === note_id || n.id === note_id;
         }) || null;
       }
       console.log("[resolve-carried-note] in-memory fallback found:", note?.id);
     }
 
-    if (!note) return json({ error: "Note not found" }, 404);
+    // If note not found in DB, auto-create it from the snapshot provided by the client
+    if (!note) {
+      if (!note_snapshot) return json({ error: "Note not found" }, 404);
+      console.log("[resolve-carried-note] auto-creating note from snapshot for:", note_id);
+      const { data: created, error: createErr } = await db
+        .from("project_deferred_notes")
+        .insert({
+          project_id,
+          user_id: userId,
+          source_doc_type: note_snapshot.source_doc_type || current_doc_type || "unknown",
+          status: "open",
+          note_json: { ...note_snapshot, note_key: note_id, id: note_id },
+        })
+        .select("*")
+        .single();
+      if (createErr || !created) {
+        console.error("[resolve-carried-note] auto-create failed:", createErr?.message);
+        return json({ error: "Note not found and could not be created" }, 404);
+      }
+      note = created;
+    }
     if (note.status === "resolved" || note.status === "dismissed") {
       // Idempotent: already in terminal state — return success so UI doesn't crash
       return json({ ok: true, action, already_resolved: true });

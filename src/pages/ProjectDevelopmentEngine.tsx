@@ -1422,7 +1422,7 @@ export default function ProjectDevelopmentEngine() {
                         deep: true,
                       });
                     }}
-                    onResolveCarriedNote={async (noteId, action, extra) => {
+                    onResolveCarriedNote={async (noteId, action, extra, noteSnapshot) => {
                       const { data: { session } } = await supabase.auth.getSession();
                       if (!session) { toast.error('Not authenticated'); return; }
                       const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/resolve-carried-note`, {
@@ -1435,6 +1435,7 @@ export default function ProjectDevelopmentEngine() {
                           current_doc_type: selectedDoc?.doc_type,
                           current_version_id: selectedVersionId,
                           patch_content: action === 'apply_patch' ? extra : undefined,
+                          note_snapshot: noteSnapshot || undefined,
                         }),
                       });
                       const result = await resp.json();
