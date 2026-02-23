@@ -40,6 +40,74 @@ serve(async (req) => {
 
     if (action === "ping") return ok({ pong: true });
 
+    // ── Context pack builder ──
+    async function buildContextPack(projectId: string, versionId?: string, userMessage?: string) {
+      // Fetch project metadata
+      const { data: project } = await admin.from("projects").select("title, format, budget_range, tone, target_audience, genres").eq("id", projectId).single();
+      
+      // Fetch current script plaintext
+      let scriptText = "";
+      let scriptDocInfo: any = null;
+      
+      if (versionId) {
+        const { data: ver } = await admin.from("project_document_versions")
+          .select("id, plaintext, version_number, label, created_at, document_id")
+          .eq("id", versionId)
+          .single();
+        if (ver?.plaintext) {
+          scriptText = ver.plaintext;
+          scriptDocInfo = { versionId: ver.id, versionNumber: ver.version_number, label: ver.label, updatedAt: ver.created_at, documentId: ver.document_id };
+        }
+      }
+      
+      // If no version specified or no plaintext, try current script
+      if (!scriptText) {
+        const { data: docs } = await admin.from("project_documents")
+          .select("id, doc_type")
+          .eq("project_id", projectId)
+          .in("doc_type", ["script", "screenplay", "pilot_script", "episode_script"])
+          .limit(1);
+        if (docs && docs.length > 0) {
+          const { data: curVer } = await admin.from("project_document_versions")
+            .select("id, plaintext, version_number, label, created_at, document_id")
+            .eq("document_id", docs[0].id)
+            .eq("is_current", true)
+            .single();
+          if (curVer?.plaintext) {
+            scriptText = curVer.plaintext;
+            scriptDocInfo = { versionId: curVer.id, versionNumber: curVer.version_number, label: curVer.label, updatedAt: curVer.created_at, documentId: curVer.document_id, docType: docs[0].doc_type };
+          }
+        }
+      }
+      
+      // Smart excerpt based on user message intent
+      let scriptExcerpt = "";
+      const msg = (userMessage || "").toLowerCase();
+      const wantsEnd = /\b(end|ending|final|last|climax|conclusion|denouement|third act|act\s*3)\b/.test(msg);
+      const wantsBeginning = /\b(begin|beginning|start|opening|first|act\s*1|inciting)\b/.test(msg);
+      
+      if (scriptText) {
+        if (wantsEnd) {
+          scriptExcerpt = scriptText.slice(-12000);
+        } else if (wantsBeginning) {
+          scriptExcerpt = scriptText.slice(0, 12000);
+        } else if (scriptText.length <= 8000) {
+          scriptExcerpt = scriptText;
+        } else {
+          // Default: last 6000 chars (most relevant for active development)
+          scriptExcerpt = scriptText.slice(0, 2000) + "\n\n[...MIDDLE OMITTED...]\n\n" + scriptText.slice(-6000);
+        }
+      }
+      
+      return {
+        project: project ? { title: project.title, format: project.format, genres: project.genres, tone: project.tone, targetAudience: project.target_audience, budgetRange: project.budget_range } : null,
+        scriptExcerpt,
+        scriptDocInfo,
+        hasScript: !!scriptText,
+        scriptLength: scriptText.length,
+      };
+    }
+
     // ── get_or_create thread helper ──
     async function getOrCreateThread(projectId: string, documentId: string, noteHash: string, versionId?: string, noteSnapshot?: any) {
       // Try to find existing
@@ -108,6 +176,23 @@ serve(async (req) => {
       });
     }
 
+    // ── ACTION: get_context_info ──
+    if (action === "get_context_info") {
+      const { projectId, versionId } = body;
+      if (!projectId) return err("Missing projectId");
+
+      const { data: access } = await admin.rpc("has_project_access", { _user_id: user.id, _project_id: projectId });
+      if (!access) return err("Access denied", 403);
+
+      const ctx = await buildContextPack(projectId, versionId);
+      return ok({
+        project: ctx.project,
+        hasScript: ctx.hasScript,
+        scriptLength: ctx.scriptLength,
+        scriptDocInfo: ctx.scriptDocInfo,
+      });
+    }
+
     // ── ACTION: update_state ──
     if (action === "update_state") {
       const { projectId, documentId, noteHash, versionId, noteSnapshot, direction, pinnedConstraints } = body;
@@ -146,31 +231,50 @@ serve(async (req) => {
       }).select().single();
 
       // Get context for AI response
-      const [stateRes, msgsRes] = await Promise.all([
+      const [stateRes, msgsRes, contextPack] = await Promise.all([
         admin.from("note_thread_state").select("*").eq("thread_id", thread.id).single(),
         admin.from("note_thread_messages").select("*").eq("thread_id", thread.id).order("created_at", { ascending: true }).limit(30),
+        buildContextPack(projectId, versionId, content),
       ]);
 
       const state = stateRes.data;
       const noteInfo = thread.note_snapshot || {};
 
-      const systemPrompt = `You are a Writers' Room collaborator for film/TV development. You help writers solve creative problems in their scripts.
-You are discussing a specific note/issue about the project.
+      const projectLabel = contextPack.project ? `${contextPack.project.title} (${contextPack.project.format || 'unknown format'})` : 'Unknown project';
+      const scriptLabel = contextPack.scriptDocInfo ? `Script v${contextPack.scriptDocInfo.versionNumber}${contextPack.scriptDocInfo.label ? ' — ' + contextPack.scriptDocInfo.label : ''}` : null;
 
-Note context:
+      const systemPrompt = `You are the IFFY Writers' Room assistant, operating INSIDE a film/TV development application. You have DIRECT ACCESS to project documents loaded by the server.
+
+PROJECT: ${projectLabel}
+${contextPack.project?.genres ? `Genres: ${contextPack.project.genres.join(', ')}` : ''}
+${contextPack.project?.tone ? `Tone: ${contextPack.project.tone}` : ''}
+
+${contextPack.hasScript ? `SCRIPT LOADED: ${scriptLabel} (${contextPack.scriptLength} characters total)` : 'NO SCRIPT CURRENTLY LOADED.'}
+
+Note under discussion:
 ${JSON.stringify(noteInfo, null, 2)}
 
 Direction preferences: ${JSON.stringify(state?.direction || {})}
 Pinned constraints: ${JSON.stringify(state?.pinned_constraints || [])}
 
-Be concise, creative, and practical. Focus on actionable solutions. Keep responses under 300 words.`;
+RULES:
+- You CAN read the project's script because it is provided to you as a context pack by the server. NEVER say "I can't read your script" or "paste the text."
+- If the user asks to read the end/beginning/a section of the script, use the SCRIPT EXCERPT provided below.
+- If script context is missing and the user asks about the script, say: "I don't currently have the script loaded. Click 'Load current script' above the chat or tell me which document to use."
+- Be concise, creative, and practical. Focus on actionable solutions.
+- When referencing script content, cite specific details from the excerpt.`;
+
+      let contextBlock = "";
+      if (contextPack.scriptExcerpt) {
+        contextBlock = `\n\nSCRIPT EXCERPT (from ${scriptLabel || 'current script'}):\n---\n${contextPack.scriptExcerpt}\n---`;
+      }
 
       const chatHistory = (msgsRes.data || []).map((m: any) => `${m.role}: ${m.content}`).join("\n");
 
       const result = await callLLM({
         apiKey,
         model: MODELS.FAST,
-        system: systemPrompt,
+        system: systemPrompt + contextBlock,
         user: chatHistory,
         temperature: 0.5,
         maxTokens: 2000,
@@ -215,11 +319,12 @@ Be concise, creative, and practical. Focus on actionable solutions. Keep respons
 
       const thread = await getOrCreateThread(projectId, documentId, noteHash, versionId, noteSnapshot);
 
-      // Get current state, messages, and prior option sets
-      const [stateRes, msgsRes, setsRes] = await Promise.all([
+      // Get current state, messages, prior option sets, and context pack
+      const [stateRes, msgsRes, setsRes, contextPack] = await Promise.all([
         admin.from("note_thread_state").select("*").eq("thread_id", thread.id).single(),
         admin.from("note_thread_messages").select("*").eq("thread_id", thread.id).order("created_at", { ascending: true }).limit(20),
         admin.from("note_option_sets").select("*").eq("thread_id", thread.id).order("option_set_index", { ascending: true }),
+        buildContextPack(projectId, versionId),
       ]);
 
       const state = stateRes.data;
@@ -237,7 +342,10 @@ Be concise, creative, and practical. Focus on actionable solutions. Keep respons
       const pins = state?.pinned_constraints || [];
       const chatHistory = (msgsRes.data || []).map((m: any) => `${m.role}: ${m.content}`).join("\n").slice(0, 4000);
 
-      const systemPrompt = `You are a Writers' Room options generator for film/TV development.
+      const projectLabel = contextPack.project ? `${contextPack.project.title} (${contextPack.project.format || 'unknown'})` : '';
+
+      const systemPrompt = `You are the IFFY Writers' Room options generator for ${projectLabel || 'a film/TV project'}.
+You have access to the project's script via the server context pack.
 Generate 5-9 NEW creative solutions for the given note/issue.
 
 HARD RULE: Do NOT repeat any prior solutions or close variants. Avoid same core idea, same twist, same mechanism.
@@ -274,7 +382,7 @@ Locked constraints: ${JSON.stringify(pins)}
 Recent discussion:
 ${chatHistory}
 
-${scriptContext ? `Script context:\n${scriptContext.slice(0, 3000)}` : ""}
+${contextPack.scriptExcerpt ? `Script context (from ${contextPack.scriptDocInfo?.label || 'current script'}):\n${contextPack.scriptExcerpt.slice(0, 4000)}` : "No script loaded."}
 
 Generate 5-9 completely new options. Do NOT repeat prior solutions.`;
 
