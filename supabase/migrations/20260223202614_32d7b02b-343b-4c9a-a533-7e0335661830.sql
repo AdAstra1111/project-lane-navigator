@@ -1,0 +1,1 @@
+DELETE FROM trailer_clip_jobs WHERE blueprint_id = '25f690db-d860-44e4-913c-3330affccfd7' AND status = 'canceled'
