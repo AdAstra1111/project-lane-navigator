@@ -82,6 +82,10 @@ export async function renderTrailerCut(
 ): Promise<Blob> {
   const { width, height, fps, onProgress } = { ...DEFAULT_OPTIONS, ...opts };
 
+  if (!timeline || timeline.length === 0) {
+    throw new Error('Cannot render: timeline is empty');
+  }
+
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
@@ -98,8 +102,8 @@ export async function renderTrailerCut(
     })
   );
 
-  // Setup MediaRecorder
-  const stream = canvas.captureStream(fps);
+  // Setup MediaRecorder — use captureStream(0) for manual frame capture
+  const stream = canvas.captureStream(0);
   const mimeTypes = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
   let mimeType = '';
   for (const mt of mimeTypes) {
@@ -115,8 +119,9 @@ export async function renderTrailerCut(
   recorder.start(100);
 
   const frameDuration = 1000 / fps;
+  // Speed up rendering: use a shorter delay per frame (10ms vs real-time ~42ms)
+  const renderDelay = Math.min(frameDuration, 10);
 
-  // Helper to draw a single entry onto the canvas
   const drawEntry = (entry: TimelineEntry) => {
     if (entry.text_overlay && entry.role === 'title_card') {
       drawTextCard(ctx, entry.text_overlay, width, height);
@@ -135,21 +140,32 @@ export async function renderTrailerCut(
     }
   };
 
+  // Draw an initial frame to ensure stream has data
+  drawEntry(timeline[0]);
+  await new Promise((r) => setTimeout(r, 50));
+
   for (let tIdx = 0; tIdx < timeline.length; tIdx++) {
     const entry = timeline[tIdx];
     const frames = Math.max(1, Math.round(entry.duration_ms / frameDuration));
 
-    // Redraw the canvas every frame so captureStream picks up each one
     for (let f = 0; f < frames; f++) {
       drawEntry(entry);
-      await new Promise((r) => setTimeout(r, frameDuration));
+      // Yield to the event loop so MediaRecorder can capture the frame
+      await new Promise((r) => setTimeout(r, renderDelay));
     }
 
     onProgress?.(tIdx + 1, timeline.length);
   }
 
+  // Final flush — give recorder time to capture last frames
+  await new Promise((r) => setTimeout(r, 200));
+
   recorder.stop();
   await recordingDone;
 
-  return new Blob(chunks, { type: 'video/webm' });
+  const blob = new Blob(chunks, { type: 'video/webm' });
+  if (blob.size < 100) {
+    throw new Error('Render produced empty video. Try again or check browser compatibility.');
+  }
+  return blob;
 }
