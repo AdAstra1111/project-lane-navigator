@@ -82,6 +82,58 @@ export type Database = {
           },
         ]
       }
+      animatic_events: {
+        Row: {
+          animatic_run_id: string
+          created_at: string
+          created_by: string
+          event_type: string
+          id: string
+          payload: Json
+          project_id: string
+        }
+        Insert: {
+          animatic_run_id: string
+          created_at?: string
+          created_by: string
+          event_type: string
+          id?: string
+          payload?: Json
+          project_id: string
+        }
+        Update: {
+          animatic_run_id?: string
+          created_at?: string
+          created_by?: string
+          event_type?: string
+          id?: string
+          payload?: Json
+          project_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "animatic_events_animatic_run_id_fkey"
+            columns: ["animatic_run_id"]
+            isOneToOne: false
+            referencedRelation: "animatic_runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "animatic_events_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "animatic_events_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       animatic_markers: {
         Row: {
           animatic_id: string
@@ -173,6 +225,66 @@ export type Database = {
             columns: ["storyboard_board_id"]
             isOneToOne: false
             referencedRelation: "storyboard_boards"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      animatic_runs: {
+        Row: {
+          created_at: string
+          created_by: string
+          error: string | null
+          id: string
+          options: Json
+          ordering: Json
+          project_id: string
+          public_url: string | null
+          status: string
+          storage_path: string | null
+          storyboard_run_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          error?: string | null
+          id?: string
+          options?: Json
+          ordering?: Json
+          project_id: string
+          public_url?: string | null
+          status?: string
+          storage_path?: string | null
+          storyboard_run_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          error?: string | null
+          id?: string
+          options?: Json
+          ordering?: Json
+          project_id?: string
+          public_url?: string | null
+          status?: string
+          storage_path?: string | null
+          storyboard_run_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "animatic_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "animatic_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
             referencedColumns: ["id"]
           },
         ]

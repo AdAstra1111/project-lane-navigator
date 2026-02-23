@@ -221,3 +221,6 @@ verify_jwt = false
 
 [functions.storyboard-export]
 verify_jwt = false
+
+[functions.animatic-manager]
+verify_jwt = false
