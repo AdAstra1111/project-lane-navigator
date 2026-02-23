@@ -553,7 +553,7 @@ export default function AiTrailerBuilder() {
                 ) : ai.moments.length === 0 && !ai.extractMoments.isPending ? (
                   <p className="text-xs text-muted-foreground text-center py-8">No moments extracted yet. Click "Extract Moments" to analyze your selected documents.</p>
                 ) : !ai.extractMoments.isPending && (
-                  <ScrollArea className="max-h-[60vh]">
+                  <ScrollArea className="h-[60vh]">
                     <div className="space-y-2">
                       {ai.moments.map(m => (
                         <div key={m.id} className={`p-3 rounded border transition-colors ${
