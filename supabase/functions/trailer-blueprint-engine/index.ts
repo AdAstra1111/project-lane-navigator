@@ -90,6 +90,45 @@ const ARC_TEMPLATES: Record<string, any> = {
   },
 };
 
+// ─── Generator Hint (two-provider routing: Veo + Runway) ───
+
+function buildGeneratorHint(params: {
+  role: string;
+  durationS: number;
+  clipSpec: any;
+}) {
+  const { role, durationS, clipSpec } = params;
+
+  // Hero beats => Runway. Default => Veo (Google).
+  const heroRoles = [
+    "hook", "cold_open", "climax_tease", "stinger", "montage_peak",
+    "rupture", "inciting_incident", "transformation", "declaration",
+  ];
+  const isHero = heroRoles.includes(role);
+
+  const preferredProvider = isHero ? "runway" : "veo";
+
+  // Spend more candidates on hero beats
+  const candidates =
+    (role === "montage_peak" || role === "climax_tease") ? 3 :
+    (role === "hook" || role === "cold_open" || role === "stinger") ? 2 :
+    (role === "inciting_incident" || role === "rupture") ? 2 : 1;
+
+  return {
+    preferred_provider: preferredProvider,
+    preferred_mode: "text_to_video" as const,
+    candidates,
+    length_ms: Math.round(durationS * 1000),
+    aspect_ratio: "16:9",
+    fps: 24,
+    style_lock: true,
+    init_images: {
+      source: "storyboard_best_frame",
+      frame_paths: [] as string[],
+    },
+  };
+}
+
 // ─── Actions ───
 
 async function handleCreateBlueprint(db: any, body: any, userId: string, apiKey: string) {
@@ -210,9 +249,19 @@ Rules:
 
     const parsed = await parseJsonSafe(result.content, apiKey);
 
+    // Inject deterministic generator_hint into each EDL beat
+    const enrichedEdl = (parsed.edl || []).map((beat: any) => ({
+      ...beat,
+      generator_hint: buildGeneratorHint({
+        role: beat.role || "",
+        durationS: beat.duration_s || 3,
+        clipSpec: beat.clip_spec || {},
+      }),
+    }));
+
     await db.from("trailer_blueprints").update({
       status: "complete",
-      edl: parsed.edl || [],
+      edl: enrichedEdl,
       rhythm_analysis: parsed.rhythm_analysis || {},
       audio_plan: parsed.audio_plan || {},
       text_card_plan: parsed.text_card_plan || [],

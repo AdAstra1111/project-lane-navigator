@@ -18,6 +18,17 @@ export interface TrailerBlueprint {
   created_by: string;
 }
 
+export interface GeneratorHint {
+  preferred_provider: "veo" | "runway";
+  preferred_mode: "text_to_video" | "image_to_video";
+  candidates: number;
+  length_ms: number;
+  aspect_ratio?: string;
+  fps?: number;
+  style_lock?: boolean;
+  init_images?: { source?: string; frame_paths?: string[] };
+}
+
 export interface EDLBeat {
   beat_index: number;
   role: string;
@@ -25,6 +36,7 @@ export interface EDLBeat {
   panel_ref: string | null;
   duration_s: number;
   clip_spec: ClipSpec;
+  generator_hint?: GeneratorHint;
 }
 
 export interface ClipSpec {
