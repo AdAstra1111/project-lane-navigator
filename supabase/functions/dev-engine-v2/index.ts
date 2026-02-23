@@ -7776,13 +7776,73 @@ Rules:
       const { data: sceneVer } = await supabase.from("scene_graph_versions")
         .select("slugline, summary").eq("id", shot?.scene_version_id).maybeSingle();
 
-      // Build prompts
+      // Helper to extract base64 image from Gemini chat/completions response
+      function extractImageFromChatCompletion(json: any): { base64: string; mime: string } | null {
+        try {
+          const msg = json?.choices?.[0]?.message;
+          if (!msg) return null;
+          // Shape 1: message.images array
+          if (msg.images && Array.isArray(msg.images)) {
+            for (const img of msg.images) {
+              const url = img?.image_url?.url || img?.url;
+              if (url && typeof url === 'string') {
+                const match = url.match(/^data:(image\/\w+);base64,(.+)$/s);
+                if (match) return { mime: match[1], base64: match[2] };
+                return { mime: 'image/png', base64: url };
+              }
+              if (img?.data && img?.mime_type) {
+                return { mime: img.mime_type, base64: img.data };
+              }
+            }
+          }
+          // Shape 2: content is array with image parts
+          if (Array.isArray(msg.content)) {
+            for (const part of msg.content) {
+              if (part.type === 'image_url') {
+                const url = part.image_url?.url;
+                if (url) {
+                  const match = url.match(/^data:(image\/\w+);base64,(.+)$/s);
+                  if (match) return { mime: match[1], base64: match[2] };
+                  return { mime: 'image/png', base64: url };
+                }
+              }
+              if (part.type === 'image' && part.data) {
+                return { mime: part.mime_type || 'image/png', base64: part.data };
+              }
+            }
+          }
+          // Shape 3: content is a data URL string
+          if (typeof msg.content === 'string' && msg.content.startsWith('data:image')) {
+            const match = msg.content.match(/^data:(image\/\w+);base64,(.+)$/s);
+            if (match) return { mime: match[1], base64: match[2] };
+          }
+        } catch (e) {
+          console.error('[storyboard] Image extraction error:', e);
+        }
+        return null;
+      }
+
       const frames: any[] = [];
       for (let i = 0; i < count; i++) {
         const prompt = `${style} film still, ${ar} aspect ratio. ${shot?.framing || 'MS'} shot${shot?.lens_mm ? ` ${shot.lens_mm}mm lens` : ''}. ${shot?.camera_movement || 'static'}. ${shot?.angle || 'eye level'} angle. ${sceneVer?.slugline || ''}. ${shot?.composition_notes || ''}. ${shot?.blocking_notes || ''}. Characters: ${(shot?.characters_in_frame || []).join(', ')}. Mood: ${shot?.emotional_intent || 'neutral'}. Lighting: ${shot?.lighting_style || 'naturalistic'}. Location: ${shot?.location_hint || 'interior'}. Time: ${shot?.time_of_day_hint || 'day'}.`;
 
-        // Generate actual image via Lovable AI gateway
+        // Insert placeholder row
+        const { data: placeholderFrame } = await supabase.from("storyboard_frames").insert({
+          project_id: projectId, scene_id: shot?.scene_id, scene_version_id: shot?.scene_version_id,
+          shot_id: shotId, shot_version_id: resolvedSVId,
+          frame_index: i + 1, aspect_ratio: ar, prompt,
+          style_preset: style, status: 'generating', is_stale: false,
+          storage_path: '', image_url: null,
+        }).select().single();
+
+        const frameId = placeholderFrame?.id;
+        if (!frameId) { frames.push(placeholderFrame); continue; }
+
         let imageUrl: string | null = null;
+        let storagePath: string | null = null;
+        let mimeType = 'image/png';
+        let error: string | null = null;
+
         try {
           const imgResp = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
             method: 'POST',
@@ -7794,40 +7854,54 @@ Rules:
               model: 'google/gemini-2.5-flash-image',
               messages: [{ role: 'user', content: `Generate a cinematic film still: ${prompt.slice(0, 3500)}` }],
               modalities: ['image', 'text'],
+              temperature: 0.7,
             }),
           });
+
+          if (imgResp.status === 429) throw new Error('RATE_LIMIT');
+          if (imgResp.status === 402) throw new Error('PAYMENT_REQUIRED');
+
           if (imgResp.ok) {
             const imgData = await imgResp.json();
-            const img = imgData?.choices?.[0]?.message?.images?.[0]?.image_url?.url;
-            if (img) {
-              // Upload base64 to storage
-              const base64 = img.replace(/^data:image\/\w+;base64,/, '');
-              const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
-              const storagePath = `${projectId}/storyboard-frames/${shotId}_${Date.now()}_${i}.png`;
-              const { error: upErr } = await supabase.storage.from('storyboards').upload(storagePath, bytes, { contentType: 'image/png', upsert: true });
+            const extracted = extractImageFromChatCompletion(imgData);
+            
+            if (extracted) {
+              mimeType = extracted.mime;
+              const ext = mimeType === 'image/jpeg' ? 'jpg' : 'png';
+              storagePath = `${projectId}/storyboard-frames/${shotId}/${frameId}.${ext}`;
+              const bytes = Uint8Array.from(atob(extracted.base64), c => c.charCodeAt(0));
+              
+              const { error: upErr } = await supabase.storage.from('storyboards').upload(storagePath, bytes, { contentType: mimeType, upsert: true });
               if (!upErr) {
                 const { data: pubUrl } = supabase.storage.from('storyboards').getPublicUrl(storagePath);
                 imageUrl = pubUrl?.publicUrl || null;
               } else {
                 console.error(`[storyboard] Storage upload failed:`, upErr);
-                imageUrl = img; // fallback to base64
+                error = `Upload failed: ${upErr.message}`;
               }
+            } else {
+              console.error('[storyboard] Could not extract image from AI response');
+              error = 'Could not extract image from AI response';
             }
-            console.log(`[storyboard] Generated frame image for shot ${shotId}, frame ${i + 1}`);
           } else {
-            console.error(`[storyboard] Image generation failed: ${imgResp.status} ${await imgResp.text()}`);
+            const errText = await imgResp.text();
+            console.error(`[storyboard] Image generation failed: ${imgResp.status} ${errText}`);
+            error = `Generation failed: ${imgResp.status}`;
           }
-        } catch (imgErr) {
+        } catch (imgErr: any) {
           console.error(`[storyboard] Image generation error:`, imgErr);
+          error = imgErr.message || 'Unknown error';
+          if (error === 'RATE_LIMIT' || error === 'PAYMENT_REQUIRED') throw imgErr;
         }
 
-        const { data: frame } = await supabase.from("storyboard_frames").insert({
-          project_id: projectId, scene_id: shot?.scene_id, scene_version_id: shot?.scene_version_id,
-          shot_id: shotId, shot_version_id: resolvedSVId,
-          frame_index: i + 1, aspect_ratio: ar, prompt,
-          style_preset: style, status: 'draft', is_stale: false,
-          image_url: imageUrl,
-        }).select().single();
+        // Update the frame row
+        const finalStatus = imageUrl ? 'ready' : (error ? 'failed' : 'draft');
+        const { data: frame } = await supabase.from("storyboard_frames")
+          .update({ 
+            status: finalStatus, image_url: imageUrl, 
+            storage_path: storagePath, mime_type: mimeType,
+          })
+          .eq("id", frameId).select().single();
         if (frame) frames.push(frame);
       }
 
@@ -7840,7 +7914,9 @@ Rules:
       const { projectId, sceneId, sceneVersionId } = body;
       if (!projectId || !sceneId) throw new Error("projectId and sceneId required");
 
-      let query = supabase.from("storyboard_frames").select("*").eq("project_id", projectId).eq("scene_id", sceneId);
+      let query = supabase.from("storyboard_frames").select("*")
+        .eq("project_id", projectId).eq("scene_id", sceneId)
+        .is("deleted_at", null);
       if (sceneVersionId) query = query.eq("scene_version_id", sceneVersionId);
       const { data: frames } = await query.order("shot_id").order("frame_index", { ascending: true });
 
@@ -7858,6 +7934,37 @@ Rules:
         .eq("id", frameId).eq("project_id", projectId).select().single();
 
       return new Response(JSON.stringify({ frame }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "delete_storyboard_frame") {
+      const { projectId, frameId } = body;
+      if (!projectId || !frameId) throw new Error("projectId and frameId required");
+
+      const { data: frame } = await supabase.from("storyboard_frames")
+        .update({ deleted_at: new Date().toISOString(), status: 'deleted' })
+        .eq("id", frameId).eq("project_id", projectId).select().single();
+
+      // Best-effort storage cleanup
+      if (frame?.storage_path) {
+        try { await supabase.storage.from('storyboards').remove([frame.storage_path]); } catch {}
+      }
+
+      return new Response(JSON.stringify({ ok: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "restore_storyboard_frame") {
+      const { projectId, frameId } = body;
+      if (!projectId || !frameId) throw new Error("projectId and frameId required");
+
+      const { data: frame } = await supabase.from("storyboard_frames")
+        .update({ deleted_at: null, status: 'ready' })
+        .eq("id", frameId).eq("project_id", projectId).select().single();
+
+      return new Response(JSON.stringify({ ok: true, frame }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }

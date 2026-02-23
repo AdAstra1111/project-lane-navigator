@@ -1,7 +1,7 @@
 /**
  * Visual Production Panel — Phase 5 UI for Shot Lists, Storyboards, Production Intelligence
  */
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { useVisualProduction } from '@/hooks/useVisualProduction';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -9,9 +9,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
+import { toast } from 'sonner';
 import {
   Loader2, Camera, Check, Film, Image, BarChart3,
-  AlertTriangle, Clapperboard, Aperture, Move,
+  AlertTriangle, Clapperboard, Aperture, Move, Trash2, RotateCcw, X,
 } from 'lucide-react';
 import type { SceneListItem } from '@/lib/scene-graph/types';
 
@@ -95,10 +98,13 @@ export function VisualProductionPanel({ projectId, scenes, selectedSceneId, onSe
 
           <TabsContent value="storyboard" className="mt-2">
             <StoryboardPanel
+              projectId={projectId}
               frames={vp.frames}
               shots={vp.shots}
               onGenerateFrames={(shotId) => vp.generateFrames.mutateAsync({ shotId, frameCount: 1 })}
               onApproveFrame={(frameId) => vp.approveFrame.mutateAsync(frameId)}
+              onDeleteFrame={vp.deleteFrame ? (frameId) => vp.deleteFrame!.mutateAsync(frameId) : undefined}
+              onRestoreFrame={vp.restoreFrame ? (frameId) => vp.restoreFrame!.mutateAsync(frameId) : undefined}
               isGenerating={vp.generateFrames.isPending}
               isLoading={vp.isLoadingFrames}
               hasScene={!!selectedSceneId}
@@ -229,24 +235,68 @@ function ShotPlanPanel({ projectId, scene, shotSets, shots, staleSets, onGenerat
 
 // ── Storyboard Panel ──
 
-function StoryboardPanel({ frames, shots, onGenerateFrames, onApproveFrame, isGenerating, isLoading, hasScene }: {
+function StoryboardPanel({ projectId, frames, shots, onGenerateFrames, onApproveFrame, onDeleteFrame, onRestoreFrame, isGenerating, isLoading, hasScene }: {
+  projectId: string;
   frames: any[];
   shots: any[];
   onGenerateFrames: (shotId: string) => void;
   onApproveFrame: (frameId: string) => void;
+  onDeleteFrame?: (frameId: string) => Promise<any>;
+  onRestoreFrame?: (frameId: string) => Promise<any>;
   isGenerating: boolean;
   isLoading: boolean;
   hasScene: boolean;
 }) {
+  const [previewFrame, setPreviewFrame] = useState<any | null>(null);
+  const [deletedFrameIds, setDeletedFrameIds] = useState<Set<string>>(new Set());
+
   // Group frames by shot
   const groupedFrames = useMemo(() => {
     const map = new Map<string, any[]>();
     for (const f of frames) {
+      if (deletedFrameIds.has(f.id)) continue;
       if (!map.has(f.shot_id)) map.set(f.shot_id, []);
       map.get(f.shot_id)!.push(f);
     }
     return map;
-  }, [frames]);
+  }, [frames, deletedFrameIds]);
+
+  const handleDelete = useCallback(async (frame: any) => {
+    if (!onDeleteFrame) return;
+    // Optimistic removal
+    setDeletedFrameIds(prev => new Set(prev).add(frame.id));
+    
+    try {
+      await onDeleteFrame(frame.id);
+      toast('Frame deleted', {
+        action: onRestoreFrame ? {
+          label: 'Undo',
+          onClick: async () => {
+            try {
+              await onRestoreFrame(frame.id);
+              setDeletedFrameIds(prev => {
+                const next = new Set(prev);
+                next.delete(frame.id);
+                return next;
+              });
+              toast.success('Frame restored');
+            } catch {
+              toast.error('Restore failed');
+            }
+          },
+        } : undefined,
+        duration: 8000,
+      });
+    } catch {
+      // Revert optimistic removal
+      setDeletedFrameIds(prev => {
+        const next = new Set(prev);
+        next.delete(frame.id);
+        return next;
+      });
+      toast.error('Delete failed');
+    }
+  }, [onDeleteFrame, onRestoreFrame]);
 
   if (!hasScene) {
     return (
@@ -259,71 +309,129 @@ function StoryboardPanel({ frames, shots, onGenerateFrames, onApproveFrame, isGe
   }
 
   return (
-    <Card className="border-border/50">
-      <CardHeader className="px-3 py-2">
-        <CardTitle className="text-xs flex items-center gap-1">
-          <Image className="h-3.5 w-3.5" /> Storyboard Frames
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="px-3 pb-3">
-        {isLoading ? (
-          <div className="flex justify-center py-4"><Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /></div>
-        ) : shots.length === 0 ? (
-          <p className="text-xs text-muted-foreground text-center py-4">Generate a shot plan first to create storyboard frames.</p>
-        ) : (
-          <ScrollArea className="max-h-[350px]">
-            <div className="space-y-2">
-              {shots.slice(0, 50).map((shot, i) => {
-                const shotFrames = groupedFrames.get(shot.id) || [];
-                return (
-                  <div key={shot.id} className="space-y-1">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[9px] text-muted-foreground font-mono">
-                        Shot {shot.shot_number || i + 1} — {shot.coverage_role || shot.shot_type} {shot.framing || ''}
-                      </span>
-                      <Button size="sm" variant="ghost" className="h-5 text-[8px] px-1.5 gap-0.5"
-                        onClick={() => onGenerateFrames(shot.id)} disabled={isGenerating}>
-                        {isGenerating ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Aperture className="h-2.5 w-2.5" />}
-                        Gen Frame
-                      </Button>
-                    </div>
-                    {shotFrames.length > 0 ? (
-                      <div className="grid grid-cols-3 gap-1">
-                        {shotFrames.map(f => (
-                          <div key={f.id} className={`relative rounded border p-1 text-[8px] ${
-                            f.is_stale ? 'border-amber-500/30 bg-amber-500/5' :
-                            f.status === 'approved' ? 'border-primary/30 bg-primary/5' :
-                            'border-border/50 bg-muted/10'
-                          }`}>
-                            {f.image_url ? (
-                              <img src={f.image_url} alt="" className="w-full aspect-[2.39/1] object-cover rounded" />
-                            ) : (
-                              <div className="w-full aspect-[2.39/1] bg-muted/30 rounded flex items-center justify-center">
-                                <Film className="h-4 w-4 text-muted-foreground/30" />
-                              </div>
-                            )}
-                            <div className="flex items-center justify-between mt-0.5">
-                              <Badge variant={f.is_stale ? 'outline' : f.status === 'approved' ? 'default' : 'secondary'} className="text-[6px] h-3 px-0.5">
-                                {f.is_stale ? 'stale' : f.status}
-                              </Badge>
-                              {f.status !== 'approved' && !f.is_stale && (
-                                <button className="text-[7px] text-primary underline" onClick={() => onApproveFrame(f.id)}>Approve</button>
-                              )}
-                            </div>
-                          </div>
-                        ))}
+    <TooltipProvider>
+      <Card className="border-border/50">
+        <CardHeader className="px-3 py-2">
+          <CardTitle className="text-xs flex items-center gap-1">
+            <Image className="h-3.5 w-3.5" /> Storyboard Frames
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="px-3 pb-3">
+          {isLoading ? (
+            <div className="flex justify-center py-4"><Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /></div>
+          ) : shots.length === 0 ? (
+            <p className="text-xs text-muted-foreground text-center py-4">Generate a shot plan first to create storyboard frames.</p>
+          ) : (
+            <ScrollArea className="h-[calc(100vh-400px)] min-h-[200px]">
+              <div className="space-y-2 pr-2">
+                {shots.slice(0, 50).map((shot, i) => {
+                  const shotFrames = groupedFrames.get(shot.id) || [];
+                  return (
+                    <div key={shot.id} className="space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[9px] text-muted-foreground font-mono">
+                          Shot {shot.shot_number || i + 1} — {shot.coverage_role || shot.shot_type} {shot.framing || ''}
+                        </span>
+                        <Button size="sm" variant="ghost" className="h-5 text-[8px] px-1.5 gap-0.5"
+                          onClick={() => onGenerateFrames(shot.id)} disabled={isGenerating}>
+                          {isGenerating ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Aperture className="h-2.5 w-2.5" />}
+                          Gen Frame
+                        </Button>
                       </div>
-                    ) : (
-                      <p className="text-[8px] text-muted-foreground pl-2">No frames yet</p>
-                    )}
-                  </div>
-                );
-              })}
+                      {shotFrames.length > 0 ? (
+                        <div className="grid grid-cols-3 gap-1">
+                          {shotFrames.map(f => (
+                            <div key={f.id} className={`group relative rounded border p-1 text-[8px] ${
+                              f.is_stale ? 'border-amber-500/30 bg-amber-500/5' :
+                              f.status === 'approved' ? 'border-primary/30 bg-primary/5' :
+                              f.status === 'failed' ? 'border-destructive/30 bg-destructive/5' :
+                              'border-border/50 bg-muted/10'
+                            }`}>
+                              {f.status === 'generating' ? (
+                                <div className="w-full aspect-[2.39/1] bg-muted/30 rounded flex items-center justify-center">
+                                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                                </div>
+                              ) : f.status === 'failed' ? (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <div className="w-full aspect-[2.39/1] bg-destructive/10 rounded flex flex-col items-center justify-center gap-1 cursor-help">
+                                      <AlertTriangle className="h-3 w-3 text-destructive" />
+                                      <span className="text-[7px] text-destructive">Failed</span>
+                                      <Button size="sm" variant="ghost" className="h-4 text-[7px] px-1"
+                                        onClick={() => onGenerateFrames(shot.id)}>
+                                        <RotateCcw className="h-2 w-2 mr-0.5" /> Retry
+                                      </Button>
+                                    </div>
+                                  </TooltipTrigger>
+                                  <TooltipContent><p className="text-xs max-w-[200px]">{f.error || 'Generation failed'}</p></TooltipContent>
+                                </Tooltip>
+                              ) : f.image_url ? (
+                                <img 
+                                  src={`${f.image_url}${f.image_url.includes('?') ? '&' : '?'}v=${f.created_at}`} 
+                                  alt="" 
+                                  className="w-full aspect-[2.39/1] object-cover rounded cursor-pointer hover:opacity-90 transition-opacity" 
+                                  onClick={() => setPreviewFrame(f)}
+                                  onError={(e) => { (e.target as HTMLImageElement).src = ''; (e.target as HTMLImageElement).classList.add('hidden'); }}
+                                />
+                              ) : (
+                                <div className="w-full aspect-[2.39/1] bg-muted/30 rounded flex items-center justify-center">
+                                  <Film className="h-4 w-4 text-muted-foreground/30" />
+                                </div>
+                              )}
+                              {/* Delete button */}
+                              {onDeleteFrame && f.status !== 'generating' && (
+                                <button 
+                                  className="absolute top-0.5 right-0.5 opacity-0 group-hover:opacity-100 transition-opacity bg-background/80 rounded p-0.5"
+                                  onClick={(e) => { e.stopPropagation(); handleDelete(f); }}
+                                >
+                                  <Trash2 className="h-2.5 w-2.5 text-destructive" />
+                                </button>
+                              )}
+                              <div className="flex items-center justify-between mt-0.5">
+                                <Badge variant={f.is_stale ? 'outline' : f.status === 'approved' ? 'default' : 'secondary'} className="text-[6px] h-3 px-0.5">
+                                  {f.is_stale ? 'stale' : f.status}
+                                </Badge>
+                                {f.status !== 'approved' && !f.is_stale && f.status !== 'failed' && (
+                                  <button className="text-[7px] text-primary underline" onClick={() => onApproveFrame(f.id)}>Approve</button>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-[8px] text-muted-foreground pl-2">No frames yet</p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </ScrollArea>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Preview Modal */}
+      <Dialog open={!!previewFrame} onOpenChange={(open) => !open && setPreviewFrame(null)}>
+        <DialogContent className="max-w-3xl p-0 overflow-hidden">
+          {previewFrame && (
+            <div className="space-y-2 p-4">
+              {previewFrame.image_url && (
+                <img 
+                  src={previewFrame.image_url} 
+                  alt="" 
+                  className="w-full rounded-lg object-contain max-h-[60vh]" 
+                />
+              )}
+              <div className="space-y-1 text-xs text-muted-foreground">
+                <p className="font-medium text-foreground">Prompt</p>
+                <p className="text-[10px] leading-relaxed">{previewFrame.prompt}</p>
+                <p className="text-[9px]">Created: {new Date(previewFrame.created_at).toLocaleString()}</p>
+              </div>
             </div>
-          </ScrollArea>
-        )}
-      </CardContent>
-    </Card>
+          )}
+        </DialogContent>
+      </Dialog>
+    </TooltipProvider>
   );
 }
 
