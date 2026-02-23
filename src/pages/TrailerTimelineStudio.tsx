@@ -87,7 +87,7 @@ export default function TrailerTimelineStudio() {
   const { data: renderData } = useRenderProgress(projectId, cutId);
 
   // Mutations
-  const { createCut, updateBeat, reorderBeats, finalizeRun, setCutStatus, exportBeatlist } =
+  const { createCut, updateBeat, reorderBeats, finalizeRun, setCutStatus, exportBeatlist, fixTrims, validateTrims } =
     useAssemblerMutations(projectId);
   const { upsertAudioRun, generateAudioPlan, enqueueRender, retryRender, cancelRender } =
     useAudioMutations(projectId);
@@ -137,8 +137,32 @@ export default function TrailerTimelineStudio() {
     reorderBeats.mutate({ cutId, orderedBeatIndices: indices });
   };
 
+  // Check if any non-text beats have invalid trims
+  const hasInvalidTrims = useMemo(() => {
+    return timeline.some((t: any) => !t.is_text_card && (t.duration_ms || 0) > 0 && (!t.trim_out_ms || t.trim_out_ms <= 0));
+  }, [timeline]);
+
+  const handleFixTrims = async () => {
+    if (!cutId) return;
+    await fixTrims.mutateAsync(cutId);
+  };
+
   const handleRender = async () => {
     if (!cutId || !projectId) return;
+
+    // Validate trims before render
+    try {
+      const validation = await validateTrims.mutateAsync(cutId);
+      if (!validation.valid) {
+        const issueList = (validation.issues || []).slice(0, 5).map((i: any) => `Beat #${i.beat_index} (${i.role}): ${i.issue}`).join('\n');
+        toast.error(`Cannot render: ${validation.issues.length} beat(s) have invalid trims.\n${issueList}\n\nClick "Fix Trims" to auto-repair.`);
+        return;
+      }
+    } catch (err: any) {
+      toast.error(`Trim validation failed: ${err.message}`);
+      return;
+    }
+
     setIsRendering(true);
     setRenderProgress({ done: 0, total: timeline.length });
     try {
@@ -359,6 +383,17 @@ export default function TrailerTimelineStudio() {
                 <CardTitle className="text-sm flex items-center gap-2"><Film className="h-4 w-4" /> Render & Export</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2">
+                {hasInvalidTrims && (
+                  <div className="flex items-center gap-2 p-2 rounded bg-destructive/10 border border-destructive/30 text-xs text-destructive">
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                    <span>Some beats have invalid trims (trim_out = 0). Fix before rendering.</span>
+                    <Button size="sm" variant="destructive" className="ml-auto text-[10px] h-6 px-2"
+                      onClick={handleFixTrims} disabled={fixTrims.isPending}>
+                      {fixTrims.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Scissors className="h-3 w-3 mr-1" />}
+                      Fix Trims
+                    </Button>
+                  </div>
+                )}
                 <Button size="sm" className="w-full" onClick={handleRender}
                   disabled={isRendering || cut.status === 'rendering'}>
                   {isRendering ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Play className="h-3 w-3 mr-1" />}
@@ -548,6 +583,17 @@ export default function TrailerTimelineStudio() {
                                         }} />
                                     </div>
                                   </div>
+                                  {/* Trim warnings */}
+                                  {!beat.is_text_card && (beat.trim_out_ms || 0) <= 0 && (beat.duration_ms || 0) > 0 && (
+                                    <p className="text-[10px] text-destructive flex items-center gap-1">
+                                      <AlertTriangle className="h-3 w-3" /> trim_out is 0 — will fail render. Use "Fix Trims" above.
+                                    </p>
+                                  )}
+                                  {beat.clip_duration_ms && beat.clip_duration_ms < (beat.duration_ms || 0) && (
+                                    <p className="text-[10px] text-amber-400 flex items-center gap-1">
+                                      <AlertTriangle className="h-3 w-3" /> Clip ({beat.clip_duration_ms}ms) shorter than planned ({beat.duration_ms}ms)
+                                    </p>
+                                  )}
                                   {!beat.is_text_card && beatClips.length > 0 && (
                                     <div>
                                       <Label className="text-[10px]">Clip</Label>

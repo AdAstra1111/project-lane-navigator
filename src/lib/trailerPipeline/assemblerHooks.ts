@@ -93,5 +93,19 @@ export function useAssemblerMutations(projectId: string | undefined) {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  return { createCut, updateBeat, reorderBeats, finalizeRun, setCutStatus, exportBeatlist };
+  const fixTrims = useMutation({
+    mutationFn: (cutId: string) => assemblerApi.fixTrims(projectId!, cutId),
+    onSuccess: (data) => {
+      toast.success(`Fixed trims on ${data.fixedCount || 0} beats`);
+      invalidateAll();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const validateTrims = useMutation({
+    mutationFn: (cutId: string) => assemblerApi.validateTrims(projectId!, cutId),
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  return { createCut, updateBeat, reorderBeats, finalizeRun, setCutStatus, exportBeatlist, fixTrims, validateTrims };
 }
