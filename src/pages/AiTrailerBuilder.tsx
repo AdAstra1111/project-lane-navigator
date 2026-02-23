@@ -4,7 +4,7 @@
  */
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Header } from '@/components/Header';
 import { PageTransition } from '@/components/PageTransition';
@@ -35,6 +35,7 @@ export default function AiTrailerBuilder() {
   const [activeShotlistId, setActiveShotlistId] = useState<string | null>(null);
   const [selectedBeatIndices, setSelectedBeatIndices] = useState<Set<number>>(new Set());
 
+  const qc = useQueryClient();
   const ai = useAiTrailerFactory(projectId);
 
   const { data: documents = [] } = useQuery({
@@ -146,19 +147,63 @@ export default function AiTrailerBuilder() {
             <Card>
               <CardHeader><CardTitle className="text-sm">Choose Source Script</CardTitle></CardHeader>
               <CardContent className="space-y-3">
-                {documents.length === 0 && (
-                  <p className="text-xs text-muted-foreground">No script documents found. Create a script first.</p>
+                {documents.length === 0 && !ai.createTrailerSourceScript.isPending && !ai.createTrailerSourceScript.isSuccess && (
+                  <div className="text-center py-6 space-y-3">
+                    <FileText className="h-10 w-10 text-muted-foreground mx-auto" />
+                    <p className="text-xs text-muted-foreground">No script documents found for trailer extraction.</p>
+                    <Button size="sm" className="text-xs gap-1.5"
+                      onClick={() => ai.createTrailerSourceScript.mutate(undefined, {
+                        onSuccess: (data: any) => {
+                          qc.invalidateQueries({ queryKey: ['ai-trailer-docs', projectId] });
+                          setSelectedDocId(data.documentId);
+                          setSelectedVersionId(data.versionId);
+                        },
+                      })}
+                      disabled={ai.createTrailerSourceScript.isPending}>
+                      <Sparkles className="h-3 w-3" />
+                      Create Trailer Source Script from PDF
+                    </Button>
+                  </div>
                 )}
-                {documents.map((doc: any) => (
-                  <button key={doc.id}
-                    onClick={() => { setSelectedDocId(doc.id); setSelectedVersionId(null); }}
-                    className={`w-full text-left p-3 rounded border transition-colors ${
-                      selectedDocId === doc.id ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted/30'
-                    }`}>
-                    <p className="text-sm font-medium">{doc.title}</p>
-                    <p className="text-[10px] text-muted-foreground">{doc.doc_type}</p>
-                  </button>
-                ))}
+                {ai.createTrailerSourceScript.isPending && (
+                  <div className="py-4">
+                    <StagedProgressBar
+                      title="Creating Trailer Source Script"
+                      stages={['Locating Script PDF', 'Extracting Text', 'Creating Script Document', 'Saving Version', 'Complete']}
+                      currentStageIndex={1}
+                      progressPercent={40}
+                      etaSeconds={60}
+                      detailMessage="Extracting screenplay text from PDF via AI…"
+                    />
+                  </div>
+                )}
+                {documents.length > 0 && (
+                  <>
+                    {documents.map((doc: any) => (
+                      <button key={doc.id}
+                        onClick={() => { setSelectedDocId(doc.id); setSelectedVersionId(null); }}
+                        className={`w-full text-left p-3 rounded border transition-colors ${
+                          selectedDocId === doc.id ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted/30'
+                        }`}>
+                        <p className="text-sm font-medium">{doc.title}</p>
+                        <p className="text-[10px] text-muted-foreground">{doc.doc_type}</p>
+                      </button>
+                    ))}
+                    {/* Always show CTA to create from PDF as secondary option */}
+                    <Button variant="outline" size="sm" className="text-xs gap-1.5 w-full"
+                      onClick={() => ai.createTrailerSourceScript.mutate(undefined, {
+                        onSuccess: (data: any) => {
+                          qc.invalidateQueries({ queryKey: ['ai-trailer-docs', projectId] });
+                          setSelectedDocId(data.documentId);
+                          setSelectedVersionId(data.versionId);
+                        },
+                      })}
+                      disabled={ai.createTrailerSourceScript.isPending}>
+                      {ai.createTrailerSourceScript.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                      Create New Source from PDF
+                    </Button>
+                  </>
+                )}
                 {selectedDocId && versions.length > 0 && (
                   <div className="mt-4">
                     <p className="text-xs text-muted-foreground mb-2">Select version:</p>
@@ -267,10 +312,15 @@ export default function AiTrailerBuilder() {
                     </Button>
                   )}
                   <Button size="sm" className="text-xs gap-1"
-                    onClick={() => ai.buildShotlist.mutate({ count: 16 })}
+                    onClick={() => {
+                      const momentIds = selectedMomentIds.size > 0
+                        ? Array.from(selectedMomentIds)
+                        : undefined;
+                      ai.buildShotlist.mutate({ count: 16, momentIds });
+                    }}
                     disabled={ai.buildShotlist.isPending || ai.moments.length === 0}>
                     {ai.buildShotlist.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Film className="h-3 w-3" />}
-                    Build Shotlist
+                    {selectedMomentIds.size > 0 ? `Build from ${selectedMomentIds.size} Selected` : 'Build Shotlist'}
                   </Button>
                 </div>
               </CardHeader>

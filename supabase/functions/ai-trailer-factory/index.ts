@@ -357,14 +357,22 @@ Return JSON: { "moments": [...] }`;
 }
 
 async function handleBuildShotlist(db: any, body: any, userId: string, _apiKey: string) {
-  const { projectId, count = 16 } = body;
+  const { projectId, count = 16, momentIds } = body;
   if (!projectId) return json({ error: "projectId required" }, 400);
 
   const { data: moments } = await db.from("trailer_moments").select("*")
     .eq("project_id", projectId).order("created_at", { ascending: false }).limit(100);
   if (!moments || moments.length === 0) return json({ error: "No trailer moments found. Extract moments first." }, 400);
 
-  const scored = moments.map((m: any) => ({
+  // Filter to selected moment IDs if provided
+  let filteredMoments = moments;
+  if (momentIds && Array.isArray(momentIds) && momentIds.length > 0) {
+    const idSet = new Set(momentIds);
+    filteredMoments = moments.filter((m: any) => idSet.has(m.id));
+    if (filteredMoments.length === 0) return json({ error: "None of the selected moments were found." }, 400);
+  }
+
+  const scored = filteredMoments.map((m: any) => ({
     ...m, _score: m.hook_strength * 0.5 + m.spectacle_score * 0.3 + m.emotional_score * 0.2,
   }));
   scored.sort((a: any, b: any) => {
@@ -381,6 +389,7 @@ async function handleBuildShotlist(db: any, body: any, userId: string, _apiKey: 
     ai_suggested_tier: m.ai_friendly ? "A" : "C",
     text_card_suggestion: idx === 0 ? "TITLE CARD" : null,
     hook_strength: m.hook_strength, spectacle_score: m.spectacle_score, emotional_score: m.emotional_score,
+    included: true,
   }));
 
   const { data: shotlist, error } = await db.from("trailer_shotlists").insert({

@@ -140,9 +140,35 @@ export function useAiTrailerFactory(projectId: string | undefined) {
   });
 
   const buildShotlist = useMutation({
-    mutationFn: (params?: { count?: number }) =>
+    mutationFn: (params?: { count?: number; momentIds?: string[] }) =>
       callFactory('build_trailer_shotlist', { projectId, ...params }),
     onSuccess: () => { toast.success('Trailer shotlist built'); qc.invalidateQueries({ queryKey: ['trailer-shotlists', projectId] }); },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const createTrailerSourceScript = useMutation({
+    mutationFn: async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Not authenticated');
+      const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/pdf-to-script`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ projectId }),
+      });
+      if (!resp.ok) {
+        const text = await resp.text();
+        let msg = 'PDF extraction failed';
+        try { msg = JSON.parse(text).error || msg; } catch {}
+        throw new Error(msg);
+      }
+      return resp.json();
+    },
+    onSuccess: (data) => {
+      toast.success(data.message || 'Trailer source script created');
+    },
     onError: (e: Error) => toast.error(e.message),
   });
 
@@ -183,6 +209,7 @@ export function useAiTrailerFactory(projectId: string | undefined) {
     isLoadingMoments: momentsQuery.isLoading,
     isLoadingShotlists: shotlistsQuery.isLoading,
     labelReadiness, generateFrames, selectMedia, generateMotionStill,
-    extractMoments, buildShotlist, saveSelectedIndices, generateTrailerAssets, assembleTrailer,
+    extractMoments, buildShotlist, createTrailerSourceScript, saveSelectedIndices,
+    generateTrailerAssets, assembleTrailer,
   };
 }
