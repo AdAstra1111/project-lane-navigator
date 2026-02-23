@@ -4,6 +4,7 @@
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { invalidateDevEngine } from '@/lib/invalidateDevEngine';
 import { toast } from 'sonner';
 import type { WritersRoomData, NoteOption, ChangePlan, ChangePlanRow } from '@/lib/types/writers-room';
 
@@ -194,9 +195,16 @@ export function useNoteWritersRoom(opts: {
 
   const applyChangePlan = useMutation({
     mutationFn: (planId: string) => invoke('apply_change_plan', { planId }),
-    onSuccess: () => {
+    onSuccess: (data) => {
       invalidatePlan();
       invalidate();
+      // Refresh the document viewer so the new version appears
+      invalidateDevEngine(qc, {
+        projectId,
+        docId: documentId,
+        versionId: data?.newVersionId,
+        deep: true,
+      });
       toast.success(`Applied! New version created.`);
     },
     onError: (e: Error) => toast.error(e.message),
