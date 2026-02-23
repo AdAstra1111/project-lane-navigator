@@ -25,8 +25,8 @@ async function callClipEngine(action: string, payload: Record<string, any>) {
 }
 
 export const clipEngineApi = {
-  enqueueForRun: (projectId: string, blueprintId: string, force = false) =>
-    callClipEngine('enqueue_for_run', { projectId, blueprintId, force }),
+  enqueueForRun: (projectId: string, blueprintId: string, force = false, enabledProviders?: string[]) =>
+    callClipEngine('enqueue_for_run', { projectId, blueprintId, force, enabledProviders }),
 
   claimNextJob: (projectId: string, blueprintId: string) =>
     callClipEngine('claim_next_job', { projectId, blueprintId }),
