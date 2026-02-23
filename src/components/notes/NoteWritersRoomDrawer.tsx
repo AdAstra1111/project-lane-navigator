@@ -441,10 +441,10 @@ export function NoteWritersRoomDrawer({
                     placeholder="Discuss this note... (say 'apply that' to generate a change plan)"
                     value={message}
                     onChange={(e) => setMessage(e.target.value)}
-                    className="min-h-[40px] h-10 text-xs flex-1 resize-none"
+                    className="min-h-[60px] text-xs flex-1 resize-none"
                     onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(); } }}
                   />
-                  <Button size="sm" className="h-10 px-3" onClick={handleSendMessage} disabled={postMessage.isPending || !message.trim()}>
+                  <Button size="sm" className="h-[60px] px-3" onClick={handleSendMessage} disabled={postMessage.isPending || !message.trim()}>
                     <Send className="h-3 w-3" />
                   </Button>
                 </div>
