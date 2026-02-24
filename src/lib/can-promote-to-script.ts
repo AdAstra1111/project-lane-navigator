@@ -117,6 +117,7 @@ export const ALL_DOC_TYPE_LABELS: Record<string, string> = {
   doc_premise_brief: 'Documentary Premise',
   research_dossier: 'Research Dossier',
   script_coverage: 'Script Coverage',
+  trailer_script: 'Trailer Script',
   other: 'Document',
   document: 'Document',
 };

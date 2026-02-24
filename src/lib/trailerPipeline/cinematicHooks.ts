@@ -185,9 +185,21 @@ export function useCinematicMutations(projectId: string | undefined) {
         gatesPassed: judgeData.gatesPassed,
       };
     },
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
       if (data.ok) {
         toast.success('Cinematic plan created successfully');
+        // Auto-export as project document
+        if (data.scriptRunId) {
+          try {
+            await cinematicApi.exportTrailerScriptDocument({
+              projectId: projectId!,
+              scriptRunId: data.scriptRunId,
+            });
+            qc.invalidateQueries({ queryKey: ['project-documents', projectId] });
+          } catch (e) {
+            console.warn('Auto-export trailer script document failed:', e);
+          }
+        }
       } else {
         toast.warning('Plan partially completed');
       }
@@ -211,9 +223,21 @@ export function useCinematicMutations(projectId: string | undefined) {
       targetLengthMs?: number;
       stylePresetKey?: string;
     }) => cinematicApi.createTrailerScript({ projectId: projectId!, ...params }),
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
       toast.success(`Script created: ${data.beatCount} beats (${data.status})`);
       qc.invalidateQueries({ queryKey: ['cinematic-script-runs', projectId] });
+      // Auto-export as project document
+      if (data.scriptRunId) {
+        try {
+          await cinematicApi.exportTrailerScriptDocument({
+            projectId: projectId!,
+            scriptRunId: data.scriptRunId,
+          });
+          qc.invalidateQueries({ queryKey: ['project-documents', projectId] });
+        } catch (e) {
+          console.warn('Auto-export trailer script document failed:', e);
+        }
+      }
     },
     onError: (e: Error) => toast.error(e.message),
   });

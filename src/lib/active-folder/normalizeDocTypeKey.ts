@@ -18,6 +18,7 @@ export type DocTypeKey =
   | 'feature_script'
   | 'format_rules'
   | 'production_draft'
+  | 'trailer_script'
   | 'other';
 
 export const DOC_TYPE_KEY_LABELS: Record<DocTypeKey, string> = {
@@ -35,6 +36,7 @@ export const DOC_TYPE_KEY_LABELS: Record<DocTypeKey, string> = {
   feature_script: 'Feature Script',
   format_rules: 'Format Rules',
   production_draft: 'Production Draft',
+  trailer_script: 'Trailer Script',
   other: 'Document',
 };
 
@@ -86,6 +88,7 @@ const KEY_MAP: Record<string, DocTypeKey> = {
   episode_script: 'episode_script',
   episode_1_script: 'episode_script',
   production_draft: 'production_draft',
+  trailer_script: 'trailer_script',
 };
 
 const TITLE_HINTS: [RegExp, DocTypeKey][] = [

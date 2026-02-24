@@ -78,6 +78,7 @@ const DOC_TYPE_COLORS: Record<DocumentType, string> = {
   lookbook: 'bg-pink-500/15 text-pink-400 border-pink-500/30',
   schedule: 'bg-teal-500/15 text-teal-400 border-teal-500/30',
   budget: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
+  trailer_script: 'bg-rose-500/15 text-rose-400 border-rose-500/30',
   document: 'bg-muted text-muted-foreground border-border/50',
 };
 
