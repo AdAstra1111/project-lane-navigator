@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { StagedProgressBar } from '@/components/system/StagedProgressBar';
 import { warningActionFor } from '@/lib/warningActions';
+import { dedupeWarningsStable } from '@/lib/warningUtils';
 import {
   useScriptRuns, useScriptBeats, useRhythmRuns, useShotDesignRuns,
   useJudgeRuns, useCinematicMutations,
@@ -366,7 +367,9 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
     });
   }
 
-  const warningsPreview = sortWarningsDeterministic(warnings).slice(0, 6);
+  const warningsDeduped = dedupeWarningsStable(warnings);
+  const warningsCount = warningsDeduped.length;
+  const warningsPreview = sortWarningsDeterministic(warningsDeduped).slice(0, 6);
 
   function warningAnchorId(w: string): string | null {
     const l = w.toLowerCase();
@@ -412,7 +415,7 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
                 <Badge variant={activeRun.status === 'complete' ? 'default' : activeRun.status === 'needs_repair' ? 'destructive' : 'secondary'} className="text-[10px]">
                   {activeRun.status}
                 </Badge>
-                {activeRun.status === 'complete' && warnings.length > 0 && (
+                {activeRun.status === 'complete' && warningsCount > 0 && (
                   <span className="text-[10px] text-muted-foreground italic">
                     (with warnings)
                   </span>
@@ -420,10 +423,10 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
               </div>
             )}
 
-            {warnings.length > 0 && (
+            {warningsCount > 0 && (
               <div className="flex items-center gap-1.5 text-xs">
                 <AlertTriangle className="h-3 w-3 text-muted-foreground" />
-                <span className="text-muted-foreground">{warnings.length} warning{warnings.length > 1 ? 's' : ''}</span>
+                <span className="text-muted-foreground">{warningsCount} warning{warningsCount > 1 ? 's' : ''}</span>
                 <div className="flex flex-wrap gap-1 ml-1">
                   {warningsPreview.map((w, i) => {
                     const label = w.length > 40 ? w.slice(0, 37) + '…' : w;
