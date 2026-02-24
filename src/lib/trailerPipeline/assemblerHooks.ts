@@ -126,5 +126,17 @@ export function useAssemblerMutations(projectId: string | undefined) {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  return { createCut, updateBeat, reorderBeats, finalizeRun, setCutStatus, exportBeatlist, fixTrims, validateTrims, deleteCut, shuffleMontage };
+  const autoAssembleCut = useMutation({
+    mutationFn: (params: {
+      blueprintId?: string; scriptRunId?: string; rhythmRunId?: string;
+      strategy?: string; cutTitle?: string;
+    }) => assemblerApi.autoAssembleCut(projectId!, params),
+    onSuccess: (data) => {
+      toast.success(`Auto-assembled cut: ${data.pickedCount} clips picked, ${data.missingCount} missing`);
+      invalidateAll();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  return { createCut, updateBeat, reorderBeats, finalizeRun, setCutStatus, exportBeatlist, fixTrims, validateTrims, deleteCut, shuffleMontage, autoAssembleCut };
 }
