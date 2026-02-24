@@ -25,6 +25,7 @@ import {
   Layers, Star, CheckCircle2, ExternalLink, FileText,
 } from 'lucide-react';
 import { StagedProgressBar } from '@/components/system/StagedProgressBar';
+import { warningActionFor } from '@/lib/warningActions';
 import {
   useScriptRuns, useScriptBeats, useRhythmRuns, useShotDesignRuns,
   useJudgeRuns, useCinematicMutations,
@@ -446,6 +447,34 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
                       </button>
                     );
                   })}
+                </div>
+              </div>
+            )}
+            {selectedWarning && (
+              <div className="mt-2 rounded-md border bg-background p-2 text-xs">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="font-medium text-foreground">
+                      {warningActionFor(selectedWarning).title}
+                    </div>
+                    <ul className="mt-1 list-disc pl-4 text-muted-foreground">
+                      {warningActionFor(selectedWarning).steps.slice(0, 2).map((s) => (
+                        <li key={s}>{s}</li>
+                      ))}
+                    </ul>
+                  </div>
+                  {warningAnchorId(selectedWarning) && (
+                    <button
+                      type="button"
+                      className="shrink-0 rounded-md bg-muted px-2 py-1 text-[11px] text-muted-foreground hover:bg-muted/80"
+                      onClick={() => {
+                        const id = warningAnchorId(selectedWarning);
+                        if (id) scrollToAnchor(id);
+                      }}
+                    >
+                      Jump
+                    </button>
+                  )}
                 </div>
               </div>
             )}

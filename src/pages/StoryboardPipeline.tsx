@@ -2,6 +2,7 @@
  * Storyboard Pipeline v1 — Main page
  */
 import { useState, useMemo, useCallback } from 'react';
+import { warningActionFor as sbWarningActionFor } from '@/lib/warningActions';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, Layers, Image, RefreshCw, Check, Loader2, Camera, ChevronDown, ChevronRight, Play, Square, AlertTriangle, FileDown, Archive, ExternalLink, Trash2, Film, Settings2, Copy, Link2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -413,6 +414,34 @@ export default function StoryboardPipeline() {
                                 </button>
                               );
                             })}
+                          </div>
+                        </div>
+                      )}
+                      {selectedSBWarning && (
+                        <div className="mt-2 rounded-md border bg-background p-2 text-xs">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="font-medium text-foreground">
+                                {sbWarningActionFor(selectedSBWarning).title}
+                              </div>
+                              <ul className="mt-1 list-disc pl-4 text-muted-foreground">
+                                {sbWarningActionFor(selectedSBWarning).steps.slice(0, 2).map((s) => (
+                                  <li key={s}>{s}</li>
+                                ))}
+                              </ul>
+                            </div>
+                            {sbWarningAnchorId(selectedSBWarning) && (
+                              <button
+                                type="button"
+                                className="shrink-0 rounded-md bg-muted px-2 py-1 text-[11px] text-muted-foreground hover:bg-muted/80"
+                                onClick={() => {
+                                  const id = sbWarningAnchorId(selectedSBWarning);
+                                  if (id) scrollToSBAnchor(id);
+                                }}
+                              >
+                                Jump
+                              </button>
+                            )}
                           </div>
                         </div>
                       )}
