@@ -336,7 +336,9 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
   // Saved style options from the active run
   const savedOpts = activeRun?.style_options_json as TrailerStyleOptions | undefined;
 
-  // Normalized warnings (bounded, deterministic, taxonomized)
+  // Warnings state + normalization
+  const [selectedWarning, setSelectedWarning] = useState<string | null>(null);
+
   const warningsRaw = (activeRun as any)?.warnings;
   const warnings: string[] = Array.isArray(warningsRaw)
     ? warningsRaw.filter((w: any) => typeof w === "string")
@@ -365,8 +367,25 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
 
   const warningsPreview = sortWarningsDeterministic(warnings).slice(0, 6);
 
+  function warningAnchorId(w: string): string | null {
+    const l = w.toLowerCase();
+    if (l.includes("arc") || l.includes("structure") || l.includes("peak") || l.includes("escalation")) return "iffy-section-structure";
+    if (l.includes("pacing") || l.includes("tempo") || l.includes("duration") || l.includes("length")) return "iffy-section-pacing";
+    if (l.includes("tone") || l.includes("contrast") || l.includes("energy") || l.includes("flat")) return "iffy-section-tone";
+    if (l.includes("metadata") || l.includes("expected") || l.includes("unit") || l.includes("count")) return "iffy-section-metadata";
+    if (l.includes("fail") || l.includes("missing") || l.includes("error")) return "iffy-section-top";
+    return null;
+  }
+
+  function scrollToAnchor(id: string) {
+    try {
+      const el = document.getElementById(id);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    } catch { /* no-op */ }
+  }
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" id="iffy-section-top">
       {/* Top Bar: Controls + Scores */}
       <Card>
         <CardContent className="py-3">
@@ -407,10 +426,24 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
                 <div className="flex flex-wrap gap-1 ml-1">
                   {warningsPreview.map((w, i) => {
                     const label = w.length > 40 ? w.slice(0, 37) + '…' : w;
+                    const isActive = selectedWarning === w;
                     return (
-                      <span key={`${i}-${w}`} className="rounded-md bg-muted px-1.5 py-0.5 text-[9px] text-muted-foreground" title={w}>
+                      <button
+                        key={`${i}-${w}`}
+                        type="button"
+                        onClick={() => {
+                          setSelectedWarning(w);
+                          const id = warningAnchorId(w);
+                          if (id) scrollToAnchor(id);
+                        }}
+                        className={
+                          "rounded-md px-1.5 py-0.5 text-[9px] text-muted-foreground bg-muted hover:bg-muted/80 transition " +
+                          (isActive ? "ring-1 ring-muted-foreground/40" : "")
+                        }
+                        title={w}
+                      >
                         {label}
-                      </span>
+                      </button>
                     );
                   })}
                 </div>
@@ -431,7 +464,7 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
           </div>
           {/* Additional run metadata */}
           {activeRun && (
-            <div className="mt-1 flex flex-wrap items-center gap-2">
+            <div className="mt-1 flex flex-wrap items-center gap-2" id="iffy-section-metadata">
               {activeRun.strict_canon_mode && (
                 <Badge variant="outline" className="text-[8px] px-1.5 py-0">
                   <Shield className="h-2 w-2 mr-0.5" />{activeRun.strict_canon_mode}
@@ -472,8 +505,8 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
         </CardContent>
       </Card>
 
-      {/* Style Options Panel */}
-      <Collapsible open={optionsOpen} onOpenChange={setOptionsOpen}>
+      {/* Style Options Panel — pacing + tone controls */}
+      <Collapsible open={optionsOpen} onOpenChange={setOptionsOpen} id="iffy-section-pacing">
         <CollapsibleTrigger asChild>
           <Button variant="outline" size="sm" className="text-xs gap-1.5 w-full justify-between">
             <span className="flex items-center gap-1.5">
@@ -628,15 +661,19 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
         </CollapsibleContent>
       </Collapsible>
 
-      {/* Look Bible Panel */}
-      <LookBiblePanel projectId={projectId} scopeRefId={selectedRunId} />
+      {/* Look Bible Panel — tone */}
+      <div id="iffy-section-tone">
+        <LookBiblePanel projectId={projectId} scopeRefId={selectedRunId} />
+      </div>
 
-      {/* Gate Checklist */}
+      {/* Gate Checklist — structure */}
+      <div id="iffy-section-structure">
       <GateChecklist
         scriptGates={scriptGates || undefined}
         shotDesignGates={shotDesignGates || undefined}
         judgeScores={judgeScores || undefined}
       />
+      </div>
 
       {/* Crescendo Micro-Montage Panel */}
       <CrescendoMontagePanel
