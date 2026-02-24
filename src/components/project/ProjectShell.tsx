@@ -11,8 +11,10 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-// UI opacity hierarchy (do not inline /50 /60 /70 elsewhere)
-const UI = {
+// UI opacity hierarchy for ProjectBar/Rail/Inspector toggle.
+// Do NOT inline text-muted-foreground/* here — use SHELL_UI tokens.
+// Exempt: OperatingModeToggle, PipelineStateBar, InspectorDrawer tabs (intentional).
+const SHELL_UI = {
   meta:        'text-muted-foreground/70',
   inactive:    'text-muted-foreground/60',
   disabled:    'text-muted-foreground/50',
@@ -364,7 +366,7 @@ export function ProjectShell({ children }: ProjectShellProps) {
         <div className="flex items-center gap-2 min-w-0 flex-1">
           <button
             onClick={() => navigate('/dashboard')}
-            className={cn('h-7 w-7 rounded-md flex items-center justify-center transition-colors shrink-0', UI.inactive, UI.hoverText, UI.hoverBg)}
+            className={cn('h-7 w-7 rounded-md flex items-center justify-center transition-colors shrink-0', SHELL_UI.inactive, SHELL_UI.hoverText, SHELL_UI.hoverBg)}
           >
             <ChevronLeft className="h-3.5 w-3.5" />
           </button>
@@ -381,7 +383,7 @@ export function ProjectShell({ children }: ProjectShellProps) {
               </Link>
               {lane && <LaneBadge lane={lane} size="sm" />}
               {project?.confidence != null && (
-                <span className={cn('text-[10px]', UI.meta)}>
+                <span className={cn('text-[10px]', SHELL_UI.meta)}>
                   {Math.round(project.confidence * 100)}%
                 </span>
               )}
@@ -403,8 +405,8 @@ export function ProjectShell({ children }: ProjectShellProps) {
                 className={cn(
                   'h-7 w-7 rounded-md flex items-center justify-center transition-colors border',
                   drawerOpen
-                    ? `text-foreground/70 ${UI.border} bg-muted/20`
-                    : cn(UI.inactive, 'border-transparent', UI.hoverText, UI.hoverBg),
+                    ? `text-foreground/70 ${SHELL_UI.border} bg-muted/20`
+                    : cn(SHELL_UI.inactive, 'border-transparent', SHELL_UI.hoverText, SHELL_UI.hoverBg),
                 )}
               >
                 {drawerOpen ? <PanelRightClose className="h-3.5 w-3.5" /> : <PanelRightOpen className="h-3.5 w-3.5" />}
@@ -432,7 +434,7 @@ export function ProjectShell({ children }: ProjectShellProps) {
                       'relative w-9 h-9 rounded-lg flex items-center justify-center transition-all',
                       active
                         ? 'text-primary'
-                        : cn(UI.inactive, UI.hoverText, UI.hoverBg),
+                        : cn(SHELL_UI.inactive, SHELL_UI.hoverText, SHELL_UI.hoverBg),
                     )}
                   >
                     {/* Active indicator bar */}
