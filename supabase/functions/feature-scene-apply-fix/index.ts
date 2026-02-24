@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { callLLM, parseJsonSafe, MODELS } from "../_shared/llm.ts";
+import { callLLM, MODELS, callLLMWithJsonRetry } from "../_shared/llm.ts";
+import { isObject, isNonEmptyString } from "../_shared/validators.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -48,7 +49,7 @@ serve(async (req) => {
         .eq("id", unit.blueprint_id)
         .single();
 
-      const rewriteResult = await callLLM({
+      const rewrite = await callLLMWithJsonRetry({
         apiKey,
         model: MODELS.BALANCED,
         system: `You are a professional screenwriter. Rewrite the following scene to fix the issues described.
@@ -65,9 +66,10 @@ Return ONLY valid JSON.`,
         }),
         temperature: 0.4,
         maxTokens: 8000,
+      }, {
+        handler: "rewrite_scene",
+        validate: (d): d is any => isObject(d) && (isNonEmptyString(d.plaintext) || isObject(d.unit_json)),
       });
-
-      const rewrite = await parseJsonSafe(rewriteResult.content, apiKey);
       const newText = rewrite.plaintext || unit.plaintext;
       const newUnitJson = rewrite.unit_json || unit.unit_json;
 

@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
-import { callLLM, MODELS, composeSystem, parseJsonSafe } from "../_shared/llm.ts";
+import { callLLM, MODELS, composeSystem, callLLMWithJsonRetry } from "../_shared/llm.ts";
+import { isObject, hasArray } from "../_shared/validators.ts";
 import { fetchCoreDocs } from "../_shared/coreDocs.ts";
 
 const corsHeaders = {
@@ -157,14 +158,15 @@ Return ONLY valid JSON array with one object per episode:
   }
 }]`;
 
-          const snapshotResult = await callLLM({
+          const parsed = await callLLMWithJsonRetry({
             apiKey, model: MODELS.FAST,
             system: snapshotSystem,
             user: batchInput,
             temperature: 0.1, maxTokens: 6000,
+          }, {
+            handler: "series_continuity_snapshot",
+            validate: (d): d is any => Array.isArray(d) || (isObject(d) && typeof d.episode_number === "number"),
           });
-
-          const parsed = await parseJsonSafe(snapshotResult.content, apiKey);
           const snapshots = Array.isArray(parsed) ? parsed : [parsed];
 
           for (const snap of snapshots) {
@@ -247,14 +249,15 @@ If no issues found, return empty issues array. Be thorough but precise — do NO
 
       const conflictUser = `## AGGREGATED CANON FROM EPISODES 1-${episodeNumber - 1}\n${aggregatedFacts.slice(0, 12000)}${bibleBlock}${arcBlock}${gridBlock}${formatBlock}\n\n## EPISODE ${episodeNumber} (UNDER AUDIT)\n${currentEpisodeText.slice(0, 10000)}`;
 
-      const conflictResult = await callLLM({
+      const results = await callLLMWithJsonRetry({
         apiKey, model: MODELS.FAST,
         system: conflictSystem,
         user: conflictUser,
         temperature: 0.1, maxTokens: 8000,
+      }, {
+        handler: "series_continuity_conflict",
+        validate: (d): d is any => isObject(d) && hasArray(d, "issues"),
       });
-
-      const results = await parseJsonSafe(conflictResult.content, apiKey);
       log(`Found ${results.issues?.length || 0} issues`);
 
       // ── Persist issues ──
