@@ -144,7 +144,7 @@ export default function ClipCandidatesStudio() {
   };
 
   const selectBlueprintId = (id: string) => {
-    setSearchParams({ blueprintId: id });
+    setSearchParams(prev => { const next = new URLSearchParams(prev); next.set('blueprintId', id); return next; });
   };
 
   return (
