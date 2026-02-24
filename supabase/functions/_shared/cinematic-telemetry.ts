@@ -15,6 +15,7 @@ interface RollupBucket {
   min_score_final: number;
   max_score_final: number;
   failures_by_code: Record<string, number>;
+  final_mode_counts: { explicit: number; heuristic: number; unknown: number };
   last_flush_ts: number;
 }
 
@@ -42,6 +43,7 @@ function getBucket(handler: string, phase: string, model: string): RollupBucket 
       min_score_final: 1,
       max_score_final: 0,
       failures_by_code: {},
+      final_mode_counts: { explicit: 0, heuristic: 0, unknown: 0 },
       last_flush_ts: Date.now(),
     };
     buckets.set(k, b);
@@ -72,6 +74,10 @@ export function recordFinal(
   b.sum_score_final += payload.score;
   b.min_score_final = Math.min(b.min_score_final, payload.score);
   b.max_score_final = Math.max(b.max_score_final, payload.score);
+
+  const mode = (payload.adapter_mode === "explicit" || payload.adapter_mode === "heuristic")
+    ? payload.adapter_mode : "unknown";
+  b.final_mode_counts[mode]++;
 
   if (payload.pass) {
     if (finalVia === "attempt0") b.pass_attempt0++;
@@ -114,6 +120,11 @@ export function flushCinematicSummaryIfDue(opts: { handler: string; phase: strin
       max_final: b.max_score_final,
     },
     failures: { ...b.failures_by_code },
+    adapter_modes: {
+      explicit: total > 0 ? b.final_mode_counts.explicit / total : 0,
+      heuristic: total > 0 ? b.final_mode_counts.heuristic / total : 0,
+      unknown: total > 0 ? b.final_mode_counts.unknown / total : 0,
+    },
   };
 
   console.error(JSON.stringify(summary));
@@ -129,5 +140,6 @@ export function flushCinematicSummaryIfDue(opts: { handler: string; phase: strin
   b.min_score_final = 1;
   b.max_score_final = 0;
   b.failures_by_code = {};
+  b.final_mode_counts = { explicit: 0, heuristic: 0, unknown: 0 };
   b.last_flush_ts = Date.now();
 }

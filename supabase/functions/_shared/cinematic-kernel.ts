@@ -56,9 +56,13 @@ function buildGateEvent(
   };
 }
 
+/** Return the last n characters of a string. */
+function takeTail(str: string, n: number): string {
+  return str.length <= n ? str : str.slice(-n);
+}
+
 /** Build a bounded text snapshot from units for fail logging. */
 function buildSnapshot(units: CinematicUnit[], rawOutput: unknown): { head: string; tail: string } {
-  // Extract text from raw output for snapshot context
   const texts: string[] = [];
   const raw = rawOutput as any;
   const items: any[] = raw?.beats || raw?.segments || raw?.panels || raw?.items || (Array.isArray(raw) ? raw : []);
@@ -70,7 +74,7 @@ function buildSnapshot(units: CinematicUnit[], rawOutput: unknown): { head: stri
   const tailTexts = texts.slice(-3).join(" | ");
   return {
     head: headTexts.slice(0, 200),
-    tail: tailTexts.slice(0, 200),
+    tail: takeTail(tailTexts, 200),
   };
 }
 
