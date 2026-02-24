@@ -1299,6 +1299,113 @@ async function handleAutoAssembleCut(db: any, body: any, userId: string) {
     created_by: userId,
   });
 
+  // 14) Post-assembly continuity pass (non-blocking)
+  let continuityPass: any = null;
+  try {
+    // Tag clips with continuity metadata
+    const untaggedClips = (allClips || []).filter((c: any) => !c.continuity_tags_json && c.status === "complete");
+    if (untaggedClips.length > 0) {
+      // Simple heuristic tagging from gen_params (no LLM call to keep it fast)
+      for (const clip of untaggedClips.slice(0, 30)) {
+        const gp = clip.gen_params || {};
+        const spec = gp.shot_spec_used || {};
+        const tags: Record<string, any> = {
+          screen_direction: "unknown",
+          subject_facing: "unknown",
+          camera_energy: Math.min(10, Math.round((spec.movement_intensity || gp.movement_intensity || 5))),
+          motion_level: Math.min(10, Math.round((clip.motion_score || gp.motion_score || 5))),
+          cut_friendly: !spec.transition_out || spec.transition_out === "cut",
+          dominant_lighting: "unknown",
+          key_direction: "unknown",
+          palette_temp: "neutral",
+          contrast_level: 5,
+          shot_scale: spec.shot_type === "close-up" || spec.shot_type === "ECU" ? "close"
+            : spec.shot_type === "wide" || spec.shot_type === "establishing" ? "wide" : "medium",
+          movement_type: spec.camera_move || "unknown",
+          stability: spec.camera_move === "handheld" ? 4 : spec.camera_move === "static" ? 9 : 7,
+          notes: [],
+        };
+        await db.from("trailer_clips").update({
+          continuity_tags_json: tags,
+          continuity_scored_at: new Date().toISOString(),
+          continuity_version: "v1_heuristic",
+        }).eq("id", clip.id);
+      }
+    }
+
+    // Quick continuity scoring between adjacent picked clips
+    const pickedWithTags = [];
+    for (const t of timeline) {
+      if (!t.clip_id) continue;
+      const clip = (allClips || []).find((c: any) => c.id === t.clip_id);
+      pickedWithTags.push({ beat_index: t.beat_index, tags: clip?.continuity_tags_json || {} });
+    }
+
+    let totalScore = 0;
+    let scoreCount = 0;
+    for (let i = 0; i < pickedWithTags.length - 1; i++) {
+      const a = pickedWithTags[i].tags;
+      const b = pickedWithTags[i + 1].tags;
+      // Simple heuristic scoring
+      let s = 0.7; // baseline for unknown
+      const eA = a.camera_energy ?? 5;
+      const eB = b.camera_energy ?? 5;
+      if (Math.abs(eA - eB) > 5) s -= 0.15;
+      if (a.dominant_lighting !== "unknown" && b.dominant_lighting !== "unknown" && a.dominant_lighting !== b.dominant_lighting) s -= 0.1;
+      if (a.palette_temp !== "unknown" && b.palette_temp !== "unknown" && a.palette_temp !== b.palette_temp) s -= 0.08;
+      if (!a.cut_friendly) s -= 0.1;
+      totalScore += Math.max(0, Math.min(1, s));
+      scoreCount++;
+    }
+
+    const avgContinuityScore = scoreCount > 0 ? Math.round((totalScore / scoreCount) * 1000) / 1000 : 1.0;
+
+    // Apply safe swaps if score is low
+    let appliedActions = 0;
+    if (avgContinuityScore < 0.65 && scoreCount > 0) {
+      // Try swapping clips within same beat where better continuity candidate exists
+      for (let i = 0; i < pickedWithTags.length - 1; i++) {
+        const beatIdx = pickedWithTags[i].beat_index;
+        const entry = timeline.find((t: any) => t.beat_index === beatIdx);
+        if (!entry || entry.locked) continue;
+        const candidates = clipsByBeat[beatIdx] || [];
+        if (candidates.length <= 1) continue;
+
+        // Find candidate with better energy match to next clip
+        const nextTags = pickedWithTags[i + 1]?.tags || {};
+        let bestAlt: any = null;
+        let bestDelta = Infinity;
+        for (const c of candidates) {
+          if (c.id === entry.clip_id) continue;
+          const ct = c.continuity_tags_json || {};
+          const delta = Math.abs((ct.camera_energy ?? 5) - (nextTags.camera_energy ?? 5));
+          if (delta < bestDelta) { bestDelta = delta; bestAlt = c; }
+        }
+        if (bestAlt && bestDelta < Math.abs((pickedWithTags[i].tags.camera_energy ?? 5) - (nextTags.camera_energy ?? 5)) - 1) {
+          entry.clip_id = bestAlt.id;
+          entry.clip_url = bestAlt.public_url || null;
+          appliedActions++;
+        }
+      }
+
+      // Update timeline if we made changes
+      if (appliedActions > 0) {
+        await db.from("trailer_cuts").update({ timeline }).eq("id", cut.id);
+      }
+    }
+
+    continuityPass = { avgScore: avgContinuityScore, appliedActionsCount: appliedActions };
+  } catch (contErr: any) {
+    console.warn("Continuity pass warning (non-blocking):", contErr.message);
+    continuityPass = { error: contErr.message };
+  }
+
+  // Update auto_assembly_json with continuity pass
+  if (continuityPass) {
+    const updatedAssembly = { ...autoAssemblyJson, continuityPass };
+    await db.from("trailer_cuts").update({ auto_assembly_json: updatedAssembly }).eq("id", cut.id);
+  }
+
   return json({
     ok: true,
     cutId: cut.id,
@@ -1307,6 +1414,7 @@ async function handleAutoAssembleCut(db: any, body: any, userId: string) {
     appliedSilenceWindows: silenceWindows.length,
     alignedHits: { twistHitAligned, dropAligned },
     decisions: autoAssemblyJson,
+    continuityPass,
   });
 }
 

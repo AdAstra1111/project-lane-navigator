@@ -13,6 +13,7 @@ import { RhythmGridViewer } from '@/components/trailer/cinematic/RhythmGridViewe
 import { RhythmTimelineOverlay } from '@/components/trailer/cinematic/RhythmTimelineOverlay';
 import { ShotDesignViewer } from '@/components/trailer/cinematic/ShotDesignViewer';
 import { AutoAssemblyPanel } from '@/components/trailer/cinematic/AutoAssemblyPanel';
+import { ContinuityPanel } from '@/components/trailer/cinematic/ContinuityPanel';
 import { StudioFinishPanel } from '@/components/trailer/cinematic/StudioFinishPanel';
 import { LearningBiasIndicator } from '@/components/trailer/cinematic/LearningBiasIndicator';
 import { LegacyBlueprintTab } from '@/components/trailer/cinematic/LegacyBlueprintTab';
@@ -182,10 +183,15 @@ export default function TrailerPipelinePage() {
           </TabsContent>
 
           <TabsContent value="assembly">
-            <AutoAssemblyPanel
-              projectId={projectId!}
-              scriptRunId={selectedScriptRunId}
-            />
+            <div className="space-y-4">
+              <AutoAssemblyPanel
+                projectId={projectId!}
+                scriptRunId={selectedScriptRunId}
+              />
+              <ContinuityPanel
+                projectId={projectId!}
+              />
+            </div>
           </TabsContent>
 
           <TabsContent value="finish">
