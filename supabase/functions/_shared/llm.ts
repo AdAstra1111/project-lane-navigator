@@ -79,6 +79,7 @@ export function extractJSON(raw: string): string {
 /**
  * Safely parse JSON from AI output. Falls back to AI-powered repair if initial parse fails.
  * @deprecated Use parseAiJson / callLLMWithJsonRetry for new code.
+ * TODO: Remove after all call sites migrated. Search: parseJsonSafe(
  */
 export async function parseJsonSafe(raw: string, apiKey?: string): Promise<any> {
   try {

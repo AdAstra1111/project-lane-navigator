@@ -3,7 +3,7 @@
  * Reads canonical visual_units, creates panel plans via LLM, generates image frames via Gemini.
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { callLLM, MODELS, parseJsonSafe } from "../_shared/llm.ts";
+import { callLLM, MODELS, parseJsonSafe, callLLMWithJsonRetry } from "../_shared/llm.ts";
 
 const GATEWAY_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
 const IMAGE_MODEL = "google/gemini-2.5-flash-image";
@@ -196,16 +196,17 @@ Rules:
 - Include lighting, mood, and composition details in the prompt field
 - Return ONLY valid JSON`;
 
-    const result = await callLLM({
+    const parsed = await callLLMWithJsonRetry({
       apiKey,
       model: MODELS.BALANCED,
       system: systemPrompt,
       user: unitDescriptions.slice(0, 14000),
       temperature: 0.4,
       maxTokens: 10000,
+    }, {
+      handler: "generate_storyboard_panels",
+      validate: (d): d is any => Array.isArray(d) || (d && Array.isArray(d.panels_by_unit)),
     });
-
-    const parsed = await parseJsonSafe(result.content, apiKey);
     const panelsByUnit: any[] = parsed.panels_by_unit || parsed;
 
     // Insert panels — created_by set explicitly
