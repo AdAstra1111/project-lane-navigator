@@ -71,6 +71,19 @@ const STORYBOARD_GUARD = `
 - DO NOT drop, rename, or duplicate unit_key values.
 - Return exactly one panel entry per requested unit_key.`;
 
+export function addIntentSequencingHint(base: string, failures: string[]): string {
+  if (!failures.includes("LOW_INTENT_DIVERSITY") && !failures.includes("WEAK_ARC")) return base;
+  return `${base}
+
+INTENT ARC SUGGESTION (REPAIR ONLY):
+- Early units: intrigue or wonder (setup/mystery)
+- Mid units: threat or chaos (escalation)
+- Late units: emotion or release (resolution/button)
+Rules:
+- Use at least 3 distinct intents across units.
+- Keep peak intensity in final 2 units.`;
+}
+
 export function buildTrailerRepairInstruction(score: CinematicScore): string {
   const bullets = failureBullets(score.failures, "trailer");
   const base = `${SHAPE_GUARD}
@@ -80,7 +93,8 @@ Fix the following issues:
 ${bullets.join("\n")}
 
 Maintain all existing required fields and overall structure.`;
-  return amplifyRepairInstruction(base, score.failures);
+  const amplified = amplifyRepairInstruction(base, score.failures);
+  return addIntentSequencingHint(amplified, score.failures);
 }
 
 export function buildStoryboardRepairInstruction(score: CinematicScore): string {
@@ -92,5 +106,6 @@ Fix the following issues:
 ${bullets.join("\n")}
 
 Maintain all existing required fields and overall structure.`;
-  return amplifyRepairInstruction(base, score.failures);
+  const amplified = amplifyRepairInstruction(base, score.failures);
+  return addIntentSequencingHint(amplified, score.failures);
 }

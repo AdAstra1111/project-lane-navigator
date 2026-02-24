@@ -18,6 +18,7 @@ export interface CinematicQualityGateEvent {
   failures: string[];
   metrics: Record<string, number>;
   adapter_mode?: string;
+  distinct_intents?: number;
 }
 
 export interface CinematicQualityOpts<T> {
@@ -46,6 +47,7 @@ function runAdapter<T>(adapter: (raw: T) => CinematicUnit[] | AdapterResult, raw
 function buildGateEvent(
   handler: string, phase: string, model: string,
   attempt: number, score: CinematicScore, adapterMode: string,
+  units: CinematicUnit[],
 ): CinematicQualityGateEvent {
   return {
     handler, phase, model, attempt,
@@ -54,6 +56,7 @@ function buildGateEvent(
     failures: score.failures,
     metrics: score.metrics as unknown as Record<string, number>,
     adapter_mode: adapterMode,
+    distinct_intents: new Set(units.map(u => u.intent)).size,
   };
 }
 
@@ -86,7 +89,7 @@ export async function enforceCinematicQuality<T>(opts: CinematicQualityOpts<T>):
   // Attempt 0
   const { units: units0, mode: mode0 } = runAdapter(adapter, opts.rawOutput);
   const score0 = scoreCinematic(units0);
-  const evt0 = buildGateEvent(handler, phase, model, 0, score0, mode0);
+  const evt0 = buildGateEvent(handler, phase, model, 0, score0, mode0, units0);
 
   log("CINEMATIC_QUALITY_GATE", evt0);
   recordAttempt0(evt0);
@@ -141,9 +144,8 @@ export async function enforceCinematicQuality<T>(opts: CinematicQualityOpts<T>):
     }));
   }
 
-  const { units: units1, mode: mode1 } = runAdapter(adapter, repaired);
   const score1 = scoreCinematic(units1);
-  const evt1 = buildGateEvent(handler, phase, model, 1, score1, mode1);
+  const evt1 = buildGateEvent(handler, phase, model, 1, score1, mode1, units1);
 
   log("CINEMATIC_QUALITY_GATE", evt1);
   recordFinal(evt1, "attempt1");
