@@ -7,6 +7,12 @@ import type { CinematicUnit, CinematicIntent } from "./cinematic-model.ts";
 export interface AdapterResult {
   units: CinematicUnit[];
   mode: "explicit" | "heuristic";
+  fallbackReasons?: AdapterFallbackReason[];
+}
+
+export interface AdapterFallbackReason {
+  type: "missing_fields" | "out_of_range_fields" | "unit_count_mismatch";
+  details: string[];
 }
 
 function clamp(v: number, lo: number, hi: number): number {
@@ -65,15 +71,50 @@ function polarityFromText(text: string): number {
   return clamp((light - dark) / Math.max(total, 1), -1, 1);
 }
 
+const VALID_INTENTS = new Set(["intrigue","threat","wonder","chaos","emotion","release"]);
+const REQUIRED_FIELDS = ["energy", "tension", "density", "tonal_polarity"] as const;
+
+/** Validate explicit CIK units; return reasons if invalid. */
+function validateExplicitUnits(units: any[]): AdapterFallbackReason[] {
+  const reasons: AdapterFallbackReason[] = [];
+  const missingFields: string[] = [];
+  const outOfRange: string[] = [];
+
+  for (let i = 0; i < units.length; i++) {
+    const u = units[i];
+    for (const f of REQUIRED_FIELDS) {
+      if (u[f] == null || typeof u[f] !== "number") {
+        missingFields.push(`unit[${i}].${f}`);
+      }
+    }
+    if (typeof u.energy === "number" && (u.energy < 0 || u.energy > 1)) {
+      outOfRange.push(`unit[${i}].energy=${u.energy}`);
+    }
+    if (typeof u.tension === "number" && (u.tension < 0 || u.tension > 1)) {
+      outOfRange.push(`unit[${i}].tension=${u.tension}`);
+    }
+    if (typeof u.density === "number" && (u.density < 0 || u.density > 1)) {
+      outOfRange.push(`unit[${i}].density=${u.density}`);
+    }
+    if (typeof u.tonal_polarity === "number" && (u.tonal_polarity < -1 || u.tonal_polarity > 1)) {
+      outOfRange.push(`unit[${i}].tonal_polarity=${u.tonal_polarity}`);
+    }
+  }
+
+  if (missingFields.length > 0) reasons.push({ type: "missing_fields", details: missingFields });
+  if (outOfRange.length > 0) reasons.push({ type: "out_of_range_fields", details: outOfRange });
+  return reasons;
+}
+
 // ─── Explicit CIK unit mapper ───
 
 function mapExplicitUnit(u: any, i: number): CinematicUnit {
   return {
     id: u.id || `unit_${i}`,
-    intent: (["intrigue","threat","wonder","chaos","emotion","release"].includes(u.intent) ? u.intent : "intrigue") as CinematicIntent,
-    energy: clamp(Number(u.energy) || 0, 0, 1),
-    tension: clamp(Number(u.tension) || 0, 0, 1),
-    density: clamp(Number(u.density) || 0, 0, 1),
+    intent: (VALID_INTENTS.has(u.intent) ? u.intent : "intrigue") as CinematicIntent,
+    energy: clamp(Number(u.energy) || 0.45, 0, 1),
+    tension: clamp(Number(u.tension) || 0.45, 0, 1),
+    density: clamp(Number(u.density) || 0.45, 0, 1),
     tonal_polarity: clamp(Number(u.tonal_polarity) || 0, -1, 1),
   };
 }
@@ -86,7 +127,16 @@ function hasExplicitCik(raw: any): boolean {
 
 export function adaptTrailerOutputWithMode(raw: any): AdapterResult {
   if (hasExplicitCik(raw)) {
-    return { units: raw.cik.units.map(mapExplicitUnit), mode: "explicit" };
+    const validationIssues = validateExplicitUnits(raw.cik.units);
+    if (validationIssues.length === 0) {
+      return { units: raw.cik.units.map(mapExplicitUnit), mode: "explicit" };
+    }
+    // Fallback with structured reasons
+    return {
+      units: raw.cik.units.map(mapExplicitUnit),
+      mode: "heuristic",
+      fallbackReasons: validationIssues,
+    };
   }
   const items: any[] = raw?.beats || raw?.segments || (Array.isArray(raw) ? raw : []);
   const units = items.map((b: any, i: number) => {
@@ -111,7 +161,15 @@ export function adaptTrailerOutput(raw: any): CinematicUnit[] {
 
 export function adaptStoryboardPanelsWithMode(raw: any): AdapterResult {
   if (hasExplicitCik(raw)) {
-    return { units: raw.cik.units.map(mapExplicitUnit), mode: "explicit" };
+    const validationIssues = validateExplicitUnits(raw.cik.units);
+    if (validationIssues.length === 0) {
+      return { units: raw.cik.units.map(mapExplicitUnit), mode: "explicit" };
+    }
+    return {
+      units: raw.cik.units.map(mapExplicitUnit),
+      mode: "heuristic",
+      fallbackReasons: validationIssues,
+    };
   }
   const items: any[] = raw?.panels || raw?.items || (Array.isArray(raw) ? raw : []);
   const units = items.map((p: any, i: number) => {

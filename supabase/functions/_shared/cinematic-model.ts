@@ -32,7 +32,11 @@ export type CinematicFailureCode =
   | "LOW_CONTRAST"
   | "TONAL_WHIPLASH"
   | "WEAK_ARC"
-  | "LOW_INTENT_DIVERSITY";
+  | "LOW_INTENT_DIVERSITY"
+  | "PACING_MISMATCH"
+  | "ENERGY_DROP"
+  | "DIRECTION_REVERSAL"
+  | "EYE_LINE_BREAK";
 
 export interface CinematicMetrics {
   unit_count: number;

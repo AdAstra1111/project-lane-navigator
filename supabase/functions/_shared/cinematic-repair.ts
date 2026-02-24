@@ -34,6 +34,18 @@ function failureBullets(failures: CinematicFailureCode[], domain: "trailer" | "s
       case "LOW_INTENT_DIVERSITY":
         bullets.push(`• Use at least 3 distinct intents across ${unitLabel}s (e.g., intrigue, threat, chaos, emotion, release).`);
         break;
+      case "PACING_MISMATCH":
+        bullets.push(`• Fix pacing: late ${unitLabel}s should have higher density than early ones. Avoid uniform density throughout.`);
+        break;
+      case "ENERGY_DROP":
+        bullets.push(`• Do NOT let energy drop in the final ${unitLabel}s. The ending must maintain or exceed mid-sequence energy.`);
+        break;
+      case "DIRECTION_REVERSAL":
+        bullets.push(`• Reduce energy zigzag. Energy should trend upward overall, not alternate high-low-high repeatedly.`);
+        break;
+      case "EYE_LINE_BREAK":
+        bullets.push(`• Ensure visual continuity: consecutive ${unitLabel}s should have coherent intent progression, not random jumps.`);
+        break;
     }
   }
   return bullets;
@@ -48,6 +60,10 @@ const FAILURE_TARGETS: Record<string, string> = {
   TOO_SHORT: "Ensure unit count >= 4",
   WEAK_ARC: "Ensure a clear arc: early <=0.55, mid >=0.60, final >=0.85, and peak occurs in the final 2 units",
   LOW_INTENT_DIVERSITY: "Use at least 3 distinct intents across the sequence (e.g., intrigue -> threat -> chaos/emotion -> release)",
+  PACING_MISMATCH: "Late units density >= 0.5; density variance across units should be >= 0.01; avoid uniform density",
+  ENERGY_DROP: "energy[last] >= energy[mid]; final 20% of units must not trend downward; energy[last] >= 0.80",
+  DIRECTION_REVERSAL: "Max 3 energy direction reversals (sign changes in energy deltas > 0.08); prefer monotonic ramp",
+  EYE_LINE_BREAK: "Adjacent units should share coherent intent progression; max 2 intent changes per 3 consecutive units",
 };
 
 export function amplifyRepairInstruction(base: string, failures: string[]): string {
