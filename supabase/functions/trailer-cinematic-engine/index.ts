@@ -12,6 +12,7 @@
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { callLLM, MODELS, parseJsonSafe, composeSystem } from "../_shared/llm.ts";
+import { compileTrailerContext } from "../_shared/trailerContext.ts";
 
 // ─── Helpers ───
 
@@ -152,31 +153,7 @@ async function checkIdempotency(db: any, projectId: string, trailerType: string,
   return data?.id || null;
 }
 
-// ─── Fetch canon pack context ───
-
-async function fetchCanonPack(db: any, projectId: string, canonPackId: string): Promise<string> {
-  // Fetch from project_document_versions for the canon pack
-  const { data: versions } = await db.from("project_document_versions")
-    .select("doc_type, content, plaintext")
-    .eq("project_id", projectId)
-    .eq("is_current", true)
-    .limit(20);
-
-  if (!versions || versions.length === 0) {
-    // Fallback: try project-level data
-    const { data: project } = await db.from("projects")
-      .select("title, logline, genre, format, synopsis")
-      .eq("id", projectId)
-      .single();
-    if (!project) throw new Error("Canon pack not found and no project data available");
-    return `Title: ${project.title}\nLogline: ${project.logline || ""}\nGenre: ${project.genre || ""}\nFormat: ${project.format || ""}\nSynopsis: ${project.synopsis || ""}`;
-  }
-
-  return versions.map((v: any) => {
-    const text = v.plaintext || v.content || "";
-    return `--- ${v.doc_type} ---\n${text.slice(0, 4000)}`;
-  }).join("\n\n");
-}
+// ─── fetchCanonPack replaced by shared compileTrailerContext ───
 
 // ─── ACTION 1: Create Trailer Script v2 ───
 
@@ -190,9 +167,12 @@ async function handleCreateTrailerScript(db: any, body: any, userId: string, api
   if (existingId) return json({ ok: true, scriptRunId: existingId, idempotent: true });
 
   const resolvedSeed = resolveSeed(inputSeed || idempotencyKey);
-  const canonText = await fetchCanonPack(db, projectId, canonPackId);
 
-  // Insert run row
+  // ── Use shared canon pack context builder ──
+  const packCtx = await compileTrailerContext(db, projectId, canonPackId);
+  const canonText = packCtx.mergedText;
+
+  // Insert run row with audit columns
   const { data: run, error: runErr } = await db.from("trailer_script_runs").insert({
     project_id: projectId,
     canon_pack_id: canonPackId,
@@ -202,6 +182,8 @@ async function handleCreateTrailerScript(db: any, body: any, userId: string, api
     seed: resolvedSeed,
     status: "running",
     created_by: userId,
+    canon_context_hash: packCtx.contextHash,
+    canon_context_meta_json: packCtx.contextMeta,
   }).select().single();
   if (runErr) return json({ error: runErr.message }, 500);
 

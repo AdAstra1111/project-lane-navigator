@@ -17587,6 +17587,8 @@ export type Database = {
       trailer_script_runs: {
         Row: {
           bpm: number | null
+          canon_context_hash: string | null
+          canon_context_meta_json: Json | null
           canon_pack_id: string
           cinematic_score: number | null
           contrast_curve_json: Json | null
@@ -17608,6 +17610,8 @@ export type Database = {
         }
         Insert: {
           bpm?: number | null
+          canon_context_hash?: string | null
+          canon_context_meta_json?: Json | null
           canon_pack_id: string
           cinematic_score?: number | null
           contrast_curve_json?: Json | null
@@ -17629,6 +17633,8 @@ export type Database = {
         }
         Update: {
           bpm?: number | null
+          canon_context_hash?: string | null
+          canon_context_meta_json?: Json | null
           canon_pack_id?: string
           cinematic_score?: number | null
           contrast_curve_json?: Json | null
