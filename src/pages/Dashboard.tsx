@@ -6,17 +6,8 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Header } from '@/components/Header';
 import { ProjectCard } from '@/components/project/ProjectCard';
-import { IntroExperience } from '@/components/IntroExperience';
-import { GuidedTutorial } from '@/components/GuidedTutorial';
-import { OnboardingChecklist } from '@/components/OnboardingChecklist';
-import { DashboardAnalytics } from '@/components/dashboard/DashboardAnalytics';
-import { DailyBriefing } from '@/components/dashboard/DailyBriefing';
-import { DashboardActivityFeed } from '@/components/dashboard/DashboardActivityFeed';
-import { ScriptIngestCard } from '@/components/dashboard/ScriptIngestCard';
-import { DashboardCountdowns } from '@/components/dashboard/DashboardCountdowns';
-import { RoleDashboard } from '@/components/dashboard/RoleDashboard';
-import { SlateMomentum } from '@/components/dashboard/SlateMomentum';
 import { CrossProjectIntelligence } from '@/components/dashboard/CrossProjectIntelligence';
+import { DashboardActivityFeed } from '@/components/dashboard/DashboardActivityFeed';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { PageTransition } from '@/components/PageTransition';
 import { useProjects } from '@/hooks/useProjects';
@@ -32,11 +23,9 @@ export default function Dashboard() {
   const { linkMap } = useAllCompanyLinks();
   const navigate = useNavigate();
   const primaryCompany = companies.length > 0 ? companies[0] : null;
-  const [roleView, setRoleView] = useState<string>('none');
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>('all');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  // Filter projects by selected company
   const filteredProjects = useMemo(() => {
     if (selectedCompanyId === 'all') return projects;
     const companyProjectIds = linkMap[selectedCompanyId] || new Set<string>();
@@ -81,14 +70,13 @@ export default function Dashboard() {
     <PageTransition>
     <div className="min-h-screen bg-background">
       <Header />
-      <IntroExperience />
-      <GuidedTutorial autoShow />
-      <main className="container py-8">
+      <main className="container py-8 space-y-8">
         <motion.div
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3 }}
         >
+          {/* ── Row 0: Header bar ── */}
           <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-6">
             <div>
               {displayCompany && (
@@ -109,14 +97,12 @@ export default function Dashboard() {
                   )}
                 </div>
               )}
-              
               <p className="text-muted-foreground mt-1">
                 {filteredProjects.length} project{filteredProjects.length !== 1 ? 's' : ''} classified
                 {selectedCompanyId !== 'all' && ` · ${displayCompany?.name || 'Company'}`}
               </p>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
-              {/* Company filter tabs */}
               {companies.length > 1 && (
                 <Select value={selectedCompanyId} onValueChange={(v) => { setSelectedCompanyId(v); clearSelection(); }}>
                   <SelectTrigger className="w-40 h-9 text-sm">
@@ -147,18 +133,6 @@ export default function Dashboard() {
                   </Button>
                 </Link>
               )}
-              <Select value={roleView} onValueChange={setRoleView}>
-                <SelectTrigger className="w-32 h-9 text-sm">
-                  <SelectValue placeholder="Role View" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">All Projects</SelectItem>
-                  <SelectItem value="producer">Producer</SelectItem>
-                  <SelectItem value="sales_agent">Sales Agent</SelectItem>
-                  <SelectItem value="lawyer">Lawyer</SelectItem>
-                  <SelectItem value="creative">Creative</SelectItem>
-                </SelectContent>
-              </Select>
               <Link to="/projects/new">
                 <Button size="sm" className="bg-primary text-primary-foreground hover:bg-primary/90">
                   <Plus className="h-4 w-4 mr-1.5" />
@@ -200,6 +174,7 @@ export default function Dashboard() {
             </motion.div>
           )}
 
+          {/* ── Row 1: Projects grid ── */}
           {isLoading ? (
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {[...Array(3)].map((_, i) => (
@@ -222,7 +197,7 @@ export default function Dashboard() {
               <p className="text-muted-foreground mb-6 max-w-sm">
                 {selectedCompanyId !== 'all'
                   ? 'Link projects to this company from the project detail page, or create a new one.'
-                  : 'From inception to legacy — one decision at a time. Start with a concept, pitch, or cast attachment.'}
+                  : 'From inception to legacy — one decision at a time.'}
               </p>
               <Link to="/projects/new">
                 <Button className="bg-primary text-primary-foreground hover:bg-primary/90">
@@ -233,13 +208,6 @@ export default function Dashboard() {
             </div>
           ) : (
             <>
-              <DailyBriefing projects={filteredProjects} projectScores={projectScores} />
-              <OnboardingChecklist projectCount={filteredProjects.length} />
-
-              <ScriptIngestCard projects={filteredProjects} />
-              {roleView !== 'none' && (
-                <RoleDashboard projects={filteredProjects} role={roleView as any} />
-              )}
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {filteredProjects.map((project, i) => (
                   <ProjectCard
@@ -254,10 +222,11 @@ export default function Dashboard() {
                   />
                 ))}
               </div>
-              <SlateMomentum projects={filteredProjects} projectScores={projectScores} />
+
+              {/* ── Row 2: Intelligence Summary ── */}
               <CrossProjectIntelligence projects={filteredProjects} projectScores={projectScores} />
-              <DashboardAnalytics projects={filteredProjects} />
-              <DashboardCountdowns projectTitleMap={Object.fromEntries(filteredProjects.map(p => [p.id, p.title]))} />
+
+              {/* ── Row 3: Activity ── */}
               <DashboardActivityFeed />
             </>
           )}
