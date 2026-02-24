@@ -66,6 +66,106 @@ function mulberry32(seed: string): () => number {
 // ─── Phase definitions ───
 const PHASES_ORDERED = ["hook", "setup", "escalation", "twist", "crescendo", "button"] as const;
 
+// ─── Audio Plan Builder ───
+
+function buildAudioPlan(rhythmRun: any, styleOptions: Record<string, any> = {}): any {
+  const hitPoints = rhythmRun.hit_points_json || [];
+  const silenceWindows = rhythmRun.silence_windows_json || [];
+  const phaseTimings = rhythmRun.phase_timings_json || {};
+  const bpm = rhythmRun.bpm || 110;
+  const dropMs = rhythmRun.drop_timestamp_ms || null;
+
+  // Build track structure from phase timings
+  const trackStructure: any[] = [];
+  const phaseToSection: Record<string, string> = {
+    hook: "intro", setup: "intro", escalation: "build",
+    twist: "build", crescendo: "drop", button: "aftermath",
+  };
+  const sectionMap: Record<string, { start_ms: number; end_ms: number }> = {};
+  for (const [phase, timing] of Object.entries(phaseTimings) as [string, any][]) {
+    const section = phaseToSection[phase] || "build";
+    if (!sectionMap[section]) {
+      sectionMap[section] = { start_ms: timing.start_ms || 0, end_ms: timing.end_ms || 0 };
+    } else {
+      sectionMap[section].start_ms = Math.min(sectionMap[section].start_ms, timing.start_ms || 0);
+      sectionMap[section].end_ms = Math.max(sectionMap[section].end_ms, timing.end_ms || 0);
+    }
+  }
+  for (const [section, range] of Object.entries(sectionMap)) {
+    trackStructure.push({ section, start_ms: range.start_ms, end_ms: range.end_ms });
+  }
+  trackStructure.sort((a, b) => a.start_ms - b.start_ms);
+
+  // Build SFX cues from hit points
+  const sfxCues: any[] = [];
+  for (const hp of hitPoints) {
+    if (hp.type === "bass_drop" || (hp.phase === "crescendo" && hp.strength >= 8)) {
+      // Add riser before drop
+      const riserStart = Math.max(0, (hp.t_ms || 0) - 3000);
+      sfxCues.push({ type: "riser", target_hit: hp.type, start_ms: riserStart, end_ms: hp.t_ms || 0 });
+      sfxCues.push({ type: "impact", target_hit: hp.type, timestamp_ms: hp.t_ms || 0 });
+    } else if (hp.type === "sting" || hp.type === "impact") {
+      sfxCues.push({ type: "sting", target_hit: hp.type, timestamp_ms: hp.t_ms || 0 });
+    } else if (hp.type === "button_stinger") {
+      sfxCues.push({ type: "button_decay", target_hit: hp.type, timestamp_ms: hp.t_ms || 0 });
+    }
+  }
+
+  // Enforce drop style silence
+  const dropStyle = styleOptions.dropStyle || "hard_drop";
+  if (dropMs) {
+    const existingSilence = silenceWindows.find((sw: any) =>
+      sw.end_ms >= dropMs - 500 && sw.start_ms <= dropMs
+    );
+    if (!existingSilence) {
+      let silenceDur = 1000;
+      if (dropStyle === "delayed_drop") silenceDur = 2000;
+      if (dropStyle === "false_drop") silenceDur = 1200;
+      silenceWindows.push({
+        beat_index: null,
+        start_ms: dropMs - silenceDur,
+        end_ms: dropMs,
+        reason: "pre_drop_silence",
+      });
+    }
+  }
+
+  // Enforce minimum silence windows
+  const minSilence = styleOptions.minSilenceWindows ?? 2;
+  if (silenceWindows.length < minSilence) {
+    // Add silence in low-movement beats from beat_hit_intents
+    const intents = rhythmRun.beat_hit_intents_json || [];
+    const candidates = intents
+      .filter((i: any) => i.primary_hit === "none" && !silenceWindows.some((sw: any) => sw.beat_index === i.beat_index))
+      .sort((a: any, b: any) => (a.beat_index || 0) - (b.beat_index || 0));
+
+    for (const c of candidates) {
+      if (silenceWindows.length >= minSilence) break;
+      const beatGrid = rhythmRun.beat_grid_json || [];
+      const beatEntry = beatGrid.find((bg: any) => bg.beat_index === c.beat_index);
+      if (beatEntry) {
+        silenceWindows.push({
+          beat_index: c.beat_index,
+          start_ms: beatEntry.start_ms || 0,
+          end_ms: (beatEntry.start_ms || 0) + 800,
+          reason: "enforced_minimum",
+        });
+      }
+    }
+  }
+
+  return {
+    bpm,
+    track_structure: trackStructure,
+    hit_markers: hitPoints,
+    silence_windows: silenceWindows,
+    sfx_cues: sfxCues,
+    drop_ms: dropMs,
+    drop_style: dropStyle,
+    generated_at: new Date().toISOString(),
+  };
+}
+
 // ─── Look Bible Loader ───
 
 async function loadLookBible(db: any, projectId: string, scopeRefId?: string): Promise<any | null> {
@@ -954,6 +1054,19 @@ SILENCE CONSTRAINT RULES:
 
     const allWarnings = [...(parsed.warnings || []), ...hitWarnings];
 
+    // Build audio plan from rhythm data
+    const tempRun = {
+      bpm,
+      hit_points_json: hitPoints,
+      silence_windows_json: parsed.silence_windows || [],
+      phase_timings_json: parsed.phase_timings || {},
+      drop_timestamp_ms: parsed.drop_timestamp_ms || null,
+      beat_hit_intents_json: parsed.beat_hit_intents || [],
+      beat_grid_json: parsed.beat_grid || [],
+    };
+    const styleOpts = scriptRun.style_options_json || {};
+    const audioPlan = buildAudioPlan(tempRun, styleOpts);
+
     await db.from("trailer_rhythm_runs").update({
       status: "complete",
       phase_timings_json: parsed.phase_timings || {},
@@ -961,9 +1074,10 @@ SILENCE CONSTRAINT RULES:
       shot_duration_curve_json: parsed.shot_duration_curve || [],
       density_curve_json: parsed.density_curve || null,
       drop_timestamp_ms: parsed.drop_timestamp_ms || null,
-      silence_windows_json: parsed.silence_windows || null,
+      silence_windows_json: audioPlan.silence_windows,
       hit_points_json: hitPoints,
       beat_hit_intents_json: parsed.beat_hit_intents || [],
+      audio_plan_json: audioPlan,
       warnings: allWarnings,
     }).eq("id", run.id);
 
@@ -1550,6 +1664,33 @@ Return STRICT JSON:
 
     // Run hard gates on scores
     const judgeGates = runJudgeGates(scores);
+
+    // ── Rhythm sync enforcement flags ──
+    if (rhythmData) {
+      const rHits = rhythmData.hit_points_json || [];
+      const rSilence = rhythmData.silence_windows_json || [];
+      const dropMs = rhythmData.drop_timestamp_ms;
+
+      // Check crescendo drop has visual impact
+      if (dropMs && shotSpecs.length > 0) {
+        const dropSpecs = shotSpecs.filter((s: any) => {
+          const beatEntry = (beats || []).find((b: any) => b.beat_index === s.beat_index);
+          return beatEntry?.phase === "crescendo";
+        });
+        const hasHighMovement = dropSpecs.some((s: any) => (s.movement_intensity || 0) >= 8);
+        if (!hasHighMovement && dropSpecs.length > 0) {
+          flags.push("Crescendo lacks visual impact at drop — no clip with movement_intensity >= 8 overlaps drop marker");
+          repairActions.push({ type: "fix_crescendo", target: "shots", reason: "Crescendo drop needs high-movement visual" });
+        }
+      }
+
+      // Check silence windows count
+      const requiredSilence = (rhythmData as any).style_options_json?.minSilenceWindows ?? 2;
+      if (rSilence.length < requiredSilence) {
+        flags.push(`Insufficient tension breathing space — only ${rSilence.length} silence windows, need ≥${requiredSilence}`);
+        repairActions.push({ type: "add_silence", target: "script_beats", reason: "Not enough silence windows for dramatic tension" });
+      }
+    }
 
     // Determine final status
     let scriptStatus = "complete";
