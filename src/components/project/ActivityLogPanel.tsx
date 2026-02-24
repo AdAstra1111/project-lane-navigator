@@ -29,30 +29,51 @@ export function ActivityLogPanel({ projectId }: { projectId: string }) {
     let cancelled = false;
 
     async function load() {
-      // Try auto_run_steps for real AI activity
-      const { data } = await supabase
+      // 1) Fetch recent jobs for this project
+      const { data: jobs } = await supabase
+        .from('auto_run_jobs')
+        .select('id, status')
+        .eq('project_id', projectId)
+        .order('created_at', { ascending: false })
+        .limit(10);
+
+      if (cancelled) return;
+
+      const jobIds = (jobs ?? []).map((j) => j.id);
+      if (jobIds.length === 0) {
+        setEntries([]);
+        setLoading(false);
+        return;
+      }
+
+      // 2) Fetch steps belonging to those jobs
+      const { data: steps } = await supabase
         .from('auto_run_steps')
-        .select('id, created_at, action, summary, confidence')
-        .eq('job_id', projectId)
+        .select('id, created_at, action, summary, job_id')
+        .in('job_id', jobIds)
         .order('created_at', { ascending: false })
         .limit(20);
 
-      if (!cancelled) {
-        if (data && data.length > 0) {
-          setEntries(
-            data.map((s) => ({
-              id: s.id,
-              timestamp: s.created_at ?? new Date().toISOString(),
-              label: s.summary || s.action,
-              status: 'success' as const,
-            }))
-          );
-        } else {
-          // Fallback: show placeholder activity from notifications or empty state
-          setEntries([]);
-        }
-        setLoading(false);
-      }
+      if (cancelled) return;
+
+      // Build a job status lookup for deriving step status
+      const jobStatusMap = new Map((jobs ?? []).map((j) => [j.id, j.status]));
+
+      setEntries(
+        (steps ?? []).map((s) => {
+          const jobStatus = jobStatusMap.get(s.job_id) ?? 'done';
+          let status: 'running' | 'success' | 'fail' = 'success';
+          if (jobStatus === 'running') status = 'running';
+          else if (jobStatus === 'error' || jobStatus === 'failed') status = 'fail';
+          return {
+            id: s.id,
+            timestamp: s.created_at ?? new Date().toISOString(),
+            label: s.summary || s.action,
+            status,
+          };
+        })
+      );
+      setLoading(false);
     }
 
     load();
