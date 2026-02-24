@@ -111,7 +111,9 @@ export function ShotDesignViewer({ projectId, scriptRunId }: ShotDesignViewerPro
                       <span className="ml-auto font-mono text-muted-foreground">{beatSpecs.length} shot{beatSpecs.length > 1 ? 's' : ''}</span>
                     </div>
                     <div className="divide-y divide-border">
-                      {beatSpecs.map((spec: any) => (
+                      {beatSpecs.map((spec: any) => {
+                        const hint = spec.prompt_hint_json || {};
+                        return (
                         <div key={spec.id} className="px-3 py-2 text-xs space-y-1">
                           <div className="flex items-center gap-2 flex-wrap">
                             <Badge variant="outline" className="text-[9px]">{spec.shot_type}</Badge>
@@ -130,6 +132,12 @@ export function ShotDesignViewer({ projectId, scriptRunId }: ShotDesignViewerPro
                               </span>
                             )}
                           </div>
+                          {hint.subject_action && (
+                            <p className="text-[10px] text-muted-foreground">⟳ Action: {hint.subject_action}</p>
+                          )}
+                          {hint.reveal_mechanic && (
+                            <p className="text-[10px] text-muted-foreground">👁 Reveal: {hint.reveal_mechanic}</p>
+                          )}
                           {spec.depth_strategy && (
                             <p className="text-[10px] text-muted-foreground">Depth: {spec.depth_strategy}</p>
                           )}
@@ -141,14 +149,15 @@ export function ShotDesignViewer({ projectId, scriptRunId }: ShotDesignViewerPro
                           )}
                           <div className="flex gap-2">
                             {spec.transition_in && (
-                              <span className="text-[9px] text-muted-foreground">↓ {spec.transition_in}</span>
+                              <Badge variant="outline" className="text-[8px]">↓ {spec.transition_in?.replace(/_/g, ' ')}</Badge>
                             )}
                             {spec.transition_out && (
-                              <span className="text-[9px] text-muted-foreground">↑ {spec.transition_out}</span>
+                              <Badge variant="outline" className="text-[8px]">↑ {spec.transition_out?.replace(/_/g, ' ')}</Badge>
                             )}
                           </div>
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 );

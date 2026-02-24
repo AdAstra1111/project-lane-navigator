@@ -876,21 +876,77 @@ Rules:
 
 // ─── ACTION 3: Create Shot Design v2 ───
 
+const VALID_CAMERA_MOVES = new Set(["push_in","pull_out","track","arc","handheld","whip_pan","crane","tilt","dolly_zoom","static"]);
+const VALID_SHOT_TYPES = new Set(["wide","medium","close","insert","montage","aerial","macro"]);
+const VALID_TRANSITIONS = new Set(["hard_cut","match_cut","whip_pan","smash_cut","l_cut","j_cut","dissolve","dip_to_black","strobe_cut"]);
+const VALID_DEPTH = new Set(["shallow","deep","mixed"]);
+
+function buildShotDesignStyleDirectives(so: Record<string, any>, trailerType: string, platformKey: string, targetLengthMs?: number): string {
+  const lines: string[] = [
+    "------------------------------------------------------------",
+    "STYLE DIRECTIVES (obey these)",
+    "------------------------------------------------------------",
+    `TRAILER TYPE: ${trailerType}`,
+    `PLATFORM: ${platformKey}`,
+  ];
+  if (targetLengthMs) lines.push(`TARGET LENGTH: ~${Math.round(targetLengthMs / 1000)}s`);
+  if (so.tonePreset) lines.push(`TONE: ${so.tonePreset}`);
+  if (so.pacingProfile) lines.push(`PACING: ${so.pacingProfile}`);
+  if (so.revealStrategy) lines.push(`REVEAL: ${so.revealStrategy}`);
+  if (so.movementOverall != null) lines.push(`MOVEMENT BASELINE: ${so.movementOverall}/10`);
+  if (so.cameraStyle) {
+    const camMap: Record<string, string> = {
+      measured: "Controlled, deliberate moves. Cranes, slow dollies, composed arcs.",
+      kinetic: "Energetic tracking, push-ins, dynamic movement.",
+      handheld: "Handheld micro-shake throughout, intimate documentary energy.",
+      floating: "Steadicam/gimbal floating, dreamlike weightless movement.",
+      whip_heavy: "Frequent whip pans and fast transitions, high-energy editorial.",
+    };
+    lines.push(`CAMERA STYLE: ${so.cameraStyle} — ${camMap[so.cameraStyle] || so.cameraStyle}`);
+  }
+  if (so.lensBias) {
+    const lensMap: Record<string, string> = {
+      wide: "Favour 16–35mm. Spatial depth, environment-forward.",
+      normal: "Favour 40–50mm. Natural perspective.",
+      portrait: "Favour 65–135mm. Compressed, intimate, shallow DOF.",
+      mixed: "Vary by phase: wide for setup, portrait for emotion, wide+inserts for crescendo.",
+    };
+    lines.push(`LENS BIAS: ${so.lensBias} — ${lensMap[so.lensBias] || so.lensBias}`);
+  }
+  if (so.microMontageIntensity) {
+    const mmMap: Record<string, string> = { low: "Crescendo: 3 shots, density ~2.0", medium: "Crescendo: 4-5 shots, density ~2.5", high: "Crescendo: 5-7 shots, density ~3.0, rapid-fire" };
+    lines.push(`MICRO-MONTAGE: ${so.microMontageIntensity} — ${mmMap[so.microMontageIntensity] || so.microMontageIntensity}`);
+  }
+  if (so.dropStyle) {
+    const dropMap: Record<string, string> = { hard_drop: "Sharp silence before crescendo, clean hard cut.", delayed_drop: "Extended silence (1500-3000ms) before crescendo.", false_drop: "False drop mid-escalation, then real crescendo drop." };
+    lines.push(`DROP STYLE: ${so.dropStyle} — ${dropMap[so.dropStyle] || so.dropStyle}`);
+  }
+  if (so.sfxEmphasis) lines.push(`SFX EMPHASIS: ${so.sfxEmphasis}`);
+  return lines.join("\n");
+}
+
 async function handleCreateShotDesign(db: any, body: any, userId: string, apiKey: string) {
   const { projectId, scriptRunId, rhythmRunId, seed: inputSeed } = body;
   if (!scriptRunId) return json({ error: "scriptRunId required" }, 400);
+
+  // Load script run for style options
+  const { data: scriptRun } = await db.from("trailer_script_runs")
+    .select("*").eq("id", scriptRunId).eq("project_id", projectId).single();
+  if (!scriptRun) return json({ error: "Script run not found" }, 404);
 
   const { data: beats } = await db.from("trailer_script_beats")
     .select("*").eq("script_run_id", scriptRunId).order("beat_index");
   if (!beats?.length) return json({ error: "No beats found" }, 400);
 
+  const styleOptions = (scriptRun.style_options_json || {}) as Record<string, any>;
+
   let rhythmContext = "";
   if (rhythmRunId) {
     const { data: rhythm } = await db.from("trailer_rhythm_runs")
-      .select("bpm, shot_duration_curve_json, density_curve_json")
+      .select("bpm, shot_duration_curve_json, density_curve_json, drop_timestamp_ms")
       .eq("id", rhythmRunId).single();
     if (rhythm) {
-      rhythmContext = `\nBPM: ${rhythm.bpm}\nShot Duration Curve: ${JSON.stringify(rhythm.shot_duration_curve_json || [])}\nDensity Curve: ${JSON.stringify(rhythm.density_curve_json || [])}`;
+      rhythmContext = `\nRHYTHM GRID:\nBPM: ${rhythm.bpm}\nDrop at: ${rhythm.drop_timestamp_ms || "auto"}ms\nShot Duration Curve: ${JSON.stringify(rhythm.shot_duration_curve_json || [])}\nDensity Curve: ${JSON.stringify(rhythm.density_curve_json || [])}`;
     }
   }
 
@@ -907,59 +963,209 @@ async function handleCreateShotDesign(db: any, body: any, userId: string, apiKey
   if (runErr) return json({ error: runErr.message }, 500);
 
   try {
-    const beatList = beats.map((b: any) => `#${b.beat_index} ${b.phase}: "${b.emotional_intent}" intensity=${b.movement_intensity_target} density=${b.shot_density_target || "auto"} hint=${JSON.stringify(b.generator_hint_json || {})}`).join("\n");
+    // Build beat summary with citations
+    const beatSummary = beats.map((b: any) => {
+      const refs = (b.source_refs_json || []).slice(0, 2).map((r: any) => `${r.doc_type}:"${(r.excerpt || "").slice(0, 60)}"`).join("; ");
+      return `#${b.beat_index} ${b.phase}: intent="${b.emotional_intent}" movement=${b.movement_intensity_target} density=${b.shot_density_target || "auto"} silence_before=${b.silence_before_ms}ms silence_after=${b.silence_after_ms}ms withholding=${b.withholding_note || "none"} hint=${JSON.stringify(b.generator_hint_json || {})} citations=[${refs}]`;
+    }).join("\n");
 
-    const system = `You are a cinematographer designing shot specs for a cinematic trailer.
-For each beat, design 1-3 shots with precise camera grammar.
+    const styleDirectives = buildShotDesignStyleDirectives(styleOptions, scriptRun.trailer_type || "main", scriptRun.platform_key || "theatrical", scriptRun.target_length_ms);
 
-Valid shot_type: wide, medium, close, insert, aerial, macro
-Valid camera_move: static, push_in, pull_out, track, arc, handheld, whip_pan, crane, tilt, dolly_zoom
+    const system = composeSystem(`You are a world-class cinematographer designing shot specs for a cinematic trailer.
 
-Return STRICT JSON:
+${styleDirectives}
+
+------------------------------------------------------------
+MOTION RULES (mandatory — every shot must obey)
+------------------------------------------------------------
+- Each beat MUST contain at least one NON-STATIC moving camera shot unless the beat has silence windows AND is explicitly designed as stillness.
+- Moving camera must be motivated and specific. No vague "cinematic movement".
+- Valid camera_move: push_in, pull_out, track, arc, handheld, whip_pan, crane, tilt, dolly_zoom, static.
+- For every moving shot (non-static), include at least ONE of:
+  (a) parallax foreground occlusion (object passes close to lens) — describe in foreground_element
+  (b) reveal (camera move reveals new information in frame) — describe in reveal_mechanic
+  (c) rack focus / depth shift — describe in depth_strategy + reveal_mechanic
+  (d) subject crosses frame with camera tracking — describe in subject_action
+- Crescendo beats MUST use micro-montage: 3–7 short shots per crescendo beat, with high motion and varied shot types.
+- Static shots are ONLY allowed when beat has silence windows or explicit restraint/withholding.
+
+------------------------------------------------------------
+TRANSITION GRAMMAR (mandatory)
+------------------------------------------------------------
+- Every shot spec must define transition_in and transition_out.
+- Valid transitions: hard_cut, match_cut, whip_pan, smash_cut, l_cut, j_cut, dissolve, dip_to_black, strobe_cut.
+- Use variety across the whole plan — NOT all hard_cut.
+- Twist beats should include at least one dip_to_black or smash_cut moment.
+- Crescendo should use whip_pan, smash_cut, or strobe_cut more often.
+- Button should use hard_cut + lingering hold or dissolve.
+
+------------------------------------------------------------
+LENS + DEPTH RULES
+------------------------------------------------------------
+- depth_strategy must be one of: shallow, deep, mixed.
+- Every beat must include at least one spec with a clear depth strategy.
+- Lens choices:
+  wide (16–35mm): spatial reveals, environment
+  normal (40–50mm): natural perspective
+  portrait (65–135mm): emotion, compression, shallow DOF
+- Vary lens by phase unless lens bias overrides.
+
+------------------------------------------------------------
+CITATION-ANCHORED VISUALIZATION
+------------------------------------------------------------
+- For each beat, the shot design must reference the beat's citations.
+- Do NOT introduce new named entities, characters, locations, or events.
+- If a beat is abstract/atmospheric, describe it as atmospheric and canon-consistent.
+
+------------------------------------------------------------
+OUTPUT SCHEMA (STRICT JSON only)
+------------------------------------------------------------
+Return:
 {
-  "global_movement_curve": [{"beat_index":0,"avg_intensity":3},{"beat_index":5,"avg_intensity":8},...],
-  "lens_bias": {"wide_pct":0.3,"medium_pct":0.35,"close_pct":0.25,"insert_pct":0.1},
-  "shots": [
+  "global_movement_curve": { "hook": 0-10, "setup": 0-10, "escalation": 0-10, "twist": 0-10, "crescendo": 0-10, "button": 0-10 },
+  "lens_bias": "wide|normal|portrait|mixed",
+  "warnings": [ ... ],
+  "shot_specs": [
     {
-      "beat_index": 0,
-      "shot_index": 0,
-      "shot_type": "wide",
-      "lens_mm": 24,
-      "camera_move": "crane",
-      "movement_intensity": 4,
-      "depth_strategy": "deep",
-      "foreground_element": "silhouette figure",
-      "lighting_note": "backlit, golden hour",
-      "transition_in": "fade_from_black",
-      "transition_out": "hard_cut",
-      "target_duration_ms": 2500,
-      "prompt_hint": {"visual_prompt":"sweeping crane shot over...", "style":"cinematic", "mood":"anticipation"}
+      "beat_index": number,
+      "shot_index": number,
+      "shot_type": "wide|medium|close|insert|montage",
+      "lens_mm": number|null,
+      "camera_move": "push_in|pull_out|track|arc|handheld|whip_pan|crane|tilt|dolly_zoom|static",
+      "movement_intensity": 1-10,
+      "depth_strategy": "shallow|deep|mixed",
+      "foreground_element": "parallax/occlusion element or null",
+      "lighting_note": "lighting/mood direction",
+      "subject_action": "what moves in frame — REQUIRED unless static",
+      "reveal_mechanic": "how the shot reveals info — REQUIRED for moving shots",
+      "transition_in": "hard_cut|match_cut|whip_pan|smash_cut|l_cut|j_cut|dissolve|dip_to_black|strobe_cut",
+      "transition_out": same enum,
+      "target_duration_ms": number,
+      "prompt_hint_json": {
+        "visual_prompt": "cinematic visual grounded in canon",
+        "style": "optional style phrase",
+        "preferred_provider": "runway|veo"
+      }
     }
-  ],
-  "warnings": []
+  ]
 }
 
-Rules:
-- Vary shot types: no 3+ consecutive same shot_type
-- Camera moves must escalate with movement_intensity_target
-- Crescendo beats should use fast moves (whip_pan, handheld) with short durations
-- Hook should be visually striking — use aerial or crane
-- Emotional beats favor close-ups with shallow depth
-- Include lens_mm (16-200 range) appropriate for shot_type${rhythmContext}`;
+DURATION RULES:
+- Crescendo shots: 700–1400ms each
+- Other shots: 1200–6000ms (button may be up to 8000ms)
+
+Do NOT include copyrighted references. Do NOT invent new characters/locations. Use citations implicitly.
+No commentary. No explanation. No markdown. Only valid JSON.${rhythmContext}`);
 
     const result = await callLLM({
       apiKey,
-      model: MODELS.BALANCED,
+      model: MODELS.PRO,
       system,
-      user: `Beats:\n${beatList}\nSeed: ${resolvedSeed}`,
+      user: `BEATS:\n${beatSummary}\nSeed: ${resolvedSeed}`,
       temperature: 0.35,
-      maxTokens: 12000,
+      maxTokens: 14000,
     });
 
     const parsed = await parseJsonSafe(result.content, apiKey);
+    const shotSpecs = parsed.shot_specs || parsed.shots || [];
 
-    // Insert shot specs
-    const shotRows = (parsed.shots || []).map((s: any) => {
+    // ── Validation ──
+    const valErrors: string[] = [];
+
+    if (shotSpecs.length === 0) {
+      valErrors.push("No shot specs returned");
+    }
+
+    // Group specs by beat_index
+    const specsByBeat: Record<number, any[]> = {};
+    for (const s of shotSpecs) {
+      const bi = s.beat_index;
+      if (!specsByBeat[bi]) specsByBeat[bi] = [];
+      specsByBeat[bi].push(s);
+    }
+
+    const crescendoShotsPerBeat: Record<number, number> = {};
+
+    for (const b of beats) {
+      const bi = b.beat_index;
+      const bSpecs = specsByBeat[bi] || [];
+
+      if (bSpecs.length === 0) {
+        valErrors.push(`Beat #${bi} (${b.phase}): no shot specs`);
+        continue;
+      }
+
+      // Crescendo: at least 3 shots
+      if (b.phase === "crescendo") {
+        crescendoShotsPerBeat[bi] = bSpecs.length;
+        if (bSpecs.length < 3) {
+          valErrors.push(`Beat #${bi} (crescendo): only ${bSpecs.length} shots, need >=3`);
+        }
+      }
+
+      // Non-crescendo non-silence beats: forbid all-static
+      const hasSilence = (b.silence_before_ms > 0) || (b.silence_after_ms > 0);
+      const hasWithholding = b.withholding_note && b.withholding_note.trim().length > 0;
+      if (b.phase !== "crescendo" && !hasSilence && !hasWithholding) {
+        const allStatic = bSpecs.every((s: any) => s.camera_move === "static");
+        if (allStatic) {
+          valErrors.push(`Beat #${bi} (${b.phase}): all shots static without silence/withholding`);
+        }
+      }
+
+      // Per-spec validation
+      for (const s of bSpecs) {
+        if (s.camera_move && !VALID_CAMERA_MOVES.has(s.camera_move)) {
+          valErrors.push(`Beat #${bi} shot #${s.shot_index}: invalid camera_move "${s.camera_move}"`);
+        }
+        if (s.shot_type && !VALID_SHOT_TYPES.has(s.shot_type)) {
+          // soft: remap
+          s.shot_type = "medium";
+        }
+        if (s.transition_in && !VALID_TRANSITIONS.has(s.transition_in)) {
+          s.transition_in = "hard_cut";
+        }
+        if (s.transition_out && !VALID_TRANSITIONS.has(s.transition_out)) {
+          s.transition_out = "hard_cut";
+        }
+        if (s.depth_strategy && !VALID_DEPTH.has(s.depth_strategy)) {
+          s.depth_strategy = "mixed";
+        }
+        const mi = s.movement_intensity;
+        if (mi != null && (mi < 1 || mi > 10)) {
+          valErrors.push(`Beat #${bi} shot #${s.shot_index}: movement_intensity ${mi} out of range 1-10`);
+        }
+        // subject_action required for moving shots
+        if (s.camera_move && s.camera_move !== "static" && !s.subject_action) {
+          s.subject_action = "ambient motion";
+        }
+        // reveal_mechanic required for moving shots
+        if (s.camera_move && s.camera_move !== "static" && !s.reveal_mechanic) {
+          s.reveal_mechanic = "progressive reveal through camera movement";
+        }
+        // Duration validation
+        const dur = s.target_duration_ms;
+        if (dur != null) {
+          if (b.phase === "crescendo" && (dur < 700 || dur > 1400)) {
+            // clamp
+            s.target_duration_ms = Math.max(700, Math.min(1400, dur));
+          } else if (b.phase !== "crescendo") {
+            const maxDur = b.phase === "button" ? 8000 : 6000;
+            if (dur < 1200 || dur > maxDur) {
+              s.target_duration_ms = Math.max(1200, Math.min(maxDur, dur));
+            }
+          }
+        }
+      }
+    }
+
+    if (valErrors.length > 0) {
+      await db.from("trailer_shot_design_runs").update({ status: "error", warnings: valErrors }).eq("id", run.id);
+      return json({ ok: false, error: "Shot design validation failed", failures: valErrors }, 400);
+    }
+
+    // ── Insert shot specs ──
+    const shotRows = shotSpecs.map((s: any) => {
       const matchBeat = beats.find((b: any) => b.beat_index === s.beat_index);
       return {
         shot_design_run_id: run.id,
@@ -972,10 +1178,14 @@ Rules:
         depth_strategy: s.depth_strategy || null,
         foreground_element: s.foreground_element || null,
         lighting_note: s.lighting_note || null,
-        transition_in: s.transition_in || null,
-        transition_out: s.transition_out || null,
+        transition_in: s.transition_in || "hard_cut",
+        transition_out: s.transition_out || "hard_cut",
         target_duration_ms: s.target_duration_ms || null,
-        prompt_hint_json: s.prompt_hint || {},
+        prompt_hint_json: {
+          ...(s.prompt_hint_json || {}),
+          subject_action: s.subject_action || null,
+          reveal_mechanic: s.reveal_mechanic || null,
+        },
       };
     }).filter((r: any) => r.beat_id);
 
@@ -996,6 +1206,8 @@ Rules:
       shotDesignRunId: run.id,
       status: "complete",
       shotCount: shotRows.length,
+      beatsCount: beats.length,
+      crescendoShotsPerBeat,
       warnings: parsed.warnings || [],
       seed: resolvedSeed,
     });
