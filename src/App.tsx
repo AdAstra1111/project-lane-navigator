@@ -79,6 +79,11 @@ const ClipCandidatesStudio = lazy(() => import("./pages/ClipCandidatesStudio"));
 const TrailerTimelineStudio = lazy(() => import("./pages/TrailerTimelineStudio"));
 const VisualDevHub = lazy(() => import("./pages/VisualDevHub"));
 const TrailerHub = lazy(() => import("./pages/TrailerHub"));
+const Showcase = lazy(() => import("./pages/Showcase"));
+const CanonPlaceholder = lazy(() => import("./pages/CanonPlaceholder"));
+
+// ProjectShell — new unified workspace frame (Week 1 refactor)
+import { ProjectShell } from "@/components/project/ProjectShell";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -163,6 +168,14 @@ const AnimatedRoutes = () => {
           <Route path="/projects/:id/visual-dev/trailer/blueprints" element={<ProtectedRoute><TrailerPipeline /></ProtectedRoute>} />
           <Route path="/projects/:id/visual-dev/trailer/clips" element={<ProtectedRoute><ClipCandidatesStudio /></ProtectedRoute>} />
           <Route path="/projects/:id/visual-dev/trailer/assemble" element={<ProtectedRoute><TrailerTimelineStudio /></ProtectedRoute>} />
+
+          {/* ── Week 1 refactor: new ProjectShell workspace routes ── */}
+          <Route path="/projects/:id/script" element={<ProtectedRoute><ProjectShell><ProjectDevelopmentEngine /></ProjectShell></ProtectedRoute>} />
+          <Route path="/projects/:id/canon" element={<ProtectedRoute><ProjectShell><CanonPlaceholder /></ProjectShell></ProtectedRoute>} />
+          <Route path="/projects/:id/trailer" element={<ProtectedRoute><ProjectShell><TrailerHub /></ProjectShell></ProtectedRoute>} />
+          <Route path="/projects/:id/produce" element={<ProtectedRoute><ProjectShell><ProducerCockpit /></ProjectShell></ProtectedRoute>} />
+          <Route path="/showcase" element={<ProtectedRoute><Showcase /></ProtectedRoute>} />
+
           <Route path="/processing" element={<Processing />} />
           <Route path="/quick-review" element={<QuickReview />} />
           <Route path="/deep-review" element={<DeepReview />} />
