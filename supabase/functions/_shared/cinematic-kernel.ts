@@ -4,6 +4,7 @@
  */
 import type { CinematicUnit, CinematicScore } from "./cinematic-model.ts";
 import { scoreCinematic } from "./cinematic-score.ts";
+import { recordAttempt0, recordFinal, flushCinematicSummaryIfDue } from "./cinematic-telemetry.ts";
 
 export interface CinematicQualityGateEvent {
   handler: string;
@@ -63,10 +64,14 @@ export async function enforceCinematicQuality<T>(opts: CinematicQualityOpts<T>):
   // Attempt 0
   const units0 = adapter(opts.rawOutput);
   const score0 = scoreCinematic(units0);
+  const evt0 = buildGateEvent(handler, phase, model, 0, score0);
 
-  log("CINEMATIC_QUALITY_GATE", buildGateEvent(handler, phase, model, 0, score0));
+  log("CINEMATIC_QUALITY_GATE", evt0);
+  recordAttempt0(evt0);
 
   if (score0.pass) {
+    recordFinal(evt0, "attempt0");
+    flushCinematicSummaryIfDue({ handler, phase, model });
     return stripCik(opts.rawOutput);
   }
 
@@ -76,8 +81,11 @@ export async function enforceCinematicQuality<T>(opts: CinematicQualityOpts<T>):
 
   const units1 = adapter(repaired);
   const score1 = scoreCinematic(units1);
+  const evt1 = buildGateEvent(handler, phase, model, 1, score1);
 
-  log("CINEMATIC_QUALITY_GATE", buildGateEvent(handler, phase, model, 1, score1));
+  log("CINEMATIC_QUALITY_GATE", evt1);
+  recordFinal(evt1, "attempt1");
+  flushCinematicSummaryIfDue({ handler, phase, model });
 
   if (score1.pass) {
     return stripCik(repaired);
