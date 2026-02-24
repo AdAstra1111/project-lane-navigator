@@ -1,0 +1,1 @@
+ALTER TABLE public.trailer_script_runs ADD COLUMN IF NOT EXISTS style_options_json jsonb NOT NULL DEFAULT '{}'::jsonb;

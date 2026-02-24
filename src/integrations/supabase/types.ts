@@ -17605,6 +17605,7 @@ export type Database = {
           silence_windows_json: Json | null
           status: string
           structure_score: number | null
+          style_options_json: Json
           trailer_type: string
           warnings: string[] | null
         }
@@ -17628,6 +17629,7 @@ export type Database = {
           silence_windows_json?: Json | null
           status?: string
           structure_score?: number | null
+          style_options_json?: Json
           trailer_type?: string
           warnings?: string[] | null
         }
@@ -17651,6 +17653,7 @@ export type Database = {
           silence_windows_json?: Json | null
           status?: string
           structure_score?: number | null
+          style_options_json?: Json
           trailer_type?: string
           warnings?: string[] | null
         }

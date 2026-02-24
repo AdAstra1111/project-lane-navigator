@@ -12,17 +12,19 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import { Slider } from '@/components/ui/slider';
-import { Textarea } from '@/components/ui/textarea';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Progress } from '@/components/ui/progress';
 import {
   Film, Loader2, Play, AlertTriangle, Check, BookOpen,
   Quote, Volume2, Zap, Wrench, Lock, ArrowRight, RefreshCw,
+  Settings2, ChevronDown,
 } from 'lucide-react';
 import { StagedProgressBar } from '@/components/system/StagedProgressBar';
 import {
   useScriptRuns, useScriptBeats, useRhythmRuns, useShotDesignRuns,
   useJudgeRuns, useCinematicMutations,
 } from '@/lib/trailerPipeline/cinematicHooks';
+import type { TrailerStyleOptions } from '@/lib/trailerPipeline/cinematicApi';
 import { toast } from 'sonner';
 
 const PHASE_COLORS: Record<string, string> = {
@@ -33,6 +35,14 @@ const PHASE_COLORS: Record<string, string> = {
   crescendo: 'bg-rose-500/20 text-rose-300 border-rose-500/30',
   button: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
 };
+
+const TRAILER_TYPE_OPTIONS = [
+  { value: 'teaser', label: 'Teaser' },
+  { value: 'main', label: 'Main' },
+  { value: 'character', label: 'Character' },
+  { value: 'tone', label: 'Tone' },
+  { value: 'sales', label: 'Sales' },
+];
 
 const GENRE_OPTIONS = [
   { value: 'drama', label: 'Drama' },
@@ -47,11 +57,110 @@ const GENRE_OPTIONS = [
 
 const PLATFORM_OPTIONS = [
   { value: 'theatrical', label: 'Theatrical' },
-  { value: 'streaming', label: 'Streaming' },
-  { value: 'social', label: 'Social / Short-Form' },
-  { value: 'broadcast', label: 'Broadcast' },
-  { value: 'festival', label: 'Festival' },
+  { value: 'streamer_hero', label: 'Streamer Hero' },
+  { value: 'instagram', label: 'Instagram' },
+  { value: 'tiktok', label: 'TikTok' },
+  { value: 'youtube_preroll', label: 'YouTube Pre-roll' },
+  { value: 'festival_cut', label: 'Festival Cut' },
 ];
+
+const TONE_PRESETS = [
+  { value: 'a24', label: 'A24' },
+  { value: 'prestige_dark', label: 'Prestige Dark' },
+  { value: 'blockbuster', label: 'Blockbuster' },
+  { value: 'comedy_pop', label: 'Comedy Pop' },
+  { value: 'horror_dread', label: 'Horror Dread' },
+  { value: 'romance_warm', label: 'Romance Warm' },
+  { value: 'thriller_taut', label: 'Thriller Taut' },
+];
+
+const PACING_PROFILES = [
+  { value: 'slow_burn_spike', label: 'Slow Burn → Spike' },
+  { value: 'steady_escalation', label: 'Steady Escalation' },
+  { value: 'fast_dense', label: 'Fast & Dense' },
+  { value: 'silence_heavy', label: 'Silence Heavy' },
+  { value: 'dialogue_forward', label: 'Dialogue Forward' },
+  { value: 'music_forward', label: 'Music Forward' },
+];
+
+const REVEAL_STRATEGIES = [
+  { value: 'withhold_twist', label: 'Withhold Twist' },
+  { value: 'hint_twist', label: 'Hint Twist' },
+  { value: 'show_twist_spoiler', label: 'Show Twist (Spoiler)' },
+  { value: 'no_third_act', label: 'No Third Act' },
+];
+
+const CAMERA_STYLES = [
+  { value: 'measured', label: 'Measured' },
+  { value: 'kinetic', label: 'Kinetic' },
+  { value: 'handheld', label: 'Handheld' },
+  { value: 'floating', label: 'Floating' },
+  { value: 'whip_heavy', label: 'Whip Heavy' },
+];
+
+const LENS_BIASES = [
+  { value: 'wide', label: 'Wide' },
+  { value: 'normal', label: 'Normal' },
+  { value: 'portrait', label: 'Portrait' },
+  { value: 'mixed', label: 'Mixed' },
+];
+
+const MONTAGE_INTENSITIES = [
+  { value: 'low', label: 'Low' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'high', label: 'High' },
+];
+
+const DROP_STYLES = [
+  { value: 'hard_drop', label: 'Hard Drop' },
+  { value: 'delayed_drop', label: 'Delayed Drop' },
+  { value: 'false_drop', label: 'False Drop' },
+];
+
+const SFX_OPTIONS = [
+  { value: 'low', label: 'Low' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'high', label: 'High' },
+];
+
+// Compact select for options panel
+function MiniSelect({ label, value, onChange, options }: {
+  label: string; value: string; onChange: (v: string) => void;
+  options: { value: string; label: string }[];
+}) {
+  return (
+    <div className="flex flex-col gap-1">
+      <Label className="text-[9px] text-muted-foreground uppercase tracking-wider">{label}</Label>
+      <Select value={value} onValueChange={onChange}>
+        <SelectTrigger className="h-7 text-[11px]"><SelectValue /></SelectTrigger>
+        <SelectContent>
+          {options.map(o => <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>)}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
+// Style options summary pills
+function StyleOptionsPills({ opts }: { opts: TrailerStyleOptions }) {
+  const pills: string[] = [];
+  if (opts.tonePreset) pills.push(opts.tonePreset.replace(/_/g, ' '));
+  if (opts.pacingProfile) pills.push(opts.pacingProfile.replace(/_/g, ' '));
+  if (opts.revealStrategy) pills.push(opts.revealStrategy.replace(/_/g, ' '));
+  if (opts.cameraStyle) pills.push(opts.cameraStyle);
+  if (opts.microMontageIntensity) pills.push(`montage:${opts.microMontageIntensity}`);
+  if (opts.dropStyle) pills.push(opts.dropStyle.replace(/_/g, ' '));
+  if (opts.movementOverall != null) pills.push(`mov:${opts.movementOverall}`);
+
+  if (pills.length === 0) return null;
+  return (
+    <div className="flex flex-wrap gap-1">
+      {pills.map((p, i) => (
+        <Badge key={i} variant="outline" className="text-[8px] px-1.5 py-0 font-normal">{p}</Badge>
+      ))}
+    </div>
+  );
+}
 
 interface TrailerScriptStudioProps {
   projectId: string;
@@ -65,6 +174,25 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
   const [platformKey, setPlatformKey] = useState('theatrical');
   const [trailerType, setTrailerType] = useState('main');
   const [seed, setSeed] = useState('');
+  const [optionsOpen, setOptionsOpen] = useState(false);
+
+  // Style options state
+  const [tonePreset, setTonePreset] = useState('a24');
+  const [pacingProfile, setPacingProfile] = useState('steady_escalation');
+  const [revealStrategy, setRevealStrategy] = useState('withhold_twist');
+  const [movementOverall, setMovementOverall] = useState(6);
+  const [cameraStyle, setCameraStyle] = useState('measured');
+  const [lensBias, setLensBias] = useState('mixed');
+  const [microMontageIntensity, setMicroMontageIntensity] = useState('medium');
+  const [dropStyle, setDropStyle] = useState('hard_drop');
+  const [minSilenceWindows, setMinSilenceWindows] = useState(2);
+  const [sfxEmphasis, setSfxEmphasis] = useState('medium');
+
+  const styleOptions: TrailerStyleOptions = {
+    tonePreset, pacingProfile, revealStrategy, movementOverall,
+    cameraStyle, lensBias, microMontageIntensity, dropStyle,
+    minSilenceWindows, sfxEmphasis,
+  };
 
   // Queries
   const { data: scriptRuns, isLoading: runsLoading } = useScriptRuns(projectId);
@@ -113,11 +241,8 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
   const handleGenerateFullPlan = () => {
     if (!canonPackId) { toast.error('No canon pack selected'); return; }
     createFullPlan.mutate({
-      canonPackId,
-      trailerType,
-      genreKey,
-      platformKey,
-      seed: seed || undefined,
+      canonPackId, trailerType, genreKey, platformKey,
+      seed: seed || undefined, styleOptions,
     }, {
       onSuccess: (data) => {
         if (data.scriptRunId) setSelectedRunId(data.scriptRunId);
@@ -128,11 +253,8 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
   const handleGenerateScript = () => {
     if (!canonPackId) { toast.error('No canon pack selected'); return; }
     createScript.mutate({
-      canonPackId,
-      trailerType,
-      genreKey,
-      platformKey,
-      seed: seed || undefined,
+      canonPackId, trailerType, genreKey, platformKey,
+      seed: seed || undefined, styleOptions,
     }, {
       onSuccess: (data) => {
         if (data.scriptRunId) setSelectedRunId(data.scriptRunId);
@@ -143,44 +265,32 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
   const isGenerating = createFullPlan.isPending || createScript.isPending;
   const isRepairing = repairScript.isPending;
 
+  // Saved style options from the active run
+  const savedOpts = activeRun?.style_options_json as TrailerStyleOptions | undefined;
+
   return (
     <div className="space-y-4">
       {/* Top Bar: Controls + Scores */}
       <Card>
         <CardContent className="py-3">
           <div className="flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-2">
-              <Label className="text-[10px] text-muted-foreground">Genre</Label>
-              <Select value={genreKey} onValueChange={setGenreKey}>
-                <SelectTrigger className="h-7 w-[120px] text-xs"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {GENRE_OPTIONS.map(g => <SelectItem key={g.value} value={g.value}>{g.label}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex items-center gap-2">
-              <Label className="text-[10px] text-muted-foreground">Platform</Label>
-              <Select value={platformKey} onValueChange={setPlatformKey}>
-                <SelectTrigger className="h-7 w-[120px] text-xs"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {PLATFORM_OPTIONS.map(p => <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex items-center gap-2">
-              <Label className="text-[10px] text-muted-foreground">Seed</Label>
-              <Input className="h-7 w-[100px] text-xs" placeholder="optional" value={seed} onChange={e => setSeed(e.target.value)} />
+            <MiniSelect label="Type" value={trailerType} onChange={setTrailerType} options={TRAILER_TYPE_OPTIONS} />
+            <MiniSelect label="Genre" value={genreKey} onChange={setGenreKey} options={GENRE_OPTIONS} />
+            <MiniSelect label="Platform" value={platformKey} onChange={setPlatformKey} options={PLATFORM_OPTIONS} />
+            <div className="flex flex-col gap-1">
+              <Label className="text-[9px] text-muted-foreground uppercase tracking-wider">Seed</Label>
+              <Input className="h-7 w-[80px] text-[11px]" placeholder="auto" value={seed} onChange={e => setSeed(e.target.value)} />
             </div>
 
-            <Separator orientation="vertical" className="h-6" />
+            <Separator orientation="vertical" className="h-8" />
 
             {activeRun && (
               <div className="flex items-center gap-3 text-xs">
                 {activeRun.structure_score != null && (
-                  <span className="text-muted-foreground">Structure: <span className="text-foreground font-mono">{Number(activeRun.structure_score).toFixed(2)}</span></span>
+                  <span className="text-muted-foreground">Struct: <span className="text-foreground font-mono">{Number(activeRun.structure_score).toFixed(2)}</span></span>
                 )}
                 {activeRun.cinematic_score != null && (
-                  <span className="text-muted-foreground">Cinematic: <span className="text-foreground font-mono">{Number(activeRun.cinematic_score).toFixed(2)}</span></span>
+                  <span className="text-muted-foreground">Cine: <span className="text-foreground font-mono">{Number(activeRun.cinematic_score).toFixed(2)}</span></span>
                 )}
                 <Badge variant={activeRun.status === 'complete' ? 'default' : activeRun.status === 'needs_repair' ? 'destructive' : 'secondary'} className="text-[10px]">
                   {activeRun.status}
@@ -195,8 +305,61 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
               </div>
             )}
           </div>
+
+          {/* Saved style options pills */}
+          {savedOpts && Object.keys(savedOpts).length > 0 && (
+            <div className="mt-2 flex items-center gap-2">
+              <span className="text-[9px] text-muted-foreground uppercase">Style:</span>
+              <StyleOptionsPills opts={savedOpts} />
+            </div>
+          )}
         </CardContent>
       </Card>
+
+      {/* Style Options Panel */}
+      <Collapsible open={optionsOpen} onOpenChange={setOptionsOpen}>
+        <CollapsibleTrigger asChild>
+          <Button variant="outline" size="sm" className="text-xs gap-1.5 w-full justify-between">
+            <span className="flex items-center gap-1.5">
+              <Settings2 className="h-3.5 w-3.5" /> Style Options
+            </span>
+            <ChevronDown className={`h-3.5 w-3.5 transition-transform ${optionsOpen ? 'rotate-180' : ''}`} />
+          </Button>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <Card className="mt-2">
+            <CardContent className="py-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                <MiniSelect label="Tone Preset" value={tonePreset} onChange={setTonePreset} options={TONE_PRESETS} />
+                <MiniSelect label="Pacing" value={pacingProfile} onChange={setPacingProfile} options={PACING_PROFILES} />
+                <MiniSelect label="Reveal Strategy" value={revealStrategy} onChange={setRevealStrategy} options={REVEAL_STRATEGIES} />
+                <MiniSelect label="Camera Style" value={cameraStyle} onChange={setCameraStyle} options={CAMERA_STYLES} />
+                <MiniSelect label="Lens Bias" value={lensBias} onChange={setLensBias} options={LENS_BIASES} />
+                <MiniSelect label="Montage Intensity" value={microMontageIntensity} onChange={setMicroMontageIntensity} options={MONTAGE_INTENSITIES} />
+                <MiniSelect label="Drop Style" value={dropStyle} onChange={setDropStyle} options={DROP_STYLES} />
+                <MiniSelect label="SFX Emphasis" value={sfxEmphasis} onChange={setSfxEmphasis} options={SFX_OPTIONS} />
+                <div className="flex flex-col gap-1">
+                  <Label className="text-[9px] text-muted-foreground uppercase tracking-wider">Movement (1–10)</Label>
+                  <div className="flex items-center gap-2">
+                    <Slider value={[movementOverall]} min={1} max={10} step={1} onValueChange={v => setMovementOverall(v[0])} className="flex-1" />
+                    <span className="text-xs font-mono w-4 text-center">{movementOverall}</span>
+                  </div>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <Label className="text-[9px] text-muted-foreground uppercase tracking-wider">Min Silence Windows</Label>
+                  <div className="flex items-center gap-2">
+                    <Slider value={[minSilenceWindows]} min={0} max={4} step={1} onValueChange={v => setMinSilenceWindows(v[0])} className="flex-1" />
+                    <span className="text-xs font-mono w-4 text-center">{minSilenceWindows}</span>
+                  </div>
+                </div>
+              </div>
+              <div className="mt-2">
+                <StyleOptionsPills opts={styleOptions} />
+              </div>
+            </CardContent>
+          </Card>
+        </CollapsibleContent>
+      </Collapsible>
 
       {/* Action Buttons */}
       <div className="flex flex-wrap gap-2">
@@ -418,6 +581,35 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
                         <Zap className="h-3 w-3 mr-1" /> Trailer Moment
                       </Badge>
                     )}
+
+                    {/* Generator Hints */}
+                    {activeBeat.generator_hint_json && typeof activeBeat.generator_hint_json === 'object' && !Array.isArray(activeBeat.generator_hint_json) && (
+                      <>
+                        <Separator />
+                        <div>
+                          <Label className="text-[10px] text-muted-foreground">Generator Hint</Label>
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {(activeBeat.generator_hint_json as Record<string, any>).shot_type && (
+                              <Badge variant="outline" className="text-[8px]">{(activeBeat.generator_hint_json as Record<string, any>).shot_type}</Badge>
+                            )}
+                            {(activeBeat.generator_hint_json as Record<string, any>).camera_move && (
+                              <Badge variant="outline" className="text-[8px]">{(activeBeat.generator_hint_json as Record<string, any>).camera_move}</Badge>
+                            )}
+                            {(activeBeat.generator_hint_json as Record<string, any>).lens_mm && (
+                              <Badge variant="outline" className="text-[8px]">{(activeBeat.generator_hint_json as Record<string, any>).lens_mm}mm</Badge>
+                            )}
+                            {(activeBeat.generator_hint_json as Record<string, any>).preferred_provider && (
+                              <Badge variant="outline" className="text-[8px]">{(activeBeat.generator_hint_json as Record<string, any>).preferred_provider}</Badge>
+                            )}
+                          </div>
+                          {(activeBeat.generator_hint_json as Record<string, any>).visual_prompt && (
+                            <p className="text-[11px] text-muted-foreground mt-1.5 italic">
+                              {(activeBeat.generator_hint_json as Record<string, any>).visual_prompt}
+                            </p>
+                          )}
+                        </div>
+                      </>
+                    )}
                   </div>
                 </ScrollArea>
               )}
@@ -460,8 +652,8 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
                             {ref.version && (
                               <span className="text-muted-foreground font-mono text-[10px]">v{ref.version}</span>
                             )}
-                            {ref.doc_id && (
-                              <span className="text-muted-foreground font-mono text-[10px]">{String(ref.doc_id).slice(0, 8)}</span>
+                            {ref.location && (
+                              <span className="text-muted-foreground text-[10px]">{ref.location}</span>
                             )}
                           </div>
                           {ref.excerpt && (
@@ -473,9 +665,6 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
                             <p className="text-xs border-l-2 border-primary/30 pl-2 italic">
                               "{ref.quote}"
                             </p>
-                          )}
-                          {ref.scene_id && (
-                            <p className="text-[10px] text-muted-foreground">Scene: {String(ref.scene_id).slice(0, 8)}</p>
                           )}
                         </div>
                       ));
