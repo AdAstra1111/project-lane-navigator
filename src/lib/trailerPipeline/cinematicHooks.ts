@@ -352,6 +352,37 @@ export function useCinematicMutations(projectId: string | undefined) {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  const runTrailerPipeline = useMutation({
+    mutationFn: (params: {
+      canonPackId: string;
+      trailerType?: string;
+      genreKey?: string;
+      platformKey?: string;
+      seed?: string;
+      idempotencyKey?: string;
+      styleOptions?: TrailerStyleOptions;
+      inspirationRefs?: { title: string; url?: string; notes?: string }[];
+      referenceNotes?: string;
+      avoidNotes?: string;
+      strictCanonMode?: 'strict' | 'balanced';
+      targetLengthMs?: number;
+      stylePresetKey?: string;
+    }) => cinematicApi.runTrailerPipeline({ projectId: projectId!, ...params }),
+    onSuccess: async (data) => {
+      if (data.ok) {
+        toast.success(data.status === 'complete' ? 'Pipeline complete — all gates passed' : 'Pipeline finished — review flagged issues');
+      } else {
+        toast.warning(`Pipeline partially completed: ${data.error}`);
+      }
+      qc.invalidateQueries({ queryKey: ['cinematic-script-runs', projectId] });
+      qc.invalidateQueries({ queryKey: ['cinematic-rhythm-runs'] });
+      qc.invalidateQueries({ queryKey: ['cinematic-shot-design-runs'] });
+      qc.invalidateQueries({ queryKey: ['cinematic-judge-runs'] });
+      qc.invalidateQueries({ queryKey: ['project-documents', projectId] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   return {
     createFullPlan,
     createScript,
@@ -364,6 +395,7 @@ export function useCinematicMutations(projectId: string | undefined) {
     createScriptVariants,
     selectScriptRun,
     regenerateCrescendoMontage,
+    runTrailerPipeline,
   };
 }
 

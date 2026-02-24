@@ -2775,6 +2775,164 @@ Only valid JSON. No commentary.`);
   }
 }
 
+// ─── Orchestrator: run_trailer_pipeline_v1 ───
+
+async function handleRunTrailerPipeline(db: any, body: any, userId: string, apiKey: string) {
+  const projectId = body.projectId || body.project_id;
+  const canonPackId = body.canonPackId;
+  const trailerType = body.trailerType || "main";
+  const genreKey = body.genreKey || "drama";
+  const platformKey = body.platformKey || "theatrical";
+  const seed = body.seed;
+  const idempotencyKey = body.idempotencyKey || `${projectId}-${canonPackId}-${trailerType}-${platformKey}-${seed || "auto"}`;
+  const styleOptions = body.styleOptions || {};
+  const inspirationRefs = body.inspirationRefs;
+  const referenceNotes = body.referenceNotes;
+  const avoidNotes = body.avoidNotes;
+  const strictCanonMode = body.strictCanonMode;
+  const targetLengthMs = body.targetLengthMs;
+  const stylePresetKey = body.stylePresetKey;
+
+  if (!canonPackId) return json({ error: "canonPackId required" }, 400);
+
+  const steps: { step: string; status: string; id?: string; error?: string }[] = [];
+  let scriptRunId: string | undefined;
+  let rhythmRunId: string | undefined;
+  let shotDesignRunId: string | undefined;
+  let judgeRunId: string | undefined;
+
+  try {
+    // Step 1: Script — check for existing complete run with same idempotencyKey
+    const { data: existingScript } = await db.from("trailer_script_runs")
+      .select("id, status")
+      .eq("project_id", projectId)
+      .eq("idempotency_key", idempotencyKey)
+      .eq("status", "complete")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (existingScript) {
+      scriptRunId = existingScript.id;
+      steps.push({ step: "script", status: "skipped", id: scriptRunId });
+    } else {
+      const scriptResult = await handleCreateTrailerScript(db, {
+        projectId, canonPackId, trailerType, genreKey, platformKey,
+        seed, idempotencyKey, styleOptions, inspirationRefs,
+        referenceNotes, avoidNotes, strictCanonMode, targetLengthMs, stylePresetKey,
+      }, userId, apiKey);
+      const scriptBody = await scriptResult.json();
+      if (!scriptBody.scriptRunId) {
+        steps.push({ step: "script", status: "failed", error: scriptBody.error || "Script generation failed" });
+        return json({ ok: false, steps, error: "Script generation failed" });
+      }
+      scriptRunId = scriptBody.scriptRunId;
+      steps.push({ step: "script", status: "complete", id: scriptRunId });
+    }
+
+    // Step 2: Initial judge for repair check
+    const judge1Result = await handleRunJudge(db, { projectId, scriptRunId }, userId, apiKey);
+    const judge1Body = await judge1Result.json();
+
+    if (judge1Body.repairActions?.length > 0) {
+      steps.push({ step: "initial_judge", status: "needs_repair", id: judge1Body.judgeRunId });
+      // Step 2b: Repair
+      const repairResult = await handleRepairScript(db, {
+        projectId, scriptRunId, judgeRunId: judge1Body.judgeRunId, canonPackId,
+      }, userId, apiKey);
+      const repairBody = await repairResult.json();
+      steps.push({ step: "repair", status: repairBody.status || "complete" });
+    } else {
+      steps.push({ step: "initial_judge", status: "passed", id: judge1Body.judgeRunId });
+    }
+
+    // Step 3: Rhythm grid — check existing
+    const { data: existingRhythm } = await db.from("trailer_rhythm_runs")
+      .select("id, status")
+      .eq("script_run_id", scriptRunId)
+      .eq("status", "complete")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (existingRhythm) {
+      rhythmRunId = existingRhythm.id;
+      steps.push({ step: "rhythm", status: "skipped", id: rhythmRunId });
+    } else {
+      const rhythmResult = await handleCreateRhythmGrid(db, {
+        projectId, scriptRunId, seed: seed ? `${seed}-rhythm` : undefined,
+      }, userId, apiKey);
+      const rhythmBody = await rhythmResult.json();
+      if (!rhythmBody.rhythmRunId) {
+        steps.push({ step: "rhythm", status: "failed", error: rhythmBody.error || "Rhythm grid failed" });
+        return json({ ok: false, steps, scriptRunId, error: "Rhythm grid failed" });
+      }
+      rhythmRunId = rhythmBody.rhythmRunId;
+      steps.push({ step: "rhythm", status: "complete", id: rhythmRunId });
+    }
+
+    // Step 4: Shot design — check existing
+    const { data: existingShotDesign } = await db.from("trailer_shot_design_runs")
+      .select("id, status")
+      .eq("script_run_id", scriptRunId)
+      .eq("status", "complete")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (existingShotDesign) {
+      shotDesignRunId = existingShotDesign.id;
+      steps.push({ step: "shot_design", status: "skipped", id: shotDesignRunId });
+    } else {
+      const shotResult = await handleCreateShotDesign(db, {
+        projectId, scriptRunId, rhythmRunId, seed: seed ? `${seed}-shots` : undefined,
+      }, userId, apiKey);
+      const shotBody = await shotResult.json();
+      if (!shotBody.shotDesignRunId) {
+        steps.push({ step: "shot_design", status: "failed", error: shotBody.error || "Shot design failed" });
+        return json({ ok: false, steps, scriptRunId, rhythmRunId, error: "Shot design failed" });
+      }
+      shotDesignRunId = shotBody.shotDesignRunId;
+      steps.push({ step: "shot_design", status: "complete", id: shotDesignRunId });
+    }
+
+    // Step 5: Final judge
+    const judgeResult = await handleRunJudge(db, {
+      projectId, scriptRunId, rhythmRunId, shotDesignRunId,
+    }, userId, apiKey);
+    const judgeBody = await judgeResult.json();
+    judgeRunId = judgeBody.judgeRunId;
+    steps.push({ step: "final_judge", status: judgeBody.gatesPassed ? "passed" : "flagged", id: judgeRunId });
+
+    // Auto-export as document
+    try {
+      await handleExportTrailerScriptDocument(db, { projectId, scriptRunId }, userId);
+    } catch (_e) { /* non-critical */ }
+
+    return json({
+      ok: true,
+      scriptRunId,
+      rhythmRunId,
+      shotDesignRunId,
+      judgeRunId,
+      gatesPassed: judgeBody.gatesPassed,
+      scores: judgeBody.scores,
+      steps,
+      status: judgeBody.gatesPassed ? "complete" : "needs_review",
+    });
+  } catch (err: any) {
+    return json({
+      ok: false,
+      scriptRunId,
+      rhythmRunId,
+      shotDesignRunId,
+      judgeRunId,
+      steps,
+      error: err.message,
+    }, 500);
+  }
+}
+
 // ─── Main Handler ───
 
 Deno.serve(async (req) => {
@@ -2821,6 +2979,8 @@ Deno.serve(async (req) => {
         return await handleSelectScriptRun(db, body, userId);
       case "regenerate_crescendo_montage_v1":
         return await handleRegenerateCrescendoMontage(db, body, userId, apiKey);
+      case "run_trailer_pipeline_v1":
+        return await handleRunTrailerPipeline(db, body, userId, apiKey);
       default:
         return json({ error: `Unknown action: ${action}` }, 400);
     }
