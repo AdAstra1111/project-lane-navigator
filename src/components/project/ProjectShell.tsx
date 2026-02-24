@@ -1,14 +1,13 @@
 /**
- * ProjectShell — Unified project workspace frame.
- * Provides: sticky ProjectBar, left icon-rail, main content, pipeline bar,
- * right inspector drawer (toggled with "\").
+ * ProjectShell — Unified project workspace frame (Week 5 polish).
+ * Overlay inspector drawer, refined rail + bar, URL-synced drawer state.
  */
 import { useState, useEffect, useCallback, type ReactNode } from 'react';
 import { useParams, useNavigate, useLocation, useSearchParams, Link } from 'react-router-dom';
 import {
   LayoutGrid, FileText, BookOpen, Image, Film, Briefcase,
   PanelRightOpen, PanelRightClose, ChevronLeft, Loader2,
-  CheckCircle2, AlertTriangle, ArrowRight,
+  CheckCircle2, AlertTriangle, ArrowRight, X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useProject } from '@/hooks/useProjects';
@@ -20,6 +19,7 @@ import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { AnalysisPanel } from '@/components/project/AnalysisPanel';
 import { VersionsPanel } from '@/components/project/VersionsPanel';
+import { ActivityLogPanel } from '@/components/project/ActivityLogPanel';
 
 /* ── Left-rail link definition ── */
 interface RailLink {
@@ -44,7 +44,7 @@ function buildRailLinks(projectId: string): RailLink[] {
 /* ── Operating Mode Toggle ── */
 function OperatingModeToggle({ mode, onChange }: { mode: OperatingMode; onChange: (m: OperatingMode) => void }) {
   return (
-    <div className="flex items-center rounded-lg border border-border/50 bg-muted/30 p-0.5">
+    <div className="flex items-center rounded-full border border-border/40 bg-muted/20 p-0.5">
       {(['develop', 'produce'] as const).map((m) => {
         const active = mode === m;
         return (
@@ -52,7 +52,7 @@ function OperatingModeToggle({ mode, onChange }: { mode: OperatingMode; onChange
             key={m}
             onClick={() => onChange(m)}
             className={cn(
-              'px-2.5 py-1 text-xs font-medium rounded-md transition-all capitalize',
+              'px-3 py-1 text-[11px] font-medium rounded-full transition-all capitalize',
               active
                 ? 'bg-primary text-primary-foreground shadow-sm'
                 : 'text-muted-foreground hover:text-foreground',
@@ -66,46 +66,66 @@ function OperatingModeToggle({ mode, onChange }: { mode: OperatingMode; onChange
   );
 }
 
-/* ── Right Inspector Drawer ── */
+/* ── Right Inspector Drawer (overlay) ── */
 const DRAWER_TABS = ['Analysis', 'Versions', 'AI'] as const;
 type DrawerTab = (typeof DRAWER_TABS)[number];
 
-function InspectorDrawer({ open, projectId, activeTab, onTabChange }: {
+function InspectorDrawer({ open, onClose, projectId, activeTab, onTabChange }: {
   open: boolean;
+  onClose: () => void;
   projectId: string;
   activeTab: DrawerTab;
   onTabChange: (t: DrawerTab) => void;
 }) {
+  // Close on Esc
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { e.preventDefault(); onClose(); }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [open, onClose]);
+
   if (!open) return null;
 
   return (
-    <aside className="w-72 border-l border-border/20 bg-card/30 flex flex-col shrink-0 overflow-hidden">
-      <div className="flex items-center gap-1 px-3 py-2 border-b border-border/20 shrink-0">
-        {DRAWER_TABS.map((t) => (
-          <button
-            key={t}
-            onClick={() => onTabChange(t)}
-            className={cn(
-              'px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors',
-              activeTab === t
-                ? 'bg-muted text-foreground'
-                : 'text-muted-foreground hover:text-foreground',
-            )}
-          >
-            {t}
-          </button>
-        ))}
-      </div>
-      <div className="flex-1 overflow-y-auto">
-        {activeTab === 'Analysis' && <AnalysisPanel projectId={projectId} mode="compact" />}
-        {activeTab === 'Versions' && <VersionsPanel projectId={projectId} />}
-        {activeTab === 'AI' && (
-          <div className="flex items-center justify-center p-4 h-full">
-            <p className="text-xs text-muted-foreground/50 text-center">AI — coming soon</p>
+    <>
+      {/* Scrim */}
+      <div
+        className="fixed inset-0 z-40 bg-background/40 backdrop-blur-[2px] transition-opacity"
+        onClick={onClose}
+      />
+      {/* Panel */}
+      <aside className="fixed top-12 bottom-0 right-0 z-50 w-80 border-l border-border/20 bg-card/95 backdrop-blur-xl flex flex-col shadow-2xl animate-in slide-in-from-right-4 duration-200">
+        <div className="flex items-center justify-between px-3 py-2 border-b border-border/15 shrink-0">
+          <div className="flex items-center gap-0.5">
+            {DRAWER_TABS.map((t) => (
+              <button
+                key={t}
+                onClick={() => onTabChange(t)}
+                className={cn(
+                  'px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors',
+                  activeTab === t
+                    ? 'bg-muted text-foreground'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {t}
+              </button>
+            ))}
           </div>
-        )}
-      </div>
-    </aside>
+          <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground" onClick={onClose}>
+            <X className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+        <div className="flex-1 overflow-y-auto">
+          {activeTab === 'Analysis' && <AnalysisPanel projectId={projectId} mode="compact" />}
+          {activeTab === 'Versions' && <VersionsPanel projectId={projectId} />}
+          {activeTab === 'AI' && <ActivityLogPanel projectId={projectId} />}
+        </div>
+      </aside>
+    </>
   );
 }
 
@@ -115,9 +135,9 @@ function PipelineStateBar({ projectId }: { projectId: string }) {
 
   if (isLoading || !pipelineState) {
     return (
-      <div className="h-8 border-t border-border/20 bg-card/20 flex items-center px-4 gap-2 shrink-0">
-        <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/50">Pipeline</span>
-        <span className="text-[11px] text-muted-foreground">Loading…</span>
+      <div className="h-8 border-t border-border/10 bg-card/10 flex items-center px-4 gap-2 shrink-0">
+        <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/40">Pipeline</span>
+        <span className="text-[11px] text-muted-foreground/50">Loading…</span>
       </div>
     );
   }
@@ -127,22 +147,22 @@ function PipelineStateBar({ projectId }: { projectId: string }) {
   const hasGateWarning = nextStep?.action === 'approve';
 
   return (
-    <div className="h-9 border-t border-border/20 bg-card/20 flex items-center px-4 gap-3 shrink-0 overflow-x-auto">
-      <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/50 shrink-0">Pipeline</span>
+    <div className="h-8 border-t border-border/10 bg-card/10 flex items-center px-4 gap-3 shrink-0 overflow-x-auto">
+      <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/40 shrink-0">Pipeline</span>
 
       {/* Mini stepper dots */}
       <div className="flex items-center gap-0.5 shrink-0">
-        {pipeline.map((stage, i) => {
+        {pipeline.map((stage) => {
           const status = pipelineState.completedStages[stage];
           const isCurrent = stage === currentStage;
           return (
             <Tooltip key={stage}>
               <TooltipTrigger asChild>
                 <div className={cn(
-                  'h-2 rounded-full transition-all',
-                  isCurrent ? 'w-4 bg-primary' : 'w-2',
-                  !isCurrent && status?.exists ? 'bg-primary/40' : '',
-                  !isCurrent && !status?.exists ? 'bg-muted-foreground/20' : '',
+                  'h-1.5 rounded-full transition-all',
+                  isCurrent ? 'w-4 bg-primary' : 'w-1.5',
+                  !isCurrent && status?.exists ? 'bg-primary/30' : '',
+                  !isCurrent && !status?.exists ? 'bg-muted-foreground/15' : '',
                 )} />
               </TooltipTrigger>
               <TooltipContent side="top" className="text-[10px]">
@@ -155,28 +175,19 @@ function PipelineStateBar({ projectId }: { projectId: string }) {
         })}
       </div>
 
-      {/* Current + count */}
       <div className="flex items-center gap-1.5 text-[11px] shrink-0">
-        <CheckCircle2 className="h-3 w-3 text-primary/60" />
-        <span className="text-muted-foreground">
-          {completedCount}/{totalStages}
-        </span>
+        <CheckCircle2 className="h-3 w-3 text-primary/50" />
+        <span className="text-muted-foreground/60">{completedCount}/{totalStages}</span>
         {currentStage && (
-          <span className="text-foreground/80 font-medium">
-            {currentStage.replace(/_/g, ' ')}
-          </span>
+          <span className="text-foreground/70 font-medium">{currentStage.replace(/_/g, ' ')}</span>
         )}
       </div>
 
-      {/* Next step */}
       {nextStep && (
         <div className="flex items-center gap-1 text-[11px] shrink-0">
-          <ArrowRight className="h-3 w-3 text-muted-foreground/40" />
+          <ArrowRight className="h-3 w-3 text-muted-foreground/30" />
           {hasGateWarning && <AlertTriangle className="h-3 w-3 text-amber-400" />}
-          <span className={cn(
-            'text-muted-foreground',
-            hasGateWarning && 'text-amber-400',
-          )}>
+          <span className={cn('text-muted-foreground/60', hasGateWarning && 'text-amber-400')}>
             {nextStep.label}
           </span>
         </div>
@@ -199,41 +210,71 @@ export function ProjectShell({ children }: ProjectShellProps) {
   const { mode, setMode } = useOperatingMode(projectId);
 
   // Drawer state from query params
-  const drawerParam = searchParams.get('drawer');
-  const tabParam = searchParams.get('tab');
-  const [drawerOpen, setDrawerOpen] = useState(drawerParam === 'open');
+  const drawerParamInit = searchParams.get('drawer');
+  const tabParamInit = searchParams.get('tab');
+  const [drawerOpen, setDrawerOpen] = useState(drawerParamInit === 'open');
   const [activeTab, setActiveTab] = useState<DrawerTab>(() => {
     const map: Record<string, DrawerTab> = { analysis: 'Analysis', versions: 'Versions', ai: 'AI' };
-    return map[tabParam?.toLowerCase() ?? ''] ?? 'Analysis';
+    return map[tabParamInit?.toLowerCase() ?? ''] ?? 'Analysis';
   });
 
-  // Sync from URL on mount only
-  useEffect(() => {
-    if (drawerParam === 'open') setDrawerOpen(true);
-    if (tabParam) {
-      const map: Record<string, DrawerTab> = { analysis: 'Analysis', versions: 'Versions', ai: 'AI' };
-      const mapped = map[tabParam.toLowerCase()];
-      if (mapped) setActiveTab(mapped);
-    }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // URL sync: update query params when drawer/tab changes
+  const syncUrl = useCallback(
+    (open: boolean, tab: DrawerTab) => {
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev);
+        if (open) {
+          next.set('drawer', 'open');
+          next.set('tab', tab.toLowerCase());
+        } else {
+          next.delete('drawer');
+          next.delete('tab');
+        }
+        return next;
+      }, { replace: true });
+    },
+    [setSearchParams],
+  );
+
+  const handleDrawerOpen = useCallback(() => {
+    setDrawerOpen(true);
+    syncUrl(true, activeTab);
+  }, [activeTab, syncUrl]);
+
+  const handleDrawerClose = useCallback(() => {
+    setDrawerOpen(false);
+    syncUrl(false, activeTab);
+  }, [activeTab, syncUrl]);
+
+  const handleDrawerToggle = useCallback(() => {
+    setDrawerOpen((prev) => {
+      const next = !prev;
+      syncUrl(next, activeTab);
+      return next;
+    });
+  }, [activeTab, syncUrl]);
+
+  const handleTabChange = useCallback(
+    (t: DrawerTab) => {
+      setActiveTab(t);
+      if (drawerOpen) syncUrl(true, t);
+    },
+    [drawerOpen, syncUrl],
+  );
 
   // Keyboard shortcut: "\" to toggle drawer
-  const handleKeyDown = useCallback(
-    (e: KeyboardEvent) => {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
       if (e.key === '\\' && !e.metaKey && !e.ctrlKey && !e.altKey) {
         const tag = (e.target as HTMLElement)?.tagName;
         if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable) return;
         e.preventDefault();
-        setDrawerOpen((prev) => !prev);
+        handleDrawerToggle();
       }
-    },
-    [],
-  );
-
-  useEffect(() => {
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleKeyDown]);
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [handleDrawerToggle]);
 
   if (!projectId) return null;
 
@@ -246,32 +287,30 @@ export function ProjectShell({ children }: ProjectShellProps) {
 
   return (
     <div className="min-h-screen flex flex-col bg-background" data-project-shell>
-      {/* ── Top ProjectBar ── */}
-      <header className="sticky top-0 z-50 h-12 border-b border-border/20 bg-background/80 backdrop-blur-2xl flex items-center px-3 gap-3">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8 text-muted-foreground hover:text-foreground shrink-0"
-          onClick={() => navigate('/dashboard')}
-        >
-          <ChevronLeft className="h-4 w-4" />
-        </Button>
+      {/* ── Top ProjectBar (refined) ── */}
+      <header className="sticky top-0 z-50 h-11 border-b border-border/10 bg-background/90 backdrop-blur-2xl flex items-center px-3">
+        {/* Left: back + title */}
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <button
+            onClick={() => navigate('/dashboard')}
+            className="h-7 w-7 rounded-md flex items-center justify-center text-muted-foreground/60 hover:text-foreground hover:bg-muted/40 transition-colors shrink-0"
+          >
+            <ChevronLeft className="h-3.5 w-3.5" />
+          </button>
 
-        {/* Title + lane */}
-        <div className="flex items-center gap-2.5 min-w-0 flex-1">
           {isLoading ? (
-            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground/50" />
           ) : (
             <>
               <Link
                 to={`/projects/${projectId}`}
-                className="text-sm font-display font-semibold text-foreground truncate max-w-[260px] hover:text-primary transition-colors"
+                className="text-[13px] font-display font-semibold text-foreground truncate max-w-[280px] hover:text-primary transition-colors"
               >
                 {project?.title || 'Untitled'}
               </Link>
               {lane && <LaneBadge lane={lane} size="sm" />}
               {project?.confidence != null && (
-                <span className="text-[10px] font-medium text-muted-foreground bg-muted/50 px-1.5 py-0.5 rounded-full">
+                <span className="text-[9px] font-medium text-muted-foreground/50 bg-muted/30 px-1.5 py-0.5 rounded-full">
                   {Math.round(project.confidence * 100)}%
                 </span>
               )}
@@ -279,49 +318,60 @@ export function ProjectShell({ children }: ProjectShellProps) {
           )}
         </div>
 
-        {/* Mode toggle */}
-        <OperatingModeToggle mode={mode} onChange={setMode} />
+        {/* Center: mode toggle */}
+        <div className="absolute left-1/2 -translate-x-1/2">
+          <OperatingModeToggle mode={mode} onChange={setMode} />
+        </div>
 
-        {/* Drawer toggle */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 text-muted-foreground hover:text-foreground"
-              onClick={() => setDrawerOpen(!drawerOpen)}
-            >
-              {drawerOpen ? <PanelRightClose className="h-4 w-4" /> : <PanelRightOpen className="h-4 w-4" />}
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom" className="text-xs">
-            Inspector <kbd className="ml-1 text-[10px] bg-muted px-1 rounded">\</kbd>
-          </TooltipContent>
-        </Tooltip>
+        {/* Right: drawer toggle */}
+        <div className="flex items-center shrink-0">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={handleDrawerToggle}
+                className={cn(
+                  'h-7 w-7 rounded-md flex items-center justify-center transition-colors',
+                  drawerOpen
+                    ? 'text-primary bg-primary/10'
+                    : 'text-muted-foreground/50 hover:text-foreground hover:bg-muted/40',
+                )}
+              >
+                {drawerOpen ? <PanelRightClose className="h-3.5 w-3.5" /> : <PanelRightOpen className="h-3.5 w-3.5" />}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="text-[10px]">
+              Inspector <kbd className="ml-1 text-[9px] bg-muted/60 px-1 rounded">\</kbd>
+            </TooltipContent>
+          </Tooltip>
+        </div>
       </header>
 
-      {/* ── Body: rail + content + drawer ── */}
+      {/* ── Body: rail + content ── */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Left rail */}
-        <nav className="w-14 border-r border-border/20 bg-card/20 flex flex-col items-center py-3 gap-1 shrink-0">
+        {/* Left rail — icon-only with active indicator */}
+        <nav className="w-12 border-r border-border/10 bg-background flex flex-col items-center py-3 gap-0.5 shrink-0">
           {visibleLinks.map((link) => {
             const active = location.pathname === link.to || (link.to !== '/dashboard' && location.pathname.startsWith(link.to));
             return (
-              <Tooltip key={link.to}>
+              <Tooltip key={link.to} delayDuration={200}>
                 <TooltipTrigger asChild>
                   <button
                     onClick={() => navigate(link.to)}
                     className={cn(
-                      'w-10 h-10 rounded-lg flex items-center justify-center transition-all',
+                      'relative w-9 h-9 rounded-lg flex items-center justify-center transition-all',
                       active
-                        ? 'bg-primary/10 text-primary'
-                        : 'text-muted-foreground/60 hover:text-foreground hover:bg-muted/50',
+                        ? 'text-primary'
+                        : 'text-muted-foreground/40 hover:text-foreground/70 hover:bg-muted/30',
                     )}
                   >
-                    <link.icon className="h-4.5 w-4.5" />
+                    {/* Active indicator bar */}
+                    {active && (
+                      <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-r-full bg-primary" />
+                    )}
+                    <link.icon className="h-4 w-4" />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent side="right" className="text-xs">
+                <TooltipContent side="right" className="text-[10px]">
                   {link.label}
                 </TooltipContent>
               </Tooltip>
@@ -333,18 +383,19 @@ export function ProjectShell({ children }: ProjectShellProps) {
         <main className="flex-1 overflow-y-auto">
           {children}
         </main>
-
-        {/* Right inspector drawer */}
-        <InspectorDrawer
-          open={drawerOpen}
-          projectId={projectId}
-          activeTab={activeTab}
-          onTabChange={setActiveTab}
-        />
       </div>
 
-      {/* ── Pipeline state bar (authoritative) ── */}
+      {/* ── Pipeline state bar ── */}
       <PipelineStateBar projectId={projectId} />
+
+      {/* ── Inspector overlay drawer ── */}
+      <InspectorDrawer
+        open={drawerOpen}
+        onClose={handleDrawerClose}
+        projectId={projectId}
+        activeTab={activeTab}
+        onTabChange={handleTabChange}
+      />
     </div>
   );
 }
