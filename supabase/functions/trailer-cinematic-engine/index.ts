@@ -756,14 +756,33 @@ RETURN STRICT JSON:
   "warnings": [ "any structural or canon risks detected" ]
 }
 
-If you can, also include an INTERNAL metadata block "cik" with cinematic intelligence units for quality scoring. This is optional and will be stripped before storage:
-{
-  "cik": {
-    "units": [
-      { "id": "beat_0", "intent": "intrigue|threat|wonder|chaos|emotion|release", "energy": 0.0-1.0, "tension": 0.0-1.0, "density": 0.0-1.0, "tonal_polarity": -1.0-1.0 }
-    ]
-  }
+------------------------------------------------------------
+INTERNAL CIK METADATA (REQUIRED)
+------------------------------------------------------------
+
+You MUST include a top-level "cik" object in your JSON response.
+It contains internal quality-scoring metadata and will be stripped before storage.
+
+"cik": {
+  "units": [
+    {
+      "id": "beat_0",
+      "intent": "intrigue|threat|wonder|chaos|emotion|release",
+      "energy": 0.0-1.0,
+      "tension": 0.0-1.0,
+      "density": 0.0-1.0,
+      "tonal_polarity": -1.0 to 1.0
+    }
+  ]
 }
+
+Rules for cik.units:
+- Array length MUST equal the number of beats returned.
+- Each unit id MUST be "beat_0", "beat_1", etc., matching beat order.
+- intent: choose the single dominant intent for each beat.
+- energy/tension/density: 0.0 to 1.0 floats reflecting beat intensity.
+- tonal_polarity: -1.0 (dark/threatening) to 1.0 (hopeful/uplifting).
+- Do NOT omit any field. Do NOT change the main output schema.
 
 Return only valid JSON.
 No commentary.
