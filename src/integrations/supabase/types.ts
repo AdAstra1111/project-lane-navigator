@@ -17224,6 +17224,90 @@ export type Database = {
           },
         ]
       }
+      trailer_finishing_profiles: {
+        Row: {
+          color_consistency_enabled: boolean
+          color_consistency_strength: number
+          contrast_boost: number
+          created_at: string
+          created_by: string | null
+          grain_amount: number
+          highlights_rolloff: number
+          id: string
+          is_preset: boolean
+          letterbox_enabled: boolean
+          letterbox_ratio: string | null
+          lufs_target: number
+          lut_storage_path: string | null
+          name: string
+          project_id: string | null
+          saturation_boost: number
+          sharpen_amount: number
+          true_peak_db: number
+          updated_at: string
+          vignette_amount: number
+        }
+        Insert: {
+          color_consistency_enabled?: boolean
+          color_consistency_strength?: number
+          contrast_boost?: number
+          created_at?: string
+          created_by?: string | null
+          grain_amount?: number
+          highlights_rolloff?: number
+          id?: string
+          is_preset?: boolean
+          letterbox_enabled?: boolean
+          letterbox_ratio?: string | null
+          lufs_target?: number
+          lut_storage_path?: string | null
+          name?: string
+          project_id?: string | null
+          saturation_boost?: number
+          sharpen_amount?: number
+          true_peak_db?: number
+          updated_at?: string
+          vignette_amount?: number
+        }
+        Update: {
+          color_consistency_enabled?: boolean
+          color_consistency_strength?: number
+          contrast_boost?: number
+          created_at?: string
+          created_by?: string | null
+          grain_amount?: number
+          highlights_rolloff?: number
+          id?: string
+          is_preset?: boolean
+          letterbox_enabled?: boolean
+          letterbox_ratio?: string | null
+          lufs_target?: number
+          lut_storage_path?: string | null
+          name?: string
+          project_id?: string | null
+          saturation_boost?: number
+          sharpen_amount?: number
+          true_peak_db?: number
+          updated_at?: string
+          vignette_amount?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trailer_finishing_profiles_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "trailer_finishing_profiles_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       trailer_judge_v2_runs: {
         Row: {
           created_at: string
@@ -17622,6 +17706,97 @@ export type Database = {
             columns: ["trailer_cut_id"]
             isOneToOne: false
             referencedRelation: "trailer_cuts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      trailer_render_variants: {
+        Row: {
+          audio_run_id: string | null
+          color_corrections_json: Json | null
+          created_at: string
+          created_by: string | null
+          crop_mode: string
+          error: string | null
+          finishing_profile_id: string | null
+          frame_rate: number
+          height: number
+          id: string
+          project_id: string
+          public_url: string | null
+          reference_clip_id: string | null
+          render_log_json: Json | null
+          status: string
+          storage_path_mp4: string | null
+          trailer_cut_id: string
+          updated_at: string
+          variant_key: string
+          width: number
+        }
+        Insert: {
+          audio_run_id?: string | null
+          color_corrections_json?: Json | null
+          created_at?: string
+          created_by?: string | null
+          crop_mode?: string
+          error?: string | null
+          finishing_profile_id?: string | null
+          frame_rate?: number
+          height?: number
+          id?: string
+          project_id: string
+          public_url?: string | null
+          reference_clip_id?: string | null
+          render_log_json?: Json | null
+          status?: string
+          storage_path_mp4?: string | null
+          trailer_cut_id: string
+          updated_at?: string
+          variant_key?: string
+          width?: number
+        }
+        Update: {
+          audio_run_id?: string | null
+          color_corrections_json?: Json | null
+          created_at?: string
+          created_by?: string | null
+          crop_mode?: string
+          error?: string | null
+          finishing_profile_id?: string | null
+          frame_rate?: number
+          height?: number
+          id?: string
+          project_id?: string
+          public_url?: string | null
+          reference_clip_id?: string | null
+          render_log_json?: Json | null
+          status?: string
+          storage_path_mp4?: string | null
+          trailer_cut_id?: string
+          updated_at?: string
+          variant_key?: string
+          width?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trailer_render_variants_finishing_profile_id_fkey"
+            columns: ["finishing_profile_id"]
+            isOneToOne: false
+            referencedRelation: "trailer_finishing_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trailer_render_variants_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "trailer_render_variants_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
             referencedColumns: ["id"]
           },
         ]
