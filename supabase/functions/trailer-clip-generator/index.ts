@@ -38,6 +38,38 @@ async function verifyAccess(db: any, userId: string, projectId: string): Promise
 
 // ─── Helpers ───
 
+// ─── Look Bible Loader ───
+
+async function loadLookBible(db: any, projectId: string, scopeRefId?: string): Promise<any | null> {
+  if (scopeRefId) {
+    const { data } = await db.from("trailer_look_bibles")
+      .select("*").eq("project_id", projectId).eq("scope_ref_id", scopeRefId)
+      .order("updated_at", { ascending: false }).limit(1).maybeSingle();
+    if (data) return data;
+  }
+  const { data } = await db.from("trailer_look_bibles")
+    .select("*").eq("project_id", projectId).eq("scope", "project")
+    .order("updated_at", { ascending: false }).limit(1).maybeSingle();
+  return data || null;
+}
+
+function buildLookBiblePromptSuffix(lb: any): string {
+  if (!lb) return "";
+  const parts: string[] = [];
+  if (lb.palette) parts.push(`Color palette: ${lb.palette}`);
+  if (lb.lighting_style) parts.push(`Lighting: ${lb.lighting_style}`);
+  if (lb.contrast) parts.push(`Contrast: ${lb.contrast}`);
+  if (lb.camera_language) parts.push(`Camera: ${lb.camera_language}`);
+  if (lb.grain) parts.push(`Film texture: ${lb.grain}`);
+  if (lb.color_grade) parts.push(`Grade: ${lb.color_grade}`);
+  if (lb.custom_directives) parts.push(lb.custom_directives);
+  const positives = parts.join(". ");
+  const negatives = (lb.avoid_list || []).length > 0
+    ? `Absolutely avoid: ${lb.avoid_list.join(", ")}.`
+    : "";
+  return [positives, negatives].filter(Boolean).join(". ");
+}
+
 class RateLimitError extends Error {
   constructor(message: string) {
     super(message);
@@ -588,6 +620,10 @@ async function handleEnqueueForRun(db: any, body: any, userId: string) {
   // Resolve generation profile
   const { profile, reason: profileReason } = resolveProfile(styleOptions);
 
+  // Load Look Bible for prompt injection
+  const lookBible = await loadLookBible(db, projectId, resolvedScriptRunId);
+  const lookBibleSuffix = buildLookBiblePromptSuffix(lookBible);
+
   // Load shot specs if available
   const shotDesignRunId = bp?.options?.shot_design_run_id;
   let shotSpecsByBeat: Record<number, any[]> = {};
@@ -658,10 +694,15 @@ async function handleEnqueueForRun(db: any, body: any, userId: string) {
       // Apply motion boost
       const boostedPrompt = applyMotionBoost(basePrompt, matchSpec, beat, profile);
 
-      // Wrap for provider
-      const finalPrompt = provider === "runway"
+      // Wrap for provider + Look Bible injection
+      let finalPrompt = provider === "runway"
         ? buildRunwayPrompt(boostedPrompt, profile, matchSpec)
         : buildVeoPrompt(boostedPrompt, profile, matchSpec);
+
+      // Append Look Bible constraints to every clip prompt
+      if (lookBibleSuffix) {
+        finalPrompt = finalPrompt + " " + lookBibleSuffix;
+      }
 
       // Build provider-specific params
       const providerParams = provider === "runway" ? profile.runway_params : profile.veo_params;

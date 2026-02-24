@@ -66,6 +66,57 @@ function mulberry32(seed: string): () => number {
 // ─── Phase definitions ───
 const PHASES_ORDERED = ["hook", "setup", "escalation", "twist", "crescendo", "button"] as const;
 
+// ─── Look Bible Loader ───
+
+async function loadLookBible(db: any, projectId: string, scopeRefId?: string): Promise<any | null> {
+  // Priority 1: scope-specific look bible
+  if (scopeRefId) {
+    const { data } = await db.from("trailer_look_bibles")
+      .select("*")
+      .eq("project_id", projectId)
+      .eq("scope_ref_id", scopeRefId)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (data) return data;
+  }
+  // Priority 2: project-level look bible
+  const { data } = await db.from("trailer_look_bibles")
+    .select("*")
+    .eq("project_id", projectId)
+    .eq("scope", "project")
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return data || null;
+}
+
+function buildLookBibleSection(lb: any): string {
+  if (!lb) return "";
+  const locked = lb.is_locked;
+  const prefix = locked ? "LOOK BIBLE (HARD CONSTRAINTS — must obey exactly)" : "LOOK BIBLE (style guidance — follow closely)";
+  const lines: string[] = [
+    "------------------------------------------------------------",
+    prefix,
+    "------------------------------------------------------------",
+  ];
+  if (lb.palette) lines.push(`PALETTE: ${lb.palette}`);
+  if (lb.lighting_style) lines.push(`LIGHTING: ${lb.lighting_style}`);
+  if (lb.contrast) lines.push(`CONTRAST: ${lb.contrast}`);
+  if (lb.camera_language) lines.push(`CAMERA LANGUAGE: ${lb.camera_language}`);
+  if (lb.grain) lines.push(`GRAIN/TEXTURE: ${lb.grain}`);
+  if (lb.color_grade) lines.push(`COLOR GRADE: ${lb.color_grade}`);
+  if (lb.reference_assets_notes) lines.push(`REFERENCE NOTES: ${lb.reference_assets_notes}`);
+  if (lb.custom_directives) lines.push(`CUSTOM DIRECTIVES: ${lb.custom_directives}`);
+  if (lb.avoid_list && lb.avoid_list.length > 0) {
+    lines.push(`NEGATIVES (AVOID): ${lb.avoid_list.join(", ")}`);
+    if (locked) {
+      lines.push(`HARD NEGATIVE LIST — if any generated visual contains these elements, it MUST be rejected: ${lb.avoid_list.join(", ")}`);
+    }
+  }
+  return "\n" + lines.join("\n") + "\n";
+}
+
 // ─── Style Options → Prompt Section Builder ───
 
 function buildStyleOptionsSection(so: Record<string, any>, trailerType: string): string {
@@ -1006,6 +1057,10 @@ async function handleCreateShotDesign(db: any, body: any, userId: string, apiKey
 
   const styleOptions = (scriptRun.style_options_json || {}) as Record<string, any>;
 
+  // Load Look Bible
+  const lookBible = await loadLookBible(db, projectId, scriptRunId);
+  const lookBibleSection = buildLookBibleSection(lookBible);
+
   let rhythmContext = "";
   if (rhythmRunId) {
     const { data: rhythm } = await db.from("trailer_rhythm_runs")
@@ -1040,6 +1095,7 @@ async function handleCreateShotDesign(db: any, body: any, userId: string, apiKey
     const system = composeSystem(`You are a world-class cinematographer designing shot specs for a cinematic trailer.
 
 ${styleDirectives}
+${lookBibleSection}
 
 ------------------------------------------------------------
 MOTION RULES (mandatory — every shot must obey)
@@ -1334,6 +1390,10 @@ async function handleRunJudge(db: any, body: any, userId: string, apiKey: string
   }).select().single();
   if (runErr) return json({ error: runErr.message }, 500);
 
+  // Load Look Bible for style cohesion judging
+  const lookBible = await loadLookBible(db, projectId, scriptRunId);
+  const lookBibleSection = buildLookBibleSection(lookBible);
+
   try {
     const beatSummary = (beats || []).map((b: any) =>
       `#${b.beat_index} ${b.phase}: intent="${b.emotional_intent}" movement=${b.movement_intensity_target} density=${b.shot_density_target || "?"} refs=${(b.source_refs_json || []).length} silence_before=${b.silence_before_ms} silence_after=${b.silence_after_ms}${b.quoted_dialogue ? ` dialogue="${b.quoted_dialogue.slice(0, 60)}"` : ""}${(b.source_refs_json || []).length > 0 ? ` citations=[${(b.source_refs_json || []).map((r: any) => `${r.doc_type}:"${(r.excerpt || "").slice(0, 40)}"`).join(", ")}]` : ""}`
@@ -1349,6 +1409,8 @@ async function handleRunJudge(db: any, body: any, userId: string, apiKey: string
 6. phase_balance: Are phases well-proportioned (not too long/short)?
 7. crescendo_impact: Does the crescendo deliver micro-montage energy?
 8. emotional_arc: Does the trailer build to an emotional peak?
+9. style_cohesion: Do all visual descriptions maintain a consistent look? If a LOOK BIBLE is provided, score whether shots align with its palette, lighting, contrast, camera language, and avoid list. Flag any shot that contradicts the Look Bible.
+${lookBibleSection}
 
 Return STRICT JSON:
 {
@@ -1361,11 +1423,12 @@ Return STRICT JSON:
     "phase_balance": 0.85,
     "crescendo_impact": 0.9,
     "emotional_arc": 0.85,
+    "style_cohesion": 0.9,
     "overall": 0.84
   },
   "flags": ["string descriptions of issues"],
   "repair_actions": [
-    {"type": "improve_citations|fix_movement_curve|increase_contrast|add_silence|fix_crescendo|rebalance_phases", "target": "script_beats|rhythm|shots", "reason": "why", "beat_indices": [0,3]}
+    {"type": "improve_citations|fix_movement_curve|increase_contrast|add_silence|fix_crescendo|rebalance_phases|fix_style_cohesion", "target": "script_beats|rhythm|shots", "reason": "why", "beat_indices": [0,3]}
   ]
 }`;
 
