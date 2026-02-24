@@ -3,7 +3,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useLocation, useParams, useSearchParams } from "react-router-dom";
 import { AnimatePresence } from "framer-motion";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { CommandPalette } from "@/components/CommandPalette";
@@ -85,6 +85,12 @@ const CanonPlaceholder = lazy(() => import("./pages/CanonPlaceholder"));
 // ProjectShell — new unified workspace frame (Week 1 refactor)
 import { ProjectShell } from "@/components/project/ProjectShell";
 
+// Trailer redirect helper — maps old trailer routes to canonical /projects/:id/trailer?tab=
+function TrailerRedirect({ tab }: { tab?: string }) {
+  const { id } = useParams<{ id: string }>();
+  const to = `/projects/${id}/trailer${tab ? `?tab=${tab}` : ''}`;
+  return <Navigate to={to} replace />;
+}
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -116,7 +122,7 @@ const AnimatedRoutes = () => {
           <Route path="/how-iffy-thinks" element={<ProtectedRoute><HowIFFYThinks /></ProtectedRoute>} />
           <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
           <Route path="/projects/new" element={<ProtectedRoute><NewProject /></ProtectedRoute>} />
-          <Route path="/projects/:id" element={<ProtectedRoute><ProjectDetail /></ProtectedRoute>} />
+          <Route path="/projects/:id" element={<ProtectedRoute><ProjectShell><ProjectDetail /></ProjectShell></ProtectedRoute>} />
           <Route path="/trends" element={<ProtectedRoute><Trends /></ProtectedRoute>} />
           <Route path="/trends/story" element={<ProtectedRoute><StoryTrends /></ProtectedRoute>} />
           <Route path="/trends/cast" element={<ProtectedRoute><CastTrends /></ProtectedRoute>} />
@@ -160,14 +166,14 @@ const AnimatedRoutes = () => {
           <Route path="/projects/:id/ai-trailer" element={<ProtectedRoute><AiTrailerBuilder /></ProtectedRoute>} />
           <Route path="/projects/:id/visual-units" element={<ProtectedRoute><VisualUnits /></ProtectedRoute>} />
           <Route path="/projects/:id/storyboard-pipeline" element={<ProtectedRoute><StoryboardPipeline /></ProtectedRoute>} />
-          <Route path="/projects/:id/trailer-pipeline" element={<ProtectedRoute><TrailerPipeline /></ProtectedRoute>} />
-          <Route path="/projects/:id/trailer-clips" element={<ProtectedRoute><ClipCandidatesStudio /></ProtectedRoute>} />
-          <Route path="/projects/:id/trailer-assemble" element={<ProtectedRoute><TrailerTimelineStudio /></ProtectedRoute>} />
+          <Route path="/projects/:id/trailer-pipeline" element={<ProtectedRoute><TrailerRedirect tab="blueprints" /></ProtectedRoute>} />
+          <Route path="/projects/:id/trailer-clips" element={<ProtectedRoute><TrailerRedirect tab="clips" /></ProtectedRoute>} />
+          <Route path="/projects/:id/trailer-assemble" element={<ProtectedRoute><TrailerRedirect tab="assemble" /></ProtectedRoute>} />
           <Route path="/projects/:id/visual-dev" element={<ProtectedRoute><VisualDevHub /></ProtectedRoute>} />
-          <Route path="/projects/:id/visual-dev/trailer" element={<ProtectedRoute><TrailerHub /></ProtectedRoute>} />
-          <Route path="/projects/:id/visual-dev/trailer/blueprints" element={<ProtectedRoute><TrailerPipeline /></ProtectedRoute>} />
-          <Route path="/projects/:id/visual-dev/trailer/clips" element={<ProtectedRoute><ClipCandidatesStudio /></ProtectedRoute>} />
-          <Route path="/projects/:id/visual-dev/trailer/assemble" element={<ProtectedRoute><TrailerTimelineStudio /></ProtectedRoute>} />
+          <Route path="/projects/:id/visual-dev/trailer" element={<ProtectedRoute><TrailerRedirect /></ProtectedRoute>} />
+          <Route path="/projects/:id/visual-dev/trailer/blueprints" element={<ProtectedRoute><TrailerRedirect tab="blueprints" /></ProtectedRoute>} />
+          <Route path="/projects/:id/visual-dev/trailer/clips" element={<ProtectedRoute><TrailerRedirect tab="clips" /></ProtectedRoute>} />
+          <Route path="/projects/:id/visual-dev/trailer/assemble" element={<ProtectedRoute><TrailerRedirect tab="assemble" /></ProtectedRoute>} />
 
           {/* ── Week 1 refactor: new ProjectShell workspace routes ── */}
           <Route path="/projects/:id/script" element={<ProtectedRoute><ProjectShell><ProjectDevelopmentEngine /></ProjectShell></ProtectedRoute>} />

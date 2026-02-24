@@ -3,7 +3,7 @@
  * Cinematic Script v2 → Clips → Assembly → Export
  * Shows legacy Blueprint v1 if old runs exist.
  */
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   ArrowLeft, Film, Clapperboard, Scissors, Music,
@@ -58,8 +58,14 @@ const STEPS = [
 
 export default function TrailerHub() {
   const { id: projectId } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
+  const tabParam = searchParams.get('tab');
   const { data: bpListData } = useBlueprints(projectId);
   const hasLegacyBlueprints = (bpListData?.blueprints || []).length > 0;
+
+  // Map tab param to default tab value
+  const defaultTab = tabParam === 'blueprints' || tabParam === 'clips' || tabParam === 'assemble'
+    ? 'cinematic' : 'cinematic';
 
   return (
     <div className="min-h-screen bg-background">

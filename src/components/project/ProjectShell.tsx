@@ -17,6 +17,7 @@ import { LaneBadge } from '@/components/LaneBadge';
 import type { MonetisationLane } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { AnalysisPanel } from '@/components/project/AnalysisPanel';
 
 /* ── Left-rail link definition ── */
 interface RailLink {
@@ -64,16 +65,16 @@ function OperatingModeToggle({ mode, onChange }: { mode: OperatingMode; onChange
 }
 
 /* ── Right Inspector Drawer ── */
-const DRAWER_TABS = ['Versions', 'Analysis', 'AI'] as const;
+const DRAWER_TABS = ['Analysis', 'Versions', 'AI'] as const;
 
-function InspectorDrawer({ open }: { open: boolean }) {
-  const [tab, setTab] = useState<(typeof DRAWER_TABS)[number]>('Versions');
+function InspectorDrawer({ open, projectId }: { open: boolean; projectId: string }) {
+  const [tab, setTab] = useState<(typeof DRAWER_TABS)[number]>('Analysis');
 
   if (!open) return null;
 
   return (
-    <aside className="w-72 border-l border-border/20 bg-card/30 flex flex-col shrink-0">
-      <div className="flex items-center gap-1 px-3 py-2 border-b border-border/20">
+    <aside className="w-72 border-l border-border/20 bg-card/30 flex flex-col shrink-0 overflow-hidden">
+      <div className="flex items-center gap-1 px-3 py-2 border-b border-border/20 shrink-0">
         {DRAWER_TABS.map((t) => (
           <button
             key={t}
@@ -89,10 +90,18 @@ function InspectorDrawer({ open }: { open: boolean }) {
           </button>
         ))}
       </div>
-      <div className="flex-1 flex items-center justify-center p-4">
-        <p className="text-xs text-muted-foreground/50 text-center">
-          {tab} panel — coming soon
-        </p>
+      <div className="flex-1 overflow-y-auto">
+        {tab === 'Analysis' && <AnalysisPanel projectId={projectId} mode="compact" />}
+        {tab === 'Versions' && (
+          <div className="flex items-center justify-center p-4 h-full">
+            <p className="text-xs text-muted-foreground/50 text-center">Versions — coming soon</p>
+          </div>
+        )}
+        {tab === 'AI' && (
+          <div className="flex items-center justify-center p-4 h-full">
+            <p className="text-xs text-muted-foreground/50 text-center">AI — coming soon</p>
+          </div>
+        )}
       </div>
     </aside>
   );
@@ -152,7 +161,7 @@ export function ProjectShell({ children }: ProjectShellProps) {
   const pipelineStage = (project as any)?.pipeline_stage as string | null ?? null;
 
   return (
-    <div className="min-h-screen flex flex-col bg-background">
+    <div className="min-h-screen flex flex-col bg-background" data-project-shell>
       {/* ── Top ProjectBar ── */}
       <header className="sticky top-0 z-50 h-12 border-b border-border/20 bg-background/80 backdrop-blur-2xl flex items-center px-3 gap-3">
         <Button
@@ -242,7 +251,7 @@ export function ProjectShell({ children }: ProjectShellProps) {
         </main>
 
         {/* Right inspector drawer */}
-        <InspectorDrawer open={drawerOpen} />
+        <InspectorDrawer open={drawerOpen} projectId={projectId} />
       </div>
 
       {/* ── Pipeline state bar ── */}
