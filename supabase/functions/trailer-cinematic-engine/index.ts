@@ -11,7 +11,7 @@
  *   create_full_cinematic_trailer_plan  (orchestrator: runs 1-4 sequentially)
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { callLLM, MODELS, parseJsonSafe, composeSystem } from "../_shared/llm.ts";
+import { callLLM, MODELS, parseJsonSafe, composeSystem, callLLMWithJsonRetry, parseAiJson } from "../_shared/llm.ts";
 import { compileTrailerContext } from "../_shared/trailerContext.ts";
 
 // ─── Helpers ───
@@ -758,16 +758,17 @@ No commentary.
 No explanation.
 No markdown.`;
 
-    const result = await callLLM({
+    const parsed = await callLLMWithJsonRetry({
       apiKey,
       model: MODELS.PRO,
       system: systemMsg,
       user: userPrompt,
       temperature: 0.4,
       maxTokens: 14000,
+    }, {
+      handler: "create_trailer_script_v2",
+      validate: (d): d is any => Array.isArray(d) || (d && Array.isArray(d.beats)),
     });
-
-    const parsed = await parseJsonSafe(result.content, apiKey);
     const beatArray: any[] = Array.isArray(parsed) ? parsed : (parsed.beats || []);
 
     // Validate beat count
@@ -1036,16 +1037,17 @@ SILENCE CONSTRAINT RULES:
 - Do NOT contradict script beat silence windows — they are authoritative
 - Add additional silence windows only for dramatic effect (anticipation, reveal)`;
 
-    const result = await callLLM({
+    const parsed = await callLLMWithJsonRetry({
       apiKey,
       model: MODELS.BALANCED,
       system,
       user: `BPM: ${bpm}\nBeats:\n${beatSummary}`,
       temperature: 0.3,
       maxTokens: 10000,
+    }, {
+      handler: "create_rhythm_grid_v2",
+      validate: (d): d is any => d && Array.isArray(d.hit_points),
     });
-
-    const parsed = await parseJsonSafe(result.content, apiKey);
 
     // Validate required hit points
     const hitPoints = parsed.hit_points || [];
@@ -1323,16 +1325,17 @@ DURATION RULES:
 Do NOT include copyrighted references. Do NOT invent new characters/locations. Use citations implicitly.
 No commentary. No explanation. No markdown. Only valid JSON.${rhythmContext}`);
 
-    const result = await callLLM({
+    const parsed = await callLLMWithJsonRetry({
       apiKey,
       model: MODELS.PRO,
       system,
       user: `BEATS:\n${beatSummary}\nSeed: ${resolvedSeed}`,
       temperature: 0.35,
       maxTokens: 14000,
+    }, {
+      handler: "create_shot_design_v2",
+      validate: (d): d is any => d && (Array.isArray(d.shot_specs) || Array.isArray(d.shots)),
     });
-
-    const parsed = await parseJsonSafe(result.content, apiKey);
     const shotSpecs = parsed.shot_specs || parsed.shots || [];
 
     // ── Validation ──
@@ -1657,16 +1660,17 @@ Return STRICT JSON:
     const canonSection = canonSummary ? `\n\nCANON TEXT (verify citations against this):\n${canonSummary}` : "";
     const userPrompt = `BEATS:\n${beatSummary}\n\n${rhythmData ? `RHYTHM: BPM=${rhythmData.bpm}, drop_ms=${rhythmData.drop_timestamp_ms}` : ""}\n\n${shotSpecs.length > 0 ? `SHOTS: ${shotSpecs.length} specs across ${new Set(shotSpecs.map((s: any) => s.shot_type)).size} types` : ""}${canonSection}`;
 
-    const result = await callLLM({
+    const parsed = await callLLMWithJsonRetry({
       apiKey,
       model: MODELS.BALANCED,
       system,
       user: userPrompt,
       temperature: 0.2,
       maxTokens: 4000,
+    }, {
+      handler: "run_cinematic_judge_v2",
+      validate: (d): d is any => d && typeof d.scores === "object",
     });
-
-    const parsed = await parseJsonSafe(result.content, apiKey);
     const scores = parsed.scores || {};
     const flags = parsed.flags || [];
     const repairActions = parsed.repair_actions || [];
@@ -1824,42 +1828,17 @@ Return STRICT JSON — array of ONLY the modified beats (same schema as input, i
 CANON PACK (for citation repair):
 ${canonText.slice(0, 8000)}`;
 
-    const result = await callLLM({
+    const repaired = await callLLMWithJsonRetry({
       apiKey,
       model: MODELS.PRO,
       system,
       user: `Current beats:\n${beatJson}`,
       temperature: 0.3,
       maxTokens: 10000,
+    }, {
+      handler: "repair_trailer_script_v2",
+      validate: (d): d is any => Array.isArray(d) || (d && Array.isArray(d.beats)),
     });
-
-    let repaired: any;
-    try {
-      repaired = await parseJsonSafe(result.content, apiKey);
-    } catch {
-      // Attempt manual truncation repair: close unclosed arrays/objects
-      let cleaned = result.content
-        .replace(/```[\s\S]*?\n/, "").replace(/\n?```\s*$/, "")
-        .replace(/,\s*$/m, "");
-      const startIdx = cleaned.indexOf("[");
-      if (startIdx >= 0) cleaned = cleaned.slice(startIdx);
-      // Balance brackets
-      let open = (cleaned.match(/\[/g) || []).length;
-      let close = (cleaned.match(/\]/g) || []).length;
-      // Remove trailing incomplete object (no closing brace)
-      const lastCloseBrace = cleaned.lastIndexOf("}");
-      const lastOpenBrace = cleaned.lastIndexOf("{", lastCloseBrace > 0 ? lastCloseBrace - 1 : undefined);
-      if ((cleaned.match(/{/g) || []).length > (cleaned.match(/}/g) || []).length && lastCloseBrace > 0) {
-        // Truncate after last complete object and close array
-        cleaned = cleaned.slice(0, lastCloseBrace + 1).replace(/,\s*$/, "");
-      }
-      while (close < open) { cleaned += "]"; close++; }
-      try {
-        repaired = JSON.parse(cleaned);
-      } catch {
-        throw new Error("Unparseable repair response from AI");
-      }
-    }
     const repairedArray = Array.isArray(repaired) ? repaired : (repaired.beats || []);
 
     let updatedCount = 0;
@@ -2729,16 +2708,17 @@ Return STRICT JSON:
 }
 Only valid JSON. No commentary.`);
 
-    const result = await callLLM({
+    const parsed = await callLLMWithJsonRetry({
       apiKey,
       model: MODELS.PRO,
       system,
       user: `CRESCENDO BEATS:\n${beatSummary}\nSeed: ${resolvedSeed}`,
       temperature: 0.4,
       maxTokens: 8000,
+    }, {
+      handler: "regenerate_crescendo_montage_v1",
+      validate: (d): d is any => d && Array.isArray(d.shot_specs),
     });
-
-    const parsed = await parseJsonSafe(result.content, apiKey);
     const shotSpecs = parsed.shot_specs || [];
 
     // Insert new crescendo specs
