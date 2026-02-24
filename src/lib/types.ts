@@ -117,7 +117,7 @@ export interface DocumentExtractionResult {
   error_message: string | null;
 }
 
-export type DocumentType = 'script' | 'treatment' | 'deck' | 'lookbook' | 'schedule' | 'budget' | 'document';
+export type DocumentType = 'script' | 'treatment' | 'deck' | 'lookbook' | 'schedule' | 'budget' | 'document' | 'trailer_script';
 
 export const DOC_TYPE_LABELS: Record<DocumentType, string> = {
   script: 'Script',
@@ -127,6 +127,7 @@ export const DOC_TYPE_LABELS: Record<DocumentType, string> = {
   schedule: 'Schedule',
   budget: 'Budget',
   document: 'Document',
+  trailer_script: 'Trailer Script',
 };
 
 export interface ProjectDocument {

@@ -22,7 +22,7 @@ import {
   Film, Loader2, Play, AlertTriangle, Check, BookOpen,
   Quote, Volume2, Zap, Wrench, Lock, ArrowRight, RefreshCw,
   Settings2, ChevronDown, Plus, Trash2, Sparkles, Shield,
-  Layers, Star, CheckCircle2,
+  Layers, Star, CheckCircle2, ExternalLink, FileText,
 } from 'lucide-react';
 import { StagedProgressBar } from '@/components/system/StagedProgressBar';
 import {
@@ -225,7 +225,7 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
   const {
     createFullPlan, createScript, createRhythmGrid,
     createShotDesign, runJudge, repairScript, startClipGeneration,
-    createScriptVariants, selectScriptRun, regenerateCrescendoMontage,
+    exportTrailerScriptDocument, createScriptVariants, selectScriptRun, regenerateCrescendoMontage,
   } = useCinematicMutations(projectId);
 
   const [showVariantsPanel, setShowVariantsPanel] = useState(false);
@@ -632,6 +632,15 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
               disabled={!canGenerateClips || startClipGeneration.isPending}>
               {startClipGeneration.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <ArrowRight className="h-3 w-3 mr-1" />}
               Proceed to Clips
+            </Button>
+            <Button size="sm" variant="outline"
+              onClick={() => {
+                if (!activeRun?.id) return;
+                exportTrailerScriptDocument.mutate({ scriptRunId: activeRun.id });
+              }}
+              disabled={!activeRun || exportTrailerScriptDocument.isPending}>
+              {exportTrailerScriptDocument.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <FileText className="h-3 w-3 mr-1" />}
+              Export as Document
             </Button>
           </>
         )}
