@@ -288,6 +288,7 @@ export async function writeLearnSignal(params: {
   projectId: string;
   scriptRunId?: string;
   signalKey: string;
+  signalType?: string;
   signalValueNum?: number;
   signalValueJson?: Record<string, any>;
 }) {
@@ -296,11 +297,102 @@ export async function writeLearnSignal(params: {
   await supabase.from('trailer_learning_signals').insert({
     project_id: params.projectId,
     script_run_id: params.scriptRunId || null,
-    signal_type: 'user_action',
+    signal_type: params.signalType || 'user_action',
     signal_key: params.signalKey,
     signal_value_num: params.signalValueNum ?? null,
     signal_value_json: params.signalValueJson ?? null,
     source: 'timeline_ui',
     created_by: session.user.id,
   } as any);
+}
+
+/** Log clip manual selection signal */
+export async function logClipSelectionSignal(params: {
+  projectId: string;
+  clipId: string;
+  provider?: string;
+  motionScore?: number;
+  technicalScore?: number;
+  beatPhase?: string;
+  generationProfile?: string;
+}) {
+  await writeLearnSignal({
+    projectId: params.projectId,
+    signalKey: 'manual_select',
+    signalType: 'clip_selection',
+    signalValueJson: {
+      clip_id: params.clipId,
+      provider: params.provider,
+      generation_profile: params.generationProfile,
+      motion_score: params.motionScore,
+      technical_score: params.technicalScore,
+      beat_phase: params.beatPhase,
+    },
+  });
+}
+
+/** Log clip override signal */
+export async function logClipOverrideSignal(params: {
+  projectId: string;
+  previousClipId?: string;
+  newClipId: string;
+  phase?: string;
+}) {
+  await writeLearnSignal({
+    projectId: params.projectId,
+    signalKey: 'override_auto_pick',
+    signalType: 'clip_override',
+    signalValueJson: {
+      previous_clip_id: params.previousClipId,
+      new_clip_id: params.newClipId,
+      phase: params.phase,
+    },
+  });
+}
+
+/** Log variant selection signal */
+export async function logVariantSelectionSignal(params: {
+  projectId: string;
+  scriptRunId: string;
+  variantLabel?: string;
+  tonePreset?: string;
+  cameraStyle?: string;
+}) {
+  await writeLearnSignal({
+    projectId: params.projectId,
+    scriptRunId: params.scriptRunId,
+    signalKey: 'variant_preference',
+    signalType: 'script_variant_selected',
+    signalValueJson: {
+      variant_label: params.variantLabel,
+      tonePreset: params.tonePreset,
+      cameraStyle: params.cameraStyle,
+    },
+  });
+}
+
+/** Log cut approval signal */
+export async function logCutApprovalSignal(params: {
+  projectId: string;
+  blueprintId?: string;
+  scriptRunId?: string;
+  generationProfile?: string;
+  averageMotionScore?: number;
+  bpm?: number;
+  dropTimestampMs?: number;
+}) {
+  await writeLearnSignal({
+    projectId: params.projectId,
+    scriptRunId: params.scriptRunId,
+    signalKey: 'final_cut',
+    signalType: 'cut_approved',
+    signalValueJson: {
+      blueprint_id: params.blueprintId,
+      script_run_id: params.scriptRunId,
+      generation_profile: params.generationProfile,
+      average_motion_score: params.averageMotionScore,
+      bpm: params.bpm,
+      drop_timestamp_ms: params.dropTimestampMs,
+    },
+  });
 }

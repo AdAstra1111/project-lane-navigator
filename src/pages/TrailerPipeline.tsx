@@ -13,6 +13,7 @@ import { RhythmGridViewer } from '@/components/trailer/cinematic/RhythmGridViewe
 import { RhythmTimelineOverlay } from '@/components/trailer/cinematic/RhythmTimelineOverlay';
 import { ShotDesignViewer } from '@/components/trailer/cinematic/ShotDesignViewer';
 import { AutoAssemblyPanel } from '@/components/trailer/cinematic/AutoAssemblyPanel';
+import { LearningBiasIndicator } from '@/components/trailer/cinematic/LearningBiasIndicator';
 import { LegacyBlueprintTab } from '@/components/trailer/cinematic/LegacyBlueprintTab';
 import { useBlueprints } from '@/lib/trailerPipeline/useTrailerPipeline';
 import { useScriptRuns } from '@/lib/trailerPipeline/cinematicHooks';
@@ -97,7 +98,8 @@ export default function TrailerPipelinePage() {
             </div>
           )}
 
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex items-center gap-3">
+            {projectId && <LearningBiasIndicator projectId={projectId} />}
             <Link to={`/projects/${projectId}/trailer-clips`}>
               <Button variant="outline" size="sm" className="text-xs">
                 <Clapperboard className="h-3 w-3 mr-1" /> Clip Studio

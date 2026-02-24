@@ -949,13 +949,22 @@ async function handleCreateRhythmGrid(db: any, body: any, userId: string, apiKey
   const resolvedSeed = resolveSeed(inputSeed);
   const rng = mulberry32(resolvedSeed);
 
-  // Determine BPM based on genre
+  // Determine BPM based on genre + project bias
   const genreBpm: Record<string, number> = {
     action: 140, thriller: 120, horror: 90, drama: 100, comedy: 110,
     scifi: 130, romance: 95, documentary: 85, animation: 115,
   };
   const baseBpm = genreBpm[scriptRun.genre_key] || 110;
-  const bpm = baseBpm + Math.floor(rng() * 20 - 10);
+  let bpm = baseBpm + Math.floor(rng() * 20 - 10);
+
+  // Apply learned pacing bias
+  let projectBias: any = null;
+  try {
+    const { data: proj } = await db.from("projects").select("trailer_bias_json").eq("id", projectId).single();
+    projectBias = proj?.trailer_bias_json || null;
+  } catch { /* no bias column yet */ }
+  if (projectBias?.pacing_bias === "faster") bpm = Math.round(bpm * 1.10);
+  else if (projectBias?.pacing_bias === "slower") bpm = Math.round(bpm * 0.90);
 
   // Insert rhythm run
   const { data: run, error: runErr } = await db.from("trailer_rhythm_runs").insert({

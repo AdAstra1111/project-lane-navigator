@@ -88,4 +88,10 @@ export const assemblerApi = {
     blueprintId?: string; scriptRunId?: string; rhythmRunId?: string;
     strategy?: string; cutTitle?: string;
   }) => callFn('trailer-assembler', 'auto_assemble_cut_v1', { projectId, ...params }),
+  computeProjectBias: (projectId: string) =>
+    callFn('trailer-assembler', 'compute_project_bias', { projectId }),
+  resetProjectBias: (projectId: string) =>
+    callFn('trailer-assembler', 'reset_project_bias', { projectId }),
+  getProjectBias: (projectId: string) =>
+    callFn('trailer-assembler', 'get_project_bias', { projectId }),
 };
