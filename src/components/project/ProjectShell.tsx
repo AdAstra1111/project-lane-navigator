@@ -377,20 +377,20 @@ export function ProjectShell({ children }: ProjectShellProps) {
           {isLoading ? (
             <div className="h-3 w-32 rounded bg-muted-foreground/10 animate-pulse" />
           ) : (
-            <>
+            <div className="flex items-baseline gap-2 min-w-0">
               <Link
                 to={`/projects/${projectId}`}
-                className="text-sm font-display font-medium text-foreground truncate max-w-[260px] hover:text-foreground/80 transition-colors"
+                className="text-sm font-display font-medium text-foreground truncate max-w-[260px] hover:text-foreground/80 transition-colors leading-none"
               >
                 {project?.title || 'Untitled'}
               </Link>
               {lane && <LaneBadge lane={lane} size="sm" />}
               {project?.confidence != null && (
-                <span className={cn('text-[10px]', SHELL_UI.meta)}>
+                <span className={cn('text-[10px] leading-none', SHELL_UI.meta)}>
                   {Math.round(project.confidence * 100)}%
                 </span>
               )}
-            </>
+            </div>
           )}
         </div>
 
