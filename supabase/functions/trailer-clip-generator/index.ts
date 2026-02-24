@@ -73,6 +73,247 @@ async function logEvent(db: any, e: {
   });
 }
 
+// ─── Generation Profiles ───
+
+interface GenerationProfile {
+  key: string;
+  prompt_prefix: string;
+  motion_directives: string[];
+  subject_clarity_directives: string[];
+  negative_directives: string[];
+  veo_params: Record<string, any>;
+  runway_params: Record<string, any>;
+  default_fps: number;
+  motion_boost: number; // 0..3
+}
+
+const GENERATION_PROFILES: Record<string, GenerationProfile> = {
+  measured_prestige: {
+    key: "measured_prestige",
+    prompt_prefix: "Cinematic prestige drama. Controlled, deliberate camera movement. Rich shadows, naturalistic light.",
+    motion_directives: [
+      "slow measured dolly or track", "motivated push-in on emotional beats",
+      "minimal handheld — steady controlled movement", "parallax through layered foreground elements",
+    ],
+    subject_clarity_directives: [
+      "subject always sharp and centered in depth of field",
+      "intentional rack focus for dramatic emphasis",
+      "clean silhouette separation from background",
+    ],
+    negative_directives: [
+      "no rapid cuts or whip pans", "no text overlays or logos", "no warping or morphing",
+      "do not invent characters or locations", "no shaky amateur handheld",
+    ],
+    veo_params: { motion: "stable", clarity: "high", subject_lock: true },
+    runway_params: { motion: "medium", camera: "dolly", guidance: "strong", aesthetic: "cinematic" },
+    default_fps: 24,
+    motion_boost: 1,
+  },
+  kinetic_trailer: {
+    key: "kinetic_trailer",
+    prompt_prefix: "High-energy cinematic trailer. Dynamic camera movement. Bold contrast, punchy color grading.",
+    motion_directives: [
+      "aggressive tracking shots with parallax", "motivated push-ins building tension",
+      "whip pans and smash transitions between shots", "subject crosses frame with camera following",
+      "depth shifts and rack focus for reveals",
+    ],
+    subject_clarity_directives: [
+      "hero subject always readable even in motion",
+      "strong foreground-background separation",
+      "punchy lighting with dramatic key-fill ratio",
+    ],
+    negative_directives: [
+      "no static locked-off shots unless intentional stillness beat",
+      "no text overlays or logos", "no warping or face morphing",
+      "do not invent characters or locations or props",
+    ],
+    veo_params: { motion: "high", clarity: "high", subject_lock: true },
+    runway_params: { motion: "high", camera: "tracking", guidance: "strong", aesthetic: "cinematic" },
+    default_fps: 24,
+    motion_boost: 2,
+  },
+  handheld_doc: {
+    key: "handheld_doc",
+    prompt_prefix: "Documentary-style handheld camera. Naturalistic, observational, intimate. Available light.",
+    motion_directives: [
+      "organic handheld movement with subtle drift", "observational following of subject",
+      "gentle reframing as action unfolds", "shallow depth breathing with subject",
+    ],
+    subject_clarity_directives: [
+      "subject in natural context, not artificially lit",
+      "allow slight softness for authenticity",
+      "environmental framing — subject within world",
+    ],
+    negative_directives: [
+      "no slick crane or dolly moves", "no text overlays or logos",
+      "no artificial perfect framing", "do not invent characters or locations",
+    ],
+    veo_params: { motion: "medium", clarity: "medium" },
+    runway_params: { motion: "medium", camera: "handheld", aesthetic: "documentary" },
+    default_fps: 24,
+    motion_boost: 1,
+  },
+  floating_dream: {
+    key: "floating_dream",
+    prompt_prefix: "Ethereal floating camera. Dreamlike, weightless movement. Soft diffused lighting, atmospheric haze.",
+    motion_directives: [
+      "slow floating crane movement", "weightless drift through space",
+      "gentle arc around subject", "dreamy parallax with soft foreground bokeh",
+    ],
+    subject_clarity_directives: [
+      "subject emerges from atmosphere", "soft glow on key elements",
+      "deliberate shallow depth creating layered depth planes",
+    ],
+    negative_directives: [
+      "no harsh or sudden movements", "no text overlays or logos",
+      "no jarring cuts — everything flows", "do not invent characters or locations",
+    ],
+    veo_params: { motion: "stable", clarity: "medium" },
+    runway_params: { motion: "low", camera: "crane", aesthetic: "dreamlike" },
+    default_fps: 24,
+    motion_boost: 1,
+  },
+  whip_promo: {
+    key: "whip_promo",
+    prompt_prefix: "Fast-cut promotional energy. Whip pans, smash cuts, high velocity. Bold saturated color.",
+    motion_directives: [
+      "rapid whip pans between elements", "aggressive push-ins with speed ramp feel",
+      "subject snap-to with kinetic energy", "quick arc reveals with motion blur",
+    ],
+    subject_clarity_directives: [
+      "hero moment freeze clarity amid motion",
+      "strong graphic composition for impact frames",
+      "high contrast pop on key subjects",
+    ],
+    negative_directives: [
+      "no slow contemplative movement", "no text overlays or logos",
+      "no warping or morphing artifacts", "do not invent characters or locations",
+    ],
+    veo_params: { motion: "high", clarity: "high" },
+    runway_params: { motion: "high", camera: "whip", guidance: "strong", aesthetic: "promo" },
+    default_fps: 24,
+    motion_boost: 3,
+  },
+  horror_dread_slow: {
+    key: "horror_dread_slow",
+    prompt_prefix: "Slow dread horror. Creeping camera movement. Deep shadows, desaturated palette, tension through stillness broken by movement.",
+    motion_directives: [
+      "creeping slow push-in building unease", "static hold then sudden motivated move",
+      "slow tracking revealing hidden details", "parallax through doorways and corridors",
+    ],
+    subject_clarity_directives: [
+      "subject partially obscured — revealed through movement",
+      "deep shadows with selective edge lighting",
+      "negative space creating tension around subject",
+    ],
+    negative_directives: [
+      "no bright cheerful lighting", "no text overlays or logos",
+      "no fast whip pans unless scare beat", "do not invent characters or locations",
+    ],
+    veo_params: { motion: "stable", clarity: "high", subject_lock: true },
+    runway_params: { motion: "low", camera: "dolly", guidance: "strong", aesthetic: "horror" },
+    default_fps: 24,
+    motion_boost: 1,
+  },
+};
+
+function resolveProfile(styleOptions: Record<string, any>): { profile: GenerationProfile; reason: string } {
+  const tone = styleOptions?.tonePreset || "";
+  const cam = styleOptions?.cameraStyle || "";
+
+  if (tone === "horror_dread" || tone === "horror_dread_slow")
+    return { profile: GENERATION_PROFILES.horror_dread_slow, reason: `tonePreset=${tone}` };
+  if (cam === "handheld")
+    return { profile: GENERATION_PROFILES.handheld_doc, reason: `cameraStyle=handheld` };
+  if (cam === "floating")
+    return { profile: GENERATION_PROFILES.floating_dream, reason: `cameraStyle=floating` };
+  if (cam === "whip_heavy")
+    return { profile: GENERATION_PROFILES.whip_promo, reason: `cameraStyle=whip_heavy` };
+  if (cam === "measured" && ["a24", "prestige_dark"].includes(tone))
+    return { profile: GENERATION_PROFILES.measured_prestige, reason: `cameraStyle=measured+tonePreset=${tone}` };
+
+  return { profile: GENERATION_PROFILES.kinetic_trailer, reason: "default" };
+}
+
+function applyMotionBoost(basePrompt: string, spec: any, beat: any, profile: GenerationProfile): string {
+  const lines: string[] = [basePrompt];
+  const phase = beat?.phase || beat?.role || "";
+  const intensity = spec?.movement_intensity || beat?.movement_intensity_target || 5;
+  const cameraMove = spec?.camera_move || beat?.clip_spec?.camera_move || "";
+  const hasSilence = (beat?.silence_before_ms > 0 || beat?.silence_after_ms > 0);
+  const withholding = beat?.withholding_note;
+
+  // Phase-specific motion directives
+  if (["hook", "twist", "crescendo"].includes(phase) || intensity >= 7) {
+    lines.push("Strong parallax with foreground occlusion. Aggressive motivated camera movement. Subject crosses frame with energy.");
+  }
+
+  if (phase === "crescendo") {
+    lines.push("Rapid kinetic movement. Whip-pan energy. Smash-cut feel. Multiple depth planes shifting.");
+  }
+
+  if (phase === "setup") {
+    if (!hasSilence) lines.push("Controlled but non-static camera. Slow establish with subtle drift or push-in.");
+  }
+
+  // Override static to slow push-in when intensity warrants
+  if (cameraMove === "static" && intensity >= 6 && !hasSilence && !withholding) {
+    lines.push("Despite static framing request, add subtle slow push-in to maintain visual energy.");
+  }
+
+  // Subject action and reveal from spec
+  if (spec?.prompt_hint_json?.subject_action) {
+    lines.push(`Subject action: ${spec.prompt_hint_json.subject_action}`);
+  }
+  if (spec?.prompt_hint_json?.reveal_mechanic) {
+    lines.push(`Reveal: ${spec.prompt_hint_json.reveal_mechanic}`);
+  }
+
+  // Foreground element for parallax
+  if (spec?.foreground_element) {
+    lines.push(`Foreground parallax element: ${spec.foreground_element}`);
+  }
+
+  // Profile motion directives
+  const boostCount = Math.min(profile.motion_boost + 1, profile.motion_directives.length);
+  for (let i = 0; i < boostCount; i++) {
+    lines.push(profile.motion_directives[i]);
+  }
+
+  return lines.join(". ") + ".";
+}
+
+function buildVeoPrompt(boostedPrompt: string, profile: GenerationProfile, spec: any): string {
+  const parts: string[] = [
+    profile.prompt_prefix,
+    boostedPrompt,
+  ];
+  if (spec?.lens_mm) parts.push(`${spec.lens_mm}mm lens`);
+  if (spec?.depth_strategy) parts.push(`${spec.depth_strategy} depth of field`);
+  if (spec?.lighting_note) parts.push(spec.lighting_note);
+  // Clarity directives
+  parts.push(...profile.subject_clarity_directives.slice(0, 2));
+  // Negatives as suffix
+  parts.push("Steady cinematic motion. Stable subject. No warping.");
+  parts.push(profile.negative_directives.join(". "));
+  return parts.join(". ") + ".";
+}
+
+function buildRunwayPrompt(boostedPrompt: string, profile: GenerationProfile, spec: any): string {
+  const parts: string[] = [
+    profile.prompt_prefix,
+    boostedPrompt,
+  ];
+  if (spec?.lens_mm) parts.push(`${spec.lens_mm}mm lens`);
+  if (spec?.lighting_note) parts.push(`Dramatic lighting: ${spec.lighting_note}`);
+  // Stylistic emphasis
+  parts.push("Hero composition. Trailer-grade cinematic punch.");
+  if (spec?.transition_out) parts.push(`Transition energy: ${spec.transition_out}`);
+  parts.push(...profile.subject_clarity_directives.slice(0, 1));
+  parts.push(profile.negative_directives.slice(0, 3).join(". "));
+  return parts.join(". ") + ".";
+}
+
 // ─── Provider: Veo (Google Gemini Video) ───
 
 async function callVeo(params: {
@@ -313,31 +554,54 @@ async function handleEnqueueForRun(db: any, body: any, userId: string) {
 
   // ─── SAFETY GATE: Require v2 cinematic script run ───
   if (scriptRunId) {
-    // v2 path: validate script + citations + judge
     const gateResult = await validateCinematicGates(db, scriptRunId, manualOverride);
     if (!gateResult.passed) {
       return json({ error: gateResult.error, blockers: gateResult.blockers }, 400);
     }
   }
-  // If no scriptRunId, this is a legacy blueprint path — still allow for existing runs
-  // but log a deprecation warning
   if (!scriptRunId) {
     console.warn(`[DEPRECATION] Clip enqueue without scriptRunId for blueprint ${blueprintId}. Legacy path.`);
   }
 
-  // Provider filter: if enabledProviders is provided, only use those providers
   const allowedProviders: Set<string> | null = Array.isArray(enabledProviders) && enabledProviders.length > 0
     ? new Set(enabledProviders as string[])
     : null;
 
   const { data: bp } = await db.from("trailer_blueprints")
-    .select("id, edl, status")
+    .select("id, edl, status, options")
     .eq("id", blueprintId).eq("project_id", projectId).single();
   if (!bp) return json({ error: "Blueprint not found" }, 404);
   if (bp.status !== "complete") return json({ error: "Blueprint not complete" }, 400);
 
   const edl = bp.edl || [];
   if (edl.length === 0) return json({ error: "Blueprint has no beats" }, 400);
+
+  // Load styleOptions from script run
+  let styleOptions: Record<string, any> = {};
+  const resolvedScriptRunId = scriptRunId || bp?.options?.script_run_id;
+  if (resolvedScriptRunId) {
+    const { data: sr } = await db.from("trailer_script_runs")
+      .select("style_options_json").eq("id", resolvedScriptRunId).single();
+    styleOptions = sr?.style_options_json || {};
+  }
+
+  // Resolve generation profile
+  const { profile, reason: profileReason } = resolveProfile(styleOptions);
+
+  // Load shot specs if available
+  const shotDesignRunId = bp?.options?.shot_design_run_id;
+  let shotSpecsByBeat: Record<number, any[]> = {};
+  if (shotDesignRunId) {
+    const { data: specs } = await db.from("trailer_shot_specs")
+      .select("*, prompt_hint_json, beat_id").eq("shot_design_run_id", shotDesignRunId);
+    for (const s of (specs || [])) {
+      const { data: beatRow } = await db.from("trailer_script_beats")
+        .select("beat_index").eq("id", s.beat_id).single();
+      const bi = beatRow?.beat_index ?? 0;
+      if (!shotSpecsByBeat[bi]) shotSpecsByBeat[bi] = [];
+      shotSpecsByBeat[bi].push(s);
+    }
+  }
 
   // Create clip run
   const { data: clipRun, error: crErr } = await db.from("trailer_clip_runs").insert({
@@ -352,7 +616,6 @@ async function handleEnqueueForRun(db: any, body: any, userId: string) {
   let totalJobs = 0;
   const jobsToInsert: any[] = [];
 
-  // Optional beat filter
   const beatFilter: Set<number> | null = Array.isArray(beatIndices) && beatIndices.length > 0
     ? new Set(beatIndices as number[])
     : null;
@@ -363,7 +626,6 @@ async function handleEnqueueForRun(db: any, body: any, userId: string) {
     const hint = beat.generator_hint || {};
     let provider = hint.preferred_provider || "veo";
 
-    // Override provider if not in allowed set — fallback to first allowed provider
     if (allowedProviders && !allowedProviders.has(provider)) {
       provider = allowedProviders.values().next().value || "veo";
     }
@@ -371,12 +633,11 @@ async function handleEnqueueForRun(db: any, body: any, userId: string) {
     const candidates = hint.candidates || 1;
     const lengthMs = hint.length_ms || Math.round((beat.duration_s || 3) * 1000);
     const aspectRatio = hint.aspect_ratio || "16:9";
-    const fps = hint.fps || 24;
+    const fps = hint.fps || profile.default_fps;
 
-    // Build prompt from clip_spec
+    // Get shot specs for this beat
+    const beatSpecs = shotSpecsByBeat[beatIndex] || [];
     const cs = beat.clip_spec || {};
-    const prompt = cs.visual_prompt || cs.action_description ||
-      `${beat.role}: ${cs.shot_type || ""} ${cs.camera_move || ""} — ${cs.action_description || "cinematic scene"}`;
 
     for (let ci = 1; ci <= candidates; ci++) {
       const seedBase = force ? `${blueprintId}-${beatIndex}-${ci}-${Date.now()}` : `${blueprintId}-${beatIndex}-${ci}`;
@@ -384,6 +645,26 @@ async function handleEnqueueForRun(db: any, body: any, userId: string) {
 
       const idemInput = `${projectId}|${blueprintId}|${beatIndex}|${provider}|${mode}|${ci}|${lengthMs}|${seed}`;
       const idempotencyKey = await sha256Short(idemInput);
+
+      // Find matching shot spec for this candidate
+      const matchSpec = beatSpecs.find((s: any) => s.shot_index === ci) || beatSpecs[0] || null;
+
+      // Build base prompt from visual_prompt or shot spec prompt_hint
+      const basePrompt = matchSpec?.prompt_hint_json?.visual_prompt
+        || cs.visual_prompt
+        || cs.action_description
+        || `${beat.role}: ${cs.shot_type || ""} ${cs.camera_move || ""} — ${cs.action_description || "cinematic scene"}`;
+
+      // Apply motion boost
+      const boostedPrompt = applyMotionBoost(basePrompt, matchSpec, beat, profile);
+
+      // Wrap for provider
+      const finalPrompt = provider === "runway"
+        ? buildRunwayPrompt(boostedPrompt, profile, matchSpec)
+        : buildVeoPrompt(boostedPrompt, profile, matchSpec);
+
+      // Build provider-specific params
+      const providerParams = provider === "runway" ? profile.runway_params : profile.veo_params;
 
       jobsToInsert.push({
         project_id: projectId,
@@ -397,9 +678,28 @@ async function handleEnqueueForRun(db: any, body: any, userId: string) {
         aspect_ratio: aspectRatio,
         fps,
         seed,
-        prompt,
+        prompt: finalPrompt,
         init_image_paths: [],
-        params_json: { beat_role: beat.role, clip_spec: cs, generator_hint: hint },
+        params_json: {
+          beat_role: beat.role,
+          clip_spec: cs,
+          generator_hint: hint,
+          generation_profile: {
+            key: profile.key,
+            version: "v1",
+            reason: profileReason,
+            derivedFrom: { tonePreset: styleOptions?.tonePreset || null, cameraStyle: styleOptions?.cameraStyle || null },
+          },
+          provider_params: providerParams,
+          shot_spec_used: matchSpec ? {
+            camera_move: matchSpec.camera_move,
+            movement_intensity: matchSpec.movement_intensity,
+            lens_mm: matchSpec.lens_mm,
+            depth_strategy: matchSpec.depth_strategy,
+            transition_in: matchSpec.transition_in,
+            transition_out: matchSpec.transition_out,
+          } : null,
+        },
         status: "queued",
         attempt: 0,
         idempotency_key: idempotencyKey,
@@ -408,7 +708,7 @@ async function handleEnqueueForRun(db: any, body: any, userId: string) {
     }
   }
 
-  // Batch insert (ON CONFLICT skip for idempotency unless force)
+  // Batch insert
   if (jobsToInsert.length > 0) {
     const { error: insertErr } = await db.from("trailer_clip_jobs").upsert(jobsToInsert, {
       onConflict: "idempotency_key",
@@ -416,7 +716,6 @@ async function handleEnqueueForRun(db: any, body: any, userId: string) {
     });
     if (insertErr) {
       console.error("Job insert error:", insertErr);
-      // Try one-by-one for partial success
       for (const job of jobsToInsert) {
         await db.from("trailer_clip_jobs").upsert(job, {
           onConflict: "idempotency_key",
@@ -426,18 +725,17 @@ async function handleEnqueueForRun(db: any, body: any, userId: string) {
     }
   }
 
-  // Update run totals
   await db.from("trailer_clip_runs").update({ total_jobs: totalJobs }).eq("id", clipRun.id);
 
   await logEvent(db, {
     project_id: projectId, blueprint_id: blueprintId,
     clip_run_id: clipRun.id,
     event_type: "enqueue_for_run",
-    payload: { totalJobs, force, beatCount: edl.length },
+    payload: { totalJobs, force, beatCount: edl.length, profile: profile.key, profileReason },
     created_by: userId,
   });
 
-  return json({ ok: true, clipRunId: clipRun.id, totalJobs });
+  return json({ ok: true, clipRunId: clipRun.id, totalJobs, profile: profile.key });
 }
 
 // ─── Action: claim_next_job ───

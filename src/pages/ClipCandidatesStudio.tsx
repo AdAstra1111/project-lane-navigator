@@ -528,6 +528,28 @@ export default function ClipCandidatesStudio() {
                                           {clip.model && (
                                             <span className="text-[9px] text-muted-foreground/60">{clip.model}</span>
                                           )}
+                                          {/* Generation Profile Badge */}
+                                          {clip.gen_params?.generation_profile?.key && (
+                                            <TooltipProvider>
+                                              <Tooltip>
+                                                <TooltipTrigger asChild>
+                                                  <Badge variant="outline" className="text-[8px] px-1 py-0 border-violet-500/40 text-violet-400">
+                                                    {clip.gen_params.generation_profile.key.replace(/_/g, ' ')}
+                                                  </Badge>
+                                                </TooltipTrigger>
+                                                <TooltipContent side="bottom" className="text-xs max-w-xs">
+                                                  <p>Profile: {clip.gen_params.generation_profile.key}</p>
+                                                  <p className="text-muted-foreground">Reason: {clip.gen_params.generation_profile.reason}</p>
+                                                  {clip.gen_params.generation_profile.derivedFrom && (
+                                                    <p className="text-muted-foreground">
+                                                      Tone: {clip.gen_params.generation_profile.derivedFrom.tonePreset || '—'} · 
+                                                      Camera: {clip.gen_params.generation_profile.derivedFrom.cameraStyle || '—'}
+                                                    </p>
+                                                  )}
+                                                </TooltipContent>
+                                              </Tooltip>
+                                            </TooltipProvider>
+                                          )}
                                           {clip.selected && <Check className="h-3 w-3 text-green-400 ml-auto" />}
                                         </div>
 
