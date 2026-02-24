@@ -349,11 +349,18 @@ export default function TrailerTimelineStudio() {
 
           <div className="ml-auto flex items-center gap-2">
             {cut?.status === 'ready' && renderedPublicUrl && (
-              <a href={renderedPublicUrl} target="_blank" rel="noopener noreferrer">
-                <Button variant="outline" size="sm" className="text-xs">
-                  <Play className="h-3 w-3 mr-1" /> Watch
-                </Button>
-              </a>
+              <>
+                <a href={renderedPublicUrl} target="_blank" rel="noopener noreferrer">
+                  <Button variant="outline" size="sm" className="text-xs">
+                    <Play className="h-3 w-3 mr-1" /> Watch
+                  </Button>
+                </a>
+                <a href={renderedPublicUrl} download={`trailer-${(cutId || '').slice(0, 8)}.webm`}>
+                  <Button variant="outline" size="sm" className="text-xs">
+                    <Download className="h-3 w-3 mr-1" /> Download
+                  </Button>
+                </a>
+              </>
             )}
           </div>
         </div>
