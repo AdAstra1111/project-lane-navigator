@@ -35,6 +35,7 @@ export function extractStyleAnchors(rawOutput: unknown): string[] {
 
   const freq = new Map<string, number>();
   const capSet = new Set<string>();
+  const rep = new Map<string, string>(); // lower -> representative casing
 
   for (const t of texts) {
     const tokens = t.split(/[^a-zA-Z]+/).filter((w) => w.length >= 4);
@@ -42,8 +43,12 @@ export function extractStyleAnchors(rawOutput: unknown): string[] {
       const lower = tok.toLowerCase();
       if (STOP.has(lower) || GENERIC.has(lower)) continue;
       freq.set(lower, (freq.get(lower) || 0) + 1);
-      if (tok[0] === tok[0].toUpperCase() && tok !== tok.toUpperCase()) {
+      const isCap = tok[0] === tok[0].toUpperCase() && tok !== tok.toUpperCase();
+      if (isCap) {
         capSet.add(lower);
+        rep.set(lower, tok); // capitalized form wins
+      } else if (!rep.has(lower)) {
+        rep.set(lower, tok); // first seen fallback
       }
     }
   }
@@ -62,5 +67,5 @@ export function extractStyleAnchors(rawOutput: unknown): string[] {
     return a[0].localeCompare(b[0]);
   });
 
-  return entries.slice(0, 8).map(([w]) => w);
+  return entries.slice(0, 8).map(([w]) => rep.get(w) || w);
 }
