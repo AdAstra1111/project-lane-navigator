@@ -242,7 +242,7 @@ Rules:
         validate: (d): d is any => Array.isArray(d) || (d && Array.isArray(d.panels_by_unit)),
         extractItems: (d: any) => d.panels_by_unit || (Array.isArray(d) ? d : []),
         getKey: (item: any) => item.unit_key || "",
-        dedupe: true,
+        dedupe: "first",
       });
     }
 

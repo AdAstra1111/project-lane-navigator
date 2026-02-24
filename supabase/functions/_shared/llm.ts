@@ -242,8 +242,8 @@ export interface ChunkedLLMOptions<TItem, TResult> {
   handler: string;
   /** Extract a unique key from each output item. Enables deduplication. */
   getKey?: (item: any) => string;
-  /** When getKey is provided, deduplicate items. First-write-wins. Default true. */
-  dedupe?: boolean;
+  /** Dedupe strategy when getKey provided. "first" keeps first occurrence, "last" keeps last. Default "first". */
+  dedupe?: "first" | "last" | boolean;
   /** Called after each batch with extracted items for custom validation/telemetry. */
   onBatchResult?: (batchIndex: number, extractedItems: any[]) => void;
   /** Post-process all combined items before returning. */
@@ -272,9 +272,10 @@ export async function callLLMChunked<TItem, TResult>(
     throw new Error(`${handler}: input requires ${batches.length} batches but max is ${maxBatches}. Reduce input size.`);
   }
 
-  const { getKey, dedupe = true, onBatchResult, finalize } = opts;
+  const { getKey, onBatchResult, finalize } = opts;
+  const dedupeMode = opts.dedupe === "last" ? "last" : (opts.dedupe === false ? false : (getKey ? "first" : false));
   const allItems: any[] = [];
-  const seenKeys = new Set<string>();
+  const seenKeys = dedupeMode ? new Map<string, number>() : null;
 
   for (let i = 0; i < batches.length; i++) {
     const batch = batches[i];
@@ -298,7 +299,7 @@ export async function callLLMChunked<TItem, TResult>(
 
     if (onBatchResult) onBatchResult(i, extracted);
 
-    if (getKey && dedupe) {
+    if (getKey && seenKeys) {
       for (const item of extracted) {
         const key = getKey(item);
         if (seenKeys.has(key)) {
@@ -309,9 +310,14 @@ export async function callLLMChunked<TItem, TResult>(
             duplicateKey: key,
             batch: i + 1,
           }));
-          continue; // first-write-wins
+          if (dedupeMode === "last") {
+            // Replace previous occurrence
+            allItems[seenKeys.get(key)!] = item;
+          }
+          // "first" mode: skip (already in allItems)
+          continue;
         }
-        seenKeys.add(key);
+        seenKeys.set(key, allItems.length);
         allItems.push(item);
       }
     } else {
