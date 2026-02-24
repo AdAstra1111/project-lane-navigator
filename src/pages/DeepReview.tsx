@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronDown, ArrowLeft, ArrowRight, Activity, BarChart3, ShieldAlert, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
+
+const DEBUG_NAV = true;
 
 /* ── Metric helper ── */
 interface Metric {
@@ -75,9 +77,32 @@ const sectionAnim = (delay: number) => ({
 
 const DeepReview = () => {
   const navigate = useNavigate();
-  const [open, setOpen] = useState<Record<number, boolean>>({ 3: true }); // Optimisation open by default
+  const location = useLocation();
+  const [open, setOpen] = useState<Record<number, boolean>>({ 3: true });
 
   const toggle = (i: number) => setOpen((prev) => ({ ...prev, [i]: !prev[i] }));
+
+  // Debug: log route changes
+  useEffect(() => {
+    if (DEBUG_NAV) console.log('[DeepReview] location changed', location.pathname);
+  }, [location.pathname]);
+
+  // Debug: document-level capture click listener
+  useEffect(() => {
+    if (!DEBUG_NAV) return;
+    const handler = (e: MouseEvent) => {
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      console.log('[DeepReview][capture] click', {
+        target: e.target,
+        currentTarget: e.currentTarget,
+        defaultPrevented: e.defaultPrevented,
+        elementFromPoint: el,
+        elementClass: el?.className,
+      });
+    };
+    document.addEventListener('click', handler, true);
+    return () => document.removeEventListener('click', handler, true);
+  }, []);
 
   return (
     <div className="min-h-screen bg-background">
@@ -230,9 +255,22 @@ const DeepReview = () => {
               </div>
 
               <Button
+                type="button"
                 size="lg"
-                className="rounded-xl gap-2 text-sm font-medium px-6 shadow-[0_0_20px_-4px_hsl(var(--primary)/0.25)]"
-                onClick={() => navigate('/dashboard')}
+                className={`rounded-xl gap-2 text-sm font-medium px-6 shadow-[0_0_20px_-4px_hsl(var(--primary)/0.25)] ${DEBUG_NAV ? 'ring-2 ring-blue-500/50' : ''}`}
+                onClick={(e) => {
+                  if (DEBUG_NAV) {
+                    const el = document.elementFromPoint(e.clientX, e.clientY);
+                    console.log('[DeepReview] CTA click: studio mode', {
+                      target: e.target,
+                      currentTarget: e.currentTarget,
+                      elementFromPoint: el,
+                      elementClass: el?.className,
+                      from: location.pathname,
+                    });
+                  }
+                  navigate('/dashboard');
+                }}
               >
                 Enter Studio Mode
                 <ArrowRight className="h-4 w-4" />
@@ -248,8 +286,21 @@ const DeepReview = () => {
         {/* Back link */}
         <motion.div {...sectionAnim(0.7)} className="text-center pb-8">
           <button
-            onClick={() => navigate('/quick-review')}
-            className="inline-flex items-center gap-1.5 text-xs text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+            type="button"
+            onClick={(e) => {
+              if (DEBUG_NAV) {
+                const el = document.elementFromPoint(e.clientX, e.clientY);
+                console.log('[DeepReview] CTA click: quick review', {
+                  target: e.target,
+                  currentTarget: e.currentTarget,
+                  elementFromPoint: el,
+                  elementClass: el?.className,
+                  from: location.pathname,
+                });
+              }
+              navigate('/quick-review');
+            }}
+            className={`inline-flex items-center gap-1.5 text-xs text-muted-foreground/50 hover:text-muted-foreground transition-colors ${DEBUG_NAV ? 'ring-2 ring-blue-500/50' : ''}`}
           >
             <ArrowLeft className="h-3.5 w-3.5" />
             Back to Quick Review
