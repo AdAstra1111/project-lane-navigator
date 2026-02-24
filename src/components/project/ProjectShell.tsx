@@ -130,66 +130,101 @@ function InspectorDrawer({ open, onClose, projectId, activeTab, onTabChange }: {
 }
 
 /* ── Pipeline State Bar (authoritative via pipeline-brain) ── */
+
+const STAGE_LABELS: Record<string, string> = {
+  script: 'Script',
+  canon: 'Canon',
+  visual_dev: 'Visual Dev',
+  trailer: 'Trailer',
+  prep: 'Prep',
+  blueprint: 'Blueprint',
+  treatment: 'Treatment',
+  bible: 'Bible',
+  pilot: 'Pilot',
+  pitch: 'Pitch',
+  greenlight: 'Greenlight',
+  production: 'Production',
+  post: 'Post',
+  delivery: 'Delivery',
+};
+
+function humanStage(stage: string): string {
+  return STAGE_LABELS[stage] ?? stage.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
 function PipelineStateBar({ projectId }: { projectId: string }) {
   const { pipelineState, isLoading } = usePipelineState(projectId);
 
   if (isLoading || !pipelineState) {
     return (
-      <div className="h-8 border-t border-border/10 bg-card/10 flex items-center px-4 gap-2 shrink-0">
-        <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/40">Pipeline</span>
-        <span className="text-[11px] text-muted-foreground/50">Loading…</span>
+      <div className="h-8 border-t border-border/10 bg-card/10 flex items-center px-4 gap-3 shrink-0">
+        <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/30">Pipeline</span>
+        <div className="flex items-center gap-1">
+          {[...Array(5)].map((_, i) => (
+            <div key={i} className="h-2 w-2 rounded-full bg-muted-foreground/10 animate-pulse" />
+          ))}
+        </div>
+        <div className="h-2 w-16 rounded bg-muted-foreground/8 animate-pulse" />
       </div>
     );
   }
 
   const { currentStage, completedCount, totalStages, nextSteps, pipeline } = pipelineState;
   const nextStep = nextSteps[0];
-  const hasGateWarning = nextStep?.action === 'approve';
+  const isGate = nextStep?.action === 'approve';
 
   return (
     <div className="h-8 border-t border-border/10 bg-card/10 flex items-center px-4 gap-3 shrink-0 overflow-x-auto">
-      <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/40 shrink-0">Pipeline</span>
+      <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/30 shrink-0">Pipeline</span>
 
-      {/* Mini stepper dots */}
-      <div className="flex items-center gap-0.5 shrink-0">
+      {/* Stepper indicators */}
+      <div className="flex items-center gap-1 shrink-0">
         {pipeline.map((stage) => {
           const status = pipelineState.completedStages[stage];
           const isCurrent = stage === currentStage;
+          const exists = status?.exists;
+          const approved = status?.hasApproved;
           return (
             <Tooltip key={stage}>
               <TooltipTrigger asChild>
                 <div className={cn(
-                  'h-1.5 rounded-full transition-all',
-                  isCurrent ? 'w-4 bg-primary' : 'w-1.5',
-                  !isCurrent && status?.exists ? 'bg-primary/30' : '',
-                  !isCurrent && !status?.exists ? 'bg-muted-foreground/15' : '',
-                )} />
+                  'relative h-2 w-2 rounded-full transition-all',
+                  isCurrent && 'ring-[1.5px] ring-foreground/25 ring-offset-1 ring-offset-background',
+                  exists
+                    ? 'bg-foreground/30'
+                    : 'border border-muted-foreground/20 bg-transparent',
+                )}>
+                  {approved && (
+                    <CheckCircle2 className="absolute -top-0.5 -right-0.5 h-[7px] w-[7px] text-foreground/40" />
+                  )}
+                </div>
               </TooltipTrigger>
               <TooltipContent side="top" className="text-[10px]">
-                {stage.replace(/_/g, ' ')}
-                {status?.exists ? ' ✓' : ''}
-                {status?.hasApproved ? ' (approved)' : ''}
+                {humanStage(stage)}
+                {approved ? ' · Approved' : exists ? ' · Complete' : ''}
               </TooltipContent>
             </Tooltip>
           );
         })}
       </div>
 
+      {/* Status text */}
       <div className="flex items-center gap-1.5 text-[11px] shrink-0">
-        <CheckCircle2 className="h-3 w-3 text-primary/50" />
-        <span className="text-muted-foreground/60">{completedCount}/{totalStages}</span>
+        <span className="text-muted-foreground/40">{completedCount}/{totalStages}</span>
         {currentStage && (
-          <span className="text-foreground/70 font-medium">{currentStage.replace(/_/g, ' ')}</span>
+          <>
+            <span className="text-muted-foreground/25">·</span>
+            <span className="text-foreground/60 font-medium">{humanStage(currentStage)}</span>
+          </>
         )}
       </div>
 
+      {/* Next step */}
       {nextStep && (
         <div className="flex items-center gap-1 text-[11px] shrink-0">
-          <ArrowRight className="h-3 w-3 text-muted-foreground/30" />
-          {hasGateWarning && <AlertTriangle className="h-3 w-3 text-amber-400" />}
-          <span className={cn('text-muted-foreground/60', hasGateWarning && 'text-amber-400')}>
-            {nextStep.label}
-          </span>
+          <ArrowRight className="h-3 w-3 text-muted-foreground/20" />
+          {isGate && <AlertTriangle className="h-3 w-3 text-muted-foreground/30" />}
+          <span className="text-muted-foreground/40">{nextStep.label}</span>
         </div>
       )}
     </div>
