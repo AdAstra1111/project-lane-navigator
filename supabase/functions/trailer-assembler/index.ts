@@ -849,6 +849,122 @@ async function handleShuffleMontage(db: any, body: any, userId: string) {
   return json({ ok: true, timeline, totalDurationMs, shuffledCount: groupEntries.length });
 }
 
+// ─── Compute Project Bias ───
+async function handleComputeProjectBias(db: any, body: any, userId: string) {
+  const { projectId } = body;
+
+  // Load last 100 learning signals
+  const { data: signals } = await db.from("trailer_learning_signals")
+    .select("*")
+    .eq("project_id", projectId)
+    .order("occurred_at", { ascending: false })
+    .limit(100);
+
+  if (!signals?.length) {
+    return json({ ok: true, bias: null, message: "No learning signals yet" });
+  }
+
+  // Analyze signals
+  const profileCounts: Record<string, number> = {};
+  const providerCounts: Record<string, number> = {};
+  let totalMotionOverrides = 0;
+  let highMotionSelections = 0;
+  let totalBpmFromApproved = 0;
+  let approvedCount = 0;
+  let silenceShortenCount = 0;
+
+  for (const sig of signals) {
+    const val = sig.signal_value_json || {};
+
+    if (sig.signal_key === "manual_select" || sig.signal_key === "clip_selection") {
+      const profile = val.generation_profile || val.provider;
+      if (profile) profileCounts[profile] = (profileCounts[profile] || 0) + 1;
+      if (val.provider) providerCounts[val.provider] = (providerCounts[val.provider] || 0) + 1;
+      if ((val.motion_score || 0) >= 7) highMotionSelections++;
+    }
+
+    if (sig.signal_key === "override_auto_pick" || sig.signal_key === "clip_override") {
+      totalMotionOverrides++;
+    }
+
+    if (sig.signal_key === "final_cut" || sig.signal_key === "cut_approved") {
+      if (val.bpm) { totalBpmFromApproved += val.bpm; approvedCount++; }
+    }
+
+    if (sig.signal_key === "silence_shortened") {
+      silenceShortenCount++;
+    }
+
+    if (sig.signal_key === "variant_preference") {
+      const profile = val.tonePreset || val.generation_profile;
+      if (profile) profileCounts[profile] = (profileCounts[profile] || 0) + 2; // variant selections weight more
+    }
+  }
+
+  // Derive preferred profile (most selected)
+  let preferred_profile: string | null = null;
+  let maxCount = 0;
+  for (const [k, v] of Object.entries(profileCounts)) {
+    if (v > maxCount) { maxCount = v; preferred_profile = k; }
+  }
+
+  // Derive preferred provider
+  let preferred_provider: string | null = null;
+  let maxProvCount = 0;
+  for (const [k, v] of Object.entries(providerCounts)) {
+    if (v > maxProvCount) { maxProvCount = v; preferred_provider = k; }
+  }
+
+  // Motion bias: +1 if >40% high-motion selections, +2 if >60%
+  const totalSelections = Object.values(profileCounts).reduce((s, v) => s + v, 0) || 1;
+  const motionRatio = highMotionSelections / totalSelections;
+  let motion_bias = 0;
+  if (motionRatio > 0.6) motion_bias = 2;
+  else if (motionRatio > 0.4) motion_bias = 1;
+  if (totalMotionOverrides > 5) motion_bias = Math.min(2, motion_bias + 1);
+
+  // Pacing bias
+  let pacing_bias: string | null = null;
+  if (approvedCount > 0) {
+    const avgBpm = totalBpmFromApproved / approvedCount;
+    if (avgBpm > 120) pacing_bias = "faster";
+    else if (avgBpm < 95) pacing_bias = "slower";
+  }
+
+  // Silence bias
+  let silence_bias = 0;
+  if (silenceShortenCount > 3) silence_bias = -1;
+
+  const bias = {
+    preferred_profile,
+    preferred_provider,
+    motion_bias,
+    silence_bias,
+    pacing_bias,
+    computed_at: new Date().toISOString(),
+    signal_count: signals.length,
+  };
+
+  // Store in projects table
+  await db.from("projects").update({ trailer_bias_json: bias }).eq("id", projectId);
+
+  return json({ ok: true, bias });
+}
+
+// ─── Reset Project Bias ───
+async function handleResetProjectBias(db: any, body: any, _userId: string) {
+  const { projectId } = body;
+  await db.from("projects").update({ trailer_bias_json: null }).eq("id", projectId);
+  return json({ ok: true, message: "Trailer bias reset" });
+}
+
+// ─── Get Project Bias ───
+async function handleGetProjectBias(db: any, body: any) {
+  const { projectId } = body;
+  const { data } = await db.from("projects").select("trailer_bias_json").eq("id", projectId).single();
+  return json({ ok: true, bias: data?.trailer_bias_json || null });
+}
+
 // ─── Auto Assemble Cut v1 ───
 async function handleAutoAssembleCut(db: any, body: any, userId: string) {
   const {
@@ -935,6 +1051,16 @@ async function handleAutoAssembleCut(db: any, body: any, userId: string) {
     }
   }
 
+  // 5b) Load project bias for weighting
+  let projectBias: any = null;
+  try {
+    const { data: proj } = await db.from("projects").select("trailer_bias_json").eq("id", projectId).single();
+    projectBias = proj?.trailer_bias_json || null;
+  } catch { /* no bias */ }
+
+  const motionBias = projectBias?.motion_bias || 0;
+  const preferredProvider = projectBias?.preferred_provider || null;
+
   // Phase defaults for trim durations (ms)
   const phaseDurationDefaults: Record<string, [number, number]> = {
     hook: [2500, 4000],
@@ -981,6 +1107,10 @@ async function handleAutoAssembleCut(db: any, body: any, userId: string) {
       if (strategy === "dialogue_forward" && (c.artifact_score ?? 5) >= 6) score += 0.5;
       // Motion forward: extra motion weight
       if (strategy === "motion_forward") score += motionScore * 0.15;
+      // Apply learned bias: motion boost
+      if (motionBias > 0) score += motionScore * 0.05 * motionBias;
+      // Apply learned bias: preferred provider
+      if (preferredProvider && c.provider === preferredProvider) score += 0.5;
 
       if (score > bestScore) {
         bestScore = score;
@@ -1216,6 +1346,9 @@ Deno.serve(async (req) => {
       case "delete_cut": return await handleDeleteCut(db, body, userId);
       case "shuffle_montage": return await handleShuffleMontage(db, body, userId);
       case "auto_assemble_cut_v1": return await handleAutoAssembleCut(db, body, userId);
+      case "compute_project_bias": return await handleComputeProjectBias(db, body, userId);
+      case "reset_project_bias": return await handleResetProjectBias(db, body, userId);
+      case "get_project_bias": return await handleGetProjectBias(db, body);
       default: return json({ error: `Unknown action: ${action}` }, 400);
     }
   } catch (err: any) {

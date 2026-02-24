@@ -11207,6 +11207,7 @@ export type Database = {
           target_runtime_minutes: number
           title: string
           tone: string
+          trailer_bias_json: Json | null
           ui_mode_override: string | null
           updated_at: string
           user_id: string
@@ -11267,6 +11268,7 @@ export type Database = {
           target_runtime_minutes?: number
           title: string
           tone?: string
+          trailer_bias_json?: Json | null
           ui_mode_override?: string | null
           updated_at?: string
           user_id: string
@@ -11327,6 +11329,7 @@ export type Database = {
           target_runtime_minutes?: number
           title?: string
           tone?: string
+          trailer_bias_json?: Json | null
           ui_mode_override?: string | null
           updated_at?: string
           user_id?: string

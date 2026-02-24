@@ -138,5 +138,36 @@ export function useAssemblerMutations(projectId: string | undefined) {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  return { createCut, updateBeat, reorderBeats, finalizeRun, setCutStatus, exportBeatlist, fixTrims, validateTrims, deleteCut, shuffleMontage, autoAssembleCut };
+  const computeProjectBias = useMutation({
+    mutationFn: () => assemblerApi.computeProjectBias(projectId!),
+    onSuccess: (data) => {
+      if (data.bias) {
+        toast.success(`Bias computed: ${data.bias.preferred_profile || 'none'} (motion +${data.bias.motion_bias})`);
+      } else {
+        toast.info('No learning signals yet');
+      }
+      qc.invalidateQueries({ queryKey: ['trailer-project-bias', projectId] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const resetProjectBias = useMutation({
+    mutationFn: () => assemblerApi.resetProjectBias(projectId!),
+    onSuccess: () => {
+      toast.success('Trailer learning bias reset');
+      qc.invalidateQueries({ queryKey: ['trailer-project-bias', projectId] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  return { createCut, updateBeat, reorderBeats, finalizeRun, setCutStatus, exportBeatlist, fixTrims, validateTrims, deleteCut, shuffleMontage, autoAssembleCut, computeProjectBias, resetProjectBias };
+}
+
+export function useProjectBias(projectId: string | undefined) {
+  return useQuery({
+    queryKey: ['trailer-project-bias', projectId],
+    queryFn: () => assemblerApi.getProjectBias(projectId!),
+    enabled: !!projectId,
+    staleTime: 30000,
+  });
 }
