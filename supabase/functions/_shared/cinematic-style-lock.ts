@@ -9,6 +9,11 @@ const STOP = new Set([
   "around", "where", "while", "does", "should", "would", "could", "very",
 ]);
 
+const GENERIC = new Set([
+  "film", "story", "world", "life", "time", "people", "thing", "moment", "place",
+  "scene", "shot", "camera",
+]);
+
 function gatherTexts(raw: unknown): string[] {
   const texts: string[] = [];
   if (!raw || typeof raw !== "object") return texts;
@@ -35,7 +40,7 @@ export function extractStyleAnchors(rawOutput: unknown): string[] {
     const tokens = t.split(/[^a-zA-Z]+/).filter((w) => w.length >= 4);
     for (const tok of tokens) {
       const lower = tok.toLowerCase();
-      if (STOP.has(lower)) continue;
+      if (STOP.has(lower) || GENERIC.has(lower)) continue;
       freq.set(lower, (freq.get(lower) || 0) + 1);
       if (tok[0] === tok[0].toUpperCase() && tok !== tok.toUpperCase()) {
         capSet.add(lower);
@@ -43,7 +48,11 @@ export function extractStyleAnchors(rawOutput: unknown): string[] {
     }
   }
 
-  const entries = Array.from(freq.entries());
+  // Filter: remove all-lowercase freq==1 tokens (weak anchors)
+  const entries = Array.from(freq.entries()).filter(
+    ([w, count]) => capSet.has(w) || count > 1
+  );
+
   // Sort: capitalized first, then by frequency desc, then alphabetical
   entries.sort((a, b) => {
     const aCap = capSet.has(a[0]) ? 0 : 1;
@@ -53,5 +62,5 @@ export function extractStyleAnchors(rawOutput: unknown): string[] {
     return a[0].localeCompare(b[0]);
   });
 
-  return entries.slice(0, 10).map(([w]) => w);
+  return entries.slice(0, 8).map(([w]) => w);
 }

@@ -108,7 +108,36 @@ export async function enforceCinematicQuality<T>(opts: CinematicQualityOpts<T>):
   if (anchors.length > 0) {
     instruction += `\n\nSTYLE LOCK (MUST PRESERVE):\n${anchors.map((a) => `• ${a}`).join("\n")}\nDo not rename, swap, or remove these anchors.`;
   }
+
+  // Size guard: prevent token bloat
+  if (instruction.length > 4000) {
+    const trimmedAnchors = anchors.slice(0, 4);
+    const styleLockStart = instruction.indexOf("\n\nSTYLE LOCK (MUST PRESERVE):");
+    if (styleLockStart !== -1) {
+      const base = instruction.slice(0, styleLockStart);
+      instruction = base + `\n\nSTYLE LOCK (MUST PRESERVE):\n${trimmedAnchors.map((a) => `• ${a}`).join("\n")}\nDo not rename, swap, or remove these anchors.`;
+      if (instruction.length > 4000) {
+        instruction = base.slice(0, 4000);
+      }
+    }
+  }
+
   const repaired = await regenerateOnce(instruction);
+
+  // Style drift telemetry (only when anchors existed)
+  if (anchors.length > 0) {
+    const repairedStr = JSON.stringify(repaired).toLowerCase();
+    const preserved = anchors.filter((a) => repairedStr.includes(a)).length;
+    const missing = anchors.length - preserved;
+    const driftScore = preserved / anchors.length;
+    console.error(JSON.stringify({
+      type: "CINEMATIC_STYLE_DRIFT_SCORE",
+      handler, phase, model, attempt: 1,
+      anchors_total: anchors.length, anchors_preserved: preserved,
+      anchors_missing: missing, drift_score: driftScore,
+      adapter_mode: mode0,
+    }));
+  }
 
   const { units: units1, mode: mode1 } = runAdapter(adapter, repaired);
   const score1 = scoreCinematic(units1);

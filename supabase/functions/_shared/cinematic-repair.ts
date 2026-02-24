@@ -28,6 +28,12 @@ function failureBullets(failures: CinematicFailureCode[], domain: "trailer" | "s
       case "TOO_SHORT":
         bullets.push(`• Ensure at least 4 ${unitLabel}s in the output.`);
         break;
+      case "WEAK_ARC":
+        bullets.push(`• Build a clear dramatic arc: start restrained, build through mid, peak near the end.`);
+        break;
+      case "LOW_INTENT_DIVERSITY":
+        bullets.push(`• Use at least 3 distinct intents across ${unitLabel}s (e.g., intrigue, threat, chaos, emotion, release).`);
+        break;
     }
   }
   return bullets;
@@ -40,6 +46,8 @@ const FAILURE_TARGETS: Record<string, string> = {
   LOW_CONTRAST: "Ensure one pivot where tonal_polarity changes by >= 0.60 OR energy delta >= 0.25",
   TONAL_WHIPLASH: "Max 1 polarity flip across the sequence; use intermediate polarity units",
   TOO_SHORT: "Ensure unit count >= 4",
+  WEAK_ARC: "Ensure a clear arc: early <=0.55, mid >=0.60, final >=0.85, and peak occurs in the final 2 units",
+  LOW_INTENT_DIVERSITY: "Use at least 3 distinct intents across the sequence (e.g., intrigue -> threat -> chaos/emotion -> release)",
 };
 
 export function amplifyRepairInstruction(base: string, failures: string[]): string {
