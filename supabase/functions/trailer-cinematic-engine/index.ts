@@ -2148,6 +2148,93 @@ async function handleExportTrailerScriptDocument(db: any, body: any, userId: str
   });
 }
 
+// ─── ACTION 9: Create Script Variants A/B/C ───
+
+async function handleCreateScriptVariants(db: any, body: any, userId: string, apiKey: string) {
+  const {
+    projectId, canonPackId, trailerType = "main", genreKey = "drama", platformKey = "theatrical",
+    seedBase, styleOptions = {}, variants = ["A", "B", "C"],
+    inspirationRefs, referenceNotes, avoidNotes, strictCanonMode, targetLengthMs,
+  } = body;
+
+  if (!canonPackId) return json({ error: "canonPackId required" }, 400);
+
+  const baseSeed = seedBase || `var-${Date.now().toString(36)}`;
+  const results: any[] = [];
+
+  for (const label of variants.slice(0, 5)) {
+    // Deterministic seed per variant
+    const variantSeed = `${baseSeed}-${label}`.slice(0, 24);
+
+    try {
+      const resp = await handleCreateTrailerScript(db, {
+        projectId, canonPackId, trailerType, genreKey, platformKey,
+        seed: variantSeed, styleOptions,
+        inspirationRefs, referenceNotes, avoidNotes, strictCanonMode, targetLengthMs,
+      }, userId, apiKey);
+      const data = await resp.clone().json();
+
+      // Tag variant label
+      if (data.scriptRunId) {
+        await db.from("trailer_script_runs")
+          .update({ variant_label: label })
+          .eq("id", data.scriptRunId);
+      }
+
+      results.push({
+        label,
+        scriptRunId: data.scriptRunId || null,
+        seed: variantSeed,
+        status: data.status || "error",
+        structure_score: data.structureScore ?? null,
+        cinematic_score: data.cinematicScore ?? null,
+        beatCount: data.beatCount ?? 0,
+        warningsCount: data.warnings?.length ?? 0,
+        gatesPassed: data.gatesPassed ?? false,
+        error: data.error || null,
+      });
+    } catch (err: any) {
+      results.push({
+        label,
+        scriptRunId: null,
+        seed: variantSeed,
+        status: "error",
+        error: err.message,
+      });
+    }
+  }
+
+  return json({ ok: true, variants: results });
+}
+
+// ─── ACTION 10: Select Script Run ───
+
+async function handleSelectScriptRun(db: any, body: any, userId: string) {
+  const { projectId, scriptRunId } = body;
+  if (!scriptRunId) return json({ error: "scriptRunId required" }, 400);
+
+  // Load the run to get trailer_type + platform_key
+  const { data: run } = await db.from("trailer_script_runs")
+    .select("id, trailer_type, platform_key")
+    .eq("id", scriptRunId).eq("project_id", projectId).single();
+  if (!run) return json({ error: "Script run not found" }, 404);
+
+  // Unset others for same project+type+platform
+  await db.from("trailer_script_runs")
+    .update({ is_selected: false })
+    .eq("project_id", projectId)
+    .eq("trailer_type", run.trailer_type)
+    .eq("platform_key", run.platform_key)
+    .eq("is_selected", true);
+
+  // Set chosen
+  await db.from("trailer_script_runs")
+    .update({ is_selected: true })
+    .eq("id", scriptRunId);
+
+  return json({ ok: true, scriptRunId, selected: true });
+}
+
 // ─── ACTION 7: Full Cinematic Trailer Plan (orchestrator) ───
 
 async function handleFullPlan(db: any, body: any, userId: string, apiKey: string) {
@@ -2265,6 +2352,10 @@ Deno.serve(async (req) => {
         return await handleFullPlan(db, body, userId, apiKey);
       case "export_trailer_script_document_v1":
         return await handleExportTrailerScriptDocument(db, body, userId);
+      case "create_script_variants_v1":
+        return await handleCreateScriptVariants(db, body, userId, apiKey);
+      case "select_script_run_v1":
+        return await handleSelectScriptRun(db, body, userId);
       default:
         return json({ error: `Unknown action: ${action}` }, 400);
     }
