@@ -3,8 +3,6 @@ import { toast } from 'sonner';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useParams, Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
-
-
 import { useDevEngineV2 } from '@/hooks/useDevEngineV2';
 import { useScriptPipeline } from '@/hooks/useScriptPipeline';
 import { useRewritePipeline } from '@/hooks/useRewritePipeline';
@@ -28,8 +26,8 @@ import {
   AlertTriangle, GitBranch, Clock, Film, Pause, Square, RotateCcw, ChevronDown,
   FileText, ShieldAlert,
 } from 'lucide-react';
-import { RenameProjectDialog } from '@/components/project/RenameProjectDialog';
-import { useProjects } from '@/hooks/useProjects';
+
+
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { OperationProgress, DEV_ANALYZE_STAGES, DEV_NOTES_STAGES, DEV_REWRITE_STAGES, DEV_CONVERT_STAGES } from '@/components/OperationProgress';
 import { useSetAsLatestDraft } from '@/hooks/useSetAsLatestDraft';
@@ -92,12 +90,8 @@ export default function ProjectDevelopmentEngine() {
   const [searchParams] = useSearchParams();
   const qc = useQueryClient();
   const [intelligenceTab, setIntelligenceTab] = useState('notes');
-  const { renameProject } = useProjects();
 
-  const handleRenameProject = async (newTitle: string) => {
-    await renameProject.mutateAsync({ projectId: projectId!, title: newTitle });
-    toast.success('Project renamed');
-  };
+
 
   // Fetch project metadata — staleTime:0 + refetchOnWindowFocus ensures title changes
   // made elsewhere in the app (ProjectDetail, settings) are always reflected here.
