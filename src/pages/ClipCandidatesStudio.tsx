@@ -61,6 +61,7 @@ export default function ClipCandidatesStudio() {
   const [showProcessingBar, setShowProcessingBar] = useState(false);
   const [providerVeo, setProviderVeo] = useState(true);
   const [providerRunway, setProviderRunway] = useState(false);
+  const [showRejected, setShowRejected] = useState(false);
 
   const enabledProviders = useMemo(() => {
     const p: string[] = [];
@@ -79,7 +80,7 @@ export default function ClipCandidatesStudio() {
   const { data: clipScores } = useClipScores(projectId, blueprintId);
 
   // Mutations
-  const { enqueueForRun, processQueue, retryJob, selectClip, cancelAll, resetFailed, runTechnicalJudge } = useClipEngineMutations(projectId);
+  const { enqueueForRun, processQueue, retryJob, selectClip, cancelAll, resetFailed, runTechnicalJudge, regenerateLowQuality } = useClipEngineMutations(projectId);
 
   const blueprints = (bpListData?.blueprints || []).filter((bp: any) => bp.status === 'complete');
   const blueprint = bpData?.blueprint || null;
@@ -96,11 +97,17 @@ export default function ClipCandidatesStudio() {
   const clipsByBeat = useMemo(() => {
     const map: Record<number, TrailerClip[]> = {};
     for (const c of clips) {
+      // Filter out rejected unless showRejected is on
+      if (!showRejected && ((c as any).auto_rejected || c.status === 'rejected')) continue;
       if (!map[c.beat_index]) map[c.beat_index] = [];
       map[c.beat_index].push(c);
     }
+    // Sort each beat's clips by technical_score descending
+    for (const key of Object.keys(map)) {
+      map[parseInt(key)].sort((a: any, b: any) => (b.technical_score ?? 0) - (a.technical_score ?? 0));
+    }
     return map;
-  }, [clips]);
+  }, [clips, showRejected]);
 
   const toggleBeat = (idx: number) => {
     setExpandedBeats(prev => {
@@ -291,6 +298,24 @@ export default function ClipCandidatesStudio() {
                     Tech Judge
                   </Button>
                 </div>
+
+                <Separator />
+
+                {/* Show Rejected Toggle */}
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="toggle-rejected" className="text-xs font-medium">Show Rejected</Label>
+                  <Switch id="toggle-rejected" checked={showRejected} onCheckedChange={setShowRejected} />
+                </div>
+
+                {/* Regenerate Low Quality */}
+                <Button
+                  size="sm" className="w-full" variant="outline"
+                  onClick={() => blueprintId && regenerateLowQuality.mutate({ blueprintId })}
+                  disabled={regenerateLowQuality.isPending}
+                >
+                  {regenerateLowQuality.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <RefreshCw className="h-3 w-3 mr-1" />}
+                  Regenerate Low Quality
+                </Button>
               </CardContent>
             </Card>
           )}
@@ -482,12 +507,31 @@ export default function ClipCandidatesStudio() {
                                   {beatClips.map((clip: any) => (
                                     <div
                                       key={clip.id}
-                                      className={`border rounded-lg overflow-hidden transition-all ${
-                                        clip.selected
+                                      className={`border rounded-lg overflow-hidden transition-all relative ${
+                                        clip.auto_rejected
+                                          ? 'border-destructive/50 opacity-60'
+                                          : clip.selected
                                           ? 'border-green-500 ring-1 ring-green-500/30 bg-green-500/5'
                                           : 'border-border hover:border-primary/40'
                                       }`}
                                     >
+                                      {/* Auto-rejected overlay */}
+                                      {clip.auto_rejected && (
+                                        <TooltipProvider>
+                                          <Tooltip>
+                                            <TooltipTrigger asChild>
+                                              <div className="absolute top-1 right-1 z-10">
+                                                <Badge className="bg-destructive text-destructive-foreground text-[8px] px-1.5 py-0">
+                                                  AUTO REJECTED
+                                                </Badge>
+                                              </div>
+                                            </TooltipTrigger>
+                                            <TooltipContent side="bottom" className="text-xs max-w-xs">
+                                              {clip.rejection_reason || 'Below quality threshold'}
+                                            </TooltipContent>
+                                          </Tooltip>
+                                        </TooltipProvider>
+                                      )}
                                       {/* Video preview */}
                                       {clip.public_url && clip.media_type === 'video' ? (
                                         <video
@@ -553,34 +597,63 @@ export default function ClipCandidatesStudio() {
                                           {clip.selected && <Check className="h-3 w-3 text-green-400 ml-auto" />}
                                         </div>
 
-                                        {/* Technical quality score badge */}
+                                        {/* Inline quality score badge */}
+                                        {clip.technical_score != null && (
+                                          <TooltipProvider>
+                                            <Tooltip>
+                                              <TooltipTrigger asChild>
+                                                <div className="flex items-center gap-1 mt-1">
+                                                  <Badge
+                                                    variant="outline"
+                                                    className={`text-[9px] px-1.5 py-0 ${
+                                                      clip.technical_score >= 8
+                                                        ? 'border-green-500/50 text-green-400'
+                                                        : clip.technical_score >= 6
+                                                        ? 'border-amber-500/50 text-amber-400'
+                                                        : 'border-destructive/50 text-destructive'
+                                                    }`}
+                                                  >
+                                                    Q {clip.technical_score?.toFixed(1)}
+                                                  </Badge>
+                                                </div>
+                                              </TooltipTrigger>
+                                              <TooltipContent side="bottom" className="text-xs space-y-0.5 max-w-xs">
+                                                <p>Motion: {clip.motion_score?.toFixed(1)}</p>
+                                                <p>Clarity: {clip.clarity_score?.toFixed(1)}</p>
+                                                <p>Artifacts: {clip.artifact_score?.toFixed(1)}</p>
+                                                <p>Style: {clip.style_match_score?.toFixed(1)}</p>
+                                                <p>Framing: {clip.framing_score?.toFixed(1)}</p>
+                                                {clip.quality_flags_json?.length > 0 && (
+                                                  <p className="text-destructive">Flags: {clip.quality_flags_json.join(', ')}</p>
+                                                )}
+                                                {clip.rejection_reason && (
+                                                  <p className="text-destructive font-medium">{clip.rejection_reason}</p>
+                                                )}
+                                              </TooltipContent>
+                                            </Tooltip>
+                                          </TooltipProvider>
+                                        )}
+
+                                        {/* External AI judge score badge */}
                                         {clipScores?.[clip.id] && (() => {
                                           const s = clipScores[clip.id];
                                           const overall = s.technical_overall;
-                                          const isRejected = clip.status === 'rejected';
                                           return (
                                             <TooltipProvider>
                                               <Tooltip>
                                                 <TooltipTrigger asChild>
-                                                  <div className="flex items-center gap-1 mt-1">
-                                                    <Badge
-                                                      variant="outline"
-                                                      className={`text-[9px] px-1.5 py-0 ${
-                                                        isRejected
-                                                          ? 'border-destructive/50 text-destructive'
-                                                          : overall >= 0.75
-                                                          ? 'border-green-500/50 text-green-400'
-                                                          : overall >= 0.55
-                                                          ? 'border-amber-500/50 text-amber-400'
-                                                          : 'border-destructive/50 text-destructive'
-                                                      }`}
-                                                    >
-                                                      Tech {overall?.toFixed(2)}
-                                                    </Badge>
-                                                    {isRejected && (
-                                                      <span className="text-[8px] text-destructive">REJECTED</span>
-                                                    )}
-                                                  </div>
+                                                  <Badge
+                                                    variant="outline"
+                                                    className={`text-[9px] px-1.5 py-0 mt-0.5 ${
+                                                      overall >= 0.75
+                                                        ? 'border-green-500/50 text-green-400'
+                                                        : overall >= 0.55
+                                                        ? 'border-amber-500/50 text-amber-400'
+                                                        : 'border-destructive/50 text-destructive'
+                                                    }`}
+                                                  >
+                                                    AI {overall?.toFixed(2)}
+                                                  </Badge>
                                                 </TooltipTrigger>
                                                 <TooltipContent side="bottom" className="text-xs space-y-0.5 max-w-xs">
                                                   <p>Motion: {s.technical_motion_score?.toFixed(2)}</p>
@@ -597,7 +670,7 @@ export default function ClipCandidatesStudio() {
                                         })()}
 
                                         <div className="flex items-center gap-1">
-                                          {!clip.selected && clip.status === 'complete' && (
+                                          {!clip.selected && ['complete', 'approved_technical'].includes(clip.status) && !clip.auto_rejected && (
                                             <Button
                                               size="sm"
                                               variant="outline"
