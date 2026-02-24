@@ -56,6 +56,7 @@ const STATUS_ICON: Record<string, React.ReactNode> = {
 
 export default function ClipCandidatesStudio() {
   const { id: projectId } = useParams<{ id: string }>();
+  // ⚠ Do not use setSearchParams({ ... }) — it wipes drawer/drawerTab. Use updateSearchParams().
   const [searchParams, setSearchParams] = useSearchParams();
   const blueprintId = searchParams.get('runId') || searchParams.get('blueprintId') || undefined;
   const [expandedBeats, setExpandedBeats] = useState<Set<number>>(new Set());
