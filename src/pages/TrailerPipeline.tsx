@@ -16,6 +16,7 @@ import { AutoAssemblyPanel } from '@/components/trailer/cinematic/AutoAssemblyPa
 import { StudioFinishPanel } from '@/components/trailer/cinematic/StudioFinishPanel';
 import { LearningBiasIndicator } from '@/components/trailer/cinematic/LearningBiasIndicator';
 import { LegacyBlueprintTab } from '@/components/trailer/cinematic/LegacyBlueprintTab';
+import { CanonPackManager } from '@/components/trailer/cinematic/CanonPackManager';
 import { useBlueprints } from '@/lib/trailerPipeline/useTrailerPipeline';
 import { useScriptRuns } from '@/lib/trailerPipeline/cinematicHooks';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -109,6 +110,7 @@ export default function TrailerPipelinePage() {
                 </SelectItem>
               </SelectContent>
             </Select>
+            {canonPackId && <CanonPackManager projectId={projectId!} canonPackId={canonPackId} />}
           </div>
 
           {/* Script Run Selector */}
