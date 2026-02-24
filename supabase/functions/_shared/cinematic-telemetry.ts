@@ -15,6 +15,7 @@ interface RollupBucket {
   min_score_final: number;
   max_score_final: number;
   sum_distinct_intents_final: number;
+  sum_tonal_flips_final: number;
   failures_by_code: Record<string, number>;
   final_mode_counts: { explicit: number; heuristic: number; unknown: number };
   last_flush_ts: number;
@@ -44,6 +45,7 @@ function getBucket(handler: string, phase: string, model: string): RollupBucket 
       min_score_final: 1,
       max_score_final: 0,
       sum_distinct_intents_final: 0,
+      sum_tonal_flips_final: 0,
       failures_by_code: {},
       final_mode_counts: { explicit: 0, heuristic: 0, unknown: 0 },
       last_flush_ts: Date.now(),
@@ -75,6 +77,7 @@ export function recordFinal(
   b.total_runs++;
   b.sum_score_final += payload.score;
   b.sum_distinct_intents_final += payload.distinct_intents ?? 0;
+  b.sum_tonal_flips_final += Number(payload.metrics?.tonal_flip_count ?? 0);
   b.min_score_final = Math.min(b.min_score_final, payload.score);
   b.max_score_final = Math.max(b.max_score_final, payload.score);
 
@@ -122,6 +125,7 @@ export function flushCinematicSummaryIfDue(opts: { handler: string; phase: strin
       min_final: b.min_score_final,
       max_final: b.max_score_final,
       intent_distinct_avg_final: total > 0 ? b.sum_distinct_intents_final / total : 0,
+      polarity_flip_avg_final: total > 0 ? b.sum_tonal_flips_final / total : 0,
     },
     failures: { ...b.failures_by_code },
     adapter_modes: {
@@ -144,6 +148,7 @@ export function flushCinematicSummaryIfDue(opts: { handler: string; phase: strin
   b.min_score_final = 1;
   b.max_score_final = 0;
   b.sum_distinct_intents_final = 0;
+  b.sum_tonal_flips_final = 0;
   b.failures_by_code = {};
   b.final_mode_counts = { explicit: 0, heuristic: 0, unknown: 0 };
   b.last_flush_ts = Date.now();

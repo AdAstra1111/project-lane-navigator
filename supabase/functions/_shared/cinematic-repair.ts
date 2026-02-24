@@ -84,6 +84,17 @@ Rules:
 - Keep peak intensity in final 2 units.`;
 }
 
+export function addPolarityRampLock(base: string, failures: string[]): string {
+  if (!failures.includes("TONAL_WHIPLASH") && !failures.includes("WEAK_ARC")) return base;
+  return `${base}
+
+TONAL RAMP LOCK (REPAIR ONLY):
+- No more than 1 polarity sign flip across units.
+- Adjacent tonal_polarity changes should be gradual (prefer step <= 0.6).
+- Use a ramp (generally darker->lighter or lighter->darker), not oscillation.
+- Do NOT change main JSON schema.`;
+}
+
 export function buildTrailerRepairInstruction(score: CinematicScore): string {
   const bullets = failureBullets(score.failures, "trailer");
   const base = `${SHAPE_GUARD}
@@ -94,7 +105,8 @@ ${bullets.join("\n")}
 
 Maintain all existing required fields and overall structure.`;
   const amplified = amplifyRepairInstruction(base, score.failures);
-  return addIntentSequencingHint(amplified, score.failures);
+  const withIntent = addIntentSequencingHint(amplified, score.failures);
+  return addPolarityRampLock(withIntent, score.failures);
 }
 
 export function buildStoryboardRepairInstruction(score: CinematicScore): string {
@@ -107,5 +119,6 @@ ${bullets.join("\n")}
 
 Maintain all existing required fields and overall structure.`;
   const amplified = amplifyRepairInstruction(base, score.failures);
-  return addIntentSequencingHint(amplified, score.failures);
+  const withIntent = addIntentSequencingHint(amplified, score.failures);
+  return addPolarityRampLock(withIntent, score.failures);
 }
