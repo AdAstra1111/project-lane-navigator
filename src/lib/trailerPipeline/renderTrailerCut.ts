@@ -253,34 +253,33 @@ export async function renderTrailerCut(
   recorder.start();
 
   const frameDuration = 1000 / fps;
-  const commitDelayMs = canRequestFrame ? 10 : Math.max(16, Math.round(frameDuration / 2));
 
-  // Helper: commit current canvas to the video stream
-  const commitFrame = async () => {
+  // Helper: commit current canvas and enforce exact wall-clock timing so
+  // MediaRecorder output matches the intended duration.
+  const commitFrame = async (frameStart: number) => {
     if (canRequestFrame && videoTrack?.requestFrame) {
       videoTrack.requestFrame();
     }
-    await sleep(commitDelayMs);
+    // Wait until exactly frameDuration has elapsed since frameStart
+    const elapsed = performance.now() - frameStart;
+    const remaining = frameDuration - elapsed;
+    if (remaining > 1) await sleep(remaining);
   };
 
-  const waitForSeek = async (video: HTMLVideoElement, timeoutMs = 60) => {
-    await new Promise<void>((resolve) => {
-      const onSeeked = () => {
-        clearTimeout(timeout);
-        resolve();
-      };
-      const timeout = setTimeout(() => {
-        video.removeEventListener('seeked', onSeeked);
-        resolve();
-      }, timeoutMs);
+  const waitForSeek = (video: HTMLVideoElement, timeoutMs = 40): Promise<void> =>
+    new Promise((resolve) => {
+      // If readyState >= HAVE_CURRENT_DATA, the frame is ready
+      if (video.readyState >= 2) { resolve(); return; }
+      const onSeeked = () => { clearTimeout(t); resolve(); };
+      const t = setTimeout(() => { video.removeEventListener('seeked', onSeeked); resolve(); }, timeoutMs);
       video.addEventListener('seeked', onSeeked, { once: true });
     });
-  };
 
   // Draw initial frame
   ctx.fillStyle = '#000000';
   ctx.fillRect(0, 0, width, height);
-  await commitFrame();
+  const initStart = performance.now();
+  await commitFrame(initStart);
 
   for (let tIdx = 0; tIdx < timeline.length; tIdx++) {
     const entry = timeline[tIdx];
@@ -289,8 +288,9 @@ export async function renderTrailerCut(
 
     if (entry.text_overlay && entry.role === 'title_card') {
       for (let f = 0; f < totalFrames; f++) {
+        const fs = performance.now();
         drawTextCard(ctx, entry.text_overlay, width, height);
-        await commitFrame();
+        await commitFrame(fs);
       }
     } else if (asset?.type === 'video') {
       const video = asset.el;
@@ -298,30 +298,33 @@ export async function renderTrailerCut(
       const clipDurationS = entry.duration_ms / 1000;
       const playbackDuration = Math.min(clipDurationS, videoDuration);
 
+      // Pre-seek to start
       video.currentTime = 0;
-      await waitForSeek(video, 120);
+      await waitForSeek(video, 100);
 
       for (let f = 0; f < totalFrames; f++) {
+        const fs = performance.now();
         const t = (f / totalFrames) * playbackDuration;
         video.currentTime = Math.min(t, videoDuration - 0.01);
-
-        await waitForSeek(video);
+        await waitForSeek(video, 30);
 
         drawMediaToCanvas(ctx, video, width, height);
         if (entry.text_overlay) drawTextOverlay(ctx, entry.text_overlay, width, height);
-        await commitFrame();
+        await commitFrame(fs);
       }
     } else if (asset?.type === 'image') {
       for (let f = 0; f < totalFrames; f++) {
+        const fs = performance.now();
         drawMediaToCanvas(ctx, asset.el, width, height);
         if (entry.text_overlay) drawTextOverlay(ctx, entry.text_overlay, width, height);
-        await commitFrame();
+        await commitFrame(fs);
       }
     } else {
       for (let f = 0; f < totalFrames; f++) {
+        const fs = performance.now();
         drawPlaceholder(ctx, width, height, entry.role);
         if (entry.text_overlay) drawTextOverlay(ctx, entry.text_overlay, width, height);
-        await commitFrame();
+        await commitFrame(fs);
       }
     }
 
@@ -329,8 +332,8 @@ export async function renderTrailerCut(
   }
 
   // Final flush — ensure last frames are captured and metadata gets sealed
-  await commitFrame();
-  await commitFrame();
+  await commitFrame(performance.now());
+  await commitFrame(performance.now());
   await sleep(Math.max(frameDuration, 40));
 
   recorder.stop();
