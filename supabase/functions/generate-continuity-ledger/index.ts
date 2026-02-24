@@ -3,7 +3,8 @@
  * Called on episode LOCK. Validates against prior ledgers for contradictions.
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { callLLM, composeSystem, parseJsonSafe, MODELS } from "../_shared/llm.ts";
+import { composeSystem, callLLMWithJsonRetry, MODELS } from "../_shared/llm.ts";
+import { isObject, hasObject } from "../_shared/validators.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -75,8 +76,10 @@ ${priorContext || "(none — this is the first episode)"}
 
 Extract the continuity ledger and check for contradictions.`;
 
-    const result = await callLLM({ apiKey, model: MODELS.FAST, system, user: userPrompt, temperature: 0.2, maxTokens: 4000 });
-    const parsed = await parseJsonSafe(result.content, apiKey);
+    const parsed = await callLLMWithJsonRetry({ apiKey, model: MODELS.FAST, system, user: userPrompt, temperature: 0.2, maxTokens: 4000 }, {
+      handler: "generate_continuity_ledger",
+      validate: (d): d is any => isObject(d) && (hasObject(d, "ledger") || hasObject(d, "timeline")),
+    });
 
     // Upsert ledger
     const authHeader = req.headers.get("Authorization");

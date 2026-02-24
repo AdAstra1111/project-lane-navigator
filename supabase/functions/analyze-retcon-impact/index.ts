@@ -3,7 +3,8 @@
  * Compares new vs previous doc version, checks locked ledgers for references.
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { callLLM, composeSystem, parseJsonSafe, MODELS } from "../_shared/llm.ts";
+import { composeSystem, callLLMWithJsonRetry, MODELS } from "../_shared/llm.ts";
+import { isObject, hasArray } from "../_shared/validators.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -70,8 +71,10 @@ ${ledgerContext}
 
 Identify fact deltas and impacted episodes.`;
 
-    const result = await callLLM({ apiKey, model: MODELS.FAST, system, user: userPrompt, temperature: 0.2, maxTokens: 4000 });
-    const parsed = await parseJsonSafe(result.content, apiKey);
+    const parsed = await callLLMWithJsonRetry({ apiKey, model: MODELS.FAST, system, user: userPrompt, temperature: 0.2, maxTokens: 4000 }, {
+      handler: "analyze_retcon_impact",
+      validate: (d): d is any => isObject(d) && (hasArray(d, "impacted_episodes") || hasArray(d, "fact_deltas")),
+    });
 
     await sb.from("retcon_events").update({ impact_analysis: parsed, status: "analyzed" }).eq("id", retconEventId);
 

@@ -9,7 +9,8 @@
  *   assemble_taster_trailer — Assemble a taster trailer package
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { callLLM, MODELS, extractJSON, parseJsonSafe } from "../_shared/llm.ts";
+import { callLLMWithJsonRetry, MODELS } from "../_shared/llm.ts";
+import { isObject, hasArray } from "../_shared/validators.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -136,16 +137,17 @@ Return JSON:
   "legal_risk_flags": [...]
 }`;
 
-  const result = await callLLM({
+  const parsed = await callLLMWithJsonRetry({
     apiKey,
     model: MODELS.FAST,
     system: systemPrompt,
     user: shotDesc,
     temperature: 0.1,
     maxTokens: 2000,
+  }, {
+    handler: "label_ai_readiness",
+    validate: (d): d is any => isObject(d) && isObject(d.rubric),
   });
-
-  const parsed = await parseJsonSafe(result.content, apiKey);
   const rubric = parsed.rubric || {};
   const { tier, confidence, maxQuality, modelRoute, costBand, riskScore } = computeTier(rubric);
 
@@ -338,16 +340,17 @@ For each moment, provide:
 
 Return JSON: { "moments": [...] }`;
 
-  const result = await callLLM({
+  const parsed = await callLLMWithJsonRetry({
     apiKey,
     model: MODELS.BALANCED,
     system: systemPrompt,
     user: version.content.slice(0, 30000),
     temperature: 0.4,
     maxTokens: 8000,
+  }, {
+    handler: "extract_trailer_moments",
+    validate: (d): d is any => isObject(d) && hasArray(d, "moments"),
   });
-
-  const parsed = await parseJsonSafe(result.content, apiKey);
   const moments = parsed.moments || [];
 
   // Delete prior moments for same project+version (idempotent)

@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { callLLM, MODELS, callLLMWithJsonRetry } from "../_shared/llm.ts";
+import { callLLMWithJsonRetry, MODELS } from "../_shared/llm.ts";
 import { isObject, isNonEmptyString } from "../_shared/validators.ts";
 
 const corsHeaders = {
@@ -119,7 +119,7 @@ Return ONLY valid JSON.`,
         if (!impUnit) continue;
 
         try {
-          const patchResult = await callLLM({
+          const patch = await callLLMWithJsonRetry({
             apiKey,
             model: MODELS.FAST,
             system: `You are a screenwriter applying a minimal patch to a scene for continuity.
@@ -132,9 +132,10 @@ Return JSON: { "plaintext": string, "unit_json": object }`,
             }),
             temperature: 0.3,
             maxTokens: 6000,
+          }, {
+            handler: "patch_impacted_scene",
+            validate: (d): d is any => isObject(d) && (isNonEmptyString(d.plaintext) || isObject(d.unit_json)),
           });
-
-          const patch = await parseJsonSafe(patchResult.content, apiKey);
 
           // Get next version
           const { data: maxV } = await adminClient
@@ -175,7 +176,7 @@ Return JSON: { "plaintext": string, "unit_json": object }`,
         .single();
 
       if (bp) {
-        const updateResult = await callLLM({
+        const updatedBp = await callLLMWithJsonRetry({
           apiKey,
           model: MODELS.FAST,
           system: `Update the screenplay blueprint JSON to incorporate the described changes.
@@ -186,9 +187,10 @@ Return the complete updated blueprint JSON.`,
           }),
           temperature: 0.2,
           maxTokens: 10000,
+        }, {
+          handler: "update_blueprint",
+          validate: (d): d is any => isObject(d),
         });
-
-        const updatedBp = await parseJsonSafe(updateResult.content, apiKey);
         await adminClient
           .from("script_blueprints")
           .update({ blueprint_json: updatedBp })

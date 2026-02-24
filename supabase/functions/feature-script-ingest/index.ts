@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { callLLM, parseJsonSafe, MODELS } from "../_shared/llm.ts";
+import { callLLMWithJsonRetry, MODELS } from "../_shared/llm.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -114,7 +114,7 @@ serve(async (req) => {
       }));
 
       try {
-        const result = await callLLM({
+        const parsed = await callLLMWithJsonRetry({
           apiKey,
           model: MODELS.FAST,
           system: `You are a screenplay analyst. For each scene provided, generate structured metadata as JSON.
@@ -126,9 +126,10 @@ Return ONLY a JSON array.`,
           user: JSON.stringify(scenesForLLM),
           temperature: 0.2,
           maxTokens: 8000,
+        }, {
+          handler: "feature_script_ingest_metadata",
+          validate: (d): d is any => Array.isArray(d) || (d && Array.isArray(d.scenes)),
         });
-
-        const parsed = await parseJsonSafe(result.content, apiKey);
         const metaArray = Array.isArray(parsed) ? parsed : [parsed];
 
         for (const meta of metaArray) {

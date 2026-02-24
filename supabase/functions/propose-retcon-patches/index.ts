@@ -2,7 +2,8 @@
  * propose-retcon-patches — Generates minimal patch suggestions for impacted episodes.
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { callLLM, composeSystem, parseJsonSafe, MODELS } from "../_shared/llm.ts";
+import { composeSystem, callLLMWithJsonRetry, MODELS } from "../_shared/llm.ts";
+import { isObject, hasArray } from "../_shared/validators.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -59,8 +60,10 @@ ${ledger ? JSON.stringify(ledger.summary) : "(none)"}
 
 Propose minimal patches.`;
 
-      const result = await callLLM({ apiKey, model: MODELS.FAST, system, user: userPrompt, temperature: 0.3, maxTokens: 3000 });
-      const parsed = await parseJsonSafe(result.content, apiKey);
+      const parsed = await callLLMWithJsonRetry({ apiKey, model: MODELS.FAST, system, user: userPrompt, temperature: 0.3, maxTokens: 3000 }, {
+        handler: "propose_retcon_patches",
+        validate: (d): d is any => isObject(d) && hasArray(d, "changes"),
+      });
 
       patches.push({ episode_number: epNum, ...parsed });
     }

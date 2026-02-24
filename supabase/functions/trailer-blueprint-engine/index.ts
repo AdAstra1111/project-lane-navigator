@@ -3,7 +3,7 @@
  * rhythm analysis, audio plan, and text card plan from visual units / storyboard panels.
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { callLLM, MODELS, parseJsonSafe, callLLMWithJsonRetry } from "../_shared/llm.ts";
+import { callLLM, MODELS, callLLMWithJsonRetry } from "../_shared/llm.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
