@@ -347,30 +347,30 @@ export function ProjectShell({ children }: ProjectShellProps) {
 
   return (
     <div className="min-h-screen flex flex-col bg-background" data-project-shell>
-      {/* ── Top ProjectBar (refined) ── */}
-      <header className="sticky top-0 z-50 h-11 border-b border-border/10 bg-background/90 backdrop-blur-2xl flex items-center px-3">
-        {/* Left: back + title */}
+      {/* ── Top ProjectBar ── */}
+      <header className="sticky top-0 z-50 h-10 border-b border-border/10 bg-background/90 backdrop-blur-2xl flex items-center px-3">
+        {/* Left: back + title + metadata */}
         <div className="flex items-center gap-2 min-w-0 flex-1">
           <button
             onClick={() => navigate('/dashboard')}
-            className="h-7 w-7 rounded-md flex items-center justify-center text-muted-foreground/60 hover:text-foreground hover:bg-muted/40 transition-colors shrink-0"
+            className="h-7 w-7 rounded-md flex items-center justify-center text-muted-foreground/50 hover:text-foreground/80 hover:bg-muted/30 transition-colors shrink-0"
           >
             <ChevronLeft className="h-3.5 w-3.5" />
           </button>
 
           {isLoading ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground/50" />
+            <div className="h-3 w-32 rounded bg-muted-foreground/10 animate-pulse" />
           ) : (
             <>
               <Link
                 to={`/projects/${projectId}`}
-                className="text-[13px] font-display font-semibold text-foreground truncate max-w-[280px] hover:text-primary transition-colors"
+                className="text-sm font-display font-medium text-foreground truncate max-w-[260px] hover:text-foreground/80 transition-colors"
               >
                 {project?.title || 'Untitled'}
               </Link>
               {lane && <LaneBadge lane={lane} size="sm" />}
               {project?.confidence != null && (
-                <span className="text-[9px] font-medium text-muted-foreground/50 bg-muted/30 px-1.5 py-0.5 rounded-full">
+                <span className="text-[10px] text-muted-foreground/50">
                   {Math.round(project.confidence * 100)}%
                 </span>
               )}
@@ -390,17 +390,17 @@ export function ProjectShell({ children }: ProjectShellProps) {
               <button
                 onClick={handleDrawerToggle}
                 className={cn(
-                  'h-7 w-7 rounded-md flex items-center justify-center transition-colors',
+                  'h-7 w-7 rounded-md flex items-center justify-center transition-colors border',
                   drawerOpen
-                    ? 'text-primary bg-primary/10'
-                    : 'text-muted-foreground/50 hover:text-foreground hover:bg-muted/40',
+                    ? 'text-foreground/70 border-border/30 bg-muted/20'
+                    : 'text-muted-foreground/40 border-transparent hover:text-foreground/60 hover:bg-muted/30',
                 )}
               >
                 {drawerOpen ? <PanelRightClose className="h-3.5 w-3.5" /> : <PanelRightOpen className="h-3.5 w-3.5" />}
               </button>
             </TooltipTrigger>
             <TooltipContent side="bottom" className="text-[10px]">
-              Inspector <kbd className="ml-1 text-[9px] bg-muted/60 px-1 rounded">\</kbd>
+              Inspector <kbd className="ml-1 text-[9px] bg-muted/50 px-1 rounded">\</kbd>
             </TooltipContent>
           </Tooltip>
         </div>
