@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useNavigate } from 'react-router-dom';
-import { LogOut, Plus, Radio, Landmark, HelpCircle, ChevronDown, Calendar, Users, LayoutGrid, Globe, BarChart3, Settings, Menu, X, Building2, GraduationCap, FlaskConical, Lightbulb, Film } from 'lucide-react';
+import { LogOut, Plus, Radio, Landmark, HelpCircle, ChevronDown, Calendar, Users, LayoutGrid, Globe, BarChart3, Settings, Menu, X, Building2, GraduationCap, FlaskConical, Lightbulb, Film, Zap, Search as SearchIcon } from 'lucide-react';
 import iffyLogo from '@/assets/iffy-logo-v3.png';
 import { NotificationBell } from '@/components/NotificationBell';
 import { GlobalSearch } from '@/components/GlobalSearch';
@@ -85,6 +85,13 @@ export function Header() {
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => navigate('/coverage-lab')}>
                 <FlaskConical className="h-4 w-4 mr-2" /> Coverage Lab
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => navigate('/quick-review')}>
+                <Zap className="h-4 w-4 mr-2" /> Quick Review
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => navigate('/deep-review')}>
+                <SearchIcon className="h-4 w-4 mr-2" /> Deep Review
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => setShowTutorial(true)}>
@@ -174,6 +181,8 @@ export function Header() {
             { label: 'Interactive Demo', path: '/demo/interactive', icon: Film },
             { label: 'Executive Mode', path: '/demo/executive', icon: Film },
             { label: 'Investor Presentation', path: '/investor', icon: Film },
+            { label: 'Quick Review', path: '/quick-review', icon: Zap },
+            { label: 'Deep Review', path: '/deep-review', icon: SearchIcon },
             { label: 'Settings', path: '/settings', icon: Settings },
           ].map(item => (
             <button
