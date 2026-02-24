@@ -8,10 +8,10 @@ import { updateSearchParams } from '@/lib/searchParams';
 import { motion } from 'framer-motion';
 import {
   ArrowLeft, Clapperboard, Scissors, Music,
-  ChevronRight, ArrowRight, Sparkles, Archive, Loader2,
+  ChevronRight, Sparkles, Archive, Loader2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
+
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useBlueprints } from '@/lib/trailerPipeline/useTrailerPipeline';
@@ -110,52 +110,42 @@ export default function TrailerHub() {
   return (
     <div className="max-w-[1000px] mx-auto px-4 py-6">
       <Tabs defaultValue="cinematic">
-        <TabsList className="mb-4">
+        <TabsList className="mb-3">
           <TabsTrigger value="cinematic" className="text-xs gap-1.5">
-            <Sparkles className="h-3.5 w-3.5" /> Cinematic v2
+            <Sparkles className="h-3 w-3" /> Pipeline
           </TabsTrigger>
           {hasLegacyBlueprints && (
-            <TabsTrigger value="legacy" className="text-xs gap-1.5">
-              <Archive className="h-3.5 w-3.5" /> Legacy (Blueprint v1)
+            <TabsTrigger value="legacy" className="text-xs gap-1.5 text-muted-foreground">
+              <Archive className="h-3 w-3" /> v1 Blueprints
             </TabsTrigger>
           )}
         </TabsList>
 
         <TabsContent value="cinematic">
           <motion.div
-            initial={{ opacity: 0, y: 12 }}
+            initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
-            className="space-y-3"
+            className="space-y-px rounded-md border border-border/15 overflow-hidden"
           >
             {STEPS.map((step, idx) => (
-              <div key={step.step}>
-                <button
-                  className="w-full text-left"
-                  onClick={() => updateSearchParams(setSearchParams, p => p.set('tab', step.tab))}
-                >
-                  <Card className="transition-all hover:shadow-md hover:border-primary/30 cursor-pointer">
-                    <CardContent className="p-4 flex items-center gap-4">
-                      <div className="flex-shrink-0 w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center text-sm font-bold">
-                        {step.step}
-                      </div>
-                      <step.icon className="h-5 w-5 text-muted-foreground flex-shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium">{step.title}</p>
-                        <p className="text-xs text-muted-foreground line-clamp-1">{step.description}</p>
-                      </div>
-                      <div className="flex items-center text-xs text-primary font-medium gap-1 flex-shrink-0">
-                        {step.cta}
-                        <ChevronRight className="h-3 w-3" />
-                      </div>
-                    </CardContent>
-                  </Card>
-                </button>
-                {idx < STEPS.length - 1 && (
-                  <div className="flex justify-center py-1">
-                    <ArrowRight className="h-3 w-3 text-muted-foreground/40 rotate-90" />
-                  </div>
-                )}
-              </div>
+              <button
+                key={step.step}
+                className={`w-full text-left flex items-center gap-3 px-3.5 py-3 transition-colors hover:bg-muted/25 cursor-pointer${idx < STEPS.length - 1 ? ' border-b border-border/10' : ''}`}
+                onClick={() => updateSearchParams(setSearchParams, p => p.set('tab', step.tab))}
+              >
+                <span className="flex-shrink-0 text-[11px] font-medium text-muted-foreground/50 w-4 text-right tabular-nums">
+                  {step.step}
+                </span>
+                <step.icon className="h-4 w-4 text-muted-foreground/60 flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-foreground/90">{step.title}</p>
+                  <p className="text-[11px] text-muted-foreground/70 line-clamp-1 max-w-md">{step.description}</p>
+                </div>
+                <span className="flex items-center text-[11px] text-muted-foreground hover:text-foreground/80 gap-0.5 flex-shrink-0 transition-colors">
+                  {step.cta}
+                  <ChevronRight className="h-3 w-3" />
+                </span>
+              </button>
             ))}
           </motion.div>
         </TabsContent>
