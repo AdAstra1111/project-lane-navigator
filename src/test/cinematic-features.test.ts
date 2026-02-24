@@ -10,6 +10,7 @@ import { extractFeatures, countDirectionReversals, detectPacingMismatch, summari
 import { scoreCinematic, CINEMATIC_THRESHOLDS, PENALTY_MAP } from "../../supabase/functions/_shared/cinematic-score";
 import { amplifyRepairInstruction, buildTrailerRepairInstruction, buildStoryboardRepairInstruction } from "../../supabase/functions/_shared/cinematic-repair";
 import { enforceUnitCount } from "../../supabase/functions/_shared/cinematic-adapters";
+import { computeStoryboardExpectedCount, computeTrailerExpectedCount } from "../../supabase/functions/_shared/cinematic-expected-count";
 
 function makeUnit(overrides: Partial<CinematicUnit> & { id: string }): CinematicUnit {
   return {
@@ -373,5 +374,31 @@ describe("kernel adapter passthrough", () => {
       // May fail quality gate, that's fine — we just check the adapter received the count
     }
     expect(receivedCount).toBe(5);
+  });
+});
+
+// ─── Expected unit count compute helpers ───
+
+describe("computeExpectedUnitCount", () => {
+  it("storyboard returns unit_keys length", () => {
+    expect(computeStoryboardExpectedCount(["a", "b", "c"])).toBe(3);
+  });
+
+  it("storyboard returns undefined for empty", () => {
+    expect(computeStoryboardExpectedCount([])).toBeUndefined();
+    expect(computeStoryboardExpectedCount(undefined)).toBeUndefined();
+  });
+
+  it("trailer returns beats length", () => {
+    expect(computeTrailerExpectedCount({ beats: [1, 2, 3, 4] })).toBe(4);
+  });
+
+  it("trailer returns undefined when no beats", () => {
+    expect(computeTrailerExpectedCount({})).toBeUndefined();
+    expect(computeTrailerExpectedCount({ beats: [] })).toBeUndefined();
+  });
+
+  it("trailer handles raw array input", () => {
+    expect(computeTrailerExpectedCount([1, 2, 3])).toBe(3);
   });
 });

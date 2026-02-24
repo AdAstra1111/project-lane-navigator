@@ -14,7 +14,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { callLLM, MODELS, composeSystem, callLLMWithJsonRetry, parseAiJson } from "../_shared/llm.ts";
 import { compileTrailerContext } from "../_shared/trailerContext.ts";
 import { enforceCinematicQuality } from "../_shared/cinematic-kernel.ts";
-import { adaptTrailerOutput } from "../_shared/cinematic-adapters.ts";
+import { adaptTrailerOutput, adaptTrailerOutputWithMode } from "../_shared/cinematic-adapters.ts";
 import { buildTrailerRepairInstruction } from "../_shared/cinematic-repair.ts";
 
 // ─── Helpers ───
@@ -806,13 +806,16 @@ No markdown.`;
     });
 
     // ── CIK quality gate (1 bounded repair attempt) ──
+    const rawBeats = parsedRaw?.beats || (Array.isArray(parsedRaw) ? parsedRaw : []);
+    const trailerExpectedUnitCount = rawBeats.length > 0 ? rawBeats.length : undefined;
     const parsed = await enforceCinematicQuality({
       handler: "trailer-cinematic-engine",
       phase: "create_trailer_script_v2",
       model: MODELS.PRO,
       rawOutput: parsedRaw,
-      adapter: adaptTrailerOutput,
+      adapter: (raw: any) => adaptTrailerOutputWithMode(raw, trailerExpectedUnitCount),
       buildRepairInstruction: buildTrailerRepairInstruction,
+      expected_unit_count: trailerExpectedUnitCount,
       regenerateOnce: async (repairInstruction: string) => {
         return await callLLMWithJsonRetry({
           apiKey,
