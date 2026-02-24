@@ -16,6 +16,7 @@
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { callLLM, MODELS, parseJsonSafe } from "../_shared/llm.ts";
+import { compileTrailerContext } from "../_shared/trailerContext.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -136,123 +137,8 @@ async function generateImage(apiKey: string, prompt: string): Promise<string | n
 
 // ═══════════════════════════════════════════
 // TRAILER DEFINITION PACK HELPERS
+// compileTrailerContext is now imported from _shared/trailerContext.ts
 // ═══════════════════════════════════════════
-
-interface PackContext {
-  pack: any;
-  items: Array<{
-    document_id: string;
-    version_id: string | null;
-    role: string;
-    sort_order: number;
-    doc_type: string;
-    title: string;
-    plaintext: string;
-    char_count: number;
-  }>;
-  mergedText: string;
-  primariesText: string;
-  supportingText: string;
-}
-
-async function compileTrailerContext(db: any, projectId: string, packId: string): Promise<PackContext> {
-  const { data: pack } = await db.from("trailer_definition_packs")
-    .select("*").eq("id", packId).eq("project_id", projectId).single();
-  if (!pack) throw new Error("Trailer definition pack not found");
-
-  const { data: packItems } = await db.from("trailer_definition_pack_items")
-    .select("*").eq("pack_id", packId).eq("include", true)
-    .order("sort_order", { ascending: true });
-
-  if (!packItems || packItems.length === 0) throw new Error("No documents selected in pack");
-
-  // Sort: primaries first, then by sort_order
-  const sorted = [...packItems].sort((a: any, b: any) => {
-    if (a.role === "primary" && b.role !== "primary") return -1;
-    if (a.role !== "primary" && b.role === "primary") return 1;
-    return a.sort_order - b.sort_order;
-  });
-
-  // Batch fetch all documents at once
-  const docIds = sorted.map((i: any) => i.document_id);
-  const { data: docs } = await db.from("project_documents")
-    .select("id, title, doc_type").in("id", docIds);
-  const docMap = new Map((docs || []).map((d: any) => [d.id, d]));
-
-  // Batch fetch versions: first get explicit version_ids, then latest for those without
-  const explicitVersionIds = sorted.filter((i: any) => i.version_id).map((i: any) => i.version_id);
-  const needLatest = sorted.filter((i: any) => !i.version_id).map((i: any) => i.document_id);
-
-  // Fetch latest versions for docs without explicit version
-  const latestMap = new Map<string, string>();
-  if (needLatest.length > 0) {
-    const { data: latestVers } = await db.from("project_document_versions")
-      .select("id, document_id").in("document_id", needLatest)
-      .order("version_number", { ascending: false });
-    // Take first (latest) per document_id
-    for (const v of (latestVers || [])) {
-      if (!latestMap.has(v.document_id)) latestMap.set(v.document_id, v.id);
-    }
-  }
-
-  // Collect all version IDs to fetch content in one query
-  const allVersionIds: string[] = [];
-  for (const item of sorted) {
-    const vid = item.version_id || latestMap.get(item.document_id);
-    if (vid) allVersionIds.push(vid);
-  }
-
-  const versionContentMap = new Map<string, string>();
-  if (allVersionIds.length > 0) {
-    const { data: versions } = await db.from("project_document_versions")
-      .select("id, plaintext, content").in("id", allVersionIds);
-    for (const v of (versions || [])) {
-      versionContentMap.set(v.id, (v.plaintext || v.content || "").toString());
-    }
-  }
-
-  // Build items
-  const items: PackContext["items"] = [];
-  for (const item of sorted) {
-    const doc = docMap.get(item.document_id);
-    if (!doc) continue;
-    const versionId = item.version_id || latestMap.get(item.document_id) || null;
-    const plaintext = versionId ? (versionContentMap.get(versionId) || "") : "";
-    items.push({
-      document_id: item.document_id,
-      version_id: versionId,
-      role: item.role,
-      sort_order: item.sort_order,
-      doc_type: doc.doc_type,
-      title: doc.title,
-      plaintext,
-      char_count: plaintext.length,
-    });
-  }
-
-  // Apply caps — reduced to prevent compute timeouts
-  const PRIMARY_CAP = 12000;
-  const SUPPORTING_CAP = 6000;
-  const MERGED_CAP = 16000;
-
-  function truncateItems(itemList: typeof items, cap: number): string {
-    if (itemList.length === 0) return "";
-    const totalChars = itemList.reduce((s, i) => s + i.char_count, 0);
-    if (totalChars <= cap) {
-      return itemList.map(i => `--- ${i.title} (${i.doc_type}, ${i.role}) ---\n${i.plaintext}`).join("\n\n");
-    }
-    const perDoc = Math.floor(cap / itemList.length);
-    return itemList.map(i => {
-      const text = i.plaintext.length > perDoc ? i.plaintext.slice(0, perDoc) + "\n[… truncated]" : i.plaintext;
-      return `--- ${i.title} (${i.doc_type}, ${i.role}) ---\n${text}`;
-    }).join("\n\n");
-  }
-
-  const primaries = items.filter(i => i.role === "primary");
-  const supporting = items.filter(i => i.role === "supporting");
-
-  return { pack, items, mergedText: truncateItems(items, MERGED_CAP), primariesText: truncateItems(primaries, PRIMARY_CAP), supportingText: truncateItems(supporting, SUPPORTING_CAP) };
-}
 
 // ═══════════════════════════════════════════
 // PACK CRUD HANDLERS
