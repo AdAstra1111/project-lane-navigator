@@ -155,4 +155,22 @@ export const cinematicApi = {
     shotDesignRunId: string;
     seed?: string;
   }) => callCinematicEngine('regenerate_crescendo_montage_v1', params),
+
+  /** One-click full pipeline orchestrator (idempotent) */
+  runTrailerPipeline: (params: {
+    projectId: string;
+    canonPackId: string;
+    trailerType?: string;
+    genreKey?: string;
+    platformKey?: string;
+    seed?: string;
+    idempotencyKey?: string;
+    styleOptions?: TrailerStyleOptions;
+    inspirationRefs?: { title: string; url?: string; notes?: string }[];
+    referenceNotes?: string;
+    avoidNotes?: string;
+    strictCanonMode?: 'strict' | 'balanced';
+    targetLengthMs?: number;
+    stylePresetKey?: string;
+  }) => callCinematicEngine('run_trailer_pipeline_v1', params),
 };

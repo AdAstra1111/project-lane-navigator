@@ -226,9 +226,11 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
     createFullPlan, createScript, createRhythmGrid,
     createShotDesign, runJudge, repairScript, startClipGeneration,
     exportTrailerScriptDocument, createScriptVariants, selectScriptRun, regenerateCrescendoMontage,
+    runTrailerPipeline,
   } = useCinematicMutations(projectId);
 
   const [showVariantsPanel, setShowVariantsPanel] = useState(false);
+  const [pipelineSteps, setPipelineSteps] = useState<{ step: string; status: string; id?: string; error?: string }[] | null>(null);
 
   const activeRun = useMemo(() =>
     scriptRuns?.find((r: any) => r.id === selectedRunId) || scriptRuns?.[0],
@@ -300,7 +302,7 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
     });
   };
 
-  const isGenerating = createFullPlan.isPending || createScript.isPending || createScriptVariants.isPending;
+  const isGenerating = createFullPlan.isPending || createScript.isPending || createScriptVariants.isPending || runTrailerPipeline.isPending;
   const isRepairing = repairScript.isPending;
 
   const handleGenerateVariants = useCallback(() => {
@@ -601,7 +603,24 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
 
       {/* Action Buttons */}
       <div className="flex flex-wrap gap-2">
-        <Button size="sm" onClick={handleGenerateFullPlan} disabled={isGenerating || !canonPackId}>
+        <Button size="sm" onClick={() => {
+          if (!canonPackId) { toast.error('No canon pack selected'); return; }
+          setPipelineSteps(null);
+          runTrailerPipeline.mutate({
+            canonPackId, trailerType, genreKey, platformKey,
+            seed: seed || undefined, styleOptions, ...extraPayload,
+          }, {
+            onSuccess: (data) => {
+              setPipelineSteps(data.steps || []);
+              if (data.scriptRunId) setSelectedRunId(data.scriptRunId);
+            },
+            onError: () => setPipelineSteps(null),
+          });
+        }} disabled={isGenerating || !canonPackId}>
+          {runTrailerPipeline.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Zap className="h-3 w-3 mr-1" />}
+          Run Full Pipeline
+        </Button>
+        <Button size="sm" variant="outline" onClick={handleGenerateFullPlan} disabled={isGenerating || !canonPackId}>
           {createFullPlan.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Play className="h-3 w-3 mr-1" />}
           Generate Full Plan
         </Button>
@@ -645,6 +664,49 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
           </>
         )}
       </div>
+
+      {/* Pipeline Step Checklist */}
+      {(runTrailerPipeline.isPending || pipelineSteps) && (
+        <Card>
+          <CardContent className="py-3">
+            <div className="flex items-center gap-2 mb-2">
+              <Zap className="h-3.5 w-3.5 text-primary" />
+              <span className="text-xs font-medium">Pipeline Progress</span>
+              {runTrailerPipeline.isPending && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
+            </div>
+            {runTrailerPipeline.isPending && !pipelineSteps && (
+              <div className="space-y-1.5">
+                {['Script', 'Judge / Repair', 'Rhythm Grid', 'Shot Design', 'Final Judge'].map((label) => (
+                  <div key={label} className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                    <Loader2 className="h-3 w-3 animate-spin opacity-30" />
+                    <span>{label}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {pipelineSteps && (
+              <div className="space-y-1">
+                {pipelineSteps.map((s, i) => (
+                  <div key={i} className="flex items-center gap-2 text-[11px]">
+                    {s.status === 'complete' || s.status === 'passed' || s.status === 'skipped' ? (
+                      <CheckCircle2 className="h-3 w-3 text-green-500" />
+                    ) : s.status === 'failed' ? (
+                      <AlertTriangle className="h-3 w-3 text-destructive" />
+                    ) : s.status === 'needs_repair' || s.status === 'flagged' ? (
+                      <AlertTriangle className="h-3 w-3 text-amber-500" />
+                    ) : (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    )}
+                    <span className="capitalize">{s.step.replace(/_/g, ' ')}</span>
+                    {s.status === 'skipped' && <Badge variant="outline" className="text-[8px] px-1 py-0">reused</Badge>}
+                    {s.error && <span className="text-destructive text-[10px]">{s.error}</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Variants Comparison Panel */}
       {showVariantsPanel && variantRuns.length > 0 && (
