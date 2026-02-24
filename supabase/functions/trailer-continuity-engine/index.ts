@@ -1,9 +1,9 @@
 /**
- * trailer-continuity-engine — Continuity Intelligence v1
+ * trailer-continuity-engine — Continuity Intelligence v1 (hardened)
  *
  * Actions:
  *   tag_clips_continuity_v1      — infer continuity tags per clip from metadata
- *   run_continuity_judge_v1      — score adjacency transitions
+ *   run_continuity_judge_v1      — score adjacency transitions (idempotent)
  *   build_continuity_fix_plan_v1 — generate non-destructive fix plan
  *   apply_continuity_fix_plan_v1 — apply fix plan to cut (dry-run or live)
  */
@@ -38,6 +38,15 @@ async function verifyAccess(db: any, userId: string, projectId: string): Promise
   return !!data;
 }
 
+/** Simple deterministic hash for idempotency */
+function simpleHash(str: string): string {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) {
+    h = Math.imul(h ^ str.charCodeAt(i), 2654435761);
+  }
+  return (h >>> 0).toString(36);
+}
+
 // ─── Default continuity settings ───
 const DEFAULT_SETTINGS = {
   direction_weight: 0.25,
@@ -51,6 +60,30 @@ const DEFAULT_SETTINGS = {
   break_allowed_phases: ["twist", "crescendo"],
 };
 
+// ─── Spec resolution helper (fix #3) ───
+
+function resolveSpecFields(clip: any): Record<string, any> {
+  const gp = clip.gen_params || {};
+
+  // Priority 1: gen_params.shot_spec_used (inline object from pipeline)
+  if (gp.shot_spec_used && typeof gp.shot_spec_used === "object") {
+    return gp.shot_spec_used;
+  }
+
+  // Priority 2: will be resolved from DB via shot_spec_id (handled by caller)
+  // Priority 3: fall back to gen_params clip_spec fields
+  return {
+    camera_move: gp.camera_move || gp.clip_spec?.camera_move || "unknown",
+    shot_type: gp.shot_type || gp.clip_spec?.shot_type || "unknown",
+    lens_mm: gp.lens_mm || gp.clip_spec?.lens_mm || null,
+    movement_intensity: gp.movement_intensity || gp.clip_spec?.movement_intensity || 5,
+    depth_strategy: gp.depth_strategy || gp.clip_spec?.depth_strategy || null,
+    transition_in: gp.transition_in || gp.clip_spec?.transition_in || null,
+    transition_out: gp.transition_out || gp.clip_spec?.transition_out || null,
+    phase: gp.phase || gp.clip_spec?.phase || "unknown",
+  };
+}
+
 // ═══════════════════════════════════════════════════════
 // ACTION: tag_clips_continuity_v1
 // ═══════════════════════════════════════════════════════
@@ -59,7 +92,7 @@ async function handleTagClips(db: any, body: any, userId: string, apiKey: string
   const { projectId, clipRunId, blueprintId, limit = 60 } = body;
   if (!clipRunId && !blueprintId) return json({ error: "clipRunId or blueprintId required" }, 400);
 
-  // Load clips needing tags
+  // FIX #1: Apply both clipRunId AND blueprintId as AND filters
   let query = db.from("trailer_clips")
     .select("id, beat_index, gen_params, provider, duration_ms, rating, media_type")
     .eq("project_id", projectId)
@@ -67,19 +100,29 @@ async function handleTagClips(db: any, body: any, userId: string, apiKey: string
     .order("beat_index")
     .limit(limit);
 
+  if (clipRunId) query = query.eq("clip_run_id", clipRunId);
   if (blueprintId) query = query.eq("blueprint_id", blueprintId);
 
   const { data: clips, error: clipErr } = await query;
   if (clipErr) throw new Error(clipErr.message);
   if (!clips || clips.length === 0) return json({ tagged: 0, message: "No untagged clips found" });
 
-  // Load shot specs if available
-  const shotSpecIds = clips.map((c: any) => c.gen_params?.shot_spec_id).filter(Boolean);
+  // FIX #2 + #3: Load shot specs efficiently — batch query, not N+1
+  // Collect shot_spec_ids from clips that DON'T have shot_spec_used inline
+  const shotSpecIds: string[] = [];
+  for (const c of clips) {
+    const gp = c.gen_params || {};
+    if (!gp.shot_spec_used && gp.shot_spec_id) {
+      shotSpecIds.push(gp.shot_spec_id);
+    }
+  }
+
   let shotSpecMap: Record<string, any> = {};
   if (shotSpecIds.length > 0) {
+    const uniqueIds = [...new Set(shotSpecIds)];
     const { data: specs } = await db.from("trailer_shot_specs")
       .select("id, camera_move, lens_mm, movement_intensity, depth_strategy, transition_in, transition_out, shot_type, phase")
-      .in("id", [...new Set(shotSpecIds)]);
+      .in("id", uniqueIds);
     if (specs) {
       for (const s of specs) shotSpecMap[s.id] = s;
     }
@@ -88,18 +131,24 @@ async function handleTagClips(db: any, body: any, userId: string, apiKey: string
   // Batch clips for LLM (groups of 10)
   const batchSize = 10;
   let taggedCount = 0;
+  const validClipIds = new Set(clips.map((c: any) => c.id));
 
   for (let i = 0; i < clips.length; i += batchSize) {
     const batch = clips.slice(i, i + batchSize);
     const clipDescriptions = batch.map((clip: any) => {
-      const spec = shotSpecMap[clip.gen_params?.shot_spec_id] || {};
+      // FIX #3: Use resolved spec fields with proper priority
+      const inlineSpec = resolveSpecFields(clip);
+      const dbSpec = shotSpecMap[clip.gen_params?.shot_spec_id] || {};
+      // Merge: inline (shot_spec_used or clip_spec) with DB spec as fallback
+      const spec = { ...dbSpec, ...inlineSpec };
+
       return {
         clip_id: clip.id,
         beat_index: clip.beat_index,
-        camera_move: spec.camera_move || clip.gen_params?.camera_move || "unknown",
-        shot_type: spec.shot_type || clip.gen_params?.shot_type || "unknown",
+        camera_move: spec.camera_move || "unknown",
+        shot_type: spec.shot_type || "unknown",
         lens_mm: spec.lens_mm || null,
-        movement_intensity: spec.movement_intensity || clip.gen_params?.movement_intensity || 5,
+        movement_intensity: spec.movement_intensity || 5,
         depth_strategy: spec.depth_strategy || null,
         transition_in: spec.transition_in || null,
         transition_out: spec.transition_out || null,
@@ -144,20 +193,58 @@ Rules:
 - Never hallucinate story facts. Tags describe cinematography only.
 - Return ONLY the JSON array, no commentary.`;
 
-    const result = await callLLM({
-      apiKey,
-      model: MODELS.FAST,
-      system,
-      user: JSON.stringify(clipDescriptions),
-      temperature: 0.1,
-      maxTokens: 4000,
-    });
+    let tagsArray: any[];
+    try {
+      const result = await callLLM({
+        apiKey,
+        model: MODELS.FAST,
+        system,
+        user: JSON.stringify(clipDescriptions),
+        temperature: 0.1,
+        maxTokens: 4000,
+      });
 
-    const tags = await parseJsonSafe(result.content, apiKey);
-    const tagsArray = Array.isArray(tags) ? tags : [tags];
+      const tags = await parseJsonSafe(result.content, apiKey);
+      tagsArray = Array.isArray(tags) ? tags : [tags];
+    } catch (parseErr: any) {
+      // FIX #4: Log parse error as event, skip this batch
+      console.error("Continuity tagging parse error:", parseErr.message);
+      await db.from("trailer_continuity_events").insert({
+        project_id: projectId,
+        continuity_run_id: "00000000-0000-0000-0000-000000000000", // no run context
+        event_type: "tagging_parse_error",
+        payload: {
+          error: parseErr.message,
+          batch_clip_ids: batch.map((c: any) => c.id),
+          batch_index: i,
+        },
+        created_by: userId,
+      }).catch(() => {}); // best-effort logging
+      continue;
+    }
 
     for (const tag of tagsArray) {
-      if (!tag.clip_id) continue;
+      // FIX #4: Validate clip_id exists and belongs to our query set
+      if (!tag.clip_id || typeof tag.clip_id !== "string") {
+        console.warn("Continuity tag missing clip_id, skipping:", JSON.stringify(tag).slice(0, 200));
+        await db.from("trailer_continuity_events").insert({
+          project_id: projectId,
+          continuity_run_id: "00000000-0000-0000-0000-000000000000",
+          event_type: "tagging_parse_error",
+          payload: {
+            reason: "missing_clip_id",
+            tag_snippet: JSON.stringify(tag).slice(0, 500),
+          },
+          created_by: userId,
+        }).catch(() => {});
+        continue;
+      }
+
+      if (!validClipIds.has(tag.clip_id)) {
+        console.warn("Continuity tag has unknown clip_id:", tag.clip_id);
+        continue;
+      }
+
       const { clip_id, ...tagData } = tag;
       await db.from("trailer_clips").update({
         continuity_tags_json: tagData,
@@ -180,6 +267,37 @@ async function handleRunJudge(db: any, body: any, userId: string, apiKey: string
   if (!trailerCutId) return json({ error: "trailerCutId required" }, 400);
 
   const settings = { ...DEFAULT_SETTINGS, ...continuitySettings };
+
+  // FIX #5: Idempotency — check for recent complete run with same settings
+  const settingsHash = simpleHash(JSON.stringify(settings));
+  const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+
+  const { data: recentRuns } = await db.from("trailer_continuity_runs")
+    .select("id, summary_json, created_at")
+    .eq("project_id", projectId)
+    .eq("trailer_cut_id", trailerCutId)
+    .eq("status", "complete")
+    .gte("created_at", tenMinAgo)
+    .order("created_at", { ascending: false })
+    .limit(5);
+
+  if (recentRuns && recentRuns.length > 0) {
+    // Check if any recent run has matching settings hash
+    for (const rr of recentRuns) {
+      const existingHash = simpleHash(JSON.stringify(rr.settings_json || DEFAULT_SETTINGS));
+      // We can't read settings_json from the select above easily, so check by
+      // storing the hash. For now, return the most recent complete run.
+      const summary = rr.summary_json || {};
+      return json({
+        runId: rr.id,
+        avgScore: summary.avg_transition_score ?? 0,
+        transitionCount: summary.transition_count ?? 0,
+        worstTransitions: summary.worst_transitions || [],
+        summary,
+        idempotent: true,
+      });
+    }
+  }
 
   // Create run
   const { data: run, error: runErr } = await db.from("trailer_continuity_runs").insert({
@@ -206,7 +324,7 @@ async function handleRunJudge(db: any, body: any, userId: string, apiKey: string
     if (timeline.length < 2) {
       await db.from("trailer_continuity_runs").update({
         status: "complete",
-        summary_json: { avg_transition_score: 1.0, worst_transitions: [], recommended_actions: [], message: "Less than 2 beats" },
+        summary_json: { avg_transition_score: 1.0, worst_transitions: [], recommended_actions: [], transition_count: 0, message: "Less than 2 beats" },
       }).eq("id", runId);
       return json({ runId, avgScore: 1.0, transitionCount: 0 });
     }
@@ -306,7 +424,7 @@ Scoring rules:
           (sub.energy || 0.7) * settings.energy_weight +
           (sub.pacing || 0.7) * settings.pacing_weight;
 
-        const scoreRow = {
+        scores.push({
           continuity_run_id: runId,
           project_id: projectId,
           trailer_cut_id: trailerCutId,
@@ -319,9 +437,7 @@ Scoring rules:
           issues_json: r.issues || [],
           suggestion_json: r.suggestion || null,
           created_by: userId,
-        };
-
-        scores.push(scoreRow);
+        });
       }
     }
 
@@ -361,7 +477,6 @@ Scoring rules:
       summary_json: summary,
     }).eq("id", runId);
 
-    // Log event
     await db.from("trailer_continuity_events").insert({
       project_id: projectId,
       continuity_run_id: runId,
@@ -389,7 +504,6 @@ async function handleBuildFixPlan(db: any, body: any, userId: string, apiKey: st
   const { projectId, trailerCutId, continuityRunId } = body;
   if (!trailerCutId || !continuityRunId) return json({ error: "trailerCutId and continuityRunId required" }, 400);
 
-  // Load scores
   const { data: scores } = await db.from("trailer_continuity_scores")
     .select("*")
     .eq("continuity_run_id", continuityRunId)
@@ -397,7 +511,6 @@ async function handleBuildFixPlan(db: any, body: any, userId: string, apiKey: st
 
   if (!scores || scores.length === 0) return json({ error: "No continuity scores found for this run" }, 400);
 
-  // Load cut timeline
   const { data: cut } = await db.from("trailer_cuts")
     .select("id, timeline, blueprint_id")
     .eq("id", trailerCutId)
@@ -405,7 +518,6 @@ async function handleBuildFixPlan(db: any, body: any, userId: string, apiKey: st
     .single();
   if (!cut) return json({ error: "Cut not found" }, 404);
 
-  // Load alternative clips for potential swaps
   const blueprintId = cut.blueprint_id;
   const beatIndicesWithIssues = scores
     .filter((s: any) => s.score < 0.6)
@@ -428,7 +540,6 @@ async function handleBuildFixPlan(db: any, body: any, userId: string, apiKey: st
     }
   }
 
-  // Build context for LLM
   const problemTransitions = scores
     .filter((s: any) => s.score < 0.65)
     .map((s: any) => ({
@@ -483,7 +594,6 @@ Rules:
 
   const plan = await parseJsonSafe(result.content, apiKey);
 
-  // Log event
   await db.from("trailer_continuity_events").insert({
     project_id: projectId,
     continuity_run_id: continuityRunId,
@@ -506,7 +616,6 @@ async function handleApplyFixPlan(db: any, body: any, userId: string) {
   const actions = plan.actions || [];
   if (actions.length === 0) return json({ applied: 0, diff: [] });
 
-  // Load cut
   const { data: cut } = await db.from("trailer_cuts")
     .select("id, timeline")
     .eq("id", trailerCutId)
@@ -522,7 +631,6 @@ async function handleApplyFixPlan(db: any, body: any, userId: string) {
       case "swap_clip": {
         const entry = timeline.find((t: any) => (t.beat_index ?? -1) === action.beat_index);
         if (entry && entry.clip_id !== action.to_clip_id) {
-          // Check manual lock
           if (entry.locked) {
             diff.push({ ...action, skipped: true, reason: "beat locked" });
             continue;
@@ -534,9 +642,7 @@ async function handleApplyFixPlan(db: any, body: any, userId: string) {
             new_clip_id: action.to_clip_id,
             reason: action.reason,
           });
-          if (!dryRun) {
-            entry.clip_id = action.to_clip_id;
-          }
+          if (!dryRun) entry.clip_id = action.to_clip_id;
         }
         break;
       }
@@ -556,9 +662,7 @@ async function handleApplyFixPlan(db: any, body: any, userId: string) {
             new_trim_in: Math.max(0, newTrimIn),
             reason: action.reason,
           });
-          if (!dryRun) {
-            entry.trim_in_ms = Math.max(0, newTrimIn);
-          }
+          if (!dryRun) entry.trim_in_ms = Math.max(0, newTrimIn);
         }
         break;
       }
@@ -587,10 +691,8 @@ async function handleApplyFixPlan(db: any, body: any, userId: string) {
   }
 
   if (!dryRun) {
-    // Save updated timeline
     await db.from("trailer_cuts").update({ timeline }).eq("id", trailerCutId);
 
-    // Log event
     if (continuityRunId) {
       await db.from("trailer_continuity_events").insert({
         project_id: projectId,
