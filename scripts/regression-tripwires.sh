@@ -17,7 +17,7 @@ fi
 
 echo ""
 echo "=== Regression Tripwire: setSearchParams({ used without merge helper ==="
-HITS2=$(grep -rn "setSearchParams({" src/ --include="*.ts" --include="*.tsx" | grep -v "node_modules" | grep -v "// ⚠" | grep -v "// WHY:" | grep -v "searchParams.ts" || true)
+HITS2=$(grep -rPn '^\s*[^/].*setSearchParams\(\s*\{' src/ --include="*.ts" --include="*.tsx" || true)
 if [ -n "$HITS2" ]; then
   echo "FAIL: setSearchParams({ found (must use updateSearchParams merge helper):"
   echo "$HITS2"
