@@ -193,63 +193,259 @@ async function handleCreateTrailerScript(db: any, body: any, userId: string, api
   if (runErr) return json({ error: runErr.message }, 500);
 
   try {
-    const system = composeSystem({
-      baseSystem: `You are a cinematic trailer scriptwriter with deep expertise in ${genreKey} trailers for ${platformKey} release.
-You write trailer scripts as structured beat sequences. Each beat belongs to a PHASE: hook, setup, escalation, twist, crescendo, button.
+    // ── IFFY Trailer Script Master Prompt ──
+    const systemMsg = `You are IFFY's Cinematic Trailer Architect.
+You output STRICT JSON only. No markdown. No commentary. No explanation.`;
 
-CRITICAL RULES:
-- Every beat MUST cite at least one source from the canon (source_refs_json). Use document type + excerpt.
-- quoted_dialogue MUST be actual dialogue from the source material, never invented.
-- movement_intensity_target must generally increase across phases (1-10 scale). Small dips are allowed ONLY if you provide a withholding_note explaining the creative intent.
-- At least 2 beats must have silence_before_ms or silence_after_ms > 0.
-- The crescendo phase MUST include at least one beat with shot_density_target >= 2.0 AND movement_intensity_target >= 7 (micro-montage intent).
-- text_card beats should be used sparingly (1-3 max) for maximum impact.
+    const userPrompt = `You are IFFY's Cinematic Trailer Architect.
 
-Return STRICT JSON array of beats matching this schema exactly:
-[{
-  "beat_index": 0,
-  "phase": "hook",
-  "title": "short title",
-  "emotional_intent": "what the audience should feel",
-  "quoted_dialogue": "exact quote from source or null",
-  "text_card": "on-screen text or null",
-  "withholding_note": "why we pull back here or null",
-  "trailer_moment_flag": false,
-  "silence_before_ms": 0,
-  "silence_after_ms": 0,
-  "movement_intensity_target": 5,
-  "shot_density_target": 1.0,
-  "contrast_delta_score": 0.5,
-  "source_refs_json": [{"doc_type": "script", "excerpt": "quoted text", "location": "scene/page ref"}],
-  "generator_hint_json": {"visual_prompt": "detailed prompt for AI video gen", "camera_move": "push_in", "shot_type": "close"}
-}]
+Your task is to create a STRUCTURED, EDITORIAL TRAILER SCRIPT that will directly power AI video generation (Veo + Runway) and rhythmic assembly.
 
-Target: 12-18 beats for a main trailer, 6-10 for teaser, 8-12 for character trailer.
-Seed for determinism: ${resolvedSeed}`,
-    });
+You are not writing a synopsis.
+You are not inventing scenes.
+You are designing a trailer experience.
 
-    const userPrompt = `Genre: ${genreKey}\nPlatform: ${platformKey}\nTrailer Type: ${trailerType}\nSeed: ${resolvedSeed}\n\n--- CANON PACK ---\n${canonText.slice(0, 16000)}`;
+You MUST strictly obey the CANON TEXT.
+You may ONLY use material present in the canon.
+You may reorder emphasis but NEVER invent new characters, locations, events, or dialogue.
+
+If uncertain:
+→ Use abstraction or implication.
+→ Do NOT fabricate.
+
+------------------------------------------------------------
+CONTEXT
+------------------------------------------------------------
+
+TRAILER TYPE: ${trailerType}
+GENRE: ${genreKey}
+PLATFORM TARGET: ${platformKey}
+TARGET LENGTH: 90–120 seconds
+SEED: ${resolvedSeed}
+
+CANON TEXT:
+${canonText.slice(0, 16000)}
+
+------------------------------------------------------------
+OBJECTIVE
+------------------------------------------------------------
+
+Design a theatrical, studio-grade trailer blueprint that:
+• Escalates emotionally and kinetically
+• Balances silence and impact
+• Uses contrast strategically
+• Supports AI-driven cinematic shot generation
+• Preserves narrative mystery
+
+This output will feed:
+→ Shot Design Engine
+→ Clip Generator
+→ Rhythm Grid
+→ Audio Engine
+
+So structure matters.
+
+------------------------------------------------------------
+TRAILER PHASE ARCHITECTURE
+------------------------------------------------------------
+
+1. HOOK
+2. SETUP
+3. ESCALATION
+4. TWIST
+5. CRESCENDO
+6. BUTTON
+
+Total beats: 8–14 maximum.
+Each phase: 1–3 beats.
+
+------------------------------------------------------------
+FOR EACH BEAT RETURN STRICT JSON OBJECT:
+------------------------------------------------------------
+
+{
+  "beat_index": number,
+  "phase": "hook|setup|escalation|twist|crescendo|button",
+  "title": "editorial label (short)",
+  "emotional_intent": "what audience should feel",
+  "quoted_dialogue": "short exact fragment from canon OR null",
+  "text_card": "marketing text card OR null",
+  "withholding_note": "what information we are deliberately not revealing",
+  "trailer_moment_flag": boolean,
+  "movement_intensity_target": number (1–10),
+  "shot_density_target": number (0.5–3.0),
+  "contrast_delta_score": number (0.0–1.0),
+  "silence_before_ms": number,
+  "silence_after_ms": number,
+  "source_refs_json": [
+    {
+      "doc_type": "script|outline|treatment|etc",
+      "location": "scene/page/section if known",
+      "excerpt": "short exact excerpt from canon"
+    }
+  ],
+  "generator_hint_json": {
+    "visual_prompt": "concise cinematic description grounded in canon",
+    "shot_type": "wide|medium|close|insert|montage",
+    "camera_move": "push_in|track|arc|handheld|static|whip_pan|crane|tilt|pull_out",
+    "lens_mm": number or null,
+    "movement_style": "restrained|measured|kinetic|micro-montage",
+    "preferred_provider": "runway|veo"
+  }
+}
+
+------------------------------------------------------------
+PHASE RULES
+------------------------------------------------------------
+
+HOOK
+• Immediate disruption, tension, or intrigue.
+• No exposition dump.
+• movement_intensity_target 4–6.
+• Often restrained with silence.
+
+SETUP
+• Establish tone and stakes.
+• movement_intensity_target 3–5.
+• Allow breathing room.
+
+ESCALATION
+• Raise stakes and energy.
+• movement_intensity_target 5–7.
+• Increase visual dynamism.
+
+TWIST
+• Reframe expectation.
+• Use silence_before_ms strategically.
+• movement_intensity_target 6–8.
+
+CRESCENDO
+• Micro-montage intensity.
+• Rapid tonal contrast.
+• shot_density_target >= 2.0.
+• movement_intensity_target >= 7.
+• Designed for kinetic AI video.
+
+BUTTON
+• Final emotional sting.
+• Often contrastive or restrained.
+• movement_intensity_target 4–6.
+
+------------------------------------------------------------
+ESCALATION RULES
+------------------------------------------------------------
+
+• Movement intensity must generally build across phases.
+• At least 2 beats must use silence windows.
+• Crescendo must include montage energy.
+• Contrast (quiet vs loud, slow vs fast) must exist.
+• Do NOT reveal full narrative resolution unless trailer_type="spoiler".
+
+------------------------------------------------------------
+CINEMATIC GUIDELINES
+------------------------------------------------------------
+
+• Think in shots, not scenes.
+• Design beats that can be visualised clearly.
+• Avoid vague description.
+• Avoid summary language.
+• Avoid generic marketing phrases.
+• Prioritise tension, contrast, implication.
+
+------------------------------------------------------------
+HARD CONSTRAINTS
+------------------------------------------------------------
+
+1. Every beat MUST contain at least 1 valid citation.
+2. quoted_dialogue MUST exist verbatim in canon.
+3. No fabricated imagery outside canon.
+4. No invented characters or events.
+5. If uncertain → imply, do not invent.
+
+------------------------------------------------------------
+QUALITY TARGET
+------------------------------------------------------------
+
+This must feel like:
+• A24 prestige trailer
+• Netflix flagship series launch
+• Warner Bros theatrical main trailer
+
+It must NOT feel like:
+• AI summary
+• Generic outline
+• Script recap
+• Scene breakdown
+
+------------------------------------------------------------
+RETURN STRICT JSON:
+------------------------------------------------------------
+
+{
+  "beats": [ ... ],
+  "structure_score": number (0–100),
+  "cinematic_score": number (0–100),
+  "warnings": [ "any structural or canon risks detected" ]
+}
+
+Return only valid JSON.
+No commentary.
+No explanation.
+No markdown.`;
 
     const result = await callLLM({
       apiKey,
       model: MODELS.PRO,
-      system,
+      system: systemMsg,
       user: userPrompt,
       temperature: 0.4,
-      maxTokens: 16000,
+      maxTokens: 14000,
     });
 
-    const beats = await parseJsonSafe(result.content, apiKey);
-    const beatArray = Array.isArray(beats) ? beats : (beats.beats || []);
+    const parsed = await parseJsonSafe(result.content, apiKey);
+    const beatArray: any[] = Array.isArray(parsed) ? parsed : (parsed.beats || []);
+
+    // Validate beat count
+    if (beatArray.length < 8 || beatArray.length > 14) {
+      const warn = `Beat count ${beatArray.length} outside 8-14 range`;
+      // Non-fatal: clamp or warn
+      console.warn(warn);
+    }
+
+    // Validate source_refs_json — hard fail if any beat has zero citations
+    const missingCitations = beatArray.filter((b: any) =>
+      !b.source_refs_json || !Array.isArray(b.source_refs_json) || b.source_refs_json.length === 0
+    );
+    if (missingCitations.length > 0) {
+      await db.from("trailer_script_runs").update({
+        status: "error",
+        warnings: [`${missingCitations.length} beat(s) missing source citations: indices ${missingCitations.map((b: any) => b.beat_index).join(", ")}`],
+      }).eq("id", run.id);
+      return json({
+        error: `Canon citation requirement failed: ${missingCitations.length} beat(s) have empty source_refs_json`,
+        beatIndices: missingCitations.map((b: any) => b.beat_index),
+      }, 400);
+    }
+
+    // Validate quoted_dialogue — must exist as substring in canon
+    for (const b of beatArray) {
+      if (b.quoted_dialogue && typeof b.quoted_dialogue === "string") {
+        const dialogueNorm = b.quoted_dialogue.toLowerCase().trim();
+        if (dialogueNorm.length > 0 && !canonText.toLowerCase().includes(dialogueNorm)) {
+          // Nullify fabricated dialogue and add warning
+          b.quoted_dialogue = null;
+          if (!parsed.warnings) parsed.warnings = [];
+          parsed.warnings.push(`Beat #${b.beat_index}: quoted_dialogue not found in canon, nullified`);
+        }
+      }
+    }
 
     // Run gates
-    const gateResult = runScriptGates(beatArray);
+    const gateResult = runScriptGates(beatArray, run);
 
-    // Compute scores
-    const silenceCount = beatArray.filter((b: any) => b.silence_before_ms > 0 || b.silence_after_ms > 0).length;
-    const avgMovement = beatArray.reduce((s: number, b: any) => s + (b.movement_intensity_target || 5), 0) / Math.max(beatArray.length, 1);
-    const structureScore = gateResult.passed ? 0.9 : 0.5;
-    const cinematicScore = Math.min(1, (avgMovement / 10 + silenceCount / beatArray.length) / 2);
+    // Use LLM-provided scores (0-100) or compute fallback
+    const structureScore = (parsed.structure_score != null ? parsed.structure_score / 100 : (gateResult.passed ? 0.9 : 0.5));
+    const cinematicScore = (parsed.cinematic_score != null ? parsed.cinematic_score / 100 : 0.7);
 
     // Insert beats
     const beatRows = beatArray.map((b: any, i: number) => ({
@@ -274,13 +470,16 @@ Seed for determinism: ${resolvedSeed}`,
     const { error: beatsErr } = await db.from("trailer_script_beats").insert(beatRows);
     if (beatsErr) throw new Error(`Insert beats failed: ${beatsErr.message}`);
 
+    // Merge all warnings
+    const allWarnings = [...(gateResult.failures || []), ...(parsed.warnings || [])];
+
     // Update run status
     const status = gateResult.passed ? "complete" : "needs_repair";
     await db.from("trailer_script_runs").update({
       status,
       structure_score: structureScore,
       cinematic_score: cinematicScore,
-      warnings: gateResult.failures,
+      warnings: allWarnings,
     }).eq("id", run.id);
 
     return json({
@@ -291,7 +490,7 @@ Seed for determinism: ${resolvedSeed}`,
       structureScore,
       cinematicScore,
       gatesPassed: gateResult.passed,
-      warnings: gateResult.failures,
+      warnings: allWarnings,
       seed: resolvedSeed,
     });
 
