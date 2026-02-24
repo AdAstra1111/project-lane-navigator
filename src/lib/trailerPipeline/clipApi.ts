@@ -66,4 +66,7 @@ export const clipEngineApi = {
 
   runTechnicalJudge: (projectId: string, blueprintId: string, clipRunId?: string) =>
     callClipEngine('run_technical_clip_judge', { projectId, blueprintId, clipRunId }),
+
+  regenerateLowQuality: (projectId: string, blueprintId: string, threshold?: number) =>
+    callClipEngine('regenerate_low_quality', { projectId, blueprintId, threshold }),
 };

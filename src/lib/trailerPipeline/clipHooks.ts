@@ -142,7 +142,17 @@ export function useClipEngineMutations(projectId: string | undefined) {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  return { enqueueForRun, processQueue, retryJob, cancelJob, selectClip, cancelAll, resetFailed, runTechnicalJudge };
+  const regenerateLowQuality = useMutation({
+    mutationFn: (params: { blueprintId: string; threshold?: number }) =>
+      clipEngineApi.regenerateLowQuality(projectId!, params.blueprintId, params.threshold),
+    onSuccess: () => {
+      toast.success('Re-enqueued low-quality beats for regeneration');
+      invalidateAll();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  return { enqueueForRun, processQueue, retryJob, cancelJob, selectClip, cancelAll, resetFailed, runTechnicalJudge, regenerateLowQuality };
 }
 
 /** Query clip scores for a blueprint */

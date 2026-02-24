@@ -902,33 +902,204 @@ async function downloadAndStore(db: any, videoUrl: string, projectId: string, bl
   return storagePath;
 }
 
+// ─── Helper: evaluate clip quality (inline, no AI call) ───
+
+function evaluateClipQuality(
+  clip: any, genProfile: any, beat: any, styleOptions: any
+): {
+  technical_score: number; motion_score: number; clarity_score: number;
+  artifact_score: number; style_match_score: number; framing_score: number;
+  auto_rejected: boolean; rejection_reason: string | null;
+  quality_flags_json: any;
+} {
+  const phase = beat?.phase || beat?.role || "";
+  const intensityTarget = beat?.movement_intensity_target || beat?.clip_spec?.movement_intensity || 5;
+  const cameraMove = beat?.clip_spec?.camera_move || "";
+  const prompt = clip.prompt || "";
+  const provider = clip.provider || "";
+  const genParams = clip.gen_params || clip.params_json || {};
+  const profileKey = genProfile?.key || genParams?.generation_profile?.key || "";
+  const negatives = genProfile?.negative_directives || [];
+  const flags: string[] = [];
+
+  // --- 1) Motion score (0-10) ---
+  let motion = 5;
+  const hasMotionWords = /track|dolly|push|pull|pan|whip|crane|arc|handheld|drift|follow/i.test(prompt);
+  const isStatic = cameraMove === "static" || /static|locked|still/i.test(prompt);
+  if (hasMotionWords) motion += 2;
+  if (isStatic && ["hook", "twist", "crescendo"].includes(phase)) {
+    motion -= 3;
+    flags.push("static_in_high_energy_phase");
+  }
+  if (intensityTarget >= 7) motion += 1;
+  if (intensityTarget >= 9) motion += 1;
+  if (provider === "runway") motion += 1; // Runway tends to produce better motion
+  motion = Math.max(0, Math.min(10, motion));
+
+  // --- 2) Clarity score (0-10) ---
+  let clarity = 7;
+  if (/sharp|crisp|clear|high.?res|4k/i.test(prompt)) clarity += 1;
+  if (/blur|soft|haze|fog/i.test(prompt) && phase !== "atmosphere") {
+    clarity -= 1;
+    flags.push("soft_focus_non_atmosphere");
+  }
+  if (provider === "veo") clarity += 0.5; // Veo generally sharper
+  clarity = Math.max(0, Math.min(10, clarity));
+
+  // --- 3) Artifact score (0-10, higher = cleaner) ---
+  let artifact = 8;
+  if (/warp|morph|distort/i.test(prompt)) {
+    artifact -= 2;
+    flags.push("prompt_mentions_warping");
+  }
+  if (provider === "runway") artifact -= 0.5; // Slightly more artifacts historically
+  artifact = Math.max(0, Math.min(10, artifact));
+
+  // --- 4) Style match score (0-10) ---
+  let styleMatch = 7;
+  const tonePreset = styleOptions?.tonePreset || "";
+  if (profileKey && prompt.toLowerCase().includes(profileKey.replace(/_/g, " "))) styleMatch += 1;
+  // Check negative violations
+  for (const neg of negatives) {
+    const negWords = neg.toLowerCase().replace(/^no\s+/, "").split(/\s+/).slice(0, 3).join(" ");
+    if (prompt.toLowerCase().includes(negWords)) {
+      styleMatch -= 1;
+      flags.push(`negative_violation: ${neg.slice(0, 40)}`);
+    }
+  }
+  if (tonePreset && /horror|dread/i.test(tonePreset) && /bright|cheerful|sunny/i.test(prompt)) {
+    styleMatch -= 2;
+    flags.push("tone_mismatch");
+  }
+  styleMatch = Math.max(0, Math.min(10, styleMatch));
+
+  // --- 5) Framing score (0-10) ---
+  let framing = 7;
+  if (/composition|rule.?of.?thirds|centered|symmetr/i.test(prompt)) framing += 1;
+  if (/cut.?off|awkward|crop/i.test(prompt)) {
+    framing -= 2;
+    flags.push("poor_framing_hint");
+  }
+  framing = Math.max(0, Math.min(10, framing));
+
+  // --- Composite ---
+  const technical_score = (motion * 0.25) + (clarity * 0.25) + (artifact * 0.25) + (styleMatch * 0.20) + (framing * 0.05);
+
+  // --- Auto rejection logic ---
+  let auto_rejected = false;
+  let rejection_reason: string | null = null;
+
+  if (technical_score < 6.0) {
+    auto_rejected = true;
+    rejection_reason = `Technical score ${technical_score.toFixed(1)} below 6.0 threshold`;
+  } else if (artifact < 4) {
+    auto_rejected = true;
+    rejection_reason = `Artifact score ${artifact.toFixed(1)} below 4.0 — likely visual defects`;
+  } else if (motion < 3 && ["hook", "crescendo"].includes(phase)) {
+    auto_rejected = true;
+    rejection_reason = `Motion score ${motion.toFixed(1)} too low for ${phase} phase`;
+  }
+
+  return {
+    technical_score: Math.round(technical_score * 100) / 100,
+    motion_score: Math.round(motion * 100) / 100,
+    clarity_score: Math.round(clarity * 100) / 100,
+    artifact_score: Math.round(artifact * 100) / 100,
+    style_match_score: Math.round(styleMatch * 100) / 100,
+    framing_score: Math.round(framing * 100) / 100,
+    auto_rejected,
+    rejection_reason,
+    quality_flags_json: flags.length > 0 ? flags : null,
+  };
+}
+
 // ─── Helper: finalize a completed clip ───
 
 async function finalizeClip(db: any, job: any, jobId: string, projectId: string, userId: string, storagePath: string, contentType: string, model: string) {
   const { data: pubData } = db.storage.from(STORAGE_BUCKET).getPublicUrl(storagePath);
   const publicUrl = pubData?.publicUrl || "";
 
+  // Load beat data for quality evaluation
+  let beatData: any = null;
+  let styleOpts: any = {};
+  let genProfile: any = null;
+  try {
+    const { data: bp } = await db.from("trailer_blueprints")
+      .select("edl, options").eq("id", job.blueprint_id).single();
+    beatData = bp?.edl?.[job.beat_index] || null;
+    const scriptRunId = bp?.options?.script_run_id;
+    if (scriptRunId) {
+      const { data: sr } = await db.from("trailer_script_runs")
+        .select("style_options_json").eq("id", scriptRunId).single();
+      styleOpts = sr?.style_options_json || {};
+    }
+    genProfile = job.params_json?.generation_profile || null;
+  } catch (e) {
+    console.warn("[finalizeClip] Could not load beat/style data for quality eval:", e);
+  }
+
+  // Evaluate quality
+  const quality = evaluateClipQuality(
+    { prompt: job.prompt, provider: job.provider, gen_params: job.params_json },
+    genProfile, beatData, styleOpts
+  );
+
+  const clipStatus = quality.auto_rejected ? "rejected" : "complete";
+
   const { data: clip } = await db.from("trailer_clips").insert({
     project_id: projectId, blueprint_id: job.blueprint_id, beat_index: job.beat_index,
-    provider: job.provider, status: "complete", media_type: contentType.startsWith("video") ? "video" : "image",
+    provider: job.provider, status: clipStatus, media_type: contentType.startsWith("video") ? "video" : "image",
     storage_path: storagePath, public_url: publicUrl, duration_ms: job.length_ms,
     gen_params: job.params_json, created_by: userId, job_id: jobId,
     clip_run_id: job.clip_run_id, candidate_index: job.candidate_index,
     seed: job.seed, model, mode: job.mode, aspect_ratio: job.aspect_ratio, fps: job.fps,
+    // Quality scores
+    technical_score: quality.technical_score,
+    motion_score: quality.motion_score,
+    clarity_score: quality.clarity_score,
+    artifact_score: quality.artifact_score,
+    style_match_score: quality.style_match_score,
+    framing_score: quality.framing_score,
+    auto_rejected: quality.auto_rejected,
+    rejection_reason: quality.rejection_reason,
+    quality_flags_json: quality.quality_flags_json,
   }).select().single();
 
   await db.from("trailer_clip_jobs").update({ status: "succeeded" }).eq("id", jobId);
   await updateRunCounters(db, job.clip_run_id);
 
+  // Log quality event
+  if (quality.auto_rejected) {
+    await logEvent(db, {
+      project_id: projectId, blueprint_id: job.blueprint_id,
+      beat_index: job.beat_index, job_id: jobId, clip_id: clip?.id,
+      event_type: "auto_rejected",
+      payload: {
+        technical_score: quality.technical_score,
+        motion_score: quality.motion_score,
+        clarity_score: quality.clarity_score,
+        artifact_score: quality.artifact_score,
+        style_match_score: quality.style_match_score,
+        rejection_reason: quality.rejection_reason,
+        flags: quality.quality_flags_json,
+      },
+      created_by: userId,
+    });
+  }
+
   await logEvent(db, {
     project_id: projectId, blueprint_id: job.blueprint_id,
     beat_index: job.beat_index, job_id: jobId, clip_id: clip?.id,
     event_type: "job_succeeded",
-    payload: { provider: job.provider, model, candidate_index: job.candidate_index },
+    payload: {
+      provider: job.provider, model, candidate_index: job.candidate_index,
+      technical_score: quality.technical_score,
+      auto_rejected: quality.auto_rejected,
+    },
     created_by: userId,
   });
 
-  return json({ ok: true, clipId: clip?.id, publicUrl });
+  return json({ ok: true, clipId: clip?.id, publicUrl, quality });
 }
 
 // ─── Helper: mark job failed ───
@@ -1025,7 +1196,7 @@ async function handleProgress(db: any, body: any) {
   const { data: jobs } = await db.from("trailer_clip_jobs").select("id, beat_index, status, provider, candidate_index")
     .eq("project_id", projectId).eq("blueprint_id", blueprintId);
 
-  const { data: clips } = await db.from("trailer_clips").select("beat_index, selected, id, provider, candidate_index, public_url, status")
+  const { data: clips } = await db.from("trailer_clips").select("beat_index, selected, id, provider, candidate_index, public_url, status, technical_score, auto_rejected, rejection_reason")
     .eq("project_id", projectId).eq("blueprint_id", blueprintId);
 
   const counts: Record<string, number> = { queued: 0, running: 0, polling: 0, succeeded: 0, failed: 0, canceled: 0, total: 0 };
@@ -1133,7 +1304,7 @@ async function handleListClips(db: any, body: any) {
   if (!blueprintId) return json({ error: "blueprintId required" }, 400);
   const { data } = await db.from("trailer_clips").select("*")
     .eq("project_id", projectId).eq("blueprint_id", blueprintId)
-    .order("beat_index").order("candidate_index");
+    .order("beat_index").order("technical_score", { ascending: false }).order("candidate_index");
   return json({ clips: data || [] });
 }
 
@@ -1587,6 +1758,34 @@ ${(clip.gen_params?.prompt || clip.gen_params?.clip_spec?.visual_prompt || "").t
   });
 }
 
+// ─── Action: regenerate_low_quality ───
+
+async function handleRegenerateLowQuality(db: any, body: any, userId: string) {
+  const { projectId, blueprintId, threshold = 6.0 } = body;
+  if (!blueprintId) return json({ error: "blueprintId required" }, 400);
+
+  // Find low-quality clips
+  const { data: lowClips } = await db.from("trailer_clips")
+    .select("beat_index, seed")
+    .eq("project_id", projectId)
+    .eq("blueprint_id", blueprintId)
+    .or(`technical_score.lt.${threshold},auto_rejected.eq.true`)
+    .not("selected", "eq", true);
+
+  if (!lowClips?.length) return json({ ok: true, regenerated: 0, message: "No low-quality clips to regenerate" });
+
+  const beatIndices = [...new Set(lowClips.map((c: any) => c.beat_index))];
+
+  // Re-enqueue these beats with force + seed modifier
+  const result = await handleEnqueueForRun(db, {
+    ...body,
+    force: true,
+    beatIndices,
+  }, userId);
+
+  return result;
+}
+
 // ─── Main handler ───
 
 Deno.serve(async (req) => {
@@ -1628,6 +1827,7 @@ Deno.serve(async (req) => {
       case "list_clips": return await handleListClips(db, body);
       case "list_jobs": return await handleListJobs(db, body);
       case "run_technical_clip_judge": return await handleRunTechnicalClipJudge(db, body, userId);
+      case "regenerate_low_quality": return await handleRegenerateLowQuality(db, body, userId);
       default: return json({ error: `Unknown action: ${action}` }, 400);
     }
   } catch (err: any) {

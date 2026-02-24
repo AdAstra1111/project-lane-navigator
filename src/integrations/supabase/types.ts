@@ -16800,91 +16800,118 @@ export type Database = {
       }
       trailer_clips: {
         Row: {
+          artifact_score: number | null
           aspect_ratio: string
+          auto_rejected: boolean
           beat_index: number
           blueprint_id: string
           candidate_index: number
+          clarity_score: number | null
           clip_run_id: string | null
           created_at: string
           created_by: string
           duration_ms: number | null
           error: string | null
           fps: number
+          framing_score: number | null
           gen_params: Json
           id: string
           job_id: string | null
           media_type: string
           mode: string
           model: string | null
+          motion_score: number | null
           project_id: string
           provider: string
           public_url: string | null
+          quality_flags_json: Json | null
           rating: number | null
+          rejection_reason: string | null
           score_json: Json
           seed: string | null
           selected: boolean
           status: string
           storage_path: string | null
+          style_match_score: number | null
+          technical_score: number | null
           thumb_path: string | null
           updated_at: string
           used_in_cut: boolean
         }
         Insert: {
+          artifact_score?: number | null
           aspect_ratio?: string
+          auto_rejected?: boolean
           beat_index: number
           blueprint_id: string
           candidate_index?: number
+          clarity_score?: number | null
           clip_run_id?: string | null
           created_at?: string
           created_by: string
           duration_ms?: number | null
           error?: string | null
           fps?: number
+          framing_score?: number | null
           gen_params?: Json
           id?: string
           job_id?: string | null
           media_type?: string
           mode?: string
           model?: string | null
+          motion_score?: number | null
           project_id: string
           provider?: string
           public_url?: string | null
+          quality_flags_json?: Json | null
           rating?: number | null
+          rejection_reason?: string | null
           score_json?: Json
           seed?: string | null
           selected?: boolean
           status?: string
           storage_path?: string | null
+          style_match_score?: number | null
+          technical_score?: number | null
           thumb_path?: string | null
           updated_at?: string
           used_in_cut?: boolean
         }
         Update: {
+          artifact_score?: number | null
           aspect_ratio?: string
+          auto_rejected?: boolean
           beat_index?: number
           blueprint_id?: string
           candidate_index?: number
+          clarity_score?: number | null
           clip_run_id?: string | null
           created_at?: string
           created_by?: string
           duration_ms?: number | null
           error?: string | null
           fps?: number
+          framing_score?: number | null
           gen_params?: Json
           id?: string
           job_id?: string | null
           media_type?: string
           mode?: string
           model?: string | null
+          motion_score?: number | null
           project_id?: string
           provider?: string
           public_url?: string | null
+          quality_flags_json?: Json | null
           rating?: number | null
+          rejection_reason?: string | null
           score_json?: Json
           seed?: string | null
           selected?: boolean
           status?: string
           storage_path?: string | null
+          style_match_score?: number | null
+          technical_score?: number | null
           thumb_path?: string | null
           updated_at?: string
           used_in_cut?: boolean
