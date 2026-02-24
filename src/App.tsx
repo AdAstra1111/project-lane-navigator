@@ -67,6 +67,7 @@ const StoryboardsPage = lazy(() => import("./pages/StoryboardsPage"));
 const VisualReferencesPage = lazy(() => import("./pages/VisualReferencesPage"));
 const ScriptIntakePage = lazy(() => import("./pages/ScriptIntakePage"));
 const Processing = lazy(() => import("./pages/Processing"));
+const QuickReview = lazy(() => import("./pages/QuickReview"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 const NotesInbox = lazy(() => import("./pages/NotesInbox"));
 const AiTrailerBuilder = lazy(() => import("./pages/AiTrailerBuilder"));
@@ -162,6 +163,7 @@ const AnimatedRoutes = () => {
           <Route path="/projects/:id/visual-dev/trailer/clips" element={<ProtectedRoute><ClipCandidatesStudio /></ProtectedRoute>} />
           <Route path="/projects/:id/visual-dev/trailer/assemble" element={<ProtectedRoute><TrailerTimelineStudio /></ProtectedRoute>} />
           <Route path="/processing" element={<Processing />} />
+          <Route path="/quick-review" element={<QuickReview />} />
           <Route path="/invite" element={<AcceptInvite />} />
           <Route path="/share/pack/:token" element={<SharePackView />} />
           <Route path="*" element={<NotFound />} />
