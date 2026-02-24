@@ -2,7 +2,7 @@
  * Trailer Script Studio — 3-panel layout for cinematic script editing
  * Left: beats list | Center: beat detail editor | Right: citations panel
  */
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -19,6 +19,7 @@ import {
   Film, Loader2, Play, AlertTriangle, Check, BookOpen,
   Quote, Volume2, Zap, Wrench, Lock, ArrowRight, RefreshCw,
   Settings2, ChevronDown, Plus, Trash2, Sparkles, Shield,
+  Layers, Star, CheckCircle2,
 } from 'lucide-react';
 import { StagedProgressBar } from '@/components/system/StagedProgressBar';
 import {
@@ -220,7 +221,10 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
   const {
     createFullPlan, createScript, createRhythmGrid,
     createShotDesign, runJudge, repairScript, startClipGeneration,
+    createScriptVariants, selectScriptRun,
   } = useCinematicMutations(projectId);
+
+  const [showVariantsPanel, setShowVariantsPanel] = useState(false);
 
   const activeRun = useMemo(() =>
     scriptRuns?.find((r: any) => r.id === selectedRunId) || scriptRuns?.[0],
@@ -248,10 +252,7 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
   const canGenerateClips = activeRun?.status === 'complete' &&
     allCitationsPresent && judgePassed && latestShotDesign;
 
-  // Auto-select first run
-  if (scriptRuns?.length && !selectedRunId) {
-    setSelectedRunId(scriptRuns[0].id);
-  }
+  // (auto-select moved below selectedRun declaration)
 
   const extraPayload = {
     inspirationRefs: inspirationTrailers.length > 0 ? inspirationTrailers : undefined,
@@ -285,8 +286,36 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
     });
   };
 
-  const isGenerating = createFullPlan.isPending || createScript.isPending;
+  const isGenerating = createFullPlan.isPending || createScript.isPending || createScriptVariants.isPending;
   const isRepairing = repairScript.isPending;
+
+  const handleGenerateVariants = useCallback(() => {
+    if (!canonPackId) { toast.error('No canon pack selected'); return; }
+    createScriptVariants.mutate({
+      canonPackId, trailerType, genreKey, platformKey,
+      styleOptions, ...extraPayload,
+      variants: ['A', 'B', 'C'],
+    }, {
+      onSuccess: () => setShowVariantsPanel(true),
+    });
+  }, [canonPackId, trailerType, genreKey, platformKey, styleOptions, extraPayload]);
+
+  // Variant runs from script runs
+  const variantRuns = useMemo(() =>
+    (scriptRuns || []).filter((r: any) => r.variant_label),
+    [scriptRuns]
+  );
+
+  const selectedRun = useMemo(() =>
+    (scriptRuns || []).find((r: any) => r.is_selected),
+    [scriptRuns]
+  );
+
+  // Auto-select: prefer is_selected run, then first run
+  const autoTarget = selectedRun?.id || scriptRuns?.[0]?.id;
+  if (scriptRuns?.length && !selectedRunId && autoTarget) {
+    setSelectedRunId(autoTarget);
+  }
 
   // Saved style options from the active run
   const savedOpts = activeRun?.style_options_json as TrailerStyleOptions | undefined;
@@ -545,6 +574,10 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
           {createScript.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Film className="h-3 w-3 mr-1" />}
           Script Only
         </Button>
+        <Button size="sm" variant="outline" onClick={handleGenerateVariants} disabled={isGenerating || !canonPackId}>
+          {createScriptVariants.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Layers className="h-3 w-3 mr-1" />}
+          Variants A/B/C
+        </Button>
         {activeRun && (
           <>
             <Button size="sm" variant="outline"
@@ -568,6 +601,71 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
           </>
         )}
       </div>
+
+      {/* Variants Comparison Panel */}
+      {showVariantsPanel && variantRuns.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center justify-between">
+              <span className="flex items-center gap-1.5">
+                <Layers className="h-3.5 w-3.5" /> Script Variants
+              </span>
+              <Button variant="ghost" size="sm" className="text-[10px] h-6" onClick={() => setShowVariantsPanel(false)}>
+                Hide
+              </Button>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pb-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {variantRuns.map((run: any) => {
+                const isActive = run.id === selectedRunId;
+                const isSelected = run.is_selected;
+                return (
+                  <Card key={run.id} className={`border ${isSelected ? 'border-primary ring-1 ring-primary/30' : isActive ? 'border-accent' : 'border-border'}`}>
+                    <CardContent className="p-3 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <Badge variant="secondary" className="text-[10px] font-bold">{run.variant_label || '?'}</Badge>
+                          <Badge variant={run.status === 'complete' ? 'default' : run.status === 'needs_repair' ? 'destructive' : 'secondary'} className="text-[9px]">
+                            {run.status}
+                          </Badge>
+                          {isSelected && (
+                            <Badge className="text-[9px] bg-primary/20 text-primary border-primary/30">
+                              <Star className="h-2 w-2 mr-0.5" /> Active
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-1 text-[10px]">
+                        <span className="text-muted-foreground">Structure</span>
+                        <span className="font-mono text-right">{run.structure_score != null ? Number(run.structure_score).toFixed(2) : '—'}</span>
+                        <span className="text-muted-foreground">Cinematic</span>
+                        <span className="font-mono text-right">{run.cinematic_score != null ? Number(run.cinematic_score).toFixed(2) : '—'}</span>
+                        <span className="text-muted-foreground">Warnings</span>
+                        <span className="font-mono text-right">{run.warnings?.length || 0}</span>
+                      </div>
+                      <div className="flex gap-1.5">
+                        <Button size="sm" variant="ghost" className="text-[10px] h-6 flex-1" onClick={() => {
+                          setSelectedRunId(run.id);
+                          setShowVariantsPanel(false);
+                        }}>
+                          View
+                        </Button>
+                        <Button size="sm" variant={isSelected ? 'secondary' : 'default'} className="text-[10px] h-6 flex-1"
+                          disabled={isSelected || selectScriptRun.isPending}
+                          onClick={() => selectScriptRun.mutate({ scriptRunId: run.id })}>
+                          {isSelected ? <CheckCircle2 className="h-2.5 w-2.5 mr-0.5" /> : <Star className="h-2.5 w-2.5 mr-0.5" />}
+                          {isSelected ? 'Selected' : 'Select'}
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Progress bar during generation */}
       {isGenerating && (

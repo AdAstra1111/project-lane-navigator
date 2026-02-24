@@ -124,4 +124,27 @@ export const cinematicApi = {
     scriptRunId: string;
     forceNewVersion?: boolean;
   }) => callCinematicEngine('export_trailer_script_document_v1', params),
+
+  /** Generate A/B/C script variants */
+  createScriptVariants: (params: {
+    projectId: string;
+    canonPackId: string;
+    trailerType?: string;
+    genreKey?: string;
+    platformKey?: string;
+    seedBase?: string;
+    styleOptions?: TrailerStyleOptions;
+    variants?: string[];
+    inspirationRefs?: { title: string; url?: string; notes?: string }[];
+    referenceNotes?: string;
+    avoidNotes?: string;
+    strictCanonMode?: 'strict' | 'balanced';
+    targetLengthMs?: number;
+  }) => callCinematicEngine('create_script_variants_v1', params),
+
+  /** Select a script run as the active one */
+  selectScriptRun: (params: {
+    projectId: string;
+    scriptRunId: string;
+  }) => callCinematicEngine('select_script_run_v1', params),
 };

@@ -17681,6 +17681,7 @@ export type Database = {
           genre_key: string
           id: string
           inspiration_refs_json: Json
+          is_selected: boolean
           movement_curve_json: Json | null
           platform_key: string
           project_id: string
@@ -17694,6 +17695,7 @@ export type Database = {
           style_preset_key: string | null
           target_length_ms: number | null
           trailer_type: string
+          variant_label: string | null
           warnings: string[] | null
         }
         Insert: {
@@ -17711,6 +17713,7 @@ export type Database = {
           genre_key?: string
           id?: string
           inspiration_refs_json?: Json
+          is_selected?: boolean
           movement_curve_json?: Json | null
           platform_key?: string
           project_id: string
@@ -17724,6 +17727,7 @@ export type Database = {
           style_preset_key?: string | null
           target_length_ms?: number | null
           trailer_type?: string
+          variant_label?: string | null
           warnings?: string[] | null
         }
         Update: {
@@ -17741,6 +17745,7 @@ export type Database = {
           genre_key?: string
           id?: string
           inspiration_refs_json?: Json
+          is_selected?: boolean
           movement_curve_json?: Json | null
           platform_key?: string
           project_id?: string
@@ -17754,6 +17759,7 @@ export type Database = {
           style_preset_key?: string | null
           target_length_ms?: number | null
           trailer_type?: string
+          variant_label?: string | null
           warnings?: string[] | null
         }
         Relationships: [

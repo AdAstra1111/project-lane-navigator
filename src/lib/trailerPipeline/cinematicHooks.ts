@@ -223,6 +223,39 @@ export function useCinematicMutations(projectId: string | undefined) {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  const createScriptVariants = useMutation({
+    mutationFn: (params: {
+      canonPackId: string;
+      trailerType?: string;
+      genreKey?: string;
+      platformKey?: string;
+      seedBase?: string;
+      styleOptions?: TrailerStyleOptions;
+      variants?: string[];
+      inspirationRefs?: { title: string; url?: string; notes?: string }[];
+      referenceNotes?: string;
+      avoidNotes?: string;
+      strictCanonMode?: 'strict' | 'balanced';
+      targetLengthMs?: number;
+    }) => cinematicApi.createScriptVariants({ projectId: projectId!, ...params }),
+    onSuccess: (data) => {
+      const ok = data.variants?.filter((v: any) => v.scriptRunId).length || 0;
+      toast.success(`Generated ${ok} script variant(s)`);
+      qc.invalidateQueries({ queryKey: ['cinematic-script-runs', projectId] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const selectScriptRun = useMutation({
+    mutationFn: (params: { scriptRunId: string }) =>
+      cinematicApi.selectScriptRun({ projectId: projectId!, ...params }),
+    onSuccess: () => {
+      toast.success('Script run selected as active');
+      qc.invalidateQueries({ queryKey: ['cinematic-script-runs', projectId] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   return {
     createFullPlan,
     createScript,
@@ -232,6 +265,8 @@ export function useCinematicMutations(projectId: string | undefined) {
     repairScript,
     startClipGeneration,
     exportTrailerScriptDocument,
+    createScriptVariants,
+    selectScriptRun,
   };
 }
 
