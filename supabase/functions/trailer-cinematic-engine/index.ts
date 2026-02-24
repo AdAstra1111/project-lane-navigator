@@ -70,8 +70,13 @@ const PHASES_ORDERED = ["hook", "setup", "escalation", "twist", "crescendo", "bu
 
 interface GateResult { passed: boolean; failures: string[]; }
 
-function runScriptGates(beats: any[]): GateResult {
+function runScriptGates(beats: any[], scriptRun?: any): GateResult {
   const failures: string[] = [];
+
+  // Gate 0: canon_context_hash must exist on the script run
+  if (scriptRun && !scriptRun.canon_context_hash) {
+    failures.push("Script run has no canon_context_hash — was it generated without a canon pack?");
+  }
 
   // Gate 1: All beats must have source_refs_json with at least 1 entry
   const missingRefs = beats.filter((b: any) => !b.source_refs_json || (Array.isArray(b.source_refs_json) && b.source_refs_json.length === 0));
@@ -542,8 +547,22 @@ async function handleRunJudge(db: any, body: any, userId: string, apiKey: string
   const { projectId, scriptRunId, rhythmRunId, shotDesignRunId } = body;
   if (!scriptRunId) return json({ error: "scriptRunId required" }, 400);
 
+  // Fetch script run for canon context
+  const { data: scriptRun } = await db.from("trailer_script_runs")
+    .select("canon_pack_id, canon_context_hash").eq("id", scriptRunId).single();
+
   const { data: beats } = await db.from("trailer_script_beats")
     .select("*").eq("script_run_id", scriptRunId).order("beat_index");
+
+  // Load canon anchors for judge to verify citations against
+  let canonSummary = "";
+  if (scriptRun?.canon_pack_id) {
+    try {
+      const packCtx = await compileTrailerContext(db, projectId, scriptRun.canon_pack_id);
+      // Give judge a condensed version to verify citations
+      canonSummary = packCtx.mergedText.slice(0, 6000);
+    } catch { /* non-fatal for judge */ }
+  }
 
   let rhythmData: any = null;
   if (rhythmRunId) {
@@ -572,12 +591,12 @@ async function handleRunJudge(db: any, body: any, userId: string, apiKey: string
 
   try {
     const beatSummary = (beats || []).map((b: any) =>
-      `#${b.beat_index} ${b.phase}: intent="${b.emotional_intent}" movement=${b.movement_intensity_target} density=${b.shot_density_target || "?"} refs=${(b.source_refs_json || []).length} silence_before=${b.silence_before_ms} silence_after=${b.silence_after_ms}`
+      `#${b.beat_index} ${b.phase}: intent="${b.emotional_intent}" movement=${b.movement_intensity_target} density=${b.shot_density_target || "?"} refs=${(b.source_refs_json || []).length} silence_before=${b.silence_before_ms} silence_after=${b.silence_after_ms}${b.quoted_dialogue ? ` dialogue="${b.quoted_dialogue.slice(0, 60)}"` : ""}${(b.source_refs_json || []).length > 0 ? ` citations=[${(b.source_refs_json || []).map((r: any) => `${r.doc_type}:"${(r.excerpt || "").slice(0, 40)}"`).join(", ")}]` : ""}`
     ).join("\n");
 
     const system = `You are a cinematic trailer judge. Score this trailer plan on these dimensions (0.0-1.0):
 
-1. canon_adherence: Do all beats cite real source material? Are quotes accurate?
+1. canon_adherence: Do all beats cite real source material? Are quotes accurate? Cross-reference citations against the provided CANON TEXT.
 2. movement_escalation: Does movement intensity properly build across phases?
 3. contrast_density: Are there enough tonal shifts (loud/quiet, fast/slow)?
 4. silence_usage: Are silence windows placed for maximum emotional impact?
@@ -605,7 +624,8 @@ Return STRICT JSON:
   ]
 }`;
 
-    const userPrompt = `BEATS:\n${beatSummary}\n\n${rhythmData ? `RHYTHM: BPM=${rhythmData.bpm}, drop_ms=${rhythmData.drop_timestamp_ms}` : ""}\n\n${shotSpecs.length > 0 ? `SHOTS: ${shotSpecs.length} specs across ${new Set(shotSpecs.map((s: any) => s.shot_type)).size} types` : ""}`;
+    const canonSection = canonSummary ? `\n\nCANON TEXT (verify citations against this):\n${canonSummary}` : "";
+    const userPrompt = `BEATS:\n${beatSummary}\n\n${rhythmData ? `RHYTHM: BPM=${rhythmData.bpm}, drop_ms=${rhythmData.drop_timestamp_ms}` : ""}\n\n${shotSpecs.length > 0 ? `SHOTS: ${shotSpecs.length} specs across ${new Set(shotSpecs.map((s: any) => s.shot_type)).size} types` : ""}${canonSection}`;
 
     const result = await callLLM({
       apiKey,
@@ -815,32 +835,81 @@ async function sha256Short(input: string): Promise<string> {
   return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, "0")).join("").slice(0, 40);
 }
 
-function routeProvider(phase: string, hintJson?: any): { provider: string; candidates: number } {
-  // Explicit provider hint takes priority
-  if (hintJson?.provider) {
-    return { provider: hintJson.provider, candidates: hintJson.candidates || 2 };
+function routeProvider(phase: string, hintJson?: any, beatHint?: any): { provider: string; candidates: number; source: string } {
+  // Priority a) shot spec hint
+  if (hintJson?.preferred_provider) {
+    return { provider: hintJson.preferred_provider, candidates: hintJson.candidates || 2, source: "shot_spec_hint" };
   }
+  // Priority b) beat generator hint
+  if (beatHint?.preferred_provider) {
+    return { provider: beatHint.preferred_provider, candidates: beatHint.candidates || 2, source: "beat_hint" };
+  }
+  // Priority c) phase rule
   if (HERO_PHASES.has(phase)) {
-    return { provider: "runway", candidates: 2 };
+    return { provider: "runway", candidates: 2, source: "phase_rule" };
   }
-  return { provider: "veo", candidates: 1 };
+  return { provider: "veo", candidates: 1, source: "phase_rule" };
 }
 
 function clampDuration(ms: number | null | undefined, phase: string): number {
-  const val = ms || 3000;
+  // Phase-specific defaults when no target_duration_ms
+  const phaseDefaults: Record<string, number> = {
+    hook: 3000, setup: 3500, escalation: 2500,
+    twist: 2500, crescendo: 900, button: 1800,
+  };
+  const val = ms || phaseDefaults[phase] || 3000;
+  // Crescendo micro-shots can go shorter
+  const min = phase === "crescendo" ? 700 : 1200;
   const max = phase === "button" ? 8000 : 6000;
-  return Math.max(1200, Math.min(max, val));
+  return Math.max(min, Math.min(max, val));
 }
 
-function buildClipPrompt(beat: any, spec: any): string {
+// Camera move to cinematic language mapping
+const CAMERA_MOVE_MAP: Record<string, string> = {
+  push_in: "slow push-in / dolly-in toward subject",
+  pull_out: "pull-out / dolly-out revealing space",
+  track: "lateral tracking shot, motivated camera move",
+  arc: "arc around subject, parallax foreground",
+  handheld: "handheld kinetic micro-shake, intimate energy",
+  whip_pan: "whip pan transition, sudden kinetic burst",
+  crane: "crane shot, elevated sweeping movement",
+  tilt: "tilt up/down, vertical reveal",
+  dolly_zoom: "dolly zoom / Hitchcock vertigo effect",
+  static: "locked-off static frame, composed stillness",
+};
+
+function lensDescription(mm: number | null): string {
+  if (!mm) return "";
+  if (mm <= 24) return `${mm}mm wide-angle — expansive energy, spatial depth`;
+  if (mm <= 35) return `${mm}mm wide — grounded natural perspective`;
+  if (mm <= 50) return `${mm}mm normal — intimate natural eye`;
+  if (mm <= 85) return `${mm}mm portrait — compressed close-up, shallow depth of field`;
+  return `${mm}mm telephoto — extreme compression, voyeuristic isolation`;
+}
+
+function buildClipPrompt(beat: any, spec: any, canonAnchors?: string): string {
   const lines: string[] = [];
 
-  // Shot grammar — cinematic language
-  const shotDesc = `${spec.camera_move || "static"} ${spec.shot_type || "medium"} shot`;
-  const lensDesc = spec.lens_mm ? `, ${spec.lens_mm}mm lens` : "";
-  const depthDesc = spec.depth_strategy ? `, ${spec.depth_strategy} depth of field` : "";
-  const fgDesc = spec.foreground_element ? `, foreground: ${spec.foreground_element}` : "";
-  lines.push(`CAMERA: ${shotDesc}${lensDesc}${depthDesc}${fgDesc}`);
+  // Explicit cinematic shot language
+  lines.push("CINEMATIC SHOT — moving camera, motivated composition.");
+
+  // Camera grammar
+  const moveDesc = CAMERA_MOVE_MAP[spec.camera_move] || spec.camera_move || "static";
+  const shotType = spec.shot_type || "medium";
+  lines.push(`CAMERA: ${shotType} shot, ${moveDesc}`);
+
+  // Lens
+  const lens = lensDescription(spec.lens_mm);
+  if (lens) lines.push(`LENS: ${lens}`);
+
+  // Depth + foreground
+  if (spec.depth_strategy) {
+    const depthLabel = spec.depth_strategy === "shallow" ? "shallow depth of field, bokeh background"
+      : spec.depth_strategy === "deep" ? "deep focus, everything sharp"
+      : `${spec.depth_strategy} depth of field`;
+    lines.push(`DEPTH: ${depthLabel}`);
+  }
+  if (spec.foreground_element) lines.push(`FOREGROUND: parallax foreground element — ${spec.foreground_element}`);
 
   // Lighting & mood
   if (spec.lighting_note) lines.push(`LIGHTING: ${spec.lighting_note}`);
@@ -848,23 +917,36 @@ function buildClipPrompt(beat: any, spec: any): string {
 
   // Movement intensity
   const intensity = spec.movement_intensity || beat.movement_intensity_target || 5;
-  if (intensity >= 7) {
-    lines.push("ENERGY: kinetic, fast cuts, high movement");
+  if (intensity >= 8) {
+    lines.push("ENERGY: rapid kinetic movement, micro-montage velocity, handheld urgency");
+  } else if (intensity >= 6) {
+    lines.push("ENERGY: kinetic, purposeful camera movement, building tension");
   } else if (intensity >= 4) {
-    lines.push("ENERGY: measured, deliberate camera movement");
+    lines.push("ENERGY: measured, deliberate motivated camera move");
   } else {
-    lines.push("ENERGY: slow, contemplative, minimal movement");
+    lines.push("ENERGY: slow, contemplative, minimal movement, breathing space");
   }
 
   // Withholding / silence context
   if (beat.withholding_note) lines.push(`RESTRAINT: ${beat.withholding_note}`);
+
+  // Quoted dialogue fragment (brief only)
+  if (beat.quoted_dialogue) {
+    const frag = beat.quoted_dialogue.length > 80 ? beat.quoted_dialogue.slice(0, 80) + "…" : beat.quoted_dialogue;
+    lines.push(`DIALOGUE MOMENT: "${frag}"`);
+  }
 
   // Visual prompt from hint
   const hint = spec.prompt_hint_json || beat.generator_hint_json || {};
   if (hint.visual_prompt) lines.push(`VISUAL: ${hint.visual_prompt}`);
   if (hint.style) lines.push(`STYLE: ${hint.style}`);
 
-  // Citation summary (not full text — just labels for grounding)
+  // Canon anchors (short, grounding context)
+  if (canonAnchors && canonAnchors.length > 0) {
+    lines.push(`CANON CONTEXT: ${canonAnchors}`);
+  }
+
+  // Citation labels for grounding
   const refs = beat.source_refs_json || [];
   if (refs.length > 0) {
     const refLabels = refs.slice(0, 3).map((r: any) =>
@@ -876,10 +958,32 @@ function buildClipPrompt(beat: any, spec: any): string {
   // Transitions
   if (spec.transition_in && spec.transition_in !== "hard_cut") lines.push(`TRANSITION IN: ${spec.transition_in}`);
 
-  // Negative constraints
-  lines.push("NEGATIVES: no text overlays, no watermarks, no logos, no UI elements, no new characters beyond those established in the source material");
+  // Negative constraints (CRITICAL)
+  lines.push("NEGATIVES: Do NOT introduce new characters, locations, props, or plot events not in the provided canon. If uncertain, use abstract/atmospheric imagery rather than inventing specifics. No text overlays, no watermarks, no logos, no UI elements.");
 
   return lines.join("\n");
+}
+
+/** Extract a short canon anchor excerpt relevant to a beat's citations */
+function extractCanonAnchors(beat: any, packItems: any[], maxChars = 1200): string {
+  const refs = beat.source_refs_json || [];
+  if (refs.length === 0 || packItems.length === 0) return "";
+
+  // Match citations to pack items by doc_type
+  const anchors: string[] = [];
+  let totalChars = 0;
+
+  for (const ref of refs.slice(0, 3)) {
+    if (totalChars >= maxChars) break;
+    // Use the excerpt from the citation itself
+    if (ref.excerpt) {
+      const excerpt = ref.excerpt.slice(0, Math.min(400, maxChars - totalChars));
+      anchors.push(`[${ref.doc_type || "source"}]: "${excerpt}"`);
+      totalChars += excerpt.length + 20;
+    }
+  }
+
+  return anchors.join(" | ");
 }
 
 // ─── ACTION 6: Start Clip Generation from Shot Specs ───
@@ -888,11 +992,15 @@ async function handleStartClipGeneration(db: any, body: any, userId: string) {
   const { projectId, scriptRunId, shotDesignRunId, rhythmRunId, manualOverride } = body;
   if (!scriptRunId || !shotDesignRunId) return json({ error: "scriptRunId and shotDesignRunId required" }, 400);
 
-  // ── Gate 1: script must be complete ──
+  // ── Gate 1: script must be complete + have canon hash ──
   const { data: scriptRun } = await db.from("trailer_script_runs")
-    .select("status, trailer_type, seed, canon_pack_id").eq("id", scriptRunId).eq("project_id", projectId).single();
+    .select("status, trailer_type, seed, canon_pack_id, canon_context_hash, canon_context_meta_json")
+    .eq("id", scriptRunId).eq("project_id", projectId).single();
   if (!scriptRun || scriptRun.status !== "complete") {
     return json({ error: `Script run status is '${scriptRun?.status || "not found"}', must be 'complete' to generate clips` }, 400);
+  }
+  if (!scriptRun.canon_context_hash) {
+    return json({ error: "Script run has no canon_context_hash — regenerate with a canon pack" }, 400);
   }
 
   // ── Gate 2: judge must have passed (or manualOverride) ──
@@ -927,7 +1035,7 @@ async function handleStartClipGeneration(db: any, body: any, userId: string) {
     }, 400);
   }
 
-  // ── Fetch shot specs with beat join ──
+  // ── Fetch shot specs ──
   const { data: shotSpecs } = await db.from("trailer_shot_specs")
     .select("*")
     .eq("shot_design_run_id", shotDesignRunId);
@@ -936,8 +1044,9 @@ async function handleStartClipGeneration(db: any, body: any, userId: string) {
     return json({ error: "No shot specs found for this shot design run" }, 400);
   }
 
-  // Build beat lookup
+  // Build beat lookup + pack items for canon anchors
   const beatMap = new Map((allBeats || []).map((b: any) => [b.id, b]));
+  const packItems = scriptRun.canon_context_meta_json?.used || [];
 
   // ── Create v2 blueprint shim (required: trailer_clip_runs/jobs have NOT NULL blueprint_id) ──
   const edlItems = (allBeats || []).map((b: any) => ({
@@ -947,6 +1056,7 @@ async function handleStartClipGeneration(db: any, body: any, userId: string) {
     text_card: b.text_card || null,
     movement_intensity_target: b.movement_intensity_target,
     shot_density_target: b.shot_density_target,
+    target_duration_ms: null,
   }));
 
   const { data: blueprint, error: bpErr } = await db.from("trailer_blueprints").insert({
@@ -957,7 +1067,7 @@ async function handleStartClipGeneration(db: any, body: any, userId: string) {
     rhythm_analysis: { source: "cinematic_engine_v2", script_run_id: scriptRunId, rhythm_run_id: rhythmRunId || null },
     audio_plan: {},
     text_card_plan: {},
-    options: { v2: true, shot_design_run_id: shotDesignRunId, script_run_id: scriptRunId },
+    options: { v2: true, shot_design_run_id: shotDesignRunId, script_run_id: scriptRunId, canon_context_hash: scriptRun.canon_context_hash },
     created_by: userId,
   }).select().single();
   if (bpErr) return json({ error: `Blueprint shim creation failed: ${bpErr.message}` }, 500);
@@ -978,21 +1088,27 @@ async function handleStartClipGeneration(db: any, body: any, userId: string) {
   // ── Build and enqueue jobs ──
   const jobsToInsert: any[] = [];
   const providerCounts: Record<string, number> = {};
+  const phaseCounts: Record<string, number> = {};
+  const previewJobs: any[] = [];
 
   for (const spec of shotSpecs) {
     const beat = beatMap.get(spec.beat_id);
     if (!beat) continue;
 
     const phase = beat.phase || "setup";
-    const { provider, candidates } = routeProvider(phase, spec.prompt_hint_json);
+    const { provider, candidates, source: providerSource } = routeProvider(phase, spec.prompt_hint_json, beat.generator_hint_json);
     const lengthMs = clampDuration(spec.target_duration_ms, phase);
-    const prompt = buildClipPrompt(beat, spec);
+    const canonAnchors = extractCanonAnchors(beat, packItems);
+    const prompt = buildClipPrompt(beat, spec, canonAnchors);
 
     for (let ci = 0; ci < candidates; ci++) {
-      const idemInput = `${projectId}|${blueprint.id}|${beat.beat_index}|${provider}|text_to_video|${ci}|${lengthMs}|${runSeed}|${spec.shot_index}`;
+      // Deterministic per-candidate seed
+      const candidateSeed = `${runSeed}-b${beat.beat_index}-s${spec.shot_index}-c${ci}`;
+      // Idempotency includes scriptRunId for v2
+      const idemInput = `${projectId}|${blueprint.id}|${scriptRunId}|${beat.beat_index}|${spec.shot_index}|${provider}|text_to_video|${ci}|${lengthMs}|${candidateSeed}`;
       const idempotencyKey = await sha256Short(idemInput);
 
-      jobsToInsert.push({
+      const job = {
         project_id: projectId,
         blueprint_id: blueprint.id,
         clip_run_id: clipRun.id,
@@ -1003,49 +1119,73 @@ async function handleStartClipGeneration(db: any, body: any, userId: string) {
         length_ms: lengthMs,
         aspect_ratio: "16:9",
         fps: 24,
-        seed: runSeed,
+        seed: candidateSeed,
         prompt,
         init_image_paths: [],
         params_json: {
+          script_run_id: scriptRunId,
+          shot_design_run_id: shotDesignRunId,
+          rhythm_run_id: rhythmRunId || null,
+          beat_phase: phase,
+          beat_index: beat.beat_index,
+          shot_index: spec.shot_index,
           shot_type: spec.shot_type,
           lens_mm: spec.lens_mm,
           camera_move: spec.camera_move,
           movement_intensity: spec.movement_intensity,
           depth_strategy: spec.depth_strategy,
           foreground_element: spec.foreground_element,
-          lighting_note: spec.lighting_note,
-          transition_in: spec.transition_in,
-          transition_out: spec.transition_out,
-          phase,
-          script_run_id: scriptRunId,
-          shot_design_run_id: shotDesignRunId,
+          target_duration_ms: lengthMs,
+          canon_context_hash: scriptRun.canon_context_hash,
+          preferred_provider_source: providerSource,
           shot_spec_id: spec.id,
         },
         status: "queued",
         attempt: 0,
         idempotency_key: idempotencyKey,
-      });
+      };
 
+      jobsToInsert.push(job);
       providerCounts[provider] = (providerCounts[provider] || 0) + 1;
-    }
-  }
+      phaseCounts[phase] = (phaseCounts[phase] || 0) + 1;
 
-  // Batch upsert with idempotency
-  if (jobsToInsert.length > 0) {
-    const { error: insertErr } = await db.from("trailer_clip_jobs").upsert(jobsToInsert, {
-      onConflict: "idempotency_key",
-      ignoreDuplicates: true,
-    });
-    if (insertErr) {
-      // Fallback: insert one by one
-      for (const job of jobsToInsert) {
-        await db.from("trailer_clip_jobs").upsert(job, {
-          onConflict: "idempotency_key",
-          ignoreDuplicates: true,
+      if (previewJobs.length < 8) {
+        previewJobs.push({
+          beat_index: beat.beat_index,
+          shot_index: spec.shot_index,
+          provider,
+          candidate_index: ci,
+          length_ms: lengthMs,
+          phase,
+          camera_move: spec.camera_move,
         });
       }
     }
   }
+
+  // Batch upsert with idempotency
+  let jobsExisting = 0;
+  if (jobsToInsert.length > 0) {
+    const { error: insertErr, count } = await db.from("trailer_clip_jobs").upsert(jobsToInsert, {
+      onConflict: "idempotency_key",
+      ignoreDuplicates: true,
+      count: "exact",
+    });
+    if (insertErr) {
+      // Fallback: insert one by one
+      for (const job of jobsToInsert) {
+        const { error: singleErr } = await db.from("trailer_clip_jobs").upsert(job, {
+          onConflict: "idempotency_key",
+          ignoreDuplicates: true,
+        });
+        if (singleErr) jobsExisting++;
+      }
+    } else {
+      jobsExisting = jobsToInsert.length - (count || jobsToInsert.length);
+    }
+  }
+
+  const jobsCreated = jobsToInsert.length - jobsExisting;
 
   // Update clip run totals
   await db.from("trailer_clip_runs").update({
@@ -1067,18 +1207,21 @@ async function handleStartClipGeneration(db: any, body: any, userId: string) {
     ok: true,
     clipRunId: clipRun.id,
     blueprintId: blueprint.id,
-    totalJobs: jobsToInsert.length,
+    jobsCreated,
+    jobsExisting,
     byProvider: providerCounts,
-    firstJobIds: jobsToInsert.slice(0, 5).map(j => j.idempotency_key),
+    byPhase: phaseCounts,
+    firstQueuedJobsPreview: previewJobs,
     progress: {
       status: "running",
       total: jobsToInsert.length,
       done: 0,
       failed: 0,
-      queued: jobsToInsert.length,
+      queued: jobsCreated,
     },
     gatesPassed: true,
     manualOverride: !!manualOverride,
+    canonContextHash: scriptRun.canon_context_hash,
   });
 }
 

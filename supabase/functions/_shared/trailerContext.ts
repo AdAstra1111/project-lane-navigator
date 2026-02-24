@@ -15,6 +15,18 @@ export interface PackContextItem {
   char_count: number;
 }
 
+export interface PackContextMeta {
+  pack_id: string;
+  primary_cap: number;
+  supporting_cap: number;
+  merged_cap: number;
+  total_chars_before_cap: number;
+  total_chars_after_cap: number;
+  used: Array<{ document_id: string; version_id: string | null; role: string; doc_type: string; chars: number }>;
+  dropped: Array<{ document_id: string; version_id: string | null; role: string; reason: string }>;
+  total_chars: number;
+}
+
 export interface PackContext {
   pack: any;
   items: PackContextItem[];
@@ -23,16 +35,8 @@ export interface PackContext {
   supportingText: string;
   /** SHA-256 hex hash of mergedText for auditability */
   contextHash: string;
-  /** Metadata for auditing: doc/version ids, char counts, caps applied */
-  contextMeta: {
-    pack_id: string;
-    items: Array<{ document_id: string; version_id: string | null; role: string; doc_type: string; char_count: number }>;
-    primary_cap: number;
-    supporting_cap: number;
-    merged_cap: number;
-    total_chars_before_cap: number;
-    total_chars_after_cap: number;
-  };
+  /** Metadata for auditing */
+  contextMeta: PackContextMeta;
 }
 
 // ─── Caps (match ai-trailer-factory) ───
@@ -78,24 +82,33 @@ export async function compileTrailerContext(
     .select("id, title, doc_type").in("id", docIds);
   const docMap = new Map((docs || []).map((d: any) => [d.id, d]));
 
-  // 5. Resolve version IDs (explicit or latest)
-  const explicitVersionIds = sorted.filter((i: any) => i.version_id).map((i: any) => i.version_id);
-  const needLatest = sorted.filter((i: any) => !i.version_id).map((i: any) => i.document_id);
+  // 5. Resolve version IDs (explicit or current)
+  const needCurrent = sorted.filter((i: any) => !i.version_id).map((i: any) => i.document_id);
 
-  const latestMap = new Map<string, string>();
-  if (needLatest.length > 0) {
-    const { data: latestVers } = await db.from("project_document_versions")
-      .select("id, document_id").in("document_id", needLatest)
-      .order("version_number", { ascending: false });
-    for (const v of (latestVers || [])) {
-      if (!latestMap.has(v.document_id)) latestMap.set(v.document_id, v.id);
+  const currentMap = new Map<string, string>();
+  if (needCurrent.length > 0) {
+    const { data: currentVers } = await db.from("project_document_versions")
+      .select("id, document_id").in("document_id", needCurrent)
+      .eq("is_current", true);
+    for (const v of (currentVers || [])) {
+      currentMap.set(v.document_id, v.id);
+    }
+    // Fallback for docs without is_current: use latest by version_number
+    const stillMissing = needCurrent.filter(did => !currentMap.has(did));
+    if (stillMissing.length > 0) {
+      const { data: latestVers } = await db.from("project_document_versions")
+        .select("id, document_id").in("document_id", stillMissing)
+        .order("version_number", { ascending: false });
+      for (const v of (latestVers || [])) {
+        if (!currentMap.has(v.document_id)) currentMap.set(v.document_id, v.id);
+      }
     }
   }
 
   // 6. Batch fetch all plaintext in one query
   const allVersionIds: string[] = [];
   for (const item of sorted) {
-    const vid = item.version_id || latestMap.get(item.document_id);
+    const vid = item.version_id || currentMap.get(item.document_id);
     if (vid) allVersionIds.push(vid);
   }
 
@@ -108,13 +121,30 @@ export async function compileTrailerContext(
     }
   }
 
-  // 7. Build items array
+  // 7. Build items array + track dropped
   const items: PackContextItem[] = [];
+  const dropped: PackContextMeta["dropped"] = [];
+
   for (const item of sorted) {
     const doc = docMap.get(item.document_id);
-    if (!doc) continue;
-    const versionId = item.version_id || latestMap.get(item.document_id) || null;
-    const plaintext = versionId ? (versionContentMap.get(versionId) || "") : "";
+    if (!doc) {
+      dropped.push({ document_id: item.document_id, version_id: item.version_id, role: item.role, reason: "document_not_found" });
+      continue;
+    }
+    const versionId = item.version_id || currentMap.get(item.document_id) || null;
+    if (!versionId) {
+      // Primary items MUST resolve
+      if (item.role === "primary") {
+        throw new Error(`Primary document "${doc.title}" (${item.document_id}) has no version to resolve — cannot proceed`);
+      }
+      dropped.push({ document_id: item.document_id, version_id: null, role: item.role, reason: "no_version_found" });
+      continue;
+    }
+    const plaintext = versionContentMap.get(versionId) || "";
+    if (plaintext.length === 0) {
+      dropped.push({ document_id: item.document_id, version_id: versionId, role: item.role, reason: "empty_plaintext" });
+      continue;
+    }
     items.push({
       document_id: item.document_id,
       version_id: versionId,
@@ -125,6 +155,10 @@ export async function compileTrailerContext(
       plaintext,
       char_count: plaintext.length,
     });
+  }
+
+  if (items.length === 0) {
+    throw new Error("Canon pack empty/insufficient: all documents were dropped (no resolvable text)");
   }
 
   // 8. Apply caps
@@ -145,20 +179,22 @@ export async function compileTrailerContext(
 
   // 11. Build audit metadata
   const totalCharsBefore = items.reduce((s, i) => s + i.char_count, 0);
-  const contextMeta = {
+  const contextMeta: PackContextMeta = {
     pack_id: packId,
-    items: items.map(i => ({
-      document_id: i.document_id,
-      version_id: i.version_id,
-      role: i.role,
-      doc_type: i.doc_type,
-      char_count: i.char_count,
-    })),
     primary_cap: PRIMARY_CAP,
     supporting_cap: SUPPORTING_CAP,
     merged_cap: MERGED_CAP,
     total_chars_before_cap: totalCharsBefore,
     total_chars_after_cap: mergedText.length,
+    total_chars: totalCharsBefore,
+    used: items.map(i => ({
+      document_id: i.document_id,
+      version_id: i.version_id,
+      role: i.role,
+      doc_type: i.doc_type,
+      chars: i.char_count,
+    })),
+    dropped,
   };
 
   return { pack, items, mergedText, primariesText, supportingText, contextHash, contextMeta };
