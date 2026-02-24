@@ -595,6 +595,39 @@ async function handleValidateTrims(db: any, body: any) {
   return json({ ok: true, valid: issues.length === 0, issues });
 }
 
+// ─── Delete Cut ───
+async function handleDeleteCut(db: any, body: any, userId: string) {
+  const { projectId, cutId } = body;
+  if (!cutId) return json({ error: "cutId required" }, 400);
+
+  // Only allow deleting failed or draft cuts
+  const { data: cut, error: fetchErr } = await db
+    .from("trailer_cuts")
+    .select("id, status, storage_path")
+    .eq("id", cutId)
+    .eq("project_id", projectId)
+    .single();
+
+  if (fetchErr || !cut) return json({ error: "Cut not found" }, 404);
+  if (!["failed", "draft", "error"].includes(cut.status)) {
+    return json({ error: `Cannot delete cut with status '${cut.status}'. Only failed/draft cuts can be deleted.` }, 400);
+  }
+
+  // Clean up storage if there's a file
+  if (cut.storage_path) {
+    await db.storage.from("trailers").remove([cut.storage_path]);
+  }
+
+  // Delete events first (FK)
+  await db.from("trailer_cut_events").delete().eq("cut_id", cutId);
+
+  // Delete the cut
+  const { error: delErr } = await db.from("trailer_cuts").delete().eq("id", cutId).eq("project_id", projectId);
+  if (delErr) return json({ error: delErr.message }, 500);
+
+  return json({ ok: true, deleted: cutId });
+}
+
 // ─── Main handler ───
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -628,6 +661,7 @@ Deno.serve(async (req) => {
       case "get_timeline": return await handleGetTimeline(db, body);
       case "fix_trims": return await handleFixTrims(db, body, userId);
       case "validate_trims": return await handleValidateTrims(db, body);
+      case "delete_cut": return await handleDeleteCut(db, body, userId);
       default: return json({ error: `Unknown action: ${action}` }, 400);
     }
   } catch (err: any) {

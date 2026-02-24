@@ -87,7 +87,7 @@ export default function TrailerTimelineStudio() {
   const { data: renderData } = useRenderProgress(projectId, cutId);
 
   // Mutations
-  const { createCut, updateBeat, reorderBeats, finalizeRun, setCutStatus, exportBeatlist, fixTrims, validateTrims } =
+  const { createCut, updateBeat, reorderBeats, finalizeRun, setCutStatus, exportBeatlist, fixTrims, validateTrims, deleteCut } =
     useAssemblerMutations(projectId);
   const { upsertAudioRun, generateAudioPlan, enqueueRender, retryRender, cancelRender } =
     useAudioMutations(projectId);
@@ -361,20 +361,41 @@ export default function TrailerTimelineStudio() {
                 ) : (
                   <div className="space-y-1">
                     {cuts.map((c: any) => (
-                      <button key={c.id}
-                        onClick={() => setSearchParams({ blueprintId: blueprintId || c.blueprint_id, cutId: c.id })}
-                        className={`w-full text-left px-2 py-1.5 rounded text-xs transition-colors ${
-                          cutId === c.id ? 'bg-primary/10 border border-primary/30' : 'hover:bg-muted border border-transparent'
-                        }`}>
-                        <div className="flex items-center justify-between">
-                          <span className="font-mono">{c.id.slice(0, 8)}</span>
-                          <Badge variant={
-                            c.status === 'ready' ? 'default' : c.status === 'failed' ? 'destructive' :
-                            c.status === 'rendering' ? 'secondary' : 'outline'
-                          } className="text-[10px]">{c.status}</Badge>
-                        </div>
-                        <div className="text-muted-foreground">{c.arc_type || 'cut'} · {formatTimecode(c.duration_ms || 0)}</div>
-                      </button>
+                      <div key={c.id} className="flex items-center gap-1">
+                        <button
+                          onClick={() => setSearchParams({ blueprintId: blueprintId || c.blueprint_id, cutId: c.id })}
+                          className={`flex-1 text-left px-2 py-1.5 rounded text-xs transition-colors ${
+                            cutId === c.id ? 'bg-primary/10 border border-primary/30' : 'hover:bg-muted border border-transparent'
+                          }`}>
+                          <div className="flex items-center justify-between">
+                            <span className="font-mono">{c.id.slice(0, 8)}</span>
+                            <Badge variant={
+                              c.status === 'ready' ? 'default' : c.status === 'failed' ? 'destructive' :
+                              c.status === 'rendering' ? 'secondary' : 'outline'
+                            } className="text-[10px]">{c.status}</Badge>
+                          </div>
+                          <div className="text-muted-foreground">{c.arc_type || 'cut'} · {formatTimecode(c.duration_ms || 0)}</div>
+                        </button>
+                        {['failed', 'draft', 'error'].includes(c.status) && (
+                          <Button
+                            variant="ghost" size="icon"
+                            className="h-6 w-6 shrink-0 text-destructive hover:bg-destructive/10"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (confirm('Delete this failed cut?')) {
+                                deleteCut.mutate(c.id, {
+                                  onSuccess: () => {
+                                    if (cutId === c.id) setSearchParams({ blueprintId: blueprintId || '' });
+                                  },
+                                });
+                              }
+                            }}
+                            disabled={deleteCut.isPending}
+                          >
+                            <X className="h-3 w-3" />
+                          </Button>
+                        )}
+                      </div>
                     ))}
                   </div>
                 )}

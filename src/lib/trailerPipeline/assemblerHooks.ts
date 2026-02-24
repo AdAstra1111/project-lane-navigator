@@ -107,5 +107,14 @@ export function useAssemblerMutations(projectId: string | undefined) {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  return { createCut, updateBeat, reorderBeats, finalizeRun, setCutStatus, exportBeatlist, fixTrims, validateTrims };
+  const deleteCut = useMutation({
+    mutationFn: (cutId: string) => assemblerApi.deleteCut(projectId!, cutId),
+    onSuccess: () => {
+      toast.success('Cut deleted');
+      invalidateAll();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  return { createCut, updateBeat, reorderBeats, finalizeRun, setCutStatus, exportBeatlist, fixTrims, validateTrims, deleteCut };
 }

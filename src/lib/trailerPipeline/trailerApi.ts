@@ -75,4 +75,6 @@ export const assemblerApi = {
     callFn('trailer-assembler', 'fix_trims', { projectId, cutId }),
   validateTrims: (projectId: string, cutId: string) =>
     callFn('trailer-assembler', 'validate_trims', { projectId, cutId }),
+  deleteCut: (projectId: string, cutId: string) =>
+    callFn('trailer-assembler', 'delete_cut', { projectId, cutId }),
 };
