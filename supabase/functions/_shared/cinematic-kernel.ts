@@ -5,6 +5,7 @@
 import type { CinematicUnit, CinematicScore } from "./cinematic-model.ts";
 import type { AdapterResult } from "./cinematic-adapters.ts";
 import { scoreCinematic } from "./cinematic-score.ts";
+import { extractStyleAnchors } from "./cinematic-style-lock.ts";
 import { recordAttempt0, recordFinal, flushCinematicSummaryIfDue } from "./cinematic-telemetry.ts";
 
 export interface CinematicQualityGateEvent {
@@ -102,7 +103,11 @@ export async function enforceCinematicQuality<T>(opts: CinematicQualityOpts<T>):
   }
 
   // Repair attempt (exactly once)
-  const instruction = buildRepairInstruction(score0);
+  let instruction = buildRepairInstruction(score0);
+  const anchors = extractStyleAnchors(opts.rawOutput);
+  if (anchors.length > 0) {
+    instruction += `\n\nSTYLE LOCK (MUST PRESERVE):\n${anchors.map((a) => `• ${a}`).join("\n")}\nDo not rename, swap, or remove these anchors.`;
+  }
   const repaired = await regenerateOnce(instruction);
 
   const { units: units1, mode: mode1 } = runAdapter(adapter, repaired);
