@@ -21,7 +21,9 @@ import { useScriptRuns } from '@/lib/trailerPipeline/cinematicHooks';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { supabase } from '@/integrations/supabase/client';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Plus } from 'lucide-react';
+import { toast } from 'sonner';
 
 export default function TrailerPipelinePage() {
   const { id: projectId } = useParams<{ id: string }>();
@@ -47,6 +49,27 @@ export default function TrailerPipelinePage() {
   const { data: scriptRuns } = useScriptRuns(projectId);
   const { data: bpListData } = useBlueprints(projectId);
   const hasLegacyBlueprints = (bpListData?.blueprints || []).length > 0;
+  const queryClient = useQueryClient();
+
+  const createPackMutation = useMutation({
+    mutationFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+      const { data, error } = await supabase
+        .from('trailer_definition_packs')
+        .insert({ project_id: projectId!, title: `Canon Pack ${(canonPacks?.length || 0) + 1}`, created_by: user.id, updated_by: user.id })
+        .select('id')
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['trailer-definition-packs', projectId] });
+      setCanonPackId(data.id);
+      toast.success('Canon pack created');
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
 
   // Auto-select first script run and canon pack
   if (scriptRuns?.length && !selectedScriptRunId) {
@@ -70,7 +93,10 @@ export default function TrailerPipelinePage() {
           {/* Canon Pack Selector */}
           <div className="flex items-center gap-2 ml-4">
             <Label className="text-[10px] text-muted-foreground">Canon Pack</Label>
-            <Select value={canonPackId || ''} onValueChange={setCanonPackId}>
+            <Select value={canonPackId || ''} onValueChange={(v) => {
+              if (v === '__create__') { createPackMutation.mutate(); return; }
+              setCanonPackId(v);
+            }}>
               <SelectTrigger className="h-7 w-[160px] text-xs"><SelectValue placeholder="Select pack" /></SelectTrigger>
               <SelectContent>
                 {(canonPacks || []).map((cp: any) => (
@@ -78,6 +104,9 @@ export default function TrailerPipelinePage() {
                     {cp.title || cp.id.slice(0, 8)}
                   </SelectItem>
                 ))}
+                <SelectItem value="__create__" className="text-primary">
+                  <span className="flex items-center gap-1"><Plus className="h-3 w-3" /> New Pack</span>
+                </SelectItem>
               </SelectContent>
             </Select>
           </div>
