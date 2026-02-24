@@ -44,7 +44,7 @@ function buildRailLinks(projectId: string): RailLink[] {
 /* ── Operating Mode Toggle ── */
 function OperatingModeToggle({ mode, onChange }: { mode: OperatingMode; onChange: (m: OperatingMode) => void }) {
   return (
-    <div className="flex items-center rounded-full border border-border/40 bg-muted/20 p-0.5">
+    <div className="flex items-center gap-3 h-6">
       {(['develop', 'produce'] as const).map((m) => {
         const active = mode === m;
         return (
@@ -52,10 +52,10 @@ function OperatingModeToggle({ mode, onChange }: { mode: OperatingMode; onChange
             key={m}
             onClick={() => onChange(m)}
             className={cn(
-              'px-3 py-1 text-[11px] font-medium rounded-full transition-all capitalize',
+              'text-xs font-medium capitalize pb-0.5 transition-opacity duration-150 border-b',
               active
-                ? 'bg-primary text-primary-foreground shadow-sm'
-                : 'text-muted-foreground hover:text-foreground',
+                ? 'text-foreground border-foreground/40'
+                : 'text-muted-foreground/50 border-transparent hover:text-foreground/70',
             )}
           >
             {m}
