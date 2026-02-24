@@ -744,6 +744,15 @@ No markdown.`;
       warnings: allWarnings,
     }).eq("id", run.id);
 
+    // Auto-export as project document (fire-and-forget, don't block return)
+    if (status === "complete") {
+      try {
+        await handleExportTrailerScriptDocument(db, { projectId, scriptRunId: run.id }, userId);
+      } catch (exportErr: any) {
+        console.warn("Auto-export trailer script document failed:", exportErr.message);
+      }
+    }
+
     return json({
       ok: true,
       scriptRunId: run.id,
@@ -1970,6 +1979,175 @@ async function handleStartClipGeneration(db: any, body: any, userId: string) {
   });
 }
 
+// ─── ACTION 8: Export Trailer Script as Project Document ───
+
+async function handleExportTrailerScriptDocument(db: any, body: any, userId: string) {
+  const { projectId, scriptRunId, forceNewVersion = false } = body;
+  if (!scriptRunId) return json({ error: "scriptRunId required" }, 400);
+
+  // Load script run
+  const { data: scriptRun } = await db.from("trailer_script_runs")
+    .select("*").eq("id", scriptRunId).eq("project_id", projectId).single();
+  if (!scriptRun) return json({ error: "Script run not found" }, 404);
+
+  // Load beats
+  const { data: beats } = await db.from("trailer_script_beats")
+    .select("*").eq("script_run_id", scriptRunId).order("beat_index");
+  if (!beats?.length) return json({ error: "No beats found" }, 400);
+
+  // Load project title
+  const { data: project } = await db.from("projects")
+    .select("title, format").eq("id", projectId).single();
+  const projectTitle = project?.title || "Untitled";
+
+  // Build formatted plaintext
+  const trailerType = scriptRun.trailer_type || "main";
+  const platformKey = scriptRun.platform_key || "theatrical";
+  const docTitle = `${projectTitle} — Trailer Script (${trailerType}, ${platformKey})`;
+
+  const lines: string[] = [
+    `# ${docTitle}`,
+    "",
+    `**Trailer Type:** ${trailerType}`,
+    `**Platform:** ${platformKey}`,
+    `**Genre:** ${scriptRun.genre_key || "drama"}`,
+    `**Seed:** ${scriptRun.seed || "—"}`,
+    `**Canon Context Hash:** ${scriptRun.canon_context_hash || "—"}`,
+    `**Generated:** ${new Date(scriptRun.created_at).toISOString().slice(0, 10)}`,
+    "",
+    "---",
+    "",
+    "## Beat Breakdown",
+    "",
+  ];
+
+  for (const beat of beats) {
+    lines.push(`### Beat ${beat.beat_index}: ${beat.title || beat.phase}`);
+    lines.push(`**Phase:** ${beat.phase} | **Movement:** ${beat.movement_intensity_target}/10 | **Density:** ${beat.shot_density_target || "—"}`);
+    lines.push(`**Intent:** ${beat.emotional_intent || "—"}`);
+    if (beat.quoted_dialogue) lines.push(`**Dialogue:** _"${beat.quoted_dialogue}"_`);
+    if (beat.text_card) lines.push(`**Text Card:** ${beat.text_card}`);
+    if (beat.withholding_note) lines.push(`**Withholding:** ${beat.withholding_note}`);
+    if (beat.silence_before_ms > 0 || beat.silence_after_ms > 0) {
+      lines.push(`**Silence:** before ${beat.silence_before_ms}ms / after ${beat.silence_after_ms}ms`);
+    }
+    if (beat.trailer_moment_flag) lines.push(`⭐ **Trailer Moment**`);
+
+    // Citations
+    const refs = beat.source_refs_json || [];
+    if (refs.length > 0) {
+      lines.push("**Citations:**");
+      for (const ref of refs) {
+        lines.push(`- [${ref.doc_type || "source"}] ${ref.location || ""}: ${ref.excerpt || "—"}`);
+      }
+    }
+
+    // Generator hint
+    const hint = beat.generator_hint_json;
+    if (hint) {
+      lines.push(`**Shot:** ${hint.shot_type || "—"} | **Camera:** ${hint.camera_move || "—"} | **Lens:** ${hint.lens_mm || "—"}mm`);
+      if (hint.visual_prompt) lines.push(`**Visual:** ${hint.visual_prompt}`);
+    }
+    lines.push("");
+  }
+
+  // Warnings / scores
+  if (scriptRun.warnings?.length > 0) {
+    lines.push("---", "", "## Warnings", "");
+    for (const w of scriptRun.warnings) lines.push(`- ${w}`);
+    lines.push("");
+  }
+
+  lines.push("---", "");
+  lines.push(`**Structure Score:** ${scriptRun.structure_score ?? "—"} | **Cinematic Score:** ${scriptRun.cinematic_score ?? "—"}`);
+
+  const plaintext = lines.join("\n");
+
+  // Structured content JSON
+  const contentJson = {
+    script_run_id: scriptRunId,
+    beat_ids: beats.map((b: any) => b.id),
+    canon_context_hash: scriptRun.canon_context_hash,
+    style_options: scriptRun.style_options_json,
+    trailer_type: trailerType,
+    platform_key: platformKey,
+    generated_at: scriptRun.created_at,
+  };
+
+  // Find or create project_document
+  const { data: existingDocs } = await db.from("project_documents")
+    .select("id")
+    .eq("project_id", projectId)
+    .eq("doc_type", "trailer_script")
+    .limit(1);
+
+  let documentId: string;
+
+  if (existingDocs?.length > 0 && !forceNewVersion) {
+    documentId = existingDocs[0].id;
+  } else if (existingDocs?.length > 0) {
+    documentId = existingDocs[0].id;
+  } else {
+    const { data: newDoc, error: docErr } = await db.from("project_documents").insert({
+      project_id: projectId,
+      doc_type: "trailer_script",
+      title: docTitle,
+      user_id: userId,
+    }).select("id").single();
+    if (docErr) return json({ error: `Create document failed: ${docErr.message}` }, 500);
+    documentId = newDoc.id;
+  }
+
+  // Compute next version number
+  const { data: maxVer } = await db.from("project_document_versions")
+    .select("version_number")
+    .eq("document_id", documentId)
+    .order("version_number", { ascending: false })
+    .limit(1);
+  const nextVersion = (maxVer?.[0]?.version_number || 0) + 1;
+
+  // Insert version
+  const { data: newVersion, error: verErr } = await db.from("project_document_versions").insert({
+    document_id: documentId,
+    version_number: nextVersion,
+    plaintext,
+    content: contentJson,
+    status: "draft",
+    generator_id: "trailer_cinematic_engine_export_v1",
+    depends_on: { script_run_id: scriptRunId },
+    created_by: userId,
+  }).select("id").single();
+
+  if (verErr) return json({ error: `Create version failed: ${verErr.message}` }, 500);
+
+  // Set as current version
+  try {
+    await db.rpc("set_current_version", {
+      p_document_id: documentId,
+      p_new_version_id: newVersion.id,
+    });
+  } catch (e: any) {
+    console.warn("set_current_version failed, falling back:", e.message);
+    await db.from("project_document_versions")
+      .update({ is_current: true }).eq("id", newVersion.id);
+  }
+
+  // Update document latest pointers
+  await db.from("project_documents").update({
+    latest_version_id: newVersion.id,
+    title: docTitle,
+    updated_at: new Date().toISOString(),
+  }).eq("id", documentId);
+
+  return json({
+    ok: true,
+    documentId,
+    versionId: newVersion.id,
+    chars: plaintext.length,
+    beatCount: beats.length,
+  });
+}
+
 // ─── ACTION 7: Full Cinematic Trailer Plan (orchestrator) ───
 
 async function handleFullPlan(db: any, body: any, userId: string, apiKey: string) {
@@ -2085,6 +2263,8 @@ Deno.serve(async (req) => {
         return await handleStartClipGeneration(db, body, userId);
       case "create_full_cinematic_trailer_plan":
         return await handleFullPlan(db, body, userId, apiKey);
+      case "export_trailer_script_document_v1":
+        return await handleExportTrailerScriptDocument(db, body, userId);
       default:
         return json({ error: `Unknown action: ${action}` }, 400);
     }

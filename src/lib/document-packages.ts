@@ -17,7 +17,7 @@ const FEATURE_FILM: DocPackageSpec = {
     topline_narrative: 1, idea_brief: 2, logline: 3, one_pager: 4, long_synopsis: 5,
     treatment: 6, character_bible: 7, feature_outline: 8, screenplay_draft: 9,
     budget_topline: 10, finance_plan: 11, packaging_targets: 12,
-    production_plan: 13, delivery_requirements: 14,
+    production_plan: 13, delivery_requirements: 14, trailer_script: 15,
   },
   required_by_stage: {
     development: ["topline_narrative", "idea_brief", "logline", "one_pager", "long_synopsis", "treatment", "character_bible", "feature_outline"],
@@ -37,7 +37,7 @@ const TV_SERIES: DocPackageSpec = {
     episode_grid: 6, character_bible: 7, pilot_outline: 8, pilot_script: 9,
     future_seasons_map: 10, budget_topline: 11, finance_plan: 12,
     packaging_targets: 13, sales_distribution_strategy: 14,
-    production_plan: 15, delivery_requirements: 16,
+    production_plan: 15, delivery_requirements: 16, trailer_script: 17,
   },
   required_by_stage: {
     development: ["topline_narrative", "idea_brief", "logline", "series_overview", "season_arc", "episode_grid", "character_bible", "pilot_outline"],
@@ -76,7 +76,7 @@ const DOCUMENTARY: DocPackageSpec = {
     topline_narrative: 1, doc_premise_brief: 2, logline: 3, one_pager: 4, research_dossier: 5,
     contributors_list: 6, story_arc_plan: 7, shoot_plan: 8,
     ethical_risk_notes: 9, budget_topline: 10, finance_plan: 11,
-    distribution_targets: 12, delivery_requirements: 13,
+    distribution_targets: 12, delivery_requirements: 13, trailer_script: 14,
   },
   required_by_stage: {
     development: ["topline_narrative", "doc_premise_brief", "logline", "one_pager", "research_dossier", "story_arc_plan"],

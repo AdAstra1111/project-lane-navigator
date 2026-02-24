@@ -117,4 +117,11 @@ export const cinematicApi = {
     targetLengthMs?: number;
     stylePresetKey?: string;
   }) => callCinematicEngine('create_full_cinematic_trailer_plan', params),
+
+  /** Export trailer script as a project document */
+  exportTrailerScriptDocument: (params: {
+    projectId: string;
+    scriptRunId: string;
+    forceNewVersion?: boolean;
+  }) => callCinematicEngine('export_trailer_script_document_v1', params),
 };

@@ -212,6 +212,17 @@ export function useCinematicMutations(projectId: string | undefined) {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  const exportTrailerScriptDocument = useMutation({
+    mutationFn: (params: { scriptRunId: string; forceNewVersion?: boolean }) =>
+      cinematicApi.exportTrailerScriptDocument({ projectId: projectId!, ...params }),
+    onSuccess: (data) => {
+      toast.success(`Trailer Script exported as document (${data.beatCount} beats, ${data.chars} chars)`);
+      qc.invalidateQueries({ queryKey: ['package-status', projectId] });
+      qc.invalidateQueries({ queryKey: ['project-documents', projectId] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   return {
     createFullPlan,
     createScript,
@@ -220,6 +231,7 @@ export function useCinematicMutations(projectId: string | undefined) {
     runJudge,
     repairScript,
     startClipGeneration,
+    exportTrailerScriptDocument,
   };
 }
 
