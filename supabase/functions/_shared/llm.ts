@@ -78,6 +78,7 @@ export function extractJSON(raw: string): string {
 
 /**
  * Safely parse JSON from AI output. Falls back to AI-powered repair if initial parse fails.
+ * @deprecated Use parseAiJson / callLLMWithJsonRetry for new code.
  */
 export async function parseJsonSafe(raw: string, apiKey?: string): Promise<any> {
   try {
@@ -94,6 +95,113 @@ export async function parseJsonSafe(raw: string, apiKey?: string): Promise<any> 
     });
     return JSON.parse(extractJSON(repairResult.content));
   }
+}
+
+// ─── Robust AI JSON Parsing (v2) ───
+
+function logParseTelemetry(raw: string, handler: string, model: string, phase: string, repairAttempted: boolean, retryTriggered: boolean) {
+  console.error(JSON.stringify({
+    type: "AI_JSON_PARSE_ERROR",
+    phase, handler, model,
+    responseLength: raw.length,
+    excerptStart: raw.slice(0, 300),
+    excerptEnd: raw.slice(-300),
+    repairAttempted, retryTriggered,
+  }));
+}
+
+/**
+ * Extract + structurally repair JSON from raw LLM text.
+ * Handles: markdown fences, preamble, trailing commas, truncation, unbalanced brackets.
+ */
+function extractAndRepairJson(raw: string): any {
+  let c = raw.replace(/```(?:json)?\s*\n?/gi, "").replace(/\n?```\s*$/g, "").trim();
+
+  const arrStart = c.indexOf("[");
+  const objStart = c.indexOf("{");
+  if (arrStart === -1 && objStart === -1) throw new Error("No JSON structure found");
+  const start = arrStart === -1 ? objStart : objStart === -1 ? arrStart : Math.min(arrStart, objStart);
+  c = c.slice(start);
+
+  // First attempt
+  try { return JSON.parse(c); } catch { /* repair */ }
+
+  // Repair: trailing commas, control chars
+  c = c.replace(/,\s*([}\]])/g, "$1");
+  c = c.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "");
+
+  // Truncation: if braces unbalanced, trim to last complete }
+  if ((c.match(/{/g) || []).length > (c.match(/}/g) || []).length) {
+    const last = c.lastIndexOf("}");
+    if (last > 0) c = c.slice(0, last + 1).replace(/,\s*$/, "");
+  }
+  // Close remaining open brackets
+  let missing = (c.match(/\[/g) || []).length - (c.match(/\]/g) || []).length;
+  while (missing-- > 0) c += "]";
+  missing = (c.match(/{/g) || []).length - (c.match(/}/g) || []).length;
+  while (missing-- > 0) c += "}";
+
+  return JSON.parse(c); // throws if still invalid
+}
+
+/**
+ * parseAiJson<T> — Centralized robust AI JSON parser with optional schema validation.
+ */
+export function parseAiJson<T = any>(
+  raw: string,
+  opts?: { handler?: string; model?: string; validate?: (data: any) => data is T },
+): T {
+  const handler = opts?.handler || "unknown";
+  const model = opts?.model || "unknown";
+
+  let parsed: any;
+  try {
+    parsed = extractAndRepairJson(raw);
+  } catch (err: any) {
+    logParseTelemetry(raw, handler, model, "extract_repair", true, false);
+    const e = new Error(`AI_JSON_PARSE_ERROR [${handler}]: ${err.message}`);
+    (e as any).type = "AI_JSON_PARSE_ERROR";
+    (e as any).handler = handler;
+    (e as any).responseLength = raw.length;
+    throw e;
+  }
+
+  if (opts?.validate && !opts.validate(parsed)) {
+    logParseTelemetry(raw, handler, model, "schema_validation", false, false);
+    const e = new Error(`AI_JSON_PARSE_ERROR [${handler}]: schema validation failed`);
+    (e as any).type = "AI_JSON_PARSE_ERROR";
+    (e as any).handler = handler;
+    throw e;
+  }
+
+  return parsed as T;
+}
+
+/**
+ * callLLMWithJsonRetry<T> — Call LLM, parse JSON, validate schema.
+ * Max 1 retry with stricter prompt on failure. Never infinite.
+ */
+export async function callLLMWithJsonRetry<T = any>(
+  llmOpts: CallLLMOptions,
+  parseOpts: { handler: string; validate?: (data: any) => data is T },
+): Promise<T> {
+  const { handler, validate } = parseOpts;
+  const model = llmOpts.model;
+
+  // Attempt 1
+  const r1 = await callLLM(llmOpts);
+  try {
+    return parseAiJson<T>(r1.content, { handler, model, validate });
+  } catch {
+    logParseTelemetry(r1.content, handler, model, "attempt_1_failed", true, true);
+  }
+
+  // Attempt 2 — stricter instruction
+  const r2 = await callLLM({
+    ...llmOpts,
+    system: llmOpts.system + "\n\nCRITICAL: Return ONLY valid minified JSON. No markdown. No commentary. No backticks. Start with { or [.",
+  });
+  return parseAiJson<T>(r2.content, { handler, model, validate });
 }
 
 // ─── Core LLM Caller ───
