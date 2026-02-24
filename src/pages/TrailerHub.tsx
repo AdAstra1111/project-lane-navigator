@@ -120,7 +120,7 @@ export default function TrailerHub() {
               <div key={step.step}>
                 <button
                   className="w-full text-left"
-                  onClick={() => setSearchParams({ tab: step.tab })}
+                  onClick={() => setSearchParams(prev => { const next = new URLSearchParams(prev); next.set('tab', step.tab); return next; })}
                 >
                   <Card className="transition-all hover:shadow-md hover:border-primary/30 cursor-pointer">
                     <CardContent className="p-4 flex items-center gap-4">
