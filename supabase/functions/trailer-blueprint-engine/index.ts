@@ -3,7 +3,7 @@
  * rhythm analysis, audio plan, and text card plan from visual units / storyboard panels.
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { callLLM, MODELS, parseJsonSafe } from "../_shared/llm.ts";
+import { callLLM, MODELS, parseJsonSafe, callLLMWithJsonRetry } from "../_shared/llm.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -238,16 +238,17 @@ Rules:
 
     const userPrompt = `Project: ${project?.title || "Untitled"}\nGenre: ${project?.genre || "Drama"}\nFormat: ${project?.format || "Feature"}\nLogline: ${project?.logline || ""}\n\n--- Visual Units ---\n${unitContext.slice(0, 6000)}\n\n--- Storyboard Panels ---\n${panelContext.slice(0, 6000)}`;
 
-    const result = await callLLM({
+    const parsed = await callLLMWithJsonRetry({
       apiKey,
       model: MODELS.PRO,
       system: systemPrompt,
       user: userPrompt,
       temperature: 0.4,
       maxTokens: 12000,
+    }, {
+      handler: "generate_blueprint",
+      validate: (d): d is any => d && Array.isArray(d.edl),
     });
-
-    const parsed = await parseJsonSafe(result.content, apiKey);
 
     // Inject deterministic generator_hint into each EDL beat
     const enrichedEdl = (parsed.edl || []).map((beat: any) => ({

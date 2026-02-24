@@ -8,7 +8,7 @@
  *   apply_continuity_fix_plan_v1 — apply fix plan to cut (dry-run or live)
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { callLLM, MODELS, parseJsonSafe } from "../_shared/llm.ts";
+import { callLLM, MODELS, parseJsonSafe, callLLMWithJsonRetry, parseAiJson } from "../_shared/llm.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -195,17 +195,18 @@ Rules:
 
     let tagsArray: any[];
     try {
-      const result = await callLLM({
+      const tags = await callLLMWithJsonRetry({
         apiKey,
         model: MODELS.FAST,
         system,
         user: JSON.stringify(clipDescriptions),
         temperature: 0.1,
         maxTokens: 4000,
+      }, {
+        handler: "tag_clips_continuity_v1",
+        validate: (d): d is any => Array.isArray(d),
       });
-
-      const tags = await parseJsonSafe(result.content, apiKey);
-      tagsArray = Array.isArray(tags) ? tags : [tags];
+      tagsArray = tags;
     } catch (parseErr: any) {
       // FIX #4: Log parse error as event, skip this batch
       console.error("Continuity tagging parse error:", parseErr.message);
@@ -398,17 +399,17 @@ Scoring rules:
 - If tags are mostly unknown, default subscores to 0.7 (unknown = neutral)
 - Return ONLY JSON array.`;
 
-      const result = await callLLM({
+      const results = await callLLMWithJsonRetry({
         apiKey,
         model: MODELS.FAST,
         system,
         user: JSON.stringify(batch.map((p: any, idx: number) => ({ pair_index: idx, ...p }))),
         temperature: 0.1,
         maxTokens: 4000,
+      }, {
+        handler: "run_continuity_judge_v1",
+        validate: (d): d is any => Array.isArray(d),
       });
-
-      const parsed = await parseJsonSafe(result.content, apiKey);
-      const results = Array.isArray(parsed) ? parsed : [parsed];
 
       for (const r of results) {
         const pairIdx = r.pair_index ?? 0;
@@ -583,16 +584,17 @@ Rules:
 - Maximum 8 actions total.
 - Return ONLY JSON.`;
 
-  const result = await callLLM({
+  const plan = await callLLMWithJsonRetry({
     apiKey,
     model: MODELS.FAST,
     system,
     user: JSON.stringify({ problem_transitions: problemTransitions, timeline_length: cut.timeline?.length || 0 }),
     temperature: 0.2,
     maxTokens: 3000,
+  }, {
+    handler: "build_continuity_fix_plan_v1",
+    validate: (d): d is any => d && Array.isArray(d.actions),
   });
-
-  const plan = await parseJsonSafe(result.content, apiKey);
 
   await db.from("trailer_continuity_events").insert({
     project_id: projectId,

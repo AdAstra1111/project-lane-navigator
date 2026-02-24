@@ -15,7 +15,7 @@
  *   get_trailer_pack           — Get a single pack with items
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { callLLM, MODELS, parseJsonSafe } from "../_shared/llm.ts";
+import { callLLM, MODELS, parseJsonSafe, callLLMWithJsonRetry } from "../_shared/llm.ts";
 import { compileTrailerContext } from "../_shared/trailerContext.ts";
 
 const corsHeaders = {
@@ -247,8 +247,10 @@ RUBRIC: performance_complexity, identity_continuity_required, action_complexity,
 Also provide blocking_constraints (string[]), required_assets (string[]), legal_risk_flags (string[]).
 Return JSON: { "rubric": {...all 8}, "blocking_constraints": [...], "required_assets": [...], "legal_risk_flags": [...] }`;
 
-  const result = await callLLM({ apiKey, model: MODELS.FAST, system: systemPrompt, user: shotDesc, temperature: 0.1, maxTokens: 2000 });
-  const parsed = await parseJsonSafe(result.content, apiKey);
+  const parsed = await callLLMWithJsonRetry(
+    { apiKey, model: MODELS.FAST, system: systemPrompt, user: shotDesc, temperature: 0.1, maxTokens: 2000 },
+    { handler: "label_ai_readiness", validate: (d): d is any => d && typeof d.rubric === "object" },
+  );
   const rubric = parsed.rubric || {};
   const { tier, confidence, maxQuality, modelRoute, costBand, riskScore } = computeTier(rubric);
 
@@ -430,8 +432,10 @@ If no full screenplay exists, extract moments from available materials — label
 For each moment return: moment_summary, scene_number (int or null), hook_strength (0-10), spectacle_score (0-10), emotional_score (0-10), ai_friendly (bool), suggested_visual_approach (rewrite to AI-friendly: silhouettes, VO montage, inserts, landscapes, symbols, text cards), source_refs (which doc titles/sections it came from), spoiler_level (0-3).
 Return JSON: { "moments": [...] }`;
 
-  const result = await callLLM({ apiKey, model: MODELS.FAST, system: systemPrompt, user: contextText.slice(0, 16000), temperature: 0.4, maxTokens: 4000 });
-  const parsed = await parseJsonSafe(result.content, apiKey);
+  const parsed = await callLLMWithJsonRetry(
+    { apiKey, model: MODELS.FAST, system: systemPrompt, user: contextText.slice(0, 16000), temperature: 0.4, maxTokens: 4000 },
+    { handler: "extract_trailer_moments", validate: (d): d is any => d && Array.isArray(d.moments) },
+  );
   const moments = parsed.moments || [];
 
   // Clear old moments for this project (if pack-based, clear all; if doc-based, clear per version)
