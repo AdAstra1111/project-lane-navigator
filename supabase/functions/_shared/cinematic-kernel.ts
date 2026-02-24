@@ -3,6 +3,7 @@
  * One bounded repair attempt. No infinite loops. No LLM scoring.
  */
 import type { CinematicUnit, CinematicScore } from "./cinematic-model.ts";
+import type { AdapterResult } from "./cinematic-adapters.ts";
 import { scoreCinematic } from "./cinematic-score.ts";
 import { recordAttempt0, recordFinal, flushCinematicSummaryIfDue } from "./cinematic-telemetry.ts";
 
@@ -15,6 +16,7 @@ export interface CinematicQualityGateEvent {
   score: number;
   failures: string[];
   metrics: Record<string, number>;
+  adapter_mode?: string;
 }
 
 export interface CinematicQualityOpts<T> {
@@ -22,11 +24,10 @@ export interface CinematicQualityOpts<T> {
   phase: string;
   model: string;
   rawOutput: T;
-  adapter: (raw: T) => CinematicUnit[];
+  /** Adapter returning units, or units + mode. */
+  adapter: (raw: T) => CinematicUnit[] | AdapterResult;
   buildRepairInstruction: (score: CinematicScore) => string;
-  /** Must return a new output of the same shape after one bounded regeneration. */
   regenerateOnce: (repairInstruction: string) => Promise<T>;
-  /** Optional telemetry callback. Defaults to console.error JSON log. */
   telemetry?: (eventName: string, payload: CinematicQualityGateEvent) => void;
 }
 
@@ -34,9 +35,16 @@ function defaultTelemetry(eventName: string, payload: CinematicQualityGateEvent)
   console.error(JSON.stringify({ type: eventName, ...payload }));
 }
 
+/** Normalize adapter return to { units, mode }. */
+function runAdapter<T>(adapter: (raw: T) => CinematicUnit[] | AdapterResult, raw: T): { units: CinematicUnit[]; mode: string } {
+  const result = adapter(raw);
+  if (Array.isArray(result)) return { units: result, mode: "unknown" };
+  return { units: result.units, mode: result.mode };
+}
+
 function buildGateEvent(
   handler: string, phase: string, model: string,
-  attempt: number, score: CinematicScore,
+  attempt: number, score: CinematicScore, adapterMode: string,
 ): CinematicQualityGateEvent {
   return {
     handler, phase, model, attempt,
@@ -44,27 +52,36 @@ function buildGateEvent(
     score: score.score,
     failures: score.failures,
     metrics: score.metrics as unknown as Record<string, number>,
+    adapter_mode: adapterMode,
   };
 }
 
-/**
- * enforceCinematicQuality — Score output, optionally repair once, or throw.
- *
- * - Attempt 0: score rawOutput
- * - If pass: return rawOutput (with cik stripped)
- * - Else: regenerate once with repair instruction
- * - Attempt 1: score repaired output
- * - If pass: return repaired (with cik stripped)
- * - Else: throw structured AI_CINEMATIC_QUALITY_FAIL
- */
+/** Build a bounded text snapshot from units for fail logging. */
+function buildSnapshot(units: CinematicUnit[], rawOutput: unknown): { head: string; tail: string } {
+  // Extract text from raw output for snapshot context
+  const texts: string[] = [];
+  const raw = rawOutput as any;
+  const items: any[] = raw?.beats || raw?.segments || raw?.panels || raw?.items || (Array.isArray(raw) ? raw : []);
+  for (const item of items) {
+    const t = item.text || item.line || item.description || item.emotional_intent || item.title || item.prompt || item.composition || "";
+    if (t) texts.push(t);
+  }
+  const headTexts = texts.slice(0, 3).join(" | ");
+  const tailTexts = texts.slice(-3).join(" | ");
+  return {
+    head: headTexts.slice(0, 200),
+    tail: tailTexts.slice(0, 200),
+  };
+}
+
 export async function enforceCinematicQuality<T>(opts: CinematicQualityOpts<T>): Promise<T> {
   const { handler, phase, model, adapter, buildRepairInstruction, regenerateOnce } = opts;
   const log = opts.telemetry || defaultTelemetry;
 
   // Attempt 0
-  const units0 = adapter(opts.rawOutput);
+  const { units: units0, mode: mode0 } = runAdapter(adapter, opts.rawOutput);
   const score0 = scoreCinematic(units0);
-  const evt0 = buildGateEvent(handler, phase, model, 0, score0);
+  const evt0 = buildGateEvent(handler, phase, model, 0, score0, mode0);
 
   log("CINEMATIC_QUALITY_GATE", evt0);
   recordAttempt0(evt0);
@@ -79,9 +96,9 @@ export async function enforceCinematicQuality<T>(opts: CinematicQualityOpts<T>):
   const instruction = buildRepairInstruction(score0);
   const repaired = await regenerateOnce(instruction);
 
-  const units1 = adapter(repaired);
+  const { units: units1, mode: mode1 } = runAdapter(adapter, repaired);
   const score1 = scoreCinematic(units1);
-  const evt1 = buildGateEvent(handler, phase, model, 1, score1);
+  const evt1 = buildGateEvent(handler, phase, model, 1, score1, mode1);
 
   log("CINEMATIC_QUALITY_GATE", evt1);
   recordFinal(evt1, "attempt1");
@@ -90,6 +107,18 @@ export async function enforceCinematicQuality<T>(opts: CinematicQualityOpts<T>):
   if (score1.pass) {
     return stripCik(repaired);
   }
+
+  // Fail snapshot — one bounded log before throwing
+  const snapshot = buildSnapshot(units1, repaired);
+  console.error(JSON.stringify({
+    type: "CINEMATIC_QUALITY_FAIL_SNAPSHOT",
+    handler, phase, model,
+    failures: score1.failures,
+    metrics: score1.metrics,
+    final_score: score1.score,
+    adapter_mode: mode1,
+    snapshot,
+  }));
 
   // Hard fail
   const err = new Error(`AI_CINEMATIC_QUALITY_FAIL [${handler}]: post_quality_gate score=${score1.score.toFixed(2)} failures=${score1.failures.join(",")}`);
