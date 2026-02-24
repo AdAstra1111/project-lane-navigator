@@ -237,6 +237,10 @@ Rules for cik.units:
 - tonal_polarity: -1.0 (dark/threatening) to 1.0 (hopeful/uplifting).
 - Do NOT omit any field. Do NOT change the main output schema.
 
+CIK QUALITY MINIMUMS (MUST SATISFY):
+- PEAK: At least one of the final 2 units must have energy >= 0.90 AND tension >= 0.80.
+- CONTRAST: At least one adjacent pair of units must have an energy increase >= 0.20.
+
 Return ONLY valid JSON`;
 
     let panelsByUnit: any[];
