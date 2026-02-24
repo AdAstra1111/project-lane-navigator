@@ -110,7 +110,7 @@ export function useCinematicMutations(projectId: string | undefined) {
   const qc = useQueryClient();
 
   const createFullPlan = useMutation({
-    mutationFn: (params: {
+    mutationFn: async (params: {
       canonPackId: string;
       trailerType?: string;
       genreKey?: string;
@@ -123,12 +123,73 @@ export function useCinematicMutations(projectId: string | undefined) {
       strictCanonMode?: 'strict' | 'balanced';
       targetLengthMs?: number;
       stylePresetKey?: string;
-    }) => cinematicApi.createFullPlan({ projectId: projectId!, ...params }),
+      onStageChange?: (stage: number) => void;
+    }) => {
+      const { onStageChange, ...apiParams } = params;
+
+      // Step 1: Create script
+      onStageChange?.(0);
+      const scriptData = await cinematicApi.createTrailerScript({ projectId: projectId!, ...apiParams });
+      if (!scriptData.scriptRunId) throw new Error(scriptData.error || 'Script generation failed');
+
+      // Step 1b: Run initial judge for repair check
+      onStageChange?.(1);
+      const judgeData1 = await cinematicApi.runJudge({
+        projectId: projectId!,
+        scriptRunId: scriptData.scriptRunId,
+      });
+
+      // Step 1c: Repair if needed
+      if (judgeData1.repairActions?.length > 0) {
+        await cinematicApi.repairScript({
+          projectId: projectId!,
+          scriptRunId: scriptData.scriptRunId,
+          judgeRunId: judgeData1.judgeRunId,
+          canonPackId: params.canonPackId,
+        });
+      }
+
+      // Step 2: Rhythm grid
+      onStageChange?.(2);
+      const rhythmData = await cinematicApi.createRhythmGrid({
+        projectId: projectId!,
+        scriptRunId: scriptData.scriptRunId,
+        seed: params.seed ? `${params.seed}-rhythm` : undefined,
+      });
+
+      // Step 3: Shot design
+      onStageChange?.(3);
+      const shotData = await cinematicApi.createShotDesign({
+        projectId: projectId!,
+        scriptRunId: scriptData.scriptRunId,
+        rhythmRunId: rhythmData.rhythmRunId,
+        seed: params.seed ? `${params.seed}-shots` : undefined,
+      });
+
+      // Step 4: Final judge
+      onStageChange?.(4);
+      const judgeData = await cinematicApi.runJudge({
+        projectId: projectId!,
+        scriptRunId: scriptData.scriptRunId,
+        rhythmRunId: rhythmData.rhythmRunId,
+        shotDesignRunId: shotData.shotDesignRunId,
+      });
+
+      return {
+        ok: true,
+        scriptRunId: scriptData.scriptRunId,
+        rhythmRunId: rhythmData.rhythmRunId,
+        shotDesignRunId: shotData.shotDesignRunId,
+        judgeRunId: judgeData.judgeRunId,
+        scores: judgeData.scores,
+        gatesPassed: judgeData.gatesPassed,
+      };
+    },
     onSuccess: (data) => {
       if (data.ok) {
-        toast.success(`Cinematic plan created: ${data.steps?.length || 0} steps completed`);
+        toast.success('Cinematic plan created successfully');
       } else {
-        toast.warning(data.error || 'Plan partially completed');
+        toast.warning('Plan partially completed');
       }
       qc.invalidateQueries({ queryKey: ['cinematic-script-runs', projectId] });
     },

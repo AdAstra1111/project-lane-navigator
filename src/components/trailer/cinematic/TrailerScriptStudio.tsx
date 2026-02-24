@@ -202,6 +202,7 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
   const [referenceNotes, setReferenceNotes] = useState('');
   const [avoidNotes, setAvoidNotes] = useState('');
   const [inspirationTrailers, setInspirationTrailers] = useState<{ title: string; url?: string; notes?: string }[]>([]);
+  const [fullPlanStage, setFullPlanStage] = useState(0);
 
   const styleOptions: TrailerStyleOptions = {
     tonePreset, pacingProfile, revealStrategy, movementOverall,
@@ -275,9 +276,11 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
 
   const handleGenerateFullPlan = () => {
     if (!canonPackId) { toast.error('No canon pack selected'); return; }
+    setFullPlanStage(0);
     createFullPlan.mutate({
       canonPackId, trailerType, genreKey, platformKey,
       seed: seed || undefined, styleOptions, ...extraPayload,
+      onStageChange: setFullPlanStage,
     }, {
       onSuccess: (data) => {
         if (data.scriptRunId) setSelectedRunId(data.scriptRunId);
@@ -703,11 +706,11 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
       {isGenerating && (
         <StagedProgressBar
           title="Generating Cinematic Plan"
-          stages={['Canon analysis', 'Script generation', 'Rhythm grid', 'Shot design', 'Judge scoring']}
-          currentStageIndex={createFullPlan.isPending ? 1 : 0}
-          progressPercent={0}
-          etaSeconds={45}
-          detailMessage="AI is building your cinematic trailer script…"
+          stages={['Script generation', 'Initial judge', 'Rhythm grid', 'Shot design', 'Final judge']}
+          currentStageIndex={createFullPlan.isPending ? fullPlanStage : 0}
+          progressPercent={createFullPlan.isPending ? Math.round((fullPlanStage / 5) * 100) : 0}
+          etaSeconds={90}
+          detailMessage={['Generating trailer script…', 'Running quality check…', 'Building rhythm grid…', 'Designing shots…', 'Final scoring…'][fullPlanStage] || 'Processing…'}
         />
       )}
 
