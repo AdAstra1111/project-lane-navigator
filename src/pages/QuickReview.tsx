@@ -215,7 +215,7 @@ const QuickReview = () => {
           <DeepReviewModal
             open={deepOpen}
             onOpenChange={setDeepOpen}
-            onStart={() => navigate('/dashboard')}
+            onStart={() => navigate('/deep-review')}
           />
         </motion.section>
       </div>
