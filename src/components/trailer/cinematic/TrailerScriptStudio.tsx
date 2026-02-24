@@ -363,13 +363,25 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
                 <Badge variant={activeRun.status === 'complete' ? 'default' : activeRun.status === 'needs_repair' ? 'destructive' : 'secondary'} className="text-[10px]">
                   {activeRun.status}
                 </Badge>
+                {activeRun.status === 'complete' && (activeRun as any).warnings?.length > 0 && (
+                  <span className="text-[10px] text-muted-foreground italic">
+                    (with warnings)
+                  </span>
+                )}
               </div>
             )}
 
             {activeRun?.warnings?.length > 0 && (
-              <div className="flex items-center gap-1 text-xs text-amber-400">
-                <AlertTriangle className="h-3 w-3" />
-                {activeRun.warnings.length} warning{activeRun.warnings.length > 1 ? 's' : ''}
+              <div className="flex items-center gap-1.5 text-xs">
+                <AlertTriangle className="h-3 w-3 text-amber-400" />
+                <span className="text-amber-400">{activeRun.warnings.length} warning{activeRun.warnings.length > 1 ? 's' : ''}</span>
+                <div className="flex flex-wrap gap-1 ml-1">
+                  {(activeRun.warnings as string[]).filter((w: any) => typeof w === 'string').slice(0, 6).map((w: string, i: number) => (
+                    <span key={i} className="rounded-md bg-muted px-1.5 py-0.5 text-[9px] text-muted-foreground" title={w}>
+                      {w.length > 40 ? w.slice(0, 37) + '…' : w}
+                    </span>
+                  ))}
+                </div>
               </div>
             )}
           </div>
