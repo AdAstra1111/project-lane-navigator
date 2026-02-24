@@ -336,12 +336,39 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
   // Saved style options from the active run
   const savedOpts = activeRun?.style_options_json as TrailerStyleOptions | undefined;
 
-  // Normalized warnings (bounded, deterministic)
+  // Normalized warnings (bounded, deterministic, taxonomized)
   const warningsRaw = (activeRun as any)?.warnings;
   const warnings: string[] = Array.isArray(warningsRaw)
     ? warningsRaw.filter((w: any) => typeof w === "string")
     : [];
-  const warningsPreview = warnings.slice(0, 6);
+
+  type WarningCategory = "critical" | "structure" | "pacing" | "tone" | "metadata" | "other";
+  const CATEGORY_ORDER: WarningCategory[] = ["critical", "structure", "pacing", "tone", "metadata", "other"];
+  const CATEGORY_LABELS: Record<WarningCategory, string> = {
+    critical: "Critical", structure: "Structure", pacing: "Pacing",
+    tone: "Tone", metadata: "Metadata", other: "Other",
+  };
+
+  function categorizeWarning(w: string): WarningCategory {
+    const l = w.toLowerCase();
+    if (l.includes("fail") || l.includes("missing") || l.includes("error") || l.includes("critical")) return "critical";
+    if (l.includes("structure") || l.includes("arc") || l.includes("act") || l.includes("scene")) return "structure";
+    if (l.includes("pacing") || l.includes("rhythm") || l.includes("duration") || l.includes("length") || l.includes("tempo")) return "pacing";
+    if (l.includes("tone") || l.includes("mood") || l.includes("style") || l.includes("voice")) return "tone";
+    if (l.includes("metadata") || l.includes("count") || l.includes("expected") || l.includes("unit")) return "metadata";
+    return "other";
+  }
+
+  function sortWarningsDeterministic(ws: string[]): string[] {
+    return [...ws].sort((a, b) => {
+      const ai = CATEGORY_ORDER.indexOf(categorizeWarning(a));
+      const bi = CATEGORY_ORDER.indexOf(categorizeWarning(b));
+      return ai !== bi ? ai - bi : a.localeCompare(b);
+    });
+  }
+
+  const warningsSorted = sortWarningsDeterministic(warnings);
+  const warningsPreview = warningsSorted.slice(0, 6);
 
   return (
     <div className="space-y-4">
@@ -384,9 +411,18 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
                 <span className="text-muted-foreground">{warnings.length} warning{warnings.length > 1 ? 's' : ''}</span>
                 <div className="flex flex-wrap gap-1 ml-1">
                   {warningsPreview.map((w, i) => {
+                    const cat = categorizeWarning(w);
                     const label = w.length > 40 ? w.slice(0, 37) + '…' : w;
                     return (
-                      <span key={`${i}-${w}`} className="rounded-md bg-muted px-1.5 py-0.5 text-[9px] text-muted-foreground" title={w}>
+                      <span
+                        key={`${i}-${w}`}
+                        className={`rounded-md px-1.5 py-0.5 text-[9px] ${
+                          cat === "critical"
+                            ? "bg-destructive/15 text-destructive"
+                            : "bg-muted text-muted-foreground"
+                        }`}
+                        title={`[${CATEGORY_LABELS[cat]}] ${w}`}
+                      >
                         {label}
                       </span>
                     );
