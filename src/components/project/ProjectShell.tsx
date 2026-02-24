@@ -2,7 +2,7 @@
  * ProjectShell — Unified project workspace frame (Week 5 polish).
  * Overlay inspector drawer, refined rail + bar, URL-synced drawer state.
  */
-import { useState, useEffect, useCallback, type ReactNode } from 'react';
+import { useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
 import { useParams, useNavigate, useLocation, useSearchParams, Link } from 'react-router-dom';
 import {
   LayoutGrid, FileText, BookOpen, Image, Film, Briefcase,
@@ -77,6 +77,16 @@ function InspectorDrawer({ open, onClose, projectId, activeTab, onTabChange }: {
   activeTab: DrawerTab;
   onTabChange: (t: DrawerTab) => void;
 }) {
+  const drawerRef = useRef<HTMLElement>(null);
+
+  // Body scroll lock
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, [open]);
+
   // Close on Esc
   useEffect(() => {
     if (!open) return;
@@ -87,18 +97,28 @@ function InspectorDrawer({ open, onClose, projectId, activeTab, onTabChange }: {
     return () => window.removeEventListener('keydown', handler);
   }, [open, onClose]);
 
+  // Focus drawer on open
+  useEffect(() => {
+    if (open) drawerRef.current?.focus();
+  }, [open]);
+
   if (!open) return null;
 
   return (
     <>
       {/* Scrim */}
       <div
-        className="fixed inset-0 z-40 bg-background/40 backdrop-blur-[2px] transition-opacity"
+        className="fixed inset-0 z-40 bg-background/40 backdrop-blur-[2px]"
         onClick={onClose}
       />
       {/* Panel */}
-      <aside className="fixed top-12 bottom-0 right-0 z-50 w-80 border-l border-border/20 bg-card/95 backdrop-blur-xl flex flex-col shadow-2xl animate-in slide-in-from-right-4 duration-200">
-        <div className="flex items-center justify-between px-3 py-2 border-b border-border/15 shrink-0">
+      <aside
+        ref={drawerRef}
+        tabIndex={-1}
+        onClick={(e) => e.stopPropagation()}
+        className="fixed top-11 bottom-0 right-0 z-50 w-[420px] max-w-[90vw] border-l border-border/15 bg-card/95 backdrop-blur-xl flex flex-col shadow-2xl outline-none animate-in slide-in-from-right-4 duration-150"
+      >
+        <div className="flex items-center justify-between px-3 py-2 border-b border-border/10 shrink-0">
           <div className="flex items-center gap-0.5">
             {DRAWER_TABS.map((t) => (
               <button
@@ -119,7 +139,7 @@ function InspectorDrawer({ open, onClose, projectId, activeTab, onTabChange }: {
             <X className="h-3.5 w-3.5" />
           </Button>
         </div>
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto overscroll-contain">
           {activeTab === 'Analysis' && <AnalysisPanel projectId={projectId} mode="compact" />}
           {activeTab === 'Versions' && <VersionsPanel projectId={projectId} />}
           {activeTab === 'AI' && <ActivityLogPanel projectId={projectId} />}
