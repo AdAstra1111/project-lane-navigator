@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronDown, ArrowLeft, Activity, BarChart3, ShieldAlert, Sparkles } from 'lucide-react';
+import { ChevronDown, ArrowLeft, ArrowRight, Activity, BarChart3, ShieldAlert, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useNavigate } from 'react-router-dom';
 
@@ -206,8 +206,47 @@ const DeepReview = () => {
           })}
         </div>
 
+        {/* ── Studio Mode Reveal ── */}
+        <motion.section
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.6, duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
+          className="text-center space-y-5"
+        >
+          <div className="rounded-2xl border border-primary/10 bg-primary/[0.02] py-10 px-6 space-y-5 relative overflow-hidden">
+            {/* Subtle ambient glow behind button area */}
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <div className="w-48 h-48 rounded-full bg-primary/[0.04] blur-3xl" />
+            </div>
+
+            <div className="relative space-y-5">
+              <div className="space-y-2">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-primary/70">
+                  Studio Mode Unlocked
+                </p>
+                <p className="text-sm text-muted-foreground leading-relaxed max-w-sm mx-auto">
+                  Access advanced development tools and full project control.
+                </p>
+              </div>
+
+              <Button
+                size="lg"
+                className="rounded-xl gap-2 text-sm font-medium px-6 shadow-[0_0_20px_-4px_hsl(var(--primary)/0.25)]"
+                onClick={() => navigate('/dashboard')}
+              >
+                Enter Studio Mode
+                <ArrowRight className="h-4 w-4" />
+              </Button>
+
+              <p className="text-[11px] text-muted-foreground/40 tracking-wide">
+                Canon OS · Rewrite Engine · Scenario Simulator · Development Controls
+              </p>
+            </div>
+          </div>
+        </motion.section>
+
         {/* Back link */}
-        <motion.div {...sectionAnim(0.45)} className="text-center pb-8">
+        <motion.div {...sectionAnim(0.7)} className="text-center pb-8">
           <button
             onClick={() => navigate('/quick-review')}
             className="inline-flex items-center gap-1.5 text-xs text-muted-foreground/50 hover:text-muted-foreground transition-colors"
