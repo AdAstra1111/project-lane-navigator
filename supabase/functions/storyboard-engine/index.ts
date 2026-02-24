@@ -5,7 +5,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { callLLM, MODELS, callLLMWithJsonRetry, callLLMChunked } from "../_shared/llm.ts";
 import { enforceCinematicQuality } from "../_shared/cinematic-kernel.ts";
-import { adaptStoryboardPanels } from "../_shared/cinematic-adapters.ts";
+import { adaptStoryboardPanelsWithMode } from "../_shared/cinematic-adapters.ts";
 import { buildStoryboardRepairInstruction } from "../_shared/cinematic-repair.ts";
 
 const GATEWAY_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
@@ -308,14 +308,18 @@ Return ONLY valid JSON`;
     }
 
     // ── CIK quality gate (1 bounded repair attempt) ──
+    const expectedUnitKeys = keyOrder as string[];
+    const expectedUnitCount = expectedUnitKeys.length;
     const cikInput = { panels: panelsByUnit.flatMap((u: any) => (u.panels || []).map((p: any) => ({ ...p, unit_key: u.unit_key }))) };
     const cikResult = await enforceCinematicQuality({
       handler: "storyboard-engine",
       phase: "generate_storyboard_panels",
       model: MODELS.BALANCED,
       rawOutput: cikInput,
-      adapter: adaptStoryboardPanels,
+      adapter: (raw: any) => adaptStoryboardPanelsWithMode(raw, { expectedUnitCount, expectedUnitKeys }),
       buildRepairInstruction: buildStoryboardRepairInstruction,
+      isStoryboard: true,
+      expected_unit_count: expectedUnitCount,
       regenerateOnce: async (repairInstruction: string) => {
         // Re-run the same generation with repair instruction injected
         const repairedSystemPrompt = panelSystemPrompt + "\n\n" + repairInstruction;
