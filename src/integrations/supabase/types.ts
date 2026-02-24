@@ -17586,6 +17586,7 @@ export type Database = {
       }
       trailer_script_runs: {
         Row: {
+          avoid_notes: string | null
           bpm: number | null
           canon_context_hash: string | null
           canon_context_meta_json: Json | null
@@ -17598,18 +17599,24 @@ export type Database = {
           escalation_curve_json: Json | null
           genre_key: string
           id: string
+          inspiration_refs_json: Json
           movement_curve_json: Json | null
           platform_key: string
           project_id: string
+          reference_notes: string | null
           seed: string | null
           silence_windows_json: Json | null
           status: string
+          strict_canon_mode: string
           structure_score: number | null
           style_options_json: Json
+          style_preset_key: string | null
+          target_length_ms: number | null
           trailer_type: string
           warnings: string[] | null
         }
         Insert: {
+          avoid_notes?: string | null
           bpm?: number | null
           canon_context_hash?: string | null
           canon_context_meta_json?: Json | null
@@ -17622,18 +17629,24 @@ export type Database = {
           escalation_curve_json?: Json | null
           genre_key?: string
           id?: string
+          inspiration_refs_json?: Json
           movement_curve_json?: Json | null
           platform_key?: string
           project_id: string
+          reference_notes?: string | null
           seed?: string | null
           silence_windows_json?: Json | null
           status?: string
+          strict_canon_mode?: string
           structure_score?: number | null
           style_options_json?: Json
+          style_preset_key?: string | null
+          target_length_ms?: number | null
           trailer_type?: string
           warnings?: string[] | null
         }
         Update: {
+          avoid_notes?: string | null
           bpm?: number | null
           canon_context_hash?: string | null
           canon_context_meta_json?: Json | null
@@ -17646,14 +17659,19 @@ export type Database = {
           escalation_curve_json?: Json | null
           genre_key?: string
           id?: string
+          inspiration_refs_json?: Json
           movement_curve_json?: Json | null
           platform_key?: string
           project_id?: string
+          reference_notes?: string | null
           seed?: string | null
           silence_windows_json?: Json | null
           status?: string
+          strict_canon_mode?: string
           structure_score?: number | null
           style_options_json?: Json
+          style_preset_key?: string | null
+          target_length_ms?: number | null
           trailer_type?: string
           warnings?: string[] | null
         }
@@ -17858,6 +17876,48 @@ export type Database = {
           },
           {
             foreignKeyName: "trailer_shotlists_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      trailer_style_presets: {
+        Row: {
+          created_at: string
+          created_by: string
+          id: string
+          name: string
+          preset_json: Json
+          project_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string
+          id?: string
+          name: string
+          preset_json?: Json
+          project_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          id?: string
+          name?: string
+          preset_json?: Json
+          project_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trailer_style_presets_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "trailer_style_presets_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"

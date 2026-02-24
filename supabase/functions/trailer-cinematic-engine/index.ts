@@ -173,12 +173,60 @@ function buildStyleOptionsSection(so: Record<string, any>, trailerType: string):
   return "\n" + lines.join("\n") + "\n";
 }
 
+// ─── Inspiration / Reference / Avoid Notes Section Builder ───
+
+function buildInspirationSection(inspirationRefs: any[], referenceNotes: string, avoidNotes: string): string {
+  const sections: string[] = [];
+
+  if (inspirationRefs && inspirationRefs.length > 0) {
+    sections.push("------------------------------------------------------------");
+    sections.push("INSPIRATIONS (STYLE ONLY — DO NOT COPY)");
+    sections.push("------------------------------------------------------------");
+    sections.push("For each inspiration trailer, use only high-level style cues (pacing, tone, typography, sound strategy). Do NOT reference them verbatim. Do NOT copy lines. Do NOT mention the inspiration titles in output.");
+    for (const insp of inspirationRefs.slice(0, 5)) {
+      const parts = [insp.title || "Untitled"];
+      if (insp.url) parts.push(insp.url);
+      if (insp.notes) parts.push(insp.notes);
+      sections.push(`- ${parts.join(" — ")}`);
+    }
+  }
+
+  if (referenceNotes && referenceNotes.trim().length > 0) {
+    sections.push("------------------------------------------------------------");
+    sections.push("REFERENCE NOTES (EMULATE)");
+    sections.push("------------------------------------------------------------");
+    sections.push(referenceNotes.trim().slice(0, 2000));
+  }
+
+  if (avoidNotes && avoidNotes.trim().length > 0) {
+    sections.push("------------------------------------------------------------");
+    sections.push("AVOID LIST");
+    sections.push("------------------------------------------------------------");
+    sections.push(avoidNotes.trim().slice(0, 2000));
+  }
+
+  return sections.length > 0 ? "\n" + sections.join("\n") + "\n" : "";
+}
+
 // ─── Gate checks ───
+
+interface GateOpts {
+  minSilenceWindows?: number;
+  microMontageIntensity?: string; // 'low'|'medium'|'high'
+  strictCanonMode?: string;
+  canonText?: string;
+  trailerType?: string;
+}
 
 interface GateResult { passed: boolean; failures: string[]; }
 
-function runScriptGates(beats: any[], scriptRun?: any): GateResult {
+function runScriptGates(beats: any[], scriptRun?: any, opts?: GateOpts): GateResult {
   const failures: string[] = [];
+  const minSilence = opts?.minSilenceWindows ?? 2;
+  const micro = opts?.microMontageIntensity ?? 'medium';
+  const strict = (opts?.strictCanonMode ?? 'strict') === 'strict';
+  const canonText = opts?.canonText || '';
+  const tType = opts?.trailerType || scriptRun?.trailer_type || 'main';
 
   // Gate 0: canon_context_hash must exist on the script run
   if (scriptRun && !scriptRun.canon_context_hash) {
@@ -191,7 +239,7 @@ function runScriptGates(beats: any[], scriptRun?: any): GateResult {
     failures.push(`${missingRefs.length} beat(s) missing source citations (source_refs_json empty): indices ${missingRefs.map((b: any) => b.beat_index).join(", ")}`);
   }
 
-  // Gate 2: movement_intensity_target non-decreasing across phases (allow small dips only if withholding_note present)
+  // Gate 2: movement_intensity_target non-decreasing across phases
   const byPhase: Record<string, any[]> = {};
   for (const b of beats) {
     const p = b.phase;
@@ -212,19 +260,60 @@ function runScriptGates(beats: any[], scriptRun?: any): GateResult {
     }
   }
 
-  // Gate 3: At least 2 silence windows across beats
+  // Gate 3: Silence windows — use dynamic minSilenceWindows
   const silenceCount = beats.filter((b: any) => (b.silence_before_ms > 0) || (b.silence_after_ms > 0)).length;
-  if (silenceCount < 2) {
-    failures.push(`Only ${silenceCount} beat(s) have silence windows; minimum 2 required`);
+  if (silenceCount < minSilence) {
+    failures.push(`Only ${silenceCount} beat(s) have silence windows; minimum ${minSilence} required`);
   }
 
-  // Gate 4: Crescendo must include micro-montage intent
+  // Gate 4: Crescendo micro-montage — dynamic thresholds
   const crescendoBeats = beats.filter((b: any) => b.phase === "crescendo");
-  const hasMicroMontage = crescendoBeats.some((b: any) => 
-    (b.shot_density_target || 0) >= 2.0 && (b.movement_intensity_target || 0) >= 7
+  let reqDensity = 2.0, reqMovement = 7;
+  if (micro === 'medium') { reqDensity = 2.4; reqMovement = 7; }
+  if (micro === 'high') { reqDensity = 2.8; reqMovement = 8; }
+  const hasMicroMontage = crescendoBeats.some((b: any) =>
+    (b.shot_density_target || 0) >= reqDensity && (b.movement_intensity_target || 0) >= reqMovement
   );
   if (crescendoBeats.length > 0 && !hasMicroMontage) {
-    failures.push("Crescendo phase lacks micro-montage intent (need shot_density_target>=2.0 AND movement_intensity_target>=7)");
+    failures.push(`Crescendo phase lacks micro-montage intent (need shot_density_target>=${reqDensity} AND movement_intensity_target>=${reqMovement} for ${micro} intensity)`);
+  }
+
+  // Gate 5: Beat count range by trailer type
+  const beatRanges: Record<string, [number, number]> = {
+    teaser: [6, 9], main: [8, 14], character: [8, 12], tone: [6, 10], sales: [10, 16],
+  };
+  const [minBeats, maxBeats] = beatRanges[tType] || [8, 14];
+  if (beats.length < minBeats || beats.length > maxBeats) {
+    failures.push(`Beat count ${beats.length} outside ${tType} range [${minBeats}–${maxBeats}]`);
+  }
+
+  // Gate 6: Canon grounding checks (quoted_dialogue + citation excerpts)
+  if (canonText.length > 0) {
+    const canonLower = canonText.toLowerCase();
+    for (const b of beats) {
+      // Dialogue check
+      if (b.quoted_dialogue && typeof b.quoted_dialogue === 'string') {
+        const dNorm = b.quoted_dialogue.toLowerCase().trim();
+        if (dNorm.length > 0 && !canonLower.includes(dNorm)) {
+          if (strict) {
+            failures.push(`Beat #${b.beat_index}: quoted_dialogue not found in canon (strict mode)`);
+          }
+          // balanced mode: nullify handled outside gates
+        }
+      }
+      // Citation excerpt check
+      if (strict && Array.isArray(b.source_refs_json)) {
+        for (const ref of b.source_refs_json) {
+          if (ref.excerpt && typeof ref.excerpt === 'string') {
+            const excNorm = ref.excerpt.toLowerCase().trim();
+            if (excNorm.length > 10 && !canonLower.includes(excNorm)) {
+              failures.push(`Beat #${b.beat_index}: citation excerpt not found in canon (strict mode)`);
+              break; // one per beat is enough
+            }
+          }
+        }
+      }
+    }
   }
 
   return { passed: failures.length === 0, failures };
@@ -270,7 +359,12 @@ async function checkIdempotency(db: any, projectId: string, trailerType: string,
 // ─── ACTION 1: Create Trailer Script v2 ───
 
 async function handleCreateTrailerScript(db: any, body: any, userId: string, apiKey: string) {
-  const { projectId, canonPackId, trailerType = "main", genreKey = "drama", platformKey = "theatrical", seed: inputSeed, idempotencyKey, styleOptions = {} } = body;
+  const {
+    projectId, canonPackId, trailerType = "main", genreKey = "drama", platformKey = "theatrical",
+    seed: inputSeed, idempotencyKey, styleOptions = {},
+    inspirationRefs = [], referenceNotes = "", avoidNotes = "",
+    strictCanonMode = "strict", targetLengthMs = null, stylePresetKey = null,
+  } = body;
 
   if (!canonPackId) return json({ error: "canonPackId required" }, 400);
 
@@ -287,6 +381,8 @@ async function handleCreateTrailerScript(db: any, body: any, userId: string, api
   // ── Derive style constraints from options ──
   const so = styleOptions as Record<string, any>;
   const styleSection = buildStyleOptionsSection(so, trailerType);
+  const inspirationSection = buildInspirationSection(inspirationRefs, referenceNotes, avoidNotes);
+  const targetLengthDirective = targetLengthMs ? `\nTARGET LENGTH OVERRIDE: ~${Math.round(targetLengthMs / 1000)} seconds.\n` : "";
 
   // Insert run row with audit columns
   const { data: run, error: runErr } = await db.from("trailer_script_runs").insert({
@@ -301,6 +397,12 @@ async function handleCreateTrailerScript(db: any, body: any, userId: string, api
     canon_context_hash: packCtx.contextHash,
     canon_context_meta_json: packCtx.contextMeta,
     style_options_json: so,
+    inspiration_refs_json: inspirationRefs,
+    reference_notes: referenceNotes || null,
+    avoid_notes: avoidNotes || null,
+    strict_canon_mode: strictCanonMode,
+    target_length_ms: targetLengthMs,
+    style_preset_key: stylePresetKey,
   }).select().single();
   if (runErr) return json({ error: runErr.message }, 500);
 
@@ -337,7 +439,7 @@ SEED: ${resolvedSeed}
 
 CANON TEXT:
 ${canonText.slice(0, 16000)}
-${styleSection}
+${styleSection}${inspirationSection}${targetLengthDirective}
 ------------------------------------------------------------
 OBJECTIVE
 ------------------------------------------------------------
@@ -539,12 +641,23 @@ No markdown.`;
       }, 400);
     }
 
-    // Validate quoted_dialogue — must exist as substring in canon
+    // Validate quoted_dialogue — mode-dependent
     for (const b of beatArray) {
       if (b.quoted_dialogue && typeof b.quoted_dialogue === "string") {
         const dialogueNorm = b.quoted_dialogue.toLowerCase().trim();
         if (dialogueNorm.length > 0 && !canonText.toLowerCase().includes(dialogueNorm)) {
-          // Nullify fabricated dialogue and add warning
+          if (strictCanonMode === "strict") {
+            // In strict mode, fail hard
+            await db.from("trailer_script_runs").update({
+              status: "error",
+              warnings: [`Beat #${b.beat_index}: quoted_dialogue not found in canon (strict mode)`],
+            }).eq("id", run.id);
+            return json({
+              error: `Strict canon violation: Beat #${b.beat_index} quoted_dialogue not found in canon`,
+              beatIndex: b.beat_index,
+            }, 400);
+          }
+          // Balanced mode: nullify and warn
           b.quoted_dialogue = null;
           if (!parsed.warnings) parsed.warnings = [];
           parsed.warnings.push(`Beat #${b.beat_index}: quoted_dialogue not found in canon, nullified`);
@@ -552,8 +665,33 @@ No markdown.`;
       }
     }
 
-    // Run gates
-    const gateResult = runScriptGates(beatArray, run);
+    // Balanced mode: check citation excerpts and warn (strict fails in gates)
+    if (strictCanonMode === "balanced") {
+      const canonLower = canonText.toLowerCase();
+      for (const b of beatArray) {
+        if (Array.isArray(b.source_refs_json)) {
+          for (const ref of b.source_refs_json) {
+            if (ref.excerpt && typeof ref.excerpt === "string") {
+              const excNorm = ref.excerpt.toLowerCase().trim();
+              if (excNorm.length > 10 && !canonLower.includes(excNorm)) {
+                if (!parsed.warnings) parsed.warnings = [];
+                parsed.warnings.push(`Beat #${b.beat_index}: citation excerpt not found in canon (may be paraphrase)`);
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // Run gates with dynamic options
+    const gateOpts: GateOpts = {
+      minSilenceWindows: so.minSilenceWindows ?? 2,
+      microMontageIntensity: so.microMontageIntensity ?? "medium",
+      strictCanonMode,
+      canonText: strictCanonMode === "strict" ? canonText : "",
+      trailerType,
+    };
+    const gateResult = runScriptGates(beatArray, run, gateOpts);
 
     // Use LLM-provided scores (0-100) or compute fallback
     const structureScore = (parsed.structure_score != null ? parsed.structure_score / 100 : (gateResult.passed ? 0.9 : 0.5));
@@ -585,6 +723,18 @@ No markdown.`;
     // Merge all warnings
     const allWarnings = [...(gateResult.failures || []), ...(parsed.warnings || [])];
 
+    // Target length soft validation
+    if (targetLengthMs) {
+      const secs = targetLengthMs / 1000;
+      const softLimits: Record<string, [number, number]> = {
+        teaser: [15, 70], main: [80, 140], character: [50, 110], tone: [40, 90], sales: [90, 200],
+      };
+      const [lo, hi] = softLimits[trailerType] || [30, 180];
+      if (secs < lo || secs > hi) {
+        allWarnings.push(`Target length ${secs}s outside typical range for ${trailerType} (${lo}–${hi}s)`);
+      }
+    }
+
     // Update run status
     const status = gateResult.passed ? "complete" : "needs_repair";
     await db.from("trailer_script_runs").update({
@@ -604,6 +754,12 @@ No markdown.`;
       gatesPassed: gateResult.passed,
       warnings: allWarnings,
       seed: resolvedSeed,
+      saved: {
+        styleOptions: so,
+        strictCanonMode,
+        targetLengthMs,
+        inspirationRefsCount: inspirationRefs.length,
+      },
     });
 
   } catch (err: any) {
@@ -1109,10 +1265,19 @@ ${canonText.slice(0, 8000)}`;
       }
     }
 
-    // Re-run gates on updated beats
+    // Re-run gates on updated beats with style options from script run
     const { data: updatedBeats } = await db.from("trailer_script_beats")
       .select("*").eq("script_run_id", scriptRunId).order("beat_index");
-    const gateResult = runScriptGates(updatedBeats || []);
+    const { data: srcRun } = await db.from("trailer_script_runs")
+      .select("style_options_json, strict_canon_mode, trailer_type").eq("id", scriptRunId).single();
+    const repairSo = (srcRun?.style_options_json || {}) as Record<string, any>;
+    const repairGateOpts: GateOpts = {
+      minSilenceWindows: repairSo.minSilenceWindows ?? 2,
+      microMontageIntensity: repairSo.microMontageIntensity ?? "medium",
+      strictCanonMode: srcRun?.strict_canon_mode ?? "strict",
+      trailerType: srcRun?.trailer_type ?? "main",
+    };
+    const gateResult = runScriptGates(updatedBeats || [], srcRun, repairGateOpts);
 
     const newStatus = gateResult.passed ? "complete" : "needs_repair";
     await db.from("trailer_script_runs").update({
