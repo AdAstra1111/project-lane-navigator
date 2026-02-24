@@ -814,7 +814,7 @@ async function handleCreateRhythmGrid(db: any, body: any, userId: string, apiKey
     const beatSummary = beats.map((b: any) => `#${b.beat_index} ${b.phase}: intensity=${b.movement_intensity_target}, density=${b.shot_density_target || "auto"}, silence_before=${b.silence_before_ms}ms, silence_after=${b.silence_after_ms}ms`).join("\n");
 
     const system = `You are a music editor and rhythm designer for cinematic trailers.
-Given a BPM of ${bpm} and a list of trailer beats with their intensity/density targets, design a precise rhythm grid.
+Given a BPM of ${bpm} and a list of trailer beats with their intensity/density targets, design a precise rhythm grid with editorial hit points and silence constraints.
 
 Return STRICT JSON:
 {
@@ -823,7 +823,26 @@ Return STRICT JSON:
   "shot_duration_curve": [{"t_ms":0,"target_shot_ms":2000},{"t_ms":30000,"target_shot_ms":800},...],
   "density_curve": [{"t_ms":0,"shots_per_sec":0.5},{"t_ms":60000,"shots_per_sec":3.0},...],
   "drop_timestamp_ms": 45000,
-  "silence_windows": [{"start_ms":25000,"end_ms":26500,"reason":"emotional breath before twist"},...],
+  "silence_windows": [{"start_ms":25000,"end_ms":26500,"reason":"anticipation|reveal|breath|impact"},...],
+  "hit_points": [
+    {
+      "t_ms": number,
+      "type": "sting|impact|riser_end|bass_drop|button_stinger|hard_cut",
+      "strength": 1-10,
+      "beat_index": number_or_null,
+      "phase": "hook|setup|escalation|twist|crescendo|button",
+      "note": "what the audio should do here"
+    }
+  ],
+  "beat_hit_intents": [
+    {
+      "beat_index": number,
+      "primary_hit": "none|sting|impact|riser|drop|button",
+      "secondary_hits": ["whoosh","slam","reverse","sub_drop"],
+      "silence_before_ms": number,
+      "silence_after_ms": number
+    }
+  ],
   "warnings": []
 }
 
@@ -832,7 +851,20 @@ Rules:
 - Shot durations should decrease from ~2-3s in hook/setup to ~0.3-0.5s in crescendo
 - The "drop" is the most impactful moment — place it at the crescendo start
 - Silence windows must match the beat's silence_before/after_ms values
-- density_curve tracks average shots per second, increasing toward crescendo`;
+- density_curve tracks average shots per second, increasing toward crescendo
+
+HIT POINT RULES (mandatory):
+- MUST include at least 1 hit in hook phase (type: sting or impact, strength >= 6)
+- MUST include at least 1 hit at twist phase (type: impact or hard_cut, strength >= 7)
+- MUST include at least 1 bass_drop or major hit (strength >= 8) at crescendo start
+- MUST include at least 1 button_stinger near the end (final 10% of timeline)
+- Hit points define where audio SFX must land — they are sync markers
+- beat_hit_intents must be provided for EVERY beat, matching silence_before/after from script
+
+SILENCE CONSTRAINT RULES:
+- silence_windows must include ALL beat-level silence_before_ms and silence_after_ms from the input
+- Do NOT contradict script beat silence windows — they are authoritative
+- Add additional silence windows only for dramatic effect (anticipation, reveal)`;
 
     const result = await callLLM({
       apiKey,
@@ -840,10 +872,26 @@ Rules:
       system,
       user: `BPM: ${bpm}\nBeats:\n${beatSummary}`,
       temperature: 0.3,
-      maxTokens: 8000,
+      maxTokens: 10000,
     });
 
     const parsed = await parseJsonSafe(result.content, apiKey);
+
+    // Validate required hit points
+    const hitPoints = parsed.hit_points || [];
+    const hitWarnings: string[] = [];
+    
+    const hasHookHit = hitPoints.some((h: any) => h.phase === "hook" && ["sting", "impact"].includes(h.type));
+    const hasTwistHit = hitPoints.some((h: any) => h.phase === "twist" && ["impact", "hard_cut"].includes(h.type));
+    const hasCrescendoHit = hitPoints.some((h: any) => h.phase === "crescendo" && h.strength >= 8);
+    const hasButtonStinger = hitPoints.some((h: any) => h.type === "button_stinger");
+
+    if (!hasHookHit) hitWarnings.push("Missing hook sting/impact hit — audio sync may be weak at open");
+    if (!hasTwistHit) hitWarnings.push("Missing twist impact hit — twist moment won't land");
+    if (!hasCrescendoHit) hitWarnings.push("Missing high-strength crescendo hit — drop won't feel impactful");
+    if (!hasButtonStinger) hitWarnings.push("Missing button stinger — ending may lack finality");
+
+    const allWarnings = [...(parsed.warnings || []), ...hitWarnings];
 
     await db.from("trailer_rhythm_runs").update({
       status: "complete",
@@ -853,7 +901,9 @@ Rules:
       density_curve_json: parsed.density_curve || null,
       drop_timestamp_ms: parsed.drop_timestamp_ms || null,
       silence_windows_json: parsed.silence_windows || null,
-      warnings: parsed.warnings || [],
+      hit_points_json: hitPoints,
+      beat_hit_intents_json: parsed.beat_hit_intents || [],
+      warnings: allWarnings,
     }).eq("id", run.id);
 
     return json({
@@ -862,7 +912,14 @@ Rules:
       status: "complete",
       bpm,
       dropMs: parsed.drop_timestamp_ms,
-      warnings: parsed.warnings || [],
+      hitPointCount: hitPoints.length,
+      hitCoverage: {
+        hook: hasHookHit,
+        twist: hasTwistHit,
+        crescendo: hasCrescendoHit,
+        button: hasButtonStinger,
+      },
+      warnings: allWarnings,
       seed: resolvedSeed,
     });
 

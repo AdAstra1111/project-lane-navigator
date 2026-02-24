@@ -316,11 +316,64 @@ async function handleGeneratePlan(db: any, body: any, userId: string) {
   if (bpId) {
     const { data: bp } = await db
       .from("trailer_blueprints")
-      .select("audio_plan, text_card_plan, edl")
+      .select("audio_plan, text_card_plan, edl, options")
       .eq("id", bpId)
       .eq("project_id", projectId)
       .single();
     if (bp) bpAudioPlan = bp.audio_plan || {};
+  }
+
+  // ─── Load rhythm run hit markers + silence constraints ───
+  let rhythmHitPoints: any[] = [];
+  let rhythmSilenceWindows: any[] = [];
+  let rhythmBeatHitIntents: any[] = [];
+  let rhythmDropMs: number | null = null;
+  let rhythmRunId: string | null = null;
+
+  // Try to find rhythm run via script run chain
+  const scriptRunId = run.inputs_json?.scriptRunId || null;
+  if (scriptRunId) {
+    const { data: rhythmRuns } = await db.from("trailer_rhythm_runs")
+      .select("id, hit_points_json, silence_windows_json, beat_hit_intents_json, drop_timestamp_ms")
+      .eq("script_run_id", scriptRunId)
+      .eq("status", "complete")
+      .order("created_at", { ascending: false })
+      .limit(1);
+    if (rhythmRuns?.length) {
+      const rr = rhythmRuns[0];
+      rhythmRunId = rr.id;
+      rhythmHitPoints = rr.hit_points_json || [];
+      rhythmSilenceWindows = rr.silence_windows_json || [];
+      rhythmBeatHitIntents = rr.beat_hit_intents_json || [];
+      rhythmDropMs = rr.drop_timestamp_ms;
+    }
+  }
+
+  // Also try loading via blueprint options
+  if (!rhythmRunId && bpId) {
+    const { data: bp2 } = await db.from("trailer_blueprints")
+      .select("options").eq("id", bpId).single();
+    const rrid = bp2?.options?.rhythm_run_id;
+    if (rrid) {
+      const { data: rr } = await db.from("trailer_rhythm_runs")
+        .select("id, hit_points_json, silence_windows_json, beat_hit_intents_json, drop_timestamp_ms")
+        .eq("id", rrid).single();
+      if (rr) {
+        rhythmRunId = rr.id;
+        rhythmHitPoints = rr.hit_points_json || [];
+        rhythmSilenceWindows = rr.silence_windows_json || [];
+        rhythmBeatHitIntents = rr.beat_hit_intents_json || [];
+        rhythmDropMs = rr.drop_timestamp_ms;
+      }
+    }
+  }
+
+  // Load style options from script run
+  let styleOptions: Record<string, any> = {};
+  if (scriptRunId) {
+    const { data: sr } = await db.from("trailer_script_runs")
+      .select("style_options_json").eq("id", scriptRunId).single();
+    styleOptions = sr?.style_options_json || {};
   }
 
   // Build structural analysis
@@ -362,7 +415,6 @@ async function handleGeneratePlan(db: any, body: any, userId: string) {
       });
     }
 
-    // Auto-generate VO cue points for key narrative beats
     if (voRoles.has(beat.role) && beat.text_content) {
       voLines.push({
         type: "vo",
@@ -372,6 +424,48 @@ async function handleGeneratePlan(db: any, body: any, userId: string) {
         character: "narrator",
         role: beat.role,
       });
+    }
+  }
+
+  // ─── Merge rhythm hit points into SFX plan ───
+  for (const hp of rhythmHitPoints) {
+    // Check if there's already an SFX within ±120ms
+    const nearbyExists = sfxHits.some(
+      (s: any) => Math.abs((s.timestamp_ms || 0) - hp.t_ms) <= 120
+    );
+    if (!nearbyExists && hp.strength >= 5) {
+      sfxHits.push({
+        type: "rhythm_hit",
+        timestamp_ms: hp.t_ms,
+        beat_index: hp.beat_index,
+        role: hp.phase,
+        sfx_kind: hp.type,
+        strength: hp.strength,
+        note: hp.note,
+        source: "rhythm_hit_point",
+      });
+    }
+  }
+
+  // ─── Merge beat-level hit intents ───
+  for (const bhi of rhythmBeatHitIntents) {
+    if (bhi.primary_hit !== "none") {
+      const beatEntry = timeline.find((t: any) => t.beat_index === bhi.beat_index);
+      if (beatEntry) {
+        const existsForBeat = sfxHits.some(
+          (s: any) => s.beat_index === bhi.beat_index && s.source === "beat_hit_intent"
+        );
+        if (!existsForBeat) {
+          sfxHits.push({
+            type: "beat_intent",
+            timestamp_ms: beatEntry.start_ms || 0,
+            beat_index: bhi.beat_index,
+            sfx_kind: bhi.primary_hit,
+            secondary: bhi.secondary_hits || [],
+            source: "beat_hit_intent",
+          });
+        }
+      }
     }
   }
 
@@ -414,25 +508,87 @@ async function handleGeneratePlan(db: any, body: any, userId: string) {
     gain_db: run.mix_json?.music_gain_db ?? DEFAULT_MIX.music_gain_db,
   });
 
-  // Ducking regions where VO is present
-  const duckingRegions = voLines.map((vo: any) => ({
-    start_ms: vo.timestamp_ms,
-    end_ms: vo.timestamp_ms + 5000, // estimated 5s per VO line
-    duck_db: run.mix_json?.dialogue_duck_db ?? DEFAULT_MIX.dialogue_duck_db,
-  }));
+  // ─── Build silence/ducking regions from rhythm + VO ───
+  const silenceRegions: any[] = [];
+
+  // From rhythm silence windows
+  for (const sw of rhythmSilenceWindows) {
+    silenceRegions.push({
+      start_ms: sw.start_ms,
+      end_ms: sw.end_ms,
+      target_db: -35,
+      reason: sw.reason || "rhythm_silence",
+      source: "rhythm",
+    });
+  }
+
+  // From VO ducking
+  for (const vo of voLines) {
+    silenceRegions.push({
+      start_ms: vo.timestamp_ms,
+      end_ms: vo.timestamp_ms + 5000,
+      target_db: run.mix_json?.dialogue_duck_db ?? DEFAULT_MIX.dialogue_duck_db,
+      reason: "vo_ducking",
+      source: "vo",
+    });
+  }
 
   // Build VO script for generation
   const voScript = voLines.map((v: any) => v.line).join("\n\n");
 
+  // ─── Validation: strong hits must have SFX coverage ───
+  const missingHits: any[] = [];
+  for (const hp of rhythmHitPoints) {
+    if (hp.strength >= 7) {
+      const hasCoverage = sfxHits.some(
+        (s: any) => Math.abs((s.timestamp_ms || 0) - hp.t_ms) <= 120
+      );
+      if (!hasCoverage) {
+        missingHits.push({ t_ms: hp.t_ms, type: hp.type, phase: hp.phase, strength: hp.strength });
+      }
+    }
+  }
+
+  // Validation: silence windows must be covered
+  const missingSilence: any[] = [];
+  for (const sw of rhythmSilenceWindows) {
+    const hasCoverage = silenceRegions.some(
+      (sr: any) => sr.source === "rhythm" && sr.start_ms === sw.start_ms
+    );
+    if (!hasCoverage) {
+      missingSilence.push(sw);
+    }
+  }
+
   const planJson = {
-    version: "2.0",
+    version: "2.1",
     total_duration_ms: totalMs,
     music_segments: musicSegments,
     sfx_hits: sfxHits,
     vo_lines: voLines,
-    ducking_regions: duckingRegions,
+    silence_regions: silenceRegions,
+    ducking_regions: silenceRegions.filter((s: any) => s.source === "vo"),
     vo_script: voScript,
-    sfx_selected: [], // populated by select_sfx
+    sfx_selected: [],
+    rhythm_run_id: rhythmRunId,
+    drop_ms: rhythmDropMs,
+    hit_point_coverage: {
+      total_hit_points: rhythmHitPoints.length,
+      strong_hits: rhythmHitPoints.filter((h: any) => h.strength >= 7).length,
+      sfx_aligned: rhythmHitPoints.filter((h: any) => h.strength >= 7).length - missingHits.length,
+      missing: missingHits,
+    },
+    silence_coverage: {
+      total_windows: rhythmSilenceWindows.length,
+      covered: rhythmSilenceWindows.length - missingSilence.length,
+      missing: missingSilence,
+    },
+    mix_targets: {
+      lufs_target: run.mix_json?.target_lufs ?? -14,
+      true_peak_db: -1.0,
+    },
+    style_sfx_emphasis: styleOptions?.sfxEmphasis || "balanced",
+    style_drop: styleOptions?.dropStyle || "hard_drop",
     generated_at: new Date().toISOString(),
   };
 
@@ -457,6 +613,9 @@ async function handleGeneratePlan(db: any, body: any, userId: string) {
       sfx_count: sfxHits.length,
       vo_count: voLines.length,
       music_segments: musicSegments.length,
+      hit_points_used: rhythmHitPoints.length,
+      silence_windows_used: rhythmSilenceWindows.length,
+      missing_hits: missingHits.length,
     },
     created_by: userId,
   });

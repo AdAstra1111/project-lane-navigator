@@ -330,6 +330,42 @@ async function handleRenderManifest(db: any, body: any) {
   if (!cut) return json({ error: "Cut not found" }, 404);
 
   const timeline = cut.timeline || [];
+
+  // ─── Load rhythm markers if available ───
+  let markers: any = { hit_points: [], silence_windows: [], drop_ms: null };
+  const bpId = cut.blueprint_id;
+  if (bpId) {
+    // Find rhythm run via blueprint options or script run
+    const { data: bp } = await db.from("trailer_blueprints")
+      .select("options").eq("id", bpId).single();
+    const rhythmRunId = bp?.options?.rhythm_run_id;
+    const scriptRunId = bp?.options?.script_run_id;
+
+    let rhythmRun: any = null;
+    if (rhythmRunId) {
+      const { data: rr } = await db.from("trailer_rhythm_runs")
+        .select("hit_points_json, silence_windows_json, drop_timestamp_ms")
+        .eq("id", rhythmRunId).single();
+      rhythmRun = rr;
+    } else if (scriptRunId) {
+      const { data: rrs } = await db.from("trailer_rhythm_runs")
+        .select("hit_points_json, silence_windows_json, drop_timestamp_ms")
+        .eq("script_run_id", scriptRunId)
+        .eq("status", "complete")
+        .order("created_at", { ascending: false })
+        .limit(1);
+      rhythmRun = rrs?.[0];
+    }
+
+    if (rhythmRun) {
+      markers = {
+        hit_points: rhythmRun.hit_points_json || [],
+        silence_windows: rhythmRun.silence_windows_json || [],
+        drop_ms: rhythmRun.drop_timestamp_ms || null,
+      };
+    }
+  }
+
   const manifest = {
     beats: timeline.map((t: any) => ({
       type: t.is_text_card ? "text" : "clip",
@@ -346,6 +382,7 @@ async function handleRenderManifest(db: any, body: any) {
     width: cut.render_width || 1280,
     height: cut.render_height || 720,
     fps: cut.render_fps || 24,
+    markers,
   };
 
   return json({ ok: true, manifest });
@@ -453,7 +490,7 @@ async function handleGetTimeline(db: any, body: any) {
   const { projectId, blueprintId } = body;
   if (!blueprintId) return json({ error: "blueprintId required" }, 400);
 
-  const { data: bp } = await db.from("trailer_blueprints").select("edl, arc_type, audio_plan, text_card_plan")
+  const { data: bp } = await db.from("trailer_blueprints").select("edl, arc_type, audio_plan, text_card_plan, options")
     .eq("id", blueprintId).eq("project_id", projectId).single();
   if (!bp) return json({ error: "Blueprint not found" }, 404);
 
@@ -474,7 +511,36 @@ async function handleGetTimeline(db: any, body: any) {
     selected_clip: (clipsByBeat[idx] || []).find((c: any) => c.used_in_cut || c.selected) || null,
   }));
 
-  return json({ beats, audioPlan: bp.audio_plan, textCardPlan: bp.text_card_plan, arcType: bp.arc_type });
+  // ─── Load rhythm markers ───
+  let markers: any = { hit_points: [], silence_windows: [], drop_ms: null };
+  const rhythmRunId = bp.options?.rhythm_run_id;
+  const scriptRunId = bp.options?.script_run_id;
+
+  let rhythmRun: any = null;
+  if (rhythmRunId) {
+    const { data: rr } = await db.from("trailer_rhythm_runs")
+      .select("hit_points_json, silence_windows_json, drop_timestamp_ms")
+      .eq("id", rhythmRunId).single();
+    rhythmRun = rr;
+  } else if (scriptRunId) {
+    const { data: rrs } = await db.from("trailer_rhythm_runs")
+      .select("hit_points_json, silence_windows_json, drop_timestamp_ms")
+      .eq("script_run_id", scriptRunId)
+      .eq("status", "complete")
+      .order("created_at", { ascending: false })
+      .limit(1);
+    rhythmRun = rrs?.[0];
+  }
+
+  if (rhythmRun) {
+    markers = {
+      hit_points: rhythmRun.hit_points_json || [],
+      silence_windows: rhythmRun.silence_windows_json || [],
+      drop_ms: rhythmRun.drop_timestamp_ms || null,
+    };
+  }
+
+  return json({ beats, audioPlan: bp.audio_plan, textCardPlan: bp.text_card_plan, arcType: bp.arc_type, markers });
 }
 
 // ─── Fix Trims (backfill) ───
