@@ -38,6 +38,14 @@ export type CinematicFailureCode =
   | "DIRECTION_REVERSAL"
   | "EYE_LINE_BREAK";
 
+/** Codes that are diagnostic-only (do not block pass by themselves). */
+export const DIAGNOSTIC_ONLY_CODES: ReadonlySet<CinematicFailureCode> = new Set(["EYE_LINE_BREAK"]);
+
+export interface PenaltyEntry {
+  code: CinematicFailureCode;
+  magnitude: number;
+}
+
 export interface CinematicMetrics {
   unit_count: number;
   peak_energy: number;
@@ -53,5 +61,11 @@ export interface CinematicScore {
   /** 0..1 */
   score: number;
   failures: CinematicFailureCode[];
+  /** Hard failures that block pass. */
+  hard_failures: CinematicFailureCode[];
+  /** Diagnostic-only flags (inform penalties/telemetry, don't block pass alone). */
+  diagnostic_flags: CinematicFailureCode[];
+  /** Per-code penalty breakdown for telemetry. */
+  penalty_breakdown: PenaltyEntry[];
   metrics: CinematicMetrics;
 }

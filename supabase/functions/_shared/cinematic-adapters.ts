@@ -74,8 +74,12 @@ function polarityFromText(text: string): number {
 const VALID_INTENTS = new Set(["intrigue","threat","wonder","chaos","emotion","release"]);
 const REQUIRED_FIELDS = ["energy", "tension", "density", "tonal_polarity"] as const;
 
+function makeDefaultUnit(id: string): CinematicUnit {
+  return { id, intent: "intrigue", energy: 0.45, tension: 0.45, density: 0.45, tonal_polarity: 0 };
+}
+
 /** Validate explicit CIK units; return reasons if invalid. */
-function validateExplicitUnits(units: any[]): AdapterFallbackReason[] {
+function validateExplicitUnits(units: any[], expectedCount?: number): AdapterFallbackReason[] {
   const reasons: AdapterFallbackReason[] = [];
   const missingFields: string[] = [];
   const outOfRange: string[] = [];
@@ -87,22 +91,17 @@ function validateExplicitUnits(units: any[]): AdapterFallbackReason[] {
         missingFields.push(`unit[${i}].${f}`);
       }
     }
-    if (typeof u.energy === "number" && (u.energy < 0 || u.energy > 1)) {
-      outOfRange.push(`unit[${i}].energy=${u.energy}`);
-    }
-    if (typeof u.tension === "number" && (u.tension < 0 || u.tension > 1)) {
-      outOfRange.push(`unit[${i}].tension=${u.tension}`);
-    }
-    if (typeof u.density === "number" && (u.density < 0 || u.density > 1)) {
-      outOfRange.push(`unit[${i}].density=${u.density}`);
-    }
-    if (typeof u.tonal_polarity === "number" && (u.tonal_polarity < -1 || u.tonal_polarity > 1)) {
-      outOfRange.push(`unit[${i}].tonal_polarity=${u.tonal_polarity}`);
-    }
+    if (typeof u.energy === "number" && (u.energy < 0 || u.energy > 1)) outOfRange.push(`unit[${i}].energy=${u.energy}`);
+    if (typeof u.tension === "number" && (u.tension < 0 || u.tension > 1)) outOfRange.push(`unit[${i}].tension=${u.tension}`);
+    if (typeof u.density === "number" && (u.density < 0 || u.density > 1)) outOfRange.push(`unit[${i}].density=${u.density}`);
+    if (typeof u.tonal_polarity === "number" && (u.tonal_polarity < -1 || u.tonal_polarity > 1)) outOfRange.push(`unit[${i}].tonal_polarity=${u.tonal_polarity}`);
   }
 
   if (missingFields.length > 0) reasons.push({ type: "missing_fields", details: missingFields });
   if (outOfRange.length > 0) reasons.push({ type: "out_of_range_fields", details: outOfRange });
+  if (expectedCount != null && units.length !== expectedCount) {
+    reasons.push({ type: "unit_count_mismatch", details: [`expected=${expectedCount}`, `actual=${units.length}`] });
+  }
   return reasons;
 }
 
@@ -123,23 +122,38 @@ function hasExplicitCik(raw: any): boolean {
   return raw?.cik?.units && Array.isArray(raw.cik.units) && raw.cik.units.length > 0;
 }
 
+/** Deterministic pad/trim to match expected count exactly. */
+export function enforceUnitCount(units: CinematicUnit[], expected: number): CinematicUnit[] {
+  if (units.length === expected) return units;
+  if (units.length > expected) {
+    // Trim: keep first `expected` units (drop tail — least informative)
+    return units.slice(0, expected);
+  }
+  // Pad: add conservative default units
+  const padded = [...units];
+  while (padded.length < expected) {
+    const idx = padded.length;
+    padded.push(makeDefaultUnit(`pad_${idx}`));
+  }
+  return padded;
+}
+
 // ─── Trailer adapters ───
 
-export function adaptTrailerOutputWithMode(raw: any): AdapterResult {
+export function adaptTrailerOutputWithMode(raw: any, expectedUnitCount?: number): AdapterResult {
   if (hasExplicitCik(raw)) {
-    const validationIssues = validateExplicitUnits(raw.cik.units);
+    const validationIssues = validateExplicitUnits(raw.cik.units, expectedUnitCount);
     if (validationIssues.length === 0) {
-      return { units: raw.cik.units.map(mapExplicitUnit), mode: "explicit" };
+      let units = raw.cik.units.map(mapExplicitUnit);
+      if (expectedUnitCount != null) units = enforceUnitCount(units, expectedUnitCount);
+      return { units, mode: "explicit" };
     }
-    // Fallback with structured reasons
-    return {
-      units: raw.cik.units.map(mapExplicitUnit),
-      mode: "heuristic",
-      fallbackReasons: validationIssues,
-    };
+    let units = raw.cik.units.map(mapExplicitUnit);
+    if (expectedUnitCount != null) units = enforceUnitCount(units, expectedUnitCount);
+    return { units, mode: "heuristic", fallbackReasons: validationIssues };
   }
   const items: any[] = raw?.beats || raw?.segments || (Array.isArray(raw) ? raw : []);
-  const units = items.map((b: any, i: number) => {
+  let units = items.map((b: any, i: number) => {
     const text = b.text || b.line || b.description || b.emotional_intent || b.title || "";
     return {
       id: b.beat_index != null ? `beat_${b.beat_index}` : `beat_${i}`,
@@ -150,6 +164,7 @@ export function adaptTrailerOutputWithMode(raw: any): AdapterResult {
       tonal_polarity: polarityFromText(text),
     };
   });
+  if (expectedUnitCount != null) units = enforceUnitCount(units, expectedUnitCount);
   return { units, mode: "heuristic" };
 }
 
@@ -159,20 +174,20 @@ export function adaptTrailerOutput(raw: any): CinematicUnit[] {
 
 // ─── Storyboard adapters ───
 
-export function adaptStoryboardPanelsWithMode(raw: any): AdapterResult {
+export function adaptStoryboardPanelsWithMode(raw: any, expectedUnitCount?: number): AdapterResult {
   if (hasExplicitCik(raw)) {
-    const validationIssues = validateExplicitUnits(raw.cik.units);
+    const validationIssues = validateExplicitUnits(raw.cik.units, expectedUnitCount);
     if (validationIssues.length === 0) {
-      return { units: raw.cik.units.map(mapExplicitUnit), mode: "explicit" };
+      let units = raw.cik.units.map(mapExplicitUnit);
+      if (expectedUnitCount != null) units = enforceUnitCount(units, expectedUnitCount);
+      return { units, mode: "explicit" };
     }
-    return {
-      units: raw.cik.units.map(mapExplicitUnit),
-      mode: "heuristic",
-      fallbackReasons: validationIssues,
-    };
+    let units = raw.cik.units.map(mapExplicitUnit);
+    if (expectedUnitCount != null) units = enforceUnitCount(units, expectedUnitCount);
+    return { units, mode: "heuristic", fallbackReasons: validationIssues };
   }
   const items: any[] = raw?.panels || raw?.items || (Array.isArray(raw) ? raw : []);
-  const units = items.map((p: any, i: number) => {
+  let units = items.map((p: any, i: number) => {
     const text = p.prompt || p.description || p.composition || p.action || "";
     return {
       id: p.unit_key || p.id || `panel_${i}`,
@@ -183,6 +198,7 @@ export function adaptStoryboardPanelsWithMode(raw: any): AdapterResult {
       tonal_polarity: polarityFromText(text),
     };
   });
+  if (expectedUnitCount != null) units = enforceUnitCount(units, expectedUnitCount);
   return { units, mode: "heuristic" };
 }
 
