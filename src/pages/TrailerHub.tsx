@@ -2,7 +2,7 @@
  * Trailer Hub — Entry page for the Trailer Intelligence pipeline.
  * Reads ?tab= to mount the correct sub-view directly.
  */
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { useParams, Link, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
@@ -65,12 +65,25 @@ const LOADING_FALLBACK = (
   </div>
 );
 
+const ALLOWED_TABS = new Set(['blueprints', 'clips', 'assemble']);
+
 export default function TrailerHub() {
   const { id: projectId } = useParams<{ id: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
   const tabParam = searchParams.get('tab');
   const { data: bpListData } = useBlueprints(projectId);
   const hasLegacyBlueprints = (bpListData?.blueprints || []).length > 0;
+
+  // Coerce missing/invalid tab to 'blueprints', preserving all other params
+  useEffect(() => {
+    if (!tabParam || !ALLOWED_TABS.has(tabParam)) {
+      setSearchParams(prev => {
+        const next = new URLSearchParams(prev);
+        next.set('tab', 'blueprints');
+        return next;
+      }, { replace: true });
+    }
+  }, [tabParam, setSearchParams]);
 
   // If tab param maps to a direct sub-view, render it
   if (tabParam === 'blueprints') {
