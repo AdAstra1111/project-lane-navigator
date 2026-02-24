@@ -1,4 +1,4 @@
-/**
+/** 
  * Shared Trailer Context Builder — single source of truth for assembling
  * canon-pack-based context for trailer generation (used by ai-trailer-factory
  * AND trailer-cinematic-engine).
