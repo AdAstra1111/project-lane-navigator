@@ -13,6 +13,9 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { callLLM, MODELS, composeSystem, callLLMWithJsonRetry, parseAiJson } from "../_shared/llm.ts";
 import { compileTrailerContext } from "../_shared/trailerContext.ts";
+import { enforceCinematicQuality } from "../_shared/cinematic-kernel.ts";
+import { adaptTrailerOutput } from "../_shared/cinematic-adapters.ts";
+import { buildTrailerRepairInstruction } from "../_shared/cinematic-repair.ts";
 
 // ─── Helpers ───
 
@@ -753,12 +756,21 @@ RETURN STRICT JSON:
   "warnings": [ "any structural or canon risks detected" ]
 }
 
+If you can, also include an INTERNAL metadata block "cik" with cinematic intelligence units for quality scoring. This is optional and will be stripped before storage:
+{
+  "cik": {
+    "units": [
+      { "id": "beat_0", "intent": "intrigue|threat|wonder|chaos|emotion|release", "energy": 0.0-1.0, "tension": 0.0-1.0, "density": 0.0-1.0, "tonal_polarity": -1.0-1.0 }
+    ]
+  }
+}
+
 Return only valid JSON.
 No commentary.
 No explanation.
 No markdown.`;
 
-    const parsed = await callLLMWithJsonRetry({
+    const parsedRaw = await callLLMWithJsonRetry({
       apiKey,
       model: MODELS.PRO,
       system: systemMsg,
@@ -769,6 +781,30 @@ No markdown.`;
       handler: "create_trailer_script_v2",
       validate: (d): d is any => Array.isArray(d) || (d && Array.isArray(d.beats)),
     });
+
+    // ── CIK quality gate (1 bounded repair attempt) ──
+    const parsed = await enforceCinematicQuality({
+      handler: "trailer-cinematic-engine",
+      phase: "create_trailer_script_v2",
+      model: MODELS.PRO,
+      rawOutput: parsedRaw,
+      adapter: adaptTrailerOutput,
+      buildRepairInstruction: buildTrailerRepairInstruction,
+      regenerateOnce: async (repairInstruction: string) => {
+        return await callLLMWithJsonRetry({
+          apiKey,
+          model: MODELS.PRO,
+          system: systemMsg + "\n\n" + repairInstruction,
+          user: userPrompt,
+          temperature: 0.4,
+          maxTokens: 14000,
+        }, {
+          handler: "create_trailer_script_v2_repair",
+          validate: (d): d is any => Array.isArray(d) || (d && Array.isArray(d.beats)),
+        });
+      },
+    });
+
     const beatArray: any[] = Array.isArray(parsed) ? parsed : (parsed.beats || []);
 
     // Validate beat count

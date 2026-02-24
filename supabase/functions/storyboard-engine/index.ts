@@ -4,6 +4,9 @@
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { callLLM, MODELS, callLLMWithJsonRetry, callLLMChunked } from "../_shared/llm.ts";
+import { enforceCinematicQuality } from "../_shared/cinematic-kernel.ts";
+import { adaptStoryboardPanels } from "../_shared/cinematic-adapters.ts";
+import { buildStoryboardRepairInstruction } from "../_shared/cinematic-repair.ts";
 
 const GATEWAY_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
 const IMAGE_MODEL = "google/gemini-2.5-flash-image";
@@ -271,7 +274,72 @@ Rules:
       }
     }
 
-    // Insert panels — created_by set explicitly
+    // ── CIK quality gate (1 bounded repair attempt) ──
+    const cikInput = { panels: panelsByUnit.flatMap((u: any) => (u.panels || []).map((p: any) => ({ ...p, unit_key: u.unit_key }))) };
+    const cikResult = await enforceCinematicQuality({
+      handler: "storyboard-engine",
+      phase: "generate_storyboard_panels",
+      model: MODELS.BALANCED,
+      rawOutput: cikInput,
+      adapter: adaptStoryboardPanels,
+      buildRepairInstruction: buildStoryboardRepairInstruction,
+      regenerateOnce: async (repairInstruction: string) => {
+        // Re-run the same generation with repair instruction injected
+        const repairedSystemPrompt = panelSystemPrompt + "\n\n" + repairInstruction;
+        let repairedPanels: any[];
+        if (unitDescriptions.length <= PANELS_BATCH_SIZE) {
+          const reParsed = await callLLMWithJsonRetry({
+            apiKey,
+            model: MODELS.BALANCED,
+            system: repairedSystemPrompt,
+            user: JSON.stringify(unitDescriptions).slice(0, 14000),
+            temperature: 0.4,
+            maxTokens: 10000,
+          }, {
+            handler: "generate_storyboard_panels_repair",
+            validate: (d): d is any => Array.isArray(d) || (d && Array.isArray(d.panels_by_unit)),
+          });
+          repairedPanels = reParsed.panels_by_unit || reParsed;
+        } else {
+          repairedPanels = await callLLMChunked({
+            llmOpts: { apiKey, model: MODELS.BALANCED, system: repairedSystemPrompt, temperature: 0.4, maxTokens: 6000 },
+            items: unitDescriptions,
+            batchSize: PANELS_BATCH_SIZE,
+            maxBatches: 8,
+            handler: "generate_storyboard_panels_repair",
+            buildUserPrompt: (batch, idx, total) =>
+              `Batch ${idx + 1} of ${total}. Generate panels for these ${batch.length} units ONLY:\n${JSON.stringify(batch)}`,
+            validate: (d): d is any => Array.isArray(d) || (d && Array.isArray(d.panels_by_unit)),
+            extractItems: (d: any) => d.panels_by_unit || (Array.isArray(d) ? d : []),
+            getKey: (item: any) => item.unit_key || "",
+            dedupe: "first",
+          });
+        }
+        // Re-apply completeness + ordering checks
+        const reRequestedKeys = new Set(unitDescriptions.map((u: any) => u.unit_key));
+        const reReturnedKeys = new Set(repairedPanels.map((u: any) => u.unit_key));
+        const reMissing = [...reRequestedKeys].filter(k => !reReturnedKeys.has(k));
+        if (reMissing.length > 0) {
+          throw new Error(`generate_storyboard_panels_repair: missing panels for unit_key=${reMissing.join(", ")}`);
+        }
+        const reByKey = new Map(repairedPanels.map((u: any) => [u.unit_key, u]));
+        repairedPanels = keyOrder.map((k: string) => reByKey.get(k)).filter(Boolean);
+        for (const entry of repairedPanels) {
+          if (!Array.isArray(entry.panels) || entry.panels.length === 0) {
+            throw new Error(`generate_storyboard_panels_repair: unit_key=${entry.unit_key} has no panels`);
+          }
+          for (const p of entry.panels) {
+            if (p.panel_index == null || !p.prompt) {
+              throw new Error(`generate_storyboard_panels_repair: unit_key=${entry.unit_key} panel missing panel_index or prompt`);
+            }
+          }
+        }
+        return { panels: repairedPanels.flatMap((u: any) => (u.panels || []).map((p: any) => ({ ...p, unit_key: u.unit_key }))) };
+      },
+    });
+    // CIK result is stripped of cik; we don't change panelsByUnit since CIK is informational scoring only
+
+
     const panelRows: any[] = [];
     for (const unitPanels of panelsByUnit) {
       const uk = unitPanels.unit_key;
