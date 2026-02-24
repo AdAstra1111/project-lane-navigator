@@ -17342,6 +17342,84 @@ export type Database = {
           },
         ]
       }
+      trailer_look_bibles: {
+        Row: {
+          avoid_list: string[] | null
+          camera_language: string | null
+          color_grade: string | null
+          contrast: string | null
+          created_at: string
+          created_by: string
+          custom_directives: string | null
+          grain: string | null
+          id: string
+          is_locked: boolean
+          lighting_style: string | null
+          palette: string | null
+          project_id: string
+          reference_assets_notes: string | null
+          scope: string
+          scope_ref_id: string | null
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          avoid_list?: string[] | null
+          camera_language?: string | null
+          color_grade?: string | null
+          contrast?: string | null
+          created_at?: string
+          created_by: string
+          custom_directives?: string | null
+          grain?: string | null
+          id?: string
+          is_locked?: boolean
+          lighting_style?: string | null
+          palette?: string | null
+          project_id: string
+          reference_assets_notes?: string | null
+          scope?: string
+          scope_ref_id?: string | null
+          title?: string
+          updated_at?: string
+        }
+        Update: {
+          avoid_list?: string[] | null
+          camera_language?: string | null
+          color_grade?: string | null
+          contrast?: string | null
+          created_at?: string
+          created_by?: string
+          custom_directives?: string | null
+          grain?: string | null
+          id?: string
+          is_locked?: boolean
+          lighting_style?: string | null
+          palette?: string | null
+          project_id?: string
+          reference_assets_notes?: string | null
+          scope?: string
+          scope_ref_id?: string | null
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trailer_look_bibles_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "trailer_look_bibles_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       trailer_moments: {
         Row: {
           ai_friendly: boolean

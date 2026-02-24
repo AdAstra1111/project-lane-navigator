@@ -3,6 +3,7 @@
  * Left: beats list | Center: beat detail editor | Right: citations panel
  */
 import { useState, useMemo, useCallback } from 'react';
+import { LookBiblePanel, LookBibleSummaryPills } from './LookBiblePanel';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -365,6 +366,10 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
               <StyleOptionsPills opts={savedOpts} />
             </div>
           )}
+          {/* Look Bible summary pills */}
+          <div className="mt-1.5">
+            <LookBibleSummaryPills projectId={projectId} scopeRefId={selectedRunId} />
+          </div>
           {/* Additional run metadata */}
           {activeRun && (
             <div className="mt-1 flex flex-wrap items-center gap-2">
@@ -563,6 +568,9 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
           </Card>
         </CollapsibleContent>
       </Collapsible>
+
+      {/* Look Bible Panel */}
+      <LookBiblePanel projectId={projectId} scopeRefId={selectedRunId} />
 
       {/* Action Buttons */}
       <div className="flex flex-wrap gap-2">
