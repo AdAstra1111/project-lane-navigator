@@ -355,11 +355,24 @@ export default function TrailerTimelineStudio() {
                     <Play className="h-3 w-3 mr-1" /> Watch
                   </Button>
                 </a>
-                <a href={renderedPublicUrl} download={`trailer-${(cutId || '').slice(0, 8)}.webm`}>
-                  <Button variant="outline" size="sm" className="text-xs">
-                    <Download className="h-3 w-3 mr-1" /> Download
-                  </Button>
-                </a>
+                <Button variant="outline" size="sm" className="text-xs" onClick={async () => {
+                  try {
+                    toast.info('Preparing download…');
+                    const resp = await fetch(renderedPublicUrl!);
+                    const blob = await resp.blob();
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `trailer-${(cutId || '').slice(0, 8)}.webm`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  } catch (err) {
+                    console.error('Download failed', err);
+                    toast.error('Download failed');
+                  }
+                }}>
+                  <Download className="h-3 w-3 mr-1" /> Download
+                </Button>
               </>
             )}
           </div>
