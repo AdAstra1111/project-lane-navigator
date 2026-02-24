@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronDown, ArrowRight, TrendingUp, DollarSign, Users, AlertTriangle, Shield } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useNavigate } from 'react-router-dom';
+import { DeepReviewModal } from '@/components/review/DeepReviewModal';
 
 const PRIORITY_ACTIONS = [
   {
@@ -34,6 +35,7 @@ const section = (delay: number) => ({
 
 const QuickReview = () => {
   const [expanded, setExpanded] = useState<number | null>(null);
+  const [deepOpen, setDeepOpen] = useState(false);
   const navigate = useNavigate();
 
   return (
@@ -203,12 +205,18 @@ const QuickReview = () => {
             <Button
               size="lg"
               className="rounded-xl gap-2 text-sm font-medium px-6"
-              onClick={() => navigate('/dashboard')}
+              onClick={() => setDeepOpen(true)}
             >
               Run Deep Review
               <ArrowRight className="h-4 w-4" />
             </Button>
           </div>
+
+          <DeepReviewModal
+            open={deepOpen}
+            onOpenChange={setDeepOpen}
+            onStart={() => navigate('/dashboard')}
+          />
         </motion.section>
       </div>
     </div>
