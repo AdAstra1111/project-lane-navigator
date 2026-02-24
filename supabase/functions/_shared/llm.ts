@@ -253,6 +253,32 @@ export interface ChunkedLLMOptions<TItem, TResult> {
 /**
  * callLLMChunked — Splits input into batches, calls LLM per batch with retry,
  * combines results. Prevents truncation by keeping each call small.
+ *
+ * ── CONTRACT ──
+ * When to use: Any LLM call that may produce >~6K output tokens (large arrays,
+ *   panel lists, link graphs, ledger entries). Chunk by *input* items.
+ *
+ * Required at call site:
+ *   • `validate` — schema check per batch (use validators.ts helpers)
+ *   • `extractItems` — unwrap batch result into an item array
+ *   • Post-combine integrity checks specific to the domain (completeness,
+ *     ordering, field presence) — callLLMChunked does NOT know your schema
+ *
+ * Hard caps (must be explicit):
+ *   • `batchSize` — items per LLM call (keep output well under token limit)
+ *   • `maxBatches` — absolute upper bound (default 8, prevents runaway)
+ *
+ * Deduplication (`getKey` + `dedupe`):
+ *   • "first" (default) — first occurrence wins (deterministic)
+ *   • "last" — last occurrence wins (replacement semantics)
+ *   • Duplicates are logged as CHUNKED_LLM_DUPLICATE telemetry
+ *
+ * Output shape: Callers receive a flat array of combined items. The chunking
+ *   is invisible to downstream code — the returned shape must match what a
+ *   single-call path would produce.
+ *
+ * `finalize` hook: optional post-processing (cap, sort, filter) after combine.
+ *
  * Hard-capped at maxBatches (default 8).
  */
 export async function callLLMChunked<TItem, TResult>(
