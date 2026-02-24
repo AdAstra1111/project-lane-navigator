@@ -1,21 +1,24 @@
 /**
  * Trailer Hub — Entry page for the Trailer Intelligence pipeline.
- * Cinematic Script v2 → Clips → Assembly → Export
- * Shows legacy Blueprint v1 if old runs exist.
+ * Reads ?tab= to mount the correct sub-view directly.
  */
+import { lazy, Suspense } from 'react';
 import { useParams, Link, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   ArrowLeft, Film, Clapperboard, Scissors, Music,
-  ChevronRight, ArrowRight, Sparkles, Archive,
+  ChevronRight, ArrowRight, Sparkles, Archive, Loader2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useBlueprints } from '@/lib/trailerPipeline/useTrailerPipeline';
 import { LegacyBlueprintTab } from '@/components/trailer/cinematic/LegacyBlueprintTab';
+
+const TrailerPipeline = lazy(() => import('./TrailerPipeline'));
+const ClipCandidatesStudio = lazy(() => import('./ClipCandidatesStudio'));
+const TrailerTimelineStudio = lazy(() => import('./TrailerTimelineStudio'));
 
 const STEPS = [
   {
@@ -24,7 +27,7 @@ const STEPS = [
     description: 'Generate a cinematic trailer script with rhythm grid, shot design, and AI judge scoring.',
     icon: Sparkles,
     cta: 'Open Cinematic Studio',
-    href: (id: string) => `/projects/${id}/trailer-pipeline`,
+    tab: 'blueprints',
     enabled: true,
   },
   {
@@ -33,7 +36,7 @@ const STEPS = [
     description: 'Generate 2–3 AI video candidates per beat using Veo or Runway, then select the best.',
     icon: Clapperboard,
     cta: 'Open Clip Studio',
-    href: (id: string) => `/projects/${id}/trailer-clips`,
+    tab: 'clips',
     enabled: true,
   },
   {
@@ -42,7 +45,7 @@ const STEPS = [
     description: 'Arrange clips on a timeline, trim, reorder, add text cards, and render the final trailer.',
     icon: Scissors,
     cta: 'Open Timeline Studio',
-    href: (id: string) => `/projects/${id}/trailer-assemble`,
+    tab: 'assemble',
     enabled: true,
   },
   {
@@ -51,22 +54,48 @@ const STEPS = [
     description: 'Add music bed, SFX, mix audio, and export the final MP4 with a full deliverables package.',
     icon: Music,
     cta: 'Audio in Timeline Studio',
-    href: (id: string) => `/projects/${id}/trailer-assemble`,
+    tab: 'assemble',
     enabled: true,
   },
 ];
 
+const LOADING_FALLBACK = (
+  <div className="flex items-center justify-center p-12">
+    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+  </div>
+);
+
 export default function TrailerHub() {
   const { id: projectId } = useParams<{ id: string }>();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const tabParam = searchParams.get('tab');
   const { data: bpListData } = useBlueprints(projectId);
   const hasLegacyBlueprints = (bpListData?.blueprints || []).length > 0;
 
-  // Map tab param to default tab value
-  const defaultTab = tabParam === 'blueprints' || tabParam === 'clips' || tabParam === 'assemble'
-    ? 'cinematic' : 'cinematic';
+  // If tab param maps to a direct sub-view, render it
+  if (tabParam === 'blueprints') {
+    return (
+      <Suspense fallback={LOADING_FALLBACK}>
+        <TrailerPipeline />
+      </Suspense>
+    );
+  }
+  if (tabParam === 'clips') {
+    return (
+      <Suspense fallback={LOADING_FALLBACK}>
+        <ClipCandidatesStudio />
+      </Suspense>
+    );
+  }
+  if (tabParam === 'assemble') {
+    return (
+      <Suspense fallback={LOADING_FALLBACK}>
+        <TrailerTimelineStudio />
+      </Suspense>
+    );
+  }
 
+  // Default: show hub overview
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-10">
@@ -107,7 +136,10 @@ export default function TrailerHub() {
             >
               {STEPS.map((step, idx) => (
                 <div key={step.step}>
-                  <Link to={step.href(projectId!)}>
+                  <button
+                    className="w-full text-left"
+                    onClick={() => setSearchParams({ tab: step.tab })}
+                  >
                     <Card className="transition-all hover:shadow-md hover:border-primary/30 cursor-pointer">
                       <CardContent className="p-4 flex items-center gap-4">
                         <div className="flex-shrink-0 w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center text-sm font-bold">
@@ -124,7 +156,7 @@ export default function TrailerHub() {
                         </div>
                       </CardContent>
                     </Card>
-                  </Link>
+                  </button>
                   {idx < STEPS.length - 1 && (
                     <div className="flex justify-center py-1">
                       <ArrowRight className="h-3 w-3 text-muted-foreground/40 rotate-90" />
