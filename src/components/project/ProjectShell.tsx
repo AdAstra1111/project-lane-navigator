@@ -23,6 +23,8 @@ const SHELL_UI = {
   border:      'border-border/50',
   borderSubtle:'border-border/10',
 } as const;
+
+const SHELL_FOCUS = 'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background';
 import { useProject } from '@/hooks/useProjects';
 import { useOperatingMode, type OperatingMode } from '@/hooks/useOperatingMode';
 import { usePipelineState } from '@/hooks/usePipelineState';
@@ -366,7 +368,7 @@ export function ProjectShell({ children }: ProjectShellProps) {
         <div className="flex items-center gap-2 min-w-0 flex-1">
           <button
             onClick={() => navigate('/dashboard')}
-            className={cn('h-8 w-8 rounded-md flex items-center justify-center transition-colors shrink-0', SHELL_UI.inactive, SHELL_UI.hoverText, SHELL_UI.hoverBg)}
+            className={cn('h-8 w-8 rounded-md flex items-center justify-center transition-colors shrink-0', SHELL_UI.inactive, SHELL_UI.hoverText, SHELL_UI.hoverBg, SHELL_FOCUS)}
           >
             <ChevronLeft className="h-3.5 w-3.5" />
           </button>
@@ -403,7 +405,7 @@ export function ProjectShell({ children }: ProjectShellProps) {
               <button
                 onClick={handleDrawerToggle}
                 className={cn(
-                  'h-8 w-8 rounded-md flex items-center justify-center transition-colors border',
+                  `h-8 w-8 rounded-md flex items-center justify-center transition-colors border ${SHELL_FOCUS}`,
                   drawerOpen
                     ? `text-foreground/70 ${SHELL_UI.border} bg-muted/20`
                     : cn(SHELL_UI.inactive, 'border-transparent', SHELL_UI.hoverText, SHELL_UI.hoverBg),
