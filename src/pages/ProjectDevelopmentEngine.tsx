@@ -3,8 +3,8 @@ import { toast } from 'sonner';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useParams, Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
-import { Header } from '@/components/Header';
-import { PageTransition } from '@/components/PageTransition';
+
+
 import { useDevEngineV2 } from '@/hooks/useDevEngineV2';
 import { useScriptPipeline } from '@/hooks/useScriptPipeline';
 import { useRewritePipeline } from '@/hooks/useRewritePipeline';
@@ -845,60 +845,38 @@ export default function ProjectDevelopmentEngine() {
   }
 
   return (
-    <PageTransition>
-      <div className="min-h-screen bg-background">
-        <Header />
-        <div className="max-w-[1800px] mx-auto px-4 py-4 space-y-3">
+    <>
+    <div className="max-w-[1800px] mx-auto px-4 py-4 space-y-3">
 
-          {/* ═══ HEADER BAR ═══ */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            <div className="flex items-center gap-3">
-              <Link to={`/projects/${projectId}`} className="text-xs text-muted-foreground hover:text-foreground">
-                ← Project
-              </Link>
-              <div className="flex items-center gap-1.5">
-                <h1 className="text-base font-display font-bold text-foreground">
-                  {(project as any)?.title || 'Development Engine'}
-                </h1>
-                {project && (
-                  <RenameProjectDialog
-                    currentTitle={(project as any).title || ''}
-                    onRename={handleRenameProject}
-                  />
-                )}
-              </div>
-              {/* Return to Series Writer when launched from there */}
-              {searchParams.get('source') === 'series-writer' && (
-                <Link
-                  to={`/projects/${projectId}/series-writer${searchParams.get('ep') ? `?ep=${searchParams.get('ep')}` : ''}`}
-                  className="ml-2"
-                >
-                  <Badge variant="outline" className="text-[10px] gap-1 cursor-pointer hover:bg-primary/10 border-primary/30 text-primary">
-                    <ArrowRight className="h-3 w-3 rotate-180" /> Return to Series Writer
-                    {searchParams.get('ep') && ` (EP ${searchParams.get('ep')})`}
-                  </Badge>
-                </Link>
-              )}
-            </div>
-            <div className="flex flex-wrap items-center gap-1.5">
-              <Badge variant="outline" className={`text-[10px] ${BEHAVIOR_COLORS[projectBehavior]}`}>
-                {BEHAVIOR_LABELS[projectBehavior]}
-              </Badge>
-              <Badge variant="outline" className="text-[10px] bg-muted/40 text-muted-foreground">
-                {normalizedFormat}
-              </Badge>
-              <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/30">
-                {getDeliverableLabel(selectedDeliverableType, normalizedFormat)}
-              </Badge>
-              <DocAssistantDrawer
-                projectId={projectId}
-                selectedDocType={selectedDoc?.doc_type}
-                selectedVersionId={selectedVersionId || undefined}
-                selectedVersionText={versionText}
-                onVersionCreated={(vid) => setSelectedVersionId(vid)}
-              />
-            </div>
-          </div>
+      {/* ═══ CONTEXT BADGES ═══ */}
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Badge variant="outline" className={`text-[10px] ${BEHAVIOR_COLORS[projectBehavior]}`}>
+          {BEHAVIOR_LABELS[projectBehavior]}
+        </Badge>
+        <Badge variant="outline" className="text-[10px] bg-muted/40 text-muted-foreground">
+          {normalizedFormat}
+        </Badge>
+        <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/30">
+          {getDeliverableLabel(selectedDeliverableType, normalizedFormat)}
+        </Badge>
+        {searchParams.get('source') === 'series-writer' && (
+          <Link
+            to={`/projects/${projectId}/series-writer${searchParams.get('ep') ? `?ep=${searchParams.get('ep')}` : ''}`}
+          >
+            <Badge variant="outline" className="text-[10px] gap-1 cursor-pointer hover:bg-primary/10 border-primary/30 text-primary">
+              <ArrowRight className="h-3 w-3 rotate-180" /> Return to Series Writer
+              {searchParams.get('ep') && ` (EP ${searchParams.get('ep')})`}
+            </Badge>
+          </Link>
+        )}
+        <DocAssistantDrawer
+          projectId={projectId}
+          selectedDocType={selectedDoc?.doc_type}
+          selectedVersionId={selectedVersionId || undefined}
+          selectedVersionText={versionText}
+          onVersionCreated={(vid) => setSelectedVersionId(vid)}
+        />
+      </div>
 
 
           {/* ═══ CONNECTIVITY STATUS ═══ */}
@@ -1775,7 +1753,6 @@ export default function ProjectDevelopmentEngine() {
             )}
           </Tabs>
         </div>
-      </div>
 
       {/* Drift Override Dialog */}
       <Dialog open={driftOverrideOpen} onOpenChange={setDriftOverrideOpen}>
@@ -1862,6 +1839,6 @@ export default function ProjectDevelopmentEngine() {
         }}
       />
 
-    </PageTransition>
+    </>
   );
 }
