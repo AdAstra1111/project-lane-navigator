@@ -236,3 +236,6 @@ verify_jwt = false
 
 [functions.trailer-audio-engine]
 verify_jwt = false
+
+[functions.trailer-cinematic-engine]
+verify_jwt = false
