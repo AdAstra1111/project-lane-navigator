@@ -4,6 +4,7 @@
  */
 import { useState, useMemo, useCallback } from 'react';
 import { LookBiblePanel, LookBibleSummaryPills } from './LookBiblePanel';
+import { CrescendoMontagePanel } from './CrescendoMontagePanel';
 import { Badge } from '@/components/ui/badge';
 import { GateChecklist } from './GateChecklist';
 import { Button } from '@/components/ui/button';
@@ -223,7 +224,7 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
   const {
     createFullPlan, createScript, createRhythmGrid,
     createShotDesign, runJudge, repairScript, startClipGeneration,
-    createScriptVariants, selectScriptRun,
+    createScriptVariants, selectScriptRun, regenerateCrescendoMontage,
   } = useCinematicMutations(projectId);
 
   const [showVariantsPanel, setShowVariantsPanel] = useState(false);
@@ -586,6 +587,13 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
         scriptGates={scriptGates || undefined}
         shotDesignGates={shotDesignGates || undefined}
         judgeScores={judgeScores || undefined}
+      />
+
+      {/* Crescendo Micro-Montage Panel */}
+      <CrescendoMontagePanel
+        projectId={projectId}
+        scriptRunId={selectedRunId}
+        shotDesignRunId={latestShotDesign?.id}
       />
 
       {/* Action Buttons */}

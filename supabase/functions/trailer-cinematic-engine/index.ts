@@ -1113,6 +1113,23 @@ MOTION RULES (mandatory — every shot must obey)
 - Static shots are ONLY allowed when beat has silence windows or explicit restraint/withholding.
 
 ------------------------------------------------------------
+CRESCENDO MICRO-MONTAGE RULES (mandatory for crescendo phase)
+------------------------------------------------------------
+- Each crescendo beat MUST produce 6–10 rapid micro-shots.
+- Every crescendo shot MUST include in prompt_hint_json:
+  - "montage_group_id": a shared group identifier (format: "mg-<beat_index>") — ALL shots in the same crescendo beat share this ID.
+  - "cut_on_action": boolean — true if this shot's edit point is motivated by in-frame action (a door closing, an impact, a turn, etc.).
+  - "motif_tag": a short string labelling the visual motif (e.g. "eyes", "door", "running", "impact", "hands", "fire", "water", "silhouette"). Repeat motif_tags across shots to create rhythmic visual repetition.
+- Montage design principles:
+  - Alternate shot types rapidly: close → wide → insert → close → medium etc.
+  - Use match-action cuts: one shot's exit action matches the next shot's entry.
+  - Include at least 2 different motif_tags per crescendo beat for visual variety.
+  - At least 50% of crescendo shots should have cut_on_action=true.
+  - Use whip_pan, smash_cut, or strobe_cut transitions between montage shots.
+  - Duration per shot: 700–1200ms (hard constraint).
+  - Movement intensity should be 8–10 for all crescendo montage shots.
+
+------------------------------------------------------------
 TRANSITION GRAMMAR (mandatory)
 ------------------------------------------------------------
 - Every shot spec must define transition_in and transition_out.
@@ -1167,14 +1184,17 @@ Return:
       "prompt_hint_json": {
         "visual_prompt": "cinematic visual grounded in canon",
         "style": "optional style phrase",
-        "preferred_provider": "runway|veo"
+        "preferred_provider": "runway|veo",
+        "montage_group_id": "mg-<beat_index> (REQUIRED for crescendo shots)",
+        "cut_on_action": true/false (REQUIRED for crescendo shots),
+        "motif_tag": "eyes|door|running|impact|etc (REQUIRED for crescendo shots)"
       }
     }
   ]
 }
 
 DURATION RULES:
-- Crescendo shots: 700–1400ms each
+- Crescendo shots: 700–1200ms each (HARD CONSTRAINT)
 - Other shots: 1200–6000ms (button may be up to 8000ms)
 
 Do NOT include copyrighted references. Do NOT invent new characters/locations. Use citations implicitly.
@@ -1287,6 +1307,40 @@ No commentary. No explanation. No markdown. Only valid JSON.${rhythmContext}`);
       return json({ ok: false, error: "Shot design validation failed", failures: valErrors }, 400);
     }
 
+    // ── Validate crescendo montage metadata ──
+    const montageWarnings: string[] = [];
+    for (const b of beats) {
+      if (b.phase !== "crescendo") continue;
+      const bSpecs = specsByBeat[b.beat_index] || [];
+      const withMontageGroup = bSpecs.filter((s: any) => s.prompt_hint_json?.montage_group_id);
+      if (bSpecs.length > 0 && withMontageGroup.length === 0) {
+        // Auto-inject montage metadata for crescendo specs
+        for (const s of bSpecs) {
+          if (!s.prompt_hint_json) s.prompt_hint_json = {};
+          s.prompt_hint_json.montage_group_id = `mg-${b.beat_index}`;
+          if (s.prompt_hint_json.cut_on_action === undefined) s.prompt_hint_json.cut_on_action = true;
+          if (!s.prompt_hint_json.motif_tag) s.prompt_hint_json.motif_tag = "impact";
+        }
+        montageWarnings.push(`Beat #${b.beat_index}: auto-injected montage metadata (LLM didn't provide it)`);
+      }
+      // Validate motif variety
+      const motifs = new Set(bSpecs.map((s: any) => s.prompt_hint_json?.motif_tag).filter(Boolean));
+      if (motifs.size < 2 && bSpecs.length >= 3) {
+        montageWarnings.push(`Beat #${b.beat_index}: only ${motifs.size} motif_tag(s) — need ≥2 for visual variety`);
+      }
+      // Validate cut_on_action ratio
+      const cutOnAction = bSpecs.filter((s: any) => s.prompt_hint_json?.cut_on_action).length;
+      if (bSpecs.length >= 3 && cutOnAction / bSpecs.length < 0.5) {
+        montageWarnings.push(`Beat #${b.beat_index}: only ${cutOnAction}/${bSpecs.length} shots have cut_on_action — need ≥50%`);
+      }
+      // Enforce 700-1200ms duration range for crescendo
+      for (const s of bSpecs) {
+        if (s.target_duration_ms) {
+          s.target_duration_ms = Math.max(700, Math.min(1200, s.target_duration_ms));
+        }
+      }
+    }
+
     // ── Insert shot specs ──
     const shotRows = shotSpecs.map((s: any) => {
       const matchBeat = beats.find((b: any) => b.beat_index === s.beat_index);
@@ -1348,12 +1402,17 @@ No commentary. No explanation. No markdown. Only valid JSON.${rhythmContext}`);
     }
     const shotGateResult = { passed: shotGateFailures.length === 0, failures: shotGateFailures };
 
+    // Merge montage warnings into gate failures
+    const allShotWarnings = [...(parsed.warnings || []), ...shotGateFailures, ...montageWarnings];
+    const allShotGateFailures = [...shotGateFailures, ...montageWarnings.filter(w => w.includes("need ≥"))];
+    const finalShotGateResult = { passed: allShotGateFailures.length === 0, failures: allShotGateFailures };
+
     await db.from("trailer_shot_design_runs").update({
-      status: shotGateResult.passed ? "complete" : "complete",
+      status: "complete",
       global_movement_curve_json: parsed.global_movement_curve || null,
       lens_bias_json: parsed.lens_bias || null,
-      warnings: [...(parsed.warnings || []), ...shotGateFailures],
-      gates_json: shotGateResult,
+      warnings: allShotWarnings,
+      gates_json: finalShotGateResult,
     }).eq("id", run.id);
 
     return json({
@@ -1363,8 +1422,14 @@ No commentary. No explanation. No markdown. Only valid JSON.${rhythmContext}`);
       shotCount: shotRows.length,
       beatsCount: beats.length,
       crescendoShotsPerBeat,
-      warnings: [...(parsed.warnings || []), ...shotGateFailures],
-      gates: shotGateResult,
+      montageGroups: beats.filter((b: any) => b.phase === "crescendo").map((b: any) => ({
+        beat_index: b.beat_index,
+        group_id: `mg-${b.beat_index}`,
+        shot_count: (specsByBeat[b.beat_index] || []).length,
+        motifs: [...new Set((specsByBeat[b.beat_index] || []).map((s: any) => s.prompt_hint_json?.motif_tag).filter(Boolean))],
+      })),
+      warnings: allShotWarnings,
+      gates: finalShotGateResult,
       seed: resolvedSeed,
     });
 
@@ -2410,6 +2475,156 @@ async function handleFullPlan(db: any, body: any, userId: string, apiKey: string
   });
 }
 
+// ─── ACTION 11: Regenerate Crescendo Montage Only ───
+
+async function handleRegenerateCrescendoMontage(db: any, body: any, userId: string, apiKey: string) {
+  const { projectId, scriptRunId, shotDesignRunId, seed: inputSeed } = body;
+  if (!scriptRunId || !shotDesignRunId) return json({ error: "scriptRunId and shotDesignRunId required" }, 400);
+
+  const { data: scriptRun } = await db.from("trailer_script_runs")
+    .select("*").eq("id", scriptRunId).eq("project_id", projectId).single();
+  if (!scriptRun) return json({ error: "Script run not found" }, 404);
+
+  const { data: beats } = await db.from("trailer_script_beats")
+    .select("*").eq("script_run_id", scriptRunId).order("beat_index");
+  const crescendoBeats = (beats || []).filter((b: any) => b.phase === "crescendo");
+  if (crescendoBeats.length === 0) return json({ error: "No crescendo beats found" }, 400);
+
+  const styleOptions = (scriptRun.style_options_json || {}) as Record<string, any>;
+  const lookBible = await loadLookBible(db, projectId, scriptRunId);
+  const lookBibleSection = buildLookBibleSection(lookBible);
+  const resolvedSeed = resolveSeed(inputSeed);
+
+  // Delete existing crescendo shot specs for this design run
+  const crescendoBeatIds = crescendoBeats.map((b: any) => b.id);
+  await db.from("trailer_shot_specs")
+    .delete()
+    .eq("shot_design_run_id", shotDesignRunId)
+    .in("beat_id", crescendoBeatIds);
+
+  const beatSummary = crescendoBeats.map((b: any) => {
+    const refs = (b.source_refs_json || []).slice(0, 2).map((r: any) => `${r.doc_type}:"${(r.excerpt || "").slice(0, 60)}"`).join("; ");
+    return `#${b.beat_index} crescendo: intent="${b.emotional_intent}" movement=${b.movement_intensity_target} density=${b.shot_density_target || "3.0"} citations=[${refs}]`;
+  }).join("\n");
+
+  try {
+    const system = composeSystem(`You are a world-class trailer editor designing ONLY the crescendo micro-montage shots.
+
+${lookBibleSection}
+
+CRESCENDO MICRO-MONTAGE — EDITORIAL RULES:
+- Each crescendo beat MUST have 6–10 rapid micro-shots.
+- Duration per shot: 700–1200ms (HARD).
+- Alternate shot types: close → wide → insert → close → medium.
+- Use match-action cuts: exit action of one shot = entry of next.
+- Use motif_tag for rhythmic repetition (e.g. "eyes", "door", "running", "impact").
+- At least 2 distinct motif_tags per beat.
+- At least 50% of shots must have cut_on_action=true.
+- Transitions: whip_pan, smash_cut, strobe_cut preferred.
+- Movement intensity: 8–10 for ALL shots.
+- camera_move: NO static. Use push_in, track, whip_pan, handheld, arc.
+
+Return STRICT JSON:
+{
+  "shot_specs": [
+    {
+      "beat_index": number,
+      "shot_index": number,
+      "shot_type": "wide|medium|close|insert|montage",
+      "lens_mm": number,
+      "camera_move": "push_in|track|arc|handheld|whip_pan|crane|tilt",
+      "movement_intensity": 8-10,
+      "depth_strategy": "shallow|deep|mixed",
+      "foreground_element": "...",
+      "lighting_note": "...",
+      "subject_action": "REQUIRED — what moves in frame",
+      "reveal_mechanic": "REQUIRED — how the shot reveals info",
+      "transition_in": "whip_pan|smash_cut|strobe_cut|match_cut|hard_cut",
+      "transition_out": same,
+      "target_duration_ms": 700-1200,
+      "prompt_hint_json": {
+        "visual_prompt": "...",
+        "montage_group_id": "mg-<beat_index>",
+        "cut_on_action": true/false,
+        "motif_tag": "eyes|door|running|impact|hands|fire|etc"
+      }
+    }
+  ]
+}
+Only valid JSON. No commentary.`);
+
+    const result = await callLLM({
+      apiKey,
+      model: MODELS.PRO,
+      system,
+      user: `CRESCENDO BEATS:\n${beatSummary}\nSeed: ${resolvedSeed}`,
+      temperature: 0.4,
+      maxTokens: 8000,
+    });
+
+    const parsed = await parseJsonSafe(result.content, apiKey);
+    const shotSpecs = parsed.shot_specs || [];
+
+    // Insert new crescendo specs
+    const shotRows = shotSpecs.map((s: any) => {
+      const matchBeat = crescendoBeats.find((b: any) => b.beat_index === s.beat_index);
+      if (!matchBeat) return null;
+      // Enforce duration range
+      if (s.target_duration_ms) s.target_duration_ms = Math.max(700, Math.min(1200, s.target_duration_ms));
+      // Ensure montage metadata
+      if (!s.prompt_hint_json) s.prompt_hint_json = {};
+      if (!s.prompt_hint_json.montage_group_id) s.prompt_hint_json.montage_group_id = `mg-${s.beat_index}`;
+      if (s.prompt_hint_json.cut_on_action === undefined) s.prompt_hint_json.cut_on_action = true;
+      if (!s.prompt_hint_json.motif_tag) s.prompt_hint_json.motif_tag = "impact";
+
+      return {
+        shot_design_run_id: shotDesignRunId,
+        beat_id: matchBeat.id,
+        shot_index: s.shot_index || 0,
+        shot_type: s.shot_type || "close",
+        lens_mm: s.lens_mm || null,
+        camera_move: s.camera_move || "handheld",
+        movement_intensity: Math.max(8, s.movement_intensity || 9),
+        depth_strategy: s.depth_strategy || "shallow",
+        foreground_element: s.foreground_element || null,
+        lighting_note: s.lighting_note || null,
+        transition_in: s.transition_in || "smash_cut",
+        transition_out: s.transition_out || "smash_cut",
+        target_duration_ms: s.target_duration_ms || 900,
+        prompt_hint_json: {
+          ...s.prompt_hint_json,
+          subject_action: s.subject_action || null,
+          reveal_mechanic: s.reveal_mechanic || null,
+        },
+      };
+    }).filter(Boolean);
+
+    if (shotRows.length > 0) {
+      await db.from("trailer_shot_specs").insert(shotRows);
+    }
+
+    return json({
+      ok: true,
+      shotDesignRunId,
+      regeneratedSpecs: shotRows.length,
+      crescendoBeats: crescendoBeats.length,
+      montageGroups: crescendoBeats.map((b: any) => {
+        const bSpecs = shotSpecs.filter((s: any) => s.beat_index === b.beat_index);
+        return {
+          beat_index: b.beat_index,
+          group_id: `mg-${b.beat_index}`,
+          shot_count: bSpecs.length,
+          motifs: [...new Set(bSpecs.map((s: any) => s.prompt_hint_json?.motif_tag).filter(Boolean))],
+        };
+      }),
+    });
+  } catch (err: any) {
+    if (err.message === "RATE_LIMIT") return json({ error: "Rate limit exceeded" }, 429);
+    if (err.message === "PAYMENT_REQUIRED") return json({ error: "AI credits exhausted" }, 402);
+    return json({ error: err.message }, 500);
+  }
+}
+
 // ─── Main Handler ───
 
 Deno.serve(async (req) => {
@@ -2454,6 +2669,8 @@ Deno.serve(async (req) => {
         return await handleCreateScriptVariants(db, body, userId, apiKey);
       case "select_script_run_v1":
         return await handleSelectScriptRun(db, body, userId);
+      case "regenerate_crescendo_montage_v1":
+        return await handleRegenerateCrescendoMontage(db, body, userId, apiKey);
       default:
         return json({ error: `Unknown action: ${action}` }, 400);
     }

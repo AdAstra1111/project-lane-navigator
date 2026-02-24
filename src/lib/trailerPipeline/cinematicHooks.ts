@@ -256,6 +256,17 @@ export function useCinematicMutations(projectId: string | undefined) {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  const regenerateCrescendoMontage = useMutation({
+    mutationFn: (params: { scriptRunId: string; shotDesignRunId: string; seed?: string }) =>
+      cinematicApi.regenerateCrescendoMontage({ projectId: projectId!, ...params }),
+    onSuccess: (data) => {
+      toast.success(`Regenerated ${data.regeneratedSpecs} crescendo montage shots`);
+      qc.invalidateQueries({ queryKey: ['cinematic-shot-design-runs'] });
+      qc.invalidateQueries({ queryKey: ['cinematic-shot-specs'] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   return {
     createFullPlan,
     createScript,
@@ -267,6 +278,7 @@ export function useCinematicMutations(projectId: string | undefined) {
     exportTrailerScriptDocument,
     createScriptVariants,
     selectScriptRun,
+    regenerateCrescendoMontage,
   };
 }
 
