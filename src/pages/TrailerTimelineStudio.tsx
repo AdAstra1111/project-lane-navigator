@@ -31,6 +31,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import jsPDF from 'jspdf';
 import AudioIntelligencePanel from '@/components/trailer/AudioIntelligencePanel';
+import { writeLearnSignal } from '@/lib/trailerPipeline/cinematicHooks';
 
 const ROLE_COLORS: Record<string, string> = {
   hook: 'bg-red-500/20 text-red-300',
@@ -131,17 +132,26 @@ export default function TrailerTimelineStudio() {
   };
 
   const handleUpdateBeat = (beatIndex: number, updates: any) => {
-    if (!cutId) return;
+    if (!cutId || !projectId) return;
     updateBeat.mutate({ cutId, beatIndex, ...updates });
+    // Learning signal: detect what changed
+    if (updates.trim_in_ms !== undefined || updates.trim_out_ms !== undefined) {
+      writeLearnSignal({ projectId, signalKey: 'beat_trimmed', signalValueJson: { beatIndex, ...updates } });
+    } else if (updates.text_content !== undefined) {
+      writeLearnSignal({ projectId, signalKey: 'text_card_edited', signalValueJson: { beatIndex } });
+    } else if (updates.clip_id !== undefined) {
+      writeLearnSignal({ projectId, signalKey: 'clip_swapped', signalValueJson: { beatIndex, clip_id: updates.clip_id } });
+    }
   };
 
   const handleMoveBeat = (fromIdx: number, direction: 'up' | 'down') => {
-    if (!cutId) return;
+    if (!cutId || !projectId) return;
     const toIdx = direction === 'up' ? fromIdx - 1 : fromIdx + 1;
     if (toIdx < 0 || toIdx >= timeline.length) return;
     const indices = timeline.map((_: any, i: number) => i);
     [indices[fromIdx], indices[toIdx]] = [indices[toIdx], indices[fromIdx]];
     reorderBeats.mutate({ cutId, orderedBeatIndices: indices });
+    writeLearnSignal({ projectId, signalKey: 'beat_reordered', signalValueJson: { fromIdx, toIdx } });
   };
 
   // Check if any non-text beats have invalid trims

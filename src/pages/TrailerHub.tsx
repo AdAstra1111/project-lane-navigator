@@ -1,25 +1,29 @@
 /**
  * Trailer Hub — Entry page for the Trailer Intelligence pipeline.
- * Blueprint → Clips → Assembly
+ * Cinematic Script v2 → Clips → Assembly → Export
+ * Shows legacy Blueprint v1 if old runs exist.
  */
 import { useParams, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   ArrowLeft, Film, Clapperboard, Scissors, Music,
-  ChevronRight, CheckCircle2, Circle, ArrowRight,
+  ChevronRight, ArrowRight, Sparkles, Archive,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useBlueprints } from '@/lib/trailerPipeline/useTrailerPipeline';
+import { LegacyBlueprintTab } from '@/components/trailer/cinematic/LegacyBlueprintTab';
 
 const STEPS = [
   {
     step: 1,
-    title: 'Trailer Blueprint',
-    description: 'Generate an arc-driven blueprint with beats, segments, and timing targets from your script.',
-    icon: Film,
-    cta: 'Open Blueprint Studio',
+    title: 'Trailer Script v2 (Cinematic)',
+    description: 'Generate a cinematic trailer script with rhythm grid, shot design, and AI judge scoring.',
+    icon: Sparkles,
+    cta: 'Open Cinematic Studio',
     href: (id: string) => `/projects/${id}/trailer-pipeline`,
     enabled: true,
   },
@@ -54,6 +58,8 @@ const STEPS = [
 
 export default function TrailerHub() {
   const { id: projectId } = useParams<{ id: string }>();
+  const { data: bpListData } = useBlueprints(projectId);
+  const hasLegacyBlueprints = (bpListData?.blueprints || []).length > 0;
 
   return (
     <div className="min-h-screen bg-background">
@@ -68,76 +74,80 @@ export default function TrailerHub() {
               Trailer Intelligence
             </h1>
             <p className="text-xs text-muted-foreground">
-              Blueprint → Clips → Assembly → Export
+              Cinematic Script → Clips → Assembly → Export
             </p>
           </div>
         </div>
       </header>
 
       <main className="max-w-[1000px] mx-auto px-4 py-6">
-        {/* Pipeline steps */}
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="space-y-3"
-        >
-          {STEPS.map((step, idx) => (
-            <div key={step.step}>
-              <Link to={step.href(projectId!)}>
-                <Card className="transition-all hover:shadow-md hover:border-primary/30 cursor-pointer">
-                  <CardContent className="p-4 flex items-center gap-4">
-                    {/* Step number */}
-                    <div className="flex-shrink-0 w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center text-sm font-bold">
-                      {step.step}
+        <Tabs defaultValue="cinematic">
+          <TabsList className="mb-4">
+            <TabsTrigger value="cinematic" className="text-xs gap-1.5">
+              <Sparkles className="h-3.5 w-3.5" /> Cinematic v2
+            </TabsTrigger>
+            {hasLegacyBlueprints && (
+              <TabsTrigger value="legacy" className="text-xs gap-1.5">
+                <Archive className="h-3.5 w-3.5" /> Legacy (Blueprint v1)
+              </TabsTrigger>
+            )}
+          </TabsList>
+
+          <TabsContent value="cinematic">
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="space-y-3"
+            >
+              {STEPS.map((step, idx) => (
+                <div key={step.step}>
+                  <Link to={step.href(projectId!)}>
+                    <Card className="transition-all hover:shadow-md hover:border-primary/30 cursor-pointer">
+                      <CardContent className="p-4 flex items-center gap-4">
+                        <div className="flex-shrink-0 w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center text-sm font-bold">
+                          {step.step}
+                        </div>
+                        <step.icon className="h-5 w-5 text-muted-foreground flex-shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium">{step.title}</p>
+                          <p className="text-xs text-muted-foreground line-clamp-1">{step.description}</p>
+                        </div>
+                        <div className="flex items-center text-xs text-primary font-medium gap-1 flex-shrink-0">
+                          {step.cta}
+                          <ChevronRight className="h-3 w-3" />
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </Link>
+                  {idx < STEPS.length - 1 && (
+                    <div className="flex justify-center py-1">
+                      <ArrowRight className="h-3 w-3 text-muted-foreground/40 rotate-90" />
                     </div>
-
-                    {/* Icon */}
-                    <step.icon className="h-5 w-5 text-muted-foreground flex-shrink-0" />
-
-                    {/* Text */}
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium">{step.title}</p>
-                      <p className="text-xs text-muted-foreground line-clamp-1">
-                        {step.description}
-                      </p>
-                    </div>
-
-                    {/* CTA */}
-                    <div className="flex items-center text-xs text-primary font-medium gap-1 flex-shrink-0">
-                      {step.cta}
-                      <ChevronRight className="h-3 w-3" />
-                    </div>
-                  </CardContent>
-                </Card>
-              </Link>
-
-              {idx < STEPS.length - 1 && (
-                <div className="flex justify-center py-1">
-                  <ArrowRight className="h-3 w-3 text-muted-foreground/40 rotate-90" />
+                  )}
                 </div>
-              )}
-            </div>
-          ))}
-        </motion.div>
+              ))}
+            </motion.div>
+          </TabsContent>
 
-        {/* Quick links */}
+          {hasLegacyBlueprints && (
+            <TabsContent value="legacy">
+              <LegacyBlueprintTab projectId={projectId!} />
+            </TabsContent>
+          )}
+        </Tabs>
+
         <Separator className="my-6" />
         <div className="flex flex-wrap gap-2">
           <Link to={`/projects/${projectId}/visual-dev`}>
             <Button variant="outline" size="sm" className="text-xs gap-1.5">
-              <ArrowLeft className="h-3 w-3" />
-              Visual Dev Hub
+              <ArrowLeft className="h-3 w-3" /> Visual Dev Hub
             </Button>
           </Link>
           <Link to={`/projects/${projectId}/storyboard-pipeline`}>
-            <Button variant="outline" size="sm" className="text-xs gap-1.5">
-              Storyboard Pipeline
-            </Button>
+            <Button variant="outline" size="sm" className="text-xs gap-1.5">Storyboard Pipeline</Button>
           </Link>
           <Link to={`/projects/${projectId}/visual-units`}>
-            <Button variant="outline" size="sm" className="text-xs gap-1.5">
-              Visual Units
-            </Button>
+            <Button variant="outline" size="sm" className="text-xs gap-1.5">Visual Units</Button>
           </Link>
         </div>
       </main>
