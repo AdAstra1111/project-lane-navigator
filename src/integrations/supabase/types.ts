@@ -17113,6 +17113,160 @@ export type Database = {
           },
         ]
       }
+      trailer_judge_v2_runs: {
+        Row: {
+          created_at: string
+          created_by: string
+          flags: string[] | null
+          id: string
+          project_id: string
+          repair_actions_json: Json | null
+          rhythm_run_id: string | null
+          rubric_version: string
+          scores_json: Json
+          script_run_id: string | null
+          shot_design_run_id: string | null
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string
+          flags?: string[] | null
+          id?: string
+          project_id: string
+          repair_actions_json?: Json | null
+          rhythm_run_id?: string | null
+          rubric_version?: string
+          scores_json?: Json
+          script_run_id?: string | null
+          shot_design_run_id?: string | null
+          status?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          flags?: string[] | null
+          id?: string
+          project_id?: string
+          repair_actions_json?: Json | null
+          rhythm_run_id?: string | null
+          rubric_version?: string
+          scores_json?: Json
+          script_run_id?: string | null
+          shot_design_run_id?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trailer_judge_v2_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "trailer_judge_v2_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trailer_judge_v2_runs_rhythm_run_id_fkey"
+            columns: ["rhythm_run_id"]
+            isOneToOne: false
+            referencedRelation: "trailer_rhythm_runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trailer_judge_v2_runs_script_run_id_fkey"
+            columns: ["script_run_id"]
+            isOneToOne: false
+            referencedRelation: "trailer_script_runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trailer_judge_v2_runs_shot_design_run_id_fkey"
+            columns: ["shot_design_run_id"]
+            isOneToOne: false
+            referencedRelation: "trailer_shot_design_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      trailer_learning_signals: {
+        Row: {
+          created_by: string | null
+          genre_key: string | null
+          id: string
+          occurred_at: string
+          platform_key: string | null
+          project_id: string
+          script_run_id: string | null
+          signal_key: string
+          signal_type: Database["public"]["Enums"]["trailer_signal_type"]
+          signal_value_json: Json | null
+          signal_value_num: number | null
+          source: string
+          trailer_run_id: string | null
+          weight: number
+        }
+        Insert: {
+          created_by?: string | null
+          genre_key?: string | null
+          id?: string
+          occurred_at?: string
+          platform_key?: string | null
+          project_id: string
+          script_run_id?: string | null
+          signal_key: string
+          signal_type: Database["public"]["Enums"]["trailer_signal_type"]
+          signal_value_json?: Json | null
+          signal_value_num?: number | null
+          source?: string
+          trailer_run_id?: string | null
+          weight?: number
+        }
+        Update: {
+          created_by?: string | null
+          genre_key?: string | null
+          id?: string
+          occurred_at?: string
+          platform_key?: string | null
+          project_id?: string
+          script_run_id?: string | null
+          signal_key?: string
+          signal_type?: Database["public"]["Enums"]["trailer_signal_type"]
+          signal_value_json?: Json | null
+          signal_value_num?: number | null
+          source?: string
+          trailer_run_id?: string | null
+          weight?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trailer_learning_signals_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "trailer_learning_signals_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trailer_learning_signals_script_run_id_fkey"
+            columns: ["script_run_id"]
+            isOneToOne: false
+            referencedRelation: "trailer_script_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       trailer_moments: {
         Row: {
           ai_friendly: boolean
@@ -17279,6 +17433,377 @@ export type Database = {
             columns: ["trailer_cut_id"]
             isOneToOne: false
             referencedRelation: "trailer_cuts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      trailer_rhythm_runs: {
+        Row: {
+          beat_grid_json: Json
+          bpm: number
+          created_at: string
+          created_by: string
+          density_curve_json: Json | null
+          drop_timestamp_ms: number | null
+          id: string
+          phase_timings_json: Json
+          project_id: string
+          script_run_id: string
+          seed: string | null
+          shot_duration_curve_json: Json
+          silence_windows_json: Json | null
+          status: string
+          warnings: string[] | null
+        }
+        Insert: {
+          beat_grid_json: Json
+          bpm: number
+          created_at?: string
+          created_by?: string
+          density_curve_json?: Json | null
+          drop_timestamp_ms?: number | null
+          id?: string
+          phase_timings_json: Json
+          project_id: string
+          script_run_id: string
+          seed?: string | null
+          shot_duration_curve_json: Json
+          silence_windows_json?: Json | null
+          status?: string
+          warnings?: string[] | null
+        }
+        Update: {
+          beat_grid_json?: Json
+          bpm?: number
+          created_at?: string
+          created_by?: string
+          density_curve_json?: Json | null
+          drop_timestamp_ms?: number | null
+          id?: string
+          phase_timings_json?: Json
+          project_id?: string
+          script_run_id?: string
+          seed?: string | null
+          shot_duration_curve_json?: Json
+          silence_windows_json?: Json | null
+          status?: string
+          warnings?: string[] | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trailer_rhythm_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "trailer_rhythm_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trailer_rhythm_runs_script_run_id_fkey"
+            columns: ["script_run_id"]
+            isOneToOne: false
+            referencedRelation: "trailer_script_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      trailer_script_beats: {
+        Row: {
+          beat_index: number
+          contrast_delta_score: number | null
+          created_at: string
+          emotional_intent: string
+          generator_hint_json: Json | null
+          id: string
+          movement_intensity_target: number
+          phase: Database["public"]["Enums"]["trailer_phase"]
+          quoted_dialogue: string | null
+          script_run_id: string
+          shot_density_target: number | null
+          silence_after_ms: number
+          silence_before_ms: number
+          source_refs_json: Json
+          text_card: string | null
+          title: string | null
+          trailer_moment_flag: boolean
+          withholding_note: string | null
+        }
+        Insert: {
+          beat_index: number
+          contrast_delta_score?: number | null
+          created_at?: string
+          emotional_intent: string
+          generator_hint_json?: Json | null
+          id?: string
+          movement_intensity_target?: number
+          phase: Database["public"]["Enums"]["trailer_phase"]
+          quoted_dialogue?: string | null
+          script_run_id: string
+          shot_density_target?: number | null
+          silence_after_ms?: number
+          silence_before_ms?: number
+          source_refs_json?: Json
+          text_card?: string | null
+          title?: string | null
+          trailer_moment_flag?: boolean
+          withholding_note?: string | null
+        }
+        Update: {
+          beat_index?: number
+          contrast_delta_score?: number | null
+          created_at?: string
+          emotional_intent?: string
+          generator_hint_json?: Json | null
+          id?: string
+          movement_intensity_target?: number
+          phase?: Database["public"]["Enums"]["trailer_phase"]
+          quoted_dialogue?: string | null
+          script_run_id?: string
+          shot_density_target?: number | null
+          silence_after_ms?: number
+          silence_before_ms?: number
+          source_refs_json?: Json
+          text_card?: string | null
+          title?: string | null
+          trailer_moment_flag?: boolean
+          withholding_note?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trailer_script_beats_script_run_id_fkey"
+            columns: ["script_run_id"]
+            isOneToOne: false
+            referencedRelation: "trailer_script_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      trailer_script_runs: {
+        Row: {
+          bpm: number | null
+          canon_pack_id: string
+          cinematic_score: number | null
+          contrast_curve_json: Json | null
+          created_at: string
+          created_by: string
+          drop_timestamp_ms: number | null
+          escalation_curve_json: Json | null
+          genre_key: string
+          id: string
+          movement_curve_json: Json | null
+          platform_key: string
+          project_id: string
+          seed: string | null
+          silence_windows_json: Json | null
+          status: string
+          structure_score: number | null
+          trailer_type: string
+          warnings: string[] | null
+        }
+        Insert: {
+          bpm?: number | null
+          canon_pack_id: string
+          cinematic_score?: number | null
+          contrast_curve_json?: Json | null
+          created_at?: string
+          created_by?: string
+          drop_timestamp_ms?: number | null
+          escalation_curve_json?: Json | null
+          genre_key?: string
+          id?: string
+          movement_curve_json?: Json | null
+          platform_key?: string
+          project_id: string
+          seed?: string | null
+          silence_windows_json?: Json | null
+          status?: string
+          structure_score?: number | null
+          trailer_type?: string
+          warnings?: string[] | null
+        }
+        Update: {
+          bpm?: number | null
+          canon_pack_id?: string
+          cinematic_score?: number | null
+          contrast_curve_json?: Json | null
+          created_at?: string
+          created_by?: string
+          drop_timestamp_ms?: number | null
+          escalation_curve_json?: Json | null
+          genre_key?: string
+          id?: string
+          movement_curve_json?: Json | null
+          platform_key?: string
+          project_id?: string
+          seed?: string | null
+          silence_windows_json?: Json | null
+          status?: string
+          structure_score?: number | null
+          trailer_type?: string
+          warnings?: string[] | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trailer_script_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "trailer_script_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      trailer_shot_design_runs: {
+        Row: {
+          created_at: string
+          created_by: string
+          global_movement_curve_json: Json | null
+          id: string
+          lens_bias_json: Json | null
+          project_id: string
+          rhythm_run_id: string | null
+          script_run_id: string
+          seed: string | null
+          status: string
+          warnings: string[] | null
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string
+          global_movement_curve_json?: Json | null
+          id?: string
+          lens_bias_json?: Json | null
+          project_id: string
+          rhythm_run_id?: string | null
+          script_run_id: string
+          seed?: string | null
+          status?: string
+          warnings?: string[] | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          global_movement_curve_json?: Json | null
+          id?: string
+          lens_bias_json?: Json | null
+          project_id?: string
+          rhythm_run_id?: string | null
+          script_run_id?: string
+          seed?: string | null
+          status?: string
+          warnings?: string[] | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trailer_shot_design_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "trailer_shot_design_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trailer_shot_design_runs_rhythm_run_id_fkey"
+            columns: ["rhythm_run_id"]
+            isOneToOne: false
+            referencedRelation: "trailer_rhythm_runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trailer_shot_design_runs_script_run_id_fkey"
+            columns: ["script_run_id"]
+            isOneToOne: false
+            referencedRelation: "trailer_script_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      trailer_shot_specs: {
+        Row: {
+          beat_id: string
+          camera_move: Database["public"]["Enums"]["camera_move"]
+          created_at: string
+          depth_strategy: string | null
+          foreground_element: string | null
+          id: string
+          lens_mm: number | null
+          lighting_note: string | null
+          movement_intensity: number
+          prompt_hint_json: Json
+          shot_design_run_id: string
+          shot_index: number
+          shot_type: Database["public"]["Enums"]["shot_type"]
+          target_duration_ms: number | null
+          transition_in: string | null
+          transition_out: string | null
+        }
+        Insert: {
+          beat_id: string
+          camera_move: Database["public"]["Enums"]["camera_move"]
+          created_at?: string
+          depth_strategy?: string | null
+          foreground_element?: string | null
+          id?: string
+          lens_mm?: number | null
+          lighting_note?: string | null
+          movement_intensity?: number
+          prompt_hint_json?: Json
+          shot_design_run_id: string
+          shot_index: number
+          shot_type: Database["public"]["Enums"]["shot_type"]
+          target_duration_ms?: number | null
+          transition_in?: string | null
+          transition_out?: string | null
+        }
+        Update: {
+          beat_id?: string
+          camera_move?: Database["public"]["Enums"]["camera_move"]
+          created_at?: string
+          depth_strategy?: string | null
+          foreground_element?: string | null
+          id?: string
+          lens_mm?: number | null
+          lighting_note?: string | null
+          movement_intensity?: number
+          prompt_hint_json?: Json
+          shot_design_run_id?: string
+          shot_index?: number
+          shot_type?: Database["public"]["Enums"]["shot_type"]
+          target_duration_ms?: number | null
+          transition_in?: string | null
+          transition_out?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trailer_shot_specs_beat_id_fkey"
+            columns: ["beat_id"]
+            isOneToOne: false
+            referencedRelation: "trailer_script_beats"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trailer_shot_specs_shot_design_run_id_fkey"
+            columns: ["shot_design_run_id"]
+            isOneToOne: false
+            referencedRelation: "trailer_shot_design_runs"
             referencedColumns: ["id"]
           },
         ]
@@ -18492,7 +19017,27 @@ export type Database = {
     }
     Enums: {
       app_role: "admin" | "moderator" | "user"
+      camera_move:
+        | "static"
+        | "push_in"
+        | "pull_out"
+        | "track"
+        | "arc"
+        | "handheld"
+        | "whip_pan"
+        | "crane"
+        | "tilt"
+        | "dolly_zoom"
       project_role: "producer" | "sales_agent" | "lawyer" | "creative"
+      shot_type: "wide" | "medium" | "close" | "insert" | "aerial" | "macro"
+      trailer_phase:
+        | "hook"
+        | "setup"
+        | "escalation"
+        | "twist"
+        | "crescendo"
+        | "button"
+      trailer_signal_type: "judge_score" | "user_action" | "external_metric"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -18621,7 +19166,29 @@ export const Constants = {
   public: {
     Enums: {
       app_role: ["admin", "moderator", "user"],
+      camera_move: [
+        "static",
+        "push_in",
+        "pull_out",
+        "track",
+        "arc",
+        "handheld",
+        "whip_pan",
+        "crane",
+        "tilt",
+        "dolly_zoom",
+      ],
       project_role: ["producer", "sales_agent", "lawyer", "creative"],
+      shot_type: ["wide", "medium", "close", "insert", "aerial", "macro"],
+      trailer_phase: [
+        "hook",
+        "setup",
+        "escalation",
+        "twist",
+        "crescendo",
+        "button",
+      ],
+      trailer_signal_type: ["judge_score", "user_action", "external_metric"],
     },
   },
 } as const
