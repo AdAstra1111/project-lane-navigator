@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-/* ── Calm-hierarchy tokens (single source of truth for opacity classes) ── */
+// UI opacity hierarchy (do not inline /50 /60 /70 elsewhere)
 const UI = {
   meta:        'text-muted-foreground/70',
   inactive:    'text-muted-foreground/60',
