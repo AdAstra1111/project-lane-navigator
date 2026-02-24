@@ -1,10 +1,11 @@
 /**
  * Continuity Intelligence Panel — judge, fix plan, and apply
  */
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Eye, Zap, AlertTriangle, CheckCircle2, ChevronDown, ChevronUp,
-  ArrowLeftRight, Lightbulb, Palette, Activity, Play, RotateCcw, Shield
+  ArrowLeftRight, Lightbulb, Palette, Activity, Play, RotateCcw, Shield,
+  Loader2, Clock, RefreshCw,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -12,6 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Switch } from '@/components/ui/switch';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -48,6 +50,28 @@ function scoreBg(score: number): string {
   return 'bg-destructive/10';
 }
 
+function timeAgo(dateStr: string): string {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
+/** Filter fix plan actions to safe-only */
+function filterSafeActions(actions: any[]): any[] {
+  return actions.filter((a: any) => {
+    if (a.type === 'swap_clip') return true;
+    if (a.type === 'adjust_trim') {
+      const delta = Math.abs(a.trim_in_delta_ms || 0);
+      return delta <= 300;
+    }
+    return false;
+  });
+}
+
 export function ContinuityPanel({ projectId, trailerCutId, blueprintId }: ContinuityPanelProps) {
   const { tagClips, runJudge, buildFixPlan, applyFixPlan } = useContinuityMutations(projectId);
   const { data: runs } = useContinuityRuns(projectId, trailerCutId);
@@ -55,29 +79,48 @@ export function ContinuityPanel({ projectId, trailerCutId, blueprintId }: Contin
   const { data: scores } = useContinuityScores(latestRun?.id);
 
   const [fixPlan, setFixPlan] = useState<any>(null);
+  const [dryRunResult, setDryRunResult] = useState<any>(null);
   const [showScores, setShowScores] = useState(true);
   const [showFixPlan, setShowFixPlan] = useState(false);
+  const [showWorst, setShowWorst] = useState(false);
   const [allowBreaks, setAllowBreaks] = useState(true);
+  const [safeOnly, setSafeOnly] = useState(true);
+  const [reRunAfterApply, setReRunAfterApply] = useState(true);
 
   const summary = latestRun?.summary_json as any;
   const avgScore = summary?.avg_transition_score ?? null;
+  const worstTransitions: any[] = summary?.worst_transitions || [];
+
+  // Auto dry-run when fix plan is generated
+  useEffect(() => {
+    if (fixPlan && trailerCutId && latestRun?.id) {
+      const planToApply = safeOnly
+        ? { ...fixPlan, actions: filterSafeActions(fixPlan.actions || []) }
+        : fixPlan;
+      if (planToApply.actions?.length > 0) {
+        applyFixPlan.mutate(
+          { trailerCutId, continuityRunId: latestRun.id, plan: planToApply, dryRun: true },
+          { onSuccess: (data) => setDryRunResult(data) }
+        );
+      } else {
+        setDryRunResult({ message: 'No applicable actions', changes: [] });
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fixPlan, safeOnly]);
 
   const handleRunJudge = () => {
     if (!trailerCutId) return;
-    // Tag clips first, then judge
     tagClips.mutate(
       { blueprintId },
       {
         onSuccess: () => {
           runJudge.mutate({
             trailerCutId,
-            continuitySettings: {
-              allow_intentional_breaks: allowBreaks,
-            },
+            continuitySettings: { allow_intentional_breaks: allowBreaks },
           });
         },
         onError: () => {
-          // Still run judge even if tagging partially fails
           runJudge.mutate({ trailerCutId });
         },
       }
@@ -86,6 +129,7 @@ export function ContinuityPanel({ projectId, trailerCutId, blueprintId }: Contin
 
   const handleBuildFixPlan = () => {
     if (!trailerCutId || !latestRun?.id) return;
+    setDryRunResult(null);
     buildFixPlan.mutate(
       { trailerCutId, continuityRunId: latestRun.id },
       {
@@ -97,17 +141,28 @@ export function ContinuityPanel({ projectId, trailerCutId, blueprintId }: Contin
     );
   };
 
-  const handleApplyFixPlan = (dryRun: boolean) => {
-    if (!trailerCutId || !fixPlan) return;
-    applyFixPlan.mutate({
-      trailerCutId,
-      continuityRunId: latestRun?.id,
-      plan: fixPlan,
-      dryRun,
-    });
-  };
+  const handleApplyFixPlan = useCallback(() => {
+    if (!trailerCutId || !fixPlan || !latestRun?.id) return;
+    const planToApply = safeOnly
+      ? { ...fixPlan, actions: filterSafeActions(fixPlan.actions || []) }
+      : fixPlan;
+    applyFixPlan.mutate(
+      { trailerCutId, continuityRunId: latestRun.id, plan: planToApply, dryRun: false },
+      {
+        onSuccess: () => {
+          if (reRunAfterApply) {
+            runJudge.mutate({ trailerCutId });
+          }
+        },
+      }
+    );
+  }, [trailerCutId, fixPlan, latestRun?.id, safeOnly, reRunAfterApply, applyFixPlan, runJudge]);
 
   const isRunning = tagClips.isPending || runJudge.isPending;
+  const runStatus = latestRun?.status;
+  const displayedActions = fixPlan
+    ? (safeOnly ? filterSafeActions(fixPlan.actions || []) : fixPlan.actions || [])
+    : [];
 
   return (
     <Card className="border-primary/20">
@@ -119,8 +174,27 @@ export function ContinuityPanel({ projectId, trailerCutId, blueprintId }: Contin
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
+        {/* Run status banner */}
+        {latestRun && (
+          <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+            {runStatus === 'running' && <Loader2 className="h-3 w-3 animate-spin text-primary" />}
+            {runStatus === 'complete' && <CheckCircle2 className="h-3 w-3 text-green-500" />}
+            {runStatus === 'failed' && <AlertTriangle className="h-3 w-3 text-destructive" />}
+            <span className="capitalize">{runStatus}</span>
+            {latestRun.created_at && (
+              <>
+                <Clock className="h-2.5 w-2.5 ml-1" />
+                <span>{timeAgo(latestRun.created_at)}</span>
+              </>
+            )}
+            {latestRun.method && (
+              <Badge variant="outline" className="text-[8px] px-1 py-0">{latestRun.method}</Badge>
+            )}
+          </div>
+        )}
+
         {/* Controls */}
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-2 mr-auto">
             <Switch
               id="allow-breaks"
@@ -138,7 +212,7 @@ export function ContinuityPanel({ projectId, trailerCutId, blueprintId }: Contin
             disabled={isRunning || !trailerCutId}
             className="text-xs gap-1.5"
           >
-            <Eye className="h-3 w-3" />
+            {isRunning ? <Loader2 className="h-3 w-3 animate-spin" /> : <Eye className="h-3 w-3" />}
             {isRunning ? 'Analyzing…' : 'Run Continuity Judge'}
           </Button>
         </div>
@@ -155,7 +229,7 @@ export function ContinuityPanel({ projectId, trailerCutId, blueprintId }: Contin
                 <br />
                 <span className="font-mono">{summary?.transition_count || 0} transitions</span>
               </div>
-              {latestRun?.status === 'complete' && (
+              {runStatus === 'complete' && (
                 <Badge
                   variant={avgScore >= 0.75 ? 'secondary' : avgScore >= 0.6 ? 'outline' : 'destructive'}
                   className="text-[9px] ml-auto"
@@ -164,6 +238,38 @@ export function ContinuityPanel({ projectId, trailerCutId, blueprintId }: Contin
                 </Badge>
               )}
             </div>
+
+            {/* Worst Transitions (from summary_json) */}
+            {worstTransitions.length > 0 && (
+              <Collapsible open={showWorst} onOpenChange={setShowWorst}>
+                <CollapsibleTrigger asChild>
+                  <Button variant="ghost" size="sm" className="text-xs w-full justify-between text-amber-500">
+                    <span className="flex items-center gap-1.5">
+                      <AlertTriangle className="h-3 w-3" />
+                      Worst Transitions ({worstTransitions.length})
+                    </span>
+                    {showWorst ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                  </Button>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <div className="space-y-1 mt-1">
+                    {worstTransitions.slice(0, 5).map((wt: any, idx: number) => (
+                      <div key={idx} className="flex items-center gap-2 text-[10px] py-1 px-2 rounded bg-destructive/5">
+                        <span className="font-mono text-muted-foreground w-14">
+                          #{wt.from_beat ?? wt.from_beat_index}→{wt.to_beat ?? wt.to_beat_index}
+                        </span>
+                        <span className={`font-bold w-10 ${scoreColor(wt.score ?? 0)}`}>
+                          {((wt.score ?? 0) * 100).toFixed(0)}%
+                        </span>
+                        <span className="text-muted-foreground truncate flex-1">
+                          {wt.reason || wt.issues?.map((i: any) => i.type).join(', ') || '—'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
+            )}
 
             {/* Per-transition scores */}
             <Collapsible open={showScores} onOpenChange={setShowScores}>
@@ -223,32 +329,69 @@ export function ContinuityPanel({ projectId, trailerCutId, blueprintId }: Contin
 
             <Separator />
 
-            {/* Fix Plan */}
-            <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={handleBuildFixPlan}
-                disabled={buildFixPlan.isPending || !latestRun?.id}
-                className="text-xs gap-1.5"
-              >
-                <Zap className="h-3 w-3" />
-                {buildFixPlan.isPending ? 'Planning…' : 'Generate Fix Plan'}
-              </Button>
+            {/* Fix Plan Controls */}
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center gap-3">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleBuildFixPlan}
+                  disabled={buildFixPlan.isPending || !latestRun?.id}
+                  className="text-xs gap-1.5"
+                >
+                  {buildFixPlan.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Zap className="h-3 w-3" />}
+                  {buildFixPlan.isPending ? 'Planning…' : 'Generate Fix Plan'}
+                </Button>
+
+                <div className="flex items-center gap-1.5">
+                  <Checkbox
+                    id="safe-only"
+                    checked={safeOnly}
+                    onCheckedChange={(v) => setSafeOnly(!!v)}
+                    className="h-3 w-3"
+                  />
+                  <Label htmlFor="safe-only" className="text-[10px] text-muted-foreground">
+                    Safe fixes only
+                  </Label>
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  <Checkbox
+                    id="rerun-judge"
+                    checked={reRunAfterApply}
+                    onCheckedChange={(v) => setReRunAfterApply(!!v)}
+                    className="h-3 w-3"
+                  />
+                  <Label htmlFor="rerun-judge" className="text-[10px] text-muted-foreground">
+                    Re-run judge after apply
+                  </Label>
+                </div>
+              </div>
+
+              {/* Safe-only explainer */}
+              {safeOnly && fixPlan && (
+                <p className="text-[9px] text-muted-foreground">
+                  Safe mode: only swap_clip (same beat) and adjust_trim (≤300ms).
+                  {fixPlan.actions?.length !== displayedActions.length && (
+                    <span className="text-amber-500"> {fixPlan.actions.length - displayedActions.length} action(s) blocked.</span>
+                  )}
+                </p>
+              )}
             </div>
 
+            {/* Fix Plan + Dry Run Preview */}
             {fixPlan && (
               <Collapsible open={showFixPlan} onOpenChange={setShowFixPlan}>
                 <CollapsibleTrigger asChild>
                   <Button variant="ghost" size="sm" className="text-xs w-full justify-between">
-                    Fix Plan ({fixPlan.actions?.length || 0} actions, {((fixPlan.confidence || 0) * 100).toFixed(0)}% confidence)
+                    Fix Plan ({displayedActions.length} actions, {((fixPlan.confidence || 0) * 100).toFixed(0)}% confidence)
                     {showFixPlan ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
                   </Button>
                 </CollapsibleTrigger>
                 <CollapsibleContent>
                   <ScrollArea className="h-[200px] mt-2">
                     <div className="space-y-1 pr-3">
-                      {(fixPlan.actions || []).map((action: any, idx: number) => (
+                      {displayedActions.map((action: any, idx: number) => (
                         <div key={idx} className="text-[10px] py-1.5 px-2 rounded bg-muted/50 space-y-0.5">
                           <div className="flex items-center gap-2">
                             <Badge variant="outline" className="text-[8px]">{action.type}</Badge>
@@ -264,26 +407,43 @@ export function ContinuityPanel({ projectId, trailerCutId, blueprintId }: Contin
                           <p className="text-muted-foreground">{action.reason}</p>
                         </div>
                       ))}
+                      {displayedActions.length === 0 && (
+                        <p className="text-[10px] text-muted-foreground py-2">No applicable actions{safeOnly ? ' in safe mode' : ''}.</p>
+                      )}
                     </div>
                   </ScrollArea>
+
+                  {/* Dry-run diff preview (auto-generated) */}
+                  {dryRunResult && (
+                    <div className="mt-2 p-2 rounded bg-muted/30 border border-border">
+                      <p className="text-[9px] font-medium text-muted-foreground uppercase tracking-wider mb-1">Dry-run preview</p>
+                      {dryRunResult.changes?.length > 0 ? (
+                        <div className="space-y-1">
+                          {dryRunResult.changes.map((c: any, i: number) => (
+                            <div key={i} className="text-[10px] flex items-center gap-1.5">
+                              <RefreshCw className="h-2.5 w-2.5 text-primary" />
+                              <span className="text-muted-foreground">
+                                Beat {c.beat_index ?? '?'}: {c.field ?? c.type ?? 'update'}
+                              </span>
+                              {c.old_value && <span className="line-through text-destructive/60">{String(c.old_value).slice(0, 20)}</span>}
+                              {c.new_value && <span className="text-green-500">{String(c.new_value).slice(0, 20)}</span>}
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-[10px] text-muted-foreground">{dryRunResult.message || 'No changes in dry run.'}</p>
+                      )}
+                    </div>
+                  )}
+
                   <div className="flex gap-2 mt-2">
                     <Button
                       size="sm"
-                      variant="outline"
-                      onClick={() => handleApplyFixPlan(true)}
-                      disabled={applyFixPlan.isPending}
+                      onClick={handleApplyFixPlan}
+                      disabled={applyFixPlan.isPending || displayedActions.length === 0}
                       className="text-xs gap-1"
                     >
-                      <Play className="h-3 w-3" />
-                      Dry Run
-                    </Button>
-                    <Button
-                      size="sm"
-                      onClick={() => handleApplyFixPlan(false)}
-                      disabled={applyFixPlan.isPending}
-                      className="text-xs gap-1"
-                    >
-                      <CheckCircle2 className="h-3 w-3" />
+                      {applyFixPlan.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
                       Apply Fix Plan
                     </Button>
                   </div>
