@@ -117,6 +117,12 @@ export function useCinematicMutations(projectId: string | undefined) {
       platformKey?: string;
       seed?: string;
       styleOptions?: TrailerStyleOptions;
+      inspirationRefs?: { title: string; url?: string; notes?: string }[];
+      referenceNotes?: string;
+      avoidNotes?: string;
+      strictCanonMode?: 'strict' | 'balanced';
+      targetLengthMs?: number;
+      stylePresetKey?: string;
     }) => cinematicApi.createFullPlan({ projectId: projectId!, ...params }),
     onSuccess: (data) => {
       if (data.ok) {
@@ -137,6 +143,12 @@ export function useCinematicMutations(projectId: string | undefined) {
       platformKey?: string;
       seed?: string;
       styleOptions?: TrailerStyleOptions;
+      inspirationRefs?: { title: string; url?: string; notes?: string }[];
+      referenceNotes?: string;
+      avoidNotes?: string;
+      strictCanonMode?: 'strict' | 'balanced';
+      targetLengthMs?: number;
+      stylePresetKey?: string;
     }) => cinematicApi.createTrailerScript({ projectId: projectId!, ...params }),
     onSuccess: (data) => {
       toast.success(`Script created: ${data.beatCount} beats (${data.status})`);

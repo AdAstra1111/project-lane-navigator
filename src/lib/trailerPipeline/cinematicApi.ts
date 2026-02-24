@@ -36,6 +36,11 @@ export interface TrailerStyleOptions {
   dropStyle?: string;
   minSilenceWindows?: number;
   sfxEmphasis?: string;
+  strictCanonMode?: 'strict' | 'balanced';
+  targetLengthMs?: number;
+  referenceNotes?: string;
+  avoidNotes?: string;
+  inspirationRefs?: { title: string; url?: string; notes?: string }[];
 }
 
 export const cinematicApi = {
@@ -49,6 +54,12 @@ export const cinematicApi = {
     seed?: string;
     idempotencyKey?: string;
     styleOptions?: TrailerStyleOptions;
+    inspirationRefs?: { title: string; url?: string; notes?: string }[];
+    referenceNotes?: string;
+    avoidNotes?: string;
+    strictCanonMode?: 'strict' | 'balanced';
+    targetLengthMs?: number;
+    stylePresetKey?: string;
   }) => callCinematicEngine('create_trailer_script_v2', params),
 
   /** Create rhythm grid from script (step 2) */
@@ -99,5 +110,11 @@ export const cinematicApi = {
     seed?: string;
     idempotencyKey?: string;
     styleOptions?: TrailerStyleOptions;
+    inspirationRefs?: { title: string; url?: string; notes?: string }[];
+    referenceNotes?: string;
+    avoidNotes?: string;
+    strictCanonMode?: 'strict' | 'balanced';
+    targetLengthMs?: number;
+    stylePresetKey?: string;
   }) => callCinematicEngine('create_full_cinematic_trailer_plan', params),
 };

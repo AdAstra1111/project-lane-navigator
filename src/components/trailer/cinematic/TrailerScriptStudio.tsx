@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
@@ -17,7 +18,7 @@ import { Progress } from '@/components/ui/progress';
 import {
   Film, Loader2, Play, AlertTriangle, Check, BookOpen,
   Quote, Volume2, Zap, Wrench, Lock, ArrowRight, RefreshCw,
-  Settings2, ChevronDown,
+  Settings2, ChevronDown, Plus, Trash2, Sparkles, Shield,
 } from 'lucide-react';
 import { StagedProgressBar } from '@/components/system/StagedProgressBar';
 import {
@@ -151,6 +152,9 @@ function StyleOptionsPills({ opts }: { opts: TrailerStyleOptions }) {
   if (opts.microMontageIntensity) pills.push(`montage:${opts.microMontageIntensity}`);
   if (opts.dropStyle) pills.push(opts.dropStyle.replace(/_/g, ' '));
   if (opts.movementOverall != null) pills.push(`mov:${opts.movementOverall}`);
+  if (opts.strictCanonMode) pills.push(`canon:${opts.strictCanonMode}`);
+  if (opts.targetLengthMs) pills.push(`${Math.round(opts.targetLengthMs / 1000)}s`);
+  if (opts.inspirationRefs?.length) pills.push(`${opts.inspirationRefs.length} inspo`);
 
   if (pills.length === 0) return null;
   return (
@@ -188,10 +192,21 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
   const [minSilenceWindows, setMinSilenceWindows] = useState(2);
   const [sfxEmphasis, setSfxEmphasis] = useState('medium');
 
+  // New fields
+  const [strictCanonMode, setStrictCanonMode] = useState<'strict' | 'balanced'>('strict');
+  const [targetLengthSeconds, setTargetLengthSeconds] = useState<string>('');
+  const [referenceNotes, setReferenceNotes] = useState('');
+  const [avoidNotes, setAvoidNotes] = useState('');
+  const [inspirationTrailers, setInspirationTrailers] = useState<{ title: string; url?: string; notes?: string }[]>([]);
+
   const styleOptions: TrailerStyleOptions = {
     tonePreset, pacingProfile, revealStrategy, movementOverall,
     cameraStyle, lensBias, microMontageIntensity, dropStyle,
-    minSilenceWindows, sfxEmphasis,
+    minSilenceWindows, sfxEmphasis, strictCanonMode,
+    targetLengthMs: targetLengthSeconds ? Math.round(Number(targetLengthSeconds) * 1000) : undefined,
+    referenceNotes: referenceNotes || undefined,
+    avoidNotes: avoidNotes || undefined,
+    inspirationRefs: inspirationTrailers.length > 0 ? inspirationTrailers : undefined,
   };
 
   // Queries
@@ -238,11 +253,19 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
     setSelectedRunId(scriptRuns[0].id);
   }
 
+  const extraPayload = {
+    inspirationRefs: inspirationTrailers.length > 0 ? inspirationTrailers : undefined,
+    referenceNotes: referenceNotes || undefined,
+    avoidNotes: avoidNotes || undefined,
+    strictCanonMode,
+    targetLengthMs: targetLengthSeconds ? Math.round(Number(targetLengthSeconds) * 1000) : undefined,
+  };
+
   const handleGenerateFullPlan = () => {
     if (!canonPackId) { toast.error('No canon pack selected'); return; }
     createFullPlan.mutate({
       canonPackId, trailerType, genreKey, platformKey,
-      seed: seed || undefined, styleOptions,
+      seed: seed || undefined, styleOptions, ...extraPayload,
     }, {
       onSuccess: (data) => {
         if (data.scriptRunId) setSelectedRunId(data.scriptRunId);
@@ -254,7 +277,7 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
     if (!canonPackId) { toast.error('No canon pack selected'); return; }
     createScript.mutate({
       canonPackId, trailerType, genreKey, platformKey,
-      seed: seed || undefined, styleOptions,
+      seed: seed || undefined, styleOptions, ...extraPayload,
     }, {
       onSuccess: (data) => {
         if (data.scriptRunId) setSelectedRunId(data.scriptRunId);
@@ -313,6 +336,46 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
               <StyleOptionsPills opts={savedOpts} />
             </div>
           )}
+          {/* Additional run metadata */}
+          {activeRun && (
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              {activeRun.strict_canon_mode && (
+                <Badge variant="outline" className="text-[8px] px-1.5 py-0">
+                  <Shield className="h-2 w-2 mr-0.5" />{activeRun.strict_canon_mode}
+                </Badge>
+              )}
+              {activeRun.target_length_ms && (
+                <Badge variant="outline" className="text-[8px] px-1.5 py-0">
+                  {Math.round(activeRun.target_length_ms / 1000)}s target
+                </Badge>
+              )}
+              {Array.isArray(activeRun.inspiration_refs_json) && activeRun.inspiration_refs_json.length > 0 && (
+                <Badge variant="outline" className="text-[8px] px-1.5 py-0">
+                  <Sparkles className="h-2 w-2 mr-0.5" />{activeRun.inspiration_refs_json.length} inspo
+                </Badge>
+              )}
+              {activeRun.reference_notes && (
+                <Collapsible>
+                  <CollapsibleTrigger asChild>
+                    <Badge variant="outline" className="text-[8px] px-1.5 py-0 cursor-pointer">ref notes</Badge>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent>
+                    <p className="text-[10px] text-muted-foreground mt-1 max-w-md">{activeRun.reference_notes}</p>
+                  </CollapsibleContent>
+                </Collapsible>
+              )}
+              {activeRun.avoid_notes && (
+                <Collapsible>
+                  <CollapsibleTrigger asChild>
+                    <Badge variant="outline" className="text-[8px] px-1.5 py-0 cursor-pointer">avoid notes</Badge>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent>
+                    <p className="text-[10px] text-muted-foreground mt-1 max-w-md">{activeRun.avoid_notes}</p>
+                  </CollapsibleContent>
+                </Collapsible>
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -328,7 +391,8 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
         </CollapsibleTrigger>
         <CollapsibleContent>
           <Card className="mt-2">
-            <CardContent className="py-3">
+            <CardContent className="py-3 space-y-4">
+              {/* Row 1: Core style selects */}
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
                 <MiniSelect label="Tone Preset" value={tonePreset} onChange={setTonePreset} options={TONE_PRESETS} />
                 <MiniSelect label="Pacing" value={pacingProfile} onChange={setPacingProfile} options={PACING_PROFILES} />
@@ -353,6 +417,116 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
                   </div>
                 </div>
               </div>
+
+              <Separator />
+
+              {/* Row 2: Canon strictness + target length */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="flex flex-col gap-1">
+                  <Label className="text-[9px] text-muted-foreground uppercase tracking-wider flex items-center gap-1">
+                    <Shield className="h-2.5 w-2.5" /> Canon Mode
+                  </Label>
+                  <Select value={strictCanonMode} onValueChange={(v) => setStrictCanonMode(v as 'strict' | 'balanced')}>
+                    <SelectTrigger className="h-7 text-[11px]"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="strict" className="text-xs">Strict</SelectItem>
+                      <SelectItem value="balanced" className="text-xs">Balanced</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <Label className="text-[9px] text-muted-foreground uppercase tracking-wider">Target Length (s)</Label>
+                  <Input
+                    className="h-7 text-[11px] w-[80px]"
+                    type="number"
+                    placeholder="auto"
+                    value={targetLengthSeconds}
+                    onChange={e => setTargetLengthSeconds(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* Row 3: Inspirations */}
+              <div>
+                <Label className="text-[9px] text-muted-foreground uppercase tracking-wider flex items-center gap-1 mb-2">
+                  <Sparkles className="h-2.5 w-2.5" /> Inspiration Trailers (max 5)
+                </Label>
+                <div className="space-y-1.5">
+                  {inspirationTrailers.map((insp, idx) => (
+                    <div key={idx} className="flex items-center gap-1.5">
+                      <Input
+                        className="h-7 text-[11px] flex-1"
+                        placeholder="Title"
+                        value={insp.title}
+                        onChange={e => {
+                          const copy = [...inspirationTrailers];
+                          copy[idx] = { ...copy[idx], title: e.target.value };
+                          setInspirationTrailers(copy);
+                        }}
+                      />
+                      <Input
+                        className="h-7 text-[11px] w-[120px]"
+                        placeholder="URL (optional)"
+                        value={insp.url || ''}
+                        onChange={e => {
+                          const copy = [...inspirationTrailers];
+                          copy[idx] = { ...copy[idx], url: e.target.value || undefined };
+                          setInspirationTrailers(copy);
+                        }}
+                      />
+                      <Input
+                        className="h-7 text-[11px] flex-1"
+                        placeholder="Notes"
+                        value={insp.notes || ''}
+                        onChange={e => {
+                          const copy = [...inspirationTrailers];
+                          copy[idx] = { ...copy[idx], notes: e.target.value || undefined };
+                          setInspirationTrailers(copy);
+                        }}
+                      />
+                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => {
+                        setInspirationTrailers(inspirationTrailers.filter((_, i) => i !== idx));
+                      }}>
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  ))}
+                  {inspirationTrailers.length < 5 && (
+                    <Button variant="ghost" size="sm" className="text-[10px] h-6 gap-1" onClick={() => {
+                      setInspirationTrailers([...inspirationTrailers, { title: '' }]);
+                    }}>
+                      <Plus className="h-2.5 w-2.5" /> Add inspiration
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* Row 4: Reference / Avoid notes */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="flex flex-col gap-1">
+                  <Label className="text-[9px] text-muted-foreground uppercase tracking-wider">Reference Notes (emulate)</Label>
+                  <Textarea
+                    className="text-[11px] min-h-[60px]"
+                    placeholder="Pacing, typography, sound design, reveal strategy to emulate…"
+                    value={referenceNotes}
+                    onChange={e => setReferenceNotes(e.target.value)}
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <Label className="text-[9px] text-muted-foreground uppercase tracking-wider">Avoid Notes</Label>
+                  <Textarea
+                    className="text-[11px] min-h-[60px]"
+                    placeholder="Clichés, spoilers, shots, tones to avoid…"
+                    value={avoidNotes}
+                    onChange={e => setAvoidNotes(e.target.value)}
+                  />
+                </div>
+              </div>
+
               <div className="mt-2">
                 <StyleOptionsPills opts={styleOptions} />
               </div>
