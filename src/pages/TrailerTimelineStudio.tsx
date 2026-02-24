@@ -26,6 +26,7 @@ import { useClipsList } from '@/lib/trailerPipeline/clipHooks';
 import { useAudioAssets, useAudioRun, useRenderProgress, useAudioMutations } from '@/lib/trailerPipeline/audioHooks';
 import { DEFAULT_MIX } from '@/lib/trailerPipeline/audioTypes';
 import { renderTrailerCut } from '@/lib/trailerPipeline/renderTrailerCut';
+import { muxAudioInBrowser } from '@/lib/trailerPipeline/muxAudioInBrowser';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import jsPDF from 'jspdf';
@@ -181,14 +182,50 @@ export default function TrailerTimelineStudio() {
         text_overlay: t.is_text_card ? t.text_content : t.text_overlay,
         audio_cue: t.audio_cue,
       }));
-      const blob = await renderTrailerCut(renderTimeline, {
+      let videoBlob = await renderTrailerCut(renderTimeline, {
         width: cut?.render_width || 1280, height: cut?.render_height || 720,
         fps: cut?.render_fps || 24,
         onProgress: (done, total) => setRenderProgress({ done, total }),
       });
+
+      // Mux audio if an audio run with assets exists
+      let finalBlob = videoBlob;
+      if (audioRun?.id) {
+        try {
+          // Find mix master or music asset for this audio run
+          const mixAssets = audioAssets.filter((a: any) => a.audio_run_id === audioRun.id);
+          const mixMaster = mixAssets.find((a: any) => a.asset_type === 'mix' && a.storage_path);
+          const musicAsset = mixAssets.find((a: any) => a.asset_type === 'music' && a.selected && a.storage_path)
+            || mixAssets.find((a: any) => a.asset_type === 'music' && a.storage_path);
+          const voAsset = mixAssets.find((a: any) => a.asset_type === 'voiceover' && a.selected && a.storage_path)
+            || mixAssets.find((a: any) => a.asset_type === 'voiceover' && a.storage_path);
+
+          const primaryAudio = mixMaster || musicAsset;
+          if (primaryAudio?.storage_path) {
+            toast.info('Muxing audio with video...');
+            const { data: audioUrlData } = supabase.storage.from('trailers').getPublicUrl(primaryAudio.storage_path);
+            const voUrlData = (!mixMaster && voAsset?.storage_path)
+              ? supabase.storage.from('trailers').getPublicUrl(voAsset.storage_path)
+              : null;
+
+            finalBlob = await muxAudioInBrowser(videoBlob, {
+              audioUrl: audioUrlData.publicUrl,
+              voUrl: voUrlData?.data?.publicUrl,
+              musicGainDb: audioRun.mix_json?.music_gain_db ?? -10,
+              voGainDb: 0,
+              onProgress: (pct) => setRenderProgress({ done: Math.round(pct), total: 100 }),
+            });
+            toast.success('Audio muxed successfully!');
+          }
+        } catch (audioErr: any) {
+          console.warn('Audio mux failed, saving video-only:', audioErr.message);
+          toast.warning(`Audio mux failed: ${audioErr.message}. Saving video-only.`);
+        }
+      }
+
       await setCutStatus.mutateAsync({ cutId, status: 'uploading' });
       const storagePath = `${projectId}/runs/${cutId}/final-${Date.now()}.webm`;
-      const { error: uploadErr } = await supabase.storage.from('trailers').upload(storagePath, blob, {
+      const { error: uploadErr } = await supabase.storage.from('trailers').upload(storagePath, finalBlob, {
         contentType: 'video/webm', upsert: true,
       });
       if (uploadErr) throw new Error(`Upload failed: ${uploadErr.message}`);
@@ -424,7 +461,7 @@ export default function TrailerTimelineStudio() {
                 <Button size="sm" className="w-full" onClick={handleRender}
                   disabled={isRendering || cut.status === 'rendering'}>
                   {isRendering ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Play className="h-3 w-3 mr-1" />}
-                  Render Trailer (WebM)
+                  {audioRun?.id ? 'Render with Audio' : 'Render Trailer (WebM)'}
                 </Button>
                 {isRendering && renderProgress && (
                   <div className="space-y-1">
