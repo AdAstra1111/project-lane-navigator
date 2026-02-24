@@ -33,6 +33,7 @@ export default function StoryboardPipeline() {
   const [activeRenderRunId, setActiveRenderRunId] = useState<string | undefined>();
   const [selectedAnimaticId, setSelectedAnimaticId] = useState<string | undefined>();
   const [animaticFps, setAnimaticFps] = useState(24);
+  const [selectedSBWarning, setSelectedSBWarning] = useState<string | null>(null);
   const [animaticDuration, setAnimaticDuration] = useState(900);
   const [animaticCaption, setAnimaticCaption] = useState(true);
 
@@ -92,6 +93,23 @@ export default function StoryboardPipeline() {
   }
 
   const sbWarningsPreview = sortSBWarnings(sbWarnings).slice(0, 6);
+
+  function sbWarningAnchorId(w: string): string | null {
+    const l = w.toLowerCase();
+    if (l.includes("arc") || l.includes("structure") || l.includes("peak") || l.includes("escalation")) return "iffy-sb-structure";
+    if (l.includes("pacing") || l.includes("tempo") || l.includes("duration") || l.includes("length")) return "iffy-sb-pacing";
+    if (l.includes("tone") || l.includes("contrast") || l.includes("energy") || l.includes("flat")) return "iffy-sb-tone";
+    if (l.includes("metadata") || l.includes("expected") || l.includes("unit") || l.includes("count")) return "iffy-sb-metadata";
+    if (l.includes("fail") || l.includes("missing") || l.includes("error")) return "iffy-sb-top";
+    return null;
+  }
+
+  function scrollToSBAnchor(id: string) {
+    try {
+      const el = document.getElementById(id);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    } catch { /* no-op */ }
+  }
 
   // Auto-select latest active render run
   const renderRuns = renderRunsData?.renderRuns || [];
@@ -168,10 +186,10 @@ export default function StoryboardPipeline() {
         </div>
       </header>
 
-      <div className="max-w-[1600px] mx-auto p-4 grid grid-cols-1 lg:grid-cols-12 gap-4">
+      <div className="max-w-[1600px] mx-auto p-4 grid grid-cols-1 lg:grid-cols-12 gap-4" id="iffy-sb-top">
         {/* LEFT: Unit Selector + Runs */}
         <div className="lg:col-span-3 space-y-4">
-          <Card>
+          <Card id="iffy-sb-metadata">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm flex items-center justify-between">
                 Canonical Units
@@ -223,7 +241,7 @@ export default function StoryboardPipeline() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card id="iffy-sb-tone">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm">Generate Panel Plan</CardTitle>
             </CardHeader>
@@ -304,7 +322,7 @@ export default function StoryboardPipeline() {
           ) : (
             <>
               {/* Render Queue Controls */}
-              <Card>
+              <Card id="iffy-sb-structure">
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm flex items-center justify-between">
                     <span>Batch Render</span>
@@ -375,10 +393,24 @@ export default function StoryboardPipeline() {
                           <div className="flex flex-wrap gap-1">
                             {sbWarningsPreview.map((w, i) => {
                               const label = w.length > 40 ? w.slice(0, 37) + '…' : w;
+                              const isActive = selectedSBWarning === w;
                               return (
-                                <span key={`${i}-${w}`} className="rounded-md bg-muted px-2 py-0.5 text-muted-foreground" title={w}>
+                                <button
+                                  key={`${i}-${w}`}
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedSBWarning(w);
+                                    const id = sbWarningAnchorId(w);
+                                    if (id) scrollToSBAnchor(id);
+                                  }}
+                                  className={
+                                    "rounded-md px-2 py-0.5 text-muted-foreground bg-muted hover:bg-muted/80 transition " +
+                                    (isActive ? "ring-1 ring-muted-foreground/40" : "")
+                                  }
+                                  title={w}
+                                >
                                   {label}
-                                </span>
+                                </button>
                               );
                             })}
                           </div>
