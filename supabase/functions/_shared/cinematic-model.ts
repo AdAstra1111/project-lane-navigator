@@ -30,7 +30,9 @@ export type CinematicFailureCode =
   | "NO_ESCALATION"
   | "FLATLINE"
   | "LOW_CONTRAST"
-  | "TONAL_WHIPLASH";
+  | "TONAL_WHIPLASH"
+  | "WEAK_ARC"
+  | "LOW_INTENT_DIVERSITY";
 
 export interface CinematicMetrics {
   unit_count: number;
