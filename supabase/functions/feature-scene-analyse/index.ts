@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { callLLM, MODELS, callLLMWithJsonRetry } from "../_shared/llm.ts";
+import { MODELS, callLLMWithJsonRetry } from "../_shared/llm.ts";
 import { isObject, hasArray } from "../_shared/validators.ts";
 
 const corsHeaders = {
@@ -103,16 +103,13 @@ serve(async (req) => {
       world_state: worldState?.state_json || {},
     };
 
-    const result = await callLLM({
-      apiKey,
-      model: MODELS.BALANCED,
-      system: `You are a professional script supervisor and story analyst for feature films.
+    const systemPrompt = `You are a professional script supervisor and story analyst for feature films.
 Analyze the given scene in context of the full screenplay blueprint, connected scenes, and world state.
 ${hasProposed ? "The user has proposed changes to the scene text. Identify what changed and analyze implications." : "Analyze the current scene for issues."}
 
 Return a JSON object with:
 {
-  "notes": [
+  "issues": [
     {
       "id": string (unique),
       "severity": "must" | "should" | "could",
@@ -127,17 +124,17 @@ Return a JSON object with:
    ],
    "impacts": [{ "unit_id": string, "why": string }],
    "updated_unit_json_preview": <updated unit_json reflecting proposed changes>
- }
+}
 
- Focus on:
- - Setup/payoff breaks (tag mismatches)
- - Character inconsistencies vs arc/voice rules in blueprint
- - Continuity issues vs world state (knowledge, injuries, props)
- - Pacing/act-turn risks if scene function changes
- - New character introductions not in blueprint (flag as MUST)
- - Chronology violations
+Focus on:
+- Setup/payoff breaks (tag mismatches)
+- Character inconsistencies vs arc/voice rules in blueprint
+- Continuity issues vs world state (knowledge, injuries, props)
+- Pacing/act-turn risks if scene function changes
+- New character introductions not in blueprint (flag as MUST)
+- Chronology violations
 
- Return ONLY valid JSON.`;
+Return ONLY valid JSON.`;
 
     const analysis = await callLLMWithJsonRetry({
       apiKey,
