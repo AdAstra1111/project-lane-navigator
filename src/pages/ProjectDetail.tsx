@@ -410,6 +410,11 @@ export default function ProjectDetail() {
                   <Sparkles className="h-4 w-4" />
                 </Button>
               </Link>
+              <Link to={`/projects/${id}/trailer-pipeline`} className="hidden sm:inline-flex">
+                <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary shrink-0 h-8 w-8" title="Cinematic Studio">
+                  <Film className="h-4 w-4" />
+                </Button>
+              </Link>
               <Link to="/compare" className="hidden sm:inline-flex">
                 <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary shrink-0 h-8 w-8" title="Compare">
                   <ArrowLeftRight className="h-4 w-4" />
