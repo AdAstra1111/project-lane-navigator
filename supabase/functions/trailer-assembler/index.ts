@@ -71,8 +71,17 @@ function computeTrims(beat: any, clipDurationMs?: number | null): { trim_in_ms: 
 function recomputeTimeline(timeline: any[]): any[] {
   let currentMs = 0;
   return timeline.map((entry: any, idx: number) => {
-    const effectiveDuration = Math.max(0, entry.duration_ms - (entry.trim_in_ms || 0) - (entry.trim_out_ms || 0));
-    const result = { ...entry, beat_index: idx, start_ms: currentMs, effective_duration_ms: effectiveDuration };
+    const trimIn = Math.max(0, entry.trim_in_ms || 0);
+    const trimOut = Math.max(trimIn, entry.trim_out_ms ?? (entry.duration_ms || 0));
+    const effectiveDuration = Math.max(0, trimOut - trimIn);
+    const result = {
+      ...entry,
+      beat_index: idx,
+      trim_in_ms: trimIn,
+      trim_out_ms: trimOut,
+      start_ms: currentMs,
+      effective_duration_ms: effectiveDuration,
+    };
     currentMs += effectiveDuration;
     return result;
   });
@@ -125,7 +134,7 @@ async function handleCreateCut(db: any, body: any, userId: string) {
       trim_in_ms: trims.trim_in_ms,
       trim_out_ms: trims.trim_out_ms,
       start_ms: 0,
-      effective_duration_ms: Math.max(0, durationMs - trims.trim_in_ms - trims.trim_out_ms) || durationMs,
+      effective_duration_ms: Math.max(0, trims.trim_out_ms - trims.trim_in_ms) || durationMs,
       clip_id: clip?.id || null,
       clip_url: clip?.public_url || null,
       clip_duration_ms: clipDurationMs,
@@ -160,9 +169,9 @@ async function handleCreateCut(db: any, body: any, userId: string) {
           role: t.role,
           source: t.clip_url || (t.is_text_card ? "TEXT_CARD" : "PLACEHOLDER"),
           in_point_ms: t.trim_in_ms || 0,
-          out_point_ms: (t.duration_ms || 0) - (t.trim_out_ms || 0),
+          out_point_ms: t.trim_out_ms ?? (t.duration_ms || 0),
           timeline_start_ms: t.start_ms,
-          duration_ms: t.effective_duration_ms,
+          duration_ms: t.effective_duration_ms || Math.max(0, (t.trim_out_ms ?? (t.duration_ms || 0)) - (t.trim_in_ms || 0)),
           text_overlay: t.text_overlay,
           text_content: t.text_content,
           is_text_card: t.is_text_card,
@@ -261,9 +270,9 @@ async function handleUpdateBeat(db: any, body: any, userId: string) {
       beat_index: t.beat_index, role: t.role,
       source: t.clip_url || (t.is_text_card ? "TEXT_CARD" : "PLACEHOLDER"),
       in_point_ms: t.trim_in_ms || 0,
-      out_point_ms: (t.duration_ms || 0) - (t.trim_out_ms || 0),
+      out_point_ms: t.trim_out_ms ?? (t.duration_ms || 0),
       timeline_start_ms: t.start_ms,
-      duration_ms: t.effective_duration_ms,
+      duration_ms: t.effective_duration_ms || Math.max(0, (t.trim_out_ms ?? (t.duration_ms || 0)) - (t.trim_in_ms || 0)),
       text_overlay: t.text_overlay,
       text_content: t.text_content,
       is_text_card: t.is_text_card,
@@ -491,22 +500,61 @@ async function handleFixTrims(db: any, body: any, userId: string) {
     }
   }
 
+  const originalTimeline = JSON.stringify(timeline);
+
   for (let i = 0; i < timeline.length; i++) {
     const beat = timeline[i];
     const plannedMs = beat.duration_ms || 3000;
-    // Fix if trim_out is 0 (or missing) and beat has positive duration
-    if ((!beat.trim_out_ms || beat.trim_out_ms <= 0) && plannedMs > 0) {
-      const clipDur = beat.clip_id ? (clipDurMap[beat.clip_id] || null) : null;
+    const clipDur = beat.clip_id ? (clipDurMap[beat.clip_id] || null) : null;
+
+    const trimIn = beat.trim_in_ms || 0;
+    const trimOut = beat.trim_out_ms || 0;
+    const hasInvalidTrims = (trimOut <= 0 && plannedMs > 0) || trimIn >= trimOut;
+    const hasInvalidEffective = !beat.is_text_card && plannedMs > 0 && (beat.effective_duration_ms || 0) <= 0;
+
+    if (hasInvalidTrims || hasInvalidEffective) {
       const trims = computeTrims(beat, clipDur);
       timeline[i] = { ...beat, ...trims, clip_duration_ms: clipDur };
       fixedCount++;
     }
   }
 
-  if (fixedCount > 0) {
-    timeline = recomputeTimeline(timeline);
-    const totalDurationMs = timeline.reduce((s: number, t: any) => s + (t.effective_duration_ms || t.duration_ms), 0);
-    await db.from("trailer_cuts").update({ timeline, duration_ms: totalDurationMs }).eq("id", cutId);
+  timeline = recomputeTimeline(timeline);
+  const totalDurationMs = timeline.reduce((s: number, t: any) => s + (t.effective_duration_ms || t.duration_ms), 0);
+  const existingClips = cut.edl_export?.tracks?.[0]?.clips || [];
+  const needsEdlRefresh = existingClips.length !== timeline.length || existingClips.some((clip: any, i: number) => {
+    const t = timeline[i];
+    const expectedOut = t.trim_out_ms ?? (t.duration_ms || 0);
+    const expectedDur = t.effective_duration_ms || Math.max(0, expectedOut - (t.trim_in_ms || 0));
+    return (clip.out_point_ms ?? null) !== expectedOut || (clip.duration_ms ?? null) !== expectedDur || (clip.timeline_start_ms ?? null) !== (t.start_ms || 0);
+  });
+  const changed = fixedCount > 0 || JSON.stringify(timeline) !== originalTimeline || totalDurationMs !== (cut.duration_ms || 0) || needsEdlRefresh;
+
+  if (changed) {
+    const edlExport = {
+      ...(cut.edl_export || {}),
+      total_duration_ms: totalDurationMs,
+      tracks: [
+        {
+          name: "V1",
+          type: "video",
+          clips: timeline.map((t: any) => ({
+            beat_index: t.beat_index,
+            role: t.role,
+            source: t.clip_url || (t.is_text_card ? "TEXT_CARD" : "PLACEHOLDER"),
+            in_point_ms: t.trim_in_ms || 0,
+            out_point_ms: t.trim_out_ms ?? (t.duration_ms || 0),
+            timeline_start_ms: t.start_ms,
+            duration_ms: t.effective_duration_ms || Math.max(0, (t.trim_out_ms ?? (t.duration_ms || 0)) - (t.trim_in_ms || 0)),
+            text_overlay: t.text_overlay,
+            text_content: t.text_content,
+            is_text_card: t.is_text_card,
+          })),
+        },
+      ],
+    };
+
+    await db.from("trailer_cuts").update({ timeline, duration_ms: totalDurationMs, edl_export: edlExport }).eq("id", cutId);
     await logCutEvent(db, {
       project_id: projectId, cut_id: cutId,
       event_type: "fix_trims",

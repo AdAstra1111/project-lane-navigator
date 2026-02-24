@@ -25,29 +25,50 @@ async function probeVideoDuration(blob: Blob): Promise<number> {
   return new Promise((resolve) => {
     const video = document.createElement('video');
     const objectUrl = URL.createObjectURL(blob);
+    let finished = false;
+
     const cleanup = () => {
       URL.revokeObjectURL(objectUrl);
       video.src = '';
       video.load();
     };
 
-    const timeout = setTimeout(() => {
+    const done = (seconds: number) => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timeout);
       cleanup();
-      resolve(0);
-    }, 5000);
+      resolve(seconds);
+    };
+
+    const readDuration = () => {
+      const duration = Number(video.duration);
+      if (Number.isFinite(duration) && duration > 0) {
+        done(duration);
+        return;
+      }
+
+      // WebM metadata can report Infinity until seeking to the end once.
+      if (duration === Infinity) {
+        const onSeeked = () => {
+          const resolvedDuration = Number(video.duration);
+          done(Number.isFinite(resolvedDuration) && resolvedDuration > 0 ? resolvedDuration : 0);
+        };
+        video.addEventListener('seeked', onSeeked, { once: true });
+        try {
+          video.currentTime = 1e10;
+        } catch {
+          done(0);
+        }
+      }
+    };
+
+    const timeout = setTimeout(() => done(0), 10000);
 
     video.preload = 'metadata';
-    video.onloadedmetadata = () => {
-      clearTimeout(timeout);
-      const duration = Number.isFinite(video.duration) ? video.duration : 0;
-      cleanup();
-      resolve(duration);
-    };
-    video.onerror = () => {
-      clearTimeout(timeout);
-      cleanup();
-      resolve(0);
-    };
+    video.addEventListener('loadedmetadata', readDuration, { once: true });
+    video.addEventListener('durationchange', readDuration);
+    video.onerror = () => done(0);
     video.src = objectUrl;
   });
 }
@@ -228,7 +249,8 @@ export async function renderTrailerCut(
     recorder.onstop = () => resolve();
     recorder.onerror = () => reject(new Error('MediaRecorder failed while encoding trailer'));
   });
-  recorder.start(100);
+  // Start in single-blob mode to improve duration metadata reliability.
+  recorder.start();
 
   const frameDuration = 1000 / fps;
   const commitDelayMs = canRequestFrame ? 10 : Math.max(16, Math.round(frameDuration / 2));
@@ -306,13 +328,10 @@ export async function renderTrailerCut(
     onProgress?.(tIdx + 1, timeline.length);
   }
 
-  // Final flush — ensure last frames are captured
+  // Final flush — ensure last frames are captured and metadata gets sealed
   await commitFrame();
   await commitFrame();
-
-  try { recorder.requestData(); } catch {
-    // Some browsers throw if requestData is not available in current state.
-  }
+  await sleep(Math.max(frameDuration, 40));
 
   recorder.stop();
   await recordingDone;
