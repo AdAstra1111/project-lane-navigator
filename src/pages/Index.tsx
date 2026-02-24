@@ -1,6 +1,7 @@
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import iffyLogo from '@/assets/iffy-logo-v3.png';
+import Landing from './Landing';
 
 const Index = () => {
   const { user, loading } = useAuth();
@@ -13,7 +14,9 @@ const Index = () => {
     );
   }
 
-  return <Navigate to={user ? '/companies' : '/auth'} replace />;
+  if (user) return <Navigate to="/companies" replace />;
+
+  return <Landing />;
 };
 
 export default Index;
