@@ -3,6 +3,7 @@
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { clipEngineApi } from './clipApi';
+import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
 export function useClipProgress(projectId: string | undefined, blueprintId: string | undefined) {
@@ -130,5 +131,38 @@ export function useClipEngineMutations(projectId: string | undefined) {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  return { enqueueForRun, processQueue, retryJob, cancelJob, selectClip, cancelAll, resetFailed };
+  const runTechnicalJudge = useMutation({
+    mutationFn: (params: { blueprintId: string; clipRunId?: string }) =>
+      clipEngineApi.runTechnicalJudge(projectId!, params.blueprintId, params.clipRunId),
+    onSuccess: (data) => {
+      toast.success(`Technical judge: ${data.passed} passed, ${data.rejected} rejected`);
+      invalidateAll();
+      qc.invalidateQueries({ queryKey: ['trailer-clip-scores'] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  return { enqueueForRun, processQueue, retryJob, cancelJob, selectClip, cancelAll, resetFailed, runTechnicalJudge };
+}
+
+/** Query clip scores for a blueprint */
+export function useClipScores(projectId: string | undefined, blueprintId: string | undefined) {
+  return useQuery({
+    queryKey: ['trailer-clip-scores', projectId, blueprintId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('trailer_clip_scores')
+        .select('*')
+        .eq('project_id', projectId!)
+        .eq('blueprint_id', blueprintId!);
+      if (error) throw error;
+      // Index by clip_id for fast lookup
+      const byClip: Record<string, any> = {};
+      for (const s of (data || [])) {
+        byClip[s.clip_id] = s;
+      }
+      return byClip;
+    },
+    enabled: !!projectId && !!blueprintId,
+  });
 }

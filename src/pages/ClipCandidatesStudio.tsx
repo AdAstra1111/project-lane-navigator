@@ -19,7 +19,8 @@ import { Label } from '@/components/ui/label';
 import { StagedProgressBar } from '@/components/system/StagedProgressBar';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useBlueprints, useBlueprint } from '@/lib/trailerPipeline/useTrailerPipeline';
-import { useClipProgress, useClipPolling, useClipsList, useClipEngineMutations } from '@/lib/trailerPipeline/clipHooks';
+import { useClipProgress, useClipPolling, useClipsList, useClipEngineMutations, useClipScores } from '@/lib/trailerPipeline/clipHooks';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { toast } from 'sonner';
 import type { EDLBeat, TrailerClip } from '@/lib/trailerPipeline/types';
 
@@ -75,9 +76,10 @@ export default function ClipCandidatesStudio() {
   const hasPollingJobs = (progressData?.counts?.polling || 0) > 0 || (progressData?.counts?.running || 0) > 0;
   useClipPolling(projectId, blueprintId, hasPollingJobs);
   const { data: clipsData } = useClipsList(projectId, blueprintId);
+  const { data: clipScores } = useClipScores(projectId, blueprintId);
 
   // Mutations
-  const { enqueueForRun, processQueue, retryJob, selectClip, cancelAll, resetFailed } = useClipEngineMutations(projectId);
+  const { enqueueForRun, processQueue, retryJob, selectClip, cancelAll, resetFailed, runTechnicalJudge } = useClipEngineMutations(projectId);
 
   const blueprints = (bpListData?.blueprints || []).filter((bp: any) => bp.status === 'complete');
   const blueprint = bpData?.blueprint || null;
@@ -279,6 +281,14 @@ export default function ClipCandidatesStudio() {
                   >
                     {resetFailed.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <RotateCcw className="h-3 w-3 mr-1" />}
                     Reset Failed ({counts.failed})
+                  </Button>
+                  <Button
+                    size="sm" variant="outline" className="flex-1"
+                    onClick={() => blueprintId && runTechnicalJudge.mutate({ blueprintId })}
+                    disabled={runTechnicalJudge.isPending || counts.succeeded === 0}
+                  >
+                    {runTechnicalJudge.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Clapperboard className="h-3 w-3 mr-1" />}
+                    Tech Judge
                   </Button>
                 </div>
               </CardContent>
@@ -520,6 +530,49 @@ export default function ClipCandidatesStudio() {
                                           )}
                                           {clip.selected && <Check className="h-3 w-3 text-green-400 ml-auto" />}
                                         </div>
+
+                                        {/* Technical quality score badge */}
+                                        {clipScores?.[clip.id] && (() => {
+                                          const s = clipScores[clip.id];
+                                          const overall = s.technical_overall;
+                                          const isRejected = clip.status === 'rejected';
+                                          return (
+                                            <TooltipProvider>
+                                              <Tooltip>
+                                                <TooltipTrigger asChild>
+                                                  <div className="flex items-center gap-1 mt-1">
+                                                    <Badge
+                                                      variant="outline"
+                                                      className={`text-[9px] px-1.5 py-0 ${
+                                                        isRejected
+                                                          ? 'border-destructive/50 text-destructive'
+                                                          : overall >= 0.75
+                                                          ? 'border-green-500/50 text-green-400'
+                                                          : overall >= 0.55
+                                                          ? 'border-amber-500/50 text-amber-400'
+                                                          : 'border-destructive/50 text-destructive'
+                                                      }`}
+                                                    >
+                                                      Tech {overall?.toFixed(2)}
+                                                    </Badge>
+                                                    {isRejected && (
+                                                      <span className="text-[8px] text-destructive">REJECTED</span>
+                                                    )}
+                                                  </div>
+                                                </TooltipTrigger>
+                                                <TooltipContent side="bottom" className="text-xs space-y-0.5 max-w-xs">
+                                                  <p>Motion: {s.technical_motion_score?.toFixed(2)}</p>
+                                                  <p>Clarity: {s.technical_clarity_score?.toFixed(2)}</p>
+                                                  <p>Artifacts: {s.artifact_penalty?.toFixed(2)} (penalty)</p>
+                                                  <p>Style: {s.style_cohesion_score?.toFixed(2)}</p>
+                                                  {(s.technical_flags || []).length > 0 && (
+                                                    <p className="text-destructive">Flags: {(s.technical_flags as string[]).join(', ')}</p>
+                                                  )}
+                                                </TooltipContent>
+                                              </Tooltip>
+                                            </TooltipProvider>
+                                          );
+                                        })()}
 
                                         <div className="flex items-center gap-1">
                                           {!clip.selected && clip.status === 'complete' && (
