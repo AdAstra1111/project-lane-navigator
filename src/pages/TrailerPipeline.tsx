@@ -4,7 +4,7 @@
  */
 import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Film, Sparkles, Music, Camera, Archive, Clapperboard, Wand2 } from 'lucide-react';
+import { ArrowLeft, Film, Sparkles, Music, Camera, Archive, Clapperboard, Wand2, Paintbrush } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -13,6 +13,7 @@ import { RhythmGridViewer } from '@/components/trailer/cinematic/RhythmGridViewe
 import { RhythmTimelineOverlay } from '@/components/trailer/cinematic/RhythmTimelineOverlay';
 import { ShotDesignViewer } from '@/components/trailer/cinematic/ShotDesignViewer';
 import { AutoAssemblyPanel } from '@/components/trailer/cinematic/AutoAssemblyPanel';
+import { StudioFinishPanel } from '@/components/trailer/cinematic/StudioFinishPanel';
 import { LearningBiasIndicator } from '@/components/trailer/cinematic/LearningBiasIndicator';
 import { LegacyBlueprintTab } from '@/components/trailer/cinematic/LegacyBlueprintTab';
 import { useBlueprints } from '@/lib/trailerPipeline/useTrailerPipeline';
@@ -124,6 +125,9 @@ export default function TrailerPipelinePage() {
             <TabsTrigger value="assembly" className="text-xs gap-1.5">
               <Wand2 className="h-3.5 w-3.5" /> Auto Assembly
             </TabsTrigger>
+            <TabsTrigger value="finish" className="text-xs gap-1.5">
+              <Paintbrush className="h-3.5 w-3.5" /> Studio Finish
+            </TabsTrigger>
             {hasLegacyBlueprints && (
               <TabsTrigger value="legacy" className="text-xs gap-1.5">
                 <Archive className="h-3.5 w-3.5" /> Legacy (Blueprint v1)
@@ -148,6 +152,13 @@ export default function TrailerPipelinePage() {
 
           <TabsContent value="assembly">
             <AutoAssemblyPanel
+              projectId={projectId!}
+              scriptRunId={selectedScriptRunId}
+            />
+          </TabsContent>
+
+          <TabsContent value="finish">
+            <StudioFinishPanel
               projectId={projectId!}
               scriptRunId={selectedScriptRunId}
             />
