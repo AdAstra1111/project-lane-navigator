@@ -25,15 +25,20 @@ async function callFn(fnName: string, action: string, payload: Record<string, an
   return resp.json();
 }
 
-// ─── Blueprint Engine ───
+// ─── Blueprint Engine (v1 — DEPRECATED: create_blueprint blocked server-side) ───
 export const blueprintApi = {
   getArcTemplates: () => callFn('trailer-blueprint-engine', 'get_arc_templates', {}),
-  createBlueprint: (projectId: string, storyboardRunId?: string, arcType?: string, options?: any) =>
-    callFn('trailer-blueprint-engine', 'create_blueprint', { projectId, storyboardRunId, arcType, options }),
+  /** @deprecated Use trailer-cinematic-engine instead. Server returns 410. */
+  createBlueprint: (_projectId: string, _storyboardRunId?: string, _arcType?: string, _options?: any) => {
+    return Promise.reject(new Error('Blueprint v1 deprecated. Use Trailer Script v2 (Cinematic).'));
+  },
   listBlueprints: (projectId: string) =>
     callFn('trailer-blueprint-engine', 'list_blueprints', { projectId }),
   getBlueprint: (projectId: string, blueprintId: string) =>
     callFn('trailer-blueprint-engine', 'get_blueprint', { projectId, blueprintId }),
+  /** Admin: mark legacy blueprints as deprecated for post-Feb-2026 projects */
+  deprecateBlueprints: (projectId: string) =>
+    callFn('trailer-blueprint-engine', 'deprecate_blueprints', { projectId }),
 };
 
 // ─── Clip Generator ───

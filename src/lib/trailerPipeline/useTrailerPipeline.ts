@@ -35,17 +35,24 @@ export function useBlueprint(projectId: string | undefined, blueprintId: string 
 export function useBlueprintMutations(projectId: string | undefined) {
   const qc = useQueryClient();
 
+  /** @deprecated Blueprint v1 creation is blocked. Use cinematic engine. */
   const createBlueprint = useMutation({
-    mutationFn: (params: { storyboardRunId?: string; arcType?: string; options?: any }) =>
-      blueprintApi.createBlueprint(projectId!, params.storyboardRunId, params.arcType, params.options),
-    onSuccess: (data) => {
-      toast.success(`Blueprint created with ${data.beatCount} beats`);
+    mutationFn: (_params: { storyboardRunId?: string; arcType?: string; options?: any }) => {
+      return Promise.reject(new Error('Blueprint v1 deprecated. Use Trailer Script v2 (Cinematic).'));
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const deprecateBlueprints = useMutation({
+    mutationFn: () => blueprintApi.deprecateBlueprints(projectId!),
+    onSuccess: () => {
+      toast.success('Legacy blueprints marked as deprecated');
       qc.invalidateQueries({ queryKey: ['trailer-blueprints', projectId] });
     },
     onError: (e: Error) => toast.error(e.message),
   });
 
-  return { createBlueprint };
+  return { createBlueprint, deprecateBlueprints };
 }
 
 // ─── Clip hooks ───
