@@ -2,7 +2,7 @@
  * Trailer Cinematic Engine — React Query hooks
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { cinematicApi } from './cinematicApi';
+import { cinematicApi, type TrailerStyleOptions } from './cinematicApi';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
@@ -116,6 +116,7 @@ export function useCinematicMutations(projectId: string | undefined) {
       genreKey?: string;
       platformKey?: string;
       seed?: string;
+      styleOptions?: TrailerStyleOptions;
     }) => cinematicApi.createFullPlan({ projectId: projectId!, ...params }),
     onSuccess: (data) => {
       if (data.ok) {
@@ -135,6 +136,7 @@ export function useCinematicMutations(projectId: string | undefined) {
       genreKey?: string;
       platformKey?: string;
       seed?: string;
+      styleOptions?: TrailerStyleOptions;
     }) => cinematicApi.createTrailerScript({ projectId: projectId!, ...params }),
     onSuccess: (data) => {
       toast.success(`Script created: ${data.beatCount} beats (${data.status})`);

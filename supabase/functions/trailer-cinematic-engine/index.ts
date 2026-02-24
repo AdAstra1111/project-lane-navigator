@@ -66,6 +66,113 @@ function mulberry32(seed: string): () => number {
 // ─── Phase definitions ───
 const PHASES_ORDERED = ["hook", "setup", "escalation", "twist", "crescendo", "button"] as const;
 
+// ─── Style Options → Prompt Section Builder ───
+
+function buildStyleOptionsSection(so: Record<string, any>, trailerType: string): string {
+  if (!so || Object.keys(so).length === 0) return "";
+
+  const lines: string[] = ["------------------------------------------------------------", "STYLE OPTIONS (obey these creative directives)", "------------------------------------------------------------"];
+
+  // Beat count by trailer type
+  const beatRanges: Record<string, string> = {
+    teaser: "6–9 beats, 30–60s implied pacing",
+    main: "8–14 beats, 90–120s",
+    character: "8–12 beats, 60–90s",
+    tone: "6–10 beats, 45–75s",
+    sales: "10–16 beats, 120–180s",
+  };
+  lines.push(`BEAT RANGE: ${beatRanges[trailerType] || beatRanges.main}`);
+
+  if (so.tonePreset) {
+    const toneGuides: Record<string, string> = {
+      a24: "Restrained early movement, implication over spectacle, slow build, textural visuals, patient silence.",
+      prestige_dark: "Dark atmosphere, chiaroscuro lighting, deliberate pacing, weighted dialogue fragments.",
+      blockbuster: "Higher contrast, clearer setup, big crescendo, spectacle beats, punchy text cards.",
+      comedy_pop: "Brighter tone, faster hook, energetic pacing, punchy button with comedic timing.",
+      horror_dread: "More negative space, extended silence windows, slow push-ins, dread over shock.",
+      romance_warm: "Warm colour palette, gentle movement, intimate close-ups, emotional restraint then release.",
+      thriller_taut: "Taut pacing, withholding information, sharp cuts, tension-forward movement.",
+    };
+    lines.push(`TONE PRESET: ${so.tonePreset} — ${toneGuides[so.tonePreset] || so.tonePreset}`);
+  }
+
+  if (so.pacingProfile) {
+    const pacingGuides: Record<string, string> = {
+      slow_burn_spike: "Low intensity early (1-4), then rapid spike at twist/crescendo (7-10).",
+      steady_escalation: "Gradual increase across all phases, no sudden jumps.",
+      fast_dense: "Higher shot_density_target across ALL phases (min 1.5). Rapid cuts throughout.",
+      silence_heavy: "At least 3 beats with silence windows. Use silence as a compositional tool.",
+      dialogue_forward: "Prioritise quoted_dialogue fragments. At least 4 beats should include dialogue.",
+      music_forward: "Minimal dialogue, rely on visual rhythm and music cues. Fewer text cards.",
+    };
+    lines.push(`PACING: ${so.pacingProfile} — ${pacingGuides[so.pacingProfile] || so.pacingProfile}`);
+  }
+
+  if (so.revealStrategy) {
+    const revealGuides: Record<string, string> = {
+      withhold_twist: "Do NOT reveal the twist. Use withholding_note on twist beats. Imply, never show.",
+      hint_twist: "Hint at the twist obliquely. Allow audience to infer but not confirm.",
+      show_twist_spoiler: "Reveal the twist clearly. Allow later-story beats for maximum hook.",
+      no_third_act: "Explicitly forbid any beats referencing third-act resolution or climax.",
+    };
+    lines.push(`REVEAL: ${so.revealStrategy} — ${revealGuides[so.revealStrategy] || so.revealStrategy}`);
+  }
+
+  if (so.movementOverall != null) {
+    const mv = Number(so.movementOverall);
+    lines.push(`MOVEMENT BASELINE: ${mv}/10 — Use ${mv} as the central gravity for movement_intensity_target. Early phases can be ${Math.max(1, mv - 3)}-${mv}, crescendo should reach ${Math.min(10, mv + 2)}-10.`);
+  }
+
+  if (so.cameraStyle) {
+    const camGuides: Record<string, string> = {
+      measured: "Controlled, deliberate camera moves. Cranes, slow dollies, composed arcs.",
+      kinetic: "Energetic camera work. Tracking shots, push-ins, dynamic movement.",
+      handheld: "Handheld throughout. Micro-shake, intimate energy, documentary feel.",
+      floating: "Steadicam/gimbal floating. Dreamlike, weightless camera movement.",
+      whip_heavy: "Frequent whip pans and fast transitions. High-energy editorial style.",
+    };
+    lines.push(`CAMERA STYLE: ${so.cameraStyle} — ${camGuides[so.cameraStyle] || so.cameraStyle}`);
+  }
+
+  if (so.lensBias) {
+    const lensGuides: Record<string, string> = {
+      wide: "Favour wide lenses (16-35mm). Spatial depth, environment-forward.",
+      normal: "Favour normal lenses (40-50mm). Natural perspective.",
+      portrait: "Favour portrait lenses (85-135mm). Compressed, intimate, shallow DOF.",
+      mixed: "Mix lens lengths. Vary by phase: wide for setup, portrait for emotion, wide for crescendo.",
+    };
+    lines.push(`LENS BIAS: ${so.lensBias} — ${lensGuides[so.lensBias] || so.lensBias}`);
+  }
+
+  if (so.microMontageIntensity) {
+    const mmGuides: Record<string, string> = {
+      low: "Crescendo shot_density_target ~2.0. Controlled montage.",
+      medium: "Crescendo shot_density_target ~2.5. Standard micro-montage energy.",
+      high: "Crescendo shot_density_target ~3.0. Rapid-fire micro-shots, maximum kinetic energy.",
+    };
+    lines.push(`MICRO-MONTAGE: ${so.microMontageIntensity} — ${mmGuides[so.microMontageIntensity] || so.microMontageIntensity}`);
+  }
+
+  if (so.dropStyle) {
+    const dropGuides: Record<string, string> = {
+      hard_drop: "Sharp silence_before_ms (800-1500ms) immediately before crescendo. Clean hard cut to intensity.",
+      delayed_drop: "Extended silence_before_ms (1500-3000ms) before crescendo. Build anticipation longer.",
+      false_drop: "Place a silence window mid-escalation (false drop), then resume before the real crescendo drop.",
+    };
+    lines.push(`DROP STYLE: ${so.dropStyle} — ${dropGuides[so.dropStyle] || so.dropStyle}`);
+  }
+
+  if (so.minSilenceWindows != null) {
+    lines.push(`MIN SILENCE WINDOWS: ${so.minSilenceWindows} beats must have silence_before_ms>0 or silence_after_ms>0.`);
+  }
+
+  if (so.sfxEmphasis) {
+    lines.push(`SFX EMPHASIS: ${so.sfxEmphasis} — ${so.sfxEmphasis === "high" ? "Design beats with strong SFX moments (impacts, risers, stingers)." : so.sfxEmphasis === "low" ? "Minimal SFX reliance, music and silence forward." : "Balanced SFX integration."}`);
+  }
+
+  return "\n" + lines.join("\n") + "\n";
+}
+
 // ─── Gate checks ───
 
 interface GateResult { passed: boolean; failures: string[]; }
@@ -163,7 +270,7 @@ async function checkIdempotency(db: any, projectId: string, trailerType: string,
 // ─── ACTION 1: Create Trailer Script v2 ───
 
 async function handleCreateTrailerScript(db: any, body: any, userId: string, apiKey: string) {
-  const { projectId, canonPackId, trailerType = "main", genreKey = "drama", platformKey = "theatrical", seed: inputSeed, idempotencyKey } = body;
+  const { projectId, canonPackId, trailerType = "main", genreKey = "drama", platformKey = "theatrical", seed: inputSeed, idempotencyKey, styleOptions = {} } = body;
 
   if (!canonPackId) return json({ error: "canonPackId required" }, 400);
 
@@ -177,6 +284,10 @@ async function handleCreateTrailerScript(db: any, body: any, userId: string, api
   const packCtx = await compileTrailerContext(db, projectId, canonPackId);
   const canonText = packCtx.mergedText;
 
+  // ── Derive style constraints from options ──
+  const so = styleOptions as Record<string, any>;
+  const styleSection = buildStyleOptionsSection(so, trailerType);
+
   // Insert run row with audit columns
   const { data: run, error: runErr } = await db.from("trailer_script_runs").insert({
     project_id: projectId,
@@ -189,6 +300,7 @@ async function handleCreateTrailerScript(db: any, body: any, userId: string, api
     created_by: userId,
     canon_context_hash: packCtx.contextHash,
     canon_context_meta_json: packCtx.contextMeta,
+    style_options_json: so,
   }).select().single();
   if (runErr) return json({ error: runErr.message }, 500);
 
@@ -225,7 +337,7 @@ SEED: ${resolvedSeed}
 
 CANON TEXT:
 ${canonText.slice(0, 16000)}
-
+${styleSection}
 ------------------------------------------------------------
 OBJECTIVE
 ------------------------------------------------------------

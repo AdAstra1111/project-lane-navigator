@@ -25,6 +25,19 @@ async function callCinematicEngine(action: string, payload: Record<string, any>)
   return resp.json();
 }
 
+export interface TrailerStyleOptions {
+  tonePreset?: string;
+  pacingProfile?: string;
+  revealStrategy?: string;
+  movementOverall?: number;
+  cameraStyle?: string;
+  lensBias?: string;
+  microMontageIntensity?: string;
+  dropStyle?: string;
+  minSilenceWindows?: number;
+  sfxEmphasis?: string;
+}
+
 export const cinematicApi = {
   /** Create a cinematic trailer script (step 1) */
   createTrailerScript: (params: {
@@ -35,6 +48,7 @@ export const cinematicApi = {
     platformKey?: string;
     seed?: string;
     idempotencyKey?: string;
+    styleOptions?: TrailerStyleOptions;
   }) => callCinematicEngine('create_trailer_script_v2', params),
 
   /** Create rhythm grid from script (step 2) */
@@ -84,5 +98,6 @@ export const cinematicApi = {
     platformKey?: string;
     seed?: string;
     idempotencyKey?: string;
+    styleOptions?: TrailerStyleOptions;
   }) => callCinematicEngine('create_full_cinematic_trailer_plan', params),
 };
