@@ -33,6 +33,27 @@ function failureBullets(failures: CinematicFailureCode[], domain: "trailer" | "s
   return bullets;
 }
 
+const FAILURE_TARGETS: Record<string, string> = {
+  NO_PEAK: "Ensure at least one of final 2 units has energy >= 0.92 and tension >= 0.82",
+  NO_ESCALATION: "Ensure energy[0] <= 0.45 and energy[last] >= 0.85 (clear ramp)",
+  FLATLINE: "Ensure at least two adjacent deltas >= 0.18 and no run of 3 deltas < 0.03",
+  LOW_CONTRAST: "Ensure one pivot where tonal_polarity changes by >= 0.60 OR energy delta >= 0.25",
+  TONAL_WHIPLASH: "Max 1 polarity flip across the sequence; use intermediate polarity units",
+  TOO_SHORT: "Ensure unit count >= 4",
+};
+
+export function amplifyRepairInstruction(base: string, failures: string[]): string {
+  const targets = failures
+    .map((f) => FAILURE_TARGETS[f])
+    .filter(Boolean)
+    .map((t) => `• ${t}`);
+  if (targets.length === 0) return base;
+  return `${base}
+
+NUMERIC TARGETS (MUST MEET):
+${targets.join("\n")}`;
+}
+
 const SHAPE_GUARD = `
 CRITICAL REPAIR CONSTRAINTS:
 - DO NOT change the response JSON shape, field names, or required structure.
@@ -44,22 +65,24 @@ const STORYBOARD_GUARD = `
 
 export function buildTrailerRepairInstruction(score: CinematicScore): string {
   const bullets = failureBullets(score.failures, "trailer");
-  return `${SHAPE_GUARD}
+  const base = `${SHAPE_GUARD}
 
 The previous output failed cinematic quality checks (score=${score.score.toFixed(2)}, failures: ${score.failures.join(", ")}).
 Fix the following issues:
 ${bullets.join("\n")}
 
 Maintain all existing required fields and overall structure.`;
+  return amplifyRepairInstruction(base, score.failures);
 }
 
 export function buildStoryboardRepairInstruction(score: CinematicScore): string {
   const bullets = failureBullets(score.failures, "storyboard");
-  return `${SHAPE_GUARD}${STORYBOARD_GUARD}
+  const base = `${SHAPE_GUARD}${STORYBOARD_GUARD}
 
 The previous output failed cinematic quality checks (score=${score.score.toFixed(2)}, failures: ${score.failures.join(", ")}).
 Fix the following issues:
 ${bullets.join("\n")}
 
 Maintain all existing required fields and overall structure.`;
+  return amplifyRepairInstruction(base, score.failures);
 }
