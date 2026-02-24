@@ -4,6 +4,11 @@
  */
 import type { CinematicUnit, CinematicIntent } from "./cinematic-model.ts";
 
+export interface AdapterResult {
+  units: CinematicUnit[];
+  mode: "explicit" | "heuristic";
+}
+
 function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v));
 }
@@ -73,17 +78,18 @@ function mapExplicitUnit(u: any, i: number): CinematicUnit {
   };
 }
 
-// ─── Trailer adapter ───
+function hasExplicitCik(raw: any): boolean {
+  return raw?.cik?.units && Array.isArray(raw.cik.units) && raw.cik.units.length > 0;
+}
 
-export function adaptTrailerOutput(raw: any): CinematicUnit[] {
-  // Prefer explicit cik.units
-  if (raw?.cik?.units && Array.isArray(raw.cik.units) && raw.cik.units.length > 0) {
-    return raw.cik.units.map(mapExplicitUnit);
+// ─── Trailer adapters ───
+
+export function adaptTrailerOutputWithMode(raw: any): AdapterResult {
+  if (hasExplicitCik(raw)) {
+    return { units: raw.cik.units.map(mapExplicitUnit), mode: "explicit" };
   }
-
-  // Fallback: extract from beats/segments
   const items: any[] = raw?.beats || raw?.segments || (Array.isArray(raw) ? raw : []);
-  return items.map((b: any, i: number) => {
+  const units = items.map((b: any, i: number) => {
     const text = b.text || b.line || b.description || b.emotional_intent || b.title || "";
     return {
       id: b.beat_index != null ? `beat_${b.beat_index}` : `beat_${i}`,
@@ -94,19 +100,21 @@ export function adaptTrailerOutput(raw: any): CinematicUnit[] {
       tonal_polarity: polarityFromText(text),
     };
   });
+  return { units, mode: "heuristic" };
 }
 
-// ─── Storyboard adapter ───
+export function adaptTrailerOutput(raw: any): CinematicUnit[] {
+  return adaptTrailerOutputWithMode(raw).units;
+}
 
-export function adaptStoryboardPanels(raw: any): CinematicUnit[] {
-  // Prefer explicit cik.units
-  if (raw?.cik?.units && Array.isArray(raw.cik.units) && raw.cik.units.length > 0) {
-    return raw.cik.units.map(mapExplicitUnit);
+// ─── Storyboard adapters ───
+
+export function adaptStoryboardPanelsWithMode(raw: any): AdapterResult {
+  if (hasExplicitCik(raw)) {
+    return { units: raw.cik.units.map(mapExplicitUnit), mode: "explicit" };
   }
-
-  // Fallback: extract from panels/items
   const items: any[] = raw?.panels || raw?.items || (Array.isArray(raw) ? raw : []);
-  return items.map((p: any, i: number) => {
+  const units = items.map((p: any, i: number) => {
     const text = p.prompt || p.description || p.composition || p.action || "";
     return {
       id: p.unit_key || p.id || `panel_${i}`,
@@ -117,4 +125,9 @@ export function adaptStoryboardPanels(raw: any): CinematicUnit[] {
       tonal_polarity: polarityFromText(text),
     };
   });
+  return { units, mode: "heuristic" };
+}
+
+export function adaptStoryboardPanels(raw: any): CinematicUnit[] {
+  return adaptStoryboardPanelsWithMode(raw).units;
 }
