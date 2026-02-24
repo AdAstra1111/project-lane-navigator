@@ -24,15 +24,14 @@ export default function TrailerPipelinePage() {
   const [activeTab, setActiveTab] = useState('script');
   const [selectedScriptRunId, setSelectedScriptRunId] = useState<string>();
 
-  // Fetch canon packs for the project
+  // Fetch trailer definition packs for the project
   const { data: canonPacks } = useQuery({
-    queryKey: ['canon-snapshots', projectId],
+    queryKey: ['trailer-definition-packs', projectId],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from('canon_snapshots')
-        .select('id, status, season_episode_count, created_at')
+        .from('trailer_definition_packs')
+        .select('id, title, project_id, created_at')
         .eq('project_id', projectId!)
-        .eq('status', 'active')
         .order('created_at', { ascending: false });
       if (error) throw error;
       return data || [];
@@ -72,7 +71,7 @@ export default function TrailerPipelinePage() {
               <SelectContent>
                 {(canonPacks || []).map((cp: any) => (
                   <SelectItem key={cp.id} value={cp.id}>
-                    {cp.id.slice(0, 8)} · {cp.season_episode_count} ep
+                    {cp.title || cp.id.slice(0, 8)}
                   </SelectItem>
                 ))}
               </SelectContent>
