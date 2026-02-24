@@ -103,7 +103,7 @@ export function ContinuityPanel({ projectId, trailerCutId, blueprintId }: Contin
           { onSuccess: (data) => setDryRunResult(data) }
         );
       } else {
-        setDryRunResult({ message: 'No applicable actions', changes: [] });
+        setDryRunResult({ message: 'No applicable actions', diff: [] });
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -417,16 +417,25 @@ export function ContinuityPanel({ projectId, trailerCutId, blueprintId }: Contin
                   {dryRunResult && (
                     <div className="mt-2 p-2 rounded bg-muted/30 border border-border">
                       <p className="text-[9px] font-medium text-muted-foreground uppercase tracking-wider mb-1">Dry-run preview</p>
-                      {dryRunResult.changes?.length > 0 ? (
+                      {dryRunResult.diff?.length > 0 ? (
                         <div className="space-y-1">
-                          {dryRunResult.changes.map((c: any, i: number) => (
-                            <div key={i} className="text-[10px] flex items-center gap-1.5">
+                          {dryRunResult.diff.map((d: any, i: number) => (
+                            <div key={i} className={`text-[10px] flex items-center gap-1.5 ${d.skipped ? 'opacity-50' : ''}`}>
                               <RefreshCw className="h-2.5 w-2.5 text-primary" />
-                              <span className="text-muted-foreground">
-                                Beat {c.beat_index ?? '?'}: {c.field ?? c.type ?? 'update'}
-                              </span>
-                              {c.old_value && <span className="line-through text-destructive/60">{String(c.old_value).slice(0, 20)}</span>}
-                              {c.new_value && <span className="text-green-500">{String(c.new_value).slice(0, 20)}</span>}
+                              {d.type === 'swap_clip' ? (
+                                <span className="text-muted-foreground">
+                                  beat #{d.beat_index ?? '?'}: <span className="line-through text-destructive/60">{String(d.old_clip_id ?? '').slice(0, 12)}</span> → <span className="text-green-500">{String(d.new_clip_id ?? '').slice(0, 12)}</span>
+                                </span>
+                              ) : d.type === 'adjust_trim' ? (
+                                <span className="text-muted-foreground">
+                                  beat #{d.beat_index ?? '?'}: trim_in <span className="line-through text-destructive/60">{d.old_trim_in}</span> → <span className="text-green-500">{d.new_trim_in}</span>
+                                </span>
+                              ) : (
+                                <span className="text-muted-foreground">
+                                  {d.type} beat #{d.beat_index ?? '?'}: {d.field ?? 'update'} {d.old_value != null && <><span className="line-through text-destructive/60">{String(d.old_value).slice(0, 20)}</span> → </>}<span className="text-green-500">{String(d.new_value ?? '').slice(0, 20)}</span>
+                                </span>
+                              )}
+                              {d.skipped && <Badge variant="outline" className="text-[7px] px-1 py-0">skipped</Badge>}
                             </div>
                           ))}
                         </div>
