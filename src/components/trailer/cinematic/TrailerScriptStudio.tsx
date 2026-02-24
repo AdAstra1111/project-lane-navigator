@@ -2,7 +2,7 @@
  * Trailer Script Studio — 3-panel layout for cinematic script editing
  * Left: beats list | Center: beat detail editor | Right: citations panel
  */
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { LookBiblePanel, LookBibleSummaryPills } from './LookBiblePanel';
 import { CrescendoMontagePanel } from './CrescendoMontagePanel';
 import { Badge } from '@/components/ui/badge';
@@ -370,6 +370,20 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
   const warningsDeduped = dedupeWarningsStable(warnings);
   const warningsCount = warningsDeduped.length;
   const warningsPreview = sortWarningsDeterministic(warningsDeduped).slice(0, 6);
+
+  const runKey =
+    (activeRun as any)?.id ??
+    `${activeRun?.status ?? "unknown"}::${(activeRun as any)?.updated_at ?? ""}`;
+
+  useEffect(() => {
+    setSelectedWarning(null);
+  }, [runKey]);
+
+  useEffect(() => {
+    if (selectedWarning && !warningsDeduped.includes(selectedWarning)) {
+      setSelectedWarning(null);
+    }
+  }, [warningsCount]);
 
   function warningAnchorId(w: string): string | null {
     const l = w.toLowerCase();
