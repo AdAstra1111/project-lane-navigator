@@ -137,10 +137,12 @@ export function flushCinematicSummaryIfDue(opts: { handler: string; phase: strin
   if (b.total_runs < FLUSH_EVERY_FINALS && elapsed < FLUSH_MAX_MS) return;
 
   const total = b.total_runs;
+  const baseFields = { handler: opts.handler, phase: opts.phase, model: opts.model, window: { finals: total, since_ms: elapsed } };
+
+  // 1) Existing CINEMATIC_QUALITY_SUMMARY
   const summary = {
     type: "CINEMATIC_QUALITY_SUMMARY",
-    handler: opts.handler, phase: opts.phase, model: opts.model,
-    window: { finals: total, since_ms: elapsed },
+    ...baseFields,
     rates: {
       pass_attempt0: total > 0 ? b.pass_attempt0 / total : 0,
       repaired_pass: total > 0 ? b.pass_attempt1 / total : 0,
@@ -160,6 +162,13 @@ export function flushCinematicSummaryIfDue(opts: { handler: string; phase: strin
       heuristic: total > 0 ? b.final_mode_counts.heuristic / total : 0,
       unknown: total > 0 ? b.final_mode_counts.unknown / total : 0,
     },
+  };
+  console.error(JSON.stringify(summary));
+
+  // 2) CINEMATIC_FEATURE_SUMMARY (aggregated)
+  const featureSummary = {
+    type: "CINEMATIC_FEATURE_SUMMARY",
+    ...baseFields,
     features: {
       avg_peak_index: total > 0 ? b.sum_peak_index / total : 0,
       peak_late_rate: total > 0 ? b.peak_late_count / total : 0,
@@ -167,13 +176,20 @@ export function flushCinematicSummaryIfDue(opts: { handler: string; phase: strin
       avg_direction_reversals: total > 0 ? b.sum_direction_reversals / total : 0,
       pacing_mismatch_rate: total > 0 ? b.pacing_mismatch_count / total : 0,
     },
-    diagnostics: {
+  };
+  console.error(JSON.stringify(featureSummary));
+
+  // 3) CINEMATIC_DIAGNOSTIC_FLAGS (aggregated — only if any recorded)
+  const hasFlags = Object.keys(b.hard_failures_by_code).length > 0 || Object.keys(b.diagnostic_flags_by_code).length > 0;
+  if (hasFlags) {
+    const diagnosticFlags = {
+      type: "CINEMATIC_DIAGNOSTIC_FLAGS",
+      ...baseFields,
       hard_failures: { ...b.hard_failures_by_code },
       diagnostic_flags: { ...b.diagnostic_flags_by_code },
-    },
-  };
-
-  console.error(JSON.stringify(summary));
+    };
+    console.error(JSON.stringify(diagnosticFlags));
+  }
 
   // Reset bucket
   b.total_runs = 0;

@@ -171,16 +171,20 @@ export function scoreCinematic(units: CinematicUnit[], ctx?: ScoringContext): Ci
       failures.push("DIRECTION_REVERSAL");
     }
 
-    // EYE_LINE_BREAK: diagnostic-only unless combined with LOW_CONTRAST or FLATLINE
+    // EYE_LINE_BREAK: diagnostic-only, only added when LOW_CONTRAST or FLATLINE also present
     if (ctx?.isStoryboard && n >= 4) {
-      const intents = units.map(u => u.intent);
-      let intentFlips = 0;
-      for (let i = 1; i < intents.length; i++) {
-        if (intents[i] !== intents[i - 1]) intentFlips++;
-      }
-      const intentFlipRate = intentFlips / (n - 1);
-      if (intentFlipRate > 0.8 && ctx.adapterMode === "heuristic") {
-        failures.push("EYE_LINE_BREAK");
+      const hasLowContrast = failures.includes("LOW_CONTRAST");
+      const hasFlatline = failures.includes("FLATLINE");
+      if (hasLowContrast || hasFlatline) {
+        const intents = units.map(u => u.intent);
+        let intentFlips = 0;
+        for (let i = 1; i < intents.length; i++) {
+          if (intents[i] !== intents[i - 1]) intentFlips++;
+        }
+        const intentFlipRate = intentFlips / (n - 1);
+        if (intentFlipRate > 0.8 && ctx.adapterMode === "heuristic") {
+          failures.push("EYE_LINE_BREAK");
+        }
       }
     }
   }
