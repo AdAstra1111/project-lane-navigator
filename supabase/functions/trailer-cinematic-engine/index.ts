@@ -11,7 +11,7 @@
  *   create_full_cinematic_trailer_plan  (orchestrator: runs 1-4 sequentially)
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { callLLM, MODELS, parseJsonSafe, composeSystem, callLLMWithJsonRetry, parseAiJson } from "../_shared/llm.ts";
+import { callLLM, MODELS, composeSystem, callLLMWithJsonRetry, parseAiJson } from "../_shared/llm.ts";
 import { compileTrailerContext } from "../_shared/trailerContext.ts";
 
 // ─── Helpers ───

@@ -4,7 +4,8 @@
  * Auth: service-role client + getClaims() local JWT verification.
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { callLLM, MODELS, parseJsonSafe } from "../_shared/llm.ts";
+import { callLLMWithJsonRetry, MODELS } from "../_shared/llm.ts";
+import { isObject, hasArray } from "../_shared/validators.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -96,16 +97,17 @@ ${issueList}
 
 Generate 2–4 fix options per issue. Be specific about scene/beat locations using the anchor field.`;
 
-    const result = await callLLM({
+    const parsed = await callLLMWithJsonRetry({
       apiKey,
       model: MODELS.BALANCED,
       system: systemPrompt,
       user: userPrompt,
       temperature: 0.4,
       maxTokens: 8000,
+    }, {
+      handler: "generate_issue_fixes",
+      validate: (d): d is any => isObject(d) && hasArray(d, "fixes"),
     });
-
-    const parsed = await parseJsonSafe(result.content, apiKey);
     const fixes = parsed.fixes || [];
 
     // Store fix options in issue_events with correct event_type

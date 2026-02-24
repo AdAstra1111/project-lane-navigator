@@ -8,7 +8,7 @@
  *   apply_continuity_fix_plan_v1 — apply fix plan to cut (dry-run or live)
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { callLLM, MODELS, parseJsonSafe, callLLMWithJsonRetry, parseAiJson } from "../_shared/llm.ts";
+import { callLLM, MODELS, callLLMWithJsonRetry, parseAiJson } from "../_shared/llm.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

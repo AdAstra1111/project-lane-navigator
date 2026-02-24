@@ -3,7 +3,7 @@
  * Reads canonical visual_units, creates panel plans via LLM, generates image frames via Gemini.
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { callLLM, MODELS, parseJsonSafe, callLLMWithJsonRetry } from "../_shared/llm.ts";
+import { callLLM, MODELS, callLLMWithJsonRetry } from "../_shared/llm.ts";
 
 const GATEWAY_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
 const IMAGE_MODEL = "google/gemini-2.5-flash-image";

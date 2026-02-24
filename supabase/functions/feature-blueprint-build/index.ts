@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { callLLM, parseJsonSafe, MODELS } from "../_shared/llm.ts";
+import { callLLMWithJsonRetry, MODELS } from "../_shared/llm.ts";
+import { isObject, hasObject } from "../_shared/validators.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -55,8 +56,7 @@ serve(async (req) => {
       unit_json: s.unit_json,
     }));
 
-    // Call LLM to build full blueprint
-    const result = await callLLM({
+    const blueprintJson = await callLLMWithJsonRetry({
       apiKey,
       model: MODELS.BALANCED,
       system: `You are an expert screenplay analyst building a master blueprint for a feature film.
@@ -78,9 +78,10 @@ Use actual scene IDs from the input. Return ONLY valid JSON.`,
       user: JSON.stringify(sceneSummaries),
       temperature: 0.3,
       maxTokens: 12000,
+    }, {
+      handler: "feature_blueprint_build",
+      validate: (d): d is any => isObject(d) && (hasObject(d, "meta") || hasObject(d, "structure")),
     });
-
-    const blueprintJson = await parseJsonSafe(result.content, apiKey);
 
     // Save blueprint
     await adminClient
@@ -88,12 +89,13 @@ Use actual scene IDs from the input. Return ONLY valid JSON.`,
       .update({ blueprint_json: blueprintJson })
       .eq("id", blueprintId);
 
-    // Build links
     console.log("[feature-blueprint-build] Building dependency links...");
-    const linkResult = await callLLM({
-      apiKey,
-      model: MODELS.FAST,
-      system: `You are a screenplay dependency analyzer. Given scene summaries with their unit_json metadata, identify links between scenes.
+    let links: any[] = [];
+    try {
+      links = await callLLMWithJsonRetry({
+        apiKey,
+        model: MODELS.FAST,
+        system: `You are a screenplay dependency analyzer. Given scene summaries with their unit_json metadata, identify links between scenes.
 Return a JSON array of links, each with:
 - "from_unit_id": string (scene id)
 - "to_unit_id": string (scene id)  
@@ -102,15 +104,13 @@ Return a JSON array of links, each with:
 - "note": string (brief explanation)
 
 Focus on the strongest, most important connections (max 50 links). Return ONLY a JSON array.`,
-      user: JSON.stringify(sceneSummaries),
-      temperature: 0.2,
-      maxTokens: 8000,
-    });
-
-    let links: any[] = [];
-    try {
-      links = await parseJsonSafe(linkResult.content, apiKey);
-      if (!Array.isArray(links)) links = [];
+        user: JSON.stringify(sceneSummaries),
+        temperature: 0.2,
+        maxTokens: 8000,
+      }, {
+        handler: "feature_blueprint_links",
+        validate: (d): d is any => Array.isArray(d),
+      });
     } catch {
       console.error("[feature-blueprint-build] Failed to parse links");
       links = [];

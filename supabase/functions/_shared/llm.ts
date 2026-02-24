@@ -145,6 +145,29 @@ function extractAndRepairJson(raw: string): any {
   return JSON.parse(c); // throws if still invalid
 }
 
+/** Structured error thrown on all AI JSON parse/validation failures. */
+export interface AiJsonParseError {
+  type: "AI_JSON_PARSE_ERROR";
+  handler: string;
+  model: string;
+  phase: string;
+  responseLength: number;
+  excerptStart: string;
+  excerptEnd: string;
+}
+
+function makeParseError(raw: string, handler: string, model: string, phase: string, detail: string): Error & AiJsonParseError {
+  const e = new Error(`AI_JSON_PARSE_ERROR [${handler}]: ${detail}`) as Error & AiJsonParseError;
+  e.type = "AI_JSON_PARSE_ERROR";
+  e.handler = handler;
+  e.model = model;
+  e.phase = phase;
+  e.responseLength = raw.length;
+  e.excerptStart = raw.slice(0, 300);
+  e.excerptEnd = raw.slice(-300);
+  return e;
+}
+
 /**
  * parseAiJson<T> — Centralized robust AI JSON parser with optional schema validation.
  */
@@ -160,19 +183,12 @@ export function parseAiJson<T = any>(
     parsed = extractAndRepairJson(raw);
   } catch (err: any) {
     logParseTelemetry(raw, handler, model, "extract_repair", true, false);
-    const e = new Error(`AI_JSON_PARSE_ERROR [${handler}]: ${err.message}`);
-    (e as any).type = "AI_JSON_PARSE_ERROR";
-    (e as any).handler = handler;
-    (e as any).responseLength = raw.length;
-    throw e;
+    throw makeParseError(raw, handler, model, "extract_repair", err.message);
   }
 
   if (opts?.validate && !opts.validate(parsed)) {
     logParseTelemetry(raw, handler, model, "schema_validation", false, false);
-    const e = new Error(`AI_JSON_PARSE_ERROR [${handler}]: schema validation failed`);
-    (e as any).type = "AI_JSON_PARSE_ERROR";
-    (e as any).handler = handler;
-    throw e;
+    throw makeParseError(raw, handler, model, "schema_validation", "schema validation failed");
   }
 
   return parsed as T;

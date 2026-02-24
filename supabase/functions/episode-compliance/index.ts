@@ -3,7 +3,8 @@
  * Returns tone_match, pacing_match, dialogue_voice, cliffhanger_strength, overall scores + flags.
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { callLLM, composeSystem, parseJsonSafe, MODELS } from "../_shared/llm.ts";
+import { composeSystem, callLLMWithJsonRetry, MODELS } from "../_shared/llm.ts";
+import { isObject, hasObject } from "../_shared/validators.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -79,8 +80,10 @@ ${script.text_content.slice(0, 10000)}
 
 Score compliance.`;
 
-    const result = await callLLM({ apiKey, model: MODELS.FAST, system, user: userPrompt, temperature: 0.2, maxTokens: 2000 });
-    const parsed = await parseJsonSafe(result.content, apiKey);
+    const parsed = await callLLMWithJsonRetry({ apiKey, model: MODELS.FAST, system, user: userPrompt, temperature: 0.2, maxTokens: 2000 }, {
+      handler: "episode_compliance",
+      validate: (d): d is any => isObject(d) && hasObject(d, "scores"),
+    });
 
     // Get user from auth
     const authHeader = req.headers.get("Authorization");

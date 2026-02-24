@@ -5,7 +5,8 @@
  * Auth: service-role client + getClaims() local JWT verification.
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { callLLM, MODELS, parseJsonSafe } from "../_shared/llm.ts";
+import { callLLMWithJsonRetry, MODELS } from "../_shared/llm.ts";
+import { isObject, hasArray } from "../_shared/validators.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -144,19 +145,18 @@ ${issueBlocks}
 For each issue, assess whether the problem described is no longer present.
 fixed=true means fully resolved. fixed=false means still present or only partially changed.`;
 
-      const result = await callLLM({
+      const parsed = await callLLMWithJsonRetry({
         apiKey,
         model: MODELS.BALANCED,
         system: systemPrompt,
         user: userPrompt,
         temperature: 0.1,
         maxTokens: 4000,
+      }, {
+        handler: "verify_issue_fixes",
+        validate: (d): d is any => isObject(d) && hasArray(d, "verifications"),
       });
-
-      const parsed = await parseJsonSafe(result.content, apiKey);
-      if (Array.isArray(parsed.verifications)) {
-        verifications.push(...parsed.verifications);
-      }
+      verifications.push(...parsed.verifications);
     }
 
     const results: Array<{ issue_id: string; outcome: "resolved" | "reopened" }> = [];

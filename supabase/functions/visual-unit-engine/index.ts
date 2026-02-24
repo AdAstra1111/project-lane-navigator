@@ -3,7 +3,7 @@
  * Canonical, reviewable, diffable pipeline for visual units.
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { callLLM, MODELS, parseJsonSafe } from "../_shared/llm.ts";
+import { callLLMWithJsonRetry, MODELS } from "../_shared/llm.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -213,16 +213,17 @@ Each unit must have these fields:
 
 Return ONLY a JSON array of these objects. No commentary.`;
 
-    const result = await callLLM({
+    const parsed = await callLLMWithJsonRetry({
       apiKey,
       model: MODELS.BALANCED,
       system: systemPrompt,
       user: contextText,
       temperature: 0.4,
       maxTokens: 8000,
+    }, {
+      handler: "visual_unit_create_run",
+      validate: (d): d is any => Array.isArray(d) || (d && (Array.isArray(d.units) || Array.isArray(d.visual_units))),
     });
-
-    const parsed = await parseJsonSafe(result.content, apiKey);
     const candidates = Array.isArray(parsed) ? parsed : (parsed.units || parsed.visual_units || [parsed]);
 
     if (candidates.length === 0) {
