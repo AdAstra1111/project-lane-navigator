@@ -939,6 +939,315 @@ async function handleTestVeo() {
   }
 }
 
+// ─── Action: run_technical_clip_judge ───
+
+async function handleRunTechnicalClipJudge(db: any, body: any, userId: string) {
+  const { projectId, blueprintId, clipRunId } = body;
+  if (!blueprintId) return json({ error: "blueprintId required" }, 400);
+
+  // Load complete clips
+  const query = db.from("trailer_clips").select("*")
+    .eq("project_id", projectId)
+    .eq("blueprint_id", blueprintId)
+    .eq("status", "complete");
+  if (clipRunId) query.eq("clip_run_id", clipRunId);
+
+  const { data: clips } = await query;
+  if (!clips?.length) return json({ error: "No complete clips to judge" }, 400);
+
+  // Load beat metadata (from blueprint EDL)
+  const { data: bp } = await db.from("trailer_blueprints")
+    .select("edl, options").eq("id", blueprintId).single();
+  const edl = bp?.edl || [];
+
+  // Load style options from script run if available
+  let styleOptions: Record<string, any> = {};
+  const scriptRunId = bp?.options?.script_run_id;
+  if (scriptRunId) {
+    const { data: sr } = await db.from("trailer_script_runs")
+      .select("style_options_json, trailer_type").eq("id", scriptRunId).single();
+    styleOptions = sr?.style_options_json || {};
+  }
+
+  // Load shot specs if shot design run exists
+  const shotDesignRunId = bp?.options?.shot_design_run_id;
+  let shotSpecsByBeat: Record<number, any[]> = {};
+  if (shotDesignRunId) {
+    const { data: specs } = await db.from("trailer_shot_specs")
+      .select("*, prompt_hint_json").eq("shot_design_run_id", shotDesignRunId);
+    for (const s of (specs || [])) {
+      // Map back to beat_index via the beat relationship
+      const { data: beatRow } = await db.from("trailer_script_beats")
+        .select("beat_index").eq("id", s.beat_id).single();
+      const bi = beatRow?.beat_index ?? s.shot_index ?? 0;
+      if (!shotSpecsByBeat[bi]) shotSpecsByBeat[bi] = [];
+      shotSpecsByBeat[bi].push(s);
+    }
+  }
+
+  // Use Lovable AI for judging
+  const lovableApiKey = Deno.env.get("LOVABLE_API_KEY") || "";
+
+  const results: any[] = [];
+  let judged = 0;
+  let rejected = 0;
+  let passed = 0;
+
+  for (const clip of clips) {
+    // Skip already-judged clips (check existing score)
+    const { data: existingScore } = await db.from("trailer_clip_scores")
+      .select("id").eq("clip_id", clip.id).single();
+    if (existingScore) continue;
+
+    const beatIndex = clip.beat_index;
+    const beatEdl = edl[beatIndex] || {};
+    const beatSpecs = shotSpecsByBeat[beatIndex] || [];
+    const clipSpec = beatEdl.clip_spec || {};
+
+    // Find matching shot spec for this clip
+    const matchSpec = beatSpecs.find((s: any) => 
+      s.shot_index === (clip.candidate_index || 0)
+    ) || beatSpecs[0] || {};
+
+    const specContext = [
+      `Shot type: ${matchSpec.shot_type || clipSpec.shot_type || "unknown"}`,
+      `Camera move: ${matchSpec.camera_move || clipSpec.camera_move || "unknown"}`,
+      `Movement intensity: ${matchSpec.movement_intensity || "5"}/10`,
+      matchSpec.lens_mm ? `Lens: ${matchSpec.lens_mm}mm` : "",
+      matchSpec.depth_strategy ? `Depth: ${matchSpec.depth_strategy}` : "",
+      matchSpec.foreground_element ? `FG element: ${matchSpec.foreground_element}` : "",
+      matchSpec.lighting_note ? `Lighting: ${matchSpec.lighting_note}` : "",
+      matchSpec.transition_in ? `Transition in: ${matchSpec.transition_in}` : "",
+      matchSpec.transition_out ? `Transition out: ${matchSpec.transition_out}` : "",
+      matchSpec.prompt_hint_json?.subject_action ? `Subject action: ${matchSpec.prompt_hint_json.subject_action}` : "",
+      matchSpec.prompt_hint_json?.reveal_mechanic ? `Reveal: ${matchSpec.prompt_hint_json.reveal_mechanic}` : "",
+    ].filter(Boolean).join("\n");
+
+    const styleContext = [
+      styleOptions.tonePreset ? `Tone: ${styleOptions.tonePreset}` : "",
+      styleOptions.cameraStyle ? `Camera style: ${styleOptions.cameraStyle}` : "",
+      styleOptions.lensBias ? `Lens bias: ${styleOptions.lensBias}` : "",
+      styleOptions.pacingProfile ? `Pacing: ${styleOptions.pacingProfile}` : "",
+    ].filter(Boolean).join("\n");
+
+    const system = `You are a professional trailer editor assessing raw AI-generated cinematic clips for technical quality.
+
+Score the clip 0.0–1.0 on each dimension:
+
+MOTION (0.0-1.0):
+- Is the camera actually moving as requested?
+- Is there subject motion in frame?
+- Is there parallax or depth shift?
+- Does motion match the requested intensity level?
+- 0.0 = completely static when motion was requested
+- 1.0 = perfect motivated camera movement matching spec
+
+CLARITY (0.0-1.0):
+- Is the subject readable and identifiable?
+- Is the focal plane coherent?
+- Is framing intentional and composed?
+- 0.0 = completely unreadable
+- 1.0 = crisp, well-composed, intentional framing
+
+ARTIFACTS (0.0-1.0) — THIS IS A PENALTY SCORE:
+- 0.0 = no artifacts (good)
+- 1.0 = severe artifacts (bad)
+- Check for: warping, limb distortion, texture melt, frame tearing, morphing faces, flickering
+
+STYLE (0.0-1.0):
+- Does the visual mood match the tone preset?
+- Is the energy appropriate for the trailer phase?
+- Does color/lighting feel cohesive?
+- 0.0 = completely wrong style
+- 1.0 = perfect style match
+
+Return STRICT JSON only:
+{
+  "motion": 0.0-1.0,
+  "clarity": 0.0-1.0,
+  "artifacts": 0.0-1.0,
+  "style": 0.0-1.0,
+  "flags": ["list of specific issues found"],
+  "overall": weighted_score
+}
+
+Weighting formula:
+overall = (motion * 0.35) + (clarity * 0.25) + (style * 0.25) - (artifacts * 0.25)
+Clamp overall between 0.0 and 1.0.
+
+No commentary. No markdown. Only valid JSON.`;
+
+    const userMsg = `Assess this AI-generated video clip:
+
+CLIP URL: ${clip.public_url}
+PROVIDER: ${clip.provider}
+DURATION: ${clip.duration_ms}ms
+BEAT PHASE: ${beatEdl.phase || beatEdl.role || "unknown"}
+
+SHOT SPEC (what was requested):
+${specContext}
+
+STYLE DIRECTIVES:
+${styleContext || "No specific style directives"}
+
+GENERATION PROMPT USED:
+${(clip.gen_params?.prompt || clip.gen_params?.clip_spec?.visual_prompt || "").toString().slice(0, 500)}`;
+
+    try {
+      // Use Lovable AI via the shared LLM pattern
+      const llmResp = await fetch("https://api.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${lovableApiKey}`,
+        },
+        body: JSON.stringify({
+          model: "google/gemini-2.5-flash",
+          messages: [
+            { role: "system", content: system },
+            { role: "user", content: userMsg },
+          ],
+          temperature: 0.2,
+          max_tokens: 1000,
+        }),
+      });
+
+      if (!llmResp.ok) {
+        console.error(`[tech_judge] LLM error for clip ${clip.id}: ${llmResp.status}`);
+        continue;
+      }
+
+      const llmResult = await llmResp.json();
+      const content = llmResult.choices?.[0]?.message?.content || "";
+      
+      // Parse JSON from response
+      let scores: any;
+      try {
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        scores = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
+      } catch {
+        console.error(`[tech_judge] Failed to parse response for clip ${clip.id}`);
+        continue;
+      }
+      if (!scores) continue;
+
+      // Compute overall with clamping
+      const motion = Math.max(0, Math.min(1, scores.motion || 0));
+      const clarity = Math.max(0, Math.min(1, scores.clarity || 0));
+      const artifacts = Math.max(0, Math.min(1, scores.artifacts || 0));
+      const style = Math.max(0, Math.min(1, scores.style || 0));
+      const overall = Math.max(0, Math.min(1,
+        (motion * 0.35) + (clarity * 0.25) + (style * 0.25) - (artifacts * 0.25)
+      ));
+
+      // Insert score
+      await db.from("trailer_clip_scores").upsert({
+        project_id: projectId,
+        clip_id: clip.id,
+        blueprint_id: blueprintId,
+        beat_index: beatIndex,
+        technical_motion_score: motion,
+        technical_clarity_score: clarity,
+        artifact_penalty: artifacts,
+        style_cohesion_score: style,
+        technical_overall: overall,
+        technical_flags: scores.flags || [],
+        judge_model: "gemini-2.5-flash",
+        raw_response: scores,
+        created_by: userId,
+      }, { onConflict: "clip_id" });
+
+      // Auto-rejection rules
+      const shouldReject = motion < 0.5 || clarity < 0.5 || artifacts > 0.6 || overall < 0.55;
+
+      if (shouldReject) {
+        // Only reject if not manually selected
+        if (!clip.selected) {
+          await db.from("trailer_clips").update({ 
+            status: "rejected",
+            selected: false,
+          }).eq("id", clip.id);
+        }
+        await logEvent(db, {
+          project_id: projectId, blueprint_id: blueprintId,
+          beat_index: beatIndex, clip_id: clip.id,
+          event_type: "technical_reject",
+          payload: { motion, clarity, artifacts, style, overall, flags: scores.flags },
+          created_by: userId,
+        });
+        rejected++;
+      } else {
+        // Only update status if not already selected by user
+        if (!clip.selected) {
+          await db.from("trailer_clips").update({ 
+            status: "approved_technical",
+          }).eq("id", clip.id);
+        }
+        await logEvent(db, {
+          project_id: projectId, blueprint_id: blueprintId,
+          beat_index: beatIndex, clip_id: clip.id,
+          event_type: "technical_pass",
+          payload: { motion, clarity, artifacts, style, overall },
+          created_by: userId,
+        });
+        passed++;
+      }
+
+      results.push({ clipId: clip.id, beatIndex, motion, clarity, artifacts, style, overall, rejected: shouldReject });
+      judged++;
+
+    } catch (err: any) {
+      console.error(`[tech_judge] Error judging clip ${clip.id}:`, err.message);
+    }
+  }
+
+  // Auto-pick best per beat: keep top 2, reject rest
+  const beatGroups: Record<number, any[]> = {};
+  for (const r of results) {
+    if (!r.rejected) {
+      if (!beatGroups[r.beatIndex]) beatGroups[r.beatIndex] = [];
+      beatGroups[r.beatIndex].push(r);
+    }
+  }
+
+  let autoRejectedOverflow = 0;
+  for (const [bi, group] of Object.entries(beatGroups)) {
+    // Sort by overall descending
+    group.sort((a: any, b: any) => b.overall - a.overall);
+    // Keep top 2, reject rest (unless manually selected)
+    for (let i = 2; i < group.length; i++) {
+      const clipId = group[i].clipId;
+      // Check if manually selected
+      const { data: clipRow } = await db.from("trailer_clips")
+        .select("selected").eq("id", clipId).single();
+      if (clipRow?.selected) continue;
+
+      await db.from("trailer_clips").update({
+        status: "rejected",
+        selected: false,
+      }).eq("id", clipId);
+
+      await logEvent(db, {
+        project_id: projectId, blueprint_id: blueprintId,
+        beat_index: parseInt(bi), clip_id: clipId,
+        event_type: "technical_overflow_reject",
+        payload: { reason: "exceeded_top_2", overall: group[i].overall },
+        created_by: userId,
+      });
+      autoRejectedOverflow++;
+    }
+  }
+
+  return json({
+    ok: true,
+    judged,
+    passed,
+    rejected,
+    autoRejectedOverflow,
+    results,
+  });
+}
+
 // ─── Main handler ───
 
 Deno.serve(async (req) => {
@@ -979,6 +1288,7 @@ Deno.serve(async (req) => {
       case "select_clip": return await handleSelectClip(db, body, userId);
       case "list_clips": return await handleListClips(db, body);
       case "list_jobs": return await handleListJobs(db, body);
+      case "run_technical_clip_judge": return await handleRunTechnicalClipJudge(db, body, userId);
       default: return json({ error: `Unknown action: ${action}` }, 400);
     }
   } catch (err: any) {

@@ -16723,6 +16723,81 @@ export type Database = {
           },
         ]
       }
+      trailer_clip_scores: {
+        Row: {
+          artifact_penalty: number | null
+          beat_index: number
+          blueprint_id: string
+          clip_id: string
+          created_at: string
+          created_by: string
+          creative_flags: Json | null
+          creative_score: number | null
+          id: string
+          judge_model: string | null
+          project_id: string
+          raw_response: Json | null
+          style_cohesion_score: number | null
+          technical_clarity_score: number | null
+          technical_flags: Json
+          technical_motion_score: number | null
+          technical_overall: number | null
+        }
+        Insert: {
+          artifact_penalty?: number | null
+          beat_index: number
+          blueprint_id: string
+          clip_id: string
+          created_at?: string
+          created_by?: string
+          creative_flags?: Json | null
+          creative_score?: number | null
+          id?: string
+          judge_model?: string | null
+          project_id: string
+          raw_response?: Json | null
+          style_cohesion_score?: number | null
+          technical_clarity_score?: number | null
+          technical_flags?: Json
+          technical_motion_score?: number | null
+          technical_overall?: number | null
+        }
+        Update: {
+          artifact_penalty?: number | null
+          beat_index?: number
+          blueprint_id?: string
+          clip_id?: string
+          created_at?: string
+          created_by?: string
+          creative_flags?: Json | null
+          creative_score?: number | null
+          id?: string
+          judge_model?: string | null
+          project_id?: string
+          raw_response?: Json | null
+          style_cohesion_score?: number | null
+          technical_clarity_score?: number | null
+          technical_flags?: Json
+          technical_motion_score?: number | null
+          technical_overall?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trailer_clip_scores_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "trailer_clip_scores_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       trailer_clips: {
         Row: {
           aspect_ratio: string

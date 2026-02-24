@@ -63,4 +63,7 @@ export const clipEngineApi = {
 
   resetFailed: (projectId: string, blueprintId: string) =>
     callClipEngine('reset_failed', { projectId, blueprintId }),
+
+  runTechnicalJudge: (projectId: string, blueprintId: string, clipRunId?: string) =>
+    callClipEngine('run_technical_clip_judge', { projectId, blueprintId, clipRunId }),
 };
