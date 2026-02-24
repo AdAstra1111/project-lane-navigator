@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { callLLMWithJsonRetry, MODELS } from "../_shared/llm.ts";
+import { callLLMWithJsonRetry, callLLMChunked, MODELS } from "../_shared/llm.ts";
 import { isObject, hasObject } from "../_shared/validators.ts";
 
 const corsHeaders = {
@@ -91,11 +91,15 @@ Use actual scene IDs from the input. Return ONLY valid JSON.`,
 
     console.log("[feature-blueprint-build] Building dependency links...");
     let links: any[] = [];
+    const LINK_BATCH_SIZE = 15; // scenes per batch
+
     try {
-      links = await callLLMWithJsonRetry({
-        apiKey,
-        model: MODELS.FAST,
-        system: `You are a screenplay dependency analyzer. Given scene summaries with their unit_json metadata, identify links between scenes.
+      if (sceneSummaries.length <= LINK_BATCH_SIZE) {
+        // Small enough for single call
+        links = await callLLMWithJsonRetry({
+          apiKey,
+          model: MODELS.FAST,
+          system: `You are a screenplay dependency analyzer. Given scene summaries with their unit_json metadata, identify links between scenes.
 Return a JSON array of links, each with:
 - "from_unit_id": string (scene id)
 - "to_unit_id": string (scene id)  
@@ -104,13 +108,41 @@ Return a JSON array of links, each with:
 - "note": string (brief explanation)
 
 Focus on the strongest, most important connections (max 50 links). Return ONLY a JSON array.`,
-        user: JSON.stringify(sceneSummaries),
-        temperature: 0.2,
-        maxTokens: 8000,
-      }, {
-        handler: "feature_blueprint_links",
-        validate: (d): d is any => Array.isArray(d),
-      });
+          user: JSON.stringify(sceneSummaries),
+          temperature: 0.2,
+          maxTokens: 8000,
+        }, {
+          handler: "feature_blueprint_links",
+          validate: (d): d is any => Array.isArray(d),
+        });
+      } else {
+        // Chunk by scene batches
+        links = await callLLMChunked({
+          llmOpts: {
+            apiKey,
+            model: MODELS.FAST,
+            system: `You are a screenplay dependency analyzer. Given scene summaries with their unit_json metadata, identify links between these scenes.
+Return a JSON array of links, each with:
+- "from_unit_id": string (scene id)
+- "to_unit_id": string (scene id)  
+- "link_type": one of "setup_payoff", "causality", "character_arc", "continuity", "thematic"
+- "strength": number 0-1
+- "note": string (brief explanation)
+
+Focus on the strongest connections in this batch. Return ONLY a JSON array.`,
+            temperature: 0.2,
+            maxTokens: 4000,
+          },
+          items: sceneSummaries,
+          batchSize: LINK_BATCH_SIZE,
+          maxBatches: 6,
+          handler: "feature_blueprint_links",
+          buildUserPrompt: (batch, idx, total) =>
+            `Scene batch ${idx + 1} of ${total}. Identify links among and between these scenes:\n${JSON.stringify(batch)}`,
+          validate: (d): d is any => Array.isArray(d),
+          extractItems: (d: any) => d,
+        });
+      }
     } catch {
       console.error("[feature-blueprint-build] Failed to parse links");
       links = [];

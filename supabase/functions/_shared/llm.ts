@@ -221,6 +221,76 @@ export async function callLLMWithJsonRetry<T = any>(
   return parseAiJson<T>(r2.content, { handler, model, validate });
 }
 
+// ─── Chunked LLM Calls (Input Batching) ───
+
+export interface ChunkedLLMOptions<TItem, TResult> {
+  /** Base LLM options (system prompt, model, etc). user field is ignored — built per batch. */
+  llmOpts: Omit<CallLLMOptions, "user">;
+  /** All input items to process. */
+  items: TItem[];
+  /** Max items per batch. */
+  batchSize: number;
+  /** Hard cap on number of batches (prevents runaway). Default 8. */
+  maxBatches?: number;
+  /** Build the user prompt for a batch of items. */
+  buildUserPrompt: (batch: TItem[], batchIndex: number, totalBatches: number) => string;
+  /** Validate each batch result. */
+  validate: (data: any) => data is TResult;
+  /** Extract the array of items from a batch result. */
+  extractItems: (result: TResult) => any[];
+  /** Handler name for telemetry. */
+  handler: string;
+}
+
+/**
+ * callLLMChunked — Splits input into batches, calls LLM per batch with retry,
+ * combines results. Prevents truncation by keeping each call small.
+ * Hard-capped at maxBatches (default 8).
+ */
+export async function callLLMChunked<TItem, TResult>(
+  opts: ChunkedLLMOptions<TItem, TResult>,
+): Promise<any[]> {
+  const { llmOpts, items, batchSize, handler, validate, extractItems, buildUserPrompt } = opts;
+  const maxBatches = opts.maxBatches ?? 8;
+
+  if (items.length === 0) return [];
+
+  const batches: TItem[][] = [];
+  for (let i = 0; i < items.length; i += batchSize) {
+    batches.push(items.slice(i, i + batchSize));
+  }
+
+  if (batches.length > maxBatches) {
+    throw new Error(`${handler}: input requires ${batches.length} batches but max is ${maxBatches}. Reduce input size.`);
+  }
+
+  const allItems: any[] = [];
+
+  for (let i = 0; i < batches.length; i++) {
+    const batch = batches[i];
+    const userPrompt = buildUserPrompt(batch, i, batches.length);
+
+    console.error(JSON.stringify({
+      type: "CHUNKED_LLM_BATCH",
+      handler,
+      model: llmOpts.model,
+      batch: i + 1,
+      totalBatches: batches.length,
+      batchItemCount: batch.length,
+    }));
+
+    const result = await callLLMWithJsonRetry<TResult>(
+      { ...llmOpts, user: userPrompt } as CallLLMOptions,
+      { handler: `${handler}_batch_${i + 1}`, validate },
+    );
+
+    const extracted = extractItems(result);
+    allItems.push(...extracted);
+  }
+
+  return allItems;
+}
+
 // ─── Core LLM Caller ───
 
 /**

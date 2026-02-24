@@ -3,7 +3,7 @@
  * Reads canonical visual_units, creates panel plans via LLM, generates image frames via Gemini.
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { callLLM, MODELS, callLLMWithJsonRetry } from "../_shared/llm.ts";
+import { callLLM, MODELS, callLLMWithJsonRetry, callLLMChunked } from "../_shared/llm.ts";
 
 const GATEWAY_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
 const IMAGE_MODEL = "google/gemini-2.5-flash-image";
@@ -159,10 +159,21 @@ async function handleCreateRunAndPanels(db: any, body: any, userId: string, apiK
   try {
     const unitDescriptions = selectedUnits.map((u: any) => {
       const p = u.canonical_payload || {};
-      return `unit_key: ${u.unit_key}\nlogline: ${p.logline || ""}\nvisual_intention: ${p.visual_intention || ""}\nlocation: ${p.location || ""}\ntime: ${p.time || ""}\ntone: ${(p.tone || []).join(", ")}\ncharacters: ${(p.characters_present || []).join(", ")}\nsuggested_shots: ${JSON.stringify(p.suggested_shots || [])}`;
-    }).join("\n\n");
+      return {
+        unit_key: u.unit_key,
+        logline: p.logline || "",
+        visual_intention: p.visual_intention || "",
+        location: p.location || "",
+        time: p.time || "",
+        tone: (p.tone || []).join(", "),
+        characters: (p.characters_present || []).join(", "),
+        suggested_shots: p.suggested_shots || [],
+      };
+    });
 
-    const systemPrompt = `You are a storyboard director. Given visual unit descriptions, produce a detailed panel plan for each unit.
+    const PANELS_BATCH_SIZE = 4; // 4 units per batch to stay well under token limits
+
+    const panelSystemPrompt = `You are a storyboard director. Given visual unit descriptions, produce a detailed panel plan for each unit.
 
 Return STRICT JSON only (no prose, no markdown) in this exact schema:
 {
@@ -196,18 +207,42 @@ Rules:
 - Include lighting, mood, and composition details in the prompt field
 - Return ONLY valid JSON`;
 
-    const parsed = await callLLMWithJsonRetry({
-      apiKey,
-      model: MODELS.BALANCED,
-      system: systemPrompt,
-      user: unitDescriptions.slice(0, 14000),
-      temperature: 0.4,
-      maxTokens: 10000,
-    }, {
-      handler: "generate_storyboard_panels",
-      validate: (d): d is any => Array.isArray(d) || (d && Array.isArray(d.panels_by_unit)),
-    });
-    const panelsByUnit: any[] = parsed.panels_by_unit || parsed;
+    let panelsByUnit: any[];
+
+    if (unitDescriptions.length <= PANELS_BATCH_SIZE) {
+      // Small enough for a single call
+      const parsed = await callLLMWithJsonRetry({
+        apiKey,
+        model: MODELS.BALANCED,
+        system: panelSystemPrompt,
+        user: JSON.stringify(unitDescriptions).slice(0, 14000),
+        temperature: 0.4,
+        maxTokens: 10000,
+      }, {
+        handler: "generate_storyboard_panels",
+        validate: (d): d is any => Array.isArray(d) || (d && Array.isArray(d.panels_by_unit)),
+      });
+      panelsByUnit = parsed.panels_by_unit || parsed;
+    } else {
+      // Chunk by input units
+      panelsByUnit = await callLLMChunked({
+        llmOpts: {
+          apiKey,
+          model: MODELS.BALANCED,
+          system: panelSystemPrompt,
+          temperature: 0.4,
+          maxTokens: 6000,
+        },
+        items: unitDescriptions,
+        batchSize: PANELS_BATCH_SIZE,
+        maxBatches: 8,
+        handler: "generate_storyboard_panels",
+        buildUserPrompt: (batch, idx, total) =>
+          `Batch ${idx + 1} of ${total}. Generate panels for these ${batch.length} units ONLY:\n${JSON.stringify(batch)}`,
+        validate: (d): d is any => Array.isArray(d) || (d && Array.isArray(d.panels_by_unit)),
+        extractItems: (d: any) => d.panels_by_unit || (Array.isArray(d) ? d : []),
+      });
+    }
 
     // Insert panels — created_by set explicitly
     const panelRows: any[] = [];
