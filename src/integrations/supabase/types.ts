@@ -17515,11 +17515,13 @@ export type Database = {
       trailer_rhythm_runs: {
         Row: {
           beat_grid_json: Json
+          beat_hit_intents_json: Json | null
           bpm: number
           created_at: string
           created_by: string
           density_curve_json: Json | null
           drop_timestamp_ms: number | null
+          hit_points_json: Json | null
           id: string
           phase_timings_json: Json
           project_id: string
@@ -17532,11 +17534,13 @@ export type Database = {
         }
         Insert: {
           beat_grid_json: Json
+          beat_hit_intents_json?: Json | null
           bpm: number
           created_at?: string
           created_by?: string
           density_curve_json?: Json | null
           drop_timestamp_ms?: number | null
+          hit_points_json?: Json | null
           id?: string
           phase_timings_json: Json
           project_id: string
@@ -17549,11 +17553,13 @@ export type Database = {
         }
         Update: {
           beat_grid_json?: Json
+          beat_hit_intents_json?: Json | null
           bpm?: number
           created_at?: string
           created_by?: string
           density_curve_json?: Json | null
           drop_timestamp_ms?: number | null
+          hit_points_json?: Json | null
           id?: string
           phase_timings_json?: Json
           project_id?: string
