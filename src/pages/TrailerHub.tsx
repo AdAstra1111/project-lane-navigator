@@ -70,6 +70,7 @@ const ALLOWED_TABS = new Set(['blueprints', 'clips', 'assemble']);
 
 export default function TrailerHub() {
   const { id: projectId } = useParams<{ id: string }>();
+  // ⚠ Do not use setSearchParams({ ... }) — it wipes drawer/drawerTab. Use updateSearchParams().
   const [searchParams, setSearchParams] = useSearchParams();
   const tabParam = searchParams.get('tab');
   const { data: bpListData } = useBlueprints(projectId);

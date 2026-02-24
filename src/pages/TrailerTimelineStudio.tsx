@@ -64,6 +64,7 @@ function formatTimecode(ms: number): string {
 
 export default function TrailerTimelineStudio() {
   const { id: projectId } = useParams<{ id: string }>();
+  // ⚠ Do not use setSearchParams({ ... }) — it wipes drawer/drawerTab. Use updateSearchParams().
   const [searchParams, setSearchParams] = useSearchParams();
   const blueprintId = searchParams.get('blueprintId') || undefined;
   const cutId = searchParams.get('cutId') || undefined;
