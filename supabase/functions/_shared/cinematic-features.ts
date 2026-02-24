@@ -3,7 +3,6 @@
  * Shared by trailer and storyboard engines. Pure math, no LLM.
  */
 import type { CinematicUnit } from "./cinematic-model.ts";
-import { CINEMATIC_THRESHOLDS } from "./cinematic-score.ts";
 
 export interface CinematicFeatures {
   unitCount: number;
@@ -115,13 +114,16 @@ export function detectPacingMismatch(
   density: SignalSummary,
   energy: SignalSummary,
   unitCount: number,
+  rawDensities?: number[],
+  rawEnergies?: number[],
 ): boolean {
   if (unitCount < 4) return false;
   const earlyDensityHigh = density.start > 0.7 && density.end < 0.5;
   const lateDensityLow = density.end < 0.35 && energy.end > 0.7;
-  const densityVar = variance(density.rollingDeltas);
-  const energyVar = variance(energy.rollingDeltas);
-  const samey = densityVar < 0.005 && energyVar < 0.005 && unitCount >= 4;
+  // "Samey pacing": use variance of raw values (not just deltas) to reduce false positives
+  const densityRawVar = rawDensities ? variance(rawDensities) : variance(density.rollingDeltas);
+  const energyRawVar = rawEnergies ? variance(rawEnergies) : variance(energy.rollingDeltas);
+  const samey = densityRawVar < 0.005 && energyRawVar < 0.005 && unitCount >= 4;
   return earlyDensityHigh || lateDensityLow || samey;
 }
 
@@ -133,7 +135,7 @@ export function variance(values: number[]): number {
 
 export function extractFeatures(units: CinematicUnit[], lateN?: number): CinematicFeatures {
   const n = units.length;
-  const effectiveLateN = lateN ?? CINEMATIC_THRESHOLDS.min_arc_peak_in_last_n;
+  const effectiveLateN = lateN ?? 2;
   const energies = units.map(u => u.energy);
   const tensions = units.map(u => u.tension);
   const densities = units.map(u => u.density);
@@ -171,7 +173,7 @@ export function extractFeatures(units: CinematicUnit[], lateN?: number): Cinemat
   coherenceScore -= clamp(directionReversalCount * 0.1, 0, 0.4);
   coherenceScore = clamp(coherenceScore, 0, 1);
 
-  const pacingMismatch = detectPacingMismatch(density, energy, n);
+  const pacingMismatch = detectPacingMismatch(density, energy, n, densities, energies);
 
   return {
     unitCount: n,

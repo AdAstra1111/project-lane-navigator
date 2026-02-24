@@ -4,7 +4,7 @@
  */
 import type { CinematicUnit, CinematicScore } from "./cinematic-model.ts";
 import type { AdapterResult } from "./cinematic-adapters.ts";
-import { scoreCinematic, type ScoringContext } from "./cinematic-score.ts";
+import { scoreCinematic, CINEMATIC_THRESHOLDS, type ScoringContext } from "./cinematic-score.ts";
 import { extractFeatures } from "./cinematic-features.ts";
 import { extractStyleAnchors } from "./cinematic-style-lock.ts";
 import {
@@ -30,19 +30,24 @@ export interface CinematicQualityOpts<T> {
   phase: string;
   model: string;
   rawOutput: T;
-  adapter: (raw: T) => CinematicUnit[] | AdapterResult;
+  adapter: (raw: T, expectedUnitCount?: number) => CinematicUnit[] | AdapterResult;
   buildRepairInstruction: (score: CinematicScore) => string;
   regenerateOnce: (repairInstruction: string) => Promise<T>;
   telemetry?: (eventName: string, payload: CinematicQualityGateEvent) => void;
   isStoryboard?: boolean;
+  expected_unit_count?: number;
 }
 
 function defaultTelemetry(eventName: string, payload: CinematicQualityGateEvent): void {
   console.error(JSON.stringify({ type: eventName, ...payload }));
 }
 
-function runAdapter<T>(adapter: (raw: T) => CinematicUnit[] | AdapterResult, raw: T): AdapterResult {
-  const result = adapter(raw);
+function runAdapter<T>(
+  adapter: (raw: T, expectedUnitCount?: number) => CinematicUnit[] | AdapterResult,
+  raw: T,
+  expectedUnitCount?: number,
+): AdapterResult {
+  const result = adapter.length >= 2 ? adapter(raw, expectedUnitCount) : adapter(raw);
   if (Array.isArray(result)) return { units: result, mode: "heuristic" };
   return result;
 }
@@ -85,7 +90,7 @@ function recordTelemetryAtFinal(
   handler: string, phase: string, model: string,
   adapterMode: string, units: CinematicUnit[], score: CinematicScore,
 ): void {
-  const features = extractFeatures(units);
+  const features = extractFeatures(units, CINEMATIC_THRESHOLDS.min_arc_peak_in_last_n);
   recordFeatureSummary(handler, phase, model, features);
   if (score.hard_failures.length > 0 || score.diagnostic_flags.length > 0) {
     recordDiagnosticFlags(handler, phase, model, score.hard_failures, score.diagnostic_flags);
@@ -98,7 +103,7 @@ export async function enforceCinematicQuality<T>(opts: CinematicQualityOpts<T>):
   const scoringCtx: ScoringContext = { isStoryboard: opts.isStoryboard };
 
   // Attempt 0
-  const adapterResult0 = runAdapter(adapter, opts.rawOutput);
+  const adapterResult0 = runAdapter(adapter, opts.rawOutput, opts.expected_unit_count);
   const { units: units0, mode: mode0 } = adapterResult0;
   const score0 = scoreCinematic(units0, scoringCtx);
   const evt0 = buildGateEvent(handler, phase, model, 0, score0, mode0, units0);
@@ -146,7 +151,7 @@ export async function enforceCinematicQuality<T>(opts: CinematicQualityOpts<T>):
 
   const repaired = await regenerateOnce(instruction);
 
-  const adapterResult1 = runAdapter(adapter, repaired);
+  const adapterResult1 = runAdapter(adapter, repaired, opts.expected_unit_count);
   const { units: units1, mode: mode1 } = adapterResult1;
 
   if (adapterResult1.fallbackReasons && adapterResult1.fallbackReasons.length > 0) {

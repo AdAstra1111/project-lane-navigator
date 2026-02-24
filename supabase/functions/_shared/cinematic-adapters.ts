@@ -123,17 +123,22 @@ function hasExplicitCik(raw: any): boolean {
 }
 
 /** Deterministic pad/trim to match expected count exactly. */
-export function enforceUnitCount(units: CinematicUnit[], expected: number): CinematicUnit[] {
+export function enforceUnitCount(units: CinematicUnit[], expected: number, expectedKeys?: string[]): CinematicUnit[] {
   if (units.length === expected) return units;
   if (units.length > expected) {
     // Trim: keep first `expected` units (drop tail — least informative)
     return units.slice(0, expected);
   }
-  // Pad: add conservative default units
+  // Pad: add conservative default units using expected keys if provided
   const padded = [...units];
+  const existingIds = new Set(units.map(u => u.id));
   while (padded.length < expected) {
     const idx = padded.length;
-    padded.push(makeDefaultUnit(`pad_${idx}`));
+    const id = expectedKeys && expectedKeys[idx] && !existingIds.has(expectedKeys[idx])
+      ? expectedKeys[idx]
+      : expectedKeys ? (expectedKeys.find(k => !existingIds.has(k)) ?? `pad_${idx}`) : `pad_${idx}`;
+    existingIds.add(id);
+    padded.push(makeDefaultUnit(id));
   }
   return padded;
 }
@@ -174,16 +179,27 @@ export function adaptTrailerOutput(raw: any): CinematicUnit[] {
 
 // ─── Storyboard adapters ───
 
-export function adaptStoryboardPanelsWithMode(raw: any, expectedUnitCount?: number): AdapterResult {
+export interface StoryboardAdapterOpts {
+  expectedUnitCount?: number;
+  expectedUnitKeys?: string[];
+}
+
+export function adaptStoryboardPanelsWithMode(raw: any, optsOrCount?: StoryboardAdapterOpts | number): AdapterResult {
+  const opts: StoryboardAdapterOpts = typeof optsOrCount === "number"
+    ? { expectedUnitCount: optsOrCount }
+    : (optsOrCount ?? {});
+  const expectedUnitCount = opts.expectedUnitCount;
+  const expectedUnitKeys = opts.expectedUnitKeys;
+
   if (hasExplicitCik(raw)) {
     const validationIssues = validateExplicitUnits(raw.cik.units, expectedUnitCount);
     if (validationIssues.length === 0) {
       let units = raw.cik.units.map(mapExplicitUnit);
-      if (expectedUnitCount != null) units = enforceUnitCount(units, expectedUnitCount);
+      if (expectedUnitCount != null) units = enforceUnitCount(units, expectedUnitCount, expectedUnitKeys);
       return { units, mode: "explicit" };
     }
     let units = raw.cik.units.map(mapExplicitUnit);
-    if (expectedUnitCount != null) units = enforceUnitCount(units, expectedUnitCount);
+    if (expectedUnitCount != null) units = enforceUnitCount(units, expectedUnitCount, expectedUnitKeys);
     return { units, mode: "heuristic", fallbackReasons: validationIssues };
   }
   const items: any[] = raw?.panels || raw?.items || (Array.isArray(raw) ? raw : []);
@@ -198,7 +214,7 @@ export function adaptStoryboardPanelsWithMode(raw: any, expectedUnitCount?: numb
       tonal_polarity: polarityFromText(text),
     };
   });
-  if (expectedUnitCount != null) units = enforceUnitCount(units, expectedUnitCount);
+  if (expectedUnitCount != null) units = enforceUnitCount(units, expectedUnitCount, expectedUnitKeys);
   return { units, mode: "heuristic" };
 }
 
