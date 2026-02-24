@@ -3,6 +3,7 @@
  */
 import { useState, useMemo, useCallback } from 'react';
 import { warningActionFor as sbWarningActionFor } from '@/lib/warningActions';
+import { dedupeWarningsStable } from '@/lib/warningUtils';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, Layers, Image, RefreshCw, Check, Loader2, Camera, ChevronDown, ChevronRight, Play, Square, AlertTriangle, FileDown, Archive, ExternalLink, Trash2, Film, Settings2, Copy, Link2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -93,7 +94,9 @@ export default function StoryboardPipeline() {
     });
   }
 
-  const sbWarningsPreview = sortSBWarnings(sbWarnings).slice(0, 6);
+  const sbWarningsDeduped = dedupeWarningsStable(sbWarnings);
+  const sbWarningsCount = sbWarningsDeduped.length;
+  const sbWarningsPreview = sortSBWarnings(sbWarningsDeduped).slice(0, 6);
 
   function sbWarningAnchorId(w: string): string | null {
     const l = w.toLowerCase();
@@ -375,7 +378,7 @@ export default function StoryboardPipeline() {
                           renderRun.status === 'complete' ? 'secondary' :
                           renderRun.status === 'failed' ? 'destructive' : 'outline'
                         } className="text-[10px]">{renderRun.status}</Badge>
-                        {renderRun.status === 'complete' && sbWarnings.length > 0 && (
+                        {renderRun.status === 'complete' && sbWarningsCount > 0 && (
                           <span className="text-[10px] text-muted-foreground italic">
                             (with warnings)
                           </span>
@@ -386,10 +389,10 @@ export default function StoryboardPipeline() {
                           {renderRun.running > 0 && <span className="text-primary ml-1">· {renderRun.running} in progress</span>}
                         </span>
                       </div>
-                      {sbWarnings.length > 0 && (
+                      {sbWarningsCount > 0 && (
                         <div className="flex items-start gap-2 text-xs">
                           <span className="text-muted-foreground">
-                            {sbWarnings.length} warning{sbWarnings.length > 1 ? 's' : ''}
+                            {sbWarningsCount} warning{sbWarningsCount > 1 ? 's' : ''}
                           </span>
                           <div className="flex flex-wrap gap-1">
                             {sbWarningsPreview.map((w, i) => {
