@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { callLLM, parseJsonSafe, MODELS } from "../_shared/llm.ts";
+import { callLLM, MODELS, callLLMWithJsonRetry } from "../_shared/llm.ts";
+import { isObject, hasArray } from "../_shared/validators.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -123,26 +124,32 @@ Return a JSON object with:
         { "fix_id": string, "label": string, "action": "rewrite_scene" | "patch_impacted" | "update_blueprint", "payload": {} }
       ]
     }
-  ],
-  "impacts": [{ "unit_id": string, "why": string }],
-  "updated_unit_json_preview": <updated unit_json reflecting proposed changes>
-}
+   ],
+   "impacts": [{ "unit_id": string, "why": string }],
+   "updated_unit_json_preview": <updated unit_json reflecting proposed changes>
+ }
 
-Focus on:
-- Setup/payoff breaks (tag mismatches)
-- Character inconsistencies vs arc/voice rules in blueprint
-- Continuity issues vs world state (knowledge, injuries, props)
-- Pacing/act-turn risks if scene function changes
-- New character introductions not in blueprint (flag as MUST)
-- Chronology violations
+ Focus on:
+ - Setup/payoff breaks (tag mismatches)
+ - Character inconsistencies vs arc/voice rules in blueprint
+ - Continuity issues vs world state (knowledge, injuries, props)
+ - Pacing/act-turn risks if scene function changes
+ - New character introductions not in blueprint (flag as MUST)
+ - Chronology violations
 
-Return ONLY valid JSON.`,
+ Return ONLY valid JSON.`;
+
+    const analysis = await callLLMWithJsonRetry({
+      apiKey,
+      model: MODELS.PRO,
+      system: systemPrompt,
       user: JSON.stringify(context),
       temperature: 0.3,
       maxTokens: 8000,
+    }, {
+      handler: "feature_scene_analyse",
+      validate: (d): d is any => isObject(d) && hasArray(d, "issues"),
     });
-
-    const analysis = await parseJsonSafe(result.content, apiKey);
 
     return new Response(JSON.stringify(analysis), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },

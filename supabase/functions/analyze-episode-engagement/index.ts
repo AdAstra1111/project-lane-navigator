@@ -10,7 +10,8 @@
 
 import "https://deno.land/std@0.168.0/dotenv/load.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { callLLM, MODELS, parseJsonSafe } from "../_shared/llm.ts";
+import { callLLM, MODELS, callLLMWithJsonRetry } from "../_shared/llm.ts";
+import { isObject, hasObject } from "../_shared/validators.ts";
 import { computeBeatTargets, verticalBeatMinimumServer, buildBeatGuidanceBlock } from "../_shared/verticalDramaBeats.ts";
 
 const corsHeaders = {
@@ -153,16 +154,17 @@ Return ONLY this JSON structure:
 Generate 8-15 tension curve points evenly distributed across the estimated runtime.
 Provide 2-5 recommendations ordered by severity (high first).`;
 
-    const result = await callLLM({
+    const metrics = await callLLMWithJsonRetry({
       apiKey,
       model: MODELS.FAST,
       system,
       user: `Analyze this ${mode}:\n\n${textToAnalyze.slice(0, 15000)}`,
       temperature: 0.2,
       maxTokens: 4000,
+    }, {
+      handler: "analyze_episode_engagement",
+      validate: (d): d is any => isObject(d) && (hasObject(d, "beat_density") || hasObject(d, "tension_curve")),
     });
-
-    const metrics = await parseJsonSafe(result.content, apiKey);
 
     // ── Rule-based validation overlay ──
     // Enforce hard rules on top of LLM scores

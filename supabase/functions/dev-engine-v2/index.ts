@@ -6768,12 +6768,15 @@ Use ONLY the scene_ids provided. Never invent IDs.`;
 
       let spineJson: any = {};
       try {
-        const { callLLM, parseJsonSafe, MODELS } = await import("../_shared/llm.ts");
-        const result = await callLLM({
+        const { callLLMWithJsonRetry, MODELS } = await import("../_shared/llm.ts");
+        const { isObject } = await import("../_shared/validators.ts");
+        spineJson = await callLLMWithJsonRetry({
           apiKey, model: MODELS.FAST, system: spineSystem, user: spineUser,
           temperature: 0.2, maxTokens: 4000,
+        }, {
+          handler: "build_project_spine",
+          validate: (d): d is any => isObject(d),
         });
-        spineJson = await parseJsonSafe(result.content, apiKey);
       } catch (e: any) {
         console.error("Spine LLM failed, using empty spine:", e.message);
         spineJson = { logline: '', central_question: '', act_turning_points: [], main_arcs: [], open_threads: [], setups_payoffs: [], tone: '', genre: '' };
@@ -6964,13 +6967,15 @@ CANON FACTS: ${JSON.stringify(canonFacts || []).slice(0, 4000)}`;
 
       let options: any[] = [];
       try {
-        const { callLLM, parseJsonSafe, MODELS } = await import("../_shared/llm.ts");
-        const result = await callLLM({
+        const { callLLMWithJsonRetry, MODELS } = await import("../_shared/llm.ts");
+        const result = await callLLMWithJsonRetry({
           apiKey, model: MODELS.FAST, system: repairSystem, user: repairUser,
           temperature: 0.4, maxTokens: 6000,
+        }, {
+          handler: "narrative_repair_options",
+          validate: (d): d is any => Array.isArray(d) || (typeof d === "object" && d !== null),
         });
-        options = await parseJsonSafe(result.content, apiKey);
-        if (!Array.isArray(options)) options = [options];
+        options = Array.isArray(result) ? result : [result];
       } catch (e: any) {
         console.error("Repair LLM failed:", e.message);
         options = [];
@@ -7393,13 +7398,15 @@ Rules:
         const cohUser = `SCENE MAP:\n${JSON.stringify(sceneMapCompact).slice(0, 10000)}\n\nCANON FACTS:\n${JSON.stringify(canonFacts || []).slice(0, 3000)}\n\nSPINE:\n${JSON.stringify(currentSpine?.spine || {}).slice(0, 2000)}\n\nREFERENCE DOCUMENTS:\n${docsContext.slice(0, 15000)}`;
 
         try {
-          const { callLLM, parseJsonSafe, MODELS } = await import("../_shared/llm.ts");
-          const result = await callLLM({
+          const { callLLMWithJsonRetry, MODELS } = await import("../_shared/llm.ts");
+          const result = await callLLMWithJsonRetry({
             apiKey, model: MODELS.FAST, system: cohSystem, user: cohUser,
             temperature: 0.2, maxTokens: 6000,
+          }, {
+            handler: "coherence_check_llm",
+            validate: (d): d is any => Array.isArray(d),
           });
-          llmFindings = await parseJsonSafe(result.content, apiKey);
-          if (!Array.isArray(llmFindings)) llmFindings = [llmFindings];
+          llmFindings = result;
         } catch (e: any) {
           console.error("Coherence LLM failed:", e.message);
           llmFindings = [];
