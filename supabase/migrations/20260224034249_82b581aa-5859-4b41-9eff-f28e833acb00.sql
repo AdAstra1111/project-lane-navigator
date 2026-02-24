@@ -1,0 +1,1 @@
+UPDATE trailer_script_runs SET status = 'error' WHERE project_id = '6a81dd2b-1b38-471e-bdd5-516d6c7e5b7c' AND status = 'running';

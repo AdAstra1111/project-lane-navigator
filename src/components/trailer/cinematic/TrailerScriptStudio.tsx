@@ -197,7 +197,7 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
   const [sfxEmphasis, setSfxEmphasis] = useState('medium');
 
   // New fields
-  const [strictCanonMode, setStrictCanonMode] = useState<'strict' | 'balanced'>('strict');
+  const [strictCanonMode, setStrictCanonMode] = useState<'strict' | 'balanced'>('balanced');
   const [targetLengthSeconds, setTargetLengthSeconds] = useState<string>('');
   const [referenceNotes, setReferenceNotes] = useState('');
   const [avoidNotes, setAvoidNotes] = useState('');
