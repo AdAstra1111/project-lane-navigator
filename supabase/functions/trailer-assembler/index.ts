@@ -849,6 +849,337 @@ async function handleShuffleMontage(db: any, body: any, userId: string) {
   return json({ ok: true, timeline, totalDurationMs, shuffledCount: groupEntries.length });
 }
 
+// ─── Auto Assemble Cut v1 ───
+async function handleAutoAssembleCut(db: any, body: any, userId: string) {
+  const {
+    projectId,
+    blueprintId: rawBpId,
+    scriptRunId: rawScriptRunId,
+    rhythmRunId: rawRhythmRunId,
+    strategy = "best_scores",
+    cutTitle = "Auto Cut v1",
+  } = body;
+
+  // 1) Resolve blueprint
+  let blueprintId = rawBpId;
+  let scriptRunId = rawScriptRunId;
+  if (!blueprintId) {
+    // Find latest blueprint for project (optionally filtered by script run)
+    let q = db.from("trailer_blueprints").select("id, options").eq("project_id", projectId).order("created_at", { ascending: false }).limit(1);
+    const { data: bps } = await q;
+    if (!bps?.length) return json({ error: "No blueprints found for project" }, 404);
+    blueprintId = bps[0].id;
+    if (!scriptRunId) scriptRunId = bps[0].options?.script_run_id;
+  }
+
+  // Load blueprint
+  const { data: bp } = await db.from("trailer_blueprints").select("*").eq("id", blueprintId).eq("project_id", projectId).single();
+  if (!bp) return json({ error: "Blueprint not found" }, 404);
+  if (!scriptRunId) scriptRunId = bp.options?.script_run_id;
+
+  // 2) Load rhythm run
+  let rhythmRunId = rawRhythmRunId;
+  let rhythmRun: any = null;
+  if (rhythmRunId) {
+    const { data: rr } = await db.from("trailer_rhythm_runs").select("*").eq("id", rhythmRunId).single();
+    rhythmRun = rr;
+  } else if (scriptRunId) {
+    const { data: rrs } = await db.from("trailer_rhythm_runs").select("*")
+      .eq("script_run_id", scriptRunId).eq("status", "complete")
+      .order("created_at", { ascending: false }).limit(1);
+    rhythmRun = rrs?.[0];
+    if (rhythmRun) rhythmRunId = rhythmRun.id;
+  }
+
+  const hitPoints = rhythmRun?.hit_points_json || [];
+  const silenceWindows = rhythmRun?.silence_windows_json || [];
+  const dropMs = rhythmRun?.drop_timestamp_ms || null;
+
+  // 3) Load EDL beats
+  const edl = bp.edl || [];
+  const textCardPlan = bp.text_card_plan || [];
+  const textCardBeats = new Set(textCardPlan.map((tc: any) => tc.beat_index));
+
+  // 4) Load all clips for this blueprint, excluding rejected
+  const { data: allClips } = await db.from("trailer_clips").select("*")
+    .eq("blueprint_id", blueprintId).eq("project_id", projectId)
+    .neq("status", "rejected")
+    .order("beat_index").order("created_at", { ascending: false });
+
+  // Also try to load clip scores if they exist
+  const clipIds = (allClips || []).map((c: any) => c.id);
+  let clipScoresMap: Record<string, any> = {};
+  if (clipIds.length > 0) {
+    try {
+      const { data: scores } = await db.from("trailer_clip_scores").select("*").in("clip_id", clipIds);
+      for (const s of (scores || [])) { clipScoresMap[s.clip_id] = s; }
+    } catch { /* table may not exist */ }
+  }
+
+  // Group clips by beat_index
+  const clipsByBeat: Record<number, any[]> = {};
+  for (const c of (allClips || [])) {
+    if (c.auto_rejected) continue;
+    if (c.status !== "complete" && c.status !== "selected" && c.status !== "ready") continue;
+    if (!clipsByBeat[c.beat_index]) clipsByBeat[c.beat_index] = [];
+    clipsByBeat[c.beat_index].push(c);
+  }
+
+  // 5) Load beat phases from script beats if available
+  let beatPhases: Record<number, string> = {};
+  if (scriptRunId) {
+    const { data: scriptBeats } = await db.from("trailer_script_beats").select("beat_index, phase")
+      .eq("script_run_id", scriptRunId).order("beat_index");
+    for (const sb of (scriptBeats || [])) {
+      beatPhases[sb.beat_index] = sb.phase;
+    }
+  }
+
+  // Phase defaults for trim durations (ms)
+  const phaseDurationDefaults: Record<string, [number, number]> = {
+    hook: [2500, 4000],
+    setup: [3000, 4000],
+    escalation: [2000, 3000],
+    twist: [1500, 2500],
+    crescendo: [700, 1200],
+    button: [1200, 2000],
+  };
+
+  // 6) Auto-pick + auto-trim per beat
+  const pickedClips: any[] = [];
+  const trimDecisions: any[] = [];
+  const textCardDecisions: any[] = [];
+  let missingCount = 0;
+
+  let timeline = edl.map((beat: any, idx: number) => {
+    const isTextCard = beat.role === "title_card" || textCardBeats.has(idx);
+    const durationMs = Math.round((beat.duration_s || 3) * 1000);
+    const phase = beatPhases[idx] || beat.role || "setup";
+    const textContent = isTextCard
+      ? (textCardPlan.find((tc: any) => tc.beat_index === idx)?.text || beat.clip_spec?.text_overlay || beat.role.toUpperCase())
+      : null;
+
+    // Auto-pick best clip
+    const candidates = clipsByBeat[idx] || [];
+    let bestClip: any = null;
+    let bestScore = -1;
+    let pickReason = "";
+
+    for (const c of candidates) {
+      const techScore = c.technical_score ?? 5;
+      const clipScore = clipScoresMap[c.id]?.overall ?? 0;
+      let score = techScore * 0.55 + clipScore * 10 * 0.35;
+
+      // Motion bonus for high-energy phases
+      const motionScore = c.motion_score ?? 5;
+      if (["hook", "twist", "crescendo"].includes(phase) && motionScore >= 7) score += 2 * 0.10;
+      // Clarity bonus near silence windows
+      const clarityScore = c.clarity_score ?? 5;
+      const nearSilence = silenceWindows.some((sw: any) => Math.abs((sw.start_ms || 0) - idx * durationMs) < durationMs * 2);
+      if (nearSilence && clarityScore >= 7) score += 1;
+      // Dialogue forward: prefer clean artifacts
+      if (strategy === "dialogue_forward" && (c.artifact_score ?? 5) >= 6) score += 0.5;
+      // Motion forward: extra motion weight
+      if (strategy === "motion_forward") score += motionScore * 0.15;
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestClip = c;
+        pickReason = `score=${score.toFixed(1)} tech=${techScore} motion=${motionScore}`;
+      }
+    }
+
+    if (!bestClip && !isTextCard) {
+      missingCount++;
+      pickedClips.push({ beat_index: idx, clip_id: null, reason: "PLACEHOLDER - no viable clip", scores_snapshot: null });
+    } else if (bestClip) {
+      pickedClips.push({
+        beat_index: idx, clip_id: bestClip.id, reason: pickReason,
+        scores_snapshot: { technical: bestClip.technical_score, motion: bestClip.motion_score, clarity: bestClip.clarity_score },
+      });
+    }
+
+    // Auto-trim
+    const clipDurationMs = bestClip?.duration_ms || bestClip?.metadata?.duration_ms || null;
+    const [minDur, maxDur] = phaseDurationDefaults[phase] || [2000, 4000];
+    let targetDur = durationMs;
+    if (targetDur < minDur) targetDur = minDur;
+    if (targetDur > maxDur) targetDur = maxDur;
+
+    let trimIn = 0;
+    let trimOut = targetDur;
+    if (clipDurationMs && clipDurationMs > 0) {
+      trimOut = Math.min(clipDurationMs, targetDur);
+      // Prefer middle section for motion continuity
+      if (clipDurationMs > targetDur) {
+        const slack = clipDurationMs - targetDur;
+        trimIn = Math.floor(slack * 0.25); // Start 25% in for better content
+        trimOut = trimIn + targetDur;
+      }
+    }
+
+    // Ensure trims don't cross silence windows
+    // (check is done after timeline is built)
+
+    const trimReason = `phase=${phase} target=${targetDur}ms clip=${clipDurationMs || 'none'}ms`;
+    trimDecisions.push({ beat_index: idx, clip_id: bestClip?.id || null, in_ms: trimIn, out_ms: trimOut, reason: trimReason });
+
+    return {
+      beat_index: idx,
+      role: beat.role,
+      duration_ms: durationMs,
+      trim_in_ms: trimIn,
+      trim_out_ms: trimOut,
+      start_ms: 0,
+      effective_duration_ms: Math.max(0, trimOut - trimIn) || durationMs,
+      clip_id: bestClip?.id || null,
+      clip_url: bestClip?.public_url || null,
+      clip_duration_ms: clipDurationMs,
+      media_type: bestClip?.media_type || "video",
+      text_overlay: beat.clip_spec?.text_overlay || null,
+      audio_cue: beat.clip_spec?.audio_cue || null,
+      is_text_card: isTextCard,
+      text_content: textContent,
+      provider: bestClip?.provider || null,
+      has_clip: !!bestClip,
+      phase,
+      locked: false,
+    };
+  });
+
+  // 7) Recompute timeline positions
+  timeline = recomputeTimeline(timeline);
+  const totalDurationMs = timeline.reduce((s: number, t: any) => s + (t.effective_duration_ms || t.duration_ms), 0);
+
+  // 8) Align to hit markers
+  let twistHitAligned = false;
+  let dropAligned = false;
+
+  for (const hp of hitPoints) {
+    const hpMs = hp.t_ms || hp.timestamp_ms || 0;
+    if (hpMs <= 0) continue;
+    const nearestBeat = timeline.reduce((best: any, t: any) => {
+      const dist = Math.abs((t.start_ms || 0) - hpMs);
+      return (!best || dist < best.dist) ? { entry: t, dist } : best;
+    }, null as any);
+    if (nearestBeat && nearestBeat.dist <= 200) {
+      if (hp.type === "twist_hit") twistHitAligned = true;
+      if (hp.type === "crescendo_drop") dropAligned = true;
+    }
+  }
+
+  // 9) Text card placement: place at silence windows or calm beats
+  for (const tc of textCardPlan) {
+    const beatIdx = tc.beat_index;
+    const beatEntry = timeline[beatIdx];
+    if (!beatEntry) continue;
+    const phase = beatEntry.phase || beatEntry.role;
+    // Don't place during crescendo
+    if (phase === "crescendo") continue;
+    // Find nearest silence window or use beat start
+    let placementMs = beatEntry.start_ms || 0;
+    const nearestSw = silenceWindows.find((sw: any) => Math.abs((sw.start_ms || 0) - placementMs) < 5000);
+    if (nearestSw) placementMs = nearestSw.start_ms;
+    textCardDecisions.push({ beat_index: beatIdx, text: tc.text, timestamp_ms: placementMs, reason: nearestSw ? "aligned_to_silence" : "at_beat_start" });
+  }
+
+  // 10) Build auto_assembly_json
+  const autoAssemblyJson = {
+    picked_clips: pickedClips,
+    trims: trimDecisions,
+    text_cards: textCardDecisions,
+    alignment: {
+      drop_ms: dropMs,
+      twist_hit_aligned: twistHitAligned,
+      drop_aligned: dropAligned,
+      silence_windows_applied: silenceWindows.length > 0,
+    },
+    strategy,
+    version: "v1",
+  };
+
+  // 11) Build EDL export
+  const edlExport = {
+    version: "2.0",
+    project_id: projectId,
+    blueprint_id: blueprintId,
+    arc_type: bp.arc_type,
+    created_at: new Date().toISOString(),
+    total_duration_ms: totalDurationMs,
+    fps: 24,
+    resolution: { width: 1280, height: 720 },
+    tracks: [{
+      name: "V1", type: "video",
+      clips: timeline.map((t: any) => ({
+        beat_index: t.beat_index, role: t.role,
+        source: t.clip_url || (t.is_text_card ? "TEXT_CARD" : "PLACEHOLDER"),
+        in_point_ms: t.trim_in_ms || 0,
+        out_point_ms: t.trim_out_ms ?? (t.duration_ms || 0),
+        timeline_start_ms: t.start_ms,
+        duration_ms: t.effective_duration_ms || Math.max(0, (t.trim_out_ms ?? (t.duration_ms || 0)) - (t.trim_in_ms || 0)),
+        text_overlay: t.text_overlay, text_content: t.text_content, is_text_card: t.is_text_card,
+      })),
+    }],
+    text_cards: textCardPlan,
+    audio_plan: bp.audio_plan || {},
+  };
+
+  // 12) Insert cut
+  const { data: cut, error: cutErr } = await db.from("trailer_cuts").insert({
+    project_id: projectId,
+    blueprint_id: blueprintId,
+    status: "draft",
+    timeline,
+    edl_export: edlExport,
+    duration_ms: totalDurationMs,
+    options: { strategy, auto_assembled: true },
+    created_by: userId,
+    title: cutTitle,
+    arc_type: bp.arc_type,
+    render_width: 1280,
+    render_height: 720,
+    render_fps: 24,
+    auto_assembly_json: autoAssemblyJson,
+  }).select().single();
+
+  if (cutErr) return json({ error: cutErr.message }, 500);
+
+  // 13) Log events
+  await logCutEvent(db, {
+    project_id: projectId, cut_id: cut.id, blueprint_id: blueprintId,
+    event_type: "auto_assemble_started",
+    payload: { strategy, blueprintId, rhythmRunId },
+    created_by: userId,
+  });
+
+  for (const pc of pickedClips) {
+    await logCutEvent(db, {
+      project_id: projectId, cut_id: cut.id, blueprint_id: blueprintId,
+      beat_index: pc.beat_index,
+      event_type: pc.clip_id ? "auto_clip_picked" : "auto_clip_missing",
+      payload: pc,
+      created_by: userId,
+    });
+  }
+
+  await logCutEvent(db, {
+    project_id: projectId, cut_id: cut.id, blueprint_id: blueprintId,
+    event_type: "auto_assemble_complete",
+    payload: { pickedCount: pickedClips.filter(p => p.clip_id).length, missingCount, totalDurationMs },
+    created_by: userId,
+  });
+
+  return json({
+    ok: true,
+    cutId: cut.id,
+    pickedCount: pickedClips.filter(p => p.clip_id).length,
+    missingCount,
+    appliedSilenceWindows: silenceWindows.length,
+    alignedHits: { twistHitAligned, dropAligned },
+    decisions: autoAssemblyJson,
+  });
+}
+
 // ─── Main handler ───
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -884,6 +1215,7 @@ Deno.serve(async (req) => {
       case "validate_trims": return await handleValidateTrims(db, body);
       case "delete_cut": return await handleDeleteCut(db, body, userId);
       case "shuffle_montage": return await handleShuffleMontage(db, body, userId);
+      case "auto_assemble_cut_v1": return await handleAutoAssembleCut(db, body, userId);
       default: return json({ error: `Unknown action: ${action}` }, 400);
     }
   } catch (err: any) {

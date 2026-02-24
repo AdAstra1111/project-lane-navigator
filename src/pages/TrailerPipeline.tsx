@@ -4,7 +4,7 @@
  */
 import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Film, Sparkles, Music, Camera, Archive, Clapperboard } from 'lucide-react';
+import { ArrowLeft, Film, Sparkles, Music, Camera, Archive, Clapperboard, Wand2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -12,6 +12,7 @@ import { TrailerScriptStudio } from '@/components/trailer/cinematic/TrailerScrip
 import { RhythmGridViewer } from '@/components/trailer/cinematic/RhythmGridViewer';
 import { RhythmTimelineOverlay } from '@/components/trailer/cinematic/RhythmTimelineOverlay';
 import { ShotDesignViewer } from '@/components/trailer/cinematic/ShotDesignViewer';
+import { AutoAssemblyPanel } from '@/components/trailer/cinematic/AutoAssemblyPanel';
 import { LegacyBlueprintTab } from '@/components/trailer/cinematic/LegacyBlueprintTab';
 import { useBlueprints } from '@/lib/trailerPipeline/useTrailerPipeline';
 import { useScriptRuns } from '@/lib/trailerPipeline/cinematicHooks';
@@ -118,6 +119,9 @@ export default function TrailerPipelinePage() {
             <TabsTrigger value="shots" className="text-xs gap-1.5">
               <Camera className="h-3.5 w-3.5" /> Shot Design
             </TabsTrigger>
+            <TabsTrigger value="assembly" className="text-xs gap-1.5">
+              <Wand2 className="h-3.5 w-3.5" /> Auto Assembly
+            </TabsTrigger>
             {hasLegacyBlueprints && (
               <TabsTrigger value="legacy" className="text-xs gap-1.5">
                 <Archive className="h-3.5 w-3.5" /> Legacy (Blueprint v1)
@@ -138,6 +142,13 @@ export default function TrailerPipelinePage() {
 
           <TabsContent value="shots">
             <ShotDesignViewer projectId={projectId!} scriptRunId={selectedScriptRunId} />
+          </TabsContent>
+
+          <TabsContent value="assembly">
+            <AutoAssemblyPanel
+              projectId={projectId!}
+              scriptRunId={selectedScriptRunId}
+            />
           </TabsContent>
 
           {hasLegacyBlueprints && (

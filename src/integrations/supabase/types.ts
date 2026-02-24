@@ -17001,6 +17001,7 @@ export type Database = {
       trailer_cuts: {
         Row: {
           arc_type: string | null
+          auto_assembly_json: Json | null
           blueprint_id: string
           created_at: string
           created_by: string
@@ -17025,6 +17026,7 @@ export type Database = {
         }
         Insert: {
           arc_type?: string | null
+          auto_assembly_json?: Json | null
           blueprint_id: string
           created_at?: string
           created_by: string
@@ -17049,6 +17051,7 @@ export type Database = {
         }
         Update: {
           arc_type?: string | null
+          auto_assembly_json?: Json | null
           blueprint_id?: string
           created_at?: string
           created_by?: string

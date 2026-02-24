@@ -84,4 +84,8 @@ export const assemblerApi = {
     callFn('trailer-assembler', 'delete_cut', { projectId, cutId }),
   shuffleMontage: (projectId: string, cutId: string, montageGroupId: string) =>
     callFn('trailer-assembler', 'shuffle_montage', { projectId, cutId, montageGroupId }),
+  autoAssembleCut: (projectId: string, params: {
+    blueprintId?: string; scriptRunId?: string; rhythmRunId?: string;
+    strategy?: string; cutTitle?: string;
+  }) => callFn('trailer-assembler', 'auto_assemble_cut_v1', { projectId, ...params }),
 };
