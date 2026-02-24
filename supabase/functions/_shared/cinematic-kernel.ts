@@ -5,6 +5,17 @@
 import type { CinematicUnit, CinematicScore } from "./cinematic-model.ts";
 import { scoreCinematic } from "./cinematic-score.ts";
 
+export interface CinematicQualityGateEvent {
+  handler: string;
+  phase: string;
+  model: string;
+  attempt: number;
+  pass: boolean;
+  score: number;
+  failures: string[];
+  metrics: Record<string, number>;
+}
+
 export interface CinematicQualityOpts<T> {
   handler: string;
   phase: string;
@@ -15,11 +26,24 @@ export interface CinematicQualityOpts<T> {
   /** Must return a new output of the same shape after one bounded regeneration. */
   regenerateOnce: (repairInstruction: string) => Promise<T>;
   /** Optional telemetry callback. Defaults to console.error JSON log. */
-  telemetry?: (event: Record<string, any>) => void;
+  telemetry?: (eventName: string, payload: CinematicQualityGateEvent) => void;
 }
 
-function defaultTelemetry(event: Record<string, any>) {
-  console.error(JSON.stringify(event));
+function defaultTelemetry(eventName: string, payload: CinematicQualityGateEvent): void {
+  console.error(JSON.stringify({ type: eventName, ...payload }));
+}
+
+function buildGateEvent(
+  handler: string, phase: string, model: string,
+  attempt: number, score: CinematicScore,
+): CinematicQualityGateEvent {
+  return {
+    handler, phase, model, attempt,
+    pass: score.pass,
+    score: score.score,
+    failures: score.failures,
+    metrics: score.metrics as unknown as Record<string, number>,
+  };
 }
 
 /**
@@ -40,15 +64,7 @@ export async function enforceCinematicQuality<T>(opts: CinematicQualityOpts<T>):
   const units0 = adapter(opts.rawOutput);
   const score0 = scoreCinematic(units0);
 
-  log({
-    type: "CINEMATIC_QUALITY_GATE",
-    handler, phase, model,
-    attempt: 0,
-    pass: score0.pass,
-    score: score0.score,
-    failures: score0.failures,
-    metrics: score0.metrics,
-  });
+  log("CINEMATIC_QUALITY_GATE", buildGateEvent(handler, phase, model, 0, score0));
 
   if (score0.pass) {
     return stripCik(opts.rawOutput);
@@ -61,15 +77,7 @@ export async function enforceCinematicQuality<T>(opts: CinematicQualityOpts<T>):
   const units1 = adapter(repaired);
   const score1 = scoreCinematic(units1);
 
-  log({
-    type: "CINEMATIC_QUALITY_GATE",
-    handler, phase, model,
-    attempt: 1,
-    pass: score1.pass,
-    score: score1.score,
-    failures: score1.failures,
-    metrics: score1.metrics,
-  });
+  log("CINEMATIC_QUALITY_GATE", buildGateEvent(handler, phase, model, 1, score1));
 
   if (score1.pass) {
     return stripCik(repaired);

@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
+import { updateSearchParams } from '@/lib/searchParams';
 import { Header } from '@/components/Header';
 import { PageTransition } from '@/components/PageTransition';
 import { useDevEngine } from '@/hooks/useDevEngine';
@@ -189,7 +190,7 @@ export default function DevelopmentEngine() {
       inputText: inputText.trim(),
       inputType,
     });
-    setSearchParams({ session: result.id });
+    updateSearchParams(setSearchParams, p => { p.set('session', result.id); });
     setTitle('');
     setInputText('');
   };
@@ -214,7 +215,7 @@ export default function DevelopmentEngine() {
               <p className="text-sm text-muted-foreground">Closed-loop creative–commercial convergence</p>
             </div>
             {activeSessionId && (
-              <Button variant="outline" size="sm" onClick={() => setSearchParams({})}>
+              <Button variant="outline" size="sm" onClick={() => updateSearchParams(setSearchParams, p => { p.delete('session'); })}>
                 <RotateCcw className="h-4 w-4 mr-1" /> New Session
               </Button>
             )}
@@ -283,7 +284,7 @@ export default function DevelopmentEngine() {
                       {sessions.slice(0, 10).map(s => (
                         <button
                           key={s.id}
-                          onClick={() => setSearchParams({ session: s.id })}
+                          onClick={() => updateSearchParams(setSearchParams, p => { p.set('session', s.id); })}
                           className="w-full text-left p-3 rounded-lg border border-border/50 hover:border-primary/50 transition-colors"
                         >
                           <p className="text-sm font-medium text-foreground truncate">{s.title}</p>
