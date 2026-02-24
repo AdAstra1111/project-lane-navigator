@@ -85,6 +85,7 @@ export function CanonPackManager({ projectId, canonPackId }: CanonPackManagerPro
           document_id: docId,
           role: 'supporting',
           sort_order: packItems.length,
+          include: true,
         });
       if (error) throw error;
     },
