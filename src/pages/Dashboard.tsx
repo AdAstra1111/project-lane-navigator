@@ -1,9 +1,8 @@
 import { useState, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Plus, Clapperboard, ArrowLeftRight, Kanban, Archive, FileDown, X, Building2, Zap, Search as SearchIcon } from 'lucide-react';
+import { Plus, Clapperboard, ArrowLeftRight, Kanban, Archive, FileDown, X, Building2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { FileUpload } from '@/components/FileUpload';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Header } from '@/components/Header';
 import { ProjectCard } from '@/components/project/ProjectCard';
@@ -13,6 +12,7 @@ import { OnboardingChecklist } from '@/components/OnboardingChecklist';
 import { DashboardAnalytics } from '@/components/dashboard/DashboardAnalytics';
 import { DailyBriefing } from '@/components/dashboard/DailyBriefing';
 import { DashboardActivityFeed } from '@/components/dashboard/DashboardActivityFeed';
+import { ScriptIngestCard } from '@/components/dashboard/ScriptIngestCard';
 import { DashboardCountdowns } from '@/components/dashboard/DashboardCountdowns';
 import { RoleDashboard } from '@/components/dashboard/RoleDashboard';
 import { SlateMomentum } from '@/components/dashboard/SlateMomentum';
@@ -35,7 +35,6 @@ export default function Dashboard() {
   const [roleView, setRoleView] = useState<string>('none');
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>('all');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [uploadFiles, setUploadFiles] = useState<File[]>([]);
 
   // Filter projects by selected company
   const filteredProjects = useMemo(() => {
@@ -237,26 +236,7 @@ export default function Dashboard() {
               <DailyBriefing projects={filteredProjects} projectScores={projectScores} />
               <OnboardingChecklist projectCount={filteredProjects.length} />
 
-              {/* Script Ingest + Review Shortcuts */}
-              <div className="grid gap-3 sm:grid-cols-2 mb-6">
-                <div className="rounded-xl border border-border/50 bg-card/40 p-5 space-y-3">
-                  <h3 className="text-sm font-medium text-foreground">Ingest Script / Docs</h3>
-                  <FileUpload files={uploadFiles} onFilesChange={setUploadFiles} />
-                </div>
-                <div className="rounded-xl border border-border/50 bg-card/40 p-5 flex flex-col justify-center items-center gap-4 text-center">
-                  <p className="text-sm text-muted-foreground">Analyse a script in seconds</p>
-                  <div className="flex gap-2">
-                    <Button size="sm" variant="outline" onClick={() => navigate('/quick-review')}>
-                      <Zap className="h-4 w-4 mr-1.5" />
-                      Quick Review
-                    </Button>
-                    <Button size="sm" onClick={() => navigate('/deep-review')}>
-                      <SearchIcon className="h-4 w-4 mr-1.5" />
-                      Deep Review
-                    </Button>
-                  </div>
-                </div>
-              </div>
+              <ScriptIngestCard projects={filteredProjects} />
               {roleView !== 'none' && (
                 <RoleDashboard projects={filteredProjects} role={roleView as any} />
               )}

@@ -45,7 +45,7 @@ export function ExplorerLayout({ breadcrumbs, children, title, subtitle, actions
           <PanelLeft className="h-4 w-4" />
         </Button>
 
-        <Link to="/companies" className="flex items-center gap-2 shrink-0 group mr-2">
+        <Link to="/dashboard" className="flex items-center gap-2 shrink-0 group mr-2">
           <img src={iffyLogo} alt="IFFY" className="h-7 w-7 rounded-md ring-1 ring-border/30 group-hover:ring-primary/40 transition-all" />
           <span className="font-display font-semibold text-sm tracking-tight text-foreground hidden sm:inline">IFFY</span>
         </Link>

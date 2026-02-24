@@ -1,10 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronDown, ArrowLeft, ArrowRight, Activity, BarChart3, ShieldAlert, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useNavigate, useLocation } from 'react-router-dom';
-
-const DEBUG_NAV = true;
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { ReviewEmptyState, ReviewDocPicker } from '@/components/review/ReviewEmptyState';
 
 /* ── Metric helper ── */
 interface Metric {
@@ -77,32 +76,46 @@ const sectionAnim = (delay: number) => ({
 
 const DeepReview = () => {
   const navigate = useNavigate();
-  const location = useLocation();
+  const [searchParams] = useSearchParams();
   const [open, setOpen] = useState<Record<number, boolean>>({ 3: true });
+
+  const projectId = searchParams.get('projectId');
+  const docId = searchParams.get('docId');
+  const [pickedProjectId, setPickedProjectId] = useState<string | null>(null);
 
   const toggle = (i: number) => setOpen((prev) => ({ ...prev, [i]: !prev[i] }));
 
-  // Debug: log route changes
-  useEffect(() => {
-    if (DEBUG_NAV) console.log('[DeepReview] location changed', location.pathname);
-  }, [location.pathname]);
+  // If no project context, show empty state
+  if (!projectId && !pickedProjectId) {
+    return (
+      <div className="space-y-0">
+        <ReviewEmptyState
+          reviewType="deep-review"
+          onSelectProject={(id) => setPickedProjectId(id)}
+          onSelectDoc={(pid, did) => navigate(`/deep-review?projectId=${pid}&docId=${did}`)}
+        />
+        {pickedProjectId && (
+          <div className="max-w-md mx-auto px-6 pb-16">
+            <ReviewDocPicker projectId={pickedProjectId} reviewType="deep-review" />
+          </div>
+        )}
+      </div>
+    );
+  }
 
-  // Debug: document-level capture click listener
-  useEffect(() => {
-    if (!DEBUG_NAV) return;
-    const handler = (e: MouseEvent) => {
-      const el = document.elementFromPoint(e.clientX, e.clientY);
-      console.log('[DeepReview][capture] click', {
-        target: e.target,
-        currentTarget: e.currentTarget,
-        defaultPrevented: e.defaultPrevented,
-        elementFromPoint: el,
-        elementClass: el?.className,
-      });
-    };
-    document.addEventListener('click', handler, true);
-    return () => document.removeEventListener('click', handler, true);
-  }, []);
+  if (pickedProjectId && !projectId) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center px-6">
+        <div className="w-full max-w-md space-y-6 text-center">
+          <span className="text-sm font-display font-semibold tracking-[0.25em] uppercase text-muted-foreground/50">IFFY</span>
+          <h1 className="font-display text-2xl font-medium tracking-tight text-foreground">Deep Review</h1>
+          <ReviewDocPicker projectId={pickedProjectId} reviewType="deep-review" />
+        </div>
+      </div>
+    );
+  }
+
+  const effectiveProjectId = projectId || pickedProjectId;
 
   return (
     <div className="min-h-screen bg-background">
@@ -139,7 +152,6 @@ const DeepReview = () => {
                     : 'border-border/50 bg-card/40'
                 }`}
               >
-                {/* Trigger */}
                 <button
                   onClick={() => toggle(i)}
                   className="w-full flex items-center justify-between gap-4 px-5 py-4 text-left"
@@ -168,7 +180,6 @@ const DeepReview = () => {
                   />
                 </button>
 
-                {/* Content */}
                 <AnimatePresence initial={false}>
                   {isOpen && (
                     <motion.div
@@ -179,7 +190,6 @@ const DeepReview = () => {
                       className="overflow-hidden"
                     >
                       <div className="px-5 pb-5 pt-1">
-                        {/* Metric cards */}
                         {section.metrics && (
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             {section.metrics.map((m) => (
@@ -198,7 +208,6 @@ const DeepReview = () => {
                           </div>
                         )}
 
-                        {/* Strategy pathways */}
                         {section.strategies && (
                           <div className="space-y-3">
                             {section.strategies.map((s, si) => (
@@ -239,7 +248,6 @@ const DeepReview = () => {
           className="text-center space-y-5"
         >
           <div className="rounded-2xl border border-primary/10 bg-primary/[0.02] py-10 px-6 space-y-5 relative overflow-hidden">
-            {/* Subtle ambient glow behind button area */}
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
               <div className="w-48 h-48 rounded-full bg-primary/[0.04] blur-3xl" />
             </div>
@@ -257,20 +265,8 @@ const DeepReview = () => {
               <Button
                 type="button"
                 size="lg"
-                className={`rounded-xl gap-2 text-sm font-medium px-6 shadow-[0_0_20px_-4px_hsl(var(--primary)/0.25)] ${DEBUG_NAV ? 'ring-2 ring-blue-500/50' : ''}`}
-                onClick={(e) => {
-                  if (DEBUG_NAV) {
-                    const el = document.elementFromPoint(e.clientX, e.clientY);
-                    console.log('[DeepReview] CTA click: studio mode', {
-                      target: e.target,
-                      currentTarget: e.currentTarget,
-                      elementFromPoint: el,
-                      elementClass: el?.className,
-                      from: location.pathname,
-                    });
-                  }
-                  navigate('/dashboard');
-                }}
+                className="rounded-xl gap-2 text-sm font-medium px-6 shadow-[0_0_20px_-4px_hsl(var(--primary)/0.25)]"
+                onClick={() => navigate('/dashboard')}
               >
                 Enter Studio Mode
                 <ArrowRight className="h-4 w-4" />
@@ -287,20 +283,8 @@ const DeepReview = () => {
         <motion.div {...sectionAnim(0.7)} className="text-center pb-8">
           <button
             type="button"
-            onClick={(e) => {
-              if (DEBUG_NAV) {
-                const el = document.elementFromPoint(e.clientX, e.clientY);
-                console.log('[DeepReview] CTA click: quick review', {
-                  target: e.target,
-                  currentTarget: e.currentTarget,
-                  elementFromPoint: el,
-                  elementClass: el?.className,
-                  from: location.pathname,
-                });
-              }
-              navigate('/quick-review');
-            }}
-            className={`inline-flex items-center gap-1.5 text-xs text-muted-foreground/50 hover:text-muted-foreground transition-colors ${DEBUG_NAV ? 'ring-2 ring-blue-500/50' : ''}`}
+            onClick={() => navigate(effectiveProjectId ? `/quick-review?projectId=${effectiveProjectId}` : '/quick-review')}
+            className="inline-flex items-center gap-1.5 text-xs text-muted-foreground/50 hover:text-muted-foreground transition-colors"
           >
             <ArrowLeft className="h-3.5 w-3.5" />
             Back to Quick Review
