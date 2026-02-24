@@ -25,6 +25,7 @@ const SHELL_UI = {
 } as const;
 
 const SHELL_FOCUS = 'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-border/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background';
+const SHELL_DISABLED = 'text-muted-foreground/50 cursor-not-allowed pointer-events-none';
 import { useProject } from '@/hooks/useProjects';
 import { useOperatingMode, type OperatingMode } from '@/hooks/useOperatingMode';
 import { usePipelineState } from '@/hooks/usePipelineState';
