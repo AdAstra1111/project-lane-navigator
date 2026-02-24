@@ -293,10 +293,11 @@ export default function ProjectDetail() {
   const handleExportDeliverablesCSV = () => { if (project) exportDeliverablesCSV(deliverables, project.title); };
   const handleExportCostsCSV = () => { if (project) exportCostsCSV(costEntries, project.title); };
 
+  // ProjectDetail is always rendered inside ProjectShell now (Week 2 refactor)
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-background">
-        <Header />
         <main className="container max-w-6xl py-10">
           <div className="animate-pulse space-y-6">
             <div className="h-4 w-24 bg-muted rounded" />
@@ -310,8 +311,7 @@ export default function ProjectDetail() {
 
   if (!project) {
     return (
-      <div className="min-h-screen bg-background">
-        <Header />
+      <div className="bg-background">
         <main className="container max-w-6xl py-10 text-center">
           <p className="text-muted-foreground">Project not found.</p>
           <Link to="/dashboard">
@@ -334,8 +334,7 @@ export default function ProjectDetail() {
   const heroImageUrl = (project as any).hero_image_url;
 
   return (
-    <div className="min-h-screen bg-background">
-      <Header />
+    <div className="bg-background">
 
       {/* Hero Image Banner */}
       {heroImageUrl && (
@@ -444,8 +443,7 @@ export default function ProjectDetail() {
             </div>
           </div>
 
-          {/* Sticky Summary Bar */}
-          <ProjectSummaryBar project={project} readiness={readiness} />
+          {/* Summary Bar removed — ProjectShell owns the top bar now */}
 
           {/* Quick-access buttons */}
           <div className="flex items-center gap-3 mt-4 mb-6">
