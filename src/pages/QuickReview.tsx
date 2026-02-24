@@ -2,8 +2,9 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronDown, ArrowRight, TrendingUp, DollarSign, Users, AlertTriangle, Shield } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { DeepReviewModal } from '@/components/review/DeepReviewModal';
+import { ReviewEmptyState, ReviewDocPicker } from '@/components/review/ReviewEmptyState';
 
 const PRIORITY_ACTIONS = [
   {
@@ -37,6 +38,44 @@ const QuickReview = () => {
   const [expanded, setExpanded] = useState<number | null>(null);
   const [deepOpen, setDeepOpen] = useState(false);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+
+  const projectId = searchParams.get('projectId');
+  const docId = searchParams.get('docId');
+  const [pickedProjectId, setPickedProjectId] = useState<string | null>(null);
+
+  // If no project context, show empty state
+  if (!projectId && !pickedProjectId) {
+    return (
+      <div className="space-y-0">
+        <ReviewEmptyState
+          reviewType="quick-review"
+          onSelectProject={(id) => setPickedProjectId(id)}
+          onSelectDoc={(pid, did) => navigate(`/quick-review?projectId=${pid}&docId=${did}`)}
+        />
+        {pickedProjectId && (
+          <div className="max-w-md mx-auto px-6 pb-16">
+            <ReviewDocPicker projectId={pickedProjectId} reviewType="quick-review" />
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // If project picked but no doc, show doc picker
+  if (pickedProjectId && !projectId) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center px-6">
+        <div className="w-full max-w-md space-y-6 text-center">
+          <span className="text-sm font-display font-semibold tracking-[0.25em] uppercase text-muted-foreground/50">IFFY</span>
+          <h1 className="font-display text-2xl font-medium tracking-tight text-foreground">Quick Review</h1>
+          <ReviewDocPicker projectId={pickedProjectId} reviewType="quick-review" />
+        </div>
+      </div>
+    );
+  }
+
+  const effectiveProjectId = projectId || pickedProjectId;
 
   return (
     <div className="min-h-screen bg-background">
@@ -215,7 +254,7 @@ const QuickReview = () => {
           <DeepReviewModal
             open={deepOpen}
             onOpenChange={setDeepOpen}
-            onStart={() => navigate('/deep-review')}
+            onStart={() => navigate(effectiveProjectId ? `/deep-review?projectId=${effectiveProjectId}` : '/deep-review')}
           />
         </motion.section>
       </div>
