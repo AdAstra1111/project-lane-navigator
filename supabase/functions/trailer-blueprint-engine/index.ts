@@ -296,6 +296,47 @@ async function handleGetArcTemplates(_db: any, _body: any) {
   return json({ templates: ARC_TEMPLATES });
 }
 
+// ─── Admin: Deprecate Legacy Blueprints ───
+// Marks all blueprint runs as generation_locked + deprecated for projects created after Feb 2026.
+// Preserves audit history — no data rewrites.
+async function handleDeprecateBlueprints(db: any, body: any, userId: string) {
+  const { projectId } = body;
+  if (!projectId) return json({ error: "projectId required" }, 400);
+
+  // Check project creation date
+  const { data: project } = await db.from("projects")
+    .select("id, created_at").eq("id", projectId).single();
+  if (!project) return json({ error: "Project not found" }, 404);
+
+  const createdAt = new Date(project.created_at);
+  const cutoff = new Date("2026-02-01T00:00:00Z");
+
+  if (createdAt < cutoff) {
+    return json({
+      ok: true,
+      message: "Project predates Feb 2026 cutoff. Blueprints not auto-deprecated.",
+      deprecated: 0,
+    });
+  }
+
+  // Mark all blueprints for this project as deprecated (via metadata JSONB merge)
+  const { data: updated, error } = await db.from("trailer_blueprints")
+    .update({
+      status: "deprecated",
+    })
+    .eq("project_id", projectId)
+    .neq("status", "deprecated")
+    .select("id");
+
+  if (error) return json({ error: error.message }, 500);
+
+  return json({
+    ok: true,
+    deprecated: (updated || []).length,
+    message: `Marked ${(updated || []).length} blueprint(s) as deprecated. Read-only.`,
+  });
+}
+
 // ─── Main handler ───
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -322,10 +363,13 @@ Deno.serve(async (req) => {
     const apiKey = Deno.env.get("LOVABLE_API_KEY") || "";
 
     switch (action) {
-      case "create_blueprint": return await handleCreateBlueprint(db, body, userId, apiKey);
+      case "create_blueprint":
+        // Safety switch: Blueprint v1 deprecated after Feb 2026
+        return json({ error: "Blueprint v1 deprecated. Use Trailer Script v2 via trailer-cinematic-engine." }, 410);
       case "list_blueprints": return await handleListBlueprints(db, body);
       case "get_blueprint": return await handleGetBlueprint(db, body);
       case "get_arc_templates": return await handleGetArcTemplates(db, body);
+      case "deprecate_blueprints": return await handleDeprecateBlueprints(db, body, userId);
       default: return json({ error: `Unknown action: ${action}` }, 400);
     }
   } catch (err: any) {

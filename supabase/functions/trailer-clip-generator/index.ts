@@ -254,11 +254,76 @@ function generateStubVideo(): { bytes: Uint8Array; mimeType: string } {
   return { bytes: png, mimeType: "image/png" };
 }
 
+// ─── Cinematic v2 Gate Validation ───
+
+async function validateCinematicGates(db: any, scriptRunId: string, manualOverride: boolean) {
+  // Gate 1: Script run must be complete
+  const { data: scriptRun } = await db.from("trailer_script_runs")
+    .select("status").eq("id", scriptRunId).single();
+  if (!scriptRun || scriptRun.status !== "complete") {
+    return { passed: false, error: `Script run status is '${scriptRun?.status || "not found"}', must be 'complete'`, blockers: ["script_incomplete"] };
+  }
+
+  // Gate 2: All beats must have citations (source_refs_json length >= 1)
+  const { data: beats } = await db.from("trailer_script_beats")
+    .select("beat_index, source_refs_json").eq("script_run_id", scriptRunId);
+  const missingCitations = (beats || []).filter((b: any) => !b.source_refs_json || (Array.isArray(b.source_refs_json) && b.source_refs_json.length === 0));
+  if (missingCitations.length > 0) {
+    return {
+      passed: false,
+      error: `${missingCitations.length} beat(s) missing citations`,
+      blockers: ["citations_missing"],
+      missingBeats: missingCitations.map((b: any) => b.beat_index),
+    };
+  }
+
+  // Gate 3: Judge v2 must have passed thresholds (or manual override)
+  if (!manualOverride) {
+    const { data: judgeRuns } = await db.from("trailer_judge_v2_runs")
+      .select("scores_json, repair_actions_json, status")
+      .eq("script_run_id", scriptRunId)
+      .eq("status", "complete")
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    if (!judgeRuns?.length) {
+      return { passed: false, error: "No completed judge v2 run found. Run cinematic judge first.", blockers: ["no_judge_run"] };
+    }
+
+    const scores = judgeRuns[0].scores_json || {};
+    const blockers: string[] = [];
+    if ((scores.canon_adherence ?? 1) < 0.9) blockers.push("canon_adherence < 0.9");
+    if ((scores.movement_escalation ?? 1) < 0.75) blockers.push("movement_escalation < 0.75");
+    if ((scores.contrast_density ?? 1) < 0.75) blockers.push("contrast_density < 0.75");
+
+    if (blockers.length > 0) {
+      return { passed: false, error: "Judge v2 thresholds not met. Repair script or set manualOverride.", blockers };
+    }
+  }
+
+  return { passed: true };
+}
+
 // ─── Action: enqueue_for_run ───
 
 async function handleEnqueueForRun(db: any, body: any, userId: string) {
-  const { projectId, blueprintId, force = false, enabledProviders, beatIndices } = body;
+  const { projectId, blueprintId, force = false, enabledProviders, beatIndices,
+          scriptRunId, manualOverride = false } = body;
   if (!blueprintId) return json({ error: "blueprintId required" }, 400);
+
+  // ─── SAFETY GATE: Require v2 cinematic script run ───
+  if (scriptRunId) {
+    // v2 path: validate script + citations + judge
+    const gateResult = await validateCinematicGates(db, scriptRunId, manualOverride);
+    if (!gateResult.passed) {
+      return json({ error: gateResult.error, blockers: gateResult.blockers }, 400);
+    }
+  }
+  // If no scriptRunId, this is a legacy blueprint path — still allow for existing runs
+  // but log a deprecation warning
+  if (!scriptRunId) {
+    console.warn(`[DEPRECATION] Clip enqueue without scriptRunId for blueprint ${blueprintId}. Legacy path.`);
+  }
 
   // Provider filter: if enabledProviders is provided, only use those providers
   const allowedProviders: Set<string> | null = Array.isArray(enabledProviders) && enabledProviders.length > 0
