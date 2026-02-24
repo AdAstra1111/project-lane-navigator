@@ -224,7 +224,7 @@ Rules:
       });
       panelsByUnit = parsed.panels_by_unit || parsed;
     } else {
-      // Chunk by input units
+      // Chunk by input units with deduplication + completeness
       panelsByUnit = await callLLMChunked({
         llmOpts: {
           apiKey,
@@ -241,7 +241,34 @@ Rules:
           `Batch ${idx + 1} of ${total}. Generate panels for these ${batch.length} units ONLY:\n${JSON.stringify(batch)}`,
         validate: (d): d is any => Array.isArray(d) || (d && Array.isArray(d.panels_by_unit)),
         extractItems: (d: any) => d.panels_by_unit || (Array.isArray(d) ? d : []),
+        getKey: (item: any) => item.unit_key || "",
+        dedupe: true,
       });
+    }
+
+    // ── Post-combine integrity: completeness, ordering, field validation ──
+    const requestedKeys = new Set(unitDescriptions.map((u: any) => u.unit_key));
+    const returnedKeys = new Set(panelsByUnit.map((u: any) => u.unit_key));
+    const missingKeys = [...requestedKeys].filter(k => !returnedKeys.has(k));
+    if (missingKeys.length > 0) {
+      throw new Error(`generate_storyboard_panels: missing panels for unit_key=${missingKeys.join(", ")}`);
+    }
+
+    // Reorder to match input order
+    const keyOrder = unitDescriptions.map((u: any) => u.unit_key);
+    const byKeyMap = new Map(panelsByUnit.map((u: any) => [u.unit_key, u]));
+    panelsByUnit = keyOrder.map((k: string) => byKeyMap.get(k)).filter(Boolean);
+
+    // Validate each entry has panels with required fields
+    for (const entry of panelsByUnit) {
+      if (!Array.isArray(entry.panels) || entry.panels.length === 0) {
+        throw new Error(`generate_storyboard_panels: unit_key=${entry.unit_key} has no panels`);
+      }
+      for (const p of entry.panels) {
+        if (p.panel_index == null || !p.prompt) {
+          throw new Error(`generate_storyboard_panels: unit_key=${entry.unit_key} panel missing panel_index or prompt`);
+        }
+      }
     }
 
     // Insert panels — created_by set explicitly
