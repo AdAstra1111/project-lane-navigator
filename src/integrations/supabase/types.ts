@@ -16811,6 +16811,9 @@ export type Database = {
           candidate_index: number
           clarity_score: number | null
           clip_run_id: string | null
+          continuity_scored_at: string | null
+          continuity_tags_json: Json | null
+          continuity_version: string | null
           created_at: string
           created_by: string
           duration_ms: number | null
@@ -16850,6 +16853,9 @@ export type Database = {
           candidate_index?: number
           clarity_score?: number | null
           clip_run_id?: string | null
+          continuity_scored_at?: string | null
+          continuity_tags_json?: Json | null
+          continuity_version?: string | null
           created_at?: string
           created_by: string
           duration_ms?: number | null
@@ -16889,6 +16895,9 @@ export type Database = {
           candidate_index?: number
           clarity_score?: number | null
           clip_run_id?: string | null
+          continuity_scored_at?: string | null
+          continuity_tags_json?: Json | null
+          continuity_version?: string | null
           created_at?: string
           created_by?: string
           duration_ms?: number | null
@@ -16950,6 +16959,191 @@ export type Database = {
           },
           {
             foreignKeyName: "trailer_clips_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      trailer_continuity_events: {
+        Row: {
+          continuity_run_id: string
+          created_at: string
+          created_by: string
+          event_type: string
+          id: string
+          payload: Json
+          project_id: string
+        }
+        Insert: {
+          continuity_run_id: string
+          created_at?: string
+          created_by: string
+          event_type: string
+          id?: string
+          payload?: Json
+          project_id: string
+        }
+        Update: {
+          continuity_run_id?: string
+          created_at?: string
+          created_by?: string
+          event_type?: string
+          id?: string
+          payload?: Json
+          project_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trailer_continuity_events_continuity_run_id_fkey"
+            columns: ["continuity_run_id"]
+            isOneToOne: false
+            referencedRelation: "trailer_continuity_runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trailer_continuity_events_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "trailer_continuity_events_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      trailer_continuity_runs: {
+        Row: {
+          blueprint_id: string | null
+          clip_run_id: string | null
+          created_at: string
+          created_by: string
+          error: string | null
+          id: string
+          method: string
+          project_id: string
+          settings_json: Json | null
+          status: string
+          summary_json: Json | null
+          trailer_cut_id: string
+        }
+        Insert: {
+          blueprint_id?: string | null
+          clip_run_id?: string | null
+          created_at?: string
+          created_by: string
+          error?: string | null
+          id?: string
+          method?: string
+          project_id: string
+          settings_json?: Json | null
+          status?: string
+          summary_json?: Json | null
+          trailer_cut_id: string
+        }
+        Update: {
+          blueprint_id?: string | null
+          clip_run_id?: string | null
+          created_at?: string
+          created_by?: string
+          error?: string | null
+          id?: string
+          method?: string
+          project_id?: string
+          settings_json?: Json | null
+          status?: string
+          summary_json?: Json | null
+          trailer_cut_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trailer_continuity_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "trailer_continuity_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      trailer_continuity_scores: {
+        Row: {
+          continuity_run_id: string
+          created_at: string
+          created_by: string
+          from_beat_index: number
+          from_clip_id: string | null
+          id: string
+          issues_json: Json | null
+          project_id: string
+          score: number
+          subscores_json: Json | null
+          suggestion_json: Json | null
+          to_beat_index: number
+          to_clip_id: string | null
+          trailer_cut_id: string
+        }
+        Insert: {
+          continuity_run_id: string
+          created_at?: string
+          created_by: string
+          from_beat_index: number
+          from_clip_id?: string | null
+          id?: string
+          issues_json?: Json | null
+          project_id: string
+          score?: number
+          subscores_json?: Json | null
+          suggestion_json?: Json | null
+          to_beat_index: number
+          to_clip_id?: string | null
+          trailer_cut_id: string
+        }
+        Update: {
+          continuity_run_id?: string
+          created_at?: string
+          created_by?: string
+          from_beat_index?: number
+          from_clip_id?: string | null
+          id?: string
+          issues_json?: Json | null
+          project_id?: string
+          score?: number
+          subscores_json?: Json | null
+          suggestion_json?: Json | null
+          to_beat_index?: number
+          to_clip_id?: string | null
+          trailer_cut_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trailer_continuity_scores_continuity_run_id_fkey"
+            columns: ["continuity_run_id"]
+            isOneToOne: false
+            referencedRelation: "trailer_continuity_runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trailer_continuity_scores_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "trailer_continuity_scores_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"
