@@ -201,7 +201,6 @@ function PipelineStateBar({ projectId }: { projectId: string }) {
               </TooltipTrigger>
               <TooltipContent side="top" className="text-[10px]">
                 {humanStage(stage)}
-                {approved ? ' · Approved' : exists ? ' · Complete' : ''}
               </TooltipContent>
             </Tooltip>
           );
