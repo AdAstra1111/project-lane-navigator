@@ -142,11 +142,19 @@ Focus on the strongest connections in this batch. Return ONLY a JSON array.`,
           validate: (d): d is any => Array.isArray(d),
           extractItems: (d: any) => d,
           getKey: (l: any) => `${l.from_unit_id}::${l.to_unit_id}::${l.link_type}`,
-          dedupe: true,
+          dedupe: "first",
           finalize: (allLinks: any[]) => {
+            // Drop invalid strength values with warning, clamp valid ones
+            const valid = allLinks.filter((l: any) => {
+              if (l.strength != null && (typeof l.strength !== "number" || l.strength < 0 || l.strength > 1)) {
+                console.warn(`[feature_blueprint_links] Dropping link with invalid strength=${l.strength}: ${l.from_unit_id}->${l.to_unit_id}`);
+                return false;
+              }
+              return true;
+            });
             // Cap at 50, keeping strongest
-            if (allLinks.length <= 50) return allLinks;
-            return allLinks
+            if (valid.length <= 50) return valid;
+            return valid
               .sort((a: any, b: any) => (b.strength || 0) - (a.strength || 0))
               .slice(0, 50);
           },
