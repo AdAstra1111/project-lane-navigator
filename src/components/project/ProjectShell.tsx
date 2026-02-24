@@ -1,23 +1,25 @@
 /**
  * ProjectShell — Unified project workspace frame.
- * Replaces Header on new /projects/:id/* workspace routes.
  * Provides: sticky ProjectBar, left icon-rail, main content, pipeline bar,
  * right inspector drawer (toggled with "\").
  */
 import { useState, useEffect, useCallback, type ReactNode } from 'react';
-import { useParams, useNavigate, useLocation, Link } from 'react-router-dom';
+import { useParams, useNavigate, useLocation, useSearchParams, Link } from 'react-router-dom';
 import {
   LayoutGrid, FileText, BookOpen, Image, Film, Briefcase,
   PanelRightOpen, PanelRightClose, ChevronLeft, Loader2,
+  CheckCircle2, AlertTriangle, ArrowRight,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useProject } from '@/hooks/useProjects';
 import { useOperatingMode, type OperatingMode } from '@/hooks/useOperatingMode';
+import { usePipelineState } from '@/hooks/usePipelineState';
 import { LaneBadge } from '@/components/LaneBadge';
 import type { MonetisationLane } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { AnalysisPanel } from '@/components/project/AnalysisPanel';
+import { VersionsPanel } from '@/components/project/VersionsPanel';
 
 /* ── Left-rail link definition ── */
 interface RailLink {
@@ -66,10 +68,14 @@ function OperatingModeToggle({ mode, onChange }: { mode: OperatingMode; onChange
 
 /* ── Right Inspector Drawer ── */
 const DRAWER_TABS = ['Analysis', 'Versions', 'AI'] as const;
+type DrawerTab = (typeof DRAWER_TABS)[number];
 
-function InspectorDrawer({ open, projectId }: { open: boolean; projectId: string }) {
-  const [tab, setTab] = useState<(typeof DRAWER_TABS)[number]>('Analysis');
-
+function InspectorDrawer({ open, projectId, activeTab, onTabChange }: {
+  open: boolean;
+  projectId: string;
+  activeTab: DrawerTab;
+  onTabChange: (t: DrawerTab) => void;
+}) {
   if (!open) return null;
 
   return (
@@ -78,10 +84,10 @@ function InspectorDrawer({ open, projectId }: { open: boolean; projectId: string
         {DRAWER_TABS.map((t) => (
           <button
             key={t}
-            onClick={() => setTab(t)}
+            onClick={() => onTabChange(t)}
             className={cn(
               'px-2.5 py-1 text-[11px] font-medium rounded-md transition-colors',
-              tab === t
+              activeTab === t
                 ? 'bg-muted text-foreground'
                 : 'text-muted-foreground hover:text-foreground',
             )}
@@ -91,13 +97,9 @@ function InspectorDrawer({ open, projectId }: { open: boolean; projectId: string
         ))}
       </div>
       <div className="flex-1 overflow-y-auto">
-        {tab === 'Analysis' && <AnalysisPanel projectId={projectId} mode="compact" />}
-        {tab === 'Versions' && (
-          <div className="flex items-center justify-center p-4 h-full">
-            <p className="text-xs text-muted-foreground/50 text-center">Versions — coming soon</p>
-          </div>
-        )}
-        {tab === 'AI' && (
+        {activeTab === 'Analysis' && <AnalysisPanel projectId={projectId} mode="compact" />}
+        {activeTab === 'Versions' && <VersionsPanel projectId={projectId} />}
+        {activeTab === 'AI' && (
           <div className="flex items-center justify-center p-4 h-full">
             <p className="text-xs text-muted-foreground/50 text-center">AI — coming soon</p>
           </div>
@@ -107,14 +109,78 @@ function InspectorDrawer({ open, projectId }: { open: boolean; projectId: string
   );
 }
 
-/* ── Pipeline State Bar ── */
-function PipelineStateBar({ stage }: { stage: string | null }) {
+/* ── Pipeline State Bar (authoritative via pipeline-brain) ── */
+function PipelineStateBar({ projectId }: { projectId: string }) {
+  const { pipelineState, isLoading } = usePipelineState(projectId);
+
+  if (isLoading || !pipelineState) {
+    return (
+      <div className="h-8 border-t border-border/20 bg-card/20 flex items-center px-4 gap-2 shrink-0">
+        <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/50">Pipeline</span>
+        <span className="text-[11px] text-muted-foreground">Loading…</span>
+      </div>
+    );
+  }
+
+  const { currentStage, completedCount, totalStages, nextSteps, pipeline } = pipelineState;
+  const nextStep = nextSteps[0];
+  const hasGateWarning = nextStep?.action === 'approve';
+
   return (
-    <div className="h-8 border-t border-border/20 bg-card/20 flex items-center px-4 gap-2 shrink-0">
-      <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/50">Pipeline</span>
-      <span className="text-[11px] text-muted-foreground">
-        {stage || 'Not classified'}
-      </span>
+    <div className="h-9 border-t border-border/20 bg-card/20 flex items-center px-4 gap-3 shrink-0 overflow-x-auto">
+      <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/50 shrink-0">Pipeline</span>
+
+      {/* Mini stepper dots */}
+      <div className="flex items-center gap-0.5 shrink-0">
+        {pipeline.map((stage, i) => {
+          const status = pipelineState.completedStages[stage];
+          const isCurrent = stage === currentStage;
+          return (
+            <Tooltip key={stage}>
+              <TooltipTrigger asChild>
+                <div className={cn(
+                  'h-2 rounded-full transition-all',
+                  isCurrent ? 'w-4 bg-primary' : 'w-2',
+                  !isCurrent && status?.exists ? 'bg-primary/40' : '',
+                  !isCurrent && !status?.exists ? 'bg-muted-foreground/20' : '',
+                )} />
+              </TooltipTrigger>
+              <TooltipContent side="top" className="text-[10px]">
+                {stage.replace(/_/g, ' ')}
+                {status?.exists ? ' ✓' : ''}
+                {status?.hasApproved ? ' (approved)' : ''}
+              </TooltipContent>
+            </Tooltip>
+          );
+        })}
+      </div>
+
+      {/* Current + count */}
+      <div className="flex items-center gap-1.5 text-[11px] shrink-0">
+        <CheckCircle2 className="h-3 w-3 text-primary/60" />
+        <span className="text-muted-foreground">
+          {completedCount}/{totalStages}
+        </span>
+        {currentStage && (
+          <span className="text-foreground/80 font-medium">
+            {currentStage.replace(/_/g, ' ')}
+          </span>
+        )}
+      </div>
+
+      {/* Next step */}
+      {nextStep && (
+        <div className="flex items-center gap-1 text-[11px] shrink-0">
+          <ArrowRight className="h-3 w-3 text-muted-foreground/40" />
+          {hasGateWarning && <AlertTriangle className="h-3 w-3 text-amber-400" />}
+          <span className={cn(
+            'text-muted-foreground',
+            hasGateWarning && 'text-amber-400',
+          )}>
+            {nextStep.label}
+          </span>
+        </div>
+      )}
     </div>
   );
 }
@@ -128,9 +194,28 @@ export function ProjectShell({ children }: ProjectShellProps) {
   const { id: projectId } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { project, isLoading } = useProject(projectId);
   const { mode, setMode } = useOperatingMode(projectId);
-  const [drawerOpen, setDrawerOpen] = useState(false);
+
+  // Drawer state from query params
+  const drawerParam = searchParams.get('drawer');
+  const tabParam = searchParams.get('tab');
+  const [drawerOpen, setDrawerOpen] = useState(drawerParam === 'open');
+  const [activeTab, setActiveTab] = useState<DrawerTab>(() => {
+    const map: Record<string, DrawerTab> = { analysis: 'Analysis', versions: 'Versions', ai: 'AI' };
+    return map[tabParam?.toLowerCase() ?? ''] ?? 'Analysis';
+  });
+
+  // Sync from URL on mount only
+  useEffect(() => {
+    if (drawerParam === 'open') setDrawerOpen(true);
+    if (tabParam) {
+      const map: Record<string, DrawerTab> = { analysis: 'Analysis', versions: 'Versions', ai: 'AI' };
+      const mapped = map[tabParam.toLowerCase()];
+      if (mapped) setActiveTab(mapped);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Keyboard shortcut: "\" to toggle drawer
   const handleKeyDown = useCallback(
@@ -158,7 +243,6 @@ export function ProjectShell({ children }: ProjectShellProps) {
   );
 
   const lane = project?.assigned_lane as MonetisationLane | undefined;
-  const pipelineStage = (project as any)?.pipeline_stage as string | null ?? null;
 
   return (
     <div className="min-h-screen flex flex-col bg-background" data-project-shell>
@@ -251,11 +335,16 @@ export function ProjectShell({ children }: ProjectShellProps) {
         </main>
 
         {/* Right inspector drawer */}
-        <InspectorDrawer open={drawerOpen} projectId={projectId} />
+        <InspectorDrawer
+          open={drawerOpen}
+          projectId={projectId}
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+        />
       </div>
 
-      {/* ── Pipeline state bar ── */}
-      <PipelineStateBar stage={pipelineStage} />
+      {/* ── Pipeline state bar (authoritative) ── */}
+      <PipelineStateBar projectId={projectId} />
     </div>
   );
 }
