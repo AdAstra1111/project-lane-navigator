@@ -17622,6 +17622,7 @@ export type Database = {
       }
       trailer_rhythm_runs: {
         Row: {
+          audio_plan_json: Json | null
           beat_grid_json: Json
           beat_hit_intents_json: Json | null
           bpm: number
@@ -17641,6 +17642,7 @@ export type Database = {
           warnings: string[] | null
         }
         Insert: {
+          audio_plan_json?: Json | null
           beat_grid_json: Json
           beat_hit_intents_json?: Json | null
           bpm: number
@@ -17660,6 +17662,7 @@ export type Database = {
           warnings?: string[] | null
         }
         Update: {
+          audio_plan_json?: Json | null
           beat_grid_json?: Json
           beat_hit_intents_json?: Json | null
           bpm?: number

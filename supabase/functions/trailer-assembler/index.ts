@@ -151,8 +151,72 @@ async function handleCreateCut(db: any, body: any, userId: string) {
   timeline = recomputeTimeline(timeline);
   const totalDurationMs = timeline.reduce((s: number, t: any) => s + (t.effective_duration_ms || t.duration_ms), 0);
 
+  // ── Load rhythm markers for sync enforcement ──
+  let rhythmMarkers: any = null;
+  const scriptRunId = bp.options?.script_run_id;
+  if (scriptRunId) {
+    const { data: rrs } = await db.from("trailer_rhythm_runs")
+      .select("hit_points_json, silence_windows_json, drop_timestamp_ms, audio_plan_json, beat_hit_intents_json")
+      .eq("script_run_id", scriptRunId)
+      .eq("status", "complete")
+      .order("created_at", { ascending: false })
+      .limit(1);
+    if (rrs?.[0]) rhythmMarkers = rrs[0];
+  }
+
+  // ── Rhythm Sync Enforcement ──
+  const rhythmViolations: string[] = [];
+  if (rhythmMarkers) {
+    const hitPoints = rhythmMarkers.hit_points_json || [];
+    const silenceWindows = rhythmMarkers.silence_windows_json || [];
+    const dropMs = rhythmMarkers.drop_timestamp_ms;
+
+    // 1) Align cut points to nearest hit marker (±200ms tolerance)
+    for (const hp of hitPoints) {
+      const hpMs = hp.t_ms || hp.timestamp_ms || 0;
+      if (hpMs <= 0) continue;
+      const nearestBeat = timeline.reduce((best: any, t: any) => {
+        const dist = Math.abs((t.start_ms || 0) - hpMs);
+        return (!best || dist < best.dist) ? { entry: t, dist } : best;
+      }, null as any);
+      if (nearestBeat && nearestBeat.dist > 200) {
+        rhythmViolations.push(`Hit marker "${hp.type}" at ${hpMs}ms — nearest cut at ${nearestBeat.entry.start_ms}ms (${nearestBeat.dist}ms drift)`);
+      }
+    }
+
+    // 2) Verify no clip crosses a mandated silence window
+    for (const sw of silenceWindows) {
+      const swStart = sw.start_ms || 0;
+      const swEnd = sw.end_ms || 0;
+      if (swEnd <= swStart) continue;
+      for (const t of timeline) {
+        const tStart = t.start_ms || 0;
+        const tEnd = tStart + (t.effective_duration_ms || t.duration_ms || 0);
+        // Check if clip overlaps silence window interior (not just boundary)
+        if (tStart < swEnd && tEnd > swStart && t.has_clip && !t.is_text_card) {
+          const overlap = Math.min(tEnd, swEnd) - Math.max(tStart, swStart);
+          if (overlap > 100) { // >100ms overlap is a violation
+            rhythmViolations.push(`Beat #${t.beat_index} crosses silence window ${swStart}–${swEnd}ms (${overlap}ms overlap)`);
+          }
+        }
+      }
+    }
+
+    // 3) Ensure crescendo drop aligns to strongest visual beat
+    if (dropMs) {
+      const dropBeat = timeline.find((t: any) => {
+        const tStart = t.start_ms || 0;
+        const tEnd = tStart + (t.effective_duration_ms || t.duration_ms || 0);
+        return tStart <= dropMs && tEnd >= dropMs;
+      });
+      if (dropBeat && !dropBeat.has_clip) {
+        rhythmViolations.push(`Drop marker at ${dropMs}ms falls on beat #${dropBeat.beat_index} which has no clip`);
+      }
+    }
+  }
+
   // ── Assembly Gates ──
-  const assemblyFailures: string[] = [];
+  const assemblyFailures: string[] = [...rhythmViolations];
   const clipsPresent = timeline.filter((t: any) => t.has_clip).length;
   const totalBeats = timeline.length;
   const clipCoverage = totalBeats > 0 ? clipsPresent / totalBeats : 0;
@@ -240,7 +304,17 @@ async function handleCreateCut(db: any, body: any, userId: string) {
     created_by: userId,
   });
 
-  return json({ ok: true, cutId: cut.id, timeline, edlExport, totalDurationMs, gates: assemblyGates });
+  // Log rhythm violations separately for tracking
+  if (rhythmViolations.length > 0) {
+    await logCutEvent(db, {
+      project_id: projectId, cut_id: cut.id, blueprint_id: blueprintId,
+      event_type: "rhythm_violation",
+      payload: { violations: rhythmViolations, count: rhythmViolations.length },
+      created_by: userId,
+    });
+  }
+
+  return json({ ok: true, cutId: cut.id, timeline, edlExport, totalDurationMs, gates: assemblyGates, rhythmViolations });
 }
 
 // ─── Update Beat ───

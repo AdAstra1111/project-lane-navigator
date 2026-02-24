@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { TrailerScriptStudio } from '@/components/trailer/cinematic/TrailerScriptStudio';
 import { RhythmGridViewer } from '@/components/trailer/cinematic/RhythmGridViewer';
+import { RhythmTimelineOverlay } from '@/components/trailer/cinematic/RhythmTimelineOverlay';
 import { ShotDesignViewer } from '@/components/trailer/cinematic/ShotDesignViewer';
 import { LegacyBlueprintTab } from '@/components/trailer/cinematic/LegacyBlueprintTab';
 import { useBlueprints } from '@/lib/trailerPipeline/useTrailerPipeline';
@@ -129,7 +130,10 @@ export default function TrailerPipelinePage() {
           </TabsContent>
 
           <TabsContent value="rhythm">
-            <RhythmGridViewer scriptRunId={selectedScriptRunId} />
+            <div className="space-y-4">
+              <RhythmTimelineOverlay scriptRunId={selectedScriptRunId} />
+              <RhythmGridViewer scriptRunId={selectedScriptRunId} />
+            </div>
           </TabsContent>
 
           <TabsContent value="shots">
