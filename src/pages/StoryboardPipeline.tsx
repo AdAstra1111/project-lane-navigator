@@ -1,7 +1,7 @@
 /**
  * Storyboard Pipeline v1 — Main page
  */
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { warningActionFor as sbWarningActionFor } from '@/lib/warningActions';
 import { dedupeWarningsStable } from '@/lib/warningUtils';
 import { useParams, Link } from 'react-router-dom';
@@ -97,6 +97,20 @@ export default function StoryboardPipeline() {
   const sbWarningsDeduped = dedupeWarningsStable(sbWarnings);
   const sbWarningsCount = sbWarningsDeduped.length;
   const sbWarningsPreview = sortSBWarnings(sbWarningsDeduped).slice(0, 6);
+
+  const sbRunKey =
+    (renderRun as any)?.id ??
+    `${renderRun?.status ?? "unknown"}::${(renderRun as any)?.updated_at ?? ""}`;
+
+  useEffect(() => {
+    setSelectedSBWarning(null);
+  }, [sbRunKey]);
+
+  useEffect(() => {
+    if (selectedSBWarning && !sbWarningsDeduped.includes(selectedSBWarning)) {
+      setSelectedSBWarning(null);
+    }
+  }, [sbWarningsCount]);
 
   function sbWarningAnchorId(w: string): string | null {
     const l = w.toLowerCase();
