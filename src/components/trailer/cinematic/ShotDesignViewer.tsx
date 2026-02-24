@@ -113,8 +113,9 @@ export function ShotDesignViewer({ projectId, scriptRunId }: ShotDesignViewerPro
                     <div className="divide-y divide-border">
                       {beatSpecs.map((spec: any) => {
                         const hint = spec.prompt_hint_json || {};
+                        const isMontage = !!hint.montage_group_id;
                         return (
-                        <div key={spec.id} className="px-3 py-2 text-xs space-y-1">
+                        <div key={spec.id} className={`px-3 py-2 text-xs space-y-1 ${isMontage ? 'bg-rose-500/5' : ''}`}>
                           <div className="flex items-center gap-2 flex-wrap">
                             <Badge variant="outline" className="text-[9px]">{spec.shot_type}</Badge>
                             <Badge className={`text-[9px] ${MOVE_COLORS[spec.camera_move] || 'bg-muted text-muted-foreground'}`}>
@@ -132,6 +133,20 @@ export function ShotDesignViewer({ projectId, scriptRunId }: ShotDesignViewerPro
                               </span>
                             )}
                           </div>
+                          {/* Montage metadata */}
+                          {isMontage && (
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              {hint.montage_group_id && (
+                                <Badge variant="outline" className="text-[8px] border-rose-500/30 text-rose-300">{hint.montage_group_id}</Badge>
+                              )}
+                              {hint.motif_tag && (
+                                <Badge variant="outline" className="text-[8px] border-purple-500/30 text-purple-300">♻ {hint.motif_tag}</Badge>
+                              )}
+                              {hint.cut_on_action && (
+                                <Badge variant="outline" className="text-[8px] border-amber-500/30 text-amber-300">✂ cut-on-action</Badge>
+                              )}
+                            </div>
+                          )}
                           {hint.subject_action && (
                             <p className="text-[10px] text-muted-foreground">⟳ Action: {hint.subject_action}</p>
                           )}

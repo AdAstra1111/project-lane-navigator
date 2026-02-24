@@ -727,6 +727,54 @@ async function handleDeleteCut(db: any, body: any, userId: string) {
   return json({ ok: true, deleted: cutId });
 }
 
+// ─── Shuffle Montage Group ───
+async function handleShuffleMontage(db: any, body: any, userId: string) {
+  const { projectId, cutId, montageGroupId } = body;
+  if (!cutId || !montageGroupId) return json({ error: "cutId and montageGroupId required" }, 400);
+
+  const { data: cut } = await db.from("trailer_cuts").select("*")
+    .eq("id", cutId).eq("project_id", projectId).single();
+  if (!cut) return json({ error: "Cut not found" }, 404);
+
+  let timeline = [...(cut.timeline || [])];
+
+  // Find beats in this montage group
+  const groupIndices: number[] = [];
+  for (let i = 0; i < timeline.length; i++) {
+    if (timeline[i].montage_group_id === montageGroupId) {
+      groupIndices.push(i);
+    }
+  }
+
+  if (groupIndices.length < 2) return json({ error: "Montage group has fewer than 2 entries" }, 400);
+
+  // Fisher-Yates shuffle within the group
+  const groupEntries = groupIndices.map(i => ({ ...timeline[i] }));
+  for (let i = groupEntries.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [groupEntries[i], groupEntries[j]] = [groupEntries[j], groupEntries[i]];
+  }
+
+  // Put them back
+  for (let k = 0; k < groupIndices.length; k++) {
+    timeline[groupIndices[k]] = groupEntries[k];
+  }
+
+  timeline = recomputeTimeline(timeline);
+  const totalDurationMs = timeline.reduce((s: number, t: any) => s + (t.effective_duration_ms || t.duration_ms), 0);
+
+  await db.from("trailer_cuts").update({ timeline, duration_ms: totalDurationMs }).eq("id", cutId);
+
+  await logCutEvent(db, {
+    project_id: projectId, cut_id: cutId,
+    event_type: "shuffle_montage",
+    payload: { montageGroupId, shuffledCount: groupEntries.length },
+    created_by: userId,
+  });
+
+  return json({ ok: true, timeline, totalDurationMs, shuffledCount: groupEntries.length });
+}
+
 // ─── Main handler ───
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -761,6 +809,7 @@ Deno.serve(async (req) => {
       case "fix_trims": return await handleFixTrims(db, body, userId);
       case "validate_trims": return await handleValidateTrims(db, body);
       case "delete_cut": return await handleDeleteCut(db, body, userId);
+      case "shuffle_montage": return await handleShuffleMontage(db, body, userId);
       default: return json({ error: `Unknown action: ${action}` }, 400);
     }
   } catch (err: any) {

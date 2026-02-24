@@ -147,4 +147,12 @@ export const cinematicApi = {
     projectId: string;
     scriptRunId: string;
   }) => callCinematicEngine('select_script_run_v1', params),
+
+  /** Regenerate only crescendo montage shots */
+  regenerateCrescendoMontage: (params: {
+    projectId: string;
+    scriptRunId: string;
+    shotDesignRunId: string;
+    seed?: string;
+  }) => callCinematicEngine('regenerate_crescendo_montage_v1', params),
 };

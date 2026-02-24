@@ -116,5 +116,15 @@ export function useAssemblerMutations(projectId: string | undefined) {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  return { createCut, updateBeat, reorderBeats, finalizeRun, setCutStatus, exportBeatlist, fixTrims, validateTrims, deleteCut };
+  const shuffleMontage = useMutation({
+    mutationFn: (params: { cutId: string; montageGroupId: string }) =>
+      assemblerApi.shuffleMontage(projectId!, params.cutId, params.montageGroupId),
+    onSuccess: (data) => {
+      toast.success(`Shuffled ${data.shuffledCount || 0} montage shots`);
+      invalidateAll();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  return { createCut, updateBeat, reorderBeats, finalizeRun, setCutStatus, exportBeatlist, fixTrims, validateTrims, deleteCut, shuffleMontage };
 }
