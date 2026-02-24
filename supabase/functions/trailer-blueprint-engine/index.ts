@@ -365,7 +365,18 @@ Deno.serve(async (req) => {
 
     switch (action) {
       case "create_blueprint":
-        // Safety switch: Blueprint v1 deprecated after Feb 2026
+        /**
+         * DEPRECATED — Cinematic Intelligence v2 (Feb 2026)
+         *
+         * Blueprint v1 (arc-template EDL generation) is replaced by the
+         * multi-stage Cinematic Intelligence 2.0 pipeline:
+         *   Trailer Script → Rhythm Grid → Shot Design
+         * served by `trailer-cinematic-engine`.
+         *
+         * This action returns 410 Gone. The handler code
+         * (`handleCreateBlueprint`) is retained for reference only.
+         * No internal or external callers should invoke this action.
+         */
         return json({ error: "Blueprint v1 deprecated. Use Trailer Script v2 via trailer-cinematic-engine." }, 410);
       case "list_blueprints": return await handleListBlueprints(db, body);
       case "get_blueprint": return await handleGetBlueprint(db, body);
