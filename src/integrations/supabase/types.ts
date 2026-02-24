@@ -16980,6 +16980,7 @@ export type Database = {
           duration_ms: number | null
           edl_export: Json | null
           error: string | null
+          gates_json: Json | null
           id: string
           options: Json
           output_mp4_path: string | null
@@ -17003,6 +17004,7 @@ export type Database = {
           duration_ms?: number | null
           edl_export?: Json | null
           error?: string | null
+          gates_json?: Json | null
           id?: string
           options?: Json
           output_mp4_path?: string | null
@@ -17026,6 +17028,7 @@ export type Database = {
           duration_ms?: number | null
           edl_export?: Json | null
           error?: string | null
+          gates_json?: Json | null
           id?: string
           options?: Json
           output_mp4_path?: string | null
@@ -17756,6 +17759,7 @@ export type Database = {
           created_by: string
           drop_timestamp_ms: number | null
           escalation_curve_json: Json | null
+          gates_json: Json | null
           genre_key: string
           id: string
           inspiration_refs_json: Json
@@ -17788,6 +17792,7 @@ export type Database = {
           created_by?: string
           drop_timestamp_ms?: number | null
           escalation_curve_json?: Json | null
+          gates_json?: Json | null
           genre_key?: string
           id?: string
           inspiration_refs_json?: Json
@@ -17820,6 +17825,7 @@ export type Database = {
           created_by?: string
           drop_timestamp_ms?: number | null
           escalation_curve_json?: Json | null
+          gates_json?: Json | null
           genre_key?: string
           id?: string
           inspiration_refs_json?: Json
@@ -17861,6 +17867,7 @@ export type Database = {
         Row: {
           created_at: string
           created_by: string
+          gates_json: Json | null
           global_movement_curve_json: Json | null
           id: string
           lens_bias_json: Json | null
@@ -17874,6 +17881,7 @@ export type Database = {
         Insert: {
           created_at?: string
           created_by?: string
+          gates_json?: Json | null
           global_movement_curve_json?: Json | null
           id?: string
           lens_bias_json?: Json | null
@@ -17887,6 +17895,7 @@ export type Database = {
         Update: {
           created_at?: string
           created_by?: string
+          gates_json?: Json | null
           global_movement_curve_json?: Json | null
           id?: string
           lens_bias_json?: Json | null

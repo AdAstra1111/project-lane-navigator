@@ -5,6 +5,7 @@
 import { useState, useMemo, useCallback } from 'react';
 import { LookBiblePanel, LookBibleSummaryPills } from './LookBiblePanel';
 import { Badge } from '@/components/ui/badge';
+import { GateChecklist } from './GateChecklist';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -241,7 +242,11 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
   const latestRhythm = rhythmRuns?.[0];
   const latestShotDesign = shotDesignRuns?.[0];
 
-  // Gate checks
+  // Gate checks from persisted gates_json
+  const scriptGates = activeRun?.gates_json as { passed: boolean; failures: string[] } | null | undefined;
+  const shotDesignGates = latestShotDesign?.gates_json as { passed: boolean; failures: string[] } | null | undefined;
+  const judgeScores = latestJudge?.scores_json as Record<string, number> | null | undefined;
+
   const allCitationsPresent = beats?.every((b: any) => {
     const refs = b.source_refs_json || [];
     return Array.isArray(refs) && refs.length >= 1;
@@ -250,8 +255,12 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
   const judgePassed = latestJudge?.status === 'complete' &&
     !latestJudge?.flags?.length;
 
+  // Gate-aware proceed logic: script gates + judge must pass
+  const scriptGatesPassed = scriptGates?.passed ?? true;
+  const shotGatesPassed = shotDesignGates?.passed ?? true;
   const canGenerateClips = activeRun?.status === 'complete' &&
-    allCitationsPresent && judgePassed && latestShotDesign;
+    allCitationsPresent && judgePassed && latestShotDesign &&
+    scriptGatesPassed;
 
   // (auto-select moved below selectedRun declaration)
 
@@ -571,6 +580,13 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
 
       {/* Look Bible Panel */}
       <LookBiblePanel projectId={projectId} scopeRefId={selectedRunId} />
+
+      {/* Gate Checklist */}
+      <GateChecklist
+        scriptGates={scriptGates || undefined}
+        shotDesignGates={shotDesignGates || undefined}
+        judgeScores={judgeScores || undefined}
+      />
 
       {/* Action Buttons */}
       <div className="flex flex-wrap gap-2">
