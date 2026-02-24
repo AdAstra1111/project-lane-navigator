@@ -10,6 +10,17 @@ import {
   CheckCircle2, AlertTriangle, ArrowRight, X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+
+/* ── Calm-hierarchy tokens (single source of truth for opacity classes) ── */
+const UI = {
+  meta:        'text-muted-foreground/70',
+  inactive:    'text-muted-foreground/60',
+  disabled:    'text-muted-foreground/50',
+  hoverText:   'hover:text-foreground',
+  hoverBg:     'hover:bg-muted/40',
+  border:      'border-border/50',
+  borderSubtle:'border-border/10',
+} as const;
 import { useProject } from '@/hooks/useProjects';
 import { useOperatingMode, type OperatingMode } from '@/hooks/useOperatingMode';
 import { usePipelineState } from '@/hooks/usePipelineState';
@@ -353,7 +364,7 @@ export function ProjectShell({ children }: ProjectShellProps) {
         <div className="flex items-center gap-2 min-w-0 flex-1">
           <button
             onClick={() => navigate('/dashboard')}
-            className="h-7 w-7 rounded-md flex items-center justify-center text-muted-foreground/60 hover:text-foreground hover:bg-muted/40 transition-colors shrink-0"
+            className={cn('h-7 w-7 rounded-md flex items-center justify-center transition-colors shrink-0', UI.inactive, UI.hoverText, UI.hoverBg)}
           >
             <ChevronLeft className="h-3.5 w-3.5" />
           </button>
@@ -370,7 +381,7 @@ export function ProjectShell({ children }: ProjectShellProps) {
               </Link>
               {lane && <LaneBadge lane={lane} size="sm" />}
               {project?.confidence != null && (
-                <span className="text-[10px] text-muted-foreground/70">
+                <span className={cn('text-[10px]', UI.meta)}>
                   {Math.round(project.confidence * 100)}%
                 </span>
               )}
@@ -392,8 +403,8 @@ export function ProjectShell({ children }: ProjectShellProps) {
                 className={cn(
                   'h-7 w-7 rounded-md flex items-center justify-center transition-colors border',
                   drawerOpen
-                    ? 'text-foreground/70 border-border/50 bg-muted/20'
-                    : 'text-muted-foreground/60 border-transparent hover:text-foreground hover:bg-muted/40',
+                    ? `text-foreground/70 ${UI.border} bg-muted/20`
+                    : cn(UI.inactive, 'border-transparent', UI.hoverText, UI.hoverBg),
                 )}
               >
                 {drawerOpen ? <PanelRightClose className="h-3.5 w-3.5" /> : <PanelRightOpen className="h-3.5 w-3.5" />}
@@ -421,7 +432,7 @@ export function ProjectShell({ children }: ProjectShellProps) {
                       'relative w-9 h-9 rounded-lg flex items-center justify-center transition-all',
                       active
                         ? 'text-primary'
-                        : 'text-muted-foreground/40 hover:text-foreground/70 hover:bg-muted/30',
+                        : cn(UI.inactive, UI.hoverText, UI.hoverBg),
                     )}
                   >
                     {/* Active indicator bar */}
