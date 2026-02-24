@@ -209,26 +209,23 @@ export function ProjectShell({ children }: ProjectShellProps) {
   const { project, isLoading } = useProject(projectId);
   const { mode, setMode } = useOperatingMode(projectId);
 
-  // Drawer state from query params
-  const drawerParamInit = searchParams.get('drawer');
-  const tabParamInit = searchParams.get('tab');
-  const [drawerOpen, setDrawerOpen] = useState(drawerParamInit === 'open');
-  const [activeTab, setActiveTab] = useState<DrawerTab>(() => {
-    const map: Record<string, DrawerTab> = { analysis: 'Analysis', versions: 'Versions', ai: 'AI' };
-    return map[tabParamInit?.toLowerCase() ?? ''] ?? 'Analysis';
-  });
+  // ── Drawer state derived from URL (source of truth) ──
+  const TAB_MAP: Record<string, DrawerTab> = { analysis: 'Analysis', versions: 'Versions', ai: 'AI' };
 
-  // URL sync: update query params when drawer/tab changes
+  const drawerOpen = searchParams.get('drawer') === 'open';
+  const activeTab: DrawerTab = TAB_MAP[searchParams.get('drawerTab')?.toLowerCase() ?? ''] ?? 'Analysis';
+
+  // Sync URL: set/remove only drawer + drawerTab, never touch ?tab
   const syncUrl = useCallback(
     (open: boolean, tab: DrawerTab) => {
       setSearchParams((prev) => {
         const next = new URLSearchParams(prev);
         if (open) {
           next.set('drawer', 'open');
-          next.set('tab', tab.toLowerCase());
+          next.set('drawerTab', tab.toLowerCase());
         } else {
           next.delete('drawer');
-          next.delete('tab');
+          next.delete('drawerTab');
         }
         return next;
       }, { replace: true });
@@ -236,30 +233,19 @@ export function ProjectShell({ children }: ProjectShellProps) {
     [setSearchParams],
   );
 
-  const handleDrawerOpen = useCallback(() => {
-    setDrawerOpen(true);
-    syncUrl(true, activeTab);
-  }, [activeTab, syncUrl]);
-
   const handleDrawerClose = useCallback(() => {
-    setDrawerOpen(false);
     syncUrl(false, activeTab);
   }, [activeTab, syncUrl]);
 
   const handleDrawerToggle = useCallback(() => {
-    setDrawerOpen((prev) => {
-      const next = !prev;
-      syncUrl(next, activeTab);
-      return next;
-    });
-  }, [activeTab, syncUrl]);
+    syncUrl(!drawerOpen, activeTab);
+  }, [drawerOpen, activeTab, syncUrl]);
 
   const handleTabChange = useCallback(
     (t: DrawerTab) => {
-      setActiveTab(t);
-      if (drawerOpen) syncUrl(true, t);
+      syncUrl(true, t);
     },
-    [drawerOpen, syncUrl],
+    [syncUrl],
   );
 
   // Keyboard shortcut: "\" to toggle drawer
