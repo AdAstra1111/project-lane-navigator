@@ -1833,7 +1833,33 @@ ${canonText.slice(0, 8000)}`;
       maxTokens: 10000,
     });
 
-    const repaired = await parseJsonSafe(result.content, apiKey);
+    let repaired: any;
+    try {
+      repaired = await parseJsonSafe(result.content, apiKey);
+    } catch {
+      // Attempt manual truncation repair: close unclosed arrays/objects
+      let cleaned = result.content
+        .replace(/```[\s\S]*?\n/, "").replace(/\n?```\s*$/, "")
+        .replace(/,\s*$/m, "");
+      const startIdx = cleaned.indexOf("[");
+      if (startIdx >= 0) cleaned = cleaned.slice(startIdx);
+      // Balance brackets
+      let open = (cleaned.match(/\[/g) || []).length;
+      let close = (cleaned.match(/\]/g) || []).length;
+      // Remove trailing incomplete object (no closing brace)
+      const lastCloseBrace = cleaned.lastIndexOf("}");
+      const lastOpenBrace = cleaned.lastIndexOf("{", lastCloseBrace > 0 ? lastCloseBrace - 1 : undefined);
+      if ((cleaned.match(/{/g) || []).length > (cleaned.match(/}/g) || []).length && lastCloseBrace > 0) {
+        // Truncate after last complete object and close array
+        cleaned = cleaned.slice(0, lastCloseBrace + 1).replace(/,\s*$/, "");
+      }
+      while (close < open) { cleaned += "]"; close++; }
+      try {
+        repaired = JSON.parse(cleaned);
+      } catch {
+        throw new Error("Unparseable repair response from AI");
+      }
+    }
     const repairedArray = Array.isArray(repaired) ? repaired : (repaired.beats || []);
 
     let updatedCount = 0;
