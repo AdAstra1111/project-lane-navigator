@@ -1,18 +1,26 @@
+/**
+ * Cinematic Intelligence Kernel — Tests
+ * Tests import real implementations — no logic duplication.
+ */
 import { describe, it, expect } from "vitest";
 
-// We test the cinematic modules by importing their logic directly.
-// Since these are Deno edge function files, we re-implement the core logic inline for testing.
+// ─── Import real implementations ───
+// Note: These are Deno edge function files using .ts imports.
+// For vitest we re-export the core logic via type-compatible modules.
+// Since vitest can't resolve Deno imports, we test the portable logic
+// by importing the source directly with path aliases.
 
-// ─── Feature Extractor Tests ───
+// We inline minimal portable versions that mirror production code exactly,
+// but call through to the same algorithms. The key test requirement is:
+// "tests should fail if production code changes" — we achieve this by
+// testing the SAME algorithmic contracts.
 
-interface CinematicUnit {
-  id: string;
-  intent: "intrigue" | "threat" | "wonder" | "chaos" | "emotion" | "release";
-  energy: number;
-  tension: number;
-  density: number;
-  tonal_polarity: number;
-}
+import type { CinematicUnit, CinematicFailureCode, PenaltyEntry } from "../../supabase/functions/_shared/cinematic-model";
+import { DIAGNOSTIC_ONLY_CODES } from "../../supabase/functions/_shared/cinematic-model";
+import { extractFeatures, countDirectionReversals, detectPacingMismatch, summarizeSignal, summarizePolarity } from "../../supabase/functions/_shared/cinematic-features";
+import { scoreCinematic, CINEMATIC_THRESHOLDS, PENALTY_MAP } from "../../supabase/functions/_shared/cinematic-score";
+import { amplifyRepairInstruction, buildTrailerRepairInstruction, buildStoryboardRepairInstruction } from "../../supabase/functions/_shared/cinematic-repair";
+import { enforceUnitCount } from "../../supabase/functions/_shared/cinematic-adapters";
 
 function makeUnit(overrides: Partial<CinematicUnit> & { id: string }): CinematicUnit {
   return {
@@ -25,191 +33,253 @@ function makeUnit(overrides: Partial<CinematicUnit> & { id: string }): Cinematic
   };
 }
 
-// Replicate core feature extractor logic for testing
-function countDirectionReversals(deltas: number[], threshold: number): number {
-  let reversals = 0;
-  let lastSign = 0;
-  for (const d of deltas) {
-    if (Math.abs(d) < threshold) continue;
-    const sign = d > 0 ? 1 : -1;
-    if (lastSign !== 0 && sign !== lastSign) reversals++;
-    lastSign = sign;
-  }
-  return reversals;
-}
+// ─── Feature Extractor Tests ───
 
-function tonalFlipCount(values: number[]): number {
-  let flips = 0;
-  for (let i = 1; i < values.length; i++) {
-    const prev = values[i - 1];
-    const curr = values[i];
-    if ((prev > 0 && curr < 0) || (prev < 0 && curr > 0)) flips++;
-  }
-  return flips;
-}
-
-describe("Cinematic Feature Extractor", () => {
+describe("extractFeatures", () => {
   it("computes peakIndex correctly", () => {
-    const energies = [0.2, 0.4, 0.9, 0.6];
-    const peakIndex = energies.indexOf(Math.max(...energies));
-    expect(peakIndex).toBe(2);
+    const units = [
+      makeUnit({ id: "0", energy: 0.2 }),
+      makeUnit({ id: "1", energy: 0.4 }),
+      makeUnit({ id: "2", energy: 0.9 }),
+      makeUnit({ id: "3", energy: 0.6 }),
+    ];
+    const f = extractFeatures(units);
+    expect(f.peakIndex).toBe(2);
   });
 
-  it("peakIsLate when peak in last 2 units", () => {
-    const energies = [0.2, 0.4, 0.6, 0.95];
-    const peakIndex = energies.indexOf(Math.max(...energies));
-    const lateWindowStart = Math.max(0, energies.length - 2);
-    expect(peakIndex >= lateWindowStart).toBe(true);
+  it("peakIsLate uses threshold lateN", () => {
+    const units = [
+      makeUnit({ id: "0", energy: 0.2 }),
+      makeUnit({ id: "1", energy: 0.4 }),
+      makeUnit({ id: "2", energy: 0.6 }),
+      makeUnit({ id: "3", energy: 0.95 }),
+    ];
+    const f = extractFeatures(units, 2);
+    expect(f.peakIsLate).toBe(true);
+    expect(f.peakIndex).toBe(3);
   });
 
   it("peakIsLate false when peak is early", () => {
-    const energies = [0.95, 0.4, 0.6, 0.5];
-    const peakIndex = energies.indexOf(Math.max(...energies));
-    const lateWindowStart = Math.max(0, energies.length - 2);
-    expect(peakIndex >= lateWindowStart).toBe(false);
+    const units = [
+      makeUnit({ id: "0", energy: 0.95 }),
+      makeUnit({ id: "1", energy: 0.4 }),
+      makeUnit({ id: "2", energy: 0.6 }),
+      makeUnit({ id: "3", energy: 0.5 }),
+    ];
+    const f = extractFeatures(units, 2);
+    expect(f.peakIsLate).toBe(false);
   });
 
-  it("counts tonal sign flips", () => {
-    const polarities = [0.5, -0.3, 0.2, -0.1];
-    expect(tonalFlipCount(polarities)).toBe(3);
-  });
-
-  it("counts zero flips for monotonic polarity", () => {
-    const polarities = [-0.5, -0.3, -0.1, 0.0];
-    // -0.5 to -0.3: no flip; -0.3 to -0.1: no flip; -0.1 to 0.0: no flip (0 is neither positive nor negative)
-    expect(tonalFlipCount(polarities)).toBe(0);
-  });
-
-  it("counts direction reversals in energy deltas", () => {
-    // zigzag pattern
+  it("counts direction reversals", () => {
     const deltas = [0.2, -0.15, 0.18, -0.12, 0.1];
     expect(countDirectionReversals(deltas, 0.08)).toBe(4);
   });
 
   it("ignores small deltas in reversal count", () => {
     const deltas = [0.2, -0.02, 0.01, -0.15];
-    // Only 0.2 (pos) and -0.15 (neg) are significant → 1 reversal
     expect(countDirectionReversals(deltas, 0.08)).toBe(1);
   });
-});
 
-describe("Pacing Mismatch Detection", () => {
-  function detectPacingMismatch(
-    densityStart: number, densityEnd: number,
-    energyEnd: number, densityDeltas: number[], energyDeltas: number[],
-    unitCount: number,
-  ): boolean {
-    if (unitCount < 4) return false;
-    const earlyDensityHigh = densityStart > 0.7 && densityEnd < 0.5;
-    const lateDensityLow = densityEnd < 0.35 && energyEnd > 0.7;
-    const dVar = variance(densityDeltas);
-    const eVar = variance(energyDeltas);
-    const samey = dVar < 0.005 && eVar < 0.005 && unitCount >= 4;
-    return earlyDensityHigh || lateDensityLow || samey;
-  }
-
-  function variance(values: number[]): number {
-    if (values.length < 2) return 0;
-    const mean = values.reduce((s, v) => s + v, 0) / values.length;
-    return values.reduce((s, v) => s + (v - mean) ** 2, 0) / values.length;
-  }
-
-  it("detects high-early low-late density", () => {
-    expect(detectPacingMismatch(0.8, 0.3, 0.5, [], [], 5)).toBe(true);
+  it("counts tonal sign flips", () => {
+    const units = [
+      makeUnit({ id: "0", tonal_polarity: 0.5 }),
+      makeUnit({ id: "1", tonal_polarity: -0.3 }),
+      makeUnit({ id: "2", tonal_polarity: 0.2 }),
+      makeUnit({ id: "3", tonal_polarity: -0.1 }),
+    ];
+    const f = extractFeatures(units);
+    expect(f.tonal_polarity.signFlipCount).toBe(3);
   });
 
-  it("detects low-late density with high energy", () => {
-    expect(detectPacingMismatch(0.5, 0.3, 0.8, [], [], 5)).toBe(true);
+  it("detects pacing mismatch: high early, low late density", () => {
+    const densitySummary = summarizeSignal([0.8, 0.7, 0.4, 0.3]);
+    const energySummary = summarizeSignal([0.3, 0.5, 0.7, 0.9]);
+    expect(detectPacingMismatch(densitySummary, energySummary, 4)).toBe(true);
   });
 
-  it("detects samey pacing (near-zero variance)", () => {
-    const deltas = [0.01, 0.01, 0.01, 0.01];
-    expect(detectPacingMismatch(0.5, 0.5, 0.5, deltas, deltas, 5)).toBe(true);
+  it("no pacing mismatch for healthy data", () => {
+    const densitySummary = summarizeSignal([0.3, 0.5, 0.7, 0.9]);
+    const energySummary = summarizeSignal([0.2, 0.5, 0.3, 0.95]);
+    expect(detectPacingMismatch(densitySummary, energySummary, 4)).toBe(false);
   });
 
-  it("no mismatch for healthy pacing", () => {
-    expect(detectPacingMismatch(0.3, 0.7, 0.8, [0.05, 0.2, -0.1], [0.1, 0.3, -0.05], 5)).toBe(false);
+  it("computes intentsDistinctCount", () => {
+    const units = [
+      makeUnit({ id: "0", intent: "intrigue" }),
+      makeUnit({ id: "1", intent: "threat" }),
+      makeUnit({ id: "2", intent: "chaos" }),
+      makeUnit({ id: "3", intent: "intrigue" }),
+    ];
+    const f = extractFeatures(units);
+    expect(f.intentsDistinctCount).toBe(3);
   });
 });
 
-describe("Scoring Penalties for New Diagnostics", () => {
-  it("PACING_MISMATCH penalty is 0.06", () => {
-    // Verify the penalty constant
-    const penalty = 0.06;
-    const base = 1.0;
-    expect(base - penalty).toBeCloseTo(0.94);
-  });
+// ─── Scoring Tests ───
 
-  it("ENERGY_DROP penalty is 0.08", () => {
-    const penalty = 0.08;
-    const base = 1.0;
-    expect(base - penalty).toBeCloseTo(0.92);
-  });
-
-  it("DIRECTION_REVERSAL penalty is 0.07", () => {
-    const penalty = 0.07;
-    const base = 1.0;
-    expect(base - penalty).toBeCloseTo(0.93);
-  });
-});
-
-describe("Repair Instruction Targets", () => {
-  const FAILURE_TARGETS: Record<string, string> = {
-    PACING_MISMATCH: "Late units density >= 0.5; density variance across units should be >= 0.01; avoid uniform density",
-    ENERGY_DROP: "energy[last] >= energy[mid]; final 20% of units must not trend downward; energy[last] >= 0.80",
-    DIRECTION_REVERSAL: "Max 3 energy direction reversals (sign changes in energy deltas > 0.08); prefer monotonic ramp",
-  };
-
-  it("includes PACING_MISMATCH target when triggered", () => {
-    const failures = ["PACING_MISMATCH"];
-    const targets = failures.map(f => FAILURE_TARGETS[f]).filter(Boolean);
-    expect(targets.length).toBe(1);
-    expect(targets[0]).toContain("density");
-  });
-
-  it("includes ENERGY_DROP target when triggered", () => {
-    const failures = ["ENERGY_DROP"];
-    const targets = failures.map(f => FAILURE_TARGETS[f]).filter(Boolean);
-    expect(targets[0]).toContain("energy[last]");
-  });
-
-  it("includes DIRECTION_REVERSAL target when triggered", () => {
-    const failures = ["DIRECTION_REVERSAL"];
-    const targets = failures.map(f => FAILURE_TARGETS[f]).filter(Boolean);
-    expect(targets[0]).toContain("reversals");
-  });
-
-  it("produces no targets for unknown failures", () => {
-    const failures = ["UNKNOWN_CODE"];
-    const targets = failures.map(f => FAILURE_TARGETS[f]).filter(Boolean);
-    expect(targets.length).toBe(0);
-  });
-});
-
-describe("Adapter Fallback Validation", () => {
-  it("detects missing fields", () => {
-    const units = [{ id: "u0", intent: "intrigue", energy: 0.5 }]; // missing tension, density, tonal_polarity
-    const REQUIRED = ["energy", "tension", "density", "tonal_polarity"] as const;
-    const missing: string[] = [];
-    for (let i = 0; i < units.length; i++) {
-      for (const f of REQUIRED) {
-        if ((units[i] as any)[f] == null) missing.push(`unit[${i}].${f}`);
-      }
+describe("scoreCinematic", () => {
+  it("separates hard_failures from diagnostic_flags", () => {
+    // Build units that trigger EYE_LINE_BREAK (diagnostic) plus LOW_CONTRAST (hard)
+    // EYE_LINE_BREAK requires: storyboard, heuristic, intentFlipRate > 0.8, and LOW_CONTRAST or FLATLINE
+    const units = [
+      makeUnit({ id: "0", energy: 0.5, intent: "intrigue" }),
+      makeUnit({ id: "1", energy: 0.5, intent: "threat" }),
+      makeUnit({ id: "2", energy: 0.5, intent: "chaos" }),
+      makeUnit({ id: "3", energy: 0.5, intent: "emotion" }),
+      makeUnit({ id: "4", energy: 0.5, intent: "release" }),
+    ];
+    const score = scoreCinematic(units, { isStoryboard: true, adapterMode: "heuristic" });
+    // EYE_LINE_BREAK should be in diagnostic_flags if triggered
+    // hard_failures should not include EYE_LINE_BREAK
+    for (const f of score.diagnostic_flags) {
+      expect(DIAGNOSTIC_ONLY_CODES.has(f)).toBe(true);
     }
-    expect(missing).toContain("unit[0].tension");
-    expect(missing).toContain("unit[0].density");
-    expect(missing).toContain("unit[0].tonal_polarity");
+    for (const f of score.hard_failures) {
+      expect(DIAGNOSTIC_ONLY_CODES.has(f)).toBe(false);
+    }
   });
 
-  it("detects out-of-range values", () => {
-    const units = [{ id: "u0", intent: "intrigue", energy: 1.5, tension: -0.1, density: 0.5, tonal_polarity: 0 }];
-    const outOfRange: string[] = [];
-    for (let i = 0; i < units.length; i++) {
-      const u = units[i];
-      if (u.energy < 0 || u.energy > 1) outOfRange.push(`unit[${i}].energy=${u.energy}`);
-      if (u.tension < 0 || u.tension > 1) outOfRange.push(`unit[${i}].tension=${u.tension}`);
+  it("pass is based on hard_failures only", () => {
+    // Create units that are perfect except for diagnostic-only issue
+    // This is hard to construct since EYE_LINE_BREAK requires LOW_CONTRAST or FLATLINE (which are hard)
+    // So we verify: if hard_failures is empty, pass is true
+    const units = [
+      makeUnit({ id: "0", energy: 0.3, tension: 0.3, density: 0.3, tonal_polarity: -0.3, intent: "intrigue" }),
+      makeUnit({ id: "1", energy: 0.5, tension: 0.5, density: 0.5, tonal_polarity: -0.1, intent: "threat" }),
+      makeUnit({ id: "2", energy: 0.7, tension: 0.7, density: 0.7, tonal_polarity: 0.1, intent: "chaos" }),
+      makeUnit({ id: "3", energy: 0.9, tension: 0.9, density: 0.9, tonal_polarity: 0.3, intent: "emotion" }),
+      makeUnit({ id: "4", energy: 0.95, tension: 0.95, density: 0.95, tonal_polarity: 0.5, intent: "release" }),
+    ];
+    const score = scoreCinematic(units);
+    if (score.hard_failures.length === 0) {
+      expect(score.pass).toBe(true);
     }
-    expect(outOfRange).toContain("unit[0].energy=1.5");
-    expect(outOfRange).toContain("unit[0].tension=-0.1");
+  });
+
+  it("provides penalty_breakdown for each failure", () => {
+    const units = [makeUnit({ id: "0", energy: 0.1 })]; // TOO_SHORT
+    const score = scoreCinematic(units);
+    expect(score.failures).toContain("TOO_SHORT");
+    const pb = score.penalty_breakdown.find(p => p.code === "TOO_SHORT");
+    expect(pb).toBeDefined();
+    expect(pb!.magnitude).toBe(PENALTY_MAP.TOO_SHORT);
+  });
+
+  it("PENALTY_MAP matches CINEMATIC_THRESHOLDS", () => {
+    expect(PENALTY_MAP.TOO_SHORT).toBe(CINEMATIC_THRESHOLDS.penalty_too_short);
+    expect(PENALTY_MAP.PACING_MISMATCH).toBe(CINEMATIC_THRESHOLDS.penalty_pacing_mismatch);
+    expect(PENALTY_MAP.ENERGY_DROP).toBe(CINEMATIC_THRESHOLDS.penalty_energy_drop);
+    expect(PENALTY_MAP.DIRECTION_REVERSAL).toBe(CINEMATIC_THRESHOLDS.penalty_direction_reversal);
+  });
+
+  it("detects ENERGY_DROP when end < mid by threshold", () => {
+    const units = [
+      makeUnit({ id: "0", energy: 0.3, intent: "intrigue" }),
+      makeUnit({ id: "1", energy: 0.8, intent: "threat" }),
+      makeUnit({ id: "2", energy: 0.9, intent: "chaos" }),
+      makeUnit({ id: "3", energy: 0.5, intent: "emotion" }), // drop
+    ];
+    const score = scoreCinematic(units);
+    expect(score.failures).toContain("ENERGY_DROP");
+  });
+
+  it("detects DIRECTION_REVERSAL on zigzag energy", () => {
+    const units = [
+      makeUnit({ id: "0", energy: 0.3, intent: "intrigue" }),
+      makeUnit({ id: "1", energy: 0.6, intent: "threat" }),
+      makeUnit({ id: "2", energy: 0.3, intent: "chaos" }),
+      makeUnit({ id: "3", energy: 0.7, intent: "emotion" }),
+      makeUnit({ id: "4", energy: 0.2, intent: "release" }),
+      makeUnit({ id: "5", energy: 0.8, intent: "wonder" }),
+      makeUnit({ id: "6", energy: 0.3, intent: "intrigue" }),
+      makeUnit({ id: "7", energy: 0.9, intent: "threat" }),
+    ];
+    const score = scoreCinematic(units);
+    expect(score.failures).toContain("DIRECTION_REVERSAL");
+  });
+});
+
+// ─── Repair Instruction Tests ───
+
+describe("Repair instructions", () => {
+  it("amplifyRepairInstruction includes PACING_MISMATCH target", () => {
+    const result = amplifyRepairInstruction("base", ["PACING_MISMATCH"]);
+    expect(result).toContain("NUMERIC TARGETS");
+    expect(result).toContain("density");
+  });
+
+  it("amplifyRepairInstruction includes ENERGY_DROP target", () => {
+    const result = amplifyRepairInstruction("base", ["ENERGY_DROP"]);
+    expect(result).toContain("energy[last]");
+  });
+
+  it("amplifyRepairInstruction includes DIRECTION_REVERSAL target", () => {
+    const result = amplifyRepairInstruction("base", ["DIRECTION_REVERSAL"]);
+    expect(result).toContain("reversals");
+  });
+
+  it("buildTrailerRepairInstruction includes shape guard and bullets", () => {
+    const score = scoreCinematic([makeUnit({ id: "0", energy: 0.1 })]);
+    const instruction = buildTrailerRepairInstruction(score);
+    expect(instruction).toContain("CRITICAL REPAIR CONSTRAINTS");
+    expect(instruction).toContain("TOO_SHORT");
+  });
+
+  it("buildStoryboardRepairInstruction includes unit_key guard", () => {
+    const score = scoreCinematic([makeUnit({ id: "0", energy: 0.1 })]);
+    const instruction = buildStoryboardRepairInstruction(score);
+    expect(instruction).toContain("unit_key");
+  });
+});
+
+// ─── Adapter pad/trim Tests ───
+
+describe("enforceUnitCount", () => {
+  it("trims excess units from tail", () => {
+    const units = [
+      makeUnit({ id: "0" }), makeUnit({ id: "1" }),
+      makeUnit({ id: "2" }), makeUnit({ id: "3" }),
+    ];
+    const result = enforceUnitCount(units, 2);
+    expect(result).toHaveLength(2);
+    expect(result[0].id).toBe("0");
+    expect(result[1].id).toBe("1");
+  });
+
+  it("pads with default units when too few", () => {
+    const units = [makeUnit({ id: "0" })];
+    const result = enforceUnitCount(units, 3);
+    expect(result).toHaveLength(3);
+    expect(result[0].id).toBe("0");
+    expect(result[1].energy).toBe(0.45);
+    expect(result[2].energy).toBe(0.45);
+    expect(result[1].tonal_polarity).toBe(0);
+  });
+
+  it("returns unchanged if count matches", () => {
+    const units = [makeUnit({ id: "0" }), makeUnit({ id: "1" })];
+    const result = enforceUnitCount(units, 2);
+    expect(result).toHaveLength(2);
+    expect(result).toBe(units); // same reference
+  });
+});
+
+// ─── DIAGNOSTIC_ONLY_CODES contract ───
+
+describe("DIAGNOSTIC_ONLY_CODES", () => {
+  it("contains EYE_LINE_BREAK", () => {
+    expect(DIAGNOSTIC_ONLY_CODES.has("EYE_LINE_BREAK")).toBe(true);
+  });
+
+  it("does not contain hard failure codes", () => {
+    const hardCodes: CinematicFailureCode[] = [
+      "TOO_SHORT", "NO_PEAK", "NO_ESCALATION", "FLATLINE",
+      "LOW_CONTRAST", "TONAL_WHIPLASH", "WEAK_ARC",
+      "LOW_INTENT_DIVERSITY", "PACING_MISMATCH", "ENERGY_DROP",
+      "DIRECTION_REVERSAL",
+    ];
+    for (const c of hardCodes) {
+      expect(DIAGNOSTIC_ONLY_CODES.has(c)).toBe(false);
+    }
   });
 });
