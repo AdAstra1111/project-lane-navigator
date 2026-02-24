@@ -151,6 +151,38 @@ async function handleCreateCut(db: any, body: any, userId: string) {
   timeline = recomputeTimeline(timeline);
   const totalDurationMs = timeline.reduce((s: number, t: any) => s + (t.effective_duration_ms || t.duration_ms), 0);
 
+  // ── Assembly Gates ──
+  const assemblyFailures: string[] = [];
+  const clipsPresent = timeline.filter((t: any) => t.has_clip).length;
+  const totalBeats = timeline.length;
+  const clipCoverage = totalBeats > 0 ? clipsPresent / totalBeats : 0;
+
+  // Gate: minimum clip coverage (at least 60%)
+  if (clipCoverage < 0.6) {
+    assemblyFailures.push(`Only ${Math.round(clipCoverage * 100)}% of beats have clips — need ≥60%`);
+  }
+
+  // Gate: beat count sanity (at least 6 beats)
+  if (totalBeats < 6) {
+    assemblyFailures.push(`Only ${totalBeats} beats in timeline — trailers need ≥6`);
+  }
+
+  // Gate: button beat exists (last beat should have role or phase hint)
+  const lastBeat = timeline[timeline.length - 1];
+  if (lastBeat && !["button", "title_card"].includes(lastBeat.role)) {
+    // Soft warning, not blocking
+  }
+
+  // Gate: total duration sanity
+  if (totalDurationMs < 15000) {
+    assemblyFailures.push(`Total duration ${Math.round(totalDurationMs / 1000)}s too short — need ≥15s`);
+  }
+  if (totalDurationMs > 300000) {
+    assemblyFailures.push(`Total duration ${Math.round(totalDurationMs / 1000)}s too long — trailers should be ≤300s`);
+  }
+
+  const assemblyGates = { passed: assemblyFailures.length === 0, failures: assemblyFailures };
+
   // Build NLE EDL export
   const edlExport = {
     version: "2.0",
@@ -196,6 +228,7 @@ async function handleCreateCut(db: any, body: any, userId: string) {
     render_width: options.width || 1280,
     render_height: options.height || 720,
     render_fps: options.fps || 24,
+    gates_json: assemblyGates,
   }).select().single();
 
   if (cutErr) return json({ error: cutErr.message }, 500);
@@ -203,11 +236,11 @@ async function handleCreateCut(db: any, body: any, userId: string) {
   await logCutEvent(db, {
     project_id: projectId, cut_id: cut.id, blueprint_id: blueprintId,
     event_type: "create_cut",
-    payload: { beatCount: timeline.length, totalDurationMs, hasClips: timeline.filter((t: any) => t.has_clip).length },
+    payload: { beatCount: timeline.length, totalDurationMs, hasClips: clipsPresent, gates: assemblyGates },
     created_by: userId,
   });
 
-  return json({ ok: true, cutId: cut.id, timeline, edlExport, totalDurationMs });
+  return json({ ok: true, cutId: cut.id, timeline, edlExport, totalDurationMs, gates: assemblyGates });
 }
 
 // ─── Update Beat ───

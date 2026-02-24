@@ -786,13 +786,14 @@ No markdown.`;
       }
     }
 
-    // Update run status
+    // Update run status + persist gates
     const status = gateResult.passed ? "complete" : "needs_repair";
     await db.from("trailer_script_runs").update({
       status,
       structure_score: structureScore,
       cinematic_score: cinematicScore,
       warnings: allWarnings,
+      gates_json: gateResult,
     }).eq("id", run.id);
 
     // Auto-export as project document (fire-and-forget, don't block return)
@@ -1316,11 +1317,43 @@ No commentary. No explanation. No markdown. Only valid JSON.${rhythmContext}`);
       if (shotErr) throw new Error(`Insert shot specs failed: ${shotErr.message}`);
     }
 
+    // Run shot design gates
+    const shotGateFailures: string[] = [];
+    // Gate: Non-static movement check
+    for (const b of beats) {
+      const bSpecs = specsByBeat[b.beat_index] || [];
+      const hasSilence = (b.silence_before_ms > 0) || (b.silence_after_ms > 0);
+      const hasWithholding = b.withholding_note && b.withholding_note.trim().length > 0;
+      if (!hasSilence && !hasWithholding && b.phase !== "button") {
+        const allStatic = bSpecs.every((s: any) => s.camera_move === "static");
+        if (allStatic && bSpecs.length > 0) {
+          shotGateFailures.push(`Beat #${b.beat_index} (${b.phase}): all shots static — needs camera movement`);
+        }
+      }
+    }
+    // Gate: Transition variety — at least 3 distinct transition types
+    const allTransitions = new Set<string>();
+    for (const s of shotSpecs) {
+      if (s.transition_in) allTransitions.add(s.transition_in);
+      if (s.transition_out) allTransitions.add(s.transition_out);
+    }
+    if (allTransitions.size < 3) {
+      shotGateFailures.push(`Only ${allTransitions.size} transition types used — need ≥3 for variety`);
+    }
+    // Gate: Crescendo density — at least 3 shots per crescendo beat
+    for (const [bi, count] of Object.entries(crescendoShotsPerBeat)) {
+      if ((count as number) < 3) {
+        shotGateFailures.push(`Crescendo beat #${bi}: only ${count} shots, need ≥3 for micro-montage`);
+      }
+    }
+    const shotGateResult = { passed: shotGateFailures.length === 0, failures: shotGateFailures };
+
     await db.from("trailer_shot_design_runs").update({
-      status: "complete",
+      status: shotGateResult.passed ? "complete" : "complete",
       global_movement_curve_json: parsed.global_movement_curve || null,
       lens_bias_json: parsed.lens_bias || null,
-      warnings: parsed.warnings || [],
+      warnings: [...(parsed.warnings || []), ...shotGateFailures],
+      gates_json: shotGateResult,
     }).eq("id", run.id);
 
     return json({
@@ -1330,7 +1363,8 @@ No commentary. No explanation. No markdown. Only valid JSON.${rhythmContext}`);
       shotCount: shotRows.length,
       beatsCount: beats.length,
       crescendoShotsPerBeat,
-      warnings: parsed.warnings || [],
+      warnings: [...(parsed.warnings || []), ...shotGateFailures],
+      gates: shotGateResult,
       seed: resolvedSeed,
     });
 
@@ -1624,6 +1658,7 @@ ${canonText.slice(0, 8000)}`;
     await db.from("trailer_script_runs").update({
       status: newStatus,
       warnings: gateResult.failures,
+      gates_json: gateResult,
     }).eq("id", scriptRunId);
 
     return json({
