@@ -240,6 +240,14 @@ export interface ChunkedLLMOptions<TItem, TResult> {
   extractItems: (result: TResult) => any[];
   /** Handler name for telemetry. */
   handler: string;
+  /** Extract a unique key from each output item. Enables deduplication. */
+  getKey?: (item: any) => string;
+  /** When getKey is provided, deduplicate items. First-write-wins. Default true. */
+  dedupe?: boolean;
+  /** Called after each batch with extracted items for custom validation/telemetry. */
+  onBatchResult?: (batchIndex: number, extractedItems: any[]) => void;
+  /** Post-process all combined items before returning. */
+  finalize?: (allItems: any[]) => any[];
 }
 
 /**
@@ -264,7 +272,9 @@ export async function callLLMChunked<TItem, TResult>(
     throw new Error(`${handler}: input requires ${batches.length} batches but max is ${maxBatches}. Reduce input size.`);
   }
 
+  const { getKey, dedupe = true, onBatchResult, finalize } = opts;
   const allItems: any[] = [];
+  const seenKeys = new Set<string>();
 
   for (let i = 0; i < batches.length; i++) {
     const batch = batches[i];
@@ -285,10 +295,31 @@ export async function callLLMChunked<TItem, TResult>(
     );
 
     const extracted = extractItems(result);
-    allItems.push(...extracted);
+
+    if (onBatchResult) onBatchResult(i, extracted);
+
+    if (getKey && dedupe) {
+      for (const item of extracted) {
+        const key = getKey(item);
+        if (seenKeys.has(key)) {
+          console.error(JSON.stringify({
+            type: "CHUNKED_LLM_DUPLICATE",
+            handler,
+            model: llmOpts.model,
+            duplicateKey: key,
+            batch: i + 1,
+          }));
+          continue; // first-write-wins
+        }
+        seenKeys.add(key);
+        allItems.push(item);
+      }
+    } else {
+      allItems.push(...extracted);
+    }
   }
 
-  return allItems;
+  return finalize ? finalize(allItems) : allItems;
 }
 
 // ─── Core LLM Caller ───

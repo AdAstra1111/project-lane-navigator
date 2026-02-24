@@ -116,7 +116,7 @@ Focus on the strongest, most important connections (max 50 links). Return ONLY a
           validate: (d): d is any => Array.isArray(d),
         });
       } else {
-        // Chunk by scene batches
+        // Chunk by scene batches with deduplication
         links = await callLLMChunked({
           llmOpts: {
             apiKey,
@@ -141,12 +141,24 @@ Focus on the strongest connections in this batch. Return ONLY a JSON array.`,
             `Scene batch ${idx + 1} of ${total}. Identify links among and between these scenes:\n${JSON.stringify(batch)}`,
           validate: (d): d is any => Array.isArray(d),
           extractItems: (d: any) => d,
+          getKey: (l: any) => `${l.from_unit_id}::${l.to_unit_id}::${l.link_type}`,
+          dedupe: true,
+          finalize: (allLinks: any[]) => {
+            // Cap at 50, keeping strongest
+            if (allLinks.length <= 50) return allLinks;
+            return allLinks
+              .sort((a: any, b: any) => (b.strength || 0) - (a.strength || 0))
+              .slice(0, 50);
+          },
         });
       }
     } catch {
       console.error("[feature-blueprint-build] Failed to parse links");
       links = [];
     }
+
+    // Validate link shapes
+    links = links.filter((l: any) => l && typeof l.from_unit_id === "string" && typeof l.to_unit_id === "string" && typeof l.link_type === "string");
 
     // Delete old links for this blueprint
     await adminClient.from("script_unit_links").delete().eq("blueprint_id", blueprintId);
@@ -172,6 +184,11 @@ Focus on the strongest connections in this batch. Return ONLY a JSON array.`,
       console.log(`[feature-blueprint-build] Created ${linkRows.length} links`);
     }
 
+    // Count link types
+    const linkStats: Record<string, number> = {};
+    for (const l of links) {
+      linkStats[l.link_type] = (linkStats[l.link_type] || 0) + 1;
+    }
     // Build world state
     const worldState: any = {
       knowledge_ledger: [],
