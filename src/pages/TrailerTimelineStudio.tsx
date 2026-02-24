@@ -3,6 +3,7 @@
  */
 import { useState, useMemo, useCallback, lazy, Suspense } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
+import { updateSearchParams } from '@/lib/searchParams';
 import {
   ArrowLeft, Film, Play, Loader2, Check, Download, RefreshCw,
   ChevronUp, ChevronDown, Scissors, Type, AlertTriangle, Clapperboard,
@@ -126,7 +127,7 @@ export default function TrailerTimelineStudio() {
     if (!blueprintId) return;
     createCut.mutate({ blueprintId }, {
       onSuccess: (data) => {
-        setSearchParams(prev => { const next = new URLSearchParams(prev); next.set('blueprintId', blueprintId!); next.set('cutId', data.cutId); return next; });
+        updateSearchParams(setSearchParams, p => { p.set('blueprintId', blueprintId!); p.set('cutId', data.cutId); });
       },
     });
   };
@@ -400,7 +401,7 @@ export default function TrailerTimelineStudio() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
-              <Select value={blueprintId || ''} onValueChange={(v) => setSearchParams(prev => { const next = new URLSearchParams(prev); next.set('blueprintId', v); next.delete('cutId'); return next; })}>
+              <Select value={blueprintId || ''} onValueChange={(v) => updateSearchParams(setSearchParams, p => { p.set('blueprintId', v); p.delete('cutId'); })}>
                 <SelectTrigger className="text-xs"><SelectValue placeholder="Select blueprint" /></SelectTrigger>
                 <SelectContent>
                   {blueprints.map((bp: any) => (
@@ -430,7 +431,7 @@ export default function TrailerTimelineStudio() {
                     {cuts.map((c: any) => (
                       <div key={c.id} className="flex items-center gap-1">
                         <button
-                          onClick={() => setSearchParams(prev => { const next = new URLSearchParams(prev); next.set('blueprintId', blueprintId || c.blueprint_id); next.set('cutId', c.id); return next; })}
+                          onClick={() => updateSearchParams(setSearchParams, p => { p.set('blueprintId', blueprintId || c.blueprint_id); p.set('cutId', c.id); })}
                           className={`flex-1 text-left px-2 py-1.5 rounded text-xs transition-colors ${
                             cutId === c.id ? 'bg-primary/10 border border-primary/30' : 'hover:bg-muted border border-transparent'
                           }`}>
@@ -452,7 +453,7 @@ export default function TrailerTimelineStudio() {
                               if (confirm('Delete this failed cut?')) {
                                 deleteCut.mutate(c.id, {
                                   onSuccess: () => {
-                                    if (cutId === c.id) setSearchParams(prev => { const next = new URLSearchParams(prev); next.set('blueprintId', blueprintId || ''); next.delete('cutId'); return next; });
+                                    if (cutId === c.id) updateSearchParams(setSearchParams, p => { p.set('blueprintId', blueprintId || ''); p.delete('cutId'); });
                                   },
                                 });
                               }

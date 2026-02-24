@@ -4,6 +4,7 @@
  */
 import { lazy, Suspense, useEffect } from 'react';
 import { useParams, Link, useSearchParams } from 'react-router-dom';
+import { updateSearchParams } from '@/lib/searchParams';
 import { motion } from 'framer-motion';
 import {
   ArrowLeft, Clapperboard, Scissors, Music,
@@ -77,11 +78,7 @@ export default function TrailerHub() {
   // Coerce missing/invalid tab to 'blueprints', preserving all other params
   useEffect(() => {
     if (!tabParam || !ALLOWED_TABS.has(tabParam)) {
-      setSearchParams(prev => {
-        const next = new URLSearchParams(prev);
-        next.set('tab', 'blueprints');
-        return next;
-      }, { replace: true });
+      updateSearchParams(setSearchParams, p => p.set('tab', 'blueprints'), { replace: true });
     }
   }, [tabParam, setSearchParams]);
 
@@ -133,7 +130,7 @@ export default function TrailerHub() {
               <div key={step.step}>
                 <button
                   className="w-full text-left"
-                  onClick={() => setSearchParams(prev => { const next = new URLSearchParams(prev); next.set('tab', step.tab); return next; })}
+                  onClick={() => updateSearchParams(setSearchParams, p => p.set('tab', step.tab))}
                 >
                   <Card className="transition-all hover:shadow-md hover:border-primary/30 cursor-pointer">
                     <CardContent className="p-4 flex items-center gap-4">

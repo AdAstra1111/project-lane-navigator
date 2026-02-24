@@ -3,6 +3,7 @@
  */
 import { useState, useMemo } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
+import { updateSearchParams } from '@/lib/searchParams';
 import {
   ArrowLeft, Film, Play, Loader2, Check, RefreshCw, Download,
   ChevronDown, ChevronRight, Zap, AlertTriangle, XCircle, Clapperboard, Clock,
@@ -144,7 +145,7 @@ export default function ClipCandidatesStudio() {
   };
 
   const selectBlueprintId = (id: string) => {
-    setSearchParams(prev => { const next = new URLSearchParams(prev); next.set('blueprintId', id); return next; });
+    updateSearchParams(setSearchParams, p => p.set('blueprintId', id));
   };
 
   return (
