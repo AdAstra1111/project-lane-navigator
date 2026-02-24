@@ -29,13 +29,17 @@ export function Header() {
     navigate('/auth');
   };
 
-  const navItems = [
+  const toolItems = [
     { label: 'Companies', icon: Building2, path: '/companies' },
     { label: 'Pitch Ideas', icon: Lightbulb, path: '/pitch-ideas' },
     { label: 'Trends', icon: Radio, path: '/trends' },
     { label: 'Incentives', icon: Landmark, path: '/incentives' },
     { label: 'Calendar', icon: LayoutGrid, path: '/calendar' },
     { label: 'Buyers', icon: Users, path: '/buyer-crm' },
+    { label: 'Market Intelligence', icon: Globe, path: '/market-intelligence' },
+    { label: 'Coverage Lab', icon: FlaskConical, path: '/coverage-lab' },
+    { label: 'Festivals', icon: Calendar, path: '/festivals' },
+    { label: 'Reports', icon: BarChart3, path: '/reports' },
   ];
 
   return (
@@ -53,18 +57,31 @@ export function Header() {
         <div className="hidden md:flex items-center gap-3">
           <ModeToggle />
           <div className="h-5 w-px bg-border/50" />
-          {navItems.map(item => (
-            <Button
-              key={item.path}
-              variant="ghost"
-              size="sm"
-              onClick={() => navigate(item.path)}
-              className="text-muted-foreground hover:text-foreground"
-            >
-              <item.icon className="h-4 w-4 mr-1" />
-              {item.label}
-            </Button>
-          ))}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => navigate('/dashboard')}
+            className="text-muted-foreground hover:text-foreground"
+          >
+            <LayoutGrid className="h-4 w-4 mr-1" />
+            Projects
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground">
+                <Zap className="h-4 w-4 mr-1" />
+                Tools
+                <ChevronDown className="h-3 w-3 ml-0.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              {toolItems.map(item => (
+                <DropdownMenuItem key={item.path} onClick={() => navigate(item.path)}>
+                  <item.icon className="h-4 w-4 mr-2" /> {item.label}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground">
@@ -74,26 +91,6 @@ export function Header() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-44">
-              <DropdownMenuItem onClick={() => navigate('/reports')}>
-                <BarChart3 className="h-4 w-4 mr-2" /> Reports & Exports
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => navigate('/market-intelligence')}>
-                <Globe className="h-4 w-4 mr-2" /> Market Intelligence
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => navigate('/festivals')}>
-                <Calendar className="h-4 w-4 mr-2" /> Festivals
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => navigate('/coverage-lab')}>
-                <FlaskConical className="h-4 w-4 mr-2" /> Coverage Lab
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => navigate('/quick-review')}>
-                <Zap className="h-4 w-4 mr-2" /> Quick Review
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => navigate('/deep-review')}>
-                <SearchIcon className="h-4 w-4 mr-2" /> Deep Review
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => navigate('/showcase')}>
                 <Sparkles className="h-4 w-4 mr-2" /> Showcase
               </DropdownMenuItem>
@@ -149,7 +146,16 @@ export function Header() {
             <ModeToggle />
           </div>
           <div className="border-t border-border/30 my-2" />
-          {navItems.map(item => (
+          <button
+            onClick={() => { navigate('/dashboard'); setMobileOpen(false); }}
+            className="flex items-center gap-3 w-full px-3 py-2.5 rounded-md text-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+          >
+            <LayoutGrid className="h-4 w-4" />
+            Projects
+          </button>
+          <div className="border-t border-border/30 my-2" />
+          <span className="px-3 text-xs font-medium text-muted-foreground/60 uppercase tracking-wider">Tools</span>
+          {toolItems.map(item => (
             <button
               key={item.path}
               onClick={() => { navigate(item.path); setMobileOpen(false); }}
@@ -161,11 +167,6 @@ export function Header() {
           ))}
           <div className="border-t border-border/30 my-2" />
           {[
-            { label: 'Reports & Exports', path: '/reports', icon: BarChart3 },
-            { label: 'Market Intelligence', path: '/market-intelligence', icon: Globe },
-            { label: 'Festivals', path: '/festivals', icon: Calendar },
-            { label: 'Quick Review', path: '/quick-review', icon: Zap },
-            { label: 'Deep Review', path: '/deep-review', icon: SearchIcon },
             { label: 'Showcase', path: '/showcase', icon: Sparkles },
             { label: 'Settings', path: '/settings', icon: Settings },
           ].map(item => (

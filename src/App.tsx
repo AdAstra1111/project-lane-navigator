@@ -87,8 +87,10 @@ import { ProjectShell } from "@/components/project/ProjectShell";
 
 // Trailer redirect helper — maps old trailer routes to canonical /projects/:id/trailer?tab=
 function TrailerRedirect({ tab }: { tab?: string }) {
-  const { id } = useParams<{ id: string }>();
-  const to = `/projects/${id}/trailer${tab ? `?tab=${tab}` : ''}`;
+  const { id, '*': splat } = useParams<{ id: string; '*': string }>();
+  // Derive tab from explicit prop, splat path segment, or default empty
+  const resolvedTab = tab || splat?.split('/').filter(Boolean)[0] || '';
+  const to = `/projects/${id}/trailer${resolvedTab ? `?tab=${resolvedTab}` : ''}`;
   return <Navigate to={to} replace />;
 }
 const queryClient = new QueryClient({
@@ -170,10 +172,8 @@ const AnimatedRoutes = () => {
           <Route path="/projects/:id/trailer-clips" element={<ProtectedRoute><TrailerRedirect tab="clips" /></ProtectedRoute>} />
           <Route path="/projects/:id/trailer-assemble" element={<ProtectedRoute><TrailerRedirect tab="assemble" /></ProtectedRoute>} />
           <Route path="/projects/:id/visual-dev" element={<ProtectedRoute><VisualDevHub /></ProtectedRoute>} />
-          <Route path="/projects/:id/visual-dev/trailer" element={<ProtectedRoute><TrailerRedirect /></ProtectedRoute>} />
-          <Route path="/projects/:id/visual-dev/trailer/blueprints" element={<ProtectedRoute><TrailerRedirect tab="blueprints" /></ProtectedRoute>} />
-          <Route path="/projects/:id/visual-dev/trailer/clips" element={<ProtectedRoute><TrailerRedirect tab="clips" /></ProtectedRoute>} />
-          <Route path="/projects/:id/visual-dev/trailer/assemble" element={<ProtectedRoute><TrailerRedirect tab="assemble" /></ProtectedRoute>} />
+          {/* Legacy visual-dev/trailer/* → canonical trailer route */}
+          <Route path="/projects/:id/visual-dev/trailer/*" element={<ProtectedRoute><TrailerRedirect /></ProtectedRoute>} />
 
           {/* ── Week 1 refactor: new ProjectShell workspace routes ── */}
           <Route path="/projects/:id/script" element={<ProtectedRoute><ProjectShell><ProjectDevelopmentEngine /></ProjectShell></ProtectedRoute>} />
