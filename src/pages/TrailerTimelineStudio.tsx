@@ -126,7 +126,7 @@ export default function TrailerTimelineStudio() {
     if (!blueprintId) return;
     createCut.mutate({ blueprintId }, {
       onSuccess: (data) => {
-        setSearchParams({ blueprintId: blueprintId!, cutId: data.cutId });
+        setSearchParams(prev => { const next = new URLSearchParams(prev); next.set('blueprintId', blueprintId!); next.set('cutId', data.cutId); return next; });
       },
     });
   };
@@ -400,7 +400,7 @@ export default function TrailerTimelineStudio() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
-              <Select value={blueprintId || ''} onValueChange={(v) => setSearchParams({ blueprintId: v })}>
+              <Select value={blueprintId || ''} onValueChange={(v) => setSearchParams(prev => { const next = new URLSearchParams(prev); next.set('blueprintId', v); next.delete('cutId'); return next; })}>
                 <SelectTrigger className="text-xs"><SelectValue placeholder="Select blueprint" /></SelectTrigger>
                 <SelectContent>
                   {blueprints.map((bp: any) => (
@@ -430,7 +430,7 @@ export default function TrailerTimelineStudio() {
                     {cuts.map((c: any) => (
                       <div key={c.id} className="flex items-center gap-1">
                         <button
-                          onClick={() => setSearchParams({ blueprintId: blueprintId || c.blueprint_id, cutId: c.id })}
+                          onClick={() => setSearchParams(prev => { const next = new URLSearchParams(prev); next.set('blueprintId', blueprintId || c.blueprint_id); next.set('cutId', c.id); return next; })}
                           className={`flex-1 text-left px-2 py-1.5 rounded text-xs transition-colors ${
                             cutId === c.id ? 'bg-primary/10 border border-primary/30' : 'hover:bg-muted border border-transparent'
                           }`}>
@@ -452,7 +452,7 @@ export default function TrailerTimelineStudio() {
                               if (confirm('Delete this failed cut?')) {
                                 deleteCut.mutate(c.id, {
                                   onSuccess: () => {
-                                    if (cutId === c.id) setSearchParams({ blueprintId: blueprintId || '' });
+                                    if (cutId === c.id) setSearchParams(prev => { const next = new URLSearchParams(prev); next.set('blueprintId', blueprintId || ''); next.delete('cutId'); return next; });
                                   },
                                 });
                               }
