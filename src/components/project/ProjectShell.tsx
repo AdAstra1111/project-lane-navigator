@@ -353,7 +353,7 @@ export function ProjectShell({ children }: ProjectShellProps) {
         <div className="flex items-center gap-2 min-w-0 flex-1">
           <button
             onClick={() => navigate('/dashboard')}
-            className="h-7 w-7 rounded-md flex items-center justify-center text-muted-foreground/50 hover:text-foreground/80 hover:bg-muted/30 transition-colors shrink-0"
+            className="h-7 w-7 rounded-md flex items-center justify-center text-muted-foreground/60 hover:text-foreground hover:bg-muted/40 transition-colors shrink-0"
           >
             <ChevronLeft className="h-3.5 w-3.5" />
           </button>
@@ -370,7 +370,7 @@ export function ProjectShell({ children }: ProjectShellProps) {
               </Link>
               {lane && <LaneBadge lane={lane} size="sm" />}
               {project?.confidence != null && (
-                <span className="text-[10px] text-muted-foreground/50">
+                <span className="text-[10px] text-muted-foreground/70">
                   {Math.round(project.confidence * 100)}%
                 </span>
               )}
@@ -392,8 +392,8 @@ export function ProjectShell({ children }: ProjectShellProps) {
                 className={cn(
                   'h-7 w-7 rounded-md flex items-center justify-center transition-colors border',
                   drawerOpen
-                    ? 'text-foreground/70 border-border/30 bg-muted/20'
-                    : 'text-muted-foreground/40 border-transparent hover:text-foreground/60 hover:bg-muted/30',
+                    ? 'text-foreground/70 border-border/50 bg-muted/20'
+                    : 'text-muted-foreground/60 border-transparent hover:text-foreground hover:bg-muted/40',
                 )}
               >
                 {drawerOpen ? <PanelRightClose className="h-3.5 w-3.5" /> : <PanelRightOpen className="h-3.5 w-3.5" />}
