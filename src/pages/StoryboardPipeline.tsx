@@ -64,6 +64,35 @@ export default function StoryboardPipeline() {
   const renderJobs = renderRunDetail?.jobs || [];
   const isRenderRunning = renderRun?.status === 'running';
 
+  // Normalized warnings (bounded, deterministic)
+  const sbWarningsRaw = (renderRun as any)?.warnings;
+  const sbWarnings: string[] = Array.isArray(sbWarningsRaw)
+    ? sbWarningsRaw.filter((w: any) => typeof w === "string")
+    : [];
+
+  type SBWarningCategory = "critical" | "structure" | "pacing" | "tone" | "metadata" | "other";
+  const SB_CAT_ORDER: SBWarningCategory[] = ["critical", "structure", "pacing", "tone", "metadata", "other"];
+
+  function categorizeSBWarning(w: string): SBWarningCategory {
+    const l = w.toLowerCase();
+    if (l.includes("fail") || l.includes("missing") || l.includes("error")) return "critical";
+    if (l.includes("structure") || l.includes("arc") || l.includes("peak") || l.includes("escalation")) return "structure";
+    if (l.includes("pacing") || l.includes("tempo") || l.includes("duration") || l.includes("length")) return "pacing";
+    if (l.includes("tone") || l.includes("contrast") || l.includes("energy") || l.includes("flat")) return "tone";
+    if (l.includes("metadata") || l.includes("expected") || l.includes("unit") || l.includes("count")) return "metadata";
+    return "other";
+  }
+
+  function sortSBWarnings(ws: string[]): string[] {
+    return [...ws].sort((a, b) => {
+      const ai = SB_CAT_ORDER.indexOf(categorizeSBWarning(a));
+      const bi = SB_CAT_ORDER.indexOf(categorizeSBWarning(b));
+      return ai !== bi ? ai - bi : a.localeCompare(b);
+    });
+  }
+
+  const sbWarningsPreview = sortSBWarnings(sbWarnings).slice(0, 6);
+
   // Auto-select latest active render run
   const renderRuns = renderRunsData?.renderRuns || [];
   if (!activeRenderRunId && renderRuns.length > 0) {
@@ -327,12 +356,34 @@ export default function StoryboardPipeline() {
                           renderRun.status === 'complete' ? 'secondary' :
                           renderRun.status === 'failed' ? 'destructive' : 'outline'
                         } className="text-[10px]">{renderRun.status}</Badge>
+                        {renderRun.status === 'complete' && sbWarnings.length > 0 && (
+                          <span className="text-[10px] text-muted-foreground italic">
+                            (with warnings)
+                          </span>
+                        )}
                         <span className="text-muted-foreground">
                           {renderRun.succeeded}/{renderRun.total} done
                           {renderRun.failed > 0 && <span className="text-destructive ml-1">· {renderRun.failed} failed</span>}
                           {renderRun.running > 0 && <span className="text-primary ml-1">· {renderRun.running} in progress</span>}
                         </span>
                       </div>
+                      {sbWarnings.length > 0 && (
+                        <div className="flex items-start gap-2 text-xs">
+                          <span className="text-muted-foreground">
+                            {sbWarnings.length} warning{sbWarnings.length > 1 ? 's' : ''}
+                          </span>
+                          <div className="flex flex-wrap gap-1">
+                            {sbWarningsPreview.map((w, i) => {
+                              const label = w.length > 40 ? w.slice(0, 37) + '…' : w;
+                              return (
+                                <span key={`${i}-${w}`} className="rounded-md bg-muted px-2 py-0.5 text-muted-foreground" title={w}>
+                                  {label}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
                       <Progress value={renderRun.total > 0 ? ((renderRun.succeeded + renderRun.failed) / renderRun.total) * 100 : 0} className="h-2" />
 
                       {/* Failed jobs */}
