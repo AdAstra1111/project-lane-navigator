@@ -82,8 +82,16 @@ export function ActivityLogPanel({ projectId }: { projectId: string }) {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center p-6">
-        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+      <div className="flex flex-col gap-0.5 p-1">
+        {[...Array(4)].map((_, i) => (
+          <div key={i} className="flex items-start gap-2.5 px-3 py-2.5">
+            <div className="h-3.5 w-3.5 rounded-full bg-muted/40 animate-pulse shrink-0 mt-0.5" />
+            <div className="flex-1 space-y-1.5">
+              <div className="h-2.5 w-3/4 bg-muted/30 rounded animate-pulse" />
+              <div className="h-2 w-1/3 bg-muted/20 rounded animate-pulse" />
+            </div>
+          </div>
+        ))}
       </div>
     );
   }
@@ -94,6 +102,9 @@ export function ActivityLogPanel({ projectId }: { projectId: string }) {
         <Clock className="h-5 w-5 text-muted-foreground/30" />
         <p className="text-[11px] text-muted-foreground/50 text-center">
           No AI activity yet for this project.
+        </p>
+        <p className="text-[10px] text-muted-foreground/30 text-center max-w-[200px]">
+          Run a rewrite or generate a blueprint to populate this log.
         </p>
       </div>
     );
