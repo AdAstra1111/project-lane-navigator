@@ -208,7 +208,36 @@ Rules:
 - Aspect ratio: ${aspectRatio}
 - Prompts must be safe for AI image generation (no real people names, no copyrighted characters)
 - Include lighting, mood, and composition details in the prompt field
-- Return ONLY valid JSON`;
+
+------------------------------------------------------------
+INTERNAL CIK METADATA (REQUIRED)
+------------------------------------------------------------
+
+You MUST include a top-level "cik" object in your JSON response.
+It contains internal quality-scoring metadata and will be stripped before storage.
+
+"cik": {
+  "units": [
+    {
+      "id": "<unit_key value>",
+      "intent": "intrigue|threat|wonder|chaos|emotion|release",
+      "energy": 0.0-1.0,
+      "tension": 0.0-1.0,
+      "density": 0.0-1.0,
+      "tonal_polarity": -1.0 to 1.0
+    }
+  ]
+}
+
+Rules for cik.units:
+- Array length MUST equal the number of units in panels_by_unit.
+- Each unit id MUST match the corresponding unit_key value.
+- intent: choose the single dominant intent for each unit.
+- energy/tension/density: 0.0 to 1.0 floats reflecting unit intensity.
+- tonal_polarity: -1.0 (dark/threatening) to 1.0 (hopeful/uplifting).
+- Do NOT omit any field. Do NOT change the main output schema.
+
+Return ONLY valid JSON`;
 
     let panelsByUnit: any[];
 

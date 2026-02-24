@@ -90,6 +90,11 @@ export async function enforceCinematicQuality<T>(opts: CinematicQualityOpts<T>):
   log("CINEMATIC_QUALITY_GATE", evt0);
   recordAttempt0(evt0);
 
+  // Warn if adapter fell back to heuristic on attempt 0
+  if (mode0 === "heuristic") {
+    console.error(JSON.stringify({ type: "CINEMATIC_ADAPTER_FALLBACK", handler, phase, model }));
+  }
+
   if (score0.pass) {
     recordFinal(evt0, "attempt0");
     flushCinematicSummaryIfDue({ handler, phase, model });
