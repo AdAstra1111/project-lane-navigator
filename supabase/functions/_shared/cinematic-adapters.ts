@@ -1,0 +1,120 @@
+/**
+ * Cinematic Intelligence Kernel — Hybrid adapters
+ * Prefer explicit cik.units metadata; fallback to deterministic heuristics.
+ */
+import type { CinematicUnit, CinematicIntent } from "./cinematic-model.ts";
+
+function clamp(v: number, lo: number, hi: number): number {
+  return Math.max(lo, Math.min(hi, v));
+}
+
+// ─── Fixed-lexicon intent inference ───
+
+const INTENT_LEXICONS: [CinematicIntent, RegExp][] = [
+  ["threat",  /\b(threat|danger|kill|attack|destroy|hunt|blood|weapon|gun|knife|dead|murder|fear|scream)\b/i],
+  ["wonder",  /\b(wonder|magic|beautiful|awe|dream|fantasy|enchant|shimmer|glow|light|radiant|miracle)\b/i],
+  ["chaos",   /\b(chaos|explod|crash|shatter|collapse|riot|storm|destruction|fire|inferno|pandemonium)\b/i],
+  ["emotion", /\b(love|cry|tear|heart|loss|grief|hope|tender|embrace|farewell|remember|miss)\b/i],
+  ["release", /\b(release|free|escape|breathe|peace|calm|resolve|finally|triumph|relief|dawn)\b/i],
+];
+
+function inferIntent(text: string): CinematicIntent {
+  for (const [intent, rx] of INTENT_LEXICONS) {
+    if (rx.test(text)) return intent;
+  }
+  return "intrigue";
+}
+
+// ─── Energy / tension / density / polarity from text ───
+
+const ACTION_VERBS = /\b(run|chase|fight|smash|slam|scream|explode|crash|sprint|strike|punch|throw|leap|charge)\b/gi;
+
+function energyFromText(text: string): number {
+  const len = Math.min(text.length, 500);
+  const actionHits = (text.match(ACTION_VERBS) || []).length;
+  const excl = (text.match(/!/g) || []).length;
+  const raw = (len / 500) * 0.3 + Math.min(actionHits, 5) * 0.1 + Math.min(excl, 3) * 0.05;
+  return clamp(raw + 0.2, 0, 1);
+}
+
+const TENSION_WORDS = /\b(stakes|danger|threat|risk|deadline|bomb|trap|betray|secret|lie|die|survive|urgent)\b/gi;
+
+function tensionFromText(text: string): number {
+  const hits = (text.match(TENSION_WORDS) || []).length;
+  return clamp(hits * 0.15 + 0.2, 0, 1);
+}
+
+function densityFromText(text: string): number {
+  const len = Math.min(text.length, 600);
+  return clamp(len / 600, 0, 1);
+}
+
+const LIGHT_WORDS = /\b(hope|light|warm|sunrise|laugh|joy|bright|gentle|peace|love|tender)\b/gi;
+const DARK_WORDS = /\b(dark|death|dread|fear|shadow|cold|bleak|grim|pain|suffering|void)\b/gi;
+
+function polarityFromText(text: string): number {
+  const light = (text.match(LIGHT_WORDS) || []).length;
+  const dark = (text.match(DARK_WORDS) || []).length;
+  const total = light + dark;
+  if (total === 0) return 0;
+  return clamp((light - dark) / Math.max(total, 1), -1, 1);
+}
+
+// ─── Explicit CIK unit mapper ───
+
+function mapExplicitUnit(u: any, i: number): CinematicUnit {
+  return {
+    id: u.id || `unit_${i}`,
+    intent: (["intrigue","threat","wonder","chaos","emotion","release"].includes(u.intent) ? u.intent : "intrigue") as CinematicIntent,
+    energy: clamp(Number(u.energy) || 0, 0, 1),
+    tension: clamp(Number(u.tension) || 0, 0, 1),
+    density: clamp(Number(u.density) || 0, 0, 1),
+    tonal_polarity: clamp(Number(u.tonal_polarity) || 0, -1, 1),
+  };
+}
+
+// ─── Trailer adapter ───
+
+export function adaptTrailerOutput(raw: any): CinematicUnit[] {
+  // Prefer explicit cik.units
+  if (raw?.cik?.units && Array.isArray(raw.cik.units) && raw.cik.units.length > 0) {
+    return raw.cik.units.map(mapExplicitUnit);
+  }
+
+  // Fallback: extract from beats/segments
+  const items: any[] = raw?.beats || raw?.segments || (Array.isArray(raw) ? raw : []);
+  return items.map((b: any, i: number) => {
+    const text = b.text || b.line || b.description || b.emotional_intent || b.title || "";
+    return {
+      id: b.beat_index != null ? `beat_${b.beat_index}` : `beat_${i}`,
+      intent: inferIntent(text),
+      energy: b.movement_intensity_target != null ? clamp(b.movement_intensity_target / 10, 0, 1) : energyFromText(text),
+      tension: tensionFromText(text),
+      density: b.shot_density_target != null ? clamp(b.shot_density_target / 3, 0, 1) : densityFromText(text),
+      tonal_polarity: polarityFromText(text),
+    };
+  });
+}
+
+// ─── Storyboard adapter ───
+
+export function adaptStoryboardPanels(raw: any): CinematicUnit[] {
+  // Prefer explicit cik.units
+  if (raw?.cik?.units && Array.isArray(raw.cik.units) && raw.cik.units.length > 0) {
+    return raw.cik.units.map(mapExplicitUnit);
+  }
+
+  // Fallback: extract from panels/items
+  const items: any[] = raw?.panels || raw?.items || (Array.isArray(raw) ? raw : []);
+  return items.map((p: any, i: number) => {
+    const text = p.prompt || p.description || p.composition || p.action || "";
+    return {
+      id: p.unit_key || p.id || `panel_${i}`,
+      intent: inferIntent(text),
+      energy: energyFromText(text),
+      tension: tensionFromText(text),
+      density: densityFromText(text),
+      tonal_polarity: polarityFromText(text),
+    };
+  });
+}
