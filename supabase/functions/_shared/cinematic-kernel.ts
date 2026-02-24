@@ -30,7 +30,7 @@ export interface CinematicQualityOpts<T> {
   phase: string;
   model: string;
   rawOutput: T;
-  adapter: (raw: T, expectedUnitCount?: number) => CinematicUnit[] | AdapterResult;
+  adapter: ((raw: T) => CinematicUnit[] | AdapterResult) | ((raw: T, expectedUnitCount?: number) => CinematicUnit[] | AdapterResult);
   buildRepairInstruction: (score: CinematicScore) => string;
   regenerateOnce: (repairInstruction: string) => Promise<T>;
   telemetry?: (eventName: string, payload: CinematicQualityGateEvent) => void;
@@ -43,7 +43,7 @@ function defaultTelemetry(eventName: string, payload: CinematicQualityGateEvent)
 }
 
 function runAdapter<T>(
-  adapter: (raw: T, expectedUnitCount?: number) => CinematicUnit[] | AdapterResult,
+  adapter: ((raw: T) => CinematicUnit[] | AdapterResult) | ((raw: T, expectedUnitCount?: number) => CinematicUnit[] | AdapterResult),
   raw: T,
   expectedUnitCount?: number,
 ): AdapterResult {
