@@ -115,9 +115,9 @@ export async function compileTrailerContext(
   const versionContentMap = new Map<string, string>();
   if (allVersionIds.length > 0) {
     const { data: versions } = await db.from("project_document_versions")
-      .select("id, plaintext, content").in("id", allVersionIds);
+      .select("id, plaintext").in("id", allVersionIds);
     for (const v of (versions || [])) {
-      versionContentMap.set(v.id, (v.plaintext || v.content || "").toString());
+      versionContentMap.set(v.id, (v.plaintext || "").toString());
     }
   }
 
