@@ -109,25 +109,27 @@ export async function enforceCinematicQuality<T>(opts: CinematicQualityOpts<T>):
     instruction += `\n\nSTYLE LOCK (MUST PRESERVE):\n${anchors.map((a) => `• ${a}`).join("\n")}\nDo not rename, swap, or remove these anchors.`;
   }
 
-  // Size guard: prevent token bloat
+  // Size guard: prevent token bloat — only trim STYLE LOCK, never base
   if (instruction.length > 4000) {
-    const trimmedAnchors = anchors.slice(0, 4);
     const styleLockStart = instruction.indexOf("\n\nSTYLE LOCK (MUST PRESERVE):");
     if (styleLockStart !== -1) {
       const base = instruction.slice(0, styleLockStart);
+      const trimmedAnchors = anchors.slice(0, 4);
       instruction = base + `\n\nSTYLE LOCK (MUST PRESERVE):\n${trimmedAnchors.map((a) => `• ${a}`).join("\n")}\nDo not rename, swap, or remove these anchors.`;
       if (instruction.length > 4000) {
-        instruction = base.slice(0, 4000);
+        instruction = base + `\n\nSTYLE LOCK (MUST PRESERVE): (omitted due to size cap)`;
       }
     }
   }
 
   const repaired = await regenerateOnce(instruction);
 
+  const { units: units1, mode: mode1 } = runAdapter(adapter, repaired);
+
   // Style drift telemetry (only when anchors existed)
   if (anchors.length > 0) {
     const repairedStr = JSON.stringify(repaired).toLowerCase();
-    const preserved = anchors.filter((a) => repairedStr.includes(a)).length;
+    const preserved = anchors.filter((a) => repairedStr.includes(a.toLowerCase())).length;
     const missing = anchors.length - preserved;
     const driftScore = preserved / anchors.length;
     console.error(JSON.stringify({
@@ -135,7 +137,7 @@ export async function enforceCinematicQuality<T>(opts: CinematicQualityOpts<T>):
       handler, phase, model, attempt: 1,
       anchors_total: anchors.length, anchors_preserved: preserved,
       anchors_missing: missing, drift_score: driftScore,
-      adapter_mode: mode0,
+      adapter_mode: mode1,
     }));
   }
 
