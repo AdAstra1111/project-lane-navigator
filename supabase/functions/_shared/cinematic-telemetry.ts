@@ -9,6 +9,7 @@ interface RollupBucket {
   pass_attempt0: number;
   pass_attempt1: number;
   fail_final: number;
+  attempt0_count: number;
   sum_score_attempt0: number;
   sum_score_final: number;
   min_score_final: number;
@@ -35,6 +36,7 @@ function getBucket(handler: string, phase: string, model: string): RollupBucket 
       pass_attempt0: 0,
       pass_attempt1: 0,
       fail_final: 0,
+      attempt0_count: 0,
       sum_score_attempt0: 0,
       sum_score_final: 0,
       min_score_final: 1,
@@ -53,6 +55,7 @@ function getBucket(handler: string, phase: string, model: string): RollupBucket 
  */
 export function recordAttempt0(payload: CinematicQualityGateEvent): void {
   const b = getBucket(payload.handler, payload.phase, payload.model);
+  b.attempt0_count++;
   b.sum_score_attempt0 += payload.score;
 }
 
@@ -105,7 +108,7 @@ export function flushCinematicSummaryIfDue(opts: { handler: string; phase: strin
       fail_final: total > 0 ? b.fail_final / total : 0,
     },
     scores: {
-      avg_attempt0: total > 0 ? b.sum_score_attempt0 / total : 0,
+      avg_attempt0: b.attempt0_count > 0 ? b.sum_score_attempt0 / b.attempt0_count : 0,
       avg_final: total > 0 ? b.sum_score_final / total : 0,
       min_final: b.min_score_final,
       max_final: b.max_score_final,
@@ -120,6 +123,7 @@ export function flushCinematicSummaryIfDue(opts: { handler: string; phase: strin
   b.pass_attempt0 = 0;
   b.pass_attempt1 = 0;
   b.fail_final = 0;
+  b.attempt0_count = 0;
   b.sum_score_attempt0 = 0;
   b.sum_score_final = 0;
   b.min_score_final = 1;
