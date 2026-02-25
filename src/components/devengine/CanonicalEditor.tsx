@@ -18,10 +18,11 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { Separator } from '@/components/ui/separator';
 import {
   ShieldCheck, ChevronDown, Save, Plus, Trash2, Loader2, History,
-  Copy, Download, BookOpen,
+  Copy, Download, BookOpen, AlertTriangle, Info, RotateCcw,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useProjectCanon, type CanonJson, type CanonCharacter, type CanonVersion } from '@/hooks/useProjectCanon';
+import { useCanonicalState } from '@/hooks/useCanonicalState';
 
 interface Props {
   projectId: string;
@@ -171,16 +172,17 @@ export function CanonicalEditor({ projectId }: Props) {
     canon, versions, activeApproved, isLoading, isSaving,
     save, approveVersion, isApproving,
   } = useProjectCanon(projectId);
+  const { source, sourceLabel, evidence, refetch: refetchCanonState } = useCanonicalState(projectId);
 
   // Local draft state for controlled inputs
   const [draft, setDraft] = useState<CanonJson>({});
   const [showVersions, setShowVersions] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
 
   // Sync from server on load
   useEffect(() => {
     if (canon && Object.keys(canon).length >= 0) {
       setDraft(prev => {
-        // Don't overwrite if user is editing (keep local if we have local state)
         if (Object.keys(prev).length === 0) return { ...canon };
         return prev;
       });
@@ -221,6 +223,27 @@ export function CanonicalEditor({ projectId }: Props) {
   const handleCopyJson = () => {
     navigator.clipboard.writeText(JSON.stringify(draft, null, 2));
     toast.success('Canon JSON copied');
+  };
+
+  const handleResetCanonCache = async () => {
+    if (!confirm('Reset all canon snapshots? This clears cached canon versions but preserves your documents and locked decisions.')) return;
+    setIsResetting(true);
+    try {
+      const { supabase } = await import('@/integrations/supabase/client');
+      // Clear canon_version_id pointer
+      await supabase.from('projects').update({ canon_version_id: null }).eq('id', projectId);
+      // Clear non-approved versions (keep approved ones as audit trail)
+      await (supabase as any).from('project_canon_versions')
+        .delete()
+        .eq('project_id', projectId)
+        .eq('is_approved', false);
+      refetchCanonState();
+      toast.success('Canon cache reset. Re-analyze to rebuild.');
+    } catch (e: any) {
+      toast.error('Reset failed: ' + (e.message || 'Unknown error'));
+    } finally {
+      setIsResetting(false);
+    }
   };
 
   if (isLoading) {
@@ -267,11 +290,57 @@ export function CanonicalEditor({ projectId }: Props) {
         </div>
       </div>
 
+      {/* Canon Source Indicator */}
+      <div className={`flex items-center gap-2 px-2.5 py-1.5 rounded-md text-[10px] border ${
+        source === 'unknown'
+          ? 'bg-destructive/5 border-destructive/20'
+          : source === 'canon_editor'
+            ? 'bg-primary/5 border-primary/20'
+            : 'bg-amber-500/5 border-amber-500/20'
+      }`}>
+        <Info className={`h-3.5 w-3.5 shrink-0 ${
+          source === 'unknown' ? 'text-destructive' : source === 'canon_editor' ? 'text-primary' : 'text-amber-500'
+        }`} />
+        <span className="text-foreground">
+          Canon sourced from: <strong>{sourceLabel}</strong>
+        </span>
+        {evidence && evidence.locked_decision_count > 0 && source !== 'locked_facts' && (
+          <span className="text-muted-foreground">
+            ({evidence.locked_decision_count} locked decision{evidence.locked_decision_count !== 1 ? 's' : ''} also active)
+          </span>
+        )}
+        <div className="ml-auto">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-5 text-[9px] gap-1 px-1.5 text-muted-foreground hover:text-destructive"
+            onClick={handleResetCanonCache}
+            disabled={isResetting}
+          >
+            {isResetting ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <RotateCcw className="h-2.5 w-2.5" />}
+            Reset Cache
+          </Button>
+        </div>
+      </div>
+
+      {/* Warning: Canon is empty but engines may be using document text */}
+      {source === 'unknown' && (
+        <div className="flex items-start gap-2 px-2.5 py-2 rounded-md bg-destructive/5 border border-destructive/20 text-[10px]">
+          <AlertTriangle className="h-3.5 w-3.5 text-destructive shrink-0 mt-0.5" />
+          <div>
+            <p className="text-foreground font-medium">No canonical state established</p>
+            <p className="text-muted-foreground mt-0.5">
+              Engines will analyze document text without canonical guardrails. Fill in at least a logline and characters below to establish canon, or run Analysis first.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Active Approved indicator */}
       {activeApproved && (
-        <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-md bg-yellow-500/5 border border-yellow-500/20 text-[10px]">
-          <ShieldCheck className="h-3.5 w-3.5 text-yellow-500" />
-          <span className="text-yellow-600">Active Approved Canon:</span>
+        <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-md bg-amber-500/5 border border-amber-500/20 text-[10px]">
+          <ShieldCheck className="h-3.5 w-3.5 text-amber-500" />
+          <span className="text-amber-600">Active Approved Canon:</span>
           <span className="text-muted-foreground">{new Date(activeApproved.approved_at || activeApproved.created_at).toLocaleString()}</span>
         </div>
       )}
