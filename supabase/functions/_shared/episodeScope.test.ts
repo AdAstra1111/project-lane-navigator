@@ -1,5 +1,5 @@
 /**
- * Unit tests for episodeScope — episode block parsing, merging, and validation.
+ * Unit tests for episodeScope — episode block parsing, merging, validation, and collapse detection.
  */
 
 import { assertEquals, assertArrayIncludes } from "https://deno.land/std@0.168.0/testing/asserts.ts";
@@ -8,6 +8,9 @@ import {
   mergeEpisodeBlocks,
   validateEpisodeMerge,
   extractTargetEpisodes,
+  extractEpisodeNumbersFromOutput,
+  detectCollapsedRangeSummaries,
+  buildEpisodeScaffold,
 } from "./episodeScope.ts";
 
 // ─── Test fixtures ───
@@ -107,7 +110,6 @@ Deno.test("mergeEpisodeBlocks: preserves untouched episodes verbatim", () => {
   assertEquals(result.replacedEpisodes, [2]);
   assertEquals(result.preservedEpisodes, [1, 3, 4]);
 
-  // Verify episode 1 is verbatim
   const originalBlocks = parseEpisodeBlocks(SAMPLE_DOC);
   const mergedBlocks = parseEpisodeBlocks(result.mergedText);
   assertEquals(mergedBlocks[0].rawBlock, originalBlocks[0].rawBlock);
@@ -131,7 +133,6 @@ Deno.test("mergeEpisodeBlocks: replaces only targeted episodes", () => {
 // ─── 6. Validation detects missing episodes ───
 
 Deno.test("validateEpisodeMerge: detects missing episodes", () => {
-  // Create a merged text that drops episode 3
   const incomplete = `## EPISODE 1: Pilot\nBeat 1\n\n## EPISODE 2: Rising\nBeat 1\n\n## EPISODE 4: Fallout\nBeat 1`;
 
   const validation = validateEpisodeMerge(SAMPLE_DOC, incomplete, [2]);
@@ -142,7 +143,6 @@ Deno.test("validateEpisodeMerge: detects missing episodes", () => {
 // ─── 7. Validation detects mutated untouched episode ───
 
 Deno.test("validateEpisodeMerge: detects summarised untouched block", () => {
-  // Mutate episode 1 (untouched) while targeting episode 2
   const mutated = SAMPLE_DOC
     .replace(
       "Beat 1: Setup the world\nBeat 2: Introduce protagonist\nBeat 3: Inciting incident",
@@ -190,4 +190,65 @@ Deno.test("extractTargetEpisodes: extracts from explicit + inferred", () => {
 Deno.test("parseEpisodeBlocks: returns empty for non-episode text", () => {
   const blocks = parseEpisodeBlocks("Just some plain text with no episode headers at all.");
   assertEquals(blocks.length, 0);
+});
+
+// ─── 11. detectCollapsedRangeSummaries catches "Eps 1–7" ───
+
+Deno.test("detectCollapsedRangeSummaries: catches Eps range pattern", () => {
+  assertEquals(detectCollapsedRangeSummaries("Eps 1–7 follow established structure"), true);
+  assertEquals(detectCollapsedRangeSummaries("Ep 2-5 remain high-density"), true);
+  assertEquals(detectCollapsedRangeSummaries("Episodes continue the pattern from above"), true);
+  assertEquals(detectCollapsedRangeSummaries("Use templates for remaining episodes"), true);
+});
+
+// ─── 12. detectCollapsedRangeSummaries passes clean output ───
+
+Deno.test("detectCollapsedRangeSummaries: passes clean episode text", () => {
+  assertEquals(detectCollapsedRangeSummaries(SAMPLE_DOC), false);
+});
+
+// ─── 13. extractEpisodeNumbersFromOutput extracts sorted unique ───
+
+Deno.test("extractEpisodeNumbersFromOutput: extracts sorted unique numbers", () => {
+  const text = `## EPISODE 3: Something\nbeats\n\n## EPISODE 1: Other\nbeats\n\n## EPISODE 2: More\nbeats`;
+  const nums = extractEpisodeNumbersFromOutput(text);
+  assertEquals(nums, [1, 2, 3]);
+});
+
+// ─── 14. buildEpisodeScaffold generates correct structure ───
+
+Deno.test("buildEpisodeScaffold: generates N episodes with headings", () => {
+  const scaffold = buildEpisodeScaffold(3);
+  const blocks = parseEpisodeBlocks(scaffold);
+  assertEquals(blocks.length, 3);
+  assertEquals(blocks[0].episodeNumber, 1);
+  assertEquals(blocks[2].episodeNumber, 3);
+  assertEquals(blocks[0].headerLine, "## EPISODE 1: (Title TBD)");
+});
+
+// ─── 15. Merge with multiple replacements ───
+
+Deno.test("mergeEpisodeBlocks: handles multiple simultaneous replacements", () => {
+  const replacements = {
+    1: `## EPISODE 1: Pilot REWRITTEN\nNew content`,
+    4: `## EPISODE 4: Fallout REWRITTEN\nNew content`,
+  };
+  const result = mergeEpisodeBlocks(SAMPLE_DOC, replacements);
+  assertEquals(result.replacedEpisodes, [1, 4]);
+  assertEquals(result.preservedEpisodes, [2, 3]);
+
+  const mergedBlocks = parseEpisodeBlocks(result.mergedText);
+  assertEquals(mergedBlocks[0].headerLine, "## EPISODE 1: Pilot REWRITTEN");
+  assertEquals(mergedBlocks[3].headerLine, "## EPISODE 4: Fallout REWRITTEN");
+  // Untouched blocks preserved
+  const originalBlocks = parseEpisodeBlocks(SAMPLE_DOC);
+  assertEquals(mergedBlocks[1].rawBlock, originalBlocks[1].rawBlock);
+  assertEquals(mergedBlocks[2].rawBlock, originalBlocks[2].rawBlock);
+});
+
+// ─── 16. Validation detects collapse tells ───
+
+Deno.test("detectCollapsedRangeSummaries: catches 'same structure as above'", () => {
+  assertEquals(detectCollapsedRangeSummaries("Episodes 8-15 use the same structure as above"), true);
+  assertEquals(detectCollapsedRangeSummaries("This repeats the format of episode 1"), true);
 });
