@@ -10313,6 +10313,48 @@ export type Database = {
           },
         ]
       }
+      project_lane_prefs: {
+        Row: {
+          id: string
+          lane: string
+          prefs: Json
+          project_id: string
+          updated_at: string
+          updated_by: string
+        }
+        Insert: {
+          id?: string
+          lane: string
+          prefs?: Json
+          project_id: string
+          updated_at?: string
+          updated_by: string
+        }
+        Update: {
+          id?: string
+          lane?: string
+          prefs?: Json
+          project_id?: string
+          updated_at?: string
+          updated_by?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_lane_prefs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "project_lane_prefs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       project_note_events: {
         Row: {
           created_at: string

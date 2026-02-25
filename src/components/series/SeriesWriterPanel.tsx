@@ -3,7 +3,8 @@
  * Displays canon status, season progress, validation results, and episode grid.
  */
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
+import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import {
   Layers, Play, CheckCircle2, Circle, Loader2, AlertTriangle,
@@ -28,6 +29,9 @@ import { SeasonHealthDashboard } from '@/components/series/SeasonHealthDashboard
 import { EpisodeEngagementPanel } from '@/components/series/EpisodeEngagementPanel';
 import { useEpisodeEngagement } from '@/hooks/useEpisodeEngagement';
 import { MasterSeasonScriptPanel } from '@/components/series/MasterSeasonScriptPanel';
+import { WorldRulesAccordion } from '@/components/rulesets/WorldRulesAccordion';
+import { ActiveRulesetBadge } from '@/components/rulesets/ActiveRulesetBadge';
+import { useProjectRuleset } from '@/hooks/useProjectRuleset';
 import { CompileSeasonModal } from '@/components/series/CompileSeasonModal';
 import { useMasterSeasonScript } from '@/hooks/useMasterSeasonScript';
 import { SeriesRunControlBar } from '@/components/series/SeriesRunControlBar';
@@ -482,6 +486,13 @@ export function SeriesWriterPanel({ projectId }: Props) {
   const engagement = useEpisodeEngagement();
   const masterScript = useMasterSeasonScript(projectId, episodes);
 
+  // Ruleset integration
+  const [userId, setUserId] = useState<string>('');
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => { if (data.user) setUserId(data.user.id); });
+  }, []);
+  const { activeProfile, isLocked } = useProjectRuleset(projectId, 'vertical_drama');
+
   const [episodeCount, setEpisodeCount] = useState('10');
   const [readerEpisode, setReaderEpisode] = useState<SeriesEpisode | null>(null);
   const [readerOpen, setReaderOpen] = useState(false);
@@ -537,6 +548,7 @@ export function SeriesWriterPanel({ projectId }: Props) {
         <div className="flex items-center gap-2">
           <Layers className="h-4 w-4 text-primary" />
           <h3 className="text-sm font-semibold text-foreground">Series Writer</h3>
+          <ActiveRulesetBadge profile={activeProfile} isLocked={isLocked} />
           <InfoTooltip text="Canon-locked sequential episode generation. Lock your Blueprint, Character Bible, and Episode Grid, then generate episodes in order with narrative continuity and validation." />
         </div>
         {hasEpisodes && (
@@ -545,6 +557,11 @@ export function SeriesWriterPanel({ projectId }: Props) {
           </span>
         )}
       </div>
+
+      {/* World Rules */}
+      {userId && (
+        <WorldRulesAccordion projectId={projectId} lane="vertical_drama" userId={userId} />
+      )}
 
       {/* Canon Status */}
       <CanonStatusCard
