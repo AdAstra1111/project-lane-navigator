@@ -1009,7 +1009,7 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
               <div className="space-y-1">
                 {pipelineSteps.map((s, i) => (
                   <div key={i} className="flex items-center gap-2 text-[11px]">
-                    {s.status === 'complete' || s.status === 'passed' || s.status === 'skipped' ? (
+                    {s.status === 'complete' || s.status === 'passed' || s.status === 'skipped' || s.status === 'deferred' ? (
                       <CheckCircle2 className="h-3 w-3 text-green-500" />
                     ) : s.status === 'failed' ? (
                       <AlertTriangle className="h-3 w-3 text-destructive" />
