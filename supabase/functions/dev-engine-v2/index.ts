@@ -1463,7 +1463,7 @@ serve(async (req) => {
         .select("title, budget_range, assigned_lane, format, development_behavior, episode_target_duration_seconds, episode_target_duration_min_seconds, episode_target_duration_max_seconds, season_episode_count, guardrails_config, canon_version_id")
         .eq("id", projectId).single();
 
-      // ── Canon OS: fetch active canon for authoritative episode metadata ──
+      // ── Canon OS: fetch active canon for authoritative metadata ──
       let canonEpisodeMeta: { episode_count: number | null; min: number | null; max: number | null } = { episode_count: null, min: null, max: null };
       let canonJson: any = null;
       try {
@@ -1472,12 +1472,25 @@ serve(async (req) => {
             .select("canon_json").eq("id", project.canon_version_id).maybeSingle();
           if (canonVer?.canon_json) {
             canonJson = canonVer.canon_json;
-            const ec = typeof canonJson.episode_count === "number" ? canonJson.episode_count : null;
-            let cMin = typeof canonJson.episode_length_seconds_min === "number" ? canonJson.episode_length_seconds_min : null;
-            let cMax = typeof canonJson.episode_length_seconds_max === "number" ? canonJson.episode_length_seconds_max : null;
-            if (cMin !== null && cMax !== null && cMin > cMax) { cMin = null; cMax = null; }
-            canonEpisodeMeta = { episode_count: ec, min: cMin, max: cMax };
           }
+        }
+        // Fallback: read directly from project_canon table
+        if (!canonJson) {
+          const { data: canonRow } = await supabase.from("project_canon")
+            .select("canon_json").eq("project_id", projectId).maybeSingle();
+          if (canonRow?.canon_json && typeof canonRow.canon_json === "object") {
+            const cj = canonRow.canon_json;
+            // Only use if it has substantive content
+            const hasContent = cj.logline || cj.premise || (Array.isArray(cj.characters) && cj.characters.length > 0) || cj.episode_count;
+            if (hasContent) canonJson = cj;
+          }
+        }
+        if (canonJson) {
+          const ec = typeof canonJson.episode_count === "number" ? canonJson.episode_count : null;
+          let cMin = typeof canonJson.episode_length_seconds_min === "number" ? canonJson.episode_length_seconds_min : null;
+          let cMax = typeof canonJson.episode_length_seconds_max === "number" ? canonJson.episode_length_seconds_max : null;
+          if (cMin !== null && cMax !== null && cMin > cMax) { cMin = null; cMax = null; }
+          canonEpisodeMeta = { episode_count: ec, min: cMin, max: cMax };
         }
       } catch (e) {
         console.warn("[dev-engine-v2] Canon fetch failed (non-fatal):", e);
@@ -1666,22 +1679,53 @@ Format: ${rq.format}.${episodeLengthBlock}`;
         console.warn("[dev-engine-v2] Locked decisions fetch failed (non-fatal):", e);
       }
 
-      // ── Canon OS Context block ──
+      // ── Canon OS Context block (FULL canon injection) ──
       let canonOSContext = "";
       if (canonJson) {
         const parts: string[] = [];
         if (canonJson.title) parts.push(`Title: ${canonJson.title}`);
+        if (canonJson.logline && typeof canonJson.logline === "string" && canonJson.logline.trim()) parts.push(`Logline: ${canonJson.logline}`);
+        if (canonJson.premise && typeof canonJson.premise === "string" && canonJson.premise.trim()) parts.push(`Premise: ${canonJson.premise}`);
         if (canonJson.format) parts.push(`Format: ${canonJson.format}`);
         if (canonJson.genre) parts.push(`Genre: ${canonJson.genre}`);
         if (canonJson.tone) parts.push(`Tone: ${canonJson.tone}`);
+        if (canonJson.tone_style && typeof canonJson.tone_style === "string" && canonJson.tone_style.trim()) parts.push(`Tone & Style: ${canonJson.tone_style}`);
         if (canonEpisodeMeta.episode_count) parts.push(`Episode count: ${canonEpisodeMeta.episode_count}`);
         if (canonEpisodeMeta.min != null && canonEpisodeMeta.max != null) {
           parts.push(`Episode duration range: ${canonEpisodeMeta.min}–${canonEpisodeMeta.max}s`);
         }
+        // Characters
+        if (Array.isArray(canonJson.characters) && canonJson.characters.length > 0) {
+          const charLines = canonJson.characters
+            .filter((c: any) => c.name && c.name.trim())
+            .map((c: any) => {
+              const details = [c.role, c.goals, c.traits].filter(Boolean).join("; ");
+              return `  - ${c.name}${details ? `: ${details}` : ""}`;
+            });
+          if (charLines.length > 0) parts.push(`Characters:\n${charLines.join("\n")}`);
+        }
+        if (canonJson.timeline && typeof canonJson.timeline === "string" && canonJson.timeline.trim()) parts.push(`Timeline: ${canonJson.timeline}`);
+        if (canonJson.locations && typeof canonJson.locations === "string" && canonJson.locations.trim()) parts.push(`Locations: ${canonJson.locations}`);
+        if (canonJson.ongoing_threads && typeof canonJson.ongoing_threads === "string" && canonJson.ongoing_threads.trim()) parts.push(`Ongoing threads: ${canonJson.ongoing_threads}`);
         if (Array.isArray(canonJson.world_rules) && canonJson.world_rules.length > 0) parts.push(`World rules: ${canonJson.world_rules.join("; ")}`);
+        else if (typeof canonJson.world_rules === "string" && canonJson.world_rules.trim()) parts.push(`World rules: ${canonJson.world_rules}`);
         if (Array.isArray(canonJson.forbidden_changes) && canonJson.forbidden_changes.length > 0) parts.push(`Forbidden changes: ${canonJson.forbidden_changes.join("; ")}`);
+        else if (typeof canonJson.forbidden_changes === "string" && canonJson.forbidden_changes.trim()) parts.push(`Forbidden changes: ${canonJson.forbidden_changes}`);
+        if (canonJson.format_constraints && typeof canonJson.format_constraints === "string" && canonJson.format_constraints.trim()) parts.push(`Format constraints: ${canonJson.format_constraints}`);
         if (parts.length > 0) {
           canonOSContext = `\nCANON OS (authoritative — these values override any other references):\n${parts.join("\n")}`;
+        }
+      }
+      // If no canon established, inject warning so engine doesn't invent canonical facts
+      if (!canonOSContext) {
+        // Check if canon_json is empty (no logline, premise, characters set)
+        const hasCanonContent = canonJson && (
+          (typeof canonJson.logline === "string" && canonJson.logline.trim()) ||
+          (typeof canonJson.premise === "string" && canonJson.premise.trim()) ||
+          (Array.isArray(canonJson.characters) && canonJson.characters.length > 0)
+        );
+        if (!hasCanonContent) {
+          canonOSContext = `\nCANON OS: No canonical logline, premise, or characters have been established in the Canon Editor. Do NOT assert specific protagonist names, premise details, or genre classifications as canonical facts. Analyze only what is present in the document text. If the document itself establishes these elements, reference them as "per the document" not as established canon.`;
         }
       }
 
@@ -2163,26 +2207,46 @@ GENERAL RULES:
 - Do NOT re-raise previously resolved issues as blockers.
 - If an existing note_key persists, use the same key — do NOT rephrase under a new key.${antiRepeatRule}`;
 
-      // ── Canon OS injection for notes ──
+      // ── Canon OS injection for notes (full canon fields) ──
       let notesCanonBlock = "";
       try {
         const { data: notesProj } = await supabase.from("projects")
           .select("canon_version_id").eq("id", projectId).single();
+        let notesCj: any = null;
         if (notesProj?.canon_version_id) {
           const { data: cVer } = await supabase.from("project_canon_versions")
             .select("canon_json").eq("id", notesProj.canon_version_id).maybeSingle();
-          if (cVer?.canon_json) {
-            const cj = cVer.canon_json;
-            const cMin = typeof cj.episode_length_seconds_min === "number" ? cj.episode_length_seconds_min : null;
-            const cMax = typeof cj.episode_length_seconds_max === "number" ? cj.episode_length_seconds_max : null;
-            const cCount = typeof cj.episode_count === "number" ? cj.episode_count : null;
-            const parts: string[] = [];
-            if (cCount) parts.push(`Episode count: ${cCount}`);
-            if (cMin != null && cMax != null) parts.push(`Episode duration range: ${cMin}–${cMax}s (use this range, not 180s or any other hardcoded value)`);
-            else if (cMin != null) parts.push(`Episode duration: ${cMin}s`);
-            if (cj.format) parts.push(`Format: ${cj.format}`);
-            if (parts.length > 0) notesCanonBlock = `\n\nCANON OS (authoritative):\n${parts.join("\n")}`;
+          notesCj = cVer?.canon_json;
+        }
+        // Fallback to project_canon table
+        if (!notesCj) {
+          const { data: canonRow } = await supabase.from("project_canon")
+            .select("canon_json").eq("project_id", projectId).maybeSingle();
+          notesCj = canonRow?.canon_json;
+        }
+        if (notesCj) {
+          const parts: string[] = [];
+          const cMin = typeof notesCj.episode_length_seconds_min === "number" ? notesCj.episode_length_seconds_min : null;
+          const cMax = typeof notesCj.episode_length_seconds_max === "number" ? notesCj.episode_length_seconds_max : null;
+          const cCount = typeof notesCj.episode_count === "number" ? notesCj.episode_count : null;
+          if (notesCj.logline && typeof notesCj.logline === "string" && notesCj.logline.trim()) parts.push(`Logline: ${notesCj.logline}`);
+          if (notesCj.premise && typeof notesCj.premise === "string" && notesCj.premise.trim()) parts.push(`Premise: ${notesCj.premise}`);
+          if (Array.isArray(notesCj.characters) && notesCj.characters.length > 0) {
+            const charLines = notesCj.characters.filter((c: any) => c.name?.trim()).map((c: any) => `  - ${c.name}: ${[c.role, c.goals].filter(Boolean).join("; ")}`);
+            if (charLines.length > 0) parts.push(`Characters:\n${charLines.join("\n")}`);
           }
+          if (cCount) parts.push(`Episode count: ${cCount}`);
+          if (cMin != null && cMax != null) parts.push(`Episode duration range: ${cMin}–${cMax}s (use this range, not 180s or any other hardcoded value)`);
+          else if (cMin != null) parts.push(`Episode duration: ${cMin}s`);
+          if (notesCj.format) parts.push(`Format: ${notesCj.format}`);
+          if (notesCj.tone_style && typeof notesCj.tone_style === "string" && notesCj.tone_style.trim()) parts.push(`Tone: ${notesCj.tone_style}`);
+          if (parts.length > 0) {
+            notesCanonBlock = `\n\nCANON OS (authoritative — do not contradict):\n${parts.join("\n")}`;
+          }
+        }
+        // If no canon content established, inject warning
+        if (!notesCanonBlock) {
+          notesCanonBlock = `\n\nCANON OS: No canonical logline, premise, or characters established. Reference document content as "per the document" not as established canon.`;
         }
       } catch (_e) { /* non-fatal */ }
 

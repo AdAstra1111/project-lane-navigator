@@ -9,12 +9,13 @@ import { Button } from '@/components/ui/button';
 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
-  Loader2, Sparkles, AlertTriangle, ArrowRight, Lightbulb, FileText, Clock,
+  Loader2, Sparkles, AlertTriangle, ArrowRight, Lightbulb, FileText, Clock, Info,
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { DecisionCard, type Decision, type DecisionOption } from './DecisionCard';
 import { toast } from 'sonner';
 import { recordResolutions } from '@/lib/decisions/client';
+import { useCanonicalState } from '@/hooks/useCanonicalState';
 
 interface GlobalDirection {
   id: string;
@@ -77,6 +78,7 @@ export function DecisionModePanel({
   const [isApplying, setIsApplying] = useState(false);
   const [isLoadingOptions, setIsLoadingOptions] = useState(false);
   const [continueVersionId, setContinueVersionId] = useState<string>('latest');
+  const { source: canonSource, sourceLabel: canonSourceLabel } = useCanonicalState(projectId);
 
   // Sync external decisions
   useEffect(() => {
@@ -247,6 +249,16 @@ export function DecisionModePanel({
           </CardHeader>
 
           <CardContent className="px-2 pb-2 space-y-2">
+            {/* Canon source indicator */}
+            <div className={`flex items-center gap-1.5 px-2 py-1 rounded text-[9px] border ${
+              canonSource === 'unknown'
+                ? 'bg-destructive/5 border-destructive/20 text-destructive'
+                : 'bg-muted/30 border-border/30 text-muted-foreground'
+            }`}>
+              <Info className="h-2.5 w-2.5 shrink-0" />
+              Canon: {canonSourceLabel}
+              {canonSource === 'unknown' && ' — engines will not assert canonical facts'}
+            </div>
             {/* Global Directions */}
             {globalDirections.length > 0 && (
               <div className="space-y-1 p-2 rounded border border-primary/20 bg-primary/5">
