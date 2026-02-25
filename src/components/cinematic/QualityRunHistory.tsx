@@ -266,6 +266,11 @@ export default function QualityRunHistory({ projectId }: { projectId: string }) 
 /* ── Run Detail ── */
 
 function RunDetail({ run, attempts }: { run: QualityRun; attempts: QualityAttempt[] }) {
+  // Specialized view for video_render runs
+  if (run.run_source === 'video_render') {
+    return <RenderRunDetail run={run} attempts={attempts} />;
+  }
+
   if (attempts.length === 0) return null;
 
   const attempt0 = attempts.find(a => a.attempt_index === 0);
@@ -276,7 +281,6 @@ function RunDetail({ run, attempts }: { run: QualityRun; attempts: QualityAttemp
     : null;
   const scoreDelta = attempt1 && attempt0 ? attempt1.score - attempt0.score : null;
 
-  // Repair instruction: prefer attempt1.input_summary_json.repair_instruction, fallback to attempt1.repair_instruction
   const repairInstruction = attempt1?.input_summary_json?.repair_instruction
     || attempt1?.repair_instruction
     || null;
@@ -389,6 +393,126 @@ function RunDetail({ run, attempts }: { run: QualityRun; attempts: QualityAttemp
           </TabsContent>
         ))}
       </Tabs>
+    </div>
+  );
+}
+
+/* ── Render Run Detail (video_render source) ── */
+
+function RenderRunDetail({ run, attempts }: { run: QualityRun; attempts: QualityAttempt[] }) {
+  const attempt0 = attempts.find(a => a.attempt_index === 0);
+  const metrics = run.metrics_json || {};
+  const outputShots = attempt0?.output_json?.shots || [];
+
+  return (
+    <div className="px-4 pb-4 space-y-3 border-t border-border/50 bg-muted/10">
+      {/* Render summary header */}
+      <div className="pt-3">
+        <p className="text-xs font-medium mb-2">Render Summary</p>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+          <div><span className="text-muted-foreground">Provider: </span><span className="font-medium">{metrics.provider_id || '—'}</span></div>
+          <div><span className="text-muted-foreground">Model: </span><span>{metrics.model_id || run.model}</span></div>
+          <div><span className="text-muted-foreground">Lane: </span><span>{run.lane || '—'}</span></div>
+          <div><span className="text-muted-foreground">Score: </span><span className="font-mono">{Number(run.final_score).toFixed(3)}</span></div>
+        </div>
+      </div>
+
+      {/* Shot stats */}
+      <div className="rounded-md border border-border bg-background p-3">
+        <div className="grid grid-cols-3 sm:grid-cols-5 gap-2 text-xs">
+          <div>
+            <span className="text-muted-foreground block text-[10px]">Total Shots</span>
+            <span className="font-mono font-medium">{metrics.totalShots ?? '—'}</span>
+          </div>
+          <div>
+            <span className="text-muted-foreground block text-[10px]">Completed</span>
+            <span className="font-mono font-medium text-green-600">{metrics.completedShots ?? '—'}</span>
+          </div>
+          <div>
+            <span className="text-muted-foreground block text-[10px]">Failed</span>
+            <span className="font-mono font-medium text-destructive">{metrics.failedShots ?? 0}</span>
+          </div>
+          <div>
+            <span className="text-muted-foreground block text-[10px]">Retries</span>
+            <span className="font-mono">{metrics.retries ?? 0}</span>
+          </div>
+          <div>
+            <span className="text-muted-foreground block text-[10px]">Rough Cut</span>
+            <span className="font-mono">{metrics.roughCutStatus ?? '—'}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Continuity warnings count */}
+      {metrics.continuityWarningsCount > 0 && (
+        <div className="text-xs">
+          <span className="text-muted-foreground">Continuity warnings: </span>
+          <span className="font-mono text-yellow-600 dark:text-yellow-400">{metrics.continuityWarningsCount}</span>
+        </div>
+      )}
+
+      {/* Hard failures */}
+      {(run.hard_failures || []).length > 0 && (
+        <div>
+          <span className="text-xs text-muted-foreground">Hard failures: </span>
+          <div className="flex flex-wrap gap-1 mt-1">
+            {(run.hard_failures || []).map(f => (
+              <Badge key={f} variant="destructive" className="text-[10px] px-1.5 py-0">{f}</Badge>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Diagnostic flags */}
+      {(run.diagnostic_flags || []).length > 0 && (
+        <div>
+          <span className="text-xs text-muted-foreground">Diagnostics: </span>
+          <div className="flex flex-wrap gap-1 mt-1">
+            {(run.diagnostic_flags || []).map(f => (
+              <Badge key={f} variant="outline" className="text-[10px] px-1.5 py-0">{f}</Badge>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Shot artifacts table */}
+      {outputShots.length > 0 && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-[10px] border border-border rounded">
+            <thead>
+              <tr className="bg-muted">
+                <th className="px-2 py-1 text-left font-medium">#</th>
+                <th className="px-2 py-1 text-right font-medium">Duration</th>
+                <th className="px-2 py-1 text-left font-medium">Path</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {outputShots.slice(0, 20).map((s: any, i: number) => (
+                <tr key={i} className="hover:bg-muted/30">
+                  <td className="px-2 py-0.5 font-mono">{s.shotIndex ?? i}</td>
+                  <td className="px-2 py-0.5 text-right font-mono">{s.durationSec ?? '—'}s</td>
+                  <td className="px-2 py-0.5 truncate max-w-[200px]">{s.storagePath || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Adapter metrics */}
+      {attempt0?.adapter_metrics_json && Object.keys(attempt0.adapter_metrics_json).length > 0 && (
+        <div className="text-xs">
+          <span className="text-muted-foreground">Performance: </span>
+          <span className="font-mono">
+            {attempt0.adapter_metrics_json.totalMs || attempt0.adapter_metrics_json.processingTimeMs
+              ? `${Math.round((attempt0.adapter_metrics_json.totalMs || attempt0.adapter_metrics_json.processingTimeMs) / 1000)}s`
+              : '—'}
+          </span>
+          {attempt0.adapter_metrics_json.avgCostPerShot != null && (
+            <span className="ml-2 font-mono">${attempt0.adapter_metrics_json.avgCostPerShot}/shot</span>
+          )}
+        </div>
+      )}
     </div>
   );
 }
