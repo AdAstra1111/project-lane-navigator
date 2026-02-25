@@ -70,6 +70,8 @@ REQUESTED EPISODES: ${episodes.join(', ')}
 
 You MUST output JSON with a key for EVERY episode listed above. Each value is the full episode block text starting with "## EPISODE N:" heading and 5–8 numbered beats.
 
+IMPORTANT: If you include ANY sentence referencing another episode range (e.g., "Eps 1–7…"), your response will be rejected and retried.
+
 OUTPUT JSON ONLY.`;
 }
 
