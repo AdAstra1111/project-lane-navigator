@@ -1436,6 +1436,20 @@ async function handleProcessQueue(db: any, body: any, userId: string) {
   const { projectId, blueprintId, maxJobs = 2 } = body;
   if (!blueprintId) return json({ error: "blueprintId required" }, 400);
 
+  // ── Stale job recovery: re-queue "running" jobs claimed > 15 min ago (worker crash recovery) ──
+  const STALE_THRESHOLD_MS = 15 * 60 * 1000;
+  const staleThreshold = new Date(Date.now() - STALE_THRESHOLD_MS).toISOString();
+  const { data: staleJobs } = await db.from("trailer_clip_jobs")
+    .update({ status: "queued", claimed_at: null, error: "Auto-recovered from stale running state" })
+    .eq("project_id", projectId).eq("blueprint_id", blueprintId)
+    .eq("status", "running")
+    .lt("claimed_at", staleThreshold)
+    .select("id");
+  const staleRecovered = (staleJobs || []).length;
+  if (staleRecovered > 0) {
+    console.log(`[process_queue] Recovered ${staleRecovered} stale running jobs`);
+  }
+
   const results: any[] = [];
   const rateLimitedProviders = new Set<string>();
 
@@ -1476,7 +1490,7 @@ async function handleProcessQueue(db: any, body: any, userId: string) {
     pollResult = await pollResp.json();
   } catch {}
 
-  return json({ ok: true, processed: results.length, results, poll: pollResult });
+  return json({ ok: true, processed: results.length, results, poll: pollResult, staleRecovered });
 }
 
 // ─── Action: cancel_all (stop all queued/running jobs) ───

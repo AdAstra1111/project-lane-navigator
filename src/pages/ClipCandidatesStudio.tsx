@@ -125,9 +125,17 @@ export default function ClipCandidatesStudio({ embedded }: { embedded?: boolean 
       if (!map[c.beat_index]) map[c.beat_index] = [];
       map[c.beat_index].push(c);
     }
-    // Sort each beat's clips by technical_score descending
+    // Deterministic sort: selected first, then technical_score desc, candidate_index asc, id asc (stable tie-breaker)
     for (const key of Object.keys(map)) {
-      map[parseInt(key)].sort((a: any, b: any) => (b.technical_score ?? 0) - (a.technical_score ?? 0));
+      map[parseInt(key)].sort((a: any, b: any) => {
+        if (a.selected && !b.selected) return -1;
+        if (!a.selected && b.selected) return 1;
+        const scoreDiff = (b.technical_score ?? 0) - (a.technical_score ?? 0);
+        if (scoreDiff !== 0) return scoreDiff;
+        const ciDiff = (a.candidate_index ?? 0) - (b.candidate_index ?? 0);
+        if (ciDiff !== 0) return ciDiff;
+        return (a.id || '').localeCompare(b.id || '');
+      });
     }
     return map;
   }, [clips, showRejected]);
