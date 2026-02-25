@@ -4,6 +4,7 @@
  */
 import type { CinematicScore, CinematicFailureCode } from "./cinematic-model.ts";
 import { CINEMATIC_THRESHOLDS } from "./cinematic-score.ts";
+import { lateStartIndexForUnitCount, minUpFracForUnitCount, maxZigzagFlipsForUnitCount } from "./cik/ladderLockConstants.ts";
 
 function failureBullets(failures: CinematicFailureCode[], domain: "trailer" | "storyboard"): string[] {
   const bullets: string[] = [];
@@ -83,6 +84,10 @@ export function numericTargetsForFailures(args: {
   const latePeakMin = Math.max(1, Math.floor(unitCount * 0.75));
   const latePeakStr = `peakIndex must be >= ${latePeakMin} (peak in last 25% of ${unitCount} units)`;
 
+  const LADDER_FAILURES: ReadonlySet<string> = new Set([
+    "DIRECTION_REVERSAL", "ENERGY_DROP", "FLATLINE", "PACING_MISMATCH", "WEAK_ARC",
+  ]);
+
   for (const f of failures) {
     switch (f) {
       case "TOO_SHORT":
@@ -138,6 +143,23 @@ export function numericTargetsForFailures(args: {
         break;
     }
   }
+
+  // CIK v3.12 — Ladder lock targets (when any ladder failure present)
+  const hasLadderFailure = failures.some(f => LADDER_FAILURES.has(f));
+  if (hasLadderFailure && unitCount >= 3) {
+    const lateStart = lateStartIndexForUnitCount(unitCount);
+    const minUp = minUpFracForUnitCount(unitCount);
+    const maxFlips = maxZigzagFlipsForUnitCount(unitCount);
+    out.push(`Adjacent rises: ≥ ${Math.round(minUp * 100)}% of transitions must go up`);
+    out.push(`Meaningful decreases: ≤ 1 total; and 0 in final 25%`);
+    out.push(`Peak in final 25%: units ${lateStart + 1}–${unitCount}`);
+    out.push(`Zigzag flips ≤ ${maxFlips}`);
+    // Mark all ladder failures as covered
+    for (const f of failures) {
+      if (LADDER_FAILURES.has(f)) covered.add(f);
+    }
+  }
+
   return { targets: Array.from(new Set(out)), covered };
 }
 
@@ -188,6 +210,14 @@ PROCEDURE (MANDATORY, ATTEMPT 1)
 Rules:
 - No new characters/settings/props not already implied.`;
 
+const PROCEDURE_LADDER_LOCK = `
+LADDER LOCK (MANDATORY, ATTEMPT 1)
+- Adjacent units must generally RISE in intensity (energy/tension/density).
+- Allow at most ONE intentional dip before the midpoint ("twist"); ZERO dips in final 25%.
+- Peak must land in the final 25% of units.
+- Reorder or delete first to enforce the ladder; only rephrase after structure is correct.
+- Keep exact unit count; no new intents/characters/settings.`;
+
 export function addIntentSequencingHint(base: string, failures: string[]): string {
   if (!failures.includes("LOW_INTENT_DIVERSITY") && !failures.includes("WEAK_ARC")) return base;
   return `${base}
@@ -217,7 +247,7 @@ TONAL RAMP LOCK (REPAIR ONLY):
  * Drops optional sections if total exceeds MAX_REPAIR_CHARS.
  * Never drops: shape guard, numeric targets, no-new-intent, procedure.
  */
-const MAX_REPAIR_CHARS = 2500;
+const MAX_REPAIR_CHARS = 3500;
 
 interface RepairSection {
   label: string;
@@ -297,10 +327,15 @@ Rules:
 - Use a ramp (generally darker->lighter or lighter->darker), not oscillation.`
     : "";
 
+  // Check if ladder-related failures are present for procedure block
+  const LADDER_FAILURE_SET = new Set(["DIRECTION_REVERSAL", "ENERGY_DROP", "FLATLINE", "PACING_MISMATCH", "WEAK_ARC"]);
+  const hasLadderFailure = score.failures.some(f => LADDER_FAILURE_SET.has(f));
+
   const sections: RepairSection[] = [
     { label: "core", text: coreBase, priority: 100 },
     { label: "no-new-intent", text: NO_NEW_INTENT_BLOCK, priority: 95 },
     { label: "procedure", text: procedureBlock, priority: 92 },
+    ...(hasLadderFailure ? [{ label: "ladder-procedure", text: PROCEDURE_LADDER_LOCK, priority: 91 }] : []),
     { label: "context-targets", text: contextTargetsBlock, priority: 90 },
     { label: "static-targets", text: staticTargetsBlock, priority: 85 },
     { label: "polarity-lock", text: polarityLock, priority: 30 },

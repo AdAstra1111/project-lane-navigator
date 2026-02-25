@@ -6,6 +6,7 @@ import type { CinematicUnit, CinematicScore } from "./cinematic-model.ts";
 import type { AdapterResult } from "./cinematic-adapters.ts";
 import { scoreCinematic, CINEMATIC_THRESHOLDS, type ScoringContext } from "./cinematic-score.ts";
 import { extractFeatures } from "./cinematic-features.ts";
+import { analyzeLadder } from "./cik/ladderLock.ts";
 import { extractStyleAnchors } from "./cinematic-style-lock.ts";
 import {
   recordAttempt0, recordFinal, recordFeatureSummary,
@@ -91,7 +92,14 @@ function recordTelemetryAtFinal(
   adapterMode: string, units: CinematicUnit[], score: CinematicScore,
 ): void {
   const features = extractFeatures(units, CINEMATIC_THRESHOLDS.min_arc_peak_in_last_n);
-  recordFeatureSummary(handler, phase, model, features);
+  const ladder = analyzeLadder(units.map(u => u.energy), units.map(u => u.tension), units.map(u => u.density));
+  recordFeatureSummary(handler, phase, model, features, ladder.n >= 3 ? {
+    meaningfulDownSteps: ladder.meaningfulDownSteps,
+    lateDownSteps: ladder.lateDownSteps,
+    upStepFrac: ladder.upStepFrac,
+    zigzagFlips: ladder.zigzagFlips,
+    peakLate25: ladder.peakLate25,
+  } : undefined);
   if (score.hard_failures.length > 0 || score.diagnostic_flags.length > 0) {
     recordDiagnosticFlags(handler, phase, model, score.hard_failures, score.diagnostic_flags);
   }
