@@ -3003,6 +3003,58 @@ export type Database = {
           },
         ]
       }
+      demo_bundles: {
+        Row: {
+          bundle_id: string
+          created_at: string
+          demo_run_id: string | null
+          id: string
+          manifest_json: Json
+          project_id: string
+          storage_path: string
+        }
+        Insert: {
+          bundle_id: string
+          created_at?: string
+          demo_run_id?: string | null
+          id?: string
+          manifest_json?: Json
+          project_id: string
+          storage_path: string
+        }
+        Update: {
+          bundle_id?: string
+          created_at?: string
+          demo_run_id?: string | null
+          id?: string
+          manifest_json?: Json
+          project_id?: string
+          storage_path?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "demo_bundles_demo_run_id_fkey"
+            columns: ["demo_run_id"]
+            isOneToOne: false
+            referencedRelation: "demo_runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "demo_bundles_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "demo_bundles_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       demo_runs: {
         Row: {
           created_at: string

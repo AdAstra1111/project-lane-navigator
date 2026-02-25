@@ -1,6 +1,6 @@
 /**
  * Demo Run Panel — One-button investor demo pipeline.
- * Shows deterministic progress, step status, and artifact links.
+ * Shows deterministic progress, step status, artifact links, and bundle download.
  */
 import { useState, useEffect, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import {
   Play, RotateCcw, Plus, CheckCircle2, XCircle, Loader2, ExternalLink, Clock,
+  Download, Package,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -217,6 +218,11 @@ export default function DemoRunPanel({ projectId, documentId, lane = "feature_fi
             {/* Artifact links */}
             <ArtifactLinks links={activeRun.links_json} projectId={projectId} />
 
+            {/* Demo Bundle Download */}
+            {activeRun.status === "complete" && (
+              <DemoBundleSection projectId={projectId} demoRunId={activeRun.id} />
+            )}
+
             {/* Log */}
             {activeRun.log_json && activeRun.log_json.length > 0 && (
               <div className="space-y-0.5">
@@ -290,6 +296,84 @@ function ArtifactLinks({ links, projectId }: { links: DemoLinks; projectId: stri
           </Badge>
         ))}
       </div>
+    </div>
+  );
+}
+
+function DemoBundleSection({ projectId, demoRunId }: { projectId: string; demoRunId: string }) {
+  const [loading, setLoading] = useState(false);
+
+  // Fetch existing bundles for this run
+  const { data: bundles } = useQuery({
+    queryKey: ["demo-bundles", demoRunId],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("demo_bundles")
+        .select("*")
+        .eq("demo_run_id", demoRunId)
+        .order("created_at", { ascending: false })
+        .limit(5);
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  const handleDownload = async () => {
+    setLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("export-demo-bundle", {
+        body: { project_id: projectId, demo_run_id: demoRunId },
+      });
+      if (error) throw error;
+      if (data?.url) {
+        window.open(data.url, "_blank");
+        toast.success(data.reused ? "Bundle ready (cached)" : "Demo bundle generated");
+      }
+    } catch (e: any) {
+      toast.error("Bundle export failed: " + e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between">
+        <p className="text-[10px] text-muted-foreground font-medium flex items-center gap-1">
+          <Package className="h-3 w-3" /> Demo Bundle
+        </p>
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-6 text-[10px] gap-1"
+          disabled={loading}
+          onClick={handleDownload}
+        >
+          {loading ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Download className="h-2.5 w-2.5" />}
+          Download ZIP
+        </Button>
+      </div>
+      {bundles && bundles.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {bundles.map((b: any) => (
+            <Badge
+              key={b.id}
+              variant="outline"
+              className="text-[9px] px-1.5 py-0 gap-1 cursor-pointer hover:bg-muted/50"
+              onClick={async () => {
+                const { data } = await supabase.storage.from("exports").createSignedUrl(b.storage_path, 3600);
+                if (data?.signedUrl) window.open(data.signedUrl, "_blank");
+              }}
+            >
+              <Download className="h-2 w-2" />
+              {b.bundle_id.slice(0, 6)}
+              <span className="text-muted-foreground">
+                {new Date(b.created_at).toLocaleDateString()}
+              </span>
+            </Badge>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
