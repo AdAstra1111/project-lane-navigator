@@ -1,0 +1,1 @@
+ALTER TYPE shot_type ADD VALUE IF NOT EXISTS 'montage';

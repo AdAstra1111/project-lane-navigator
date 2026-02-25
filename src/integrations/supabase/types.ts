@@ -20426,7 +20426,14 @@ export type Database = {
         | "tilt"
         | "dolly_zoom"
       project_role: "producer" | "sales_agent" | "lawyer" | "creative"
-      shot_type: "wide" | "medium" | "close" | "insert" | "aerial" | "macro"
+      shot_type:
+        | "wide"
+        | "medium"
+        | "close"
+        | "insert"
+        | "aerial"
+        | "macro"
+        | "montage"
       trailer_phase:
         | "hook"
         | "setup"
@@ -20576,7 +20583,15 @@ export const Constants = {
         "dolly_zoom",
       ],
       project_role: ["producer", "sales_agent", "lawyer", "creative"],
-      shot_type: ["wide", "medium", "close", "insert", "aerial", "macro"],
+      shot_type: [
+        "wide",
+        "medium",
+        "close",
+        "insert",
+        "aerial",
+        "macro",
+        "montage",
+      ],
       trailer_phase: [
         "hook",
         "setup",
