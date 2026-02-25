@@ -866,6 +866,7 @@ You MUST respond with ONLY valid JSON matching this EXACT schema:
       "scope": "micro|scene|sequence|act|global",
       "target": {
         "scene_numbers": [number],
+        "episode_numbers": [number],
         "characters": ["string"],
         "locations": ["string"],
         "beats": ["string"],
@@ -1004,6 +1005,190 @@ Generate a Change Plan with atomic, testable changes.`;
         .eq("id", plan.version_id)
         .single();
       if (!sourceVer) return err("Source version not found");
+
+      // ── Resolve doc_type for this document ──
+      const { data: docMeta } = await admin.from("project_documents")
+        .select("doc_type")
+        .eq("id", plan.document_id)
+        .single();
+      const docType = docMeta?.doc_type || '';
+
+      // ═══════════════════════════════════════════════════════════════════
+      // EPISODE-SCOPED REWRITE PATH (episode_grid, episode_beats, vertical_episode_beats)
+      // Deterministic merge: only targeted episodes are rewritten by LLM,
+      // all other episodes are preserved byte-identical from original text.
+      // ═══════════════════════════════════════════════════════════════════
+      const { EPISODE_DOC_TYPES, extractTargetEpisodes, parseEpisodeBlocks: parseEpBlocks, mergeEpisodeBlocks, validateEpisodeMerge } = await import("../_shared/episodeScope.ts");
+
+      if (EPISODE_DOC_TYPES.has(docType)) {
+        const scriptText = sourceVer.plaintext || '';
+        const targetEpisodes = extractTargetEpisodes(changePlan);
+
+        if (targetEpisodes.length === 0) {
+          return err("No target episodes could be identified from the change plan. Add episode_numbers to change targets or reference episodes in instructions.");
+        }
+
+        console.error(JSON.stringify({
+          type: "EPISODE_SCOPE_APPLY",
+          docType,
+          targetEpisodes,
+          totalOriginalEpisodes: parseEpBlocks(scriptText).length,
+        }));
+
+        // Ask LLM to return ONLY the targeted episode blocks as JSON
+        const episodeRewriteSystem = `You are a precise episode content rewriter. You will receive a change plan and the current document.
+
+CRITICAL RULES:
+1. Return ONLY the episodes listed in TARGET EPISODES below — nothing else.
+2. Each episode block must be COMPLETE (full header + all beats/content).
+3. Do NOT summarize, compress, or abbreviate any content.
+4. Do NOT include episodes that are not in the target list.
+5. Preserve the exact header format used in the original document.
+
+You MUST respond with ONLY valid JSON matching this exact schema:
+{
+  "episodes": {
+    "<episode_number>": "<FULL episode block text including header line and all content>"
+  }
+}
+
+TARGET EPISODES: ${targetEpisodes.join(', ')}
+
+Changes to apply:
+${enabledChanges.map((c: any, i: number) => `${i + 1}. [${c.type}/${c.scope}] ${c.title}: ${c.instructions}`).join('\n')}
+
+Direction: ${changePlan.direction_summary || ''}`;
+
+        // Send full document as user prompt so model has context
+        const episodeRewriteUser = `Current document:\n\n${scriptText}`;
+
+        let parsedEpisodeJSON: Record<string, string> | null = null;
+        for (let attempt = 0; attempt < 3; attempt++) {
+          const result = await callLLM({
+            apiKey,
+            model: MODELS.PRO,
+            system: episodeRewriteSystem,
+            user: episodeRewriteUser,
+            temperature: 0.3,
+            maxTokens: 12000,
+          });
+
+          try {
+            const extracted = extractJSON(result.content);
+            const parsed = JSON.parse(extracted);
+            if (parsed.episodes && typeof parsed.episodes === 'object') {
+              parsedEpisodeJSON = parsed.episodes;
+              break;
+            }
+          } catch { /* retry */ }
+        }
+
+        if (!parsedEpisodeJSON) {
+          return err("Failed to generate valid episode rewrite JSON after 3 attempts");
+        }
+
+        // Convert string keys to number keys
+        const replacements: Record<number, string> = {};
+        for (const [key, value] of Object.entries(parsedEpisodeJSON)) {
+          const epNum = parseInt(key, 10);
+          if (!isNaN(epNum) && typeof value === 'string') {
+            replacements[epNum] = value;
+          }
+        }
+
+        // Merge: only targeted episodes are swapped
+        const mergeResult = mergeEpisodeBlocks(scriptText, replacements);
+
+        // Validate: untouched episodes must be byte-identical
+        const validation = validateEpisodeMerge(scriptText, mergeResult.mergedText, targetEpisodes);
+
+        console.error(JSON.stringify({
+          type: "EPISODE_SCOPE_VALIDATION",
+          ok: validation.ok,
+          replacedEpisodes: mergeResult.replacedEpisodes,
+          preservedEpisodes: mergeResult.preservedEpisodes,
+          missingEpisodes: validation.missingEpisodes,
+          mutatedUntouchedEpisodes: validation.mutatedUntouchedEpisodes,
+          errors: validation.errors,
+        }));
+
+        if (!validation.ok) {
+          return ok({
+            blocked: true,
+            reason: "episode_scope_guard",
+            missing_episodes: validation.missingEpisodes,
+            mutated_untouched: validation.mutatedUntouchedEpisodes,
+            message: `Episode scope guard failed: ${validation.errors.join('; ')}`,
+          });
+        }
+
+        const rewrittenText = mergeResult.mergedText;
+        const diffSummary = {
+          before_length: scriptText.length,
+          after_length: rewrittenText.length,
+          length_delta: rewrittenText.length - scriptText.length,
+          length_delta_pct: scriptText.length > 0 ? Math.round(((rewrittenText.length - scriptText.length) / scriptText.length) * 100) / 100 : 0,
+          affected_episode_count: mergeResult.replacedEpisodes.length,
+          affected_episodes: mergeResult.replacedEpisodes,
+          preserved_episodes: mergeResult.preservedEpisodes,
+          changes_applied: enabledChanges.length,
+          scope_enforcement: { ok: true, mode: 'episode', targetEpisodes },
+        };
+
+        // Create new version
+        const { data: maxVer } = await admin.from("project_document_versions")
+          .select("version_number")
+          .eq("document_id", sourceVer.document_id)
+          .order("version_number", { ascending: false })
+          .limit(1)
+          .single();
+        const nextVersion = (maxVer?.version_number || 0) + 1;
+
+        const { data: newVer, error: newVerErr } = await admin.from("project_document_versions").insert({
+          document_id: sourceVer.document_id,
+          version_number: nextVersion,
+          plaintext: rewrittenText,
+          label: `Writers' Room episode rewrite v${nextVersion}`,
+          created_by: user.id,
+          parent_version_id: plan.version_id,
+          applied_change_plan_id: planId,
+          applied_change_plan: changePlan,
+          verification_json: { ok: true, checks: [], warnings: [], episode_validation: validation },
+          change_summary: changePlan.direction_summary || 'Applied episode-scoped change plan',
+        }).select("id").single();
+
+        if (newVerErr) throw new Error(newVerErr.message);
+
+        try {
+          await admin.rpc("set_current_version", {
+            p_document_id: sourceVer.document_id,
+            p_new_version_id: newVer.id,
+          });
+        } catch (e: any) {
+          console.warn("set_current_version failed, falling back:", e.message);
+        }
+
+        await admin.from("writers_room_changesets").insert({
+          project_id: plan.project_id,
+          document_id: plan.document_id,
+          thread_id: plan.thread_id,
+          plan_id: planId,
+          plan_json: changePlan,
+          before_version_id: plan.version_id,
+          after_version_id: newVer.id,
+          diff_summary: diffSummary,
+          created_by: user.id,
+        });
+
+        await admin.from("note_change_plans").update({ status: "applied" }).eq("id", planId);
+        await admin.from("note_threads").update({ status: "applied" }).eq("id", plan.thread_id);
+
+        return ok({ newVersionId: newVer.id, verification: { ok: true, episode_validation: validation }, diffSummary });
+      }
+
+      // ═══════════════════════════════════════════════════════════════════
+      // SCREENPLAY SCENE-SCOPED REWRITE PATH (existing behavior)
+      // ═══════════════════════════════════════════════════════════════════
 
       // ── Determine scope before building prompt ──
       const { parseScenes, detectOutOfScopeChanges, resolveApplyScope, computeScopedShrink } = await import("../_shared/sceneScope.ts");
