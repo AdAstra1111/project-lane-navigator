@@ -3,6 +3,11 @@ import { buildBeatGuidanceBlock } from "../_shared/verticalDramaBeats.ts";
 import { generateEpisodeBeatsChunked } from "../_shared/episodeBeatsChunked.ts";
 import { buildLadderPromptBlock, formatToLane } from "../_shared/documentLadders.ts";
 import { EPISODE_DOC_TYPES, extractEpisodeNumbersFromOutput, detectCollapsedRangeSummaries } from "../_shared/episodeScope.ts";
+import {
+  buildNuancePromptBlock, computeMetrics, melodramaScore, nuanceScore,
+  runGate, buildRepairInstruction, computeFingerprint, computeSimilarityRisk,
+  type NuanceParams,
+} from "../_shared/nuanceEngine.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -107,6 +112,16 @@ Deno.serve(async (req) => {
 
     const body = await req.json();
     const { projectId, docType, mode = "draft", generatorId = "generate-document", generatorRunId, additionalContext } = body;
+
+    // Extract nuance parameters (with defaults)
+    const nuanceParams: NuanceParams = {
+      restraint: body.nuance?.restraint ?? 70,
+      story_engine: body.nuance?.story_engine ?? 'pressure_cooker',
+      causal_grammar: body.nuance?.causal_grammar ?? 'accumulation',
+      drama_budget: body.nuance?.drama_budget ?? 2,
+      anti_tropes: body.nuance?.anti_tropes ?? [],
+      diversify: body.nuance?.diversify ?? true,
+    };
 
     if (!projectId || !docType) {
       return new Response(JSON.stringify({ error: "projectId and docType required" }), {
@@ -288,6 +303,7 @@ D) OUTPUT CONTRACT — At the top of your response, print:
       userPrompt = `PROJECT FACTS (use these as the primary source of truth):\n${upstreamContent}\n\nGenerate the full Topline Narrative for "${project.title}" now. Replace every template placeholder with real content derived from the project facts above.`;
     } else {
       const ladderBlock = buildLadderPromptBlock(formatToLane(project.format));
+      const nuanceBlock = buildNuancePromptBlock(nuanceParams);
 
       system = [
         `You are a professional development document generator for film/TV projects.`,
@@ -297,6 +313,7 @@ D) OUTPUT CONTRACT — At the top of your response, print:
         qualBlock,
         styleBlock,
         ladderBlock,
+        nuanceBlock,
         additionalContext ? `## CREATIVE DIRECTION (MUST INCORPORATE)\n${additionalContext}` : "",
         mode === "final" ? "This is a FINAL version — ensure completeness and polish." : "This is a DRAFT — focus on substance over polish.",
       ].filter(Boolean).join("\n\n");
@@ -592,7 +609,56 @@ D) OUTPUT CONTRACT — At the top of your response, print:
       }
     }
 
-    // 7) Find or create project_document record
+    // ── NUANCE GATE (deterministic, repair once) ──────────────────────────────
+    const lane = formatToLane(project.format);
+    const metrics0 = computeMetrics(content);
+    const fp = computeFingerprint(content, lane, nuanceParams.story_engine, nuanceParams.causal_grammar);
+
+    // Fetch recent fingerprints for diversity defense
+    let simRisk = 0;
+    if (nuanceParams.diversify) {
+      const { data: recentRuns } = await supabase.from("nuance_runs")
+        .select("fingerprint")
+        .eq("project_id", projectId)
+        .order("created_at", { ascending: false })
+        .limit(10);
+      const recentFps = (recentRuns || []).map((r: any) => r.fingerprint).filter(Boolean);
+      simRisk = computeSimilarityRisk(fp, recentFps);
+    }
+
+    const attempt0 = runGate(metrics0, lane, nuanceParams, simRisk);
+    let attempt1 = null;
+    let repairInst: string | null = null;
+
+    // If gate fails, build repair instruction and retry ONCE
+    if (!attempt0.pass && !isEpisodeDocType) {
+      repairInst = buildRepairInstruction(attempt0.failures, nuanceParams.anti_tropes);
+      const repairSystem = system + `\n\n## NUANCE REPAIR (MANDATORY)\n${repairInst}`;
+      content = await callLLM(apiKey, repairSystem, userPrompt);
+      const metrics1 = computeMetrics(content);
+      attempt1 = runGate(metrics1, lane, nuanceParams, simRisk);
+    }
+
+    const finalGate = attempt1 || attempt0;
+    const nuanceGateResult = {
+      attempt0: { pass: attempt0.pass, failures: attempt0.failures, metrics: attempt0.metrics, melodrama_score: attempt0.melodrama_score, nuance_score: attempt0.nuance_score },
+      ...(attempt1 ? { attempt1: { pass: attempt1.pass, failures: attempt1.failures, metrics: attempt1.metrics, melodrama_score: attempt1.melodrama_score, nuance_score: attempt1.nuance_score } } : {}),
+      final: { pass: finalGate.pass, failures: finalGate.failures, melodrama_score: finalGate.melodrama_score, nuance_score: finalGate.nuance_score },
+      ...(repairInst ? { repair_instruction: repairInst } : {}),
+    };
+
+    console.error(JSON.stringify({
+      diag: "NUANCE_GATE",
+      requestId,
+      attempt0_pass: attempt0.pass,
+      attempt0_failures: attempt0.failures,
+      attempt1_pass: attempt1?.pass ?? null,
+      final_pass: finalGate.pass,
+      melodrama_score: finalGate.melodrama_score,
+      nuance_score: finalGate.nuance_score,
+      similarity_risk: simRisk,
+    }));
+
     let { data: docRecord } = await supabase.from("project_documents")
       .select("id")
       .eq("project_id", projectId)
@@ -680,6 +746,32 @@ D) OUTPUT CONTRACT — At the top of your response, print:
       .update(updatePayload)
       .eq("id", docRecord!.id);
 
+    // 12) Persist nuance run (fire-and-forget)
+    try {
+      await supabase.from("nuance_runs").insert({
+        project_id: projectId,
+        user_id: user.id,
+        document_id: docRecord!.id,
+        version_id: newVersion!.id,
+        doc_type: docType,
+        restraint: nuanceParams.restraint,
+        story_engine: nuanceParams.story_engine,
+        causal_grammar: nuanceParams.causal_grammar,
+        drama_budget: nuanceParams.drama_budget,
+        nuance_score: finalGate.nuance_score,
+        melodrama_score: finalGate.melodrama_score,
+        similarity_risk: simRisk,
+        anti_tropes: nuanceParams.anti_tropes,
+        constraint_pack: {},
+        fingerprint: fp,
+        nuance_metrics: finalGate.metrics,
+        nuance_gate: nuanceGateResult,
+        attempt: attempt1 ? 1 : 0,
+      });
+    } catch (nuanceErr: any) {
+      console.error(JSON.stringify({ type: "NUANCE_RUN_PERSIST_ERROR", error: nuanceErr?.message }));
+    }
+
     return new Response(JSON.stringify({
       success: true,
       document_id: docRecord!.id,
@@ -689,6 +781,14 @@ D) OUTPUT CONTRACT — At the top of your response, print:
       resolver_hash: currentHash,
       inputs_used: inputsUsed,
       depends_on: dependsOn,
+      nuance: {
+        nuance_score: finalGate.nuance_score,
+        melodrama_score: finalGate.melodrama_score,
+        similarity_risk: simRisk,
+        gate_passed: finalGate.pass,
+        repaired: !!attempt1,
+        failures: finalGate.failures,
+      },
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
