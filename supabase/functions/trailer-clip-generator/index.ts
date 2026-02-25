@@ -462,9 +462,14 @@ async function callRunway(params: {
   const model = "gen4.5";
   const durationSec = Math.max(5, Math.min(10, Math.round(params.lengthMs / 1000)));
 
+  // Runway enforces a 1000-char limit on promptText
+  const truncatedPrompt = params.prompt.length > 990
+    ? params.prompt.slice(0, 987) + "..."
+    : params.prompt;
+
   const body: any = {
     model,
-    promptText: params.prompt,
+    promptText: truncatedPrompt,
     duration: durationSec,
     ratio: params.aspectRatio === "16:9" ? "1280:720" : params.aspectRatio,
   };
