@@ -70,6 +70,26 @@ export function computeFailureDiff(
   };
 }
 
+/* ── Trend Computations (exported for testing) ── */
+
+export function computePassRate(runs: { final_pass: boolean }[]): { passCount: number; total: number; rate: number } {
+  const total = runs.length;
+  if (total === 0) return { passCount: 0, total: 0, rate: 0 };
+  const passCount = runs.filter(r => r.final_pass).length;
+  return { passCount, total, rate: passCount / total };
+}
+
+export function computeAvgScore(runs: { final_score: number }[]): number {
+  if (runs.length === 0) return 0;
+  const sum = runs.reduce((acc, r) => acc + Number(r.final_score), 0);
+  return sum / runs.length;
+}
+
+export function buildChartData(runs: { final_score: number; final_pass: boolean; created_at: string }[]): { score: number; pass: boolean; time: string }[] {
+  return [...runs].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+    .map(r => ({ score: Number(r.final_score), pass: r.final_pass, time: r.created_at }));
+}
+
 /* ── Main Component ── */
 
 export default function QualityRunHistory({ projectId }: { projectId: string }) {
@@ -83,7 +103,7 @@ export default function QualityRunHistory({ projectId }: { projectId: string }) 
         .select('*')
         .eq('project_id', projectId)
         .order('created_at', { ascending: false })
-        .limit(20);
+        .limit(50);
       if (error) throw error;
       return (data || []) as QualityRun[];
     },
@@ -145,12 +165,49 @@ export default function QualityRunHistory({ projectId }: { projectId: string }) 
     );
   }
 
+  const recent20 = runs.slice(0, 20);
+  const passRate = computePassRate(recent20);
+  const avgScore = computeAvgScore(recent20);
+  const chartData = buildChartData(runs);
+
   return (
     <Card>
       <CardHeader className="pb-2">
         <CardTitle className="text-sm font-medium">Quality Run History</CardTitle>
       </CardHeader>
-      <CardContent className="p-0">
+      <CardContent className="space-y-3 pb-0">
+        {/* Trend widgets */}
+        <div className="flex flex-col sm:flex-row gap-3">
+          {/* Pass rate */}
+          <div className="flex-1 rounded-md border border-border bg-muted/20 p-3">
+            <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide mb-1">
+              Pass rate (last {passRate.total})
+            </p>
+            <p className="text-lg font-mono font-bold tabular-nums">
+              {(passRate.rate * 100).toFixed(0)}%
+              <span className="text-xs font-normal text-muted-foreground ml-1.5">
+                ({passRate.passCount}/{passRate.total})
+              </span>
+            </p>
+            <p className="text-[10px] text-muted-foreground mt-0.5">
+              Avg score: <span className="font-mono">{avgScore.toFixed(3)}</span>
+            </p>
+          </div>
+
+          {/* Sparkline */}
+          <div className="flex-[2] rounded-md border border-border bg-muted/20 p-3">
+            <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide mb-1">
+              Score over time ({chartData.length} runs)
+            </p>
+            {chartData.length < 2 ? (
+              <p className="text-xs text-muted-foreground italic">Not enough runs to chart yet.</p>
+            ) : (
+              <Sparkline data={chartData} />
+            )}
+          </div>
+        </div>
+      </CardContent>
+      <CardContent className="p-0 pt-2">
         <ScrollArea className="max-h-[600px]">
           {/* Column headers */}
           <div className="px-4 py-2 grid grid-cols-[auto_1fr_auto_auto_auto_auto] gap-3 text-[10px] text-muted-foreground font-medium border-b border-border">
@@ -453,4 +510,40 @@ function fmtNum(v: any): string {
   if (v == null) return '—';
   const n = Number(v);
   return isNaN(n) ? '—' : n.toFixed(2);
+}
+
+/* ── Sparkline (inline SVG) ── */
+
+function Sparkline({ data }: { data: { score: number; pass: boolean }[] }) {
+  const w = 300;
+  const h = 40;
+  const pad = 2;
+
+  const scores = data.map(d => d.score);
+  const min = Math.min(...scores);
+  const max = Math.max(...scores);
+  const range = max - min || 1;
+
+  const points = data.map((d, i) => {
+    const x = pad + (i / (data.length - 1)) * (w - pad * 2);
+    const y = h - pad - ((d.score - min) / range) * (h - pad * 2);
+    return { x, y, pass: d.pass };
+  });
+
+  const pathD = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+
+  return (
+    <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-10" preserveAspectRatio="none">
+      <path d={pathD} fill="none" stroke="hsl(var(--primary))" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+      {points.map((p, i) => (
+        <circle
+          key={i}
+          cx={p.x}
+          cy={p.y}
+          r={1.5}
+          fill={p.pass ? 'hsl(var(--primary))' : 'hsl(var(--destructive))'}
+        />
+      ))}
+    </svg>
+  );
 }
