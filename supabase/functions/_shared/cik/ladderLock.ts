@@ -93,7 +93,7 @@ export function analyzeLadder(
     deltas[i] = ladder[i + 1] - ladder[i];
   }
 
-  const lateStart = lateStartIndexForUnitCount(n);
+  const lateStart = lateStartIndexForUnitCount(n, lane);
   const dipAbs = dipAbsForUnitCount(n, lane);
   const lateDipAbs = lateDipAbsForUnitCount(n, lane);
   const minUpFrac = minUpFracForUnitCount(n, lane);

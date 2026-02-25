@@ -145,7 +145,7 @@ export function numericTargetsForFailures(args: {
   // CIK v3.12/v3.13 — Compact ladder + peak clamp + tail seal targets
   const hasLadderFailure = failures.some(f => LADDER_FAILURES.has(f));
   if (hasLadderFailure && unitCount >= 3) {
-    const lateStart = lateStartIndexForUnitCount(unitCount);
+    const lateStart = lateStartIndexForUnitCount(unitCount, lane);
     const minUp = minUpFracForUnitCount(unitCount, lane);
     const maxFlips = maxZigzagFlipsForUnitCount(unitCount, lane);
     const pLead = peakLeadThresholdForUnitCount(unitCount, lane);

@@ -50,7 +50,9 @@ export function peakDeltaForUnitCount(n: number): number {
   return 0.12;
 }
 
-export function lateStartIndexForUnitCount(n: number): number {
+export function lateStartIndexForUnitCount(n: number, lane?: string): number {
+  if (lane === "vertical_drama") return Math.floor(0.65 * n);
+  if (lane === "documentary") return Math.floor(0.60 * n);
   return Math.floor(0.75 * n);
 }
 
