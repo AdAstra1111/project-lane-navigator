@@ -9,6 +9,7 @@ import { useRewritePipeline } from '@/hooks/useRewritePipeline';
 import { useSceneRewritePipeline } from '@/hooks/useSceneRewritePipeline';
 import { SceneRewritePanel } from '@/components/devengine/SceneRewritePanel';
 import QualityRunHistory from '@/components/cinematic/QualityRunHistory';
+import { DocSetManager } from '@/components/notes/DocSetManager';
 import { ProcessProgressBar } from '@/components/devengine/ProcessProgressBar';
 import { ActivityTimeline } from '@/components/devengine/ActivityTimeline';
 import { Button } from '@/components/ui/button';
@@ -1318,6 +1319,7 @@ export default function ProjectDevelopmentEngine() {
               <TabsTrigger value="provenance" className="text-xs">Provenance</TabsTrigger>
                <TabsTrigger value="scenes" className="text-xs">Scenes</TabsTrigger>
                <TabsTrigger value="quality" className="text-xs">Quality</TabsTrigger>
+               <TabsTrigger value="docsets" className="text-xs">Doc Sets</TabsTrigger>
                {convergenceHistory.length > 0 && (
                  <TabsTrigger value="timeline" className="text-xs">Timeline ({convergenceHistory.length})</TabsTrigger>
                )}
@@ -1729,8 +1731,12 @@ export default function ProjectDevelopmentEngine() {
              </TabsContent>
 
              <TabsContent value="quality" className="mt-3">
-               <QualityRunHistory projectId={projectId!} />
-             </TabsContent>
+                <QualityRunHistory projectId={projectId!} />
+              </TabsContent>
+
+              <TabsContent value="docsets" className="mt-3">
+                <DocSetManager projectId={projectId!} />
+              </TabsContent>
 
             {convergenceHistory.length > 0 && (
               <TabsContent value="timeline" className="mt-3">

@@ -9113,6 +9113,93 @@ export type Database = {
           },
         ]
       }
+      project_doc_set_items: {
+        Row: {
+          created_at: string
+          doc_set_id: string
+          document_id: string
+          id: string
+          sort_order: number
+        }
+        Insert: {
+          created_at?: string
+          doc_set_id: string
+          document_id: string
+          id?: string
+          sort_order?: number
+        }
+        Update: {
+          created_at?: string
+          doc_set_id?: string
+          document_id?: string
+          id?: string
+          sort_order?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_doc_set_items_doc_set_id_fkey"
+            columns: ["doc_set_id"]
+            isOneToOne: false
+            referencedRelation: "project_doc_sets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_doc_set_items_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "project_documents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      project_doc_sets: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          description: string | null
+          id: string
+          is_default: boolean
+          name: string
+          project_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          is_default?: boolean
+          name: string
+          project_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          is_default?: boolean
+          name?: string
+          project_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_doc_sets_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "project_doc_sets_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       project_document_versions: {
         Row: {
           applied_change_plan: Json | null
