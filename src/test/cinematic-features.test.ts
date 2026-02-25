@@ -1218,3 +1218,79 @@ describe("lane propagation end-to-end", () => {
     expect(instrFF.length).toBeLessThanOrEqual(2500);
   });
 });
+
+// ─── End-to-End Kernel Boundary Test: lane propagation through enforceCinematicQuality ───
+
+describe("enforceCinematicQuality lane propagation (kernel boundary)", () => {
+  // Import the kernel entry point
+  // We test the real enforceCinematicQuality with a stubbed regenerateOnce
+
+  it("lane flows from opts through scoring → repair instruction (vertical_drama vs feature_film)", async () => {
+    const { enforceCinematicQuality } = await import("../../supabase/functions/_shared/cinematic-kernel");
+
+    // 8 units: designed to fail WEAK_ARC (peak not late enough for feature_film)
+    // but energy ramps up so adapter produces valid units
+    const failingUnits = [
+      makeUnit({ id: "0", energy: 0.30, tension: 0.30, density: 0.30, tonal_polarity: -0.3, intent: "intrigue" }),
+      makeUnit({ id: "1", energy: 0.40, tension: 0.40, density: 0.35, tonal_polarity: -0.2, intent: "wonder" }),
+      makeUnit({ id: "2", energy: 0.50, tension: 0.50, density: 0.40, tonal_polarity: -0.1, intent: "threat" }),
+      makeUnit({ id: "3", energy: 0.60, tension: 0.60, density: 0.50, tonal_polarity: 0.0, intent: "chaos" }),
+      makeUnit({ id: "4", energy: 0.70, tension: 0.70, density: 0.55, tonal_polarity: 0.1, intent: "chaos" }),
+      makeUnit({ id: "5", energy: 0.92, tension: 0.92, density: 0.70, tonal_polarity: 0.2, intent: "emotion" }),
+      makeUnit({ id: "6", energy: 0.88, tension: 0.88, density: 0.72, tonal_polarity: 0.3, intent: "emotion" }),
+      makeUnit({ id: "7", energy: 0.89, tension: 0.89, density: 0.75, tonal_polarity: 0.4, intent: "release" }),
+    ];
+
+    // Raw output wraps units so adapter can extract them
+    const rawOutput = { beats: failingUnits };
+
+    // Adapter just returns the units directly
+    const adapter = (raw: any) => ({
+      units: raw.beats as any[],
+      mode: "explicit" as const,
+    });
+
+    // Capture repair instructions per lane
+    const capturedInstructions: Record<string, string> = {};
+
+    for (const lane of ["vertical_drama", "feature_film"] as const) {
+      let capturedInstruction = "";
+
+      try {
+        await enforceCinematicQuality({
+          handler: "test",
+          phase: "lane_propagation_test",
+          model: "test",
+          rawOutput,
+          adapter,
+          buildRepairInstruction: (score, unitCount) => {
+            capturedInstruction = buildTrailerRepairInstruction(score, unitCount, lane);
+            return capturedInstruction;
+          },
+          regenerateOnce: async (_instruction: string) => {
+            // Return the same output (repair won't fix it, that's fine)
+            return rawOutput;
+          },
+          telemetry: () => {},
+          expected_unit_count: 8,
+          lane,
+        });
+      } catch (err: any) {
+        // Expected: kernel throws AI_CINEMATIC_QUALITY_FAIL when both attempts fail
+        // We still captured the repair instruction — that's what we're testing
+        expect(err.type).toBe("AI_CINEMATIC_QUALITY_FAIL");
+      }
+
+      capturedInstructions[lane] = capturedInstruction;
+    }
+
+    // vertical_drama lateStart = floor(0.65*8) = 5, so "Peak units 6–8"
+    // feature_film lateStart = floor(0.75*8) = 6, so "Peak units 7–8"
+    expect(capturedInstructions["vertical_drama"]).toContain("Peak units 6");
+    expect(capturedInstructions["feature_film"]).toContain("Peak units 7");
+
+    // Both must be under MAX_REPAIR_CHARS
+    expect(capturedInstructions["vertical_drama"].length).toBeLessThanOrEqual(2500);
+    expect(capturedInstructions["feature_film"].length).toBeLessThanOrEqual(2500);
+  });
+});
