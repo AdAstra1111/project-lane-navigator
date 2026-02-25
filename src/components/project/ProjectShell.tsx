@@ -6,9 +6,10 @@ import { useState, useEffect, useCallback, useRef, type ReactNode } from 'react'
 import { useParams, useNavigate, useLocation, useSearchParams, Link } from 'react-router-dom';
 import {
   LayoutGrid, FileText, BookOpen, Image, Film, Briefcase,
-  PanelRightOpen, PanelRightClose, ChevronLeft, Loader2,
+  PanelRightOpen, PanelRightClose, ArrowLeft, Loader2,
   CheckCircle2, AlertTriangle, ArrowRight, X,
 } from 'lucide-react';
+import iffyLogo from '@/assets/iffy-logo-v3.png';
 import { cn } from '@/lib/utils';
 
 // UI opacity hierarchy for ProjectBar/Rail/Inspector toggle.
@@ -368,11 +369,15 @@ export function ProjectShell({ children }: ProjectShellProps) {
         {/* Left: back + title + metadata */}
         <div className="flex items-center gap-2 min-w-0 flex-1">
           <button
-            onClick={() => navigate('/dashboard')}
+            onClick={() => navigate(-1)}
             className={cn('h-8 w-8 rounded-md flex items-center justify-center transition-colors shrink-0', SHELL_UI.inactive, SHELL_UI.hoverText, SHELL_UI.hoverBg, SHELL_FOCUS)}
           >
-            <ChevronLeft className="h-3.5 w-3.5" />
+            <ArrowLeft className="h-3.5 w-3.5" />
           </button>
+
+          <Link to="/" className="shrink-0">
+            <img src={iffyLogo} alt="IFFY" className="h-6 w-6 rounded-md ring-1 ring-border/30 hover:ring-primary/40 transition-all" />
+          </Link>
 
           {isLoading ? (
             <div className="h-3 w-32 rounded bg-muted-foreground/10 animate-pulse" />
