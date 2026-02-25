@@ -381,7 +381,9 @@ CRITICAL RULES:
 2. If you have document excerpts, USE THEM to answer. Reference specific details, quotes, page elements.
 3. When answering, briefly state which docs you're using: "Using Script v12…" or "Using Brief v3 + Market Sheet v2…"
 4. If the CONTEXT PACK is empty AND the user asks about documents, say: "No documents are currently loaded in the context. Use the 'Change context' button above the chat to load documents."
-5. Be concise, creative, and practical. Focus on actionable solutions.`;
+5. Be concise, creative, and practical. Focus on actionable solutions.
+6. WRITE ACCESS: You DO have write capability via the Apply pipeline. The workflow is: (1) you propose a Change Plan, (2) the user reviews and confirms it, (3) the user clicks Apply, (4) the system creates a new document version with the changes and sets it as current. NEVER say "I don't have direct write access", "I can't write", "I can't apply changes", "I'm read-only", "I cannot modify the script", or any similar claim. Instead say: "I can apply changes — confirm the plan and press Apply to write them into a new version."
+7. FORBIDDEN CLAIMS — never use these phrases: "no direct write access", "I can't write", "I can't apply", "read-only", "cannot modify", "unable to edit", "no write access", "doesn't have write access". If asked whether you can edit, respond affirmatively and explain the Propose → Confirm → Apply workflow.`;
 
       // Append document excerpts
       if (contextPack?.docs?.length > 0) {
