@@ -523,8 +523,8 @@ export function NoteWritersRoomDrawer({
             </TabsContent>
 
             {/* ── OPTIONS TAB ── */}
-            <TabsContent value="options" className="flex-1 min-h-0 m-0 px-4 py-2 overflow-auto">
-              <ScrollArea className="h-full">
+            <TabsContent value="options" className="flex-1 flex flex-col min-h-0 m-0 px-4 py-2">
+              <ScrollArea className="flex-1 min-h-0">
                 <div className="space-y-4 pr-2">
                   {optionSets.map((set: NoteOptionSet) => (
                     <div key={set.id} className="space-y-2">
@@ -597,7 +597,8 @@ export function NoteWritersRoomDrawer({
             </TabsContent>
 
             {/* ── SYNTHESIS TAB ── */}
-            <TabsContent value="synthesis" className="flex-1 min-h-0 m-0 px-4 py-2 overflow-auto">
+            <TabsContent value="synthesis" className="flex-1 flex flex-col min-h-0 m-0 px-4 py-2">
+              <ScrollArea className="flex-1 min-h-0">
               {synthesis ? (
                 <div className="space-y-3">
                   <div className="flex items-center gap-2">
@@ -651,6 +652,7 @@ export function NoteWritersRoomDrawer({
                   </Button>
                 </div>
               )}
+              </ScrollArea>
             </TabsContent>
 
             {/* ── PLAN TAB ── */}
