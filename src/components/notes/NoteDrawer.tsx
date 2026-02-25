@@ -19,12 +19,9 @@ import {
 } from 'lucide-react';
 import type { ProjectNote, NoteSuggestedFix, NoteTiming, NoteStatus, PatchSection, NoteEvent } from '@/lib/types/notes';
 import { useNote, useNotesMutations } from '@/lib/notes/useProjectNotes';
+import { BASE_DOC_TYPES, getDocTypeLabel, normalizeDocType } from '@/config/documentLadders';
 
-const DOC_TYPES = [
-  'concept_brief', 'market_sheet', 'blueprint', 'character_bible', 'beat_sheet',
-  'script', 'screenplay_draft', 'episode_grid', 'season_arc', 'series_overview',
-  'episode_script', 'production_draft', 'pitch_deck', 'treatment',
-];
+const DOC_TYPES = Object.keys(BASE_DOC_TYPES);
 
 const SEVERITY_STYLES: Record<string, string> = {
   blocker: 'bg-destructive/20 text-destructive border-destructive/30',
