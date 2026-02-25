@@ -308,8 +308,8 @@ D) OUTPUT CONTRACT — At the top of your response, print:
     // 5) Generate content
     let content: string;
 
-    // ── Special path for vertical_episode_beats: chunked generation with completeness guard ──
-    if (docType === "vertical_episode_beats" && resolvedQuals.is_series && resolvedQuals.season_episode_count) {
+    // ── Special path for episode beats: chunked generation with completeness guard ──
+    if ((docType === "vertical_episode_beats" || docType === "episode_beats") && resolvedQuals.is_series && resolvedQuals.season_episode_count) {
       content = await generateEpisodeBeatsChunked({
         apiKey,
         episodeCount: resolvedQuals.season_episode_count,
