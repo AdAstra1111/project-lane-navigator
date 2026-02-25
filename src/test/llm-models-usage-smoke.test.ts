@@ -28,6 +28,7 @@ const TARGET_FILES = [
   "supabase/functions/comp-analysis/index.ts",
   "supabase/functions/doc-assistant/index.ts",
   "supabase/functions/extract-budget/index.ts",
+  "supabase/functions/_shared/episodeBeatsChunked.ts",
 ];
 
 /**

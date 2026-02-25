@@ -13,8 +13,8 @@
  *  - Max 2 repair attempts before hard fail
  */
 
-const GATEWAY_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
-const BATCH_SIZE = 8;
+import { callLLM, MODELS } from "./llm.ts";
+
 const MAX_REPAIR_ATTEMPTS = 2;
 
 interface EpisodeBeatsOpts {
@@ -31,19 +31,15 @@ interface EpisodeBeatBlock {
 }
 
 async function callLLMRaw(apiKey: string, system: string, user: string, maxTokens = 8000): Promise<string> {
-  const res = await fetch(GATEWAY_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify({
-      model: "google/gemini-2.5-flash",
-      messages: [{ role: "system", content: system }, { role: "user", content: user }],
-      temperature: 0.5,
-      max_tokens: maxTokens,
-    }),
+  const result = await callLLM({
+    apiKey,
+    model: MODELS.FAST,
+    system,
+    user,
+    temperature: 0.5,
+    maxTokens,
   });
-  if (!res.ok) throw new Error(`LLM call failed: ${res.status}`);
-  const data = await res.json();
-  return data.choices?.[0]?.message?.content || "";
+  return result.content;
 }
 
 /**
