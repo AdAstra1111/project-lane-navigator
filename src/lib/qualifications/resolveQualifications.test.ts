@@ -24,7 +24,8 @@ describe("resolveQualifications", () => {
     });
     expect(result.resolvedQualifications.episode_target_duration_seconds).toBe(60);
     expect(result.resolvedQualifications.season_episode_count).toBe(30);
-    expect(result.resolvedQualifications.season_target_runtime_seconds).toBe(1800);
+    // season_target_runtime uses midpoint of range: round((45+90)/2) = 68s × 30 = 2040
+    expect(result.resolvedQualifications.season_target_runtime_seconds).toBe(2040);
     expect(result.resolvedQualifications.is_series).toBe(true);
     expect(result.sources.episode_target_duration_seconds).toBe("defaults");
     expect(result.sources.season_episode_count).toBe("defaults");
@@ -137,6 +138,19 @@ describe("resolveQualifications", () => {
         season_episode_count: 10,
       },
     });
+    expect(result.resolvedQualifications.season_target_runtime_seconds).toBe(27000);
+  });
+
+  it("season_target_runtime uses midpoint of custom min/max range", () => {
+    const result = resolveQualifications({
+      format_subtype: "tv-series",
+      project_qualification_fields: {
+        episode_target_duration_min_seconds: 2400,
+        episode_target_duration_max_seconds: 3000,
+        season_episode_count: 10,
+      },
+    });
+    // midpoint = round((2400+3000)/2) = 2700; 2700 × 10 = 27000
     expect(result.resolvedQualifications.season_target_runtime_seconds).toBe(27000);
   });
 
