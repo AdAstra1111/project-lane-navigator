@@ -85,7 +85,9 @@ export function useRunAnalysis() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (projectId: string) => {
+    mutationFn: async (params: string | { projectId: string; docSetId?: string | null }) => {
+      const projectId = typeof params === 'string' ? params : params.projectId;
+      const explicitDocSetId = typeof params === 'string' ? null : (params.docSetId ?? null);
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
 
@@ -97,7 +99,7 @@ export function useRunAnalysis() {
         .single();
       if (projErr || !project) throw new Error('Project not found');
 
-      // Check for default doc set to filter documents
+      // Check for doc set to filter documents (explicit override or default)
       let docSetDocIds: string[] | null = null;
       try {
         const { data: docSetsData } = await (supabase as any)
@@ -105,18 +107,18 @@ export function useRunAnalysis() {
           .select('*')
           .eq('project_id', projectId);
         const docSets: DocSet[] = docSetsData || [];
-        if (docSets.length > 0) {
-          const defaultId = getDefaultDocSetId(docSets);
-          if (defaultId) {
-            const { data: itemsData } = await (supabase as any)
-              .from('project_doc_set_items')
-              .select('*')
-              .eq('doc_set_id', defaultId)
-              .order('sort_order');
-            const items: DocSetItem[] = itemsData || [];
-            if (items.length > 0) {
-              docSetDocIds = getDocSetDocumentIds(items);
-            }
+
+        // Determine which doc set to use: explicit > default
+        const targetDocSetId = explicitDocSetId || (docSets.length > 0 ? getDefaultDocSetId(docSets) : undefined);
+        if (targetDocSetId) {
+          const { data: itemsData } = await (supabase as any)
+            .from('project_doc_set_items')
+            .select('*')
+            .eq('doc_set_id', targetDocSetId)
+            .order('sort_order');
+          const items: DocSetItem[] = itemsData || [];
+          if (items.length > 0) {
+            docSetDocIds = getDocSetDocumentIds(items);
           }
         }
       } catch {
