@@ -6,6 +6,11 @@
 import type { CinematicUnit, CinematicFailureCode } from "../../cinematic-model.ts";
 import { scoreCinematic, type ScoringContext } from "../../cinematic-score.ts";
 
+export interface ScoreBounds {
+  min: number;
+  max: number;
+}
+
 export interface EvalFixture {
   name: string;
   lane?: string;
@@ -14,6 +19,8 @@ export interface EvalFixture {
   expectedFailures?: CinematicFailureCode[];
   /** If set, these failures must NOT appear. */
   forbiddenFailures?: CinematicFailureCode[];
+  /** Exact score match (if stable) or bounds { min, max }. */
+  expectedScore?: number | ScoreBounds;
   description?: string;
 }
 
@@ -53,6 +60,20 @@ export function runEvalFixture(fixture: EvalFixture): EvalResult {
     for (const ff of fixture.forbiddenFailures) {
       if (score.failures.includes(ff)) {
         mismatches.push(`unexpected forbidden failure: ${ff}`);
+      }
+    }
+  }
+
+  // Score bounds checking
+  if (fixture.expectedScore !== undefined) {
+    if (typeof fixture.expectedScore === "number") {
+      if (Math.abs(score.score - fixture.expectedScore) > 0.001) {
+        mismatches.push(`score: expected=${fixture.expectedScore} actual=${score.score.toFixed(4)}`);
+      }
+    } else {
+      const bounds = fixture.expectedScore as ScoreBounds;
+      if (score.score < bounds.min || score.score > bounds.max) {
+        mismatches.push(`score out of bounds: expected [${bounds.min}, ${bounds.max}] actual=${score.score.toFixed(4)}`);
       }
     }
   }
