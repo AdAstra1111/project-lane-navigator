@@ -308,113 +308,138 @@ D) OUTPUT CONTRACT — At the top of your response, print:
     // 5) Generate content
     let content: string;
 
-    // ── FORENSIC DIAGNOSTICS for episode-doc types ──
-    const EPISODE_DOC_TYPES = new Set(["episode_grid", "episode_beats", "vertical_episode_beats"]);
-    const isEpisodeDocType = EPISODE_DOC_TYPES.has(docType) && resolvedQuals.is_series;
+    // ─────────────────────────────────────────────────────────────
+    // EPISODE FORENSICS (diagnostics only — no behaviour changes)
+    // Fires for: episode_grid, episode_beats, vertical_episode_beats
+    // ─────────────────────────────────────────────────────────────
+    const requestId = crypto.randomUUID();
+    const isEpisodeDocType =
+      (docType === "episode_grid" ||
+       docType === "episode_beats" ||
+       docType === "vertical_episode_beats") &&
+      !!resolvedQuals.is_series;
 
     if (isEpisodeDocType) {
-      const requestId = crypto.randomUUID();
-
-      // ── A) DIAG_REQ: Request Context ──
+      // A) DIAG_REQ — Request Context
       console.error(JSON.stringify({
-        diag: "DIAG_REQ", requestId,
-        project_id: projectId,
-        document_id: (body as any)?.documentId ?? null,
-        doc_type: docType,
-        lane_format: project.format,
-        user_id: user?.id ?? null,
+        diag: "DIAG_REQ",
+        requestId,
         timestamp: new Date().toISOString(),
+        project_id: projectId,
+        document_id: (body as any)?.documentId ?? (body as any)?.document_id ?? null,
+        doc_type: docType,
+        project_format: project?.format ?? null,
+        user_id: user?.id ?? null,
       }));
 
-      // ── B) DIAG_EP_COUNT: Episode Count Resolution ──
+      // B) DIAG_EP_COUNT — Episode Count Resolution
       const clientEpCount = (body as any)?.episodeCount ?? null;
-      const qualsEpCount = resolvedQuals.season_episode_count ?? null;
-      const gcEpCount = (project as any).guardrails_config?.overrides?.qualifications?.season_episode_count ?? null;
-      // Current logic: client ?? quals ?? 8
-      const episodeCountUsed = clientEpCount ?? qualsEpCount ?? 8;
-      const episodeCountSource = clientEpCount != null
-        ? "body.episodeCount"
-        : qualsEpCount != null
-          ? "resolvedQuals.season_episode_count"
-          : "HARDCODED_FALLBACK_8";
+      const qualsEpCount = resolvedQuals?.season_episode_count ?? null;
+      // DO NOT CHANGE BEHAVIOUR — keep existing logic
+      const episodeCountUsed = qualsEpCount || 8;
+      const episodeCountSource =
+        qualsEpCount ? "resolvedQuals.season_episode_count" : "HARDCODED_FALLBACK_8";
 
       console.error(JSON.stringify({
-        diag: "DIAG_EP_COUNT", requestId,
+        diag: "DIAG_EP_COUNT",
+        requestId,
         candidates: {
-          "body.episodeCount": clientEpCount,
-          "resolvedQuals.season_episode_count": qualsEpCount,
-          "guardrails_config.overrides.qualifications.season_episode_count": gcEpCount,
+          clientEpCount,
+          qualsEpCount,
         },
         episodeCountUsed,
         episodeCountSource,
       }));
 
-      if (episodeCountUsed <= 8 && (clientEpCount != null && clientEpCount > 8 || qualsEpCount != null && qualsEpCount > 8 || gcEpCount != null && gcEpCount > 8)) {
+      if (episodeCountUsed <= 8 &&
+          clientEpCount != null &&
+          clientEpCount > 8) {
         console.error(JSON.stringify({
-          diag: "⚠️ EPISODE_COUNT_COLLAPSE", requestId,
-          message: `episodeCountUsed=${episodeCountUsed} but a source indicates >8`,
-          candidates: { clientEpCount, qualsEpCount, gcEpCount },
+          diag: "⚠️ EPISODE_COUNT_COLLAPSE",
+          requestId,
+          message: `episodeCountUsed=${episodeCountUsed} but client sent ${clientEpCount}`,
         }));
       }
+
       if (episodeCountSource === "HARDCODED_FALLBACK_8") {
         console.error(JSON.stringify({
-          diag: "⚠️ DEFAULT_EPISODE_COUNT_USED", requestId,
+          diag: "⚠️ DEFAULT_EPISODE_COUNT_USED",
+          requestId,
           message: "All episode count sources are null — falling back to 8",
         }));
       }
 
-      // ── C) DIAG_PATH: Generation Path ──
-      const willEnterChunked = !!((docType === "vertical_episode_beats" || docType === "episode_beats") && resolvedQuals.season_episode_count);
+      // C) DIAG_PATH — Generation Path
+      const willEnterChunked =
+        (docType === "vertical_episode_beats" ||
+         docType === "episode_beats") &&
+        !!resolvedQuals?.season_episode_count;
       const BATCH_SIZE_CONST = 8;
+
       console.error(JSON.stringify({
-        diag: "DIAG_PATH", requestId,
+        diag: "DIAG_PATH",
+        requestId,
         chunked_generator: willEnterChunked,
         single_shot_callLLM: !willEnterChunked,
         branch_condition: willEnterChunked
-          ? `(docType=${docType}) && resolvedQuals.season_episode_count=${qualsEpCount} → chunked`
-          : `resolvedQuals.season_episode_count is falsy (${qualsEpCount}) or docType=${docType} not in chunked set → single callLLM`,
+          ? "Chunked path"
+          : "Fallback single LLM call",
         batch_size: BATCH_SIZE_CONST,
       }));
-      if (!willEnterChunked) {
+
+      if (!willEnterChunked &&
+          (docType === "episode_beats" ||
+           docType === "vertical_episode_beats")) {
         console.error(JSON.stringify({
-          diag: "⚠️ FALLBACK_PATH_USED", requestId,
-          message: "Single callLLM() will be used — 12K token limit will truncate long episode lists",
+          diag: "⚠️ FALLBACK_PATH_USED",
+          requestId,
+          message: "Single callLLM() will be used — token limits may truncate long episode lists",
         }));
       }
 
-      // ── D) DIAG_UPSTREAM_DOCS: Upstream Document Forensics ──
+      // D) DIAG_UPSTREAM_DOCS — Upstream Document Forensics
       const upstreamDiag: any[] = [];
       if (upstreamTypes.length > 0) {
-        const { data: diagDocs } = await supabase.from("project_documents")
+        const { data: diagDocs } = await supabase
+          .from("project_documents")
           .select("id, doc_type, latest_version_id, project_id, created_at")
           .eq("project_id", projectId)
           .in("doc_type", upstreamTypes);
 
-        const diagVIds = (diagDocs || []).filter((d: any) => d.latest_version_id).map((d: any) => d.latest_version_id);
+        const diagVIds = (diagDocs || [])
+          .filter((d: any) => d.latest_version_id)
+          .map((d: any) => d.latest_version_id);
         let diagVerMap = new Map<string, any>();
         if (diagVIds.length > 0) {
-          const { data: diagVers } = await supabase.from("project_document_versions")
+          const { data: diagVers } = await supabase
+            .from("project_document_versions")
             .select("id, document_id, version_number, plaintext, created_at")
             .in("id", diagVIds);
           diagVerMap = new Map((diagVers || []).map((v: any) => [v.id, v]));
         }
 
         for (const doc of (diagDocs || [])) {
-          const ver = doc.latest_version_id ? diagVerMap.get(doc.latest_version_id) : null;
+          const ver = doc.latest_version_id
+            ? diagVerMap.get(doc.latest_version_id)
+            : null;
+          const snippet = ver?.plaintext
+            ? ver.plaintext.substring(0, 300)
+            : "(no content)";
           upstreamDiag.push({
             document_id: doc.id,
             project_id: doc.project_id,
             doc_type: doc.doc_type,
-            latest_version_id: doc.latest_version_id,
+            latest_version_id: doc.latest_version_id ?? null,
             version_number: ver?.version_number ?? null,
             created_at: doc.created_at,
-            content_first_300: ver?.plaintext ? ver.plaintext.substring(0, 300) : "(no content)",
+            content_first_300: snippet,
           });
+
           if (doc.project_id !== projectId) {
             console.error(JSON.stringify({
-              diag: "⚠️ CROSS_PROJECT_LEAK", requestId,
+              diag: "⚠️ CROSS_PROJECT_LEAK",
+              requestId,
               document_id: doc.id,
-              doc_type: doc.doc_type,
               doc_project_id: doc.project_id,
               request_project_id: projectId,
             }));
@@ -422,33 +447,39 @@ D) OUTPUT CONTRACT — At the top of your response, print:
         }
       }
       console.error(JSON.stringify({
-        diag: "DIAG_UPSTREAM_DOCS", requestId,
+        diag: "DIAG_UPSTREAM_DOCS",
+        requestId,
         count: upstreamDiag.length,
         documents: upstreamDiag,
       }));
 
-      // ── E) DIAG_MAYA_SCAN: "Maya" Source Attribution ──
-      const mayaHits: Record<string, boolean> = {
+      // E) DIAG_MAYA_SCAN
+      const mayaHits = {
         system_prompt: system.includes("Maya"),
         user_prompt: userPrompt.includes("Maya"),
         additionalContext: !!(additionalContext && additionalContext.includes("Maya")),
         upstreamContent: upstreamContent.includes("Maya"),
       };
       const mayaUpstreamDocs = upstreamDiag
-        .filter(d => d.content_first_300.includes("Maya"))
-        .map(d => ({ document_id: d.document_id, doc_type: d.doc_type, project_id: d.project_id }));
-
+        .filter(d => (d.content_first_300 || "").includes("Maya"))
+        .map(d => ({
+          document_id: d.document_id,
+          doc_type: d.doc_type,
+          project_id: d.project_id,
+        }));
       const anyMaya = Object.values(mayaHits).some(Boolean);
       console.error(JSON.stringify({
-        diag: "DIAG_MAYA_SCAN", requestId,
+        diag: "DIAG_MAYA_SCAN",
+        requestId,
         found: anyMaya,
         locations: mayaHits,
         attributed_upstream_docs: mayaUpstreamDocs,
       }));
+
       if (anyMaya) {
         console.error(JSON.stringify({
-          diag: "⚠️ MAYA_DETECTED", requestId,
-          message: `"Maya" found in: ${Object.entries(mayaHits).filter(([,v]) => v).map(([k]) => k).join(", ")}`,
+          diag: "⚠️ MAYA_DETECTED",
+          requestId,
           upstream_attribution: mayaUpstreamDocs,
         }));
       }
@@ -465,34 +496,51 @@ D) OUTPUT CONTRACT — At the top of your response, print:
         upstreamContent,
         projectTitle: project.title || "Untitled",
       });
-
-      // ── F) DIAG_OUTPUT_VALIDATION ──
-      const valRequestId = isEpisodeDocType ? "(see DIAG_REQ above)" : crypto.randomUUID();
-      const epHeaderPattern = /^#{1,3}\s*(?:EPISODE|EP\.?\s*)(\d+)\b/gim;
-      const epMatches = [...content.matchAll(epHeaderPattern)];
-      const extractedEpNums = [...new Set(epMatches.map(m => parseInt(m[1], 10)))].sort((a, b) => a - b);
-      const expectedRange = Array.from({ length: finalEpisodeCount }, (_, i) => i + 1);
-      const missingEps = expectedRange.filter(n => !extractedEpNums.includes(n));
-
-      console.error(JSON.stringify({
-        diag: "DIAG_OUTPUT_VALIDATION", requestId: valRequestId,
-        extracted_episode_numbers: extractedEpNums,
-        expected_range: `1-${finalEpisodeCount}`,
-        total_extracted: extractedEpNums.length,
-        total_expected: finalEpisodeCount,
-        missing_episodes: missingEps,
-        output_length_chars: content.length,
-      }));
-
-      if (missingEps.length > 0) {
-        console.error(JSON.stringify({
-          diag: "⚠️ TRUNCATION_DETECTED", requestId: valRequestId,
-          missing_episodes: missingEps,
-          message: `${missingEps.length} episodes missing from output`,
-        }));
-      }
     } else {
       content = await callLLM(apiKey, system, userPrompt);
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // AFTER GENERATION — Output Validation (same requestId)
+    // ─────────────────────────────────────────────────────────────
+    if (isEpisodeDocType) {
+      const valEpCount =
+        (body as any)?.episodeCount ??
+        resolvedQuals?.season_episode_count ??
+        null;
+
+      if (valEpCount) {
+        const epHeaderPattern = /^#{1,3}\s*(?:EPISODE|EP\.?\s*)(\d+)\b/gim;
+        const epMatches = [...content.matchAll(epHeaderPattern)];
+        const extractedEpNums = [...new Set(
+          epMatches.map(m => parseInt(m[1], 10))
+        )]
+          .filter(n => !isNaN(n))
+          .sort((a, b) => a - b);
+        const expectedRange =
+          Array.from({ length: valEpCount }, (_, i) => i + 1);
+        const missingEps =
+          expectedRange.filter(n => !extractedEpNums.includes(n));
+
+        console.error(JSON.stringify({
+          diag: "DIAG_OUTPUT_VALIDATION",
+          requestId,
+          extracted_episode_numbers: extractedEpNums,
+          expected_range: `1-${valEpCount}`,
+          total_extracted: extractedEpNums.length,
+          total_expected: valEpCount,
+          missing_episodes: missingEps,
+          output_length_chars: content.length,
+        }));
+
+        if (missingEps.length > 0) {
+          console.error(JSON.stringify({
+            diag: "⚠️ TRUNCATION_DETECTED",
+            requestId,
+            missing_episodes: missingEps,
+          }));
+        }
+      }
     }
 
     // 6a) Topline placeholder validator (hard gate — never save template)
