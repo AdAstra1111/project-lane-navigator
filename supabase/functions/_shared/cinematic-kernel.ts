@@ -13,6 +13,7 @@ import {
   recordAttempt0, recordFinal, recordFeatureSummary,
   recordDiagnosticFlags, flushCinematicSummaryIfDue,
 } from "./cinematic-telemetry.ts";
+import { persistCinematicQualityRun, type PersistQualityRunParams } from "./cik/qualityHistory.ts";
 
 export interface CinematicQualityGateEvent {
   handler: string;
@@ -42,6 +43,12 @@ export interface CinematicQualityOpts<T> {
   expected_unit_count?: number;
   /** Product lane for lane-aware CIK checks (e.g. "feature_film", "vertical_drama") */
   lane?: string;
+  /** Supabase client for quality history persistence (optional; no-op if omitted) */
+  db?: any;
+  /** Project ID for quality history (required if db is set) */
+  projectId?: string;
+  /** Document ID for quality history */
+  documentId?: string;
 }
 
 function defaultTelemetry(eventName: string, payload: CinematicQualityGateEvent): void {
@@ -119,6 +126,7 @@ export async function enforceCinematicQuality<T>(opts: CinematicQualityOpts<T>):
   const { handler, phase, model, adapter, buildRepairInstruction, regenerateOnce } = opts;
   const log = opts.telemetry || defaultTelemetry;
   const scoringCtx: ScoringContext = { isStoryboard: opts.isStoryboard, lane: opts.lane };
+  const runSource = opts.isStoryboard ? "storyboard-engine" : "trailer-engine";
 
   // Attempt 0: adapt + sanitize + score
   const adapterResult0 = runAdapter(adapter, opts.rawOutput, opts.expected_unit_count);
@@ -142,10 +150,37 @@ export async function enforceCinematicQuality<T>(opts: CinematicQualityOpts<T>):
     console.error(JSON.stringify({ type: "CINEMATIC_ADAPTER_FALLBACK", handler, phase, model }));
   }
 
+  // Helper to build attempt payload from gate event + score
+  const buildAttemptPayload = (score: CinematicScore, adapterMode: string, adapterQuality: AdapterQualityMetrics | undefined) => ({
+    model,
+    score: score.score,
+    pass: score.pass,
+    failures: score.failures,
+    hardFailures: score.hard_failures,
+    diagnosticFlags: score.diagnostic_flags,
+    unitCount: units0.length,
+    expectedUnitCount: opts.expected_unit_count,
+    adapterMetricsJson: adapterQuality ? (adapterQuality as unknown as Record<string, unknown>) : {},
+  });
+
   if (score0.pass) {
     recordFinal(evt0, "attempt0");
     recordTelemetryAtFinal(handler, phase, model, mode0, units0, score0, opts.lane);
     flushCinematicSummaryIfDue({ handler, phase, model });
+
+    // Persist: single attempt pass
+    if (opts.db && opts.projectId) {
+      persistCinematicQualityRun(opts.db, {
+        projectId: opts.projectId,
+        documentId: opts.documentId,
+        runSource,
+        lane: opts.lane || "unknown",
+        adapterMode: mode0,
+        attempt0: buildAttemptPayload(score0, mode0, sanitized0.quality),
+        final: { pass: true, finalScore: score0.score, hardFailures: score0.hard_failures, diagnosticFlags: score0.diagnostic_flags, metricsJson: score0.metrics as unknown as Record<string, unknown> },
+      }).catch(() => {}); // fire-and-forget
+    }
+
     return stripCik(opts.rawOutput);
   }
 
@@ -220,7 +255,43 @@ export async function enforceCinematicQuality<T>(opts: CinematicQualityOpts<T>):
   recordTelemetryAtFinal(handler, phase, model, mode1, units1, score1, opts.lane);
   flushCinematicSummaryIfDue({ handler, phase, model });
 
+  // Build attempt1 payload for persistence
+  const attempt1Payload = {
+    model,
+    score: score1.score,
+    pass: score1.pass,
+    failures: score1.failures,
+    hardFailures: score1.hard_failures,
+    diagnosticFlags: score1.diagnostic_flags,
+    unitCount: units1.length,
+    expectedUnitCount: opts.expected_unit_count,
+    adapterMetricsJson: sanitized1.quality ? (sanitized1.quality as unknown as Record<string, unknown>) : {},
+  };
+
+  // Persist: two-attempt run (pass or fail)
+  const persistFn = () => {
+    if (!opts.db || !opts.projectId) return;
+    persistCinematicQualityRun(opts.db, {
+      projectId: opts.projectId,
+      documentId: opts.documentId,
+      runSource,
+      lane: opts.lane || "unknown",
+      adapterMode: mode1,
+      attempt0: buildAttemptPayload(score0, mode0, sanitized0.quality),
+      repairInstruction: instruction,
+      attempt1: attempt1Payload,
+      final: {
+        pass: score1.pass,
+        finalScore: score1.score,
+        hardFailures: score1.hard_failures,
+        diagnosticFlags: score1.diagnostic_flags,
+        metricsJson: score1.metrics as unknown as Record<string, unknown>,
+      },
+    }).catch(() => {}); // fire-and-forget
+  };
+
   if (score1.pass) {
+    persistFn();
     return stripCik(repaired);
   }
 
@@ -237,6 +308,8 @@ export async function enforceCinematicQuality<T>(opts: CinematicQualityOpts<T>):
     adapter_mode: mode1,
     snapshot,
   }));
+
+  persistFn();
 
   const err = new Error(`AI_CINEMATIC_QUALITY_FAIL [${handler}]: post_quality_gate score=${score1.score.toFixed(2)} failures=${score1.failures.join(",")}`);
   (err as any).type = "AI_CINEMATIC_QUALITY_FAIL";
