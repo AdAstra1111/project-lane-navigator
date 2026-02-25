@@ -6,19 +6,24 @@ export function buildWarningsReport(opts: {
   runId?: string | null;
   status?: string | null;
   warnings: string[];
+  selectedWarning?: string | null;
+  anchorId?: string | null;
 }): string {
   const ts = new Date().toISOString();
-  const header = [
-    `IFFY WARNINGS REPORT`,
+  const lines: string[] = [
+    "IFFY WARNINGS REPORT",
     `kind: ${opts.kind}`,
     `run_id: ${opts.runId ?? ""}`,
     `status: ${opts.status ?? ""}`,
     `timestamp: ${ts}`,
-    ``,
-    `warnings (${opts.warnings.length}):`,
-  ].join("\n");
+  ];
+  if (opts.selectedWarning) {
+    lines.push(`selected_warning: ${opts.selectedWarning}`);
+    lines.push(`anchor: ${opts.anchorId ?? ""}`);
+  }
+  lines.push("", `warnings (${opts.warnings.length}):`);
   const body = opts.warnings.map((w) => `- ${w}`).join("\n");
-  return `${header}\n${body}\n`;
+  return `${lines.join("\n")}\n${body}\n`;
 }
 
 export async function copyTextToClipboard(text: string) {

@@ -413,11 +413,14 @@ export default function StoryboardPipeline() {
                             type="button"
                             className="ml-1 rounded-md bg-muted px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-muted/80"
                             onClick={() => {
+                              const anchorId = selectedSBWarning ? sbWarningAnchorId(selectedSBWarning) : null;
                               const report = buildWarningsReport({
                                 kind: "storyboard",
                                 runId: (renderRun as any)?.id ?? null,
                                 status: renderRun?.status ?? null,
                                 warnings: sbWarningsDeduped,
+                                selectedWarning: selectedSBWarning,
+                                anchorId,
                               });
                               void copyTextToClipboard(report);
                             }}
