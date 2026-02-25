@@ -195,6 +195,26 @@ export function scoreCinematic(units: CinematicUnit[], ctx?: ScoringContext): Ci
           failures.push("WEAK_ARC");
         }
       }
+
+      // ─── CIK v3.13 Peak Clamp + Tail Seal ───
+      if (ladder.peakLead < ladder.peakLeadThreshold) {
+        if (!failures.includes("LOW_CONTRAST")) {
+          failures.push("LOW_CONTRAST");
+        } else if (!failures.includes("WEAK_ARC")) {
+          failures.push("WEAK_ARC");
+        }
+      }
+      if (ladder.tailMean < ladder.peakValue - ladder.tailSlack && !failures.includes("ENERGY_DROP")) {
+        failures.push("ENERGY_DROP");
+      }
+      // Penultimate peak with final drop (peak at n-2, final unit drops)
+      if (ladder.peakIndex === n - 2 && n >= 4 && !failures.includes("ENERGY_DROP")) {
+        // If peak is penultimate and tail mean is noticeably below peak, it's a drop
+        const tailGap = ladder.peakValue - ladder.tailMean;
+        if (tailGap > ladder.lateDipAbs / 2) {
+          failures.push("ENERGY_DROP");
+        }
+      }
     }
 
     // EYE_LINE_BREAK: diagnostic-only, only added when LOW_CONTRAST or FLATLINE also present

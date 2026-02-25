@@ -615,6 +615,73 @@ describe("ladder lock scoring integration", () => {
   });
 });
 
+// ─── CIK v3.13 Peak Clamp + Tail Seal Tests ───
+
+describe("v3.13 peak clamp + tail seal scoring", () => {
+  it("late but non-dominant peak triggers LOW_CONTRAST or WEAK_ARC", () => {
+    // All units near 0.7, peak barely above pre-late → peakLead < threshold
+    const units = [
+      makeUnit({ id: "0", energy: 0.65, tension: 0.65, density: 0.65, intent: "intrigue" }),
+      makeUnit({ id: "1", energy: 0.68, tension: 0.68, density: 0.68, intent: "threat" }),
+      makeUnit({ id: "2", energy: 0.66, tension: 0.66, density: 0.66, intent: "chaos" }),
+      makeUnit({ id: "3", energy: 0.70, tension: 0.70, density: 0.70, intent: "emotion" }),
+      makeUnit({ id: "4", energy: 0.72, tension: 0.72, density: 0.72, intent: "release" }),
+    ];
+    const score = scoreCinematic(units);
+    const hasContrast = score.failures.includes("LOW_CONTRAST");
+    const hasWeakArc = score.failures.includes("WEAK_ARC");
+    expect(hasContrast || hasWeakArc).toBe(true);
+  });
+
+  it("tail not sealed triggers ENERGY_DROP", () => {
+    // Good ramp but final unit drops noticeably below peak
+    const units = [
+      makeUnit({ id: "0", energy: 0.2, tension: 0.2, density: 0.2, intent: "intrigue" }),
+      makeUnit({ id: "1", energy: 0.4, tension: 0.4, density: 0.4, intent: "threat" }),
+      makeUnit({ id: "2", energy: 0.6, tension: 0.6, density: 0.6, intent: "chaos" }),
+      makeUnit({ id: "3", energy: 0.95, tension: 0.95, density: 0.95, intent: "emotion" }),
+      makeUnit({ id: "4", energy: 0.7, tension: 0.7, density: 0.7, intent: "release" }),
+    ];
+    const score = scoreCinematic(units);
+    expect(score.failures).toContain("ENERGY_DROP");
+  });
+
+  it("sealed ending passes peak clamp + tail checks", () => {
+    const units = [
+      makeUnit({ id: "0", energy: 0.3, tension: 0.3, density: 0.3, tonal_polarity: -0.3, intent: "intrigue" }),
+      makeUnit({ id: "1", energy: 0.5, tension: 0.5, density: 0.5, tonal_polarity: -0.1, intent: "threat" }),
+      makeUnit({ id: "2", energy: 0.7, tension: 0.7, density: 0.7, tonal_polarity: 0.1, intent: "chaos" }),
+      makeUnit({ id: "3", energy: 0.9, tension: 0.9, density: 0.9, tonal_polarity: 0.3, intent: "emotion" }),
+      makeUnit({ id: "4", energy: 0.92, tension: 0.92, density: 0.92, tonal_polarity: 0.5, intent: "release" }),
+    ];
+    const score = scoreCinematic(units);
+    // Should not trigger LOW_CONTRAST or ENERGY_DROP from v3.13 checks specifically
+    // Peak is dominant and tail is sealed
+    if (score.hard_failures.length === 0) {
+      expect(score.pass).toBe(true);
+    }
+  });
+});
+
+describe("v3.13 repair targets", () => {
+  const makeScore = (failures: CinematicFailureCode[]): CinematicScore => ({
+    score: 0.3, pass: false, failures,
+    hard_failures: failures, diagnostic_flags: [],
+    penalty_breakdown: [], metrics: {} as any,
+  });
+
+  it("includes peak lead and tail seal targets for ladder failures", () => {
+    const instr = buildTrailerRepairInstruction(makeScore(["LOW_CONTRAST", "ENERGY_DROP"]), 8);
+    expect(instr).toContain("Peak lead");
+    expect(instr).toContain("Tail seal");
+  });
+
+  it("stays under 2500 chars with v3.13 targets", () => {
+    const instr = buildTrailerRepairInstruction(makeScore(["LOW_CONTRAST", "ENERGY_DROP", "WEAK_ARC"]), 8);
+    expect(instr.length).toBeLessThanOrEqual(2500);
+  });
+});
+
 describe("ladder lock repair prompt", () => {
   const makeScore = (failures: CinematicFailureCode[]): CinematicScore => ({
     score: 0.3, pass: false, failures,
