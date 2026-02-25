@@ -133,3 +133,66 @@ export function logRouterDecision(
     reasons: decision.reasons,
   }));
 }
+
+/* ── Lightweight CIK Model Router (Phase 3) ── */
+
+/** Static model constants for CIK quality gate. */
+export const CIK_MODEL_ATTEMPT0_DEFAULT = "google/gemini-2.5-flash";
+export const CIK_MODEL_ATTEMPT1_STRONG = "google/gemini-2.5-pro";
+
+/** Per-lane overrides (static constants only). */
+const CIK_LANE_OVERRIDES: Record<string, { attempt0?: string; attempt1Strong?: string }> = {
+  feature_film: { attempt1Strong: "openai/gpt-5" },
+  series: { attempt1Strong: "openai/gpt-5" },
+};
+
+export interface SelectCikModelParams {
+  attemptIndex: 0 | 1;
+  lane: string;
+  adapterMode?: string | null;
+  attempt0HardFailures?: string[];
+}
+
+export interface CikModelSelection {
+  model: string;
+  reason: string;
+}
+
+/**
+ * Deterministic model selector for the CIK quality gate.
+ * - Attempt 0: always cheap default
+ * - Attempt 1: strong model only if attempt 0 had hard failures
+ */
+export function selectCikModel(params: SelectCikModelParams): CikModelSelection {
+  const overrides = CIK_LANE_OVERRIDES[params.lane] || {};
+
+  if (params.attemptIndex === 0) {
+    return {
+      model: overrides.attempt0 || CIK_MODEL_ATTEMPT0_DEFAULT,
+      reason: "attempt0_default",
+    };
+  }
+
+  const hasHardFailures = (params.attempt0HardFailures || []).length > 0;
+  if (hasHardFailures) {
+    return {
+      model: overrides.attempt1Strong || CIK_MODEL_ATTEMPT1_STRONG,
+      reason: "attempt1_strong_due_to_hard_failures",
+    };
+  }
+
+  return {
+    model: overrides.attempt0 || CIK_MODEL_ATTEMPT0_DEFAULT,
+    reason: "attempt1_default_no_hard_failures",
+  };
+}
+
+/** Build compact model_router telemetry shape. */
+export function buildModelRouterTelemetry(
+  attempt0: CikModelSelection,
+  attempt1?: CikModelSelection | null,
+): { attempt0: { model: string; reason: string }; attempt1?: { model: string; reason: string } } {
+  const result: any = { attempt0: { model: attempt0.model, reason: attempt0.reason } };
+  if (attempt1) result.attempt1 = { model: attempt1.model, reason: attempt1.reason };
+  return result;
+}

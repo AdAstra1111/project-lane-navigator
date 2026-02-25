@@ -14,6 +14,7 @@ import {
   recordDiagnosticFlags, flushCinematicSummaryIfDue,
 } from "./cinematic-telemetry.ts";
 import { persistCinematicQualityRun, type PersistQualityRunParams } from "./cik/qualityHistory.ts";
+import { type CikModelSelection } from "./cik/modelRouter.ts";
 
 export interface CinematicQualityGateEvent {
   handler: string;
@@ -28,6 +29,10 @@ export interface CinematicQualityGateEvent {
   distinct_intents?: number;
   lane?: string;
   adapter_quality?: AdapterQualityMetrics;
+  model_router?: {
+    attempt0: { model: string; reason: string };
+    attempt1?: { model: string; reason: string };
+  };
 }
 
 export interface CinematicQualityOpts<T> {
@@ -49,6 +54,11 @@ export interface CinematicQualityOpts<T> {
   projectId?: string;
   /** Document ID for quality history */
   documentId?: string;
+  /** Router decisions for attempt 0 and (optionally) attempt 1 */
+  modelRouter?: {
+    attempt0: CikModelSelection;
+    attempt1?: CikModelSelection;
+  };
 }
 
 function defaultTelemetry(eventName: string, payload: CinematicQualityGateEvent): void {
@@ -128,6 +138,12 @@ export async function enforceCinematicQuality<T>(opts: CinematicQualityOpts<T>):
   const scoringCtx: ScoringContext = { isStoryboard: opts.isStoryboard, lane: opts.lane };
   const runSource = opts.isStoryboard ? "storyboard-engine" : "trailer-engine";
 
+  // Build model_router telemetry shape from opts (if provided)
+  const routerTelemetry = opts.modelRouter
+    ? { attempt0: { model: opts.modelRouter.attempt0.model, reason: opts.modelRouter.attempt0.reason },
+        ...(opts.modelRouter.attempt1 ? { attempt1: { model: opts.modelRouter.attempt1.model, reason: opts.modelRouter.attempt1.reason } } : {}) }
+    : undefined;
+
   // Attempt 0: adapt + sanitize + score
   const adapterResult0 = runAdapter(adapter, opts.rawOutput, opts.expected_unit_count);
   const sanitized0 = sanitizeUnits(adapterResult0.units, opts.expected_unit_count);
@@ -135,6 +151,7 @@ export async function enforceCinematicQuality<T>(opts: CinematicQualityOpts<T>):
   const mode0 = adapterResult0.mode;
   const score0 = scoreCinematic(units0, scoringCtx);
   const evt0 = buildGateEvent(handler, phase, model, 0, score0, mode0, units0, opts.lane, sanitized0.quality);
+  if (routerTelemetry) evt0.model_router = routerTelemetry;
 
   log("CINEMATIC_QUALITY_GATE", evt0);
   recordAttempt0(evt0);
@@ -151,8 +168,8 @@ export async function enforceCinematicQuality<T>(opts: CinematicQualityOpts<T>):
   }
 
   // Helper to build attempt payload from gate event + score
-  const buildAttemptPayload = (score: CinematicScore, adapterMode: string, adapterQuality: AdapterQualityMetrics | undefined) => ({
-    model,
+  const buildAttemptPayload = (score: CinematicScore, adapterMode: string, adapterQuality: AdapterQualityMetrics | undefined, attemptModel?: string) => ({
+    model: attemptModel || model,
     score: score.score,
     pass: score.pass,
     failures: score.failures,
@@ -170,14 +187,16 @@ export async function enforceCinematicQuality<T>(opts: CinematicQualityOpts<T>):
 
     // Persist: single attempt pass
     if (opts.db && opts.projectId) {
+      const baseMetrics = score0.metrics as unknown as Record<string, unknown>;
+      const metricsWithRouter = routerTelemetry ? { ...baseMetrics, model_router: routerTelemetry } : baseMetrics;
       persistCinematicQualityRun(opts.db, {
         projectId: opts.projectId,
         documentId: opts.documentId,
         runSource,
         lane: opts.lane || "unknown",
         adapterMode: mode0,
-        attempt0: buildAttemptPayload(score0, mode0, sanitized0.quality),
-        final: { pass: true, finalScore: score0.score, hardFailures: score0.hard_failures, diagnosticFlags: score0.diagnostic_flags, metricsJson: score0.metrics as unknown as Record<string, unknown> },
+        attempt0: buildAttemptPayload(score0, mode0, sanitized0.quality, opts.modelRouter?.attempt0?.model),
+        final: { pass: true, finalScore: score0.score, hardFailures: score0.hard_failures, diagnosticFlags: score0.diagnostic_flags, metricsJson: metricsWithRouter },
       }).catch(() => {}); // fire-and-forget
     }
 
@@ -237,6 +256,7 @@ export async function enforceCinematicQuality<T>(opts: CinematicQualityOpts<T>):
 
   const score1 = scoreCinematic(units1, { ...scoringCtx, adapterMode: mode1 });
   const evt1 = buildGateEvent(handler, phase, model, 1, score1, mode1, units1, opts.lane, sanitized1.quality);
+  if (routerTelemetry) evt1.model_router = routerTelemetry;
 
   // Repair validation telemetry (before/after delta)
   console.error(JSON.stringify({
@@ -257,7 +277,7 @@ export async function enforceCinematicQuality<T>(opts: CinematicQualityOpts<T>):
 
   // Build attempt1 payload for persistence
   const attempt1Payload = {
-    model,
+    model: opts.modelRouter?.attempt1?.model || model,
     score: score1.score,
     pass: score1.pass,
     failures: score1.failures,
@@ -271,13 +291,15 @@ export async function enforceCinematicQuality<T>(opts: CinematicQualityOpts<T>):
   // Persist: two-attempt run (pass or fail)
   const persistFn = () => {
     if (!opts.db || !opts.projectId) return;
+    const finalMetrics = score1.metrics as unknown as Record<string, unknown>;
+    const finalMetricsWithRouter = routerTelemetry ? { ...finalMetrics, model_router: routerTelemetry } : finalMetrics;
     persistCinematicQualityRun(opts.db, {
       projectId: opts.projectId,
       documentId: opts.documentId,
       runSource,
       lane: opts.lane || "unknown",
       adapterMode: mode1,
-      attempt0: buildAttemptPayload(score0, mode0, sanitized0.quality),
+      attempt0: buildAttemptPayload(score0, mode0, sanitized0.quality, opts.modelRouter?.attempt0?.model),
       repairInstruction: instruction,
       attempt1: attempt1Payload,
       final: {
@@ -285,7 +307,7 @@ export async function enforceCinematicQuality<T>(opts: CinematicQualityOpts<T>):
         finalScore: score1.score,
         hardFailures: score1.hard_failures,
         diagnosticFlags: score1.diagnostic_flags,
-        metricsJson: score1.metrics as unknown as Record<string, unknown>,
+        metricsJson: finalMetricsWithRouter,
       },
     }).catch(() => {}); // fire-and-forget
   };

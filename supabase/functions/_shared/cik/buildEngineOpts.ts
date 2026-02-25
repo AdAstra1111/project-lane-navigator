@@ -11,6 +11,7 @@
 import type { CinematicScore, CinematicUnit } from "../cinematic-model.ts";
 import type { AdapterResult } from "../cinematic-adapters.ts";
 import type { CinematicQualityOpts } from "../cinematic-kernel.ts";
+import type { CikModelSelection } from "./modelRouter.ts";
 
 /** Minimal project shape needed for lane extraction. */
 export interface ProjectLaneSource {
@@ -28,6 +29,7 @@ export interface BuildEngineOptsArgs<T> {
   regenerateOnce: (repairInstruction: string) => Promise<T>;
   expected_unit_count?: number;
   isStoryboard?: boolean;
+  modelRouter?: { attempt0: CikModelSelection; attempt1?: CikModelSelection };
 }
 
 /**
@@ -47,5 +49,6 @@ export function buildEngineOpts<T>(args: BuildEngineOptsArgs<T>): CinematicQuali
     expected_unit_count: args.expected_unit_count,
     isStoryboard: args.isStoryboard,
     lane,
+    modelRouter: args.modelRouter,
   };
 }

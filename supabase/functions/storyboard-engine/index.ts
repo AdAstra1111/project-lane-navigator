@@ -6,6 +6,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { callLLM, MODELS, callLLMWithJsonRetry, callLLMChunked } from "../_shared/llm.ts";
 import { enforceCinematicQuality } from "../_shared/cinematic-kernel.ts";
 import { adaptStoryboardPanelsWithMode } from "../_shared/cinematic-adapters.ts";
+import { selectCikModel } from "../_shared/cik/modelRouter.ts";
 import { buildStoryboardRepairInstruction } from "../_shared/cinematic-repair.ts";
 
 const GATEWAY_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
@@ -318,6 +319,8 @@ Return ONLY valid JSON`;
     const expectedUnitKeys = keyOrder as string[];
     const expectedUnitCount = expectedUnitKeys.length;
     const cikInput = { panels: panelsByUnit.flatMap((u: any) => (u.panels || []).map((p: any) => ({ ...p, unit_key: u.unit_key }))) };
+    const sbRouter0 = selectCikModel({ attemptIndex: 0, lane: projectLane || "unknown" });
+    const sbRouter1 = selectCikModel({ attemptIndex: 1, lane: projectLane || "unknown", attempt0HardFailures: [] });
     const cikResult = await enforceCinematicQuality({
       handler: "storyboard-engine",
       phase: "generate_storyboard_panels",
@@ -328,6 +331,7 @@ Return ONLY valid JSON`;
       isStoryboard: true,
       expected_unit_count: expectedUnitCount,
       lane: projectLane,
+      modelRouter: { attempt0: sbRouter0, attempt1: sbRouter1 },
       regenerateOnce: async (repairInstruction: string) => {
         // Re-run the same generation with repair instruction injected
         const repairedSystemPrompt = panelSystemPrompt + "\n\n" + repairInstruction;

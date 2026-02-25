@@ -1,5 +1,6 @@
 /**
  * CIK Model Router — Deterministic model selection for CIK quality gate.
+ * Frontend-side mirror of supabase/functions/_shared/cik/modelRouter.ts selectCikModel.
  * No randomness. No time-based decisions. Static constants only.
  */
 
@@ -12,7 +13,6 @@ export const CIK_MODEL_ATTEMPT1_STRONG = "google/gemini-2.5-pro";
 const LANE_OVERRIDES: Record<string, { attempt0?: string; attempt1Strong?: string }> = {
   feature_film: { attempt1Strong: "openai/gpt-5" },
   series: { attempt1Strong: "openai/gpt-5" },
-  // vertical_drama, documentary, etc. use defaults
 };
 
 /* ── Router Types ── */
@@ -26,7 +26,7 @@ export interface SelectCikModelParams {
 
 export interface CikModelSelection {
   model: string;
-  router_reason: string;
+  reason: string;
 }
 
 /* ── Router Function ── */
@@ -42,7 +42,7 @@ export function selectCikModel(params: SelectCikModelParams): CikModelSelection 
   if (params.attemptIndex === 0) {
     return {
       model: overrides.attempt0 || CIK_MODEL_ATTEMPT0_DEFAULT,
-      router_reason: "attempt0_default",
+      reason: "attempt0_default",
     };
   }
 
@@ -52,12 +52,12 @@ export function selectCikModel(params: SelectCikModelParams): CikModelSelection 
   if (hasHardFailures) {
     return {
       model: overrides.attempt1Strong || CIK_MODEL_ATTEMPT1_STRONG,
-      router_reason: "attempt1_strong_due_to_hard_failures",
+      reason: "attempt1_strong_due_to_hard_failures",
     };
   }
 
   return {
     model: overrides.attempt0 || CIK_MODEL_ATTEMPT0_DEFAULT,
-    router_reason: "attempt1_default_no_hard_failures",
+    reason: "attempt1_default_no_hard_failures",
   };
 }
