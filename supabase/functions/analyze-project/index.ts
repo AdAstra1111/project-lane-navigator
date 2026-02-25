@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { buildGuardrailBlock } from "../_shared/guardrails.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { MODELS } from "../_shared/llm.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -106,7 +107,7 @@ async function ocrWithGemini(pdfBytes: Uint8Array): Promise<string> {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "google/gemini-2.5-flash",
+      model: MODELS.FAST,
       messages: [
         {
           role: "user",
@@ -809,7 +810,7 @@ ${hasDocumentText ? `UPLOADED MATERIAL:\n${combinedText}` : "No documents upload
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
+        model: MODELS.BALANCED,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userMessage },

@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { MODELS } from "../_shared/llm.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -59,7 +60,7 @@ Example output:
         Authorization: `Bearer ${lovableApiKey}`,
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
+        model: MODELS.FAST,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: `File: ${file_name || "budget"}\n\nContent:\n${text.slice(0, 50000)}` },

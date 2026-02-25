@@ -125,7 +125,7 @@ async function generateImage(apiKey: string, prompt: string): Promise<string | n
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: "google/gemini-2.5-flash-image",
+      model: MODELS.FLASH_IMAGE,
       messages: [{ role: "user", content: prompt }],
       modalities: ["image", "text"],
     }),
@@ -373,7 +373,7 @@ async function handleAnimateClip(db: any, body: any, userId: string, apiKey: str
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: "google/gemini-2.5-flash-image",
+      model: MODELS.FLASH_IMAGE,
       messages: [{
         role: "user",
         content: [
@@ -564,7 +564,7 @@ async function handleGenerateTrailerAssets(db: any, body: any, userId: string, a
         method: "POST",
         headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "google/gemini-2.5-flash-image",
+          model: MODELS.FLASH_IMAGE,
           messages: [{
             role: "user",
             content: [

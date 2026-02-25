@@ -1,4 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { MODELS } from "../_shared/llm.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -13,7 +14,7 @@ const AI_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
 
 async function callLLM(messages: any[], tools?: any[], tool_choice?: any) {
   const body: any = {
-    model: "google/gemini-2.5-flash",
+    model: MODELS.FAST,
     messages,
     temperature: 0.3,
   };
@@ -132,7 +133,7 @@ async function ocrPdfWithGemini(bytes: Uint8Array, estimatedPages: number): Prom
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "google/gemini-2.5-flash",
+      model: MODELS.FAST,
       messages: [
         {
           role: "user",
