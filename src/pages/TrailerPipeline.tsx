@@ -215,6 +215,8 @@ export default function TrailerPipelinePage() {
                 projectId={projectId!}
                 activePlanId={activePlanId}
                 onSelectPlan={handleSelectPlan}
+                scriptRunId={selectedScriptRunId}
+                canonPackId={canonPackId}
               />
             </TabsContent>
           )}

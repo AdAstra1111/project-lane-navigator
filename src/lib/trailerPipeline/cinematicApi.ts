@@ -8,6 +8,8 @@ const LONG_RUNNING_ACTIONS = new Set([
   'run_trailer_pipeline_v1',
   'create_full_cinematic_trailer_plan',
   'create_script_variants_v1',
+  'create_trailer_plan_variant_deep',
+  'create_trailer_plan_variant_full_rebuild',
 ]);
 
 async function callCinematicEngine(action: string, payload: Record<string, any>) {
@@ -196,4 +198,16 @@ export const cinematicApi = {
     targetLengthMs?: number;
     stylePresetKey?: string;
   }) => callCinematicEngine('run_trailer_pipeline_v1', params),
+
+  /** Create a trailer plan variant (FAST / DEEP / FULL_REBUILD) */
+  createTrailerPlanVariant: (params: {
+    projectId: string;
+    action: string;
+    arc_type: string;
+    options: Record<string, any>;
+    scriptRunId?: string;
+    canonPackId?: string;
+    shotDesignRunId?: string;
+    rhythmRunId?: string;
+  }) => callCinematicEngine(params.action, params),
 };

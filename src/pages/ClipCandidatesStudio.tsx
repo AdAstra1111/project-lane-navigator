@@ -74,7 +74,7 @@ export default function ClipCandidatesStudio({ embedded }: { embedded?: boolean 
 
   // Queries
   const { data: bpListData } = useBlueprints(projectId);
-  const blueprints = useMemo(() => (bpListData?.blueprints || []).filter((bp: any) => bp.status === 'complete' || bp.status === 'v2_shim'), [bpListData]);
+  const blueprints = useMemo(() => (bpListData?.blueprints || []).filter((bp: any) => bp.status === 'complete' || bp.status === 'v2_shim' || bp.status === 'ready'), [bpListData]);
 
   // Auto-select latest blueprint if none specified
   const blueprintId = blueprintIdParam || (blueprints.length > 0 ? blueprints[0].id : undefined);
@@ -124,7 +124,10 @@ export default function ClipCandidatesStudio({ embedded }: { embedded?: boolean 
   };
 
   const handleEnqueue = (force: boolean) => {
-    if (!blueprintId) return;
+    if (!blueprintId) {
+      toast.error('No Trailer Plan found. Create one first.');
+      return;
+    }
     if (enabledProviders.length === 0) {
       toast.error('Enable at least one AI provider');
       return;
@@ -178,31 +181,43 @@ export default function ClipCandidatesStudio({ embedded }: { embedded?: boolean 
       <div className={`${embedded ? '' : 'max-w-[1600px] mx-auto p-4'} grid grid-cols-1 lg:grid-cols-12 gap-4`}>
         {/* LEFT: Controls */}
         <div className="lg:col-span-3 space-y-4 lg:max-h-[calc(100vh-100px)] lg:overflow-y-auto lg:pr-1">
-          {/* Blueprint Selector */}
+          {/* Trailer Plan Selector */}
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm flex items-center gap-2">
                 <Clapperboard className="h-4 w-4" />
-                Blueprint
+                Trailer Plan
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
-              <Select value={blueprintId || ''} onValueChange={selectBlueprintId}>
-                <SelectTrigger className="text-xs"><SelectValue placeholder="Select blueprint" /></SelectTrigger>
-                <SelectContent>
-                  {blueprints.map((bp: any) => (
-                    <SelectItem key={bp.id} value={bp.id}>
-                      {bp.arc_type} · {(bp.edl || []).length} beats · {bp.id.slice(0, 8)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {blueprints.length === 0 ? (
+                <div className="text-center py-4 space-y-2">
+                  <Film className="h-6 w-6 mx-auto text-muted-foreground/40" />
+                  <p className="text-xs text-muted-foreground">No Trailer Plan Yet</p>
+                  <p className="text-[10px] text-muted-foreground/70">
+                    IFFY needs a Trailer Plan before it can generate clips.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <Select value={blueprintId || ''} onValueChange={selectBlueprintId}>
+                    <SelectTrigger className="text-xs"><SelectValue placeholder="Select plan" /></SelectTrigger>
+                    <SelectContent>
+                      {blueprints.map((bp: any) => (
+                        <SelectItem key={bp.id} value={bp.id}>
+                          {bp.arc_type} · {(bp.edl || []).length} beats · {bp.id.slice(0, 8)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
 
-              {blueprint && (
-                <p className="text-[10px] text-muted-foreground">
-                  {blueprint.arc_type} · {beats.length} beats ·{' '}
-                  {beats.reduce((s: number, b: EDLBeat) => s + (b.duration_s || 0), 0).toFixed(1)}s
-                </p>
+                  {blueprint && (
+                    <p className="text-[10px] text-muted-foreground">
+                      {blueprint.arc_type} · {beats.length} beats ·{' '}
+                      {beats.reduce((s: number, b: EDLBeat) => s + (b.duration_s || 0), 0).toFixed(1)}s
+                    </p>
+                  )}
+                </>
               )}
             </CardContent>
           </Card>
