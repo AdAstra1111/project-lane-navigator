@@ -9,6 +9,7 @@ const SHOWCASE_ITEMS = [
   { label: 'Interactive Demo', path: '/demo/interactive', description: 'Hands-on interactive exploration' },
   { label: 'Executive Mode', path: '/demo/executive', description: 'Executive-level overview' },
   { label: 'Investor Presentation', path: '/investor', description: 'Investor-ready presentation deck' },
+  { label: 'Demo Dashboard', path: '/demo/run', description: 'One-click pipeline demo with live orchestration' },
 ];
 
 export default function Showcase() {
