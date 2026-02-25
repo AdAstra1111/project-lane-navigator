@@ -308,8 +308,109 @@ D) OUTPUT CONTRACT — At the top of your response, print:
     // 5) Generate content
     let content: string;
 
+    // ── DIAGNOSTIC MODE: Full trace for episode beats ──
+    const isEpisodeBeatsPath = (docType === "vertical_episode_beats" || docType === "episode_beats") && resolvedQuals.is_series;
+    if (isEpisodeBeatsPath) {
+      const rawSeasonEpCount = resolvedQuals.season_episode_count;
+      const episodeCountUsed = rawSeasonEpCount || 8; // detect default fallback
+      const DIAG_BATCH_SIZE = 8;
+
+      // 1) PROJECT CONTEXT
+      const projectContext = {
+        project_id: projectId,
+        project_title: project.title,
+        project_format: project.format,
+        season_episode_count_raw: rawSeasonEpCount,
+        season_episode_count_used: episodeCountUsed,
+        episode_count_source: rawSeasonEpCount ? "resolvedQuals.season_episode_count" : "DEFAULT_FALLBACK_8",
+        is_series: resolvedQuals.is_series,
+        resolver_hash: currentHash,
+      };
+      console.error(JSON.stringify({ type: "DIAG_1_PROJECT_CONTEXT", ...projectContext }));
+
+      if (!rawSeasonEpCount || rawSeasonEpCount === 8) {
+        console.error("⚠️ DEFAULT EPISODE COUNT USED — season_episode_count was " + JSON.stringify(rawSeasonEpCount));
+      }
+
+      // 2) UPSTREAM DOCUMENTS
+      const upstreamDiag: any[] = [];
+      if (upstreamTypes.length > 0) {
+        const { data: allDocsForDiag } = await supabase.from("project_documents")
+          .select("id, doc_type, latest_version_id, project_id, created_at")
+          .eq("project_id", projectId)
+          .in("doc_type", upstreamTypes);
+
+        const diagVersionIds = (allDocsForDiag || []).filter((d: any) => d.latest_version_id).map((d: any) => d.latest_version_id);
+        let diagVersionMap = new Map<string, any>();
+        if (diagVersionIds.length > 0) {
+          const { data: diagVersions } = await supabase.from("project_document_versions")
+            .select("id, document_id, version_number, plaintext, created_at")
+            .in("id", diagVersionIds);
+          diagVersionMap = new Map((diagVersions || []).map((v: any) => [v.id, v]));
+        }
+
+        for (const doc of (allDocsForDiag || [])) {
+          const ver = doc.latest_version_id ? diagVersionMap.get(doc.latest_version_id) : null;
+          const snippet = ver?.plaintext ? ver.plaintext.substring(0, 200) : "(no content)";
+          const docDiag = {
+            document_id: doc.id,
+            project_id: doc.project_id,
+            doc_type: doc.doc_type,
+            version_id: ver?.id || null,
+            version_number: ver?.version_number || null,
+            created_at: doc.created_at,
+            content_preview: snippet,
+          };
+          upstreamDiag.push(docDiag);
+
+          // Cross-project leak detection
+          if (doc.project_id !== projectId) {
+            console.error(`⚠️ CROSS-PROJ LEAK DETECTED — doc ${doc.id} (${doc.doc_type}) belongs to project ${doc.project_id}, expected ${projectId}`);
+          }
+        }
+      }
+      console.error(JSON.stringify({ type: "DIAG_2_UPSTREAM_DOCUMENTS", count: upstreamDiag.length, documents: upstreamDiag }));
+
+      // Check for "Maya" name leak
+      if (upstreamContent.includes("Maya")) {
+        console.error(`⚠️ NAME LEAK SOURCE IDENTIFIED — "Maya" found in upstreamContent. Scanning per-document...`);
+        for (const doc of upstreamDiag) {
+          if (doc.content_preview.includes("Maya")) {
+            console.error(`  → "Maya" present in ${doc.doc_type} (doc_id: ${doc.document_id}, project_id: ${doc.project_id})`);
+          }
+        }
+      }
+
+      // 3) PROMPT INPUT SNAPSHOT
+      console.error(JSON.stringify({
+        type: "DIAG_3_PROMPT_SNAPSHOT",
+        system_prompt_length: system.length,
+        system_prompt_first_500: system.substring(0, 500),
+        upstream_content_length: upstreamContent.length,
+        upstream_content_first_500: upstreamContent.substring(0, 500),
+        additional_context: additionalContext || null,
+      }));
+
+      // 4) BATCHING INFO
+      const diagBatches: number[][] = [];
+      for (let i = 1; i <= episodeCountUsed; i += DIAG_BATCH_SIZE) {
+        const batch: number[] = [];
+        for (let j = i; j <= Math.min(i + DIAG_BATCH_SIZE - 1, episodeCountUsed); j++) {
+          batch.push(j);
+        }
+        diagBatches.push(batch);
+      }
+      console.error(JSON.stringify({
+        type: "DIAG_4_BATCHING_INFO",
+        BATCH_SIZE: DIAG_BATCH_SIZE,
+        episodeCount: episodeCountUsed,
+        calculated_batch_ranges: diagBatches.map(b => `${b[0]}-${b[b.length-1]}`),
+        number_of_batches: diagBatches.length,
+      }));
+    }
+
     // ── Special path for episode beats: chunked generation with completeness guard ──
-    if ((docType === "vertical_episode_beats" || docType === "episode_beats") && resolvedQuals.is_series && resolvedQuals.season_episode_count) {
+    if (isEpisodeBeatsPath && resolvedQuals.season_episode_count) {
       content = await generateEpisodeBeatsChunked({
         apiKey,
         episodeCount: resolvedQuals.season_episode_count,
@@ -317,6 +418,23 @@ D) OUTPUT CONTRACT — At the top of your response, print:
         upstreamContent,
         projectTitle: project.title || "Untitled",
       });
+
+      // 5) POST-GENERATION VALIDATION DIAGNOSTIC
+      const epHeaderPattern = /^#{1,3}\s*(?:EPISODE|EP\.?)\s*(\d+)\b/gim;
+      const epMatches = [...content.matchAll(epHeaderPattern)];
+      const extractedEpNums = epMatches.map(m => parseInt(m[1], 10)).sort((a, b) => a - b);
+      const expectedRange = Array.from({ length: resolvedQuals.season_episode_count }, (_, i) => i + 1);
+      const missingEps = expectedRange.filter(n => !extractedEpNums.includes(n));
+
+      console.error(JSON.stringify({
+        type: "DIAG_5_VALIDATION",
+        extracted_episode_numbers: extractedEpNums,
+        expected_range: `1-${resolvedQuals.season_episode_count}`,
+        total_extracted: extractedEpNums.length,
+        total_expected: resolvedQuals.season_episode_count,
+        missing_episodes: missingEps,
+        output_length: content.length,
+      }));
     } else {
       content = await callLLM(apiKey, system, userPrompt);
     }
