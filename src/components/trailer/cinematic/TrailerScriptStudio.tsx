@@ -446,11 +446,14 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
                   type="button"
                   className="ml-1 rounded-md bg-muted px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-muted/80"
                   onClick={() => {
+                    const anchorId = selectedWarning ? warningAnchorId(selectedWarning) : null;
                     const report = buildWarningsReport({
                       kind: "trailer",
                       runId: (activeRun as any)?.id ?? null,
                       status: activeRun?.status ?? null,
                       warnings: warningsDeduped,
+                      selectedWarning,
+                      anchorId,
                     });
                     void copyTextToClipboard(report);
                   }}
