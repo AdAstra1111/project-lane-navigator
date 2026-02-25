@@ -171,7 +171,7 @@ const AnimatedRoutes = () => {
           <Route path="/demo/run" element={<ProtectedRoute><DemoDashboard /></ProtectedRoute>} />
           <Route path="/investor" element={<ProtectedRoute><InvestorPresentation /></ProtectedRoute>} />
           <Route path="/development-engine" element={<ProtectedRoute><DevelopmentEngine /></ProtectedRoute>} />
-          <Route path="/projects/:id/development" element={<ProtectedRoute><ProjectDevelopmentEngine /></ProtectedRoute>} />
+          <Route path="/projects/:id/development" element={<ProtectedRoute><ProjectShell><ProjectDevelopmentEngine /></ProjectShell></ProtectedRoute>} />
           <Route path="/projects/:id/notes" element={<ProtectedRoute><NotesInbox /></ProtectedRoute>} />
           <Route path="/projects/:id/series-writer" element={<ProtectedRoute><SeriesWriterPage /></ProtectedRoute>} />
           <Route path="/projects/:id/feature-script" element={<ProtectedRoute><FeatureScript /></ProtectedRoute>} />
