@@ -27,6 +27,7 @@ export interface DriftMetrics {
 }
 
 export type HealthStatus = 'healthy' | 'drifting' | 'at_risk';
+export type DriftScope = 'lane' | 'project_wide_fallback';
 
 export interface CreativeDriftData {
   prefs: RulesetPrefs;
@@ -35,6 +36,7 @@ export interface CreativeDriftData {
   benchmarkDefaults: BenchmarkResult;
   drift: DriftMetrics | null;
   health: HealthStatus;
+  driftScope: DriftScope;
 }
 
 const MELODRAMA_THRESHOLD = 0.62;
@@ -62,29 +64,47 @@ export function useProjectCreativeDrift(projectId: string | undefined, lane: str
       const feel = (prefs.pacing_feel as PacingFeel) || getDefaultFeel(lane);
       const benchmarkDefaults = getBenchmarkDefaults(lane, benchmark, feel);
 
-      // Load latest quality run
+      // Load latest quality run — lane-scoped first, then project-wide fallback
       let drift: DriftMetrics | null = null;
+      let driftScope: DriftScope = 'lane';
       try {
-        const { data, error } = await (supabase as any)
+        // 1) Try lane-specific run
+        const { data: laneData, error: laneErr } = await (supabase as any)
           .from('cinematic_quality_runs')
           .select('id, final_score, final_pass, hard_failures, diagnostic_flags, metrics_json, created_at')
           .eq('project_id', projectId)
+          .eq('lane', lane)
           .order('created_at', { ascending: false })
           .limit(1)
           .maybeSingle();
 
-        if (!error && data) {
-          const m = (data.metrics_json || {}) as Record<string, any>;
+        let row = (!laneErr && laneData) ? laneData : null;
+
+        // 2) Fallback to project-wide latest if no lane-specific run
+        if (!row) {
+          driftScope = 'project_wide_fallback';
+          const { data: projData, error: projErr } = await (supabase as any)
+            .from('cinematic_quality_runs')
+            .select('id, final_score, final_pass, hard_failures, diagnostic_flags, metrics_json, created_at')
+            .eq('project_id', projectId)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (!projErr && projData) row = projData;
+        }
+
+        if (row) {
+          const m = (row.metrics_json || {}) as Record<string, any>;
           drift = {
             melodrama_score: m.melodrama_score ?? m.melodrama ?? 0,
             nuance_score: m.nuance_score ?? m.nuance ?? 0,
             similarity_risk: m.similarity_risk ?? m.similarity ?? 0,
-            final_score: data.final_score ?? 0,
-            final_pass: data.final_pass ?? true,
-            hard_failures: data.hard_failures ?? [],
-            diagnostic_flags: data.diagnostic_flags ?? [],
-            run_id: data.id,
-            created_at: data.created_at,
+            final_score: row.final_score ?? 0,
+            final_pass: row.final_pass ?? true,
+            hard_failures: row.hard_failures ?? [],
+            diagnostic_flags: row.diagnostic_flags ?? [],
+            run_id: row.id,
+            created_at: row.created_at,
           };
         }
       } catch {
@@ -98,6 +118,7 @@ export function useProjectCreativeDrift(projectId: string | undefined, lane: str
         benchmarkDefaults,
         drift,
         health: computeHealth(drift),
+        driftScope,
       };
     },
     enabled: !!projectId,
