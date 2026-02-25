@@ -1175,6 +1175,125 @@ export type Database = {
         }
         Relationships: []
       }
+      cinematic_quality_attempts: {
+        Row: {
+          attempt_index: number
+          created_at: string
+          diagnostic_flags: string[]
+          expected_unit_count: number | null
+          failures: string[]
+          hard_failures: string[]
+          id: string
+          metrics_json: Json | null
+          pass: boolean
+          repair_instruction: string | null
+          run_id: string
+          score: number
+          unit_count: number | null
+          units_json: Json | null
+        }
+        Insert: {
+          attempt_index?: number
+          created_at?: string
+          diagnostic_flags?: string[]
+          expected_unit_count?: number | null
+          failures?: string[]
+          hard_failures?: string[]
+          id?: string
+          metrics_json?: Json | null
+          pass?: boolean
+          repair_instruction?: string | null
+          run_id: string
+          score?: number
+          unit_count?: number | null
+          units_json?: Json | null
+        }
+        Update: {
+          attempt_index?: number
+          created_at?: string
+          diagnostic_flags?: string[]
+          expected_unit_count?: number | null
+          failures?: string[]
+          hard_failures?: string[]
+          id?: string
+          metrics_json?: Json | null
+          pass?: boolean
+          repair_instruction?: string | null
+          run_id?: string
+          score?: number
+          unit_count?: number | null
+          units_json?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cinematic_quality_attempts_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "cinematic_quality_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      cinematic_quality_runs: {
+        Row: {
+          attempt_count: number
+          created_at: string
+          created_by: string | null
+          doc_id: string | null
+          engine: string
+          final_pass: boolean
+          final_score: number
+          id: string
+          lane: string | null
+          model: string
+          project_id: string
+          settings_json: Json | null
+        }
+        Insert: {
+          attempt_count?: number
+          created_at?: string
+          created_by?: string | null
+          doc_id?: string | null
+          engine: string
+          final_pass?: boolean
+          final_score?: number
+          id?: string
+          lane?: string | null
+          model: string
+          project_id: string
+          settings_json?: Json | null
+        }
+        Update: {
+          attempt_count?: number
+          created_at?: string
+          created_by?: string | null
+          doc_id?: string | null
+          engine?: string
+          final_pass?: boolean
+          final_score?: number
+          id?: string
+          lane?: string | null
+          model?: string
+          project_id?: string
+          settings_json?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cinematic_quality_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "cinematic_quality_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       coherence_checks_runs: {
         Row: {
           created_at: string
