@@ -193,8 +193,13 @@ export function useNoteWritersRoom(opts: {
   });
 
   const applyChangePlan = useMutation({
-    mutationFn: (planId: string) => invoke('apply_change_plan', { planId }),
-    onSuccess: () => {
+    mutationFn: ({ planId, forceShrink }: { planId: string; forceShrink?: boolean }) =>
+      invoke('apply_change_plan', { planId, forceShrink }),
+    onSuccess: (data) => {
+      if (data?.blocked) {
+        toast.error(data.message || `Blocked: text would shrink by ${data.shrink_pct}%`);
+        return;
+      }
       invalidatePlan();
       invalidate();
       toast.success(`Applied! New version created.`);

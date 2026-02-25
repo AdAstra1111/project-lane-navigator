@@ -19946,6 +19946,100 @@ export type Database = {
           },
         ]
       }
+      writers_room_changesets: {
+        Row: {
+          after_version_id: string
+          before_version_id: string
+          created_at: string
+          created_by: string
+          diff_summary: Json
+          document_id: string
+          id: string
+          plan_id: string | null
+          plan_json: Json
+          project_id: string
+          quality_run_id: string | null
+          rolled_back: boolean
+          rolled_back_at: string | null
+          thread_id: string | null
+        }
+        Insert: {
+          after_version_id: string
+          before_version_id: string
+          created_at?: string
+          created_by: string
+          diff_summary?: Json
+          document_id: string
+          id?: string
+          plan_id?: string | null
+          plan_json?: Json
+          project_id: string
+          quality_run_id?: string | null
+          rolled_back?: boolean
+          rolled_back_at?: string | null
+          thread_id?: string | null
+        }
+        Update: {
+          after_version_id?: string
+          before_version_id?: string
+          created_at?: string
+          created_by?: string
+          diff_summary?: Json
+          document_id?: string
+          id?: string
+          plan_id?: string | null
+          plan_json?: Json
+          project_id?: string
+          quality_run_id?: string | null
+          rolled_back?: boolean
+          rolled_back_at?: string | null
+          thread_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "writers_room_changesets_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "project_documents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "writers_room_changesets_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "note_change_plans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "writers_room_changesets_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "writers_room_changesets_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "writers_room_changesets_quality_run_id_fkey"
+            columns: ["quality_run_id"]
+            isOneToOne: false
+            referencedRelation: "cinematic_quality_runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "writers_room_changesets_thread_id_fkey"
+            columns: ["thread_id"]
+            isOneToOne: false
+            referencedRelation: "note_threads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       outcome_accuracy_summary: {
