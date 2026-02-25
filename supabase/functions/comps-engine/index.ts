@@ -219,6 +219,7 @@ async function handleFindCandidates(supabase: any, body: any, apiKey: string) {
   const {
     project_id, lane, filters = {}, user_id,
     use_project_docs = true, seed_override = null, seed_text: legacySeed = {},
+    include_films = false, include_series = true, include_vertical = true,
   } = body;
   if (!project_id || !lane || !user_id) {
     return jsonResp({ error: "project_id, lane, user_id required" }, 400);
@@ -245,6 +246,7 @@ async function handleFindCandidates(supabase: any, body: any, apiKey: string) {
   if (!seedText || seedText.trim().length < 20) {
     return jsonResp({
       candidates: [],
+      buckets: { vertical: [], series: [], film: [] },
       seed_sources: seedSources,
       fallback_reason: fallbackReason || "no_seed_available",
       debug: seedDebug,
@@ -252,13 +254,28 @@ async function handleFindCandidates(supabase: any, body: any, apiKey: string) {
     });
   }
 
-  // 2. Build prompt and call LLM
-  const prompt = buildCandidatePrompt(lane, filters, seedText);
+  // 2. Build format-aware prompt
+  const prompt = buildCandidatePrompt(lane, filters, seedText, { include_films, include_series, include_vertical });
+
+  // Format-specific system instructions
+  const formatInstructions = lane === "vertical_drama"
+    ? `CRITICAL: This project is a VERTICAL DRAMA (short-form, 120-180 second episodes).
+You MUST prioritize:
+1. At least 4-6 short-form vertical drama titles (format="vertical") — TikTok/Reels/Shorts dramas, vertical web series, short-form digital dramas.
+2. 3-4 format-adjacent series (format="series") — K-dramas, YA series, romcom series with similar tone/mechanics.
+${include_films ? '3. 2-3 films (format="film") with similar tone/premise — clearly labeled as film comps.' : 'Do NOT include any films unless explicitly asked.'}
+Each item MUST have a "format_bucket" field: "vertical" (primary), "series" (format-adjacent), or "film" (optional).
+Each item MUST have a "why_this_comp" field explaining why it fits this vertical drama project.`
+    : `Return a mix of titles appropriate for lane "${lane}".
+Each item MUST have a "format_bucket" field: "vertical", "series", or "film".
+Each item MUST have a "why_this_comp" field explaining why it fits.`;
+
   const result = await callLLM({
     apiKey,
     model: MODELS.FAST,
     system: `You are a film/TV comparables analyst. Given project info, suggest 12 comparable titles.
-Return ONLY a JSON array of objects with: title, year, format (film|series|vertical|other), region, genres (string[]), rationale (1-2 sentences), confidence (0-1).
+${formatInstructions}
+Return ONLY a JSON array of objects with: title, year, format (film|series|vertical|other), format_bucket (vertical|series|film), region, genres (string[]), rationale (1-2 sentences), why_this_comp (1 sentence), confidence (0-1).
 No commentary outside the JSON array.`,
     user: prompt,
     temperature: 0.7,
@@ -274,12 +291,31 @@ No commentary outside the JSON array.`,
     candidates = [];
   }
 
+  // Normalize format_bucket
+  candidates = candidates.map((c: any) => {
+    let bucket = (c.format_bucket || c.format || "film").toLowerCase();
+    if (bucket === "vertical_drama" || bucket === "short-form" || bucket === "vertical") bucket = "vertical";
+    else if (bucket === "series" || bucket === "tv" || bucket === "streaming") bucket = "series";
+    else bucket = "film";
+    return { ...c, format_bucket: bucket };
+  });
+
+  // Filter out excluded formats for vertical_drama
+  if (lane === "vertical_drama") {
+    if (!include_films) {
+      candidates = candidates.filter((c: any) => c.format_bucket !== "film");
+    }
+    if (!include_series) {
+      candidates = candidates.filter((c: any) => c.format_bucket !== "series");
+    }
+  }
+
   // 3. Persist
-  const queryMeta = { filters, seed_sources: seedSources, use_project_docs, has_seed_override: !!seed_override };
+  const queryMeta = { filters, seed_sources: seedSources, use_project_docs, has_seed_override: !!seed_override, include_films, include_series };
   const rows = candidates.slice(0, 20).map((c: any) => ({
     project_id,
     lane,
-    query: queryMeta,
+    query: { ...queryMeta, format_bucket: c.format_bucket, why_this_comp: c.why_this_comp },
     title: c.title || "Unknown",
     year: c.year || null,
     format: c.format || "film",
@@ -305,8 +341,17 @@ No commentary outside the JSON array.`,
     .order("created_at", { ascending: false })
     .limit(20);
 
+  // 5. Bucket the results
+  const allCandidates = data || [];
+  const buckets = {
+    vertical: allCandidates.filter((c: any) => (c.query?.format_bucket || inferBucket(c.format)) === "vertical"),
+    series: allCandidates.filter((c: any) => (c.query?.format_bucket || inferBucket(c.format)) === "series"),
+    film: allCandidates.filter((c: any) => (c.query?.format_bucket || inferBucket(c.format)) === "film"),
+  };
+
   return jsonResp({
-    candidates: data || [],
+    candidates: allCandidates,
+    buckets,
     seed_sources: seedSources,
     seed_text_preview: seedText.substring(0, 500),
     fallback_reason: fallbackReason,
@@ -314,13 +359,31 @@ No commentary outside the JSON array.`,
   });
 }
 
-function buildCandidatePrompt(lane: string, filters: any, seedText: string): string {
+function inferBucket(format: string): string {
+  const f = (format || "").toLowerCase();
+  if (f === "vertical" || f === "vertical_drama" || f === "short-form") return "vertical";
+  if (f === "series" || f === "tv" || f === "streaming") return "series";
+  return "film";
+}
+
+function buildCandidatePrompt(lane: string, filters: any, seedText: string, formatPrefs?: { include_films?: boolean; include_series?: boolean; include_vertical?: boolean }): string {
   const parts = [`Lane: ${lane}`];
+  if (lane === "vertical_drama") {
+    parts.push("Format: VERTICAL DRAMA (short-form, 120-180s episodes, mobile-first)");
+    parts.push("IMPORTANT: Prioritize vertical/short-form dramas. Series comps are secondary. Films are lowest priority.");
+  }
   parts.push(`\nProject Seed:\n${seedText}`);
   if (filters.genres?.length) parts.push(`Genre filter: ${filters.genres.join(", ")}`);
   if (filters.region) parts.push(`Region: ${filters.region}`);
   if (filters.years) parts.push(`Years: ${filters.years}`);
   if (filters.format) parts.push(`Format: ${filters.format}`);
+  if (formatPrefs) {
+    const included = [];
+    if (formatPrefs.include_vertical) included.push("vertical");
+    if (formatPrefs.include_series) included.push("series");
+    if (formatPrefs.include_films) included.push("film");
+    parts.push(`Allowed formats: ${included.join(", ")}`);
+  }
   return parts.join("\n");
 }
 
