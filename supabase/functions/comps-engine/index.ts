@@ -64,98 +64,125 @@ interface SeedSource {
   used_chars: number;
 }
 
+interface SeedDebugEntry {
+  doc_id: string;
+  kind: string;
+  reason: string;
+  extracted_chars: number;
+}
+
 interface SeedResult {
   seed_text: string;
   seed_sources: SeedSource[];
   fallback_reason?: string;
+  debug?: { found_docs: number; tried: SeedDebugEntry[] };
 }
 
 const DOC_PRIORITY_BY_LANE: Record<string, string[]> = {
-  vertical_drama: ["beats", "episode_grid", "outline", "script", "concept_brief", "notes"],
-  feature_film: ["script", "outline", "treatment", "concept_brief", "notes"],
-  series: ["outline", "beats", "episode_grid", "script", "concept_brief", "notes"],
-  documentary: ["outline", "treatment", "concept_brief", "notes", "script"],
+  vertical_drama: ["beats", "episode_grid", "outline", "script", "concept_brief", "idea", "notes"],
+  feature_film: ["script", "outline", "treatment", "concept_brief", "idea", "notes"],
+  series: ["outline", "beats", "episode_grid", "script", "concept_brief", "idea", "notes"],
+  documentary: ["outline", "treatment", "concept_brief", "idea", "notes", "script"],
 };
 
 async function buildSeedFromProject(supabase: any, projectId: string, lane: string, apiKey: string): Promise<SeedResult> {
-  // 1. Check for existing analysis/coverage output first
-  const { data: analysisRuns } = await supabase
-    .from("project_document_versions")
-    .select("id, document_id, content, created_at")
-    .eq("project_id", projectId)
-    .eq("is_current", true)
-    .order("created_at", { ascending: false })
-    .limit(20);
+  const debugTried: SeedDebugEntry[] = [];
 
-  // Also check project_documents for doc_type + extracted_text
+  // 1. Load all project_documents with both text columns
   const { data: projDocs } = await supabase
     .from("project_documents")
-    .select("id, title, doc_type, extracted_text, updated_at")
+    .select("id, title, file_name, doc_type, extracted_text, plaintext, updated_at")
     .eq("project_id", projectId)
     .order("updated_at", { ascending: false })
     .limit(30);
 
-  if ((!projDocs || projDocs.length === 0) && (!analysisRuns || analysisRuns.length === 0)) {
-    return { seed_text: "", seed_sources: [], fallback_reason: "no_docs" };
+  const allDocs = projDocs || [];
+
+  if (allDocs.length === 0) {
+    return { seed_text: "", seed_sources: [], fallback_reason: "no_docs", debug: { found_docs: 0, tried: [] } };
   }
 
-  // 2. Sort docs by lane priority
-  const priority = DOC_PRIORITY_BY_LANE[lane] || DOC_PRIORITY_BY_LANE.feature_film;
-  const docsWithText = (projDocs || []).filter((d: any) => d.extracted_text && d.extracted_text.length > 50);
+  // 2. For each doc, resolve best available text (plaintext > extracted_text > version plaintext)
+  const docsWithResolvedText: any[] = [];
 
-  docsWithText.sort((a: any, b: any) => {
+  for (const doc of allDocs) {
+    // Try plaintext first (dev-engine docs like Idea store content here)
+    let text = (doc.plaintext || "").trim();
+    let textSource = "plaintext";
+
+    // Fall back to extracted_text (uploaded PDF/file docs)
+    if (text.length < 50 && doc.extracted_text) {
+      text = (doc.extracted_text || "").trim();
+      textSource = "extracted_text";
+    }
+
+    // If still empty, try latest version's plaintext
+    if (text.length < 50) {
+      const { data: versions } = await supabase
+        .from("project_document_versions")
+        .select("id, plaintext, version_number")
+        .eq("document_id", doc.id)
+        .order("version_number", { ascending: false })
+        .limit(1);
+
+      if (versions?.[0]?.plaintext && versions[0].plaintext.trim().length > 0) {
+        text = versions[0].plaintext.trim();
+        textSource = "version_plaintext";
+      }
+    }
+
+    const displayTitle = doc.title || doc.display_name || doc.file_name || "Untitled";
+
+    if (text.length < 50) {
+      debugTried.push({ doc_id: doc.id, kind: doc.doc_type || "unknown", reason: `only ${text.length} chars from ${textSource}`, extracted_chars: text.length });
+      continue;
+    }
+
+    docsWithResolvedText.push({ ...doc, resolvedText: text, displayTitle });
+    debugTried.push({ doc_id: doc.id, kind: doc.doc_type || "unknown", reason: "ok", extracted_chars: text.length });
+  }
+
+  // 3. Sort by lane priority
+  const priority = DOC_PRIORITY_BY_LANE[lane] || DOC_PRIORITY_BY_LANE.feature_film;
+  docsWithResolvedText.sort((a: any, b: any) => {
     const aIdx = priority.indexOf(a.doc_type) >= 0 ? priority.indexOf(a.doc_type) : 99;
     const bIdx = priority.indexOf(b.doc_type) >= 0 ? priority.indexOf(b.doc_type) : 99;
     return aIdx - bIdx;
   });
 
-  // 3. Pick up to 3 docs, respecting char limit
+  // 4. Pick up to 3 docs, respecting char limit
   const selectedDocs: any[] = [];
   let totalChars = 0;
 
-  for (const doc of docsWithText) {
+  for (const doc of docsWithResolvedText) {
     if (selectedDocs.length >= 3) break;
-    const text = doc.extracted_text || "";
+    const text = doc.resolvedText;
     const available = Math.min(text.length, SEED_CHAR_LIMIT - totalChars);
-    if (available < 100) break;
+    if (available < 50) break;
     selectedDocs.push({ ...doc, trimmedText: text.substring(0, available) });
     totalChars += available;
   }
 
-  // Also try to pull content from project_document_versions if we have few docs
-  if (selectedDocs.length === 0 && analysisRuns?.length > 0) {
-    for (const ver of analysisRuns) {
-      if (selectedDocs.length >= 3) break;
-      const text = ver.content || "";
-      if (text.length < 100) continue;
-      const available = Math.min(text.length, SEED_CHAR_LIMIT - totalChars);
-      if (available < 100) break;
-      selectedDocs.push({
-        id: ver.document_id || ver.id,
-        title: "Document version",
-        doc_type: "version",
-        updated_at: ver.created_at,
-        trimmedText: text.substring(0, available),
-      });
-      totalChars += available;
-    }
-  }
-
   if (selectedDocs.length === 0) {
-    return { seed_text: "", seed_sources: [], fallback_reason: "no_usable_text" };
+    const reasons = debugTried.map(d => `${d.kind}(${d.extracted_chars}ch): ${d.reason}`).join("; ");
+    return {
+      seed_text: "", seed_sources: [],
+      fallback_reason: `no_usable_text — found ${allDocs.length} doc(s) but none had ≥50 chars. Details: ${reasons}`,
+      debug: { found_docs: allDocs.length, tried: debugTried },
+    };
   }
 
   const seed_sources: SeedSource[] = selectedDocs.map((d: any) => ({
     doc_id: d.id,
-    title: d.title || "Untitled",
+    title: d.displayTitle || d.title || "Untitled",
     kind: d.doc_type || "other",
     updated_at: d.updated_at || "",
     used_chars: d.trimmedText.length,
   }));
 
-  // 4. Build seed summary via LLM (1 small call)
+  // 5. Build seed summary via LLM (1 small call)
   const combinedText = selectedDocs.map((d: any) =>
-    `--- ${d.title || "Document"} (${d.doc_type || "unknown"}) ---\n${d.trimmedText}`
+    `--- ${d.displayTitle || d.title || "Document"} (${d.doc_type || "unknown"}) ---\n${d.trimmedText}`
   ).join("\n\n");
 
   try {
@@ -174,14 +201,14 @@ Return ONLY the summary text, no JSON, no formatting headers.`,
       temperature: 0.3,
       maxTokens: 2000,
     });
-    return { seed_text: result.content || "", seed_sources };
+    return { seed_text: result.content || "", seed_sources, debug: { found_docs: allDocs.length, tried: debugTried } };
   } catch (e) {
     console.error("Seed summary LLM error:", e);
-    // Fallback: use raw text truncated
     return {
       seed_text: combinedText.substring(0, 3000),
       seed_sources,
       fallback_reason: "llm_summary_failed",
+      debug: { found_docs: allDocs.length, tried: debugTried },
     };
   }
 }
@@ -200,6 +227,7 @@ async function handleFindCandidates(supabase: any, body: any, apiKey: string) {
   let seedText = "";
   let seedSources: SeedSource[] = [];
   let fallbackReason: string | undefined;
+  let seedDebug: any = undefined;
 
   // 1. Determine seed
   if (seed_override && typeof seed_override === "string" && seed_override.trim().length > 0) {
@@ -209,8 +237,8 @@ async function handleFindCandidates(supabase: any, body: any, apiKey: string) {
     seedText = seedResult.seed_text;
     seedSources = seedResult.seed_sources;
     fallbackReason = seedResult.fallback_reason;
+    seedDebug = seedResult.debug;
   } else if (legacySeed?.logline || legacySeed?.premise) {
-    // Legacy path
     seedText = [legacySeed.logline, legacySeed.premise, legacySeed.themes].filter(Boolean).join("\n");
   }
 
@@ -219,6 +247,7 @@ async function handleFindCandidates(supabase: any, body: any, apiKey: string) {
       candidates: [],
       seed_sources: seedSources,
       fallback_reason: fallbackReason || "no_seed_available",
+      debug: seedDebug,
       message: "No usable seed found. Upload a script/outline, run Analysis, or provide a seed manually.",
     });
   }
@@ -281,6 +310,7 @@ No commentary outside the JSON array.`,
     seed_sources: seedSources,
     seed_text_preview: seedText.substring(0, 500),
     fallback_reason: fallbackReason,
+    debug: seedDebug,
   });
 }
 

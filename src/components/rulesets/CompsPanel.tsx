@@ -82,6 +82,9 @@ export function CompsPanel({ projectId, lane, userId, onInfluencersSet }: CompsP
   const [seedSources, setSeedSources] = useState<SeedSource[]>([]);
   const [seedPreview, setSeedPreview] = useState('');
   const [showSeedPreview, setShowSeedPreview] = useState(false);
+  const [fallbackReason, setFallbackReason] = useState<string | null>(null);
+  const [seedDebug, setSeedDebug] = useState<any>(null);
+  const [showDebug, setShowDebug] = useState(false);
 
   // Lookup state
   const [lookupQuery, setLookupQuery] = useState('');
@@ -108,6 +111,9 @@ export function CompsPanel({ projectId, lane, userId, onInfluencersSet }: CompsP
     setLoading(true);
     setSeedSources([]);
     setSeedPreview('');
+    setFallbackReason(null);
+    setSeedDebug(null);
+    setShowDebug(false);
     try {
       const { data, error } = await supabase.functions.invoke('comps-engine', {
         body: {
@@ -124,6 +130,8 @@ export function CompsPanel({ projectId, lane, userId, onInfluencersSet }: CompsP
 
       if (data.fallback_reason && (!data.candidates || data.candidates.length === 0)) {
         toast.info(data.message || 'No seed available. Add project docs or provide a seed manually.');
+        setFallbackReason(data.fallback_reason);
+        setSeedDebug(data.debug);
       }
 
       setCandidates(data.candidates || []);
@@ -273,7 +281,7 @@ export function CompsPanel({ projectId, lane, userId, onInfluencersSet }: CompsP
               <div className="flex flex-wrap gap-1">
                 {seedSources.map(s => (
                   <Badge key={s.doc_id} variant="secondary" className="text-[9px]">
-                    {s.title} ({s.kind})
+                    {s.title} ({s.kind}) · {s.used_chars.toLocaleString()} chars
                   </Badge>
                 ))}
               </div>
@@ -294,7 +302,31 @@ export function CompsPanel({ projectId, lane, userId, onInfluencersSet }: CompsP
             </div>
           )}
 
-          {/* Override Seed */}
+          {/* Fallback / Debug Info */}
+          {fallbackReason && candidates.length === 0 && (
+            <div className="bg-destructive/10 border border-destructive/20 rounded-md p-2 space-y-1">
+              <p className="text-[10px] text-destructive font-medium">Seed extraction failed</p>
+              <p className="text-[10px] text-muted-foreground">{fallbackReason}</p>
+              {seedDebug && (
+                <Collapsible open={showDebug} onOpenChange={setShowDebug}>
+                  <CollapsibleTrigger className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground">
+                    <ChevronDown className={`h-3 w-3 transition-transform ${showDebug ? 'rotate-180' : ''}`} />
+                    Debug details ({seedDebug.found_docs} docs found)
+                  </CollapsibleTrigger>
+                  <CollapsibleContent>
+                    <div className="mt-1 space-y-0.5">
+                      {seedDebug.tried?.map((t: any, i: number) => (
+                        <p key={i} className="text-[9px] text-muted-foreground font-mono">
+                          {t.kind}: {t.extracted_chars} chars — {t.reason}
+                        </p>
+                      ))}
+                    </div>
+                  </CollapsibleContent>
+                </Collapsible>
+              )}
+            </div>
+          )}
+
           <Collapsible open={showSeedOverride} onOpenChange={setShowSeedOverride}>
             <CollapsibleTrigger className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground">
               <ChevronDown className={`h-3 w-3 transition-transform ${showSeedOverride ? 'rotate-180' : ''}`} />
