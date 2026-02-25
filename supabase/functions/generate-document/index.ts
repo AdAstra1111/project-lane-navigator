@@ -312,8 +312,9 @@ D) OUTPUT CONTRACT — At the top of your response, print:
     const isEpisodeBeatsPath = (docType === "vertical_episode_beats" || docType === "episode_beats") && resolvedQuals.is_series;
     if (isEpisodeBeatsPath) {
       const rawSeasonEpCount = resolvedQuals.season_episode_count;
-      const clientEpisodeCount = (body as any)?.episodeCount || null;
-      const episodeCountUsed = rawSeasonEpCount || 8;
+      const clientEpisodeCount = (body as any)?.episodeCount ?? null;
+      const episodeCountUsed = clientEpisodeCount ?? rawSeasonEpCount ?? 8;
+      const episodeCountSource = clientEpisodeCount ? "body.episodeCount (client)" : rawSeasonEpCount ? "resolvedQuals.season_episode_count" : "DEFAULT_FALLBACK_8";
       const DIAG_BATCH_SIZE = 8;
       const willEnterChunked = !!(isEpisodeBeatsPath && resolvedQuals.season_episode_count);
 
@@ -331,7 +332,7 @@ D) OUTPUT CONTRACT — At the top of your response, print:
         season_episode_count_raw: rawSeasonEpCount,
         clientEpisodeCount,
         episodeCountUsed,
-        episode_count_source: rawSeasonEpCount ? "resolvedQuals.season_episode_count (from project_document_qualifiers)" : "DEFAULT_FALLBACK_8",
+        episode_count_source: episodeCountSource,
         is_series: resolvedQuals.is_series,
         resolver_hash: currentHash,
       }, null, 2));
@@ -459,10 +460,11 @@ D) OUTPUT CONTRACT — At the top of your response, print:
     }
 
     // ── Special path for episode beats: chunked generation with completeness guard ──
-    if (isEpisodeBeatsPath && resolvedQuals.season_episode_count) {
+    const finalEpisodeCount = (body as any)?.episodeCount ?? resolvedQuals.season_episode_count ?? null;
+    if (isEpisodeBeatsPath && finalEpisodeCount) {
       content = await generateEpisodeBeatsChunked({
         apiKey,
-        episodeCount: resolvedQuals.season_episode_count,
+        episodeCount: finalEpisodeCount,
         systemPrompt: system,
         upstreamContent,
         projectTitle: project.title || "Untitled",
