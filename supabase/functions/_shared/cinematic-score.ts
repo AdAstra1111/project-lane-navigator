@@ -204,7 +204,7 @@ export function scoreCinematic(units: CinematicUnit[], ctx?: ScoringContext): Ci
     }
   }
 
-  if (n >= T.min_units) {
+  if (n >= T.min_units && !failures.includes("WEAK_ARC")) {
     const early = units[0];
     const mid = units[Math.floor((n - 1) / 2)];
     const late = units[n - 1];
@@ -221,18 +221,20 @@ export function scoreCinematic(units: CinematicUnit[], ctx?: ScoringContext): Ci
 
   // ─── New checks ───
   if (n >= T.min_units) {
-    if (features.pacingMismatch) failures.push("PACING_MISMATCH");
+    if (features.pacingMismatch && !failures.includes("PACING_MISMATCH")) failures.push("PACING_MISMATCH");
 
-    if (features.energy.end < features.energy.mid - T.energy_drop_threshold) {
-      failures.push("ENERGY_DROP");
-    } else if (n >= 5) {
-      const tail = Math.max(1, Math.floor(n * 0.2));
-      const tailDeltas = features.energy.rollingDeltas.slice(-tail);
-      const avgTailDelta = tailDeltas.reduce((s, v) => s + v, 0) / tailDeltas.length;
-      if (avgTailDelta < -T.energy_drop_threshold / 2) failures.push("ENERGY_DROP");
+    if (!failures.includes("ENERGY_DROP")) {
+      if (features.energy.end < features.energy.mid - T.energy_drop_threshold) {
+        failures.push("ENERGY_DROP");
+      } else if (n >= 5) {
+        const tail = Math.max(1, Math.floor(n * 0.2));
+        const tailDeltas = features.energy.rollingDeltas.slice(-tail);
+        const avgTailDelta = tailDeltas.reduce((s, v) => s + v, 0) / tailDeltas.length;
+        if (avgTailDelta < -T.energy_drop_threshold / 2) failures.push("ENERGY_DROP");
+      }
     }
 
-    if (features.directionReversalCount > T.max_direction_reversals) {
+    if (features.directionReversalCount > T.max_direction_reversals && !failures.includes("DIRECTION_REVERSAL")) {
       failures.push("DIRECTION_REVERSAL");
     }
 
