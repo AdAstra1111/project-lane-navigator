@@ -4,7 +4,7 @@
  */
 import type { CinematicUnit, CinematicScore, CinematicFailureCode, CinematicMetrics, PenaltyEntry } from "./cinematic-model.ts";
 import { DIAGNOSTIC_ONLY_CODES } from "./cinematic-model.ts";
-import { extractFeatures } from "./cinematic-features.ts";
+import { extractFeatures, classifyIntent } from "./cinematic-features.ts";
 import { analyzeLadder, type LadderMetrics } from "./cik/ladderLock.ts";
 import { getCinematicThresholds } from "./cik/thresholdProfiles.ts";
 
@@ -162,6 +162,41 @@ export function scoreCinematic(units: CinematicUnit[], ctx?: ScoringContext): Ci
         }
         // unknown/missing lane: no button rule (unchanged default)
       }
+
+      // CIK v4.4 — Unit Role Lock (lane-aware, no new codes)
+      const lane = ctx?.lane;
+      if (lane === "feature_film" || lane === "series") {
+        // Early window: allow at most 1 off-role
+        if (seq.roleMismatchCountEarly > 1 && !failures.includes("WEAK_ARC")) {
+          failures.push("WEAK_ARC");
+        }
+        // Mid window: allow at most 1 off-role
+        if (seq.roleMismatchCountMid > 1 && !failures.includes("PACING_MISMATCH")) {
+          failures.push("PACING_MISMATCH");
+        }
+        // Series: last 2 units must be LATE
+        if (lane === "series" && n >= 2) {
+          const secondLast = classifyIntent(units[n - 2].intent);
+          if ((secondLast !== "late" && secondLast !== "other") && !failures.includes("WEAK_ARC")) {
+            failures.push("WEAK_ARC");
+          }
+        }
+      } else if (lane === "vertical_drama") {
+        // First unit must be EARLY
+        if (seq.firstIntentClass !== "early" && seq.firstIntentClass !== "other" && !failures.includes("WEAK_ARC")) {
+          failures.push("WEAK_ARC");
+        }
+        // Last unit must be LATE (already covered by button rule, but explicit)
+        if (seq.finalIntentClass !== "late" && seq.finalIntentClass !== "other" && !failures.includes("WEAK_ARC")) {
+          failures.push("WEAK_ARC");
+        }
+      } else if (lane === "documentary") {
+        // Forbid EARLY intents in final 30%
+        if (seq.lateHasEarlyIntent && !failures.includes("WEAK_ARC")) {
+          failures.push("WEAK_ARC");
+        }
+      }
+      // unknown lane: no role lock
     }
   }
 

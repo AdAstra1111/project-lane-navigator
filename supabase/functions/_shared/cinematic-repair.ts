@@ -311,8 +311,8 @@ Maintain all existing required fields and overall structure.`;
   // Optional sections
   // CIK v3.14: compact intent sequencing target when WEAK_ARC present and diversity ok
   const hasIntentSeqTarget = score.failures.includes("WEAK_ARC") && !score.failures.includes("LOW_INTENT_DIVERSITY");
-  const intentHint = (score.failures.includes("LOW_INTENT_DIVERSITY") || score.failures.includes("WEAK_ARC"))
-    ? `\nINTENT SEQUENCING${hasIntentSeqTarget ? ": early=setup/intrigue, mid=threat/chaos, late=emotion/release; reorder/delete first; keep exact unitCount; no new intents.\nBUTTON ENDING: final unit must read as a button (climax/reveal/emotion/release); reorder/delete trailing drift." : " (REPAIR ONLY):\n- Early: intrigue/wonder; Mid: threat/chaos; Late: emotion/release.\n- ≥3 distinct intents; peak intensity in final 2 units."}`
+  const intentHint = (score.failures.includes("LOW_INTENT_DIVERSITY") || score.failures.includes("WEAK_ARC") || score.failures.includes("PACING_MISMATCH"))
+    ? `\nINTENT SEQUENCING${hasIntentSeqTarget ? ": early=setup/intrigue, mid=threat/chaos, late=emotion/release; reorder/delete first; keep exact unitCount; no new intents.\nBUTTON ENDING: final unit must read as a button (climax/reveal/emotion/release); reorder/delete trailing drift.\nUNIT ROLE LOCK: early=EARLY intents, mid=MID intents, late=LATE intents; reorder/delete first; keep exact unitCount; no new intents." : " (REPAIR ONLY):\n- Early: intrigue/wonder; Mid: threat/chaos; Late: emotion/release.\n- ≥3 distinct intents; peak intensity in final 2 units."}`
     : "";
 
   const polarityLock = (score.failures.includes("TONAL_WHIPLASH") || score.failures.includes("WEAK_ARC"))
