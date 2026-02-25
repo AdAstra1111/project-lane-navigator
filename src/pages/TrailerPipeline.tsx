@@ -4,7 +4,7 @@
  */
 import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Film, Sparkles, Music, Camera, Archive, Clapperboard, Wand2, Paintbrush } from 'lucide-react';
+import { ArrowLeft, Film, Sparkles, Music, Camera, Archive, Clapperboard, Wand2, Paintbrush, Video } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -18,6 +18,7 @@ import { StudioFinishPanel } from '@/components/trailer/cinematic/StudioFinishPa
 import { LearningBiasIndicator } from '@/components/trailer/cinematic/LearningBiasIndicator';
 import { LegacyBlueprintTab } from '@/components/trailer/cinematic/LegacyBlueprintTab';
 import { CanonPackManager } from '@/components/trailer/cinematic/CanonPackManager';
+import VideoPlanViewer from '@/components/cinematic/VideoPlanViewer';
 import { useBlueprints } from '@/lib/trailerPipeline/useTrailerPipeline';
 import { useScriptRuns } from '@/lib/trailerPipeline/cinematicHooks';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -157,6 +158,9 @@ export default function TrailerPipelinePage() {
             <TabsTrigger value="assembly" className="text-xs gap-1.5">
               <Wand2 className="h-3.5 w-3.5" /> Auto Assembly
             </TabsTrigger>
+            <TabsTrigger value="videoplan" className="text-xs gap-1.5">
+              <Video className="h-3.5 w-3.5" /> Video Plan
+            </TabsTrigger>
             <TabsTrigger value="finish" className="text-xs gap-1.5">
               <Paintbrush className="h-3.5 w-3.5" /> Studio Finish
             </TabsTrigger>
@@ -192,6 +196,10 @@ export default function TrailerPipelinePage() {
                 projectId={projectId!}
               />
             </div>
+          </TabsContent>
+
+          <TabsContent value="videoplan">
+            <VideoPlanViewer projectId={projectId!} />
           </TabsContent>
 
           <TabsContent value="finish">

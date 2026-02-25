@@ -19140,6 +19140,70 @@ export type Database = {
           },
         ]
       }
+      video_generation_plans: {
+        Row: {
+          continuity_report_json: Json
+          created_at: string
+          created_by: string | null
+          document_id: string | null
+          id: string
+          lane: string
+          plan_json: Json
+          plan_version: string
+          project_id: string
+          quality_run_id: string | null
+          source: string
+        }
+        Insert: {
+          continuity_report_json?: Json
+          created_at?: string
+          created_by?: string | null
+          document_id?: string | null
+          id?: string
+          lane: string
+          plan_json: Json
+          plan_version?: string
+          project_id: string
+          quality_run_id?: string | null
+          source?: string
+        }
+        Update: {
+          continuity_report_json?: Json
+          created_at?: string
+          created_by?: string | null
+          document_id?: string | null
+          id?: string
+          lane?: string
+          plan_json?: Json
+          plan_version?: string
+          project_id?: string
+          quality_run_id?: string | null
+          source?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "video_generation_plans_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "video_generation_plans_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "video_generation_plans_quality_run_id_fkey"
+            columns: ["quality_run_id"]
+            isOneToOne: false
+            referencedRelation: "cinematic_quality_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       visual_reference_assets: {
         Row: {
           created_at: string
