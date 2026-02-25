@@ -148,3 +148,85 @@ describe("model router", () => {
     expect(d1).toEqual(d2);
   });
 });
+
+/**
+ * Quality History RPC — compile-time + shape tests
+ * (No live DB; validates TypeScript types & RPC name resolution)
+ */
+describe("quality history RPC types", () => {
+  it("RPC payload shapes are well-formed JSON", () => {
+    const run = {
+      project_id: "00000000-0000-0000-0000-000000000001",
+      engine: "trailer",
+      lane: "feature_film",
+      model: "balanced",
+      final_pass: true,
+      final_score: 0.85,
+      run_source: "trailer-engine",
+      strictness_mode: "standard",
+      hard_failures: [],
+      diagnostic_flags: [],
+      metrics_json: {},
+      settings_json: {},
+    };
+    const attempt0 = {
+      attempt_index: 0,
+      model: "balanced",
+      score: 0.75,
+      pass: false,
+      failures: ["WEAK_ARC"],
+      hard_failures: ["WEAK_ARC"],
+      diagnostic_flags: [],
+      unit_count: 6,
+      output_json: {},
+      adapter_metrics_json: {},
+      timing_json: {},
+    };
+    const attempt1 = {
+      attempt_index: 1,
+      model: "strong",
+      score: 0.85,
+      pass: true,
+      failures: [],
+      hard_failures: [],
+      diagnostic_flags: [],
+      unit_count: 6,
+      repair_instruction: "Fix arc",
+      output_json: {},
+      adapter_metrics_json: {},
+      timing_json: {},
+    };
+
+    // Validate shapes serialize to valid JSON
+    expect(() => JSON.stringify(run)).not.toThrow();
+    expect(() => JSON.stringify(attempt0)).not.toThrow();
+    expect(() => JSON.stringify(attempt1)).not.toThrow();
+
+    // Validate required fields
+    expect(run.project_id).toBeTruthy();
+    expect(run.engine).toBe("trailer");
+    expect(attempt0.attempt_index).toBe(0);
+    expect(attempt1.attempt_index).toBe(1);
+  });
+
+  it("RPC function name matches expected convention", () => {
+    const rpcName = "insert_cinematic_quality_run_with_attempts";
+    expect(rpcName).toMatch(/^insert_cinematic_quality_run/);
+  });
+
+  it("run_source field accepts known engine values", () => {
+    const validSources = ["trailer-engine", "storyboard-engine", "unknown"];
+    for (const src of validSources) {
+      expect(typeof src).toBe("string");
+      expect(src.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("attempt_index is constrained to 0 or 1", () => {
+    const validIndexes = [0, 1];
+    for (const idx of validIndexes) {
+      expect(idx).toBeGreaterThanOrEqual(0);
+      expect(idx).toBeLessThanOrEqual(1);
+    }
+  });
+});

@@ -1177,6 +1177,7 @@ export type Database = {
       }
       cinematic_quality_attempts: {
         Row: {
+          adapter_metrics_json: Json
           attempt_index: number
           created_at: string
           diagnostic_flags: string[]
@@ -1184,15 +1185,21 @@ export type Database = {
           failures: string[]
           hard_failures: string[]
           id: string
+          input_summary_json: Json
           metrics_json: Json | null
+          model: string
+          output_json: Json
           pass: boolean
+          prompt_version: string | null
           repair_instruction: string | null
           run_id: string
           score: number
+          timing_json: Json
           unit_count: number | null
           units_json: Json | null
         }
         Insert: {
+          adapter_metrics_json?: Json
           attempt_index?: number
           created_at?: string
           diagnostic_flags?: string[]
@@ -1200,15 +1207,21 @@ export type Database = {
           failures?: string[]
           hard_failures?: string[]
           id?: string
+          input_summary_json?: Json
           metrics_json?: Json | null
+          model?: string
+          output_json?: Json
           pass?: boolean
+          prompt_version?: string | null
           repair_instruction?: string | null
           run_id: string
           score?: number
+          timing_json?: Json
           unit_count?: number | null
           units_json?: Json | null
         }
         Update: {
+          adapter_metrics_json?: Json
           attempt_index?: number
           created_at?: string
           diagnostic_flags?: string[]
@@ -1216,11 +1229,16 @@ export type Database = {
           failures?: string[]
           hard_failures?: string[]
           id?: string
+          input_summary_json?: Json
           metrics_json?: Json | null
+          model?: string
+          output_json?: Json
           pass?: boolean
+          prompt_version?: string | null
           repair_instruction?: string | null
           run_id?: string
           score?: number
+          timing_json?: Json
           unit_count?: number | null
           units_json?: Json | null
         }
@@ -1236,46 +1254,64 @@ export type Database = {
       }
       cinematic_quality_runs: {
         Row: {
+          adapter_mode: string | null
           attempt_count: number
           created_at: string
           created_by: string | null
+          diagnostic_flags: string[]
           doc_id: string | null
           engine: string
           final_pass: boolean
           final_score: number
+          hard_failures: string[]
           id: string
           lane: string | null
+          metrics_json: Json
           model: string
           project_id: string
+          run_source: string
           settings_json: Json | null
+          strictness_mode: string
         }
         Insert: {
+          adapter_mode?: string | null
           attempt_count?: number
           created_at?: string
           created_by?: string | null
+          diagnostic_flags?: string[]
           doc_id?: string | null
           engine: string
           final_pass?: boolean
           final_score?: number
+          hard_failures?: string[]
           id?: string
           lane?: string | null
+          metrics_json?: Json
           model: string
           project_id: string
+          run_source?: string
           settings_json?: Json | null
+          strictness_mode?: string
         }
         Update: {
+          adapter_mode?: string | null
           attempt_count?: number
           created_at?: string
           created_by?: string | null
+          diagnostic_flags?: string[]
           doc_id?: string | null
           engine?: string
           final_pass?: boolean
           final_score?: number
+          hard_failures?: string[]
           id?: string
           lane?: string | null
+          metrics_json?: Json
           model?: string
           project_id?: string
+          run_source?: string
           settings_json?: Json | null
+          strictness_mode?: string
         }
         Relationships: [
           {
@@ -19718,6 +19754,10 @@ export type Database = {
           _user_id: string
         }
         Returns: boolean
+      }
+      insert_cinematic_quality_run_with_attempts: {
+        Args: { p_attempt0: Json; p_attempt1?: Json; p_run: Json }
+        Returns: string
       }
       next_scene_version: {
         Args: {
