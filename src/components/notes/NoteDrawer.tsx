@@ -76,6 +76,9 @@ export function NoteDrawer({ projectId, noteId, note: noteProp, context, onAppli
   const [quickFixRunning, setQuickFixRunning] = useState<string | null>(null);
   const [quickFixError, setQuickFixError] = useState<Record<string, string>>({});
   const [quickFixDone, setQuickFixDone] = useState<string | null>(null);
+  const [lastApplySummary, setLastApplySummary] = useState<{
+    diffSummary?: string; patchCount?: number; patchTitles?: string[]; changeEventId?: string;
+  } | null>(null);
 
   // Reset state when note changes
   useEffect(() => {
@@ -90,6 +93,7 @@ export function NoteDrawer({ projectId, noteId, note: noteProp, context, onAppli
     setQuickFixRunning(null);
     setQuickFixError({});
     setQuickFixDone(null);
+    setLastApplySummary(null);
   }, [noteId]);
 
   const rawFixes = (note?.suggested_fixes || []) as NoteSuggestedFix[];
@@ -160,6 +164,28 @@ export function NoteDrawer({ projectId, noteId, note: noteProp, context, onAppli
     const id = noteId || note?.id;
     if (!id) return;
 
+    // Defer fix: skip propose/apply, only triage as deferred
+    if (fix.id === 'auto-doc-defer') {
+      setQuickFixRunning(fix.id);
+      setQuickFixError(prev => { const n = { ...prev }; delete n[fix.id]; return n; });
+      try {
+        await new Promise<void>((resolve, reject) => {
+          triageMutation.mutate(
+            { noteId: id, triage: { status: 'deferred' as NoteStatus, timing: 'later' as NoteTiming, destinationDocType: deferDocType || undefined } },
+            { onSuccess: () => resolve(), onError: reject }
+          );
+        });
+        setQuickFixDone(fix.id);
+        setLastApplySummary({ diffSummary: 'Deferred: requires document ladder selection before applying.' });
+        setTimeout(() => onClose(), 700);
+      } catch (err: any) {
+        setQuickFixError(prev => ({ ...prev, [fix.id]: err?.message || 'Defer failed' }));
+      } finally {
+        setQuickFixRunning(null);
+      }
+      return;
+    }
+
     // Doc-ladder guard
     if (note && noteRequiresDocType(note) && !deferDocType) {
       setQuickFixError(prev => ({
@@ -191,6 +217,14 @@ export function NoteDrawer({ projectId, noteId, note: noteProp, context, onAppli
         );
       });
       setQuickFixDone(fix.id);
+      // Build deterministic post-apply summary
+      const patches = Array.isArray((data as any)?.patchPreview) ? (data as any).patchPreview : [];
+      setLastApplySummary({
+        diffSummary: (data as any)?.diffSummary || 'Applied changes.',
+        patchCount: patches.length || undefined,
+        patchTitles: patches.map((p: any) => p?.location || p?.title).filter((t: any) => typeof t === 'string').slice(0, 5),
+        changeEventId: (data as any)?.changeEventId,
+      });
       const newVersionId = (applyData as any)?.newVersionId ?? (applyData as any)?.versionId ?? null;
       if (newVersionId) onApplied?.(newVersionId);
       setTimeout(() => onClose(), 1200);
@@ -199,7 +233,7 @@ export function NoteDrawer({ projectId, noteId, note: noteProp, context, onAppli
     } finally {
       setQuickFixRunning(null);
     }
-  }, [noteId, note, scope, context, deferDocType, proposeMutation, applyMutation, verifyMutation, onApplied, onClose]);
+  }, [noteId, note, scope, context, deferDocType, triageMutation, proposeMutation, applyMutation, verifyMutation, onApplied, onClose]);
 
   // Triage actions
   const handleTriage = useCallback((status: NoteStatus, timing?: NoteTiming) => {
@@ -242,6 +276,14 @@ export function NoteDrawer({ projectId, noteId, note: noteProp, context, onAppli
       onSuccess: (data) => {
         const vid = (data as any)?.newVersionId ?? (data as any)?.versionId ?? null;
         if (vid) onApplied?.(vid);
+        setLastApplySummary({
+          diffSummary: changePlan?.diffSummary || 'Applied changes.',
+          patchCount: changePlan?.patches?.length,
+          patchTitles: Array.isArray(changePlan?.patches)
+            ? changePlan!.patches.map((p: any) => p?.location || p?.title).filter((t: any) => typeof t === 'string').slice(0, 5)
+            : undefined,
+          changeEventId: changePlan?.changeEventId,
+        });
         onClose();
       },
       onError: (err: any) => {
@@ -567,6 +609,31 @@ export function NoteDrawer({ projectId, noteId, note: noteProp, context, onAppli
                     <RotateCcw className="h-3 w-3" />Reopen
                   </Button>
                 </div>
+              </div>
+            )}
+
+            {/* Post-apply summary */}
+            {lastApplySummary && (
+              <div className="rounded-md border border-border/40 bg-muted/10 p-2.5 text-xs space-y-1">
+                <div className="font-medium text-foreground flex items-center gap-1">
+                  <Check className="h-3 w-3 text-emerald-500" /> Applied
+                </div>
+                <p className="text-muted-foreground">{lastApplySummary.diffSummary}</p>
+                {typeof lastApplySummary.patchCount === 'number' && (
+                  <p className="text-muted-foreground">
+                    {lastApplySummary.patchCount} patch{lastApplySummary.patchCount === 1 ? '' : 'es'}
+                  </p>
+                )}
+                {Array.isArray(lastApplySummary.patchTitles) && lastApplySummary.patchTitles.length > 0 && (
+                  <details className="mt-1">
+                    <summary className="cursor-pointer text-muted-foreground text-[10px]">Details</summary>
+                    <ul className="mt-1 list-disc pl-4 text-muted-foreground text-[10px]">
+                      {lastApplySummary.patchTitles.map((t) => (
+                        <li key={t}>{t}</li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
               </div>
             )}
 
