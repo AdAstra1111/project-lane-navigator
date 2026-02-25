@@ -102,6 +102,61 @@ export function normalizeScores(scores: number[]): { normalized: number[]; min: 
   return { normalized, min, max, avg };
 }
 
+/** Clamp a score to [0,1]. */
+export function clampScore(v: number): number {
+  return Math.max(0, Math.min(1, v));
+}
+
+export interface TrendPoint {
+  score: number;
+  pass: boolean;
+  time: string;
+  /** Short deterministic date label (YYYY-MM-DD HH:mm) */
+  label: string;
+}
+
+/**
+ * buildScoreTrendSeries — deterministic transform for chart plotting.
+ *
+ * Pipeline (order matters):
+ *  1. Sort by created_at descending (newest first) — matches list view order.
+ *  2. Cap to 50 most recent.
+ *  3. Reverse to chronological (oldest→newest) for chart x-axis.
+ *  4. Exclude null/undefined scores.
+ *  5. Clamp remaining scores to [0,1].
+ */
+export function buildScoreTrendSeries(
+  runs: { final_score: number | null | undefined; final_pass: boolean; created_at: string }[],
+): TrendPoint[] {
+  // 1. Sort newest-first (stable: same timestamp preserves input order)
+  const sorted = [...runs].sort((a, b) =>
+    new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  );
+  // 2. Cap to 50
+  const capped = sorted.slice(0, 50);
+  // 3. Reverse to oldest-first for chart
+  const chrono = capped.reverse();
+  // 4+5. Exclude null, clamp
+  return chrono
+    .filter(r => r.final_score != null)
+    .map(r => ({
+      score: clampScore(Number(r.final_score)),
+      pass: r.final_pass,
+      time: r.created_at,
+      label: formatTrendLabel(r.created_at),
+    }));
+}
+
+/** Deterministic date label — no locale dependency. */
+function formatTrendLabel(iso: string): string {
+  const d = new Date(iso);
+  const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(d.getUTCDate()).padStart(2, '0');
+  const hh = String(d.getUTCHours()).padStart(2, '0');
+  const min = String(d.getUTCMinutes()).padStart(2, '0');
+  return `${mm}-${dd} ${hh}:${min}`;
+}
+
 /* ── Main Component ── */
 
 export default function QualityRunHistory({ projectId }: { projectId: string }) {
@@ -180,7 +235,7 @@ export default function QualityRunHistory({ projectId }: { projectId: string }) 
   const recent20 = runs.slice(0, 20);
   const passRate = computePassRate(recent20);
   const avgScore = computeAvgScore(recent20);
-  const chartData = buildChartData(runs);
+  const trendSeries = buildScoreTrendSeries(runs);
 
   return (
     <Card>
@@ -206,15 +261,17 @@ export default function QualityRunHistory({ projectId }: { projectId: string }) 
             </p>
           </div>
 
-          {/* Sparkline */}
+          {/* Score over time chart */}
           <div className="flex-[2] rounded-md border border-border bg-muted/20 p-3">
             <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide mb-1">
-              Score over time ({chartData.length} runs)
+              Score over time ({trendSeries.length} runs)
             </p>
-            {chartData.length < 2 ? (
+            {trendSeries.length === 0 ? (
+              <p className="text-xs text-muted-foreground italic">No quality runs yet</p>
+            ) : trendSeries.length < 2 ? (
               <p className="text-xs text-muted-foreground italic">Not enough runs to chart yet.</p>
             ) : (
-              <Sparkline data={chartData} />
+              <Sparkline data={trendSeries} />
             )}
           </div>
         </div>
