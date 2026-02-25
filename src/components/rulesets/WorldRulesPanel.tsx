@@ -2,12 +2,16 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
+import { Slider } from '@/components/ui/slider';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
-import { AlertTriangle, Shield, Code, Save, Loader2 } from 'lucide-react';
+import { AlertTriangle, Shield, Code, Save, Loader2, Gauge, Info } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import type { RuleConflict, OverridePatch } from '@/lib/rulesets/types';
+import { validateAndClamp, getLaneClamps, getLaneDefaults } from '@/lib/rulesets/validateAndClamp';
 
 interface WorldRulesPanelProps {
   projectId: string;
@@ -34,11 +38,82 @@ export function WorldRulesPanel({
   const [saving, setSaving] = useState(false);
   const [saveAsDefault, setSaveAsDefault] = useState(true);
 
+  // Pacing override state
+  const laneDefaults = getLaneDefaults(lane);
+  const clamps = getLaneClamps(lane);
+  const currentBpm = engineProfile?.rules?.pacing_profile?.beats_per_minute;
+
+  const [pacingMin, setPacingMin] = useState<number>(currentBpm?.min ?? laneDefaults.min);
+  const [pacingTarget, setPacingTarget] = useState<number>(currentBpm?.target ?? laneDefaults.target);
+  const [pacingMax, setPacingMax] = useState<number>(currentBpm?.max ?? laneDefaults.max);
+  const [bypassClamps, setBypassClamps] = useState(false);
+  const [pacingSaving, setPacingSaving] = useState(false);
+  const [clampWarnings, setClampWarnings] = useState<string[]>([]);
+
+  // Sync from engine profile
+  useEffect(() => {
+    if (currentBpm) {
+      setPacingMin(currentBpm.min);
+      setPacingTarget(currentBpm.target);
+      setPacingMax(currentBpm.max);
+    }
+  }, [currentBpm?.min, currentBpm?.target, currentBpm?.max]);
+
+  // Run validation whenever values change
+  useEffect(() => {
+    if (!engineProfile?.rules) return;
+    const testRules = JSON.parse(JSON.stringify(engineProfile.rules));
+    testRules.pacing_profile = testRules.pacing_profile || {};
+    testRules.pacing_profile.beats_per_minute = { min: pacingMin, target: pacingTarget, max: pacingMax };
+    const { warnings } = validateAndClamp(testRules, lane, bypassClamps);
+    setClampWarnings(warnings);
+  }, [pacingMin, pacingTarget, pacingMax, lane, bypassClamps, engineProfile?.rules]);
+
   useEffect(() => {
     if (engineProfile?.rules) {
       setJsonEdit(JSON.stringify(engineProfile.rules, null, 2));
     }
   }, [engineProfile]);
+
+  const handleSavePacingOverride = async () => {
+    setPacingSaving(true);
+    try {
+      // Apply clamping before saving
+      const draftRules = engineProfile?.rules ? JSON.parse(JSON.stringify(engineProfile.rules)) : {};
+      draftRules.pacing_profile = draftRules.pacing_profile || {};
+      draftRules.pacing_profile.beats_per_minute = { min: pacingMin, target: pacingTarget, max: pacingMax };
+      const { rules: clamped } = validateAndClamp(draftRules, lane, bypassClamps);
+      const clampedBpm = clamped.pacing_profile.beats_per_minute;
+
+      // Update local state with clamped values
+      setPacingMin(clampedBpm.min);
+      setPacingTarget(clampedBpm.target);
+      setPacingMax(clampedBpm.max);
+
+      const patch: OverridePatch[] = [
+        { op: 'replace', path: '/pacing_profile/beats_per_minute/min', value: clampedBpm.min },
+        { op: 'replace', path: '/pacing_profile/beats_per_minute/target', value: clampedBpm.target },
+        { op: 'replace', path: '/pacing_profile/beats_per_minute/max', value: clampedBpm.max },
+      ];
+
+      await supabase.functions.invoke('comps-engine', {
+        body: {
+          action: 'apply_override',
+          project_id: projectId,
+          lane,
+          user_id: userId,
+          scope: saveAsDefault ? 'project_default' : 'run',
+          patch,
+        },
+      });
+
+      onRulesChanged?.();
+    } catch (err) {
+      console.error('Save pacing override error:', err);
+    } finally {
+      setPacingSaving(false);
+    }
+  };
 
   const handleSaveOverride = async () => {
     setSaving(true);
@@ -46,7 +121,6 @@ export function WorldRulesPanel({
       let patch: OverridePatch[];
       try {
         const edited = JSON.parse(jsonEdit);
-        // Create a replace patch for the whole rules object
         patch = [{ op: 'replace', path: '/', value: edited }];
       } catch {
         console.error('Invalid JSON');
@@ -85,7 +159,9 @@ export function WorldRulesPanel({
 
   const conflicts = engineProfile.conflicts || [];
   const hardConflicts = conflicts.filter(c => c.severity === 'hard');
-  const warnConflicts = conflicts.filter(c => c.severity === 'warn');
+
+  // Resolved display values (post-clamp)
+  const displayBpm = currentBpm || laneDefaults;
 
   return (
     <Card className="border-border/50">
@@ -143,8 +219,21 @@ export function WorldRulesPanel({
           </Accordion>
         )}
 
-        {/* Key Rules Quick View */}
+        {/* Key Rules Quick View — FIXED: show target BPM prominently */}
         <div className="grid grid-cols-2 gap-2 text-[10px]">
+          <div className="bg-muted/30 p-2 rounded col-span-2">
+            <div className="flex items-center gap-1.5 mb-1">
+              <Gauge className="h-3 w-3 text-primary" />
+              <span className="text-muted-foreground font-medium">Pacing</span>
+            </div>
+            <div className="flex items-baseline gap-2">
+              <span className="text-lg font-bold font-mono text-foreground">{displayBpm.target}</span>
+              <span className="text-muted-foreground">target BPM</span>
+            </div>
+            <p className="text-muted-foreground mt-0.5">
+              Range: {displayBpm.min}–{displayBpm.max} BPM
+            </p>
+          </div>
           <div className="bg-muted/30 p-2 rounded">
             <span className="text-muted-foreground">Drama Budget</span>
             <p className="font-medium">{engineProfile.rules?.budgets?.drama_budget}</p>
@@ -162,6 +251,104 @@ export function WorldRulesPanel({
             <p className="font-medium">{engineProfile.rules?.pacing_profile?.quiet_beats_min}</p>
           </div>
         </div>
+
+        {/* ── Pacing Override Controls ── */}
+        <Accordion type="single" collapsible>
+          <AccordionItem value="pacing" className="border-border/50">
+            <AccordionTrigger className="py-2 text-xs hover:no-underline">
+              <span className="flex items-center gap-1.5">
+                <Gauge className="h-3.5 w-3.5 text-primary" />
+                Pacing Controls
+              </span>
+            </AccordionTrigger>
+            <AccordionContent className="space-y-3 pt-1">
+              {/* Target BPM — prominent slider */}
+              <div className="space-y-1.5">
+                <Label className="text-[10px] font-medium">Target BPM</Label>
+                <div className="flex items-center gap-3">
+                  <Slider
+                    value={[pacingTarget]}
+                    onValueChange={([v]) => setPacingTarget(v)}
+                    min={bypassClamps ? 0.5 : clamps.target.floor}
+                    max={bypassClamps ? 10 : clamps.target.ceiling}
+                    step={0.5}
+                    className="flex-1"
+                  />
+                  <Input
+                    type="number"
+                    value={pacingTarget}
+                    onChange={e => setPacingTarget(Number(e.target.value))}
+                    step={0.5}
+                    className="w-16 h-7 text-xs text-center font-mono"
+                  />
+                </div>
+                <p className="text-[9px] text-muted-foreground">
+                  {lane.replace(/_/g, ' ')} lane range: {clamps.target.floor}–{clamps.target.ceiling} BPM
+                </p>
+              </div>
+
+              {/* Min / Max row */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-[10px] text-muted-foreground">Min BPM</Label>
+                  <Input
+                    type="number"
+                    value={pacingMin}
+                    onChange={e => setPacingMin(Number(e.target.value))}
+                    step={0.5}
+                    className="h-7 text-xs font-mono"
+                  />
+                  <p className="text-[8px] text-muted-foreground">Floor: {clamps.min.floor}</p>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[10px] text-muted-foreground">Max BPM</Label>
+                  <Input
+                    type="number"
+                    value={pacingMax}
+                    onChange={e => setPacingMax(Number(e.target.value))}
+                    step={0.5}
+                    className="h-7 text-xs font-mono"
+                  />
+                  <p className="text-[8px] text-muted-foreground">Ceiling: {clamps.max.ceiling}</p>
+                </div>
+              </div>
+
+              {/* Clamp warnings */}
+              {clampWarnings.length > 0 && (
+                <div className="space-y-1 p-2 rounded-md bg-amber-500/5 border border-amber-500/20">
+                  {clampWarnings.map((w, i) => (
+                    <div key={i} className="flex items-start gap-1.5 text-[9px]">
+                      <Info className="h-3 w-3 text-amber-500 shrink-0 mt-0.5" />
+                      <span className="text-muted-foreground">{w}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Bypass toggle */}
+              <div className="flex items-center gap-2 pt-1">
+                <Switch checked={bypassClamps} onCheckedChange={setBypassClamps} />
+                <Label className="text-[10px] text-muted-foreground">
+                  Allow out-of-lane pacing <span className="text-destructive">(not recommended)</span>
+                </Label>
+              </div>
+
+              {/* Scope + Save */}
+              <div className="flex items-center justify-between pt-1">
+                <div className="flex items-center gap-2">
+                  <Switch checked={saveAsDefault} onCheckedChange={setSaveAsDefault} />
+                  <Label className="text-[10px] text-muted-foreground">
+                    {saveAsDefault ? 'Project default' : 'This run only'}
+                  </Label>
+                </div>
+                <Button size="sm" onClick={handleSavePacingOverride} disabled={pacingSaving} className="h-7 text-xs gap-1">
+                  {pacingSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+                  Apply Pacing
+                </Button>
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
 
         {/* Forbidden Moves */}
         {engineProfile.rules?.forbidden_moves?.length > 0 && (
