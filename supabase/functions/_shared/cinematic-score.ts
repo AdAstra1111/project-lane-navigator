@@ -5,6 +5,7 @@
 import type { CinematicUnit, CinematicScore, CinematicFailureCode, CinematicMetrics, PenaltyEntry } from "./cinematic-model.ts";
 import { DIAGNOSTIC_ONLY_CODES } from "./cinematic-model.ts";
 import { extractFeatures } from "./cinematic-features.ts";
+import { analyzeLadder, type LadderMetrics } from "./cik/ladderLock.ts";
 
 // ─── Centralized thresholds (single source of truth) ───
 
@@ -169,6 +170,31 @@ export function scoreCinematic(units: CinematicUnit[], ctx?: ScoringContext): Ci
 
     if (features.directionReversalCount > T.max_direction_reversals) {
       failures.push("DIRECTION_REVERSAL");
+    }
+
+    // ─── CIK v3.12 Ladder Lock checks ───
+    const ladder = analyzeLadder(energies, units.map(u => u.tension), units.map(u => u.density));
+    if (ladder.n >= 3) {
+      if (ladder.meaningfulDownSteps > 1 && !failures.includes("DIRECTION_REVERSAL")) {
+        failures.push("DIRECTION_REVERSAL");
+      }
+      if (ladder.lateDownSteps >= 1 && !failures.includes("ENERGY_DROP")) {
+        failures.push("ENERGY_DROP");
+      }
+      if (ladder.upStepFrac < ladder.minUpFrac && !failures.includes("FLATLINE")) {
+        failures.push("FLATLINE");
+      }
+      if (ladder.zigzagFlips > ladder.maxFlips && !failures.includes("PACING_MISMATCH")) {
+        failures.push("PACING_MISMATCH");
+      }
+      if (ladder.peakIndex > 0 && !ladder.peakLate25 && !failures.includes("NO_PEAK") && !failures.includes("WEAK_ARC")) {
+        failures.push("WEAK_ARC");
+      }
+      if (ladder.peakDominance < ladder.peakDelta) {
+        if (failures.includes("LOW_CONTRAST") && !failures.includes("WEAK_ARC")) {
+          failures.push("WEAK_ARC");
+        }
+      }
     }
 
     // EYE_LINE_BREAK: diagnostic-only, only added when LOW_CONTRAST or FLATLINE also present

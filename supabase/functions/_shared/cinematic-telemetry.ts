@@ -28,6 +28,12 @@ interface RollupBucket {
   sum_energy_slope: number;
   sum_direction_reversals: number;
   pacing_mismatch_count: number;
+  // Ladder lock accumulators (CIK v3.12)
+  sum_ladder_down_steps: number;
+  sum_ladder_late_down: number;
+  sum_ladder_up_frac: number;
+  sum_ladder_zigzag: number;
+  ladder_peak_late_count: number;
   // Diagnostic flag accumulators
   hard_failures_by_code: Record<string, number>;
   diagnostic_flags_by_code: Record<string, number>;
@@ -59,6 +65,9 @@ function getBucket(handler: string, phase: string, model: string): RollupBucket 
       sum_peak_index: 0, peak_late_count: 0,
       sum_energy_slope: 0, sum_direction_reversals: 0,
       pacing_mismatch_count: 0,
+      sum_ladder_down_steps: 0, sum_ladder_late_down: 0,
+      sum_ladder_up_frac: 0, sum_ladder_zigzag: 0,
+      ladder_peak_late_count: 0,
       hard_failures_by_code: {}, diagnostic_flags_by_code: {},
       last_flush_ts: Date.now(),
     };
@@ -104,6 +113,7 @@ export function recordFinal(
 export function recordFeatureSummary(
   handler: string, phase: string, model: string,
   features: CinematicFeatures,
+  ladderMetrics?: { meaningfulDownSteps: number; lateDownSteps: number; upStepFrac: number; zigzagFlips: number; peakLate25: boolean },
 ): void {
   const b = getBucket(handler, phase, model);
   b.sum_peak_index += features.peakIndex;
@@ -111,6 +121,13 @@ export function recordFeatureSummary(
   b.sum_energy_slope += features.energy.slope;
   b.sum_direction_reversals += features.directionReversalCount;
   if (features.pacingMismatch) b.pacing_mismatch_count++;
+  if (ladderMetrics) {
+    b.sum_ladder_down_steps += ladderMetrics.meaningfulDownSteps;
+    b.sum_ladder_late_down += ladderMetrics.lateDownSteps;
+    b.sum_ladder_up_frac += ladderMetrics.upStepFrac;
+    b.sum_ladder_zigzag += ladderMetrics.zigzagFlips;
+    if (ladderMetrics.peakLate25) b.ladder_peak_late_count++;
+  }
 }
 
 /** Record diagnostic flags into the rollup bucket. */
@@ -175,6 +192,13 @@ export function flushCinematicSummaryIfDue(opts: { handler: string; phase: strin
       avg_energy_slope: total > 0 ? b.sum_energy_slope / total : 0,
       avg_direction_reversals: total > 0 ? b.sum_direction_reversals / total : 0,
       pacing_mismatch_rate: total > 0 ? b.pacing_mismatch_count / total : 0,
+      ladder: {
+        avg_down_steps: total > 0 ? b.sum_ladder_down_steps / total : 0,
+        avg_late_down: total > 0 ? b.sum_ladder_late_down / total : 0,
+        avg_up_frac: total > 0 ? b.sum_ladder_up_frac / total : 0,
+        avg_zigzag: total > 0 ? b.sum_ladder_zigzag / total : 0,
+        peak_late_rate: total > 0 ? b.ladder_peak_late_count / total : 0,
+      },
     },
   };
   console.error(JSON.stringify(featureSummary));
@@ -203,6 +227,9 @@ export function flushCinematicSummaryIfDue(opts: { handler: string; phase: strin
   b.sum_peak_index = 0; b.peak_late_count = 0;
   b.sum_energy_slope = 0; b.sum_direction_reversals = 0;
   b.pacing_mismatch_count = 0;
+  b.sum_ladder_down_steps = 0; b.sum_ladder_late_down = 0;
+  b.sum_ladder_up_frac = 0; b.sum_ladder_zigzag = 0;
+  b.ladder_peak_late_count = 0;
   b.hard_failures_by_code = {}; b.diagnostic_flags_by_code = {};
   b.last_flush_ts = Date.now();
 }
