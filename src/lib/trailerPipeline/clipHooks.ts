@@ -30,10 +30,12 @@ export function useAutoProcessQueue(projectId: string | undefined, blueprintId: 
     queryFn: async () => {
       if (!projectId || !blueprintId) return null;
       try {
-        const result = await clipEngineApi.processQueue(projectId, blueprintId, 3);
-        if (result.processed > 0) {
+        // Process queue with higher batch size — backend handles per-provider rate limits
+        const result = await clipEngineApi.processQueue(projectId, blueprintId, 6);
+        if (result.processed > 0 || result.poll?.completed > 0) {
           qc.invalidateQueries({ queryKey: ['trailer-clip-progress', projectId] });
           qc.invalidateQueries({ queryKey: ['trailer-clips-list', projectId] });
+          qc.invalidateQueries({ queryKey: ['trailer-clips', projectId] });
         }
         return result;
       } catch {
@@ -41,8 +43,8 @@ export function useAutoProcessQueue(projectId: string | undefined, blueprintId: 
       }
     },
     enabled: !!projectId && !!blueprintId && queuedCount > 0,
-    // Process every 30s when jobs are queued but pipeline seems stalled (nothing running)
-    refetchInterval: queuedCount > 0 ? (runningCount === 0 ? 15000 : 30000) : false,
+    // Process every 15s when jobs are queued but pipeline seems stalled
+    refetchInterval: queuedCount > 0 ? (runningCount === 0 ? 12000 : 20000) : false,
   });
 }
 
