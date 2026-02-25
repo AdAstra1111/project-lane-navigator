@@ -8,6 +8,7 @@ import { scoreCinematic, CINEMATIC_THRESHOLDS, type ScoringContext } from "./cin
 import { extractFeatures } from "./cinematic-features.ts";
 import { analyzeLadder } from "./cik/ladderLock.ts";
 import { extractStyleAnchors } from "./cinematic-style-lock.ts";
+import { sanitizeUnits, type AdapterQualityMetrics } from "./cik/adapterSanitize.ts";
 import {
   recordAttempt0, recordFinal, recordFeatureSummary,
   recordDiagnosticFlags, flushCinematicSummaryIfDue,
@@ -24,6 +25,8 @@ export interface CinematicQualityGateEvent {
   metrics: Record<string, number>;
   adapter_mode?: string;
   distinct_intents?: number;
+  lane?: string;
+  adapter_quality?: AdapterQualityMetrics;
 }
 
 export interface CinematicQualityOpts<T> {
@@ -59,6 +62,8 @@ function buildGateEvent(
   handler: string, phase: string, model: string,
   attempt: number, score: CinematicScore, adapterMode: string,
   units: CinematicUnit[],
+  lane?: string,
+  adapterQuality?: AdapterQualityMetrics,
 ): CinematicQualityGateEvent {
   return {
     handler, phase, model, attempt,
@@ -68,6 +73,8 @@ function buildGateEvent(
     metrics: score.metrics as unknown as Record<string, number>,
     adapter_mode: adapterMode,
     distinct_intents: new Set(units.map(u => u.intent)).size,
+    lane,
+    adapter_quality: adapterQuality,
   };
 }
 
@@ -113,11 +120,13 @@ export async function enforceCinematicQuality<T>(opts: CinematicQualityOpts<T>):
   const log = opts.telemetry || defaultTelemetry;
   const scoringCtx: ScoringContext = { isStoryboard: opts.isStoryboard, lane: opts.lane };
 
-  // Attempt 0
+  // Attempt 0: adapt + sanitize + score
   const adapterResult0 = runAdapter(adapter, opts.rawOutput, opts.expected_unit_count);
-  const { units: units0, mode: mode0 } = adapterResult0;
+  const sanitized0 = sanitizeUnits(adapterResult0.units, opts.expected_unit_count);
+  const units0 = sanitized0.units;
+  const mode0 = adapterResult0.mode;
   const score0 = scoreCinematic(units0, scoringCtx);
-  const evt0 = buildGateEvent(handler, phase, model, 0, score0, mode0, units0);
+  const evt0 = buildGateEvent(handler, phase, model, 0, score0, mode0, units0, opts.lane, sanitized0.quality);
 
   log("CINEMATIC_QUALITY_GATE", evt0);
   recordAttempt0(evt0);
@@ -162,8 +171,11 @@ export async function enforceCinematicQuality<T>(opts: CinematicQualityOpts<T>):
 
   const repaired = await regenerateOnce(instruction);
 
+  // Attempt 1: adapt + sanitize + score
   const adapterResult1 = runAdapter(adapter, repaired, opts.expected_unit_count);
-  const { units: units1, mode: mode1 } = adapterResult1;
+  const sanitized1 = sanitizeUnits(adapterResult1.units, opts.expected_unit_count);
+  const units1 = sanitized1.units;
+  const mode1 = adapterResult1.mode;
 
   if (adapterResult1.fallbackReasons && adapterResult1.fallbackReasons.length > 0) {
     console.error(JSON.stringify({
@@ -189,7 +201,19 @@ export async function enforceCinematicQuality<T>(opts: CinematicQualityOpts<T>):
   }
 
   const score1 = scoreCinematic(units1, { ...scoringCtx, adapterMode: mode1 });
-  const evt1 = buildGateEvent(handler, phase, model, 1, score1, mode1, units1);
+  const evt1 = buildGateEvent(handler, phase, model, 1, score1, mode1, units1, opts.lane, sanitized1.quality);
+
+  // Repair validation telemetry (before/after delta)
+  console.error(JSON.stringify({
+    type: "CINEMATIC_REPAIR_VALIDATION",
+    handler, phase, model, lane: opts.lane,
+    attempt_before_failures: score0.failures,
+    attempt_after_failures: score1.failures,
+    failure_delta_count: score1.hard_failures.length - score0.hard_failures.length,
+    score_delta: score1.score - score0.score,
+    score_before: score0.score,
+    score_after: score1.score,
+  }));
 
   log("CINEMATIC_QUALITY_GATE", evt1);
   recordFinal(evt1, "attempt1");
