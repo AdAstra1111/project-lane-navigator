@@ -25,6 +25,7 @@ import { noteFingerprint } from '@/lib/decisions/fingerprint';
 import { ChangePlanPanel } from './ChangePlanPanel';
 import { ChangesetTimeline } from './ChangesetTimeline';
 import type { NoteOption, NoteOptionSet, NoteThreadSynthesis, ChangePlan } from '@/lib/types/writers-room';
+import { ContextCards } from './ContextCards';
 import ReactMarkdown from 'react-markdown';
 
 interface NoteWritersRoomDrawerProps {
@@ -375,6 +376,20 @@ export function NoteWritersRoomDrawer({
             </span>
           )}
         </div>
+
+        {/* Context Cards — show supporting docs from loaded context pack */}
+        {contextPack && contextPack.docs.length > 0 && (
+          <div className="border-b border-border/30 py-1.5">
+            <ContextCards
+              projectDocs={contextPack.docs.map(d => ({
+                id: d.documentId,
+                title: d.title,
+                doc_type: d.docType,
+              }))}
+              includeDocumentIds={contextPack.docs.map(d => d.documentId)}
+            />
+          </div>
+        )}
 
         {isLoading ? (
           <div className="flex-1 flex items-center justify-center">

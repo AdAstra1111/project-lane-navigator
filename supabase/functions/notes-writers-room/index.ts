@@ -974,7 +974,7 @@ Generate a Change Plan with atomic, testable changes.`;
 
     // ── ACTION: apply_change_plan ──
     if (action === "apply_change_plan") {
-      const { planId, forceShrink } = body;
+      const { planId, forceShrink, applyScope: clientApplyScope } = body;
       if (!planId) return err("Missing planId");
 
       const { data: plan, error: pErr } = await admin.from("note_change_plans").select("*").eq("id", planId).single();
@@ -1056,6 +1056,26 @@ IMPORTANT: Return the COMPLETE rewritten script. Do not omit any sections. Prese
         verification.warnings.push("Rewritten text is significantly shorter than original");
       }
 
+      // ── Scene-scope enforcement ──
+      const { parseScenes, detectOutOfScopeChanges, resolveApplyScope } = await import("../_shared/sceneScope.ts");
+      const scopeResult = resolveApplyScope(changePlan, clientApplyScope);
+
+      let scopeCheck: any = { ok: true, mode: scopeResult.mode };
+      if (scopeResult.mode === 'scene' && scopeResult.allowedScenes.length > 0) {
+        const originalScenes = parseScenes(scriptText);
+        const updatedScenes = parseScenes(rewrittenText);
+        const check = detectOutOfScopeChanges(originalScenes, updatedScenes, scopeResult.allowedScenes);
+        if (!check.ok) {
+          return ok({
+            blocked: true,
+            reason: "scope_guard",
+            out_of_scope_scenes: check.outOfScopeScenes,
+            message: check.message,
+          });
+        }
+        scopeCheck = { ...scopeCheck, ...check, allowedScenes: scopeResult.allowedScenes };
+      }
+
       // ── Compute diff summary ──
       const affectedScenes = new Set<number>();
       enabledChanges.forEach((c: any) => {
@@ -1069,6 +1089,7 @@ IMPORTANT: Return the COMPLETE rewritten script. Do not omit any sections. Prese
         affected_scene_count: affectedScenes.size,
         affected_scenes: [...affectedScenes].sort((a, b) => a - b),
         changes_applied: enabledChanges.length,
+        scope_enforcement: scopeCheck,
       };
 
       const { data: maxVer } = await admin.from("project_document_versions")
