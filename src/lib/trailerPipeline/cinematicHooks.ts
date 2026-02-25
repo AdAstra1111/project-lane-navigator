@@ -293,7 +293,9 @@ export function useCinematicMutations(projectId: string | undefined) {
     mutationFn: (params: { scriptRunId: string; shotDesignRunId: string }) =>
       cinematicApi.startClipGeneration({ projectId: projectId!, ...params }),
     onSuccess: (data) => {
-      toast.success(`Clip generation ready: ${data.shotSpecCount} specs across ${data.beatCount} beats`);
+      const jobs = data.jobsCreated ?? data.shotSpecCount ?? 0;
+      const phases = data.byPhase ? Object.keys(data.byPhase).length : (data.beatCount ?? 0);
+      toast.success(`Clip generation ready: ${jobs} jobs across ${phases} phases`);
     },
     onError: (e: Error) => toast.error(e.message),
   });
