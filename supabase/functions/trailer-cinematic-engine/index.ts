@@ -3146,18 +3146,58 @@ Return STRICT JSON:
 }
 Only valid JSON. No commentary.`);
 
-    const parsed = await callLLMWithJsonRetry({
-      apiKey,
-      model: MODELS.PRO,
-      system,
-      user: `CRESCENDO BEATS:\n${beatSummary}\nSeed: ${resolvedSeed}`,
-      temperature: 0.4,
-      maxTokens: 8000,
-    }, {
-      handler: "regenerate_crescendo_montage_v1",
-      validate: (d): d is any => d && Array.isArray(d.shot_specs),
-    });
-    const shotSpecs = parsed.shot_specs || [];
+    let shotSpecs: any[] = [];
+    try {
+      const parsed = await callLLMWithJsonRetry({
+        apiKey,
+        model: MODELS.PRO,
+        system,
+        user: `CRESCENDO BEATS:\n${beatSummary}\nSeed: ${resolvedSeed}`,
+        temperature: 0.4,
+        maxTokens: 8000,
+      }, {
+        handler: "regenerate_crescendo_montage_v1",
+        validate: (d): d is any => {
+          if (Array.isArray(d)) return true; // raw array
+          if (d && Array.isArray(d.shot_specs)) return true;
+          if (d && Array.isArray(d.shots)) return true;
+          return false;
+        },
+      });
+      shotSpecs = Array.isArray(parsed) ? parsed : (parsed.shot_specs || parsed.shots || []);
+    } catch (llmErr) {
+      console.error("Crescendo montage LLM failed, synthesizing fallback:", llmErr);
+      // Deterministic fallback: generate 6 micro-montage shots per crescendo beat
+      const moves = ["push_in", "whip_pan", "handheld", "track", "arc", "crane"];
+      const types = ["close", "insert", "medium", "close", "insert", "wide"];
+      const motifs = ["impact", "eyes", "hands", "silhouette", "fire", "running"];
+      for (const cb of crescendoBeats) {
+        for (let si = 0; si < 6; si++) {
+          shotSpecs.push({
+            beat_index: cb.beat_index,
+            shot_index: si,
+            shot_type: types[si % types.length],
+            lens_mm: [24, 35, 50, 85, 100, 135][si % 6],
+            camera_move: moves[si % moves.length],
+            movement_intensity: 9,
+            depth_strategy: si % 2 === 0 ? "shallow" : "deep",
+            foreground_element: null,
+            lighting_note: null,
+            subject_action: "rapid movement",
+            reveal_mechanic: "smash reveal",
+            transition_in: si === 0 ? "hard_cut" : "smash_cut",
+            transition_out: "smash_cut",
+            target_duration_ms: 800 + (si * 50),
+            prompt_hint_json: {
+              visual_prompt: `Crescendo micro-montage shot ${si + 1}`,
+              montage_group_id: `mg-${cb.beat_index}`,
+              cut_on_action: true,
+              motif_tag: motifs[si % motifs.length],
+            },
+          });
+        }
+      }
+    }
 
     // Insert new crescendo specs
     const shotRows = shotSpecs.map((s: any) => {
