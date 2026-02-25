@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
-import { PanelLeft, LogOut, Plus, Settings } from 'lucide-react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { PanelLeft, LogOut, Plus, Settings, ArrowLeft } from 'lucide-react';
 import iffyLogo from '@/assets/iffy-logo-v3.png';
 import { Button } from '@/components/ui/button';
 import { GlobalSearch } from '@/components/GlobalSearch';
@@ -31,6 +31,7 @@ interface ExplorerLayoutProps {
 export function ExplorerLayout({ breadcrumbs, children, title, subtitle, actions }: ExplorerLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const { signOut } = useAuth();
+  const navigate = useNavigate();
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
@@ -45,7 +46,16 @@ export function ExplorerLayout({ breadcrumbs, children, title, subtitle, actions
           <PanelLeft className="h-4 w-4" />
         </Button>
 
-        <Link to="/dashboard" className="flex items-center gap-2 shrink-0 group mr-2">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 text-muted-foreground hover:text-foreground shrink-0"
+          onClick={() => navigate(-1)}
+        >
+          <ArrowLeft className="h-4 w-4" />
+        </Button>
+
+        <Link to="/" className="flex items-center gap-2 shrink-0 group mr-2">
           <img src={iffyLogo} alt="IFFY" className="h-7 w-7 rounded-md ring-1 ring-border/30 group-hover:ring-primary/40 transition-all" />
           <span className="font-display font-semibold text-sm tracking-tight text-foreground hidden sm:inline">IFFY</span>
         </Link>
