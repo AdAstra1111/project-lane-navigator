@@ -1342,6 +1342,83 @@ function buildShotDesignStyleDirectives(so: Record<string, any>, trailerType: st
   return lines.join("\n");
 }
 
+function buildFallbackShotSpecs(beats: any[], seed: string): any[] {
+  const rand = mulberry32(`${seed}-shot-fallback`);
+  const movesByPhase: Record<string, string[]> = {
+    hook: ["push_in", "track", "arc"],
+    setup: ["track", "push_in", "tilt"],
+    escalation: ["handheld", "track", "push_in", "arc"],
+    twist: ["pull_out", "dolly_zoom", "smash_cut" as any],
+    crescendo: ["whip_pan", "handheld", "track", "arc", "push_in"],
+    button: ["pull_out", "crane", "dissolve" as any],
+  };
+  const transitions = ["hard_cut", "match_cut", "whip_pan", "smash_cut", "l_cut", "j_cut", "dissolve", "dip_to_black", "strobe_cut"];
+  const shotTypes = ["wide", "medium", "close", "insert"];
+  const motifs = ["impact", "eyes", "hands", "silhouette", "door", "running", "fire", "water"];
+
+  const specs: any[] = [];
+  for (const b of beats) {
+    const hint = b.generator_hint_json || {};
+    const hasSilence = (b.silence_before_ms > 0) || (b.silence_after_ms > 0);
+    const hasWithholding = !!(b.withholding_note && String(b.withholding_note).trim().length > 0);
+    const baseMove = movesByPhase[b.phase]?.[0] || "push_in";
+    const movePool = movesByPhase[b.phase] || ["push_in", "track", "arc"];
+
+    let targetShots = 1;
+    if (b.phase === "crescendo") targetShots = 6;
+    else if ((b.shot_density_target || 1) >= 1.8) targetShots = 2;
+
+    for (let i = 0; i < targetShots; i++) {
+      const moveCandidate = hint.camera_move || movePool[(i + Math.floor(rand() * 10)) % movePool.length] || baseMove;
+      const cameraMove = moveCandidate === "smash_cut" || moveCandidate === "dissolve"
+        ? (hasSilence || hasWithholding ? "static" : "push_in")
+        : moveCandidate;
+      const movementTarget = Number(b.movement_intensity_target || 5);
+      const movementIntensity = b.phase === "crescendo"
+        ? Math.min(10, Math.max(8, movementTarget + (i % 2)))
+        : Math.min(10, Math.max(1, movementTarget + (i === 0 ? 0 : 1)));
+
+      const inTrans = b.phase === "crescendo"
+        ? ["whip_pan", "smash_cut", "strobe_cut"][i % 3]
+        : transitions[(b.beat_index + i) % transitions.length];
+      const outTrans = b.phase === "button"
+        ? (i === targetShots - 1 ? "dissolve" : "hard_cut")
+        : transitions[(b.beat_index + i + 1) % transitions.length];
+
+      const shot: any = {
+        beat_index: b.beat_index,
+        shot_index: i,
+        shot_type: b.phase === "crescendo" ? shotTypes[(i + 1) % shotTypes.length] : (hint.shot_type || shotTypes[i % shotTypes.length]),
+        lens_mm: hint.lens_mm ?? [24, 35, 50, 85][(b.beat_index + i) % 4],
+        camera_move: cameraMove,
+        movement_intensity: movementIntensity,
+        depth_strategy: hint.depth_strategy || (i % 2 === 0 ? "deep" : "shallow"),
+        foreground_element: hint.foreground_element || null,
+        lighting_note: hint.lighting_note || `${b.phase} cinematic lighting`,
+        subject_action: hint.subject_action || b.emotional_intent || "ambient motion",
+        reveal_mechanic: hint.reveal_mechanic || "progressive reveal through motion",
+        transition_in: inTrans,
+        transition_out: outTrans,
+        target_duration_ms: b.phase === "crescendo" ? 900 : (b.phase === "button" ? 2600 : 1800),
+        prompt_hint_json: {
+          visual_prompt: hint.visual_prompt || `${b.phase} beat: ${b.emotional_intent || "cinematic action"}`,
+          style: hint.style || null,
+          preferred_provider: hint.preferred_provider || "veo",
+        },
+      };
+
+      if (b.phase === "crescendo") {
+        shot.prompt_hint_json.montage_group_id = `mg-${b.beat_index}`;
+        shot.prompt_hint_json.cut_on_action = true;
+        shot.prompt_hint_json.motif_tag = motifs[(i + b.beat_index) % motifs.length];
+      }
+
+      specs.push(shot);
+    }
+  }
+  return specs;
+}
+
 async function handleCreateShotDesign(db: any, body: any, userId: string, apiKey: string) {
   const { projectId, scriptRunId, rhythmRunId, seed: inputSeed } = body;
   if (!scriptRunId) return json({ error: "scriptRunId required" }, 400);
@@ -1540,52 +1617,62 @@ No commentary. No explanation. No markdown. Only valid JSON.${rhythmContext}`);
         reason: err?.message || "unknown",
       }));
 
-      const chunkedShotSpecs = await callLLMChunked<any, any>({
-        llmOpts: {
-          apiKey,
+      try {
+        const chunkedShotSpecs = await callLLMChunked<any, any>({
+          llmOpts: {
+            apiKey,
+            model: MODELS.PRO,
+            system: `${system}\n\nFALLBACK MODE: You are processing a subset of beats. Return ONLY valid JSON with this shape: {"shot_specs":[...]}.\nNever return a beats wrapper. No markdown. No prose.`,
+            temperature: 0.2,
+            maxTokens: 7000,
+          },
+          items: beats,
+          batchSize: 4,
+          maxBatches: 8,
+          handler: "create_shot_design_v2_chunked",
+          buildUserPrompt: (batch, batchIndex, totalBatches) => {
+            const batchSummary = batch.map((b: any) => {
+              const refs = (b.source_refs_json || []).slice(0, 2).map((r: any) => `${r.doc_type}:"${(r.excerpt || "").slice(0, 60)}"`).join("; ");
+              return `#${b.beat_index} ${b.phase}: intent="${b.emotional_intent}" movement=${b.movement_intensity_target} density=${b.shot_density_target || "auto"} silence_before=${b.silence_before_ms}ms silence_after=${b.silence_after_ms}ms withholding=${b.withholding_note || "none"} hint=${JSON.stringify(b.generator_hint_json || {})} citations=[${refs}]`;
+            }).join("\n");
+
+            return `BATCH ${batchIndex + 1}/${totalBatches}\nGenerate shot_specs ONLY for these beats:\n${batchSummary}\nSeed: ${resolvedSeed}-batch-${batchIndex + 1}`;
+          },
+          validate: (d): d is any => {
+            if (!d) return false;
+            if (Array.isArray(d) && d.length > 0) return true;
+            if (typeof d !== "object") return false;
+            if (Array.isArray(d.shot_specs) && d.shot_specs.length > 0) return true;
+            if (Array.isArray(d.shots) && d.shots.length > 0) return true;
+            for (const key of Object.keys(d)) {
+              if (Array.isArray(d[key]) && d[key].length > 0 && typeof d[key][0] === "object") return true;
+            }
+            return false;
+          },
+          extractItems: (result: any) => {
+            if (Array.isArray(result)) return result;
+            if (Array.isArray(result.shot_specs)) return result.shot_specs;
+            if (Array.isArray(result.shots)) return result.shots;
+            for (const key of Object.keys(result || {})) {
+              if (Array.isArray(result[key]) && result[key].length > 0 && typeof result[key][0] === "object") return result[key];
+            }
+            return [];
+          },
+          getKey: (item: any) => `${item?.beat_index ?? "x"}:${item?.shot_index ?? "x"}:${(item?.prompt_hint_json?.visual_prompt || item?.subject_action || "").slice(0, 80)}`,
+          dedupe: "first",
+        });
+
+        parsed = { shot_specs: chunkedShotSpecs };
+      } catch (chunkErr: any) {
+        console.error(JSON.stringify({
+          type: "SHOT_DESIGN_DETERMINISTIC_FALLBACK",
+          handler: "create_shot_design_v2",
           model: MODELS.PRO,
-          system: `${system}\n\nFALLBACK MODE: You are processing a subset of beats. Return ONLY valid JSON with this shape: {"shot_specs":[...]}.
-Never return a beats wrapper. No markdown. No prose.`,
-          temperature: 0.2,
-          maxTokens: 7000,
-        },
-        items: beats,
-        batchSize: 4,
-        maxBatches: 8,
-        handler: "create_shot_design_v2_chunked",
-        buildUserPrompt: (batch, batchIndex, totalBatches) => {
-          const batchSummary = batch.map((b: any) => {
-            const refs = (b.source_refs_json || []).slice(0, 2).map((r: any) => `${r.doc_type}:"${(r.excerpt || "").slice(0, 60)}"`).join("; ");
-            return `#${b.beat_index} ${b.phase}: intent="${b.emotional_intent}" movement=${b.movement_intensity_target} density=${b.shot_density_target || "auto"} silence_before=${b.silence_before_ms}ms silence_after=${b.silence_after_ms}ms withholding=${b.withholding_note || "none"} hint=${JSON.stringify(b.generator_hint_json || {})} citations=[${refs}]`;
-          }).join("\n");
-
-          return `BATCH ${batchIndex + 1}/${totalBatches}\nGenerate shot_specs ONLY for these beats:\n${batchSummary}\nSeed: ${resolvedSeed}-batch-${batchIndex + 1}`;
-        },
-        validate: (d): d is any => {
-          if (!d) return false;
-          if (Array.isArray(d) && d.length > 0) return true;
-          if (typeof d !== "object") return false;
-          if (Array.isArray(d.shot_specs) && d.shot_specs.length > 0) return true;
-          if (Array.isArray(d.shots) && d.shots.length > 0) return true;
-          for (const key of Object.keys(d)) {
-            if (Array.isArray(d[key]) && d[key].length > 0 && typeof d[key][0] === "object") return true;
-          }
-          return false;
-        },
-        extractItems: (result: any) => {
-          if (Array.isArray(result)) return result;
-          if (Array.isArray(result.shot_specs)) return result.shot_specs;
-          if (Array.isArray(result.shots)) return result.shots;
-          for (const key of Object.keys(result || {})) {
-            if (Array.isArray(result[key]) && result[key].length > 0 && typeof result[key][0] === "object") return result[key];
-          }
-          return [];
-        },
-        getKey: (item: any) => `${item?.beat_index ?? "x"}:${item?.shot_index ?? "x"}:${(item?.prompt_hint_json?.visual_prompt || item?.subject_action || "").slice(0, 80)}`,
-        dedupe: "first",
-      });
-
-      parsed = { shot_specs: chunkedShotSpecs };
+          beatCount: beats.length,
+          reason: chunkErr?.message || "chunked_failed",
+        }));
+        parsed = { shot_specs: buildFallbackShotSpecs(beats, resolvedSeed) };
+      }
     }
 
     // Normalize: if LLM returned a raw array, wrap & transform it
@@ -1657,11 +1744,19 @@ Never return a beats wrapper. No markdown. No prose.`,
 
     for (const b of beats) {
       const bi = b.beat_index;
-      const bSpecs = specsByBeat[bi] || [];
+      let bSpecs = specsByBeat[bi] || [];
 
       if (bSpecs.length === 0) {
-        valErrors.push(`Beat #${bi} (${b.phase}): no shot specs`);
-        continue;
+        const synthesized = buildFallbackShotSpecs([b], `${resolvedSeed}-missing-${bi}`);
+        if (synthesized.length > 0) {
+          bSpecs = synthesized;
+          specsByBeat[bi] = synthesized;
+          shotSpecs.push(...synthesized);
+          console.error(JSON.stringify({ type: "SHOT_DESIGN_BEAT_SYNTHESIZED", beat_index: bi }));
+        } else {
+          valErrors.push(`Beat #${bi} (${b.phase}): no shot specs`);
+          continue;
+        }
       }
 
       // Crescendo: at least 3 shots — auto-repair if insufficient
