@@ -69,4 +69,10 @@ export const clipEngineApi = {
 
   regenerateLowQuality: (projectId: string, blueprintId: string, threshold?: number) =>
     callClipEngine('regenerate_low_quality', { projectId, blueprintId, threshold }),
+
+  promoteAttempt: (projectId: string, clipId: string, attemptId: string) =>
+    callClipEngine('promote_attempt', { projectId, clipId, attemptId }),
+
+  retryClipAttempt: (projectId: string, clipId: string) =>
+    callClipEngine('retry_clip_attempt', { projectId, clipId }),
 };

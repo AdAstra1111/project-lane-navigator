@@ -7,6 +7,16 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { recoverStaleRunningJobs } from "../_shared/trailerPipeline/clipJobRecovery.ts";
 import { buildUpsertOptions } from "../_shared/trailerPipeline/clipEnqueue.ts";
+import {
+  shouldRetry,
+  selectBestAttempt,
+  nextAttemptPlan,
+  computePromptHash,
+  normalizePrompt,
+  MAX_ATTEMPTS,
+  PASS_THRESHOLD,
+  type AttemptRecord,
+} from "../_shared/trailerPipeline/attemptPolicy.ts";
 
 const STORAGE_BUCKET = "trailers";
 
@@ -1142,6 +1152,88 @@ async function finalizeClip(db: any, job: any, jobId: string, projectId: string,
   await db.from("trailer_clip_jobs").update({ status: "succeeded" }).eq("id", jobId);
   await updateRunCounters(db, job.clip_run_id);
 
+  // ─── Attempt tracking ───
+  if (clip?.id) {
+    try {
+      const prompt = job.prompt || job.params_json?.prompt || "";
+      const settings = job.params_json || {};
+      const pHash = await computePromptHash(prompt, settings);
+      const evalScore = quality.technical_score != null ? quality.technical_score / 10 : null; // normalize 0-10 → 0-1
+
+      // Count existing attempts for this clip
+      const { data: existingAttempts } = await db.from("trailer_clip_attempts")
+        .select("id, attempt_index, eval_score, completed_at, created_at, status")
+        .eq("clip_id", clip.id)
+        .order("attempt_index", { ascending: true });
+
+      const attemptIndex = (existingAttempts || []).length;
+
+      // Insert attempt row (idempotent via unique constraint)
+      await db.from("trailer_clip_attempts").upsert({
+        project_id: projectId,
+        clip_id: clip.id,
+        job_id: jobId,
+        run_id: job.clip_run_id || null,
+        attempt_index: attemptIndex,
+        status: "complete",
+        provider: job.provider,
+        model: model,
+        prompt: prompt,
+        prompt_hash: pHash,
+        settings: settings,
+        output_public_url: publicUrl,
+        output_storage_path: storagePath,
+        eval_score: evalScore,
+        eval_failures: quality.quality_flags_json || [],
+        eval_metrics: {
+          motion: quality.motion_score,
+          clarity: quality.clarity_score,
+          artifact: quality.artifact_score,
+          style_match: quality.style_match_score,
+          framing: quality.framing_score,
+          auto_rejected: quality.auto_rejected,
+        },
+        started_at: job.claimed_at || new Date().toISOString(),
+        completed_at: new Date().toISOString(),
+        created_by: userId,
+      }, { onConflict: "clip_id,attempt_index", ignoreDuplicates: true });
+
+      // Update parent clip best attempt
+      const allAttempts: AttemptRecord[] = [
+        ...(existingAttempts || []),
+        { id: "current", attempt_index: attemptIndex, eval_score: evalScore, completed_at: new Date().toISOString(), created_at: new Date().toISOString(), status: "complete" },
+      ];
+      const best = selectBestAttempt(allAttempts);
+      await db.from("trailer_clips").update({
+        best_score: best?.eval_score ?? evalScore,
+        attempts_count: allAttempts.length,
+        last_attempt_at: new Date().toISOString(),
+      }).eq("id", clip.id);
+
+      // Auto-retry if needed
+      if (shouldRetry({ evalScore, failures: (quality.quality_flags_json || []) as string[], attemptIndex })) {
+        const plan = nextAttemptPlan(attemptIndex, prompt, settings);
+        const nextHash = await computePromptHash(prompt + "\n" + plan.promptSuffix, settings);
+        await db.from("trailer_clip_attempts").upsert({
+          project_id: projectId,
+          clip_id: clip.id,
+          run_id: job.clip_run_id || null,
+          attempt_index: plan.attemptIndex,
+          status: "queued",
+          model: plan.model,
+          prompt: prompt + "\n" + plan.promptSuffix,
+          prompt_hash: nextHash,
+          settings: { ...settings, ...plan.settingsPatch },
+          created_by: userId,
+        }, { onConflict: "clip_id,attempt_index", ignoreDuplicates: true });
+
+        console.log(`[attempt-policy] Auto-retry enqueued for clip ${clip.id} attempt ${plan.attemptIndex} (score=${evalScore})`);
+      }
+    } catch (attemptErr) {
+      console.warn("[finalizeClip] Attempt tracking error (non-fatal):", attemptErr);
+    }
+  }
+
   // Log quality event
   if (quality.auto_rejected) {
     await logEvent(db, {
@@ -1911,7 +2003,73 @@ async function handleRegenerateLowQuality(db: any, body: any, userId: string) {
   return result;
 }
 
-// ─── Main handler ───
+// ─── Action: promote_attempt ───
+
+async function handlePromoteAttempt(db: any, body: any, _userId: string) {
+  const { projectId, clipId, attemptId } = body;
+  if (!clipId || !attemptId) return json({ error: "clipId and attemptId required" }, 400);
+
+  const { data: attempt } = await db.from("trailer_clip_attempts")
+    .select("id, eval_score, attempt_index")
+    .eq("id", attemptId).eq("clip_id", clipId).eq("project_id", projectId)
+    .single();
+
+  if (!attempt) return json({ error: "Attempt not found" }, 404);
+
+  await db.from("trailer_clips").update({
+    best_attempt_id: attemptId,
+    best_score: attempt.eval_score,
+  }).eq("id", clipId).eq("project_id", projectId);
+
+  return json({ ok: true, promoted: attemptId });
+}
+
+// ─── Action: retry_clip_attempt ───
+
+async function handleRetryClipAttempt(db: any, body: any, userId: string) {
+  const { projectId, clipId } = body;
+  if (!clipId) return json({ error: "clipId required" }, 400);
+
+  // Get existing attempts
+  const { data: attempts } = await db.from("trailer_clip_attempts")
+    .select("id, attempt_index, eval_score, completed_at, created_at, status, prompt, settings")
+    .eq("clip_id", clipId).eq("project_id", projectId)
+    .order("attempt_index", { ascending: true });
+
+  const maxIdx = Math.max(...(attempts || []).map((a: any) => a.attempt_index), -1);
+
+  if (maxIdx + 1 >= MAX_ATTEMPTS) {
+    return json({ error: `Max attempts (${MAX_ATTEMPTS}) reached` }, 400);
+  }
+
+  const lastAttempt = (attempts || []).find((a: any) => a.attempt_index === maxIdx);
+  const basePrompt = lastAttempt?.prompt || "";
+  const baseSettings = lastAttempt?.settings || {};
+  const plan = nextAttemptPlan(maxIdx, basePrompt, baseSettings);
+  const nextPrompt = basePrompt + "\n" + plan.promptSuffix;
+  const pHash = await computePromptHash(nextPrompt, { ...baseSettings, ...plan.settingsPatch });
+
+  const { data: newAttempt } = await db.from("trailer_clip_attempts").upsert({
+    project_id: projectId,
+    clip_id: clipId,
+    attempt_index: plan.attemptIndex,
+    status: "queued",
+    model: plan.model,
+    prompt: nextPrompt,
+    prompt_hash: pHash,
+    settings: { ...baseSettings, ...plan.settingsPatch },
+    created_by: userId,
+  }, { onConflict: "clip_id,attempt_index", ignoreDuplicates: true }).select().single();
+
+  // Update parent clip
+  await db.from("trailer_clips").update({
+    attempts_count: (attempts || []).length + 1,
+    last_attempt_at: new Date().toISOString(),
+  }).eq("id", clipId).eq("project_id", projectId);
+
+  return json({ ok: true, attemptId: newAttempt?.id, attemptIndex: plan.attemptIndex });
+}
+
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -1953,6 +2111,8 @@ Deno.serve(async (req) => {
       case "list_jobs": return await handleListJobs(db, body);
       case "run_technical_clip_judge": return await handleRunTechnicalClipJudge(db, body, userId);
       case "regenerate_low_quality": return await handleRegenerateLowQuality(db, body, userId);
+      case "promote_attempt": return await handlePromoteAttempt(db, body, userId);
+      case "retry_clip_attempt": return await handleRetryClipAttempt(db, body, userId);
       default: return json({ error: `Unknown action: ${action}` }, 400);
     }
   } catch (err: any) {

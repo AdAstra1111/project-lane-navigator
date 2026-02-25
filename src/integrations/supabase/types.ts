@@ -16970,6 +16970,93 @@ export type Database = {
           },
         ]
       }
+      trailer_clip_attempts: {
+        Row: {
+          attempt_index: number
+          clip_id: string | null
+          completed_at: string | null
+          created_at: string
+          created_by: string
+          error: string | null
+          eval_failures: Json | null
+          eval_metrics: Json | null
+          eval_model: string | null
+          eval_score: number | null
+          eval_version: string | null
+          id: string
+          job_id: string | null
+          model: string | null
+          output_public_url: string | null
+          output_storage_path: string | null
+          project_id: string
+          prompt: string | null
+          prompt_hash: string
+          prompt_version: string | null
+          provider: string | null
+          run_id: string | null
+          seed: string | null
+          settings: Json
+          started_at: string | null
+          status: string
+        }
+        Insert: {
+          attempt_index?: number
+          clip_id?: string | null
+          completed_at?: string | null
+          created_at?: string
+          created_by?: string
+          error?: string | null
+          eval_failures?: Json | null
+          eval_metrics?: Json | null
+          eval_model?: string | null
+          eval_score?: number | null
+          eval_version?: string | null
+          id?: string
+          job_id?: string | null
+          model?: string | null
+          output_public_url?: string | null
+          output_storage_path?: string | null
+          project_id: string
+          prompt?: string | null
+          prompt_hash?: string
+          prompt_version?: string | null
+          provider?: string | null
+          run_id?: string | null
+          seed?: string | null
+          settings?: Json
+          started_at?: string | null
+          status?: string
+        }
+        Update: {
+          attempt_index?: number
+          clip_id?: string | null
+          completed_at?: string | null
+          created_at?: string
+          created_by?: string
+          error?: string | null
+          eval_failures?: Json | null
+          eval_metrics?: Json | null
+          eval_model?: string | null
+          eval_score?: number | null
+          eval_version?: string | null
+          id?: string
+          job_id?: string | null
+          model?: string | null
+          output_public_url?: string | null
+          output_storage_path?: string | null
+          project_id?: string
+          prompt?: string | null
+          prompt_hash?: string
+          prompt_version?: string | null
+          provider?: string | null
+          run_id?: string | null
+          seed?: string | null
+          settings?: Json
+          started_at?: string | null
+          status?: string
+        }
+        Relationships: []
+      }
       trailer_clip_events: {
         Row: {
           beat_index: number | null
@@ -17234,8 +17321,11 @@ export type Database = {
         Row: {
           artifact_score: number | null
           aspect_ratio: string
+          attempts_count: number
           auto_rejected: boolean
           beat_index: number
+          best_attempt_id: string | null
+          best_score: number | null
           blueprint_id: string
           candidate_index: number
           clarity_score: number | null
@@ -17252,6 +17342,7 @@ export type Database = {
           gen_params: Json
           id: string
           job_id: string | null
+          last_attempt_at: string | null
           media_type: string
           mode: string
           model: string | null
@@ -17276,8 +17367,11 @@ export type Database = {
         Insert: {
           artifact_score?: number | null
           aspect_ratio?: string
+          attempts_count?: number
           auto_rejected?: boolean
           beat_index: number
+          best_attempt_id?: string | null
+          best_score?: number | null
           blueprint_id: string
           candidate_index?: number
           clarity_score?: number | null
@@ -17294,6 +17388,7 @@ export type Database = {
           gen_params?: Json
           id?: string
           job_id?: string | null
+          last_attempt_at?: string | null
           media_type?: string
           mode?: string
           model?: string | null
@@ -17318,8 +17413,11 @@ export type Database = {
         Update: {
           artifact_score?: number | null
           aspect_ratio?: string
+          attempts_count?: number
           auto_rejected?: boolean
           beat_index?: number
+          best_attempt_id?: string | null
+          best_score?: number | null
           blueprint_id?: string
           candidate_index?: number
           clarity_score?: number | null
@@ -17336,6 +17434,7 @@ export type Database = {
           gen_params?: Json
           id?: string
           job_id?: string | null
+          last_attempt_at?: string | null
           media_type?: string
           mode?: string
           model?: string | null
