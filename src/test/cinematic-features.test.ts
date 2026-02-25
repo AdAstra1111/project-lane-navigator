@@ -925,3 +925,47 @@ describe("lane-aware ladder thresholds", () => {
     }
   });
 });
+
+// ─── Lane-Aware Late Window Tests ───
+
+describe("lane-aware late window", () => {
+  it("lateStart differs per lane for n=10", () => {
+    expect(lateStartIndexForUnitCount(10)).toBe(7);              // default: floor(0.75*10)
+    expect(lateStartIndexForUnitCount(10, "feature_film")).toBe(7);
+    expect(lateStartIndexForUnitCount(10, "series")).toBe(7);
+    expect(lateStartIndexForUnitCount(10, "vertical_drama")).toBe(6); // floor(0.65*10)
+    expect(lateStartIndexForUnitCount(10, "documentary")).toBe(6);   // floor(0.60*10)
+  });
+
+  it("unknown lane preserves default lateStart", () => {
+    expect(lateStartIndexForUnitCount(10, "unknown")).toBe(7);
+    expect(lateStartIndexForUnitCount(10, undefined)).toBe(7);
+  });
+
+  it("peak at index 6 of 10: fails feature_film peak-late, passes vertical_drama", () => {
+    // 10 units, peak at index 6
+    // feature_film lateStart=7 → peak at 6 is NOT late → WEAK_ARC
+    // vertical_drama lateStart=6 → peak at 6 IS late
+    const units = Array.from({ length: 10 }, (_, i) => {
+      const e = i === 6 ? 0.95 : 0.3 + i * 0.05;
+      return makeUnit({
+        id: String(i),
+        energy: Math.min(e, 0.95),
+        tension: Math.min(e, 0.95),
+        density: Math.min(e, 0.95),
+        tonal_polarity: -0.3 + i * 0.07,
+        intent: (["intrigue", "threat", "chaos", "emotion", "release", "wonder", "intrigue", "threat", "chaos", "emotion"] as const)[i],
+      });
+    });
+    const featureLadder = analyzeLadder(
+      units.map(u => u.energy), units.map(u => u.tension), units.map(u => u.density), "feature_film"
+    );
+    const vdLadder = analyzeLadder(
+      units.map(u => u.energy), units.map(u => u.tension), units.map(u => u.density), "vertical_drama"
+    );
+    // feature_film: peakLate25 should be false (peak at 6 < lateStart 7)
+    expect(featureLadder.peakLate25).toBe(false);
+    // vertical_drama: peakLate25 should be true (peak at 6 >= lateStart 6)
+    expect(vdLadder.peakLate25).toBe(true);
+  });
+});
