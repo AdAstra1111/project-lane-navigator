@@ -3,6 +3,7 @@
  * Left: beats list | Center: beat detail editor | Right: citations panel
  */
 import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { LookBiblePanel, LookBibleSummaryPills } from './LookBiblePanel';
 import { CrescendoMontagePanel } from './CrescendoMontagePanel';
 import { Badge } from '@/components/ui/badge';
@@ -28,6 +29,8 @@ import { StagedProgressBar } from '@/components/system/StagedProgressBar';
 import { warningActionFor } from '@/lib/warningActions';
 import { dedupeWarningsStable } from '@/lib/warningUtils';
 import { buildWarningsReport, copyTextToClipboard, buildPageLinkWithAnchor } from '@/lib/warningsReport';
+import { resolveQualifications } from '@/lib/qualifications/resolveQualifications';
+import { supabase } from '@/integrations/supabase/client';
 import {
   useScriptRuns, useScriptBeats, useRhythmRuns, useShotDesignRuns,
   useJudgeRuns, useCinematicMutations,
@@ -206,6 +209,117 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
   const [avoidNotes, setAvoidNotes] = useState('');
   const [inspirationTrailers, setInspirationTrailers] = useState<{ title: string; url?: string; notes?: string }[]>([]);
   const [fullPlanStage, setFullPlanStage] = useState(0);
+  const [criteriaAutofilled, setCriteriaAutofilled] = useState(false);
+
+  const { data: projectProfile } = useQuery({
+    queryKey: ['cinematic-project-profile', projectId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('projects')
+        .select('format, genres, assigned_lane, development_behavior, guardrails_config, episode_target_duration_seconds, episode_target_duration_min_seconds, episode_target_duration_max_seconds, season_episode_count')
+        .eq('id', projectId)
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!projectId,
+  });
+
+  const autofillCriteria = useMemo(() => {
+    if (!projectProfile) return null;
+
+    const normalizedGenres = Array.isArray(projectProfile.genres)
+      ? projectProfile.genres.map((g) => String(g).toLowerCase())
+      : [];
+
+    const genreAlias: Record<string, string> = {
+      'sci-fi': 'sci_fi',
+      sci_fi: 'sci_fi',
+      science_fiction: 'sci_fi',
+      documentary: 'documentary',
+      doc: 'documentary',
+      thriller: 'thriller',
+      horror: 'horror',
+      comedy: 'comedy',
+      action: 'action',
+      romance: 'romance',
+      drama: 'drama',
+    };
+
+    const mappedGenre = normalizedGenres
+      .map((g) => genreAlias[g])
+      .find(Boolean);
+
+    const normalizedFormat = String(projectProfile.format || 'film').toLowerCase().replace(/[_ ]+/g, '-');
+    const platformByFormat: Record<string, string> = {
+      'vertical-drama': 'tiktok',
+      'digital-series': 'instagram',
+      'short-film': 'youtube_preroll',
+      film: 'theatrical',
+      'anim-feature': 'theatrical',
+      'tv-series': 'streamer_hero',
+      'limited-series': 'streamer_hero',
+      'documentary-series': 'festival_cut',
+      documentary: 'festival_cut',
+    };
+
+    const resolved = resolveQualifications({
+      format_subtype: projectProfile.format || undefined,
+      project_qualification_fields: {
+        format: projectProfile.format,
+        episode_target_duration_seconds: projectProfile.episode_target_duration_seconds,
+        episode_target_duration_min_seconds: projectProfile.episode_target_duration_min_seconds,
+        episode_target_duration_max_seconds: projectProfile.episode_target_duration_max_seconds,
+        season_episode_count: projectProfile.season_episode_count,
+      },
+      guardrails_config: (projectProfile.guardrails_config as Record<string, any> | null) || undefined,
+    });
+
+    const effectivePlatform = platformByFormat[normalizedFormat] || 'theatrical';
+    const targetLengthByPlatform: Record<string, number> = {
+      theatrical: 120,
+      streamer_hero: 90,
+      festival_cut: 90,
+      youtube_preroll: 30,
+      instagram: 30,
+      tiktok: 20,
+    };
+
+    const behavior = String(projectProfile.development_behavior || '').toLowerCase();
+    const strictMode: 'strict' | 'balanced' = behavior === 'sequential_canon_locked' ? 'strict' : 'balanced';
+
+    const referenceNotesFromProfile = [
+      projectProfile.assigned_lane ? `Lane focus: ${projectProfile.assigned_lane}` : null,
+      resolved.resolvedQualifications.format ? `Format: ${resolved.resolvedQualifications.format}` : null,
+      resolved.resolvedQualifications.is_series ? 'Prioritize a tight episodic hook and clear escalation.' : 'Prioritize feature-scale escalation and a strong final button.',
+    ].filter(Boolean).join(' • ');
+
+    return {
+      genreKey: mappedGenre || null,
+      platformKey: effectivePlatform,
+      trailerType: normalizedFormat === 'short-film' ? 'teaser' : 'main',
+      strictCanonMode: strictMode,
+      targetLengthSeconds: targetLengthByPlatform[effectivePlatform] || null,
+      referenceNotes: referenceNotesFromProfile || null,
+    };
+  }, [projectProfile]);
+
+  useEffect(() => {
+    if (!autofillCriteria || criteriaAutofilled) return;
+
+    if (autofillCriteria.genreKey) setGenreKey(autofillCriteria.genreKey);
+    if (autofillCriteria.platformKey) setPlatformKey(autofillCriteria.platformKey);
+    if (autofillCriteria.trailerType) setTrailerType(autofillCriteria.trailerType);
+    if (autofillCriteria.strictCanonMode) setStrictCanonMode(autofillCriteria.strictCanonMode);
+    if (!targetLengthSeconds && autofillCriteria.targetLengthSeconds) {
+      setTargetLengthSeconds(String(autofillCriteria.targetLengthSeconds));
+    }
+    if (!referenceNotes && autofillCriteria.referenceNotes) {
+      setReferenceNotes(autofillCriteria.referenceNotes);
+    }
+
+    setCriteriaAutofilled(true);
+  }, [autofillCriteria, criteriaAutofilled, targetLengthSeconds, referenceNotes]);
 
   const styleOptions: TrailerStyleOptions = {
     tonePreset, pacingProfile, revealStrategy, movementOverall,
