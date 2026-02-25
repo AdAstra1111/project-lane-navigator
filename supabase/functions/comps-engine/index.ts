@@ -7,6 +7,8 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+const SEED_CHAR_LIMIT = 20_000;
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -25,6 +27,10 @@ Deno.serve(async (req) => {
     switch (action) {
       case "find_candidates":
         return await handleFindCandidates(supabase, body, apiKey);
+      case "lookup_comp":
+        return await handleLookupComp(supabase, body, apiKey);
+      case "confirm_lookup":
+        return await handleConfirmLookup(supabase, body);
       case "set_influencers":
         return await handleSetInfluencers(supabase, body);
       case "build_engine_profile":
@@ -48,15 +54,177 @@ Deno.serve(async (req) => {
   }
 });
 
+// ─── buildSeedFromProject ───────────────────────────────────────
+
+interface SeedSource {
+  doc_id: string;
+  title: string;
+  kind: string;
+  updated_at: string;
+  used_chars: number;
+}
+
+interface SeedResult {
+  seed_text: string;
+  seed_sources: SeedSource[];
+  fallback_reason?: string;
+}
+
+const DOC_PRIORITY_BY_LANE: Record<string, string[]> = {
+  vertical_drama: ["beats", "episode_grid", "outline", "script", "concept_brief", "notes"],
+  feature_film: ["script", "outline", "treatment", "concept_brief", "notes"],
+  series: ["outline", "beats", "episode_grid", "script", "concept_brief", "notes"],
+  documentary: ["outline", "treatment", "concept_brief", "notes", "script"],
+};
+
+async function buildSeedFromProject(supabase: any, projectId: string, lane: string, apiKey: string): Promise<SeedResult> {
+  // 1. Check for existing analysis/coverage output first
+  const { data: analysisRuns } = await supabase
+    .from("project_document_versions")
+    .select("id, document_id, content, created_at")
+    .eq("project_id", projectId)
+    .eq("is_current", true)
+    .order("created_at", { ascending: false })
+    .limit(20);
+
+  // Also check project_documents for doc_type + extracted_text
+  const { data: projDocs } = await supabase
+    .from("project_documents")
+    .select("id, title, doc_type, extracted_text, updated_at")
+    .eq("project_id", projectId)
+    .order("updated_at", { ascending: false })
+    .limit(30);
+
+  if ((!projDocs || projDocs.length === 0) && (!analysisRuns || analysisRuns.length === 0)) {
+    return { seed_text: "", seed_sources: [], fallback_reason: "no_docs" };
+  }
+
+  // 2. Sort docs by lane priority
+  const priority = DOC_PRIORITY_BY_LANE[lane] || DOC_PRIORITY_BY_LANE.feature_film;
+  const docsWithText = (projDocs || []).filter((d: any) => d.extracted_text && d.extracted_text.length > 50);
+
+  docsWithText.sort((a: any, b: any) => {
+    const aIdx = priority.indexOf(a.doc_type) >= 0 ? priority.indexOf(a.doc_type) : 99;
+    const bIdx = priority.indexOf(b.doc_type) >= 0 ? priority.indexOf(b.doc_type) : 99;
+    return aIdx - bIdx;
+  });
+
+  // 3. Pick up to 3 docs, respecting char limit
+  const selectedDocs: any[] = [];
+  let totalChars = 0;
+
+  for (const doc of docsWithText) {
+    if (selectedDocs.length >= 3) break;
+    const text = doc.extracted_text || "";
+    const available = Math.min(text.length, SEED_CHAR_LIMIT - totalChars);
+    if (available < 100) break;
+    selectedDocs.push({ ...doc, trimmedText: text.substring(0, available) });
+    totalChars += available;
+  }
+
+  // Also try to pull content from project_document_versions if we have few docs
+  if (selectedDocs.length === 0 && analysisRuns?.length > 0) {
+    for (const ver of analysisRuns) {
+      if (selectedDocs.length >= 3) break;
+      const text = ver.content || "";
+      if (text.length < 100) continue;
+      const available = Math.min(text.length, SEED_CHAR_LIMIT - totalChars);
+      if (available < 100) break;
+      selectedDocs.push({
+        id: ver.document_id || ver.id,
+        title: "Document version",
+        doc_type: "version",
+        updated_at: ver.created_at,
+        trimmedText: text.substring(0, available),
+      });
+      totalChars += available;
+    }
+  }
+
+  if (selectedDocs.length === 0) {
+    return { seed_text: "", seed_sources: [], fallback_reason: "no_usable_text" };
+  }
+
+  const seed_sources: SeedSource[] = selectedDocs.map((d: any) => ({
+    doc_id: d.id,
+    title: d.title || "Untitled",
+    kind: d.doc_type || "other",
+    updated_at: d.updated_at || "",
+    used_chars: d.trimmedText.length,
+  }));
+
+  // 4. Build seed summary via LLM (1 small call)
+  const combinedText = selectedDocs.map((d: any) =>
+    `--- ${d.title || "Document"} (${d.doc_type || "unknown"}) ---\n${d.trimmedText}`
+  ).join("\n\n");
+
+  try {
+    const result = await callLLM({
+      apiKey,
+      model: MODELS.FAST,
+      system: `You are a script analyst. Given project documents, produce a concise seed summary (600-1200 words) that captures:
+- Genre + tone tags
+- Premise in 2-3 lines
+- Protagonist / goal / obstacle
+- Setting + world texture
+- Stakes (personal/social/systemic)
+- Hooks (do NOT name comparable titles)
+Return ONLY the summary text, no JSON, no formatting headers.`,
+      user: combinedText.substring(0, 18000),
+      temperature: 0.3,
+      maxTokens: 2000,
+    });
+    return { seed_text: result.content || "", seed_sources };
+  } catch (e) {
+    console.error("Seed summary LLM error:", e);
+    // Fallback: use raw text truncated
+    return {
+      seed_text: combinedText.substring(0, 3000),
+      seed_sources,
+      fallback_reason: "llm_summary_failed",
+    };
+  }
+}
+
 // ─── find_candidates ────────────────────────────────────────────
 
 async function handleFindCandidates(supabase: any, body: any, apiKey: string) {
-  const { project_id, lane, filters = {}, seed_text = {}, user_id } = body;
+  const {
+    project_id, lane, filters = {}, user_id,
+    use_project_docs = true, seed_override = null, seed_text: legacySeed = {},
+  } = body;
   if (!project_id || !lane || !user_id) {
     return jsonResp({ error: "project_id, lane, user_id required" }, 400);
   }
 
-  const prompt = buildCandidatePrompt(lane, filters, seed_text);
+  let seedText = "";
+  let seedSources: SeedSource[] = [];
+  let fallbackReason: string | undefined;
+
+  // 1. Determine seed
+  if (seed_override && typeof seed_override === "string" && seed_override.trim().length > 0) {
+    seedText = seed_override.trim();
+  } else if (use_project_docs) {
+    const seedResult = await buildSeedFromProject(supabase, project_id, lane, apiKey);
+    seedText = seedResult.seed_text;
+    seedSources = seedResult.seed_sources;
+    fallbackReason = seedResult.fallback_reason;
+  } else if (legacySeed?.logline || legacySeed?.premise) {
+    // Legacy path
+    seedText = [legacySeed.logline, legacySeed.premise, legacySeed.themes].filter(Boolean).join("\n");
+  }
+
+  if (!seedText || seedText.trim().length < 20) {
+    return jsonResp({
+      candidates: [],
+      seed_sources: seedSources,
+      fallback_reason: fallbackReason || "no_seed_available",
+      message: "No usable seed found. Upload a script/outline, run Analysis, or provide a seed manually.",
+    });
+  }
+
+  // 2. Build prompt and call LLM
+  const prompt = buildCandidatePrompt(lane, filters, seedText);
   const result = await callLLM({
     apiKey,
     model: MODELS.FAST,
@@ -76,11 +244,12 @@ No commentary outside the JSON array.`,
     candidates = [];
   }
 
-  // Persist
+  // 3. Persist
+  const queryMeta = { filters, seed_sources: seedSources, use_project_docs, has_seed_override: !!seed_override };
   const rows = candidates.slice(0, 20).map((c: any) => ({
     project_id,
     lane,
-    query: { filters, seed_text },
+    query: queryMeta,
     title: c.title || "Unknown",
     year: c.year || null,
     format: c.format || "film",
@@ -97,7 +266,7 @@ No commentary outside the JSON array.`,
     if (error) console.error("Insert candidates error:", error);
   }
 
-  // Fetch back with ids
+  // 4. Fetch back with ids
   const { data } = await supabase
     .from("comparable_candidates")
     .select("*")
@@ -106,19 +275,91 @@ No commentary outside the JSON array.`,
     .order("created_at", { ascending: false })
     .limit(20);
 
-  return jsonResp({ candidates: data || [] });
+  return jsonResp({
+    candidates: data || [],
+    seed_sources: seedSources,
+    seed_text_preview: seedText.substring(0, 500),
+    fallback_reason: fallbackReason,
+  });
 }
 
-function buildCandidatePrompt(lane: string, filters: any, seed: any): string {
+function buildCandidatePrompt(lane: string, filters: any, seedText: string): string {
   const parts = [`Lane: ${lane}`];
-  if (seed.logline) parts.push(`Logline: ${seed.logline}`);
-  if (seed.premise) parts.push(`Premise: ${seed.premise}`);
-  if (seed.themes) parts.push(`Themes: ${seed.themes}`);
+  parts.push(`\nProject Seed:\n${seedText}`);
   if (filters.genres?.length) parts.push(`Genre filter: ${filters.genres.join(", ")}`);
   if (filters.region) parts.push(`Region: ${filters.region}`);
   if (filters.years) parts.push(`Years: ${filters.years}`);
   if (filters.format) parts.push(`Format: ${filters.format}`);
   return parts.join("\n");
+}
+
+// ─── lookup_comp ────────────────────────────────────────────────
+
+async function handleLookupComp(_supabase: any, body: any, apiKey: string) {
+  const { query, lane, format_hint, region_hint } = body;
+  if (!query || typeof query !== "string" || query.trim().length < 2) {
+    return jsonResp({ error: "query is required (comp title to lookup)" }, 400);
+  }
+
+  const hints = [
+    `User is looking up: "${query.trim()}"`,
+    lane ? `Lane context: ${lane}` : "",
+    format_hint ? `Format hint: ${format_hint}` : "",
+    region_hint ? `Region hint: ${region_hint}` : "",
+  ].filter(Boolean).join("\n");
+
+  const result = await callLLM({
+    apiKey,
+    model: MODELS.FAST,
+    system: `You are a film/TV metadata expert. Given a comp title query, return 3-6 likely matches.
+Return ONLY a JSON array of objects with: title (string), year (number|null), format (film|series|vertical|other), region (string|null), genres (string[]), confidence (0-1), rationale (1 sentence explaining what this title is).
+If the query is ambiguous (e.g. multiple films with same name), return all relevant matches with different years.
+No commentary outside the JSON array.`,
+    user: hints,
+    temperature: 0.3,
+    maxTokens: 2000,
+  });
+
+  let matches: any[];
+  try {
+    matches = JSON.parse(extractJSON(result.content));
+    if (!Array.isArray(matches)) matches = [];
+  } catch {
+    matches = [];
+  }
+
+  return jsonResp({ query: query.trim(), matches });
+}
+
+// ─── confirm_lookup ─────────────────────────────────────────────
+
+async function handleConfirmLookup(supabase: any, body: any) {
+  const { project_id, lane, user_id, match } = body;
+  if (!project_id || !lane || !user_id || !match) {
+    return jsonResp({ error: "project_id, lane, user_id, match required" }, 400);
+  }
+
+  const { data, error } = await supabase
+    .from("comparable_candidates")
+    .insert({
+      project_id,
+      lane,
+      query: { source: "user_requested_lookup", lookup_query: match.lookup_query || match.title, user_validated: true },
+      title: match.title || "Unknown",
+      year: match.year || null,
+      format: match.format || "film",
+      region: match.region || null,
+      genres: match.genres || [],
+      rationale: match.rationale || "User-validated comparable",
+      confidence: match.confidence || 1.0,
+      source_urls: match.source_urls || [],
+      created_by: user_id,
+    })
+    .select()
+    .single();
+
+  if (error) return jsonResp({ error: error.message }, 500);
+  return jsonResp({ candidate: data });
 }
 
 // ─── set_influencers ────────────────────────────────────────────
@@ -163,19 +404,16 @@ async function handleBuildEngineProfile(supabase: any, body: any) {
     return jsonResp({ error: "project_id, lane, user_id required" }, 400);
   }
 
-  // Load influencers
   const { data: influencers } = await supabase
     .from("comparable_influencers")
     .select("*, comparable_candidates(*)")
     .eq("project_id", project_id)
     .eq("lane", lane);
 
-  // Build default profile
   const profile = buildDerivedProfile(lane, influencers || []);
   const conflicts = detectProfileConflicts(profile, lane);
   const summary = generateSummary(profile);
 
-  // Deactivate old profiles
   await supabase
     .from("engine_profiles")
     .update({ is_active: false })
@@ -183,33 +421,22 @@ async function handleBuildEngineProfile(supabase: any, body: any) {
     .eq("lane", lane)
     .eq("is_active", true);
 
-  // Insert new
   const { data: inserted, error } = await supabase
     .from("engine_profiles")
     .insert({
-      project_id,
-      lane,
+      project_id, lane,
       name: "Derived from comps",
       derived_from_influencers: (influencers || []).map((i: any) => ({
-        id: i.id,
-        candidate_id: i.candidate_id,
-        title: i.comparable_candidates?.title,
-        weight: i.influencer_weight,
+        id: i.id, candidate_id: i.candidate_id,
+        title: i.comparable_candidates?.title, weight: i.influencer_weight,
         dimensions: i.influence_dimensions,
       })),
-      rules: profile,
-      rules_summary: summary,
-      conflicts,
-      created_by: user_id,
-      is_active: true,
+      rules: profile, rules_summary: summary, conflicts,
+      created_by: user_id, is_active: true,
     })
-    .select()
-    .single();
+    .select().single();
 
-  if (error) {
-    return jsonResp({ error: error.message }, 500);
-  }
-
+  if (error) return jsonResp({ error: error.message }, 500);
   return jsonResp({ profile: inserted });
 }
 
@@ -227,17 +454,8 @@ async function handleApplyOverride(supabase: any, body: any) {
 
   const { data, error } = await supabase
     .from("engine_overrides")
-    .insert({
-      project_id,
-      lane,
-      scope,
-      target_run_id: target_run_id || null,
-      patch,
-      patch_summary: patchSummary,
-      created_by: user_id,
-    })
-    .select()
-    .single();
+    .insert({ project_id, lane, scope, target_run_id: target_run_id || null, patch, patch_summary: patchSummary, created_by: user_id })
+    .select().single();
 
   if (error) return jsonResp({ error: error.message }, 500);
   return jsonResp({ override: data });
@@ -251,85 +469,43 @@ async function handleResolveRules(supabase: any, body: any) {
     return jsonResp({ error: "project_id, lane, run_id, run_type, user_id required" }, 400);
   }
 
-  // 1. Load engine profile (specified or active)
   let profileRules: any = null;
   let profileId = engine_profile_id || null;
   if (profileId) {
     const { data } = await supabase.from("engine_profiles").select("rules").eq("id", profileId).single();
     if (data) profileRules = data.rules;
   } else {
-    const { data } = await supabase
-      .from("engine_profiles")
-      .select("id, rules")
-      .eq("project_id", project_id)
-      .eq("lane", lane)
-      .eq("is_active", true)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (data) {
-      profileRules = data.rules;
-      profileId = data.id;
-    }
+    const { data } = await supabase.from("engine_profiles").select("id, rules")
+      .eq("project_id", project_id).eq("lane", lane).eq("is_active", true)
+      .order("created_at", { ascending: false }).limit(1).maybeSingle();
+    if (data) { profileRules = data.rules; profileId = data.id; }
   }
 
-  // 2. Start with lane defaults if no profile
   const defaults = getDefaultProfile(lane);
   let resolved = profileRules || defaults;
 
-  // 3. Apply project_default overrides
-  const { data: projectOverrides } = await supabase
-    .from("engine_overrides")
-    .select("patch")
-    .eq("project_id", project_id)
-    .eq("lane", lane)
-    .eq("scope", "project_default")
+  const { data: projectOverrides } = await supabase.from("engine_overrides").select("patch")
+    .eq("project_id", project_id).eq("lane", lane).eq("scope", "project_default")
     .order("created_at", { ascending: true });
 
   const overrideIds: string[] = [];
   if (projectOverrides) {
-    for (const o of projectOverrides) {
-      resolved = applyPatches(resolved, o.patch);
-      overrideIds.push(o.id);
-    }
+    for (const o of projectOverrides) { resolved = applyPatches(resolved, o.patch); overrideIds.push(o.id); }
   }
 
-  // 4. Apply run-only overrides
-  const { data: runOverrides } = await supabase
-    .from("engine_overrides")
-    .select("id, patch")
-    .eq("project_id", project_id)
-    .eq("lane", lane)
-    .eq("scope", "run")
-    .eq("target_run_id", run_id)
+  const { data: runOverrides } = await supabase.from("engine_overrides").select("id, patch")
+    .eq("project_id", project_id).eq("lane", lane).eq("scope", "run").eq("target_run_id", run_id)
     .order("created_at", { ascending: true });
 
   if (runOverrides) {
-    for (const o of runOverrides) {
-      resolved = applyPatches(resolved, o.patch);
-      overrideIds.push(o.id);
-    }
+    for (const o of runOverrides) { resolved = applyPatches(resolved, o.patch); overrideIds.push(o.id); }
   }
 
-  // 5. Generate summary
   const summary = generateSummary(resolved);
 
-  // 6. Persist story_rulesets
-  const { data: ruleset, error } = await supabase
-    .from("story_rulesets")
-    .insert({
-      project_id,
-      lane,
-      run_type,
-      run_id,
-      engine_profile_id: profileId,
-      override_ids: overrideIds,
-      resolved_rules: resolved,
-      resolved_summary: summary,
-      created_by: user_id,
-    })
-    .select()
-    .single();
+  const { data: ruleset, error } = await supabase.from("story_rulesets")
+    .insert({ project_id, lane, run_type, run_id, engine_profile_id: profileId, override_ids: overrideIds, resolved_rules: resolved, resolved_summary: summary, created_by: user_id })
+    .select().single();
 
   if (error) return jsonResp({ error: error.message }, 500);
   return jsonResp({ ruleset });
@@ -338,10 +514,7 @@ async function handleResolveRules(supabase: any, body: any) {
 // ─── Helpers ────────────────────────────────────────────────────
 
 function jsonResp(data: any, status = 200) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
+  return new Response(JSON.stringify(data), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 }
 
 function getDefaultProfile(lane: string): any {
@@ -359,7 +532,6 @@ function getDefaultProfile(lane: string): any {
     signature_devices: ["meaning_shift_instead_of_twist", "leverage_over_violence", "polite_threats", "status_choreography"],
     gate_thresholds: { melodrama_max: 0.50, similarity_max: 0.60, complexity_threads_max: 3, complexity_factions_max: 1, complexity_core_chars_max: 5 },
   };
-
   if (lane === "vertical_drama") {
     return { ...base, engine: { ...base.engine, conflict_mode: "status_reputation" },
       pacing_profile: { ...base.pacing_profile, cliffhanger_rate: { target: 0.9, max: 1.0 }, quiet_beats_min: 1, subtext_scenes_min: 2 },
@@ -392,90 +564,46 @@ function buildDerivedProfile(lane: string, influencers: any[]): any {
 
   profile.comps.influencers = influencers.map((i: any) => ({
     title: i.comparable_candidates?.title || "Unknown",
-    year: i.comparable_candidates?.year,
-    format: i.comparable_candidates?.format || "film",
-    weight: i.influencer_weight,
-    dimensions: i.influence_dimensions || [],
+    year: i.comparable_candidates?.year, format: i.comparable_candidates?.format || "film",
+    weight: i.influencer_weight, dimensions: i.influence_dimensions || [],
   }));
 
   const allAvoid = new Set<string>();
-  for (const inf of influencers) {
-    for (const tag of (inf.avoid_tags || [])) {
-      allAvoid.add(tag);
-    }
-  }
-  for (const tag of allAvoid) {
-    if (!profile.forbidden_moves.includes(tag)) profile.forbidden_moves.push(tag);
-  }
+  for (const inf of influencers) { for (const tag of (inf.avoid_tags || [])) allAvoid.add(tag); }
+  for (const tag of allAvoid) { if (!profile.forbidden_moves.includes(tag)) profile.forbidden_moves.push(tag); }
 
-  // Heuristic adjustments based on dimension weights
   let totalWeight = 0;
   const dimW: Record<string, number> = {};
   for (const inf of influencers) {
-    for (const dim of (inf.influence_dimensions || [])) {
-      dimW[dim] = (dimW[dim] || 0) + (inf.influencer_weight || 1);
-    }
+    for (const dim of (inf.influence_dimensions || [])) { dimW[dim] = (dimW[dim] || 0) + (inf.influencer_weight || 1); }
     totalWeight += inf.influencer_weight || 1;
   }
   if (totalWeight > 0) {
     if (dimW.pacing) {
       const s = Math.min(1, dimW.pacing / totalWeight);
-      profile.pacing_profile.beats_per_minute.target = Math.min(
-        profile.pacing_profile.beats_per_minute.max,
-        Math.round(profile.pacing_profile.beats_per_minute.target + s)
-      );
+      profile.pacing_profile.beats_per_minute.target = Math.min(profile.pacing_profile.beats_per_minute.max, Math.round(profile.pacing_profile.beats_per_minute.target + s));
     }
-    if (dimW.twist_budget && dimW.twist_budget / totalWeight > 0.6) {
-      profile.budgets.twist_cap = Math.min(3, profile.budgets.twist_cap + 1);
-    }
-    if (dimW.stakes_ladder) {
-      const s = Math.min(1, dimW.stakes_ladder / totalWeight);
-      if (s > 0.5 && !profile.stakes_ladder.early_allowed.includes("social")) {
-        profile.stakes_ladder.early_allowed.push("social");
-      }
-    }
-    if (dimW.dialogue_style) {
-      const s = Math.min(1, dimW.dialogue_style / totalWeight);
-      profile.dialogue_rules.subtext_ratio_target = Math.min(0.8, profile.dialogue_rules.subtext_ratio_target + s * 0.1);
-    }
+    if (dimW.twist_budget && dimW.twist_budget / totalWeight > 0.6) { profile.budgets.twist_cap = Math.min(3, profile.budgets.twist_cap + 1); }
+    if (dimW.stakes_ladder) { if (dimW.stakes_ladder / totalWeight > 0.5 && !profile.stakes_ladder.early_allowed.includes("social")) profile.stakes_ladder.early_allowed.push("social"); }
+    if (dimW.dialogue_style) { profile.dialogue_rules.subtext_ratio_target = Math.min(0.8, profile.dialogue_rules.subtext_ratio_target + Math.min(1, dimW.dialogue_style / totalWeight) * 0.1); }
   }
-
   return profile;
 }
 
 function detectProfileConflicts(profile: any, lane: string): any[] {
   const defaults = getDefaultProfile(lane);
   const conflicts: any[] = [];
-
   if (profile.budgets.twist_cap > defaults.budgets.twist_cap + 1) {
-    conflicts.push({
-      id: "twist_vs_restraint", severity: "warn", dimension: "twist_budget",
-      message: `Twist cap (${profile.budgets.twist_cap}) exceeds lane default (${defaults.budgets.twist_cap}).`,
-      inferred_value: String(profile.budgets.twist_cap), expected_value: String(defaults.budgets.twist_cap),
-      suggested_actions: ["honor_comps", "honor_overrides"],
-    });
+    conflicts.push({ id: "twist_vs_restraint", severity: "warn", dimension: "twist_budget", message: `Twist cap (${profile.budgets.twist_cap}) exceeds lane default (${defaults.budgets.twist_cap}).`, inferred_value: String(profile.budgets.twist_cap), expected_value: String(defaults.budgets.twist_cap), suggested_actions: ["honor_comps", "honor_overrides"] });
   }
-
   if (profile.stakes_ladder.no_global_before_pct < defaults.stakes_ladder.no_global_before_pct - 0.05) {
-    conflicts.push({
-      id: "early_global_stakes", severity: "warn", dimension: "stakes_ladder",
-      message: `Global stakes earlier (${Math.round(profile.stakes_ladder.no_global_before_pct * 100)}%) than default (${Math.round(defaults.stakes_ladder.no_global_before_pct * 100)}%).`,
-      inferred_value: String(profile.stakes_ladder.no_global_before_pct), expected_value: String(defaults.stakes_ladder.no_global_before_pct),
-      suggested_actions: ["honor_overrides", "blend"],
-    });
+    conflicts.push({ id: "early_global_stakes", severity: "warn", dimension: "stakes_ladder", message: `Global stakes earlier (${Math.round(profile.stakes_ladder.no_global_before_pct * 100)}%) than default (${Math.round(defaults.stakes_ladder.no_global_before_pct * 100)}%).`, inferred_value: String(profile.stakes_ladder.no_global_before_pct), expected_value: String(defaults.stakes_ladder.no_global_before_pct), suggested_actions: ["honor_overrides", "blend"] });
   }
-
   for (const move of defaults.forbidden_moves) {
     if (!profile.forbidden_moves.includes(move)) {
-      conflicts.push({
-        id: `missing_forbidden_${move}`, severity: "hard", dimension: "forbidden_moves",
-        message: `Default forbidden move "${move}" not in derived profile.`,
-        inferred_value: "allowed", expected_value: "forbidden",
-        suggested_actions: ["honor_overrides"],
-      });
+      conflicts.push({ id: `missing_forbidden_${move}`, severity: "hard", dimension: "forbidden_moves", message: `Default forbidden move "${move}" not in derived profile.`, inferred_value: "allowed", expected_value: "forbidden", suggested_actions: ["honor_overrides"] });
     }
   }
-
   return conflicts;
 }
 
@@ -501,15 +629,8 @@ function applyPatches(obj: any, patches: any): any {
     const parts = (p.path || "").split("/").filter(Boolean);
     if (parts.length === 0) continue;
     let target = result;
-    for (let i = 0; i < parts.length - 1; i++) {
-      if (target[parts[i]] === undefined) target[parts[i]] = {};
-      target = target[parts[i]];
-    }
-    if (p.op === "remove") {
-      delete target[parts[parts.length - 1]];
-    } else {
-      target[parts[parts.length - 1]] = p.value;
-    }
+    for (let i = 0; i < parts.length - 1; i++) { if (target[parts[i]] === undefined) target[parts[i]] = {}; target = target[parts[i]]; }
+    if (p.op === "remove") { delete target[parts[parts.length - 1]]; } else { target[parts[parts.length - 1]] = p.value; }
   }
   return result;
 }
