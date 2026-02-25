@@ -622,29 +622,35 @@ describe("ladder lock repair prompt", () => {
     penalty_breakdown: [], metrics: {} as any,
   });
 
-  it("includes PROCEDURE_LADDER_LOCK for ladder failures", () => {
+  it("includes LADDER LOCK within PROCEDURE block for ladder failures", () => {
     const instr = buildTrailerRepairInstruction(makeScore(["DIRECTION_REVERSAL"]), 8);
-    expect(instr).toContain("LADDER LOCK (MANDATORY, ATTEMPT 1)");
+    expect(instr).toContain("LADDER LOCK (ATTEMPT 1)");
     expect(instr).toContain("final 25%");
+    // Ladder text is inside procedure block, not a separate section
+    const procIdx = instr.indexOf("PROCEDURE (MANDATORY, ATTEMPT 1)");
+    const ladderIdx = instr.indexOf("LADDER LOCK (ATTEMPT 1)");
+    expect(procIdx).toBeGreaterThanOrEqual(0);
+    expect(ladderIdx).toBeGreaterThan(procIdx);
   });
 
-  it("includes ladder numeric targets for ENERGY_DROP", () => {
+  it("includes compact ladder numeric targets for ENERGY_DROP", () => {
     const instr = buildTrailerRepairInstruction(makeScore(["ENERGY_DROP"]), 8);
-    expect(instr).toContain("Adjacent rises");
-    expect(instr).toContain("Meaningful decreases");
-    expect(instr).toContain("Zigzag flips");
+    expect(instr).toContain("Rises ≥");
+    expect(instr).toContain("Dips ≤1");
+    expect(instr).toContain("Zigzags ≤");
   });
 
-  it("ladder procedure not dropped even with many failures", () => {
+  it("ladder guidance survives even with many failures and stays under 2500 chars", () => {
     const manyFailures: CinematicFailureCode[] = [
       "NO_PEAK", "NO_ESCALATION", "FLATLINE", "LOW_CONTRAST",
       "TONAL_WHIPLASH", "WEAK_ARC", "LOW_INTENT_DIVERSITY",
       "PACING_MISMATCH", "ENERGY_DROP", "DIRECTION_REVERSAL",
     ];
     const instr = buildTrailerRepairInstruction(makeScore(manyFailures), 8);
-    expect(instr).toContain("LADDER LOCK (MANDATORY, ATTEMPT 1)");
+    expect(instr).toContain("LADDER LOCK (ATTEMPT 1)");
     expect(instr).toContain("PROCEDURE (MANDATORY, ATTEMPT 1)");
     expect(instr).toContain("CONSTRAINTS (ATTEMPT 1)");
+    expect(instr.length).toBeLessThanOrEqual(2500);
   });
 
   it("ladder failures covered, static targets omitted", () => {
@@ -653,8 +659,19 @@ describe("ladder lock repair prompt", () => {
     expect(covered.has("ENERGY_DROP")).toBe(true);
   });
 
-  it("no PROCEDURE_LADDER_LOCK when no ladder failures", () => {
+  it("no LADDER LOCK when no ladder failures", () => {
     const instr = buildTrailerRepairInstruction(makeScore(["TOO_SHORT"]), 4);
     expect(instr).not.toContain("LADDER LOCK");
+  });
+
+  it("failureBullets capped at 6 + 'Also address' for overflow", () => {
+    const manyFailures: CinematicFailureCode[] = [
+      "NO_PEAK", "NO_ESCALATION", "FLATLINE", "LOW_CONTRAST",
+      "TONAL_WHIPLASH", "WEAK_ARC", "LOW_INTENT_DIVERSITY",
+      "PACING_MISMATCH", "ENERGY_DROP", "DIRECTION_REVERSAL",
+    ];
+    const instr = buildTrailerRepairInstruction(makeScore(manyFailures), 8);
+    // Should contain "Also address:" for overflow failures
+    expect(instr).toContain("Also address:");
   });
 });
