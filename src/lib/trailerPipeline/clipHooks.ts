@@ -19,6 +19,33 @@ export function useClipProgress(projectId: string | undefined, blueprintId: stri
   });
 }
 
+/**
+ * Auto-process queued jobs. When there are queued jobs and no active processing,
+ * periodically kicks the queue to keep jobs flowing (handles rate-limit pauses).
+ */
+export function useAutoProcessQueue(projectId: string | undefined, blueprintId: string | undefined, queuedCount: number, runningCount: number) {
+  const qc = useQueryClient();
+  return useQuery({
+    queryKey: ['trailer-clip-auto-process', projectId, blueprintId],
+    queryFn: async () => {
+      if (!projectId || !blueprintId) return null;
+      try {
+        const result = await clipEngineApi.processQueue(projectId, blueprintId, 3);
+        if (result.processed > 0) {
+          qc.invalidateQueries({ queryKey: ['trailer-clip-progress', projectId] });
+          qc.invalidateQueries({ queryKey: ['trailer-clips-list', projectId] });
+        }
+        return result;
+      } catch {
+        return null;
+      }
+    },
+    enabled: !!projectId && !!blueprintId && queuedCount > 0,
+    // Process every 30s when jobs are queued but pipeline seems stalled (nothing running)
+    refetchInterval: queuedCount > 0 ? (runningCount === 0 ? 15000 : 30000) : false,
+  });
+}
+
 export function useClipPolling(projectId: string | undefined, blueprintId: string | undefined, hasPollingJobs: boolean) {
   const qc = useQueryClient();
   return useQuery({

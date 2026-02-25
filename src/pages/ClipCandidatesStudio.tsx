@@ -20,7 +20,7 @@ import { Label } from '@/components/ui/label';
 import { StagedProgressBar } from '@/components/system/StagedProgressBar';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useBlueprints, useBlueprint } from '@/lib/trailerPipeline/useTrailerPipeline';
-import { useClipProgress, useClipPolling, useClipsList, useClipEngineMutations, useClipScores } from '@/lib/trailerPipeline/clipHooks';
+import { useClipProgress, useClipPolling, useAutoProcessQueue, useClipsList, useClipEngineMutations, useClipScores } from '@/lib/trailerPipeline/clipHooks';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { toast } from 'sonner';
 import type { EDLBeat, TrailerClip } from '@/lib/trailerPipeline/types';
@@ -93,7 +93,10 @@ export default function ClipCandidatesStudio({ embedded }: { embedded?: boolean 
   const beats: EDLBeat[] = blueprint?.edl || [];
   const clips: TrailerClip[] = clipsData?.clips || [];
   const progress = progressData || null;
-  const counts = progress?.counts || { queued: 0, running: 0, succeeded: 0, failed: 0, canceled: 0, total: 0 };
+  const counts = progress?.counts || { queued: 0, running: 0, polling: 0, succeeded: 0, failed: 0, canceled: 0, total: 0 };
+
+  // Auto-kick the queue when jobs are waiting — keeps the pipeline flowing after rate-limit pauses
+  useAutoProcessQueue(projectId, blueprintId, counts.queued || 0, (counts.running || 0) + (counts.polling || 0));
   const totalDone = counts.succeeded + counts.failed + counts.canceled;
   const progressPct = counts.total > 0 ? (totalDone / counts.total) * 100 : 0;
   const isTerminal = counts.total > 0 && counts.queued === 0 && counts.running === 0;
