@@ -69,15 +69,17 @@ const FAILURE_TARGETS: Record<string, string> = {
 
 /**
  * Compute per-failure numeric targets using actual thresholds + unit count.
- * Returns deduped deterministic bullets.
+ * Returns deduped deterministic bullets AND a set of covered failure codes
+ * so callers can deconflict against static targets.
  */
 export function numericTargetsForFailures(args: {
   failures: string[];
   unitCount: number;
   thresholds?: typeof CINEMATIC_THRESHOLDS;
-}): string[] {
+}): { targets: string[]; covered: Set<string> } {
   const { failures, unitCount, thresholds: t = CINEMATIC_THRESHOLDS } = args;
   const out: string[] = [];
+  const covered = new Set<string>();
   const latePeakMin = Math.max(1, Math.floor(unitCount * 0.75));
   const latePeakStr = `peakIndex must be >= ${latePeakMin} (peak in last 25% of ${unitCount} units)`;
 
@@ -85,48 +87,58 @@ export function numericTargetsForFailures(args: {
     switch (f) {
       case "TOO_SHORT":
         out.push(`unitCount must equal ${unitCount} exactly (no more, no less)`);
+        covered.add("TOO_SHORT");
         break;
       case "NO_PEAK":
         out.push(latePeakStr);
         out.push(`final unit must read as an explicit climax/turning-point beat`);
+        covered.add("NO_PEAK");
         break;
       case "NO_ESCALATION":
       case "WEAK_ARC":
         out.push(`escalationScore must be >= ${Number(t.min_slope ?? 0.01).toFixed(2)}`);
         out.push(`energy must generally rise across units with at most 1 small dip`);
+        covered.add(f);
         break;
       case "FLATLINE":
         out.push(`contrastScore must be >= ${Number(t.min_contrast ?? 0.55).toFixed(2)}`);
         out.push(`ensure at least 2 units are clearly higher-intensity than the baseline units`);
+        covered.add("FLATLINE");
         break;
       case "LOW_CONTRAST":
         out.push(`contrastScore must be >= ${Number(t.min_contrast ?? 0.55).toFixed(2)}`);
+        covered.add("LOW_CONTRAST");
         break;
       case "TONAL_WHIPLASH":
         out.push(`polarity sign flips must be <= ${Math.max(1, Math.floor(unitCount * 0.2))} total`);
         out.push(`avoid abrupt tonal inversions; delete outlier units first`);
+        covered.add("TONAL_WHIPLASH");
         break;
       case "LOW_INTENT_DIVERSITY":
         out.push(`intentsDistinctCount must be >= 3`);
         out.push(`intents must appear in a clear sequence (setup → complication → payoff)`);
+        covered.add("LOW_INTENT_DIVERSITY");
         break;
       case "PACING_MISMATCH":
         out.push(`pacing variance must decrease by removing or splitting outlier-long units`);
         out.push(`adjacent units should have smoother duration/intensity changes`);
+        covered.add("PACING_MISMATCH");
         break;
       case "ENERGY_DROP":
         out.push(`post-peak units must not de-escalate; delete or tighten any drop after the peak`);
         out.push(latePeakStr);
+        covered.add("ENERGY_DROP");
         break;
       case "DIRECTION_REVERSAL":
         out.push(`directionReversalCount must be <= ${Math.max(0, Math.floor(unitCount * 0.15))}`);
         out.push(`if reversal exists, place it once as an intentional midpoint twist`);
+        covered.add("DIRECTION_REVERSAL");
         break;
       default:
         break;
     }
   }
-  return Array.from(new Set(out));
+  return { targets: Array.from(new Set(out)), covered };
 }
 
 export function amplifyRepairInstruction(base: string, failures: string[]): string {
@@ -157,6 +169,25 @@ CONSTRAINTS (ATTEMPT 1):
 - Prefer deletion and reordering over adding material.
 - Keep unit count EXACT.`;
 
+const PROCEDURE_TRAILER = `
+PROCEDURE (MANDATORY, ATTEMPT 1)
+1) Fix structure using ONLY deletion and reordering first:
+   - Delete or tighten any flat/outlier units.
+   - Reorder units so energy/intent ramps toward a late peak.
+2) Then minimally rephrase remaining units to meet numeric targets.
+Rules:
+- Prefer deleting 1 weak unit over adding new material.
+- Do NOT introduce new content; deletion/reorder > rewrite.`;
+
+const PROCEDURE_STORYBOARD = `
+PROCEDURE (MANDATORY, ATTEMPT 1)
+1) Fix structure using ONLY tightening and minimal reordering within existing unit_keys:
+   - Do NOT drop, rename, or duplicate unit_key values.
+   - Prefer tightening/deleting nonessential beats inside a panel over adding new beats.
+2) Then minimally rephrase to meet numeric targets.
+Rules:
+- No new characters/settings/props not already implied.`;
+
 export function addIntentSequencingHint(base: string, failures: string[]): string {
   if (!failures.includes("LOW_INTENT_DIVERSITY") && !failures.includes("WEAK_ARC")) return base;
   return `${base}
@@ -184,7 +215,7 @@ TONAL RAMP LOCK (REPAIR ONLY):
 /**
  * Assemble a bounded repair instruction from sections.
  * Drops optional sections if total exceeds MAX_REPAIR_CHARS.
- * Never drops: shape guard, numeric targets, no-new-intent.
+ * Never drops: shape guard, numeric targets, no-new-intent, procedure.
  */
 const MAX_REPAIR_CHARS = 2500;
 
@@ -226,23 +257,27 @@ ${bullets.join("\n")}
 
 Maintain all existing required fields and overall structure.`;
 
-  // Build numeric targets (context-aware)
-  const contextTargets = numericTargetsForFailures({
+  // Build numeric targets (context-aware) with coverage tracking
+  const ctx = numericTargetsForFailures({
     failures: score.failures,
     unitCount,
   });
-  const contextTargetsBlock = contextTargets.length > 0
-    ? `\nCONTEXT-AWARE NUMERIC TARGETS (MANDATORY):\n${contextTargets.map(t => `• ${t}`).join("\n")}`
+  const contextTargetsBlock = ctx.targets.length > 0
+    ? `\nCONTEXT-AWARE NUMERIC TARGETS (MANDATORY):\n${ctx.targets.map(t => `• ${t}`).join("\n")}`
     : "";
 
-  // Static failure targets
-  const staticTargets = score.failures
+  // Static failure targets — only for failures NOT covered by context targets
+  const deconflictedStaticTargets = score.failures
+    .filter(f => !ctx.covered.has(f))
     .map(f => FAILURE_TARGETS[f])
     .filter(Boolean)
     .map(t => `• ${t}`);
-  const staticTargetsBlock = staticTargets.length > 0
-    ? `\nNUMERIC TARGETS (MUST MEET):\n${staticTargets.join("\n")}`
+  const staticTargetsBlock = deconflictedStaticTargets.length > 0
+    ? `\nNUMERIC TARGETS (MUST MEET):\n${deconflictedStaticTargets.join("\n")}`
     : "";
+
+  // Procedure block by domain
+  const procedureBlock = domain === "storyboard" ? PROCEDURE_STORYBOARD : PROCEDURE_TRAILER;
 
   // Optional sections
   const intentHint = (score.failures.includes("LOW_INTENT_DIVERSITY") || score.failures.includes("WEAK_ARC"))
@@ -264,9 +299,10 @@ Rules:
 
   const sections: RepairSection[] = [
     { label: "core", text: coreBase, priority: 100 },
-    { label: "no-new-intent", text: NO_NEW_INTENT_BLOCK, priority: 90 },
-    { label: "context-targets", text: contextTargetsBlock, priority: 85 },
-    { label: "static-targets", text: staticTargetsBlock, priority: 80 },
+    { label: "no-new-intent", text: NO_NEW_INTENT_BLOCK, priority: 95 },
+    { label: "procedure", text: procedureBlock, priority: 92 },
+    { label: "context-targets", text: contextTargetsBlock, priority: 90 },
+    { label: "static-targets", text: staticTargetsBlock, priority: 85 },
     { label: "polarity-lock", text: polarityLock, priority: 30 },
     { label: "intent-hint", text: intentHint, priority: 20 },
   ].filter(s => s.text.length > 0);
