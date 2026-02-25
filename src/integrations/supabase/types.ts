@@ -19204,6 +19204,111 @@ export type Database = {
           },
         ]
       }
+      video_render_jobs: {
+        Row: {
+          attempt_count: number
+          created_at: string
+          id: string
+          last_error: string | null
+          plan_id: string
+          project_id: string
+          settings_json: Json
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          attempt_count?: number
+          created_at?: string
+          id?: string
+          last_error?: string | null
+          plan_id: string
+          project_id: string
+          settings_json?: Json
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          attempt_count?: number
+          created_at?: string
+          id?: string
+          last_error?: string | null
+          plan_id?: string
+          project_id?: string
+          settings_json?: Json
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "video_render_jobs_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "video_generation_plans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "video_render_jobs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "video_render_jobs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      video_render_shots: {
+        Row: {
+          artifact_json: Json
+          attempt_count: number
+          created_at: string
+          id: string
+          job_id: string
+          last_error: string | null
+          prompt_json: Json
+          shot_index: number
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          artifact_json?: Json
+          attempt_count?: number
+          created_at?: string
+          id?: string
+          job_id: string
+          last_error?: string | null
+          prompt_json?: Json
+          shot_index: number
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          artifact_json?: Json
+          attempt_count?: number
+          created_at?: string
+          id?: string
+          job_id?: string
+          last_error?: string | null
+          prompt_json?: Json
+          shot_index?: number
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "video_render_shots_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "video_render_jobs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       visual_reference_assets: {
         Row: {
           created_at: string
@@ -19798,6 +19903,47 @@ export type Database = {
       claim_next_trailer_render_job: {
         Args: { _project_id: string; _trailer_cut_id: string }
         Returns: string
+      }
+      claim_next_video_render_job: {
+        Args: { p_project_id: string }
+        Returns: {
+          attempt_count: number
+          created_at: string
+          id: string
+          last_error: string | null
+          plan_id: string
+          project_id: string
+          settings_json: Json
+          status: string
+          updated_at: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "video_render_jobs"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      claim_next_video_render_shot: {
+        Args: { p_job_id: string }
+        Returns: {
+          artifact_json: Json
+          attempt_count: number
+          created_at: string
+          id: string
+          job_id: string
+          last_error: string | null
+          prompt_json: Json
+          shot_index: number
+          status: string
+          updated_at: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "video_render_shots"
+          isOneToOne: false
+          isSetofReturn: true
+        }
       }
       compute_outcome_deltas: {
         Args: { p_project_id: string }
