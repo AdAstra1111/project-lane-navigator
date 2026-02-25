@@ -177,6 +177,78 @@ export function resolveApplyScope(
   return { mode: 'full', allowedScenes: [] };
 }
 
+/** Result of scope-aware shrink check */
+export interface ScopedShrinkResult {
+  shrinkFraction: number;
+  shrinkPct: number;
+  isSelective: boolean;
+  /** If selective, shrink is computed only over targeted scenes */
+  targetedOriginalLength: number;
+  targetedRewrittenLength: number;
+}
+
+/**
+ * computeScopedShrink — scope-aware shrink measurement.
+ *
+ * For selective rewrites (scene targets exist), computes shrink only within
+ * the targeted scene spans. For full rewrites, computes global shrink.
+ *
+ * This prevents false positives where non-target scene compression by the LLM
+ * causes the whole-document shrink to exceed the threshold even though the
+ * targeted changes are additive.
+ */
+export function computeScopedShrink(
+  originalText: string,
+  rewrittenText: string,
+  allowedScenes: number[],
+): ScopedShrinkResult {
+  const isSelective = allowedScenes.length > 0;
+
+  if (!isSelective) {
+    // Full rewrite: global comparison
+    const shrinkFraction = originalText.length > 0
+      ? (originalText.length - rewrittenText.length) / originalText.length
+      : 0;
+    return {
+      shrinkFraction,
+      shrinkPct: Math.round(shrinkFraction * 100),
+      isSelective: false,
+      targetedOriginalLength: originalText.length,
+      targetedRewrittenLength: rewrittenText.length,
+    };
+  }
+
+  // Selective rewrite: compare only targeted scenes
+  const allowedSet = new Set(allowedScenes);
+  const originalScenes = parseScenes(originalText);
+  const rewrittenScenes = parseScenes(rewrittenText);
+
+  const originalTargeted = originalScenes
+    .filter(s => allowedSet.has(s.sceneNumber))
+    .map(s => s.heading + '\n' + s.body)
+    .join('\n');
+
+  const rewrittenTargeted = rewrittenScenes
+    .filter(s => allowedSet.has(s.sceneNumber))
+    .map(s => s.heading + '\n' + s.body)
+    .join('\n');
+
+  const origLen = originalTargeted.length;
+  const rewriteLen = rewrittenTargeted.length;
+
+  const shrinkFraction = origLen > 0
+    ? (origLen - rewriteLen) / origLen
+    : 0;
+
+  return {
+    shrinkFraction,
+    shrinkPct: Math.round(shrinkFraction * 100),
+    isSelective: true,
+    targetedOriginalLength: origLen,
+    targetedRewrittenLength: rewriteLen,
+  };
+}
+
 /* ── Internal helpers ── */
 
 function normalizeHeading(heading: string): string {

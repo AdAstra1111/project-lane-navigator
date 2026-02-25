@@ -1003,6 +1003,21 @@ Generate a Change Plan with atomic, testable changes.`;
         .single();
       if (!sourceVer) return err("Source version not found");
 
+      // ── Determine scope before building prompt ──
+      const { parseScenes, detectOutOfScopeChanges, resolveApplyScope, computeScopedShrink } = await import("../_shared/sceneScope.ts");
+      const scopeResult = resolveApplyScope(changePlan, clientApplyScope);
+      const isSelectiveRewrite = scopeResult.mode === 'scene' && scopeResult.allowedScenes.length > 0;
+
+      // ── Build rewrite prompt with preserve-text contract for selective rewrites ──
+      const preserveContract = isSelectiveRewrite
+        ? `\n\nSELECTIVE REWRITE RULES (MANDATORY):
+- You are rewriting ONLY scenes: ${scopeResult.allowedScenes.join(', ')}.
+- For target scenes: output the FULL scene text with the requested changes integrated. Do NOT summarize or compress.
+- All NON-TARGET scenes MUST be copied VERBATIM from the source script. Do not paraphrase, shorten, or rephrase them.
+- Maintain approximate length for each scene. Additions should INCREASE length, not reduce it.
+- Do NOT omit any scene. The output must contain every scene from the original.`
+        : '';
+
       const rewritePrompt = `You are a script rewriter. Apply the following changes to the script below.
 
 Direction: ${changePlan.direction_summary || ''}
@@ -1013,7 +1028,8 @@ ${enabledChanges.map((c: any, i: number) => `${i + 1}. [${c.type}/${c.scope}] ${
 Acceptance criteria:
 ${enabledChanges.flatMap((c: any) => (c.acceptance_criteria || []).map((a: string) => `- ${a}`)).join('\n')}
 
-IMPORTANT: Return the COMPLETE rewritten script. Do not omit any sections. Preserve all formatting conventions.`;
+IMPORTANT: Return the COMPLETE rewritten script. Do not omit any sections. Preserve all formatting conventions.
+Do NOT summarize or compress any part of the script. Maintain the original length and detail level.${preserveContract}`;
 
       const scriptText = sourceVer.plaintext || '';
       const cappedScript = scriptText.length > 12000
@@ -1031,7 +1047,7 @@ IMPORTANT: Return the COMPLETE rewritten script. Do not omit any sections. Prese
 
       const rewrittenText = result.content;
 
-      // ── Shrink guard ──
+      // ── Scope-aware shrink guard ──
       const SHRINK_GUARD_THRESHOLD = 0.3;
       const verification: any = { ok: true, checks: [], warnings: [] };
       if (!rewrittenText || rewrittenText.trim().length < 50) {
@@ -1039,11 +1055,10 @@ IMPORTANT: Return the COMPLETE rewritten script. Do not omit any sections. Prese
         verification.warnings.push("Rewritten text is suspiciously short or empty");
       }
 
-      const shrinkFraction = scriptText.length > 0
-        ? (scriptText.length - rewrittenText.length) / scriptText.length
-        : 0;
+      // Compute shrink scoped to targeted scenes (selective) or full document
+      const shrinkResult = computeScopedShrink(scriptText, rewrittenText, scopeResult.allowedScenes);
 
-      if (shrinkFraction > SHRINK_GUARD_THRESHOLD) {
+      if (shrinkResult.shrinkFraction > SHRINK_GUARD_THRESHOLD) {
         // Check if plan has explicit deletions
         const hasDeletions = enabledChanges.some((c: any) =>
           (c.type === 'structure' && /delet|remov/i.test(c.instructions)) ||
@@ -1051,14 +1066,19 @@ IMPORTANT: Return the COMPLETE rewritten script. Do not omit any sections. Prese
         );
 
         if (!hasDeletions && !forceShrink) {
+          const scopeLabel = shrinkResult.isSelective
+            ? `Targeted scenes would shrink by ${shrinkResult.shrinkPct}%`
+            : `Document would shrink by ${shrinkResult.shrinkPct}%`;
           return ok({
             blocked: true,
             reason: "shrink_guard",
-            shrink_pct: Math.round(shrinkFraction * 100),
-            message: `Text would shrink by ${Math.round(shrinkFraction * 100)}% which exceeds the ${Math.round(SHRINK_GUARD_THRESHOLD * 100)}% safety threshold. No explicit deletions found in the plan. Set forceShrink=true to override.`,
+            shrink_pct: shrinkResult.shrinkPct,
+            is_selective: shrinkResult.isSelective,
+            message: `${scopeLabel} which exceeds the ${Math.round(SHRINK_GUARD_THRESHOLD * 100)}% safety threshold. No explicit deletions found in the plan. Set forceShrink=true to override.`,
           });
         }
-        verification.warnings.push(`Text shrunk by ${Math.round(shrinkFraction * 100)}% (threshold: ${Math.round(SHRINK_GUARD_THRESHOLD * 100)}%)`);
+        const shrinkLabel = shrinkResult.isSelective ? 'Targeted scenes' : 'Text';
+        verification.warnings.push(`${shrinkLabel} shrunk by ${shrinkResult.shrinkPct}% (threshold: ${Math.round(SHRINK_GUARD_THRESHOLD * 100)}%)`);
       }
 
       if (rewrittenText.length < scriptText.length * 0.3) {
@@ -1066,11 +1086,8 @@ IMPORTANT: Return the COMPLETE rewritten script. Do not omit any sections. Prese
       }
 
       // ── Scene-scope enforcement ──
-      const { parseScenes, detectOutOfScopeChanges, resolveApplyScope } = await import("../_shared/sceneScope.ts");
-      const scopeResult = resolveApplyScope(changePlan, clientApplyScope);
-
       let scopeCheck: any = { ok: true, mode: scopeResult.mode };
-      if (scopeResult.mode === 'scene' && scopeResult.allowedScenes.length > 0) {
+      if (isSelectiveRewrite) {
         const originalScenes = parseScenes(scriptText);
         const updatedScenes = parseScenes(rewrittenText);
         const check = detectOutOfScopeChanges(originalScenes, updatedScenes, scopeResult.allowedScenes);
