@@ -21,8 +21,10 @@ export function ActiveRulesetBadge({ profile, isLocked, className }: Props) {
   }
 
   const rules = profile.rules;
+  const bpm = rules?.pacing_profile?.beats_per_minute;
   const caps = [
     rules?.engine?.story_engine && `Engine: ${(rules.engine.story_engine as string).replace(/_/g, ' ')}`,
+    bpm?.target != null && `Target: ${bpm.target} BPM`,
     rules?.budgets?.drama_budget != null && `Drama: ${rules.budgets.drama_budget}`,
     rules?.budgets?.twist_cap != null && `Twists: ${rules.budgets.twist_cap}`,
   ].filter(Boolean);
