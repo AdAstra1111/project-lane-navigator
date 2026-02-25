@@ -252,6 +252,8 @@ Deno.test("mergeEpisodeBlocks: handles multiple simultaneous replacements", () =
 Deno.test("detectCollapsedRangeSummaries: catches 'same structure as above'", () => {
   assertEquals(detectCollapsedRangeSummaries("Episodes 8-15 use the same structure as above"), true);
   assertEquals(detectCollapsedRangeSummaries("This repeats the format of episode 1"), true);
+  assertEquals(detectCollapsedRangeSummaries("(Episodes 1–8 preserved as high-density anchors)"), true);
+  assertEquals(detectCollapsedRangeSummaries("Episode anchors are emotionally resonant"), false);
 });
 
 // ─── 17. findEpisodesWithCollapse: attributes collapse to Ep 8 ───
@@ -272,7 +274,7 @@ Deno.test("findEpisodesWithCollapse: no hits on clean doc", () => {
 // ─── 19. findEpisodesWithCollapse: multiple episodes with collapse ───
 
 Deno.test("findEpisodesWithCollapse: detects multiple collapse episodes", () => {
-  const text = `## EPISODE 1: Pilot\nBeat 1: Good content\n\n## EPISODE 2: Second\nUses the same structure as episode 1\n\n## EPISODE 3: Third\nEpisodes 1-2 follow established structure.\nBeat 1: Content`;
+  const text = `## EPISODE 1: Pilot\nBeat 1: Good content\n\n## EPISODE 2: Second\nUses the same structure as episode 1\n\n## EPISODE 3: Third\n(Episodes 1-2 preserved as high-density anchors)\nBeat 1: Content`;
   const hits = findEpisodesWithCollapse(text);
   assertEquals(hits, [2, 3]);
 });
