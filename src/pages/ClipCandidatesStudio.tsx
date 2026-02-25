@@ -58,7 +58,7 @@ export default function ClipCandidatesStudio({ embedded }: { embedded?: boolean 
   const { id: projectId } = useParams<{ id: string }>();
   // ⚠ Do not use setSearchParams({ ... }) — it wipes drawer/drawerTab. Use updateSearchParams().
   const [searchParams, setSearchParams] = useSearchParams();
-  const blueprintId = searchParams.get('runId') || searchParams.get('blueprintId') || undefined;
+  const blueprintIdParam = searchParams.get('runId') || searchParams.get('blueprintId') || undefined;
   const [expandedBeats, setExpandedBeats] = useState<Set<number>>(new Set());
   const [showProcessingBar, setShowProcessingBar] = useState(false);
   const [providerVeo, setProviderVeo] = useState(true);
@@ -74,6 +74,11 @@ export default function ClipCandidatesStudio({ embedded }: { embedded?: boolean 
 
   // Queries
   const { data: bpListData } = useBlueprints(projectId);
+  const blueprints = useMemo(() => (bpListData?.blueprints || []).filter((bp: any) => bp.status === 'complete'), [bpListData]);
+
+  // Auto-select latest blueprint if none specified
+  const blueprintId = blueprintIdParam || (blueprints.length > 0 ? blueprints[0].id : undefined);
+
   const { data: bpData } = useBlueprint(projectId, blueprintId);
   const { data: progressData } = useClipProgress(projectId, blueprintId);
   const hasPollingJobs = (progressData?.counts?.polling || 0) > 0 || (progressData?.counts?.running || 0) > 0;
@@ -84,7 +89,6 @@ export default function ClipCandidatesStudio({ embedded }: { embedded?: boolean 
   // Mutations
   const { enqueueForRun, processQueue, retryJob, selectClip, cancelAll, resetFailed, runTechnicalJudge, regenerateLowQuality } = useClipEngineMutations(projectId);
 
-  const blueprints = (bpListData?.blueprints || []).filter((bp: any) => bp.status === 'complete');
   const blueprint = bpData?.blueprint || null;
   const beats: EDLBeat[] = blueprint?.edl || [];
   const clips: TrailerClip[] = clipsData?.clips || [];
