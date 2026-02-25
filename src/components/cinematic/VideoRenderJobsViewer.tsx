@@ -1,19 +1,22 @@
 /**
- * Video Render Jobs Viewer — List + detail with video preview and polling.
+ * Video Render Jobs Viewer — List + detail with video preview, polling,
+ * shot locking, selective regen, and per-shot notes.
  */
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Clapperboard, ChevronDown, ChevronUp, Loader2, AlertCircle, Play, RefreshCw,
-  CheckCircle2, XCircle,
+  CheckCircle2, XCircle, Lock, Unlock, MessageSquare,
 } from "lucide-react";
 import { toast } from "sonner";
 import type { VideoRenderJobRow, VideoRenderShotRow } from "@/videoPlans/renderTypes";
+import { compilePromptDelta } from "@/videoRender/noteDeltas";
 import RoughCutPlayer from "./RoughCutPlayer";
 
 const STATUS_COLORS: Record<string, string> = {
@@ -51,14 +54,12 @@ export default function VideoRenderJobsViewer({ projectId, planId }: VideoRender
     enabled: !!projectId,
   });
 
-  // Auto-poll running jobs every 10s
   const hasRunning = jobs?.some(j => j.status === "running" || j.status === "claimed");
 
   useEffect(() => {
     if (!hasRunning) return;
     const interval = setInterval(() => {
       qc.invalidateQueries({ queryKey: ["video-render-jobs", projectId, planId] });
-      // Also trigger poll action
       supabase.functions.invoke("process-video-render-job", {
         body: { project_id: projectId, action: "poll" },
       }).catch(() => {});
@@ -178,7 +179,11 @@ export default function VideoRenderJobsViewer({ projectId, planId }: VideoRender
 }
 
 function RenderJobDetail({ jobId, lastError, projectId }: { jobId: string; lastError: string | null; projectId: string }) {
-  // We need planId for rough cut — fetch from the job
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [editingNote, setEditingNote] = useState<string | null>(null);
+  const [noteText, setNoteText] = useState("");
+  const qc = useQueryClient();
+
   const { data: jobRow } = useQuery({
     queryKey: ["video-render-job-detail", jobId],
     queryFn: async () => {
@@ -201,14 +206,97 @@ function RenderJobDetail({ jobId, lastError, projectId }: { jobId: string; lastE
         .eq("job_id", jobId)
         .order("shot_index", { ascending: true });
       if (error) throw error;
-      return (data || []) as VideoRenderShotRow[];
+      return (data || []) as any[];
     },
-    refetchInterval: 10_000, // poll while viewing
+    refetchInterval: 10_000,
   });
 
   const completeCount = shots?.filter(s => s.status === "complete").length || 0;
   const errorCount = shots?.filter(s => s.status === "error").length || 0;
   const totalCount = shots?.length || 0;
+
+  const toggleSelect = useCallback((id: string) => {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const toggleSelectAll = useCallback(() => {
+    if (!shots) return;
+    if (selected.size === shots.length) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(shots.map((s: any) => s.id)));
+    }
+  }, [shots, selected.size]);
+
+  const lockMutation = useMutation({
+    mutationFn: async ({ ids, lock }: { ids: string[]; lock: boolean }) => {
+      const { error } = await (supabase as any)
+        .from("video_render_shots")
+        .update({ is_locked: lock, updated_at: new Date().toISOString() })
+        .in("id", ids);
+      if (error) throw error;
+    },
+    onSuccess: (_, { lock }) => {
+      qc.invalidateQueries({ queryKey: ["video-render-shots", jobId] });
+      toast.success(lock ? "Shot(s) locked" : "Shot(s) unlocked");
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  const regenMutation = useMutation({
+    mutationFn: async (ids: string[]) => {
+      if (!shots) return { reset: 0, skipped: 0 };
+      const unlocked = shots.filter((s: any) => ids.includes(s.id) && !s.is_locked);
+      const skipped = ids.length - unlocked.length;
+      if (unlocked.length === 0) return { reset: 0, skipped };
+      const { error } = await (supabase as any)
+        .from("video_render_shots")
+        .update({ status: "queued", artifact_json: {}, last_error: null, updated_at: new Date().toISOString() })
+        .in("id", unlocked.map((s: any) => s.id));
+      if (error) throw error;
+      return { reset: unlocked.length, skipped };
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["video-render-shots", jobId] });
+      if (data && data.reset > 0) toast.success(`${data.reset} shot(s) queued for regen`);
+      if (data && data.skipped > 0) toast.info(`${data.skipped} locked shot(s) skipped`);
+      if (data && data.reset === 0 && data.skipped > 0) toast.info("All selected shots are locked");
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  const saveNoteMutation = useMutation({
+    mutationFn: async ({ shotId, notes }: { shotId: string; notes: string }) => {
+      const shot = shots?.find((s: any) => s.id === shotId);
+      const delta = compilePromptDelta({
+        notes,
+        shotType: shot?.prompt_json?.shotType,
+        cameraMove: shot?.prompt_json?.cameraMove,
+      });
+      const { error } = await (supabase as any)
+        .from("video_render_shots")
+        .update({ notes, prompt_delta_json: delta, updated_at: new Date().toISOString() })
+        .eq("id", shotId);
+      if (error) throw error;
+      return delta;
+    },
+    onSuccess: (delta) => {
+      qc.invalidateQueries({ queryKey: ["video-render-shots", jobId] });
+      setEditingNote(null);
+      if (delta.warnings?.length > 0) {
+        toast.info(`Note saved with ${delta.warnings.length} warning(s)`);
+      } else {
+        toast.success("Note saved");
+      }
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  const selectedArr = Array.from(selected);
 
   return (
     <div className="px-4 pb-4 space-y-2 border-t border-border/50 bg-muted/10">
@@ -238,21 +326,64 @@ function RenderJobDetail({ jobId, lastError, projectId }: { jobId: string; lastE
         </div>
       )}
 
+      {/* Bulk actions */}
+      {shots && shots.length > 0 && (
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <Button variant="ghost" size="sm" className="h-6 text-[10px] px-2" onClick={toggleSelectAll}>
+            {selected.size === shots.length ? "Deselect All" : "Select All"}
+          </Button>
+          {selected.size > 0 && (
+            <>
+              <Button
+                variant="outline" size="sm" className="h-6 text-[10px] px-2 gap-1"
+                disabled={lockMutation.isPending}
+                onClick={() => lockMutation.mutate({ ids: selectedArr, lock: true })}
+              >
+                <Lock className="h-2.5 w-2.5" /> Lock
+              </Button>
+              <Button
+                variant="outline" size="sm" className="h-6 text-[10px] px-2 gap-1"
+                disabled={lockMutation.isPending}
+                onClick={() => lockMutation.mutate({ ids: selectedArr, lock: false })}
+              >
+                <Unlock className="h-2.5 w-2.5" /> Unlock
+              </Button>
+              <Button
+                variant="outline" size="sm" className="h-6 text-[10px] px-2 gap-1"
+                disabled={regenMutation.isPending}
+                onClick={() => regenMutation.mutate(selectedArr)}
+              >
+                <RefreshCw className="h-2.5 w-2.5" /> Regen Selected
+              </Button>
+              <span className="text-[10px] text-muted-foreground">{selected.size} selected</span>
+            </>
+          )}
+        </div>
+      )}
+
       {isLoading ? (
         <div className="text-xs text-muted-foreground py-2">Loading shots…</div>
       ) : !shots || shots.length === 0 ? (
         <div className="text-xs text-muted-foreground py-2">No shots in this job.</div>
       ) : (
         <div className="space-y-1">
-          {shots.map((shot) => {
+          {shots.map((shot: any) => {
             const artifact = shot.artifact_json as any;
             const prompt = shot.prompt_json as any;
             const hasVideo = shot.status === "complete" && artifact?.publicUrl;
+            const isLocked = shot.is_locked;
+            const deltaWarnings = (shot.prompt_delta_json as any)?.warnings || [];
 
             return (
-              <div key={shot.id} className="border border-border rounded p-2 text-[10px]">
+              <div key={shot.id} className={`border rounded p-2 text-[10px] ${isLocked ? "border-primary/40 bg-primary/5" : "border-border"}`}>
                 <div className="flex items-center gap-2 mb-1">
+                  <Checkbox
+                    checked={selected.has(shot.id)}
+                    onCheckedChange={() => toggleSelect(shot.id)}
+                    className="h-3 w-3"
+                  />
                   <span className="font-mono font-medium">#{shot.shot_index}</span>
+                  {isLocked && <Lock className="h-3 w-3 text-primary" />}
                   <Badge className={`text-[10px] px-1 py-0 ${STATUS_COLORS[shot.status] || ""}`}>
                     {shot.status}
                   </Badge>
@@ -263,8 +394,59 @@ function RenderJobDetail({ jobId, lastError, projectId }: { jobId: string; lastE
                     </span>
                   )}
                   <span className="flex-1" />
+                  <Button
+                    variant="ghost" size="sm" className="h-5 w-5 p-0"
+                    onClick={() => {
+                      setEditingNote(editingNote === shot.id ? null : shot.id);
+                      setNoteText(shot.notes || "");
+                    }}
+                  >
+                    <MessageSquare className="h-3 w-3" />
+                  </Button>
                   <span className="text-muted-foreground">{prompt?.shotType || "—"}</span>
                 </div>
+
+                {/* Notes editor */}
+                {editingNote === shot.id && (
+                  <div className="mt-1 mb-1 space-y-1">
+                    <textarea
+                      className="w-full border border-border rounded px-2 py-1 text-[10px] bg-background resize-none"
+                      rows={2}
+                      value={noteText}
+                      onChange={(e) => setNoteText(e.target.value)}
+                      placeholder="e.g. brighter, slower, more handheld…"
+                    />
+                    <div className="flex gap-1">
+                      <Button
+                        size="sm" className="h-5 text-[9px] px-2"
+                        disabled={saveNoteMutation.isPending}
+                        onClick={() => saveNoteMutation.mutate({ shotId: shot.id, notes: noteText })}
+                      >
+                        Save Note
+                      </Button>
+                      <Button variant="ghost" size="sm" className="h-5 text-[9px] px-2" onClick={() => setEditingNote(null)}>
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Show existing note */}
+                {shot.notes && editingNote !== shot.id && (
+                  <div className="text-muted-foreground italic mb-1">💬 {shot.notes}</div>
+                )}
+
+                {/* Delta warnings */}
+                {deltaWarnings.length > 0 && (
+                  <div className="mb-1">
+                    {deltaWarnings.map((w: string, i: number) => (
+                      <div key={i} className="flex items-start gap-1 text-yellow-600 dark:text-yellow-400">
+                        <AlertCircle className="h-3 w-3 shrink-0 mt-0.5" />
+                        <span>{w}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
 
                 {shot.last_error && (
                   <div className="text-destructive truncate mb-1">{shot.last_error}</div>
