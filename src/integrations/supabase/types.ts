@@ -3003,6 +3003,73 @@ export type Database = {
           },
         ]
       }
+      demo_runs: {
+        Row: {
+          created_at: string
+          document_id: string | null
+          id: string
+          lane: string
+          last_error: string | null
+          links_json: Json
+          log_json: Json
+          project_id: string
+          settings_json: Json
+          status: string
+          step: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          document_id?: string | null
+          id?: string
+          lane: string
+          last_error?: string | null
+          links_json?: Json
+          log_json?: Json
+          project_id: string
+          settings_json?: Json
+          status?: string
+          step?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          document_id?: string | null
+          id?: string
+          lane?: string
+          last_error?: string | null
+          links_json?: Json
+          log_json?: Json
+          project_id?: string
+          settings_json?: Json
+          status?: string
+          step?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "demo_runs_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "project_documents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "demo_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "demo_runs_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       dev_engine_convergence_history: {
         Row: {
           allowed_gap: number | null
