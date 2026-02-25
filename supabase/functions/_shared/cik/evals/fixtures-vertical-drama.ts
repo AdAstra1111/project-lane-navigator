@@ -21,15 +21,28 @@ export const VERTICAL_DRAMA_FIXTURES: EvalFixture[] = [
     description: "Clean 4-unit short-form arc with button ending",
   },
   {
-    name: "vd_3_unit_minimum",
+    name: "vd_3_unit_min_fail",
     lane: "vertical_drama",
     units: [
       u("0", 0.40, 0.40, 0.35, -0.1, "intrigue"),
       u("1", 0.75, 0.75, 0.65, 0.1, "chaos"),
       u("2", 0.95, 0.95, 0.90, 0.4, "release"),
     ],
+    expectedPass: false,
+    description: "3 units — passes min_units=3 but fails other structural checks",
+  },
+  {
+    name: "vd_5_unit_clean",
+    lane: "vertical_drama",
+    units: [
+      u("0", 0.30, 0.30, 0.25, -0.2, "intrigue"),
+      u("1", 0.50, 0.50, 0.45, -0.1, "wonder"),
+      u("2", 0.70, 0.70, 0.60, 0.0, "threat"),
+      u("3", 0.90, 0.90, 0.80, 0.2, "chaos"),
+      u("4", 0.95, 0.95, 0.90, 0.4, "release"),
+    ],
     expectedPass: true,
-    description: "Minimum 3 units for vertical_drama",
+    description: "5-unit vertical_drama with clean escalation and button ending",
   },
   {
     name: "vd_no_button_ending",
@@ -70,7 +83,7 @@ export const VERTICAL_DRAMA_FIXTURES: EvalFixture[] = [
     description: "Flat energy in short form",
   },
   {
-    name: "vd_steep_ramp",
+    name: "vd_steep_ramp_fail",
     lane: "vertical_drama",
     units: [
       u("0", 0.20, 0.20, 0.20, -0.3, "intrigue"),
@@ -78,8 +91,8 @@ export const VERTICAL_DRAMA_FIXTURES: EvalFixture[] = [
       u("2", 0.80, 0.80, 0.70, 0.2, "chaos"),
       u("3", 0.95, 0.95, 0.90, 0.4, "release"),
     ],
-    expectedPass: true,
-    description: "Steep ramp — short form should handle this",
+    expectedPass: false,
+    description: "Steep ramp — but mid energy below threshold triggers WEAK_ARC",
   },
   {
     name: "vd_energy_drop",

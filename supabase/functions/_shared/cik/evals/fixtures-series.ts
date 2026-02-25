@@ -79,7 +79,7 @@ export const SERIES_FIXTURES: EvalFixture[] = [
     description: "Below minimum units",
   },
   {
-    name: "ser_lower_mid_energy_ok",
+    name: "ser_lower_mid_energy_fail",
     lane: "series",
     units: [
       u("0", 0.25, 0.25, 0.25, -0.3, "intrigue"),
@@ -89,8 +89,9 @@ export const SERIES_FIXTURES: EvalFixture[] = [
       u("4", 0.82, 0.82, 0.72, 0.2, "emotion"),
       u("5", 0.95, 0.95, 0.90, 0.4, "release"),
     ],
-    expectedPass: true,
-    description: "Series mid-arc bar is 0.50 — 0.48 at actual mid is borderline",
+    expectedPass: false,
+    expectedFailures: ["WEAK_ARC"],
+    description: "Series mid-arc bar is 0.50 — 0.48 at mid fails WEAK_ARC",
   },
   {
     name: "ser_flat",

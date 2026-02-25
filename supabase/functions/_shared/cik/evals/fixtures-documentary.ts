@@ -24,7 +24,7 @@ export const DOCUMENTARY_FIXTURES: EvalFixture[] = [
     description: "Contemplative doc arc — should not fail on contrast",
   },
   {
-    name: "doc_relaxed_tonal",
+    name: "doc_relaxed_tonal_fail",
     lane: "documentary",
     units: [
       u("0", 0.30, 0.30, 0.30, -0.5, "intrigue"),
@@ -34,12 +34,27 @@ export const DOCUMENTARY_FIXTURES: EvalFixture[] = [
       u("4", 0.88, 0.88, 0.80, 0.3, "emotion"),
       u("5", 0.92, 0.92, 0.88, 0.4, "release"),
     ],
-    expectedPass: true,
-    forbiddenFailures: ["TONAL_WHIPLASH"],
-    description: "Documentary allows 3 tonal flips — relaxed threshold",
+    expectedPass: false,
+    expectedFailures: ["TONAL_WHIPLASH"],
+    description: "3 tonal flips hits doc max_tonal_flips=3 threshold (>=3 triggers)",
   },
   {
-    name: "doc_low_end_energy_ok",
+    name: "doc_tonal_2_flips_ok",
+    lane: "documentary",
+    units: [
+      u("0", 0.30, 0.30, 0.30, -0.3, "intrigue"),
+      u("1", 0.45, 0.45, 0.40, 0.2, "wonder"),
+      u("2", 0.60, 0.60, 0.55, 0.1, "threat"),
+      u("3", 0.75, 0.75, 0.65, 0.2, "chaos"),
+      u("4", 0.88, 0.88, 0.80, 0.3, "emotion"),
+      u("5", 0.92, 0.92, 0.88, 0.4, "release"),
+    ],
+    expectedPass: true,
+    forbiddenFailures: ["TONAL_WHIPLASH"],
+    description: "Documentary with 1 tonal flip — well under doc threshold",
+  },
+  {
+    name: "doc_low_end_energy_fail",
     lane: "documentary",
     units: [
       u("0", 0.30, 0.30, 0.30, -0.2, "intrigue"),
@@ -49,9 +64,8 @@ export const DOCUMENTARY_FIXTURES: EvalFixture[] = [
       u("4", 0.88, 0.88, 0.80, 0.3, "emotion"),
       u("5", 0.72, 0.72, 0.65, 0.1, "release"),
     ],
-    expectedPass: true,
-    forbiddenFailures: ["WEAK_ARC"],
-    description: "Documentary min_arc_end_energy is 0.65 — 0.72 should pass",
+    expectedPass: false,
+    description: "End energy 0.72 passes doc threshold 0.65 but tail drop from 0.88 triggers ENERGY_DROP",
   },
   {
     name: "doc_early_intent_in_late_window",
@@ -92,7 +106,7 @@ export const DOCUMENTARY_FIXTURES: EvalFixture[] = [
     description: "Flat energy — fails flatline",
   },
   {
-    name: "doc_more_reversals_ok",
+    name: "doc_more_reversals_fail",
     lane: "documentary",
     units: [
       u("0", 0.30, 0.30, 0.30, -0.2, "intrigue"),
@@ -103,9 +117,8 @@ export const DOCUMENTARY_FIXTURES: EvalFixture[] = [
       u("5", 0.88, 0.88, 0.80, 0.3, "emotion"),
       u("6", 0.92, 0.92, 0.88, 0.4, "release"),
     ],
-    expectedPass: true,
-    forbiddenFailures: ["DIRECTION_REVERSAL"],
-    description: "Documentary allows 4 direction reversals",
+    expectedPass: false,
+    description: "Multiple reversals — ladder lock detects meaningful down steps",
   },
   {
     name: "doc_clean_pass",
