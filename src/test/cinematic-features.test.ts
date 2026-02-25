@@ -13,6 +13,7 @@ import { enforceUnitCount } from "../../supabase/functions/_shared/cinematic-ada
 import { computeStoryboardExpectedCount, computeTrailerExpectedCount } from "../../supabase/functions/_shared/cinematic-expected-count";
 import { analyzeLadder } from "../../supabase/functions/_shared/cik/ladderLock";
 import { lateStartIndexForUnitCount, minUpFracForUnitCount, maxZigzagFlipsForUnitCount, tailSlackForUnitCount, lateDipAbsForUnitCount } from "../../supabase/functions/_shared/cik/ladderLockConstants";
+import { buildEngineOpts } from "../../supabase/functions/_shared/cik/buildEngineOpts";
 import { getCinematicThresholds } from "../../supabase/functions/_shared/cik/thresholdProfiles";
 
 function makeUnit(overrides: Partial<CinematicUnit> & { id: string }): CinematicUnit {
@@ -1293,5 +1294,84 @@ describe("enforceCinematicQuality lane propagation (kernel boundary)", () => {
     // Both must be under MAX_REPAIR_CHARS
     expect(capturedInstructions["vertical_drama"].length).toBeLessThanOrEqual(2500);
     expect(capturedInstructions["feature_film"].length).toBeLessThanOrEqual(2500);
+});
+
+// ─── Engine Boundary Test: assigned_lane → opts.lane → repair laneArg ───
+
+describe("engine boundary: assigned_lane → opts.lane → repair laneArg", () => {
+  it("buildEngineOpts reads project.assigned_lane and kernel threads it into repair instruction", async () => {
+    const { enforceCinematicQuality } = await import("../../supabase/functions/_shared/cinematic-kernel");
+
+    // 8 units designed to fail WEAK_ARC (peak not late enough)
+    const failingUnits = [
+      makeUnit({ id: "0", energy: 0.30, tension: 0.30, density: 0.30, tonal_polarity: -0.3, intent: "intrigue" }),
+      makeUnit({ id: "1", energy: 0.40, tension: 0.40, density: 0.35, tonal_polarity: -0.2, intent: "wonder" }),
+      makeUnit({ id: "2", energy: 0.50, tension: 0.50, density: 0.40, tonal_polarity: -0.1, intent: "threat" }),
+      makeUnit({ id: "3", energy: 0.60, tension: 0.60, density: 0.50, tonal_polarity: 0.0, intent: "chaos" }),
+      makeUnit({ id: "4", energy: 0.70, tension: 0.70, density: 0.55, tonal_polarity: 0.1, intent: "chaos" }),
+      makeUnit({ id: "5", energy: 0.92, tension: 0.92, density: 0.70, tonal_polarity: 0.2, intent: "emotion" }),
+      makeUnit({ id: "6", energy: 0.88, tension: 0.88, density: 0.72, tonal_polarity: 0.3, intent: "emotion" }),
+      makeUnit({ id: "7", energy: 0.89, tension: 0.89, density: 0.75, tonal_polarity: 0.4, intent: "release" }),
+    ];
+    const rawOutput = { beats: failingUnits };
+
+    // Simulate a project row with assigned_lane
+    const project = { id: "test-project", assigned_lane: "vertical_drama" };
+
+    // Capture the laneArg the kernel passes into buildRepairInstruction
+    let capturedLaneArg: string | undefined;
+    let capturedInstruction = "";
+
+    // Use buildEngineOpts to assemble opts — this is the engine boundary under test
+    const opts = buildEngineOpts({
+      handler: "trailer-cinematic-engine",
+      phase: "engine_boundary_test",
+      model: "test",
+      project,
+      rawOutput,
+      adapter: (raw: any) => ({
+        units: raw.beats as any[],
+        mode: "explicit" as const,
+      }),
+      buildRepairInstruction: (score, unitCount, laneArg) => {
+        capturedLaneArg = laneArg;
+        capturedInstruction = buildTrailerRepairInstruction(score, unitCount, laneArg);
+        return capturedInstruction;
+      },
+      regenerateOnce: async () => rawOutput,
+      expected_unit_count: 8,
+    });
+
+    // Assert: opts.lane was correctly extracted from project.assigned_lane
+    expect(opts.lane).toBe("vertical_drama");
+
+    // Now run through the kernel to prove lane reaches buildRepairInstruction
+    opts.telemetry = () => {};
+    try {
+      await enforceCinematicQuality(opts);
+    } catch (err: any) {
+      expect(err.type).toBe("AI_CINEMATIC_QUALITY_FAIL");
+    }
+
+    // Assert: kernel passed lane into buildRepairInstruction as laneArg
+    expect(capturedLaneArg).toBe("vertical_drama");
+
+    // Assert: repair instruction contains vertical_drama-specific target
+    // vertical_drama lateStart = floor(0.65*8) = 5, so "Peak units 6–8"
+    expect(capturedInstruction).toContain("Peak units 6");
+
+    // Assert: if project had NO lane, opts.lane would be undefined
+    const noLaneOpts = buildEngineOpts({
+      handler: "test",
+      phase: "test",
+      model: "test",
+      project: { assigned_lane: null },
+      rawOutput,
+      adapter: (raw: any) => ({ units: raw.beats as any[], mode: "explicit" as const }),
+      buildRepairInstruction: buildTrailerRepairInstruction,
+      regenerateOnce: async () => rawOutput,
+    });
+    expect(noLaneOpts.lane).toBeUndefined();
   });
+});
 });
