@@ -214,6 +214,7 @@ export function useActiveSignals(filters?: StoryFilters) {
       if (filters?.saturationRisk) signals = signals.filter(s => s.saturation_risk === filters.saturationRisk);
       return signals;
     },
+    staleTime: 60_000,
   });
 }
 

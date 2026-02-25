@@ -6,7 +6,7 @@ import { Activity, HeartPulse, AlertTriangle, CheckCircle2, TrendingDown } from 
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { STYLE_BENCHMARK_LABELS, PACING_FEEL_LABELS } from '@/lib/rulesets/styleBenchmarks';
-import { useProjectCreativeDrift, type HealthStatus } from '@/hooks/useProjectCreativeDrift';
+import { useProjectCreativeDrift, type HealthStatus, type DriftScope } from '@/hooks/useProjectCreativeDrift';
 import { formatDistanceToNow } from 'date-fns';
 
 const HEALTH_CONFIG: Record<HealthStatus, { label: string; color: string; icon: typeof CheckCircle2 }> = {
@@ -53,7 +53,7 @@ export function CreativeDriftCard({ projectId, lane }: Props) {
 
   if (!data) return null;
 
-  const { benchmark, feel, benchmarkDefaults, drift, health } = data;
+  const { benchmark, feel, benchmarkDefaults, drift, health, driftScope } = data;
   const cfg = HEALTH_CONFIG[health];
   const HealthIcon = cfg.icon;
   const benchLabel = STYLE_BENCHMARK_LABELS[benchmark]?.name || benchmark;
@@ -116,6 +116,9 @@ export function CreativeDriftCard({ projectId, lane }: Props) {
             </div>
             <span className="text-[10px] text-muted-foreground">
               {formatDistanceToNow(new Date(drift.created_at), { addSuffix: true })}
+              {driftScope === 'project_wide_fallback' && (
+                <span className="ml-1 text-amber-400/80">(project-wide fallback)</span>
+              )}
             </span>
           </div>
 
