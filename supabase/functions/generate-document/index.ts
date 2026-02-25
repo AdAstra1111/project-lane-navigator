@@ -308,159 +308,155 @@ D) OUTPUT CONTRACT — At the top of your response, print:
     // 5) Generate content
     let content: string;
 
-    // ── FORENSIC TRACE MODE: Full structured diagnostics for episode beats ──
-    const isEpisodeBeatsPath = (docType === "vertical_episode_beats" || docType === "episode_beats") && resolvedQuals.is_series;
-    if (isEpisodeBeatsPath) {
-      const rawSeasonEpCount = resolvedQuals.season_episode_count;
-      const clientEpisodeCount = (body as any)?.episodeCount ?? null;
-      const episodeCountUsed = clientEpisodeCount ?? rawSeasonEpCount ?? 8;
-      const episodeCountSource = clientEpisodeCount ? "body.episodeCount (client)" : rawSeasonEpCount ? "resolvedQuals.season_episode_count" : "DEFAULT_FALLBACK_8";
-      const DIAG_BATCH_SIZE = 8;
-      const willEnterChunked = !!(isEpisodeBeatsPath && resolvedQuals.season_episode_count);
+    // ── FORENSIC DIAGNOSTICS for episode-doc types ──
+    const EPISODE_DOC_TYPES = new Set(["episode_grid", "episode_beats", "vertical_episode_beats"]);
+    const isEpisodeDocType = EPISODE_DOC_TYPES.has(docType) && resolvedQuals.is_series;
 
-      // ──────────────────────────────────────
-      // 1) PROJECT CONTEXT
-      // ──────────────────────────────────────
-      console.error("════════════════════════════════════════");
-      console.error("  FORENSIC TRACE: EPISODE BEATS");
-      console.error("════════════════════════════════════════");
+    if (isEpisodeDocType) {
+      const requestId = crypto.randomUUID();
+
+      // ── A) DIAG_REQ: Request Context ──
       console.error(JSON.stringify({
-        type: "DIAG_1_PROJECT_CONTEXT",
+        diag: "DIAG_REQ", requestId,
         project_id: projectId,
-        project_title: project.title,
-        project_format: project.format,
-        season_episode_count_raw: rawSeasonEpCount,
-        clientEpisodeCount,
-        episodeCountUsed,
-        episode_count_source: episodeCountSource,
-        is_series: resolvedQuals.is_series,
-        resolver_hash: currentHash,
-      }, null, 2));
+        document_id: (body as any)?.documentId ?? null,
+        doc_type: docType,
+        lane_format: project.format,
+        user_id: user?.id ?? null,
+        timestamp: new Date().toISOString(),
+      }));
 
-      if (!rawSeasonEpCount) {
-        console.error("⚠️ DEFAULT EPISODE COUNT USED — season_episode_count was " + JSON.stringify(rawSeasonEpCount));
-      }
-      if (episodeCountUsed <= 8 && (clientEpisodeCount > 8 || (project.format && /series/i.test(project.format)))) {
-        console.error("⚠️ EPISODE COUNT COLLAPSE DETECTED — episodeCountUsed=" + episodeCountUsed + " but expected more");
-      }
+      // ── B) DIAG_EP_COUNT: Episode Count Resolution ──
+      const clientEpCount = (body as any)?.episodeCount ?? null;
+      const qualsEpCount = resolvedQuals.season_episode_count ?? null;
+      const gcEpCount = (project as any).guardrails_config?.overrides?.qualifications?.season_episode_count ?? null;
+      // Current logic: client ?? quals ?? 8
+      const episodeCountUsed = clientEpCount ?? qualsEpCount ?? 8;
+      const episodeCountSource = clientEpCount != null
+        ? "body.episodeCount"
+        : qualsEpCount != null
+          ? "resolvedQuals.season_episode_count"
+          : "HARDCODED_FALLBACK_8";
 
-      // ──────────────────────────────────────
-      // 2) GENERATION PATH
-      // ──────────────────────────────────────
       console.error(JSON.stringify({
-        type: "DIAG_2_GENERATION_PATH",
-        isEpisodeBeatsPath: true,
-        willEnterChunkedGenerator: willEnterChunked,
-        willUseFallbackCallLLM: !willEnterChunked,
-        reason: willEnterChunked
-          ? "resolvedQuals.season_episode_count is truthy → chunked path"
-          : "resolvedQuals.season_episode_count is falsy (" + JSON.stringify(rawSeasonEpCount) + ") → FALLBACK to single callLLM",
-      }, null, 2));
+        diag: "DIAG_EP_COUNT", requestId,
+        candidates: {
+          "body.episodeCount": clientEpCount,
+          "resolvedQuals.season_episode_count": qualsEpCount,
+          "guardrails_config.overrides.qualifications.season_episode_count": gcEpCount,
+        },
+        episodeCountUsed,
+        episodeCountSource,
+      }));
 
+      if (episodeCountUsed <= 8 && (clientEpCount != null && clientEpCount > 8 || qualsEpCount != null && qualsEpCount > 8 || gcEpCount != null && gcEpCount > 8)) {
+        console.error(JSON.stringify({
+          diag: "⚠️ EPISODE_COUNT_COLLAPSE", requestId,
+          message: `episodeCountUsed=${episodeCountUsed} but a source indicates >8`,
+          candidates: { clientEpCount, qualsEpCount, gcEpCount },
+        }));
+      }
+      if (episodeCountSource === "HARDCODED_FALLBACK_8") {
+        console.error(JSON.stringify({
+          diag: "⚠️ DEFAULT_EPISODE_COUNT_USED", requestId,
+          message: "All episode count sources are null — falling back to 8",
+        }));
+      }
+
+      // ── C) DIAG_PATH: Generation Path ──
+      const willEnterChunked = !!((docType === "vertical_episode_beats" || docType === "episode_beats") && resolvedQuals.season_episode_count);
+      const BATCH_SIZE_CONST = 8;
+      console.error(JSON.stringify({
+        diag: "DIAG_PATH", requestId,
+        chunked_generator: willEnterChunked,
+        single_shot_callLLM: !willEnterChunked,
+        branch_condition: willEnterChunked
+          ? `(docType=${docType}) && resolvedQuals.season_episode_count=${qualsEpCount} → chunked`
+          : `resolvedQuals.season_episode_count is falsy (${qualsEpCount}) or docType=${docType} not in chunked set → single callLLM`,
+        batch_size: BATCH_SIZE_CONST,
+      }));
       if (!willEnterChunked) {
-        console.error("⚠️ FALLBACK PATH USED — generation will use single callLLM(), NOT chunked generator");
+        console.error(JSON.stringify({
+          diag: "⚠️ FALLBACK_PATH_USED", requestId,
+          message: "Single callLLM() will be used — 12K token limit will truncate long episode lists",
+        }));
       }
 
-      // ──────────────────────────────────────
-      // 3) BATCHING TRACE
-      // ──────────────────────────────────────
-      const diagBatches: number[][] = [];
-      for (let i = 1; i <= episodeCountUsed; i += DIAG_BATCH_SIZE) {
-        const batch: number[] = [];
-        for (let j = i; j <= Math.min(i + DIAG_BATCH_SIZE - 1, episodeCountUsed); j++) {
-          batch.push(j);
-        }
-        diagBatches.push(batch);
-      }
-      console.error(JSON.stringify({
-        type: "DIAG_3_BATCHING_TRACE",
-        BATCH_SIZE: DIAG_BATCH_SIZE,
-        episodeCountUsed,
-        calculated_batch_ranges: diagBatches.map(b => `${b[0]}-${b[b.length-1]}`),
-        total_batches_expected: diagBatches.length,
-      }, null, 2));
-
-      // ──────────────────────────────────────
-      // 4) UPSTREAM DOCUMENT TRACE
-      // ──────────────────────────────────────
+      // ── D) DIAG_UPSTREAM_DOCS: Upstream Document Forensics ──
       const upstreamDiag: any[] = [];
       if (upstreamTypes.length > 0) {
-        const { data: allDocsForDiag } = await supabase.from("project_documents")
+        const { data: diagDocs } = await supabase.from("project_documents")
           .select("id, doc_type, latest_version_id, project_id, created_at")
           .eq("project_id", projectId)
           .in("doc_type", upstreamTypes);
 
-        const diagVersionIds = (allDocsForDiag || []).filter((d: any) => d.latest_version_id).map((d: any) => d.latest_version_id);
-        let diagVersionMap = new Map<string, any>();
-        if (diagVersionIds.length > 0) {
-          const { data: diagVersions } = await supabase.from("project_document_versions")
+        const diagVIds = (diagDocs || []).filter((d: any) => d.latest_version_id).map((d: any) => d.latest_version_id);
+        let diagVerMap = new Map<string, any>();
+        if (diagVIds.length > 0) {
+          const { data: diagVers } = await supabase.from("project_document_versions")
             .select("id, document_id, version_number, plaintext, created_at")
-            .in("id", diagVersionIds);
-          diagVersionMap = new Map((diagVersions || []).map((v: any) => [v.id, v]));
+            .in("id", diagVIds);
+          diagVerMap = new Map((diagVers || []).map((v: any) => [v.id, v]));
         }
 
-        for (const doc of (allDocsForDiag || [])) {
-          const ver = doc.latest_version_id ? diagVersionMap.get(doc.latest_version_id) : null;
-          const snippet = ver?.plaintext ? ver.plaintext.substring(0, 500) : "(no content)";
+        for (const doc of (diagDocs || [])) {
+          const ver = doc.latest_version_id ? diagVerMap.get(doc.latest_version_id) : null;
           upstreamDiag.push({
             document_id: doc.id,
             project_id: doc.project_id,
             doc_type: doc.doc_type,
-            version_id: ver?.id || null,
-            version_number: ver?.version_number || null,
+            latest_version_id: doc.latest_version_id,
+            version_number: ver?.version_number ?? null,
             created_at: doc.created_at,
-            content_first_500: snippet,
+            content_first_300: ver?.plaintext ? ver.plaintext.substring(0, 300) : "(no content)",
           });
-
           if (doc.project_id !== projectId) {
-            console.error(`⚠️ CROSS-PROJ LEAK DETECTED — doc ${doc.id} (${doc.doc_type}) belongs to project ${doc.project_id}, expected ${projectId}`);
+            console.error(JSON.stringify({
+              diag: "⚠️ CROSS_PROJECT_LEAK", requestId,
+              document_id: doc.id,
+              doc_type: doc.doc_type,
+              doc_project_id: doc.project_id,
+              request_project_id: projectId,
+            }));
           }
         }
       }
-      console.error(JSON.stringify({ type: "DIAG_4_UPSTREAM_DOCUMENTS", count: upstreamDiag.length, documents: upstreamDiag }, null, 2));
-
-      // ──────────────────────────────────────
-      // 5) PROMPT CONTENT TRACE — "Maya" scan
-      // ──────────────────────────────────────
-      const mayaSources: string[] = [];
-      if (system.includes("Maya")) mayaSources.push("system_prompt");
-      if (userPrompt.includes("Maya")) mayaSources.push("user_prompt");
-      if (additionalContext && additionalContext.includes("Maya")) mayaSources.push("additionalContext");
-      if (upstreamContent.includes("Maya")) mayaSources.push("upstreamContent");
-
-      if (mayaSources.length > 0) {
-        for (const src of mayaSources) {
-          console.error(`⚠️ MAYA FOUND IN: ${src}`);
-        }
-        // Attribute to specific upstream docs
-        for (const doc of upstreamDiag) {
-          if (doc.content_first_500.includes("Maya")) {
-            console.error(`  → "Maya" present in upstream ${doc.doc_type} (doc_id: ${doc.document_id}, project_id: ${doc.project_id})`);
-          }
-        }
-      } else {
-        console.error("✅ No 'Maya' found in any prompt input.");
-      }
-
       console.error(JSON.stringify({
-        type: "DIAG_5_PROMPT_CONTENT_TRACE",
-        system_prompt_length: system.length,
-        system_prompt_first_500: system.substring(0, 500),
-        user_prompt_length: userPrompt.length,
-        user_prompt_first_500: userPrompt.substring(0, 500),
-        upstream_content_length: upstreamContent.length,
-        upstream_content_first_500: upstreamContent.substring(0, 500),
-        additional_context: additionalContext || null,
-        maya_found_in: mayaSources,
-      }, null, 2));
+        diag: "DIAG_UPSTREAM_DOCS", requestId,
+        count: upstreamDiag.length,
+        documents: upstreamDiag,
+      }));
 
-      console.error("════════════════════════════════════════");
-      console.error("  END FORENSIC PRE-GENERATION TRACE");
-      console.error("════════════════════════════════════════");
+      // ── E) DIAG_MAYA_SCAN: "Maya" Source Attribution ──
+      const mayaHits: Record<string, boolean> = {
+        system_prompt: system.includes("Maya"),
+        user_prompt: userPrompt.includes("Maya"),
+        additionalContext: !!(additionalContext && additionalContext.includes("Maya")),
+        upstreamContent: upstreamContent.includes("Maya"),
+      };
+      const mayaUpstreamDocs = upstreamDiag
+        .filter(d => d.content_first_300.includes("Maya"))
+        .map(d => ({ document_id: d.document_id, doc_type: d.doc_type, project_id: d.project_id }));
+
+      const anyMaya = Object.values(mayaHits).some(Boolean);
+      console.error(JSON.stringify({
+        diag: "DIAG_MAYA_SCAN", requestId,
+        found: anyMaya,
+        locations: mayaHits,
+        attributed_upstream_docs: mayaUpstreamDocs,
+      }));
+      if (anyMaya) {
+        console.error(JSON.stringify({
+          diag: "⚠️ MAYA_DETECTED", requestId,
+          message: `"Maya" found in: ${Object.entries(mayaHits).filter(([,v]) => v).map(([k]) => k).join(", ")}`,
+          upstream_attribution: mayaUpstreamDocs,
+        }));
+      }
     }
 
     // ── Special path for episode beats: chunked generation with completeness guard ──
     const finalEpisodeCount = (body as any)?.episodeCount ?? resolvedQuals.season_episode_count ?? null;
+    const isEpisodeBeatsPath = (docType === "vertical_episode_beats" || docType === "episode_beats") && resolvedQuals.is_series;
     if (isEpisodeBeatsPath && finalEpisodeCount) {
       content = await generateEpisodeBeatsChunked({
         apiKey,
@@ -470,34 +466,31 @@ D) OUTPUT CONTRACT — At the top of your response, print:
         projectTitle: project.title || "Untitled",
       });
 
-      // ──────────────────────────────────────
-      // 6) OUTPUT VALIDATION
-      // ──────────────────────────────────────
-      console.error("════════════════════════════════════════");
-      console.error("  FORENSIC POST-GENERATION VALIDATION");
-      console.error("════════════════════════════════════════");
-      const epHeaderPattern = /^#{1,3}\s*(?:EPISODE|EP\.?)\s*(\d+)\b/gim;
+      // ── F) DIAG_OUTPUT_VALIDATION ──
+      const valRequestId = isEpisodeDocType ? "(see DIAG_REQ above)" : crypto.randomUUID();
+      const epHeaderPattern = /^#{1,3}\s*(?:EPISODE|EP\.?\s*)(\d+)\b/gim;
       const epMatches = [...content.matchAll(epHeaderPattern)];
-      const extractedEpNums = epMatches.map(m => parseInt(m[1], 10)).sort((a, b) => a - b);
-      const expectedRange = Array.from({ length: resolvedQuals.season_episode_count }, (_, i) => i + 1);
+      const extractedEpNums = [...new Set(epMatches.map(m => parseInt(m[1], 10)))].sort((a, b) => a - b);
+      const expectedRange = Array.from({ length: finalEpisodeCount }, (_, i) => i + 1);
       const missingEps = expectedRange.filter(n => !extractedEpNums.includes(n));
 
       console.error(JSON.stringify({
-        type: "DIAG_6_OUTPUT_VALIDATION",
+        diag: "DIAG_OUTPUT_VALIDATION", requestId: valRequestId,
         extracted_episode_numbers: extractedEpNums,
-        expected_range: `1-${resolvedQuals.season_episode_count}`,
+        expected_range: `1-${finalEpisodeCount}`,
         total_extracted: extractedEpNums.length,
-        total_expected: resolvedQuals.season_episode_count,
+        total_expected: finalEpisodeCount,
         missing_episodes: missingEps,
         output_length_chars: content.length,
-      }, null, 2));
+      }));
 
       if (missingEps.length > 0) {
-        console.error("⚠️ TRUNCATION DETECTED — missing episodes: " + missingEps.join(", "));
-      } else {
-        console.error("✅ All " + resolvedQuals.season_episode_count + " episodes present in output.");
+        console.error(JSON.stringify({
+          diag: "⚠️ TRUNCATION_DETECTED", requestId: valRequestId,
+          missing_episodes: missingEps,
+          message: `${missingEps.length} episodes missing from output`,
+        }));
       }
-      console.error("════════════════════════════════════════");
     } else {
       content = await callLLM(apiKey, system, userPrompt);
     }
