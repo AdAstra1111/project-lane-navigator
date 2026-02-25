@@ -3023,35 +3023,10 @@ async function handleRunTrailerPipeline(db: any, body: any, userId: string, apiK
       return json({ ok: false, steps, scriptRunId, error: reason }, 409);
     }
 
-    // Step 2: Initial judge for repair check
-    const judge1Result = await handleRunJudge(db, { projectId, scriptRunId }, userId, apiKey);
-    const judge1Body = await judge1Result.json();
-
-    if (judge1Body.repairActions?.length > 0) {
-      steps.push({ step: "initial_judge", status: "needs_repair", id: judge1Body.judgeRunId });
-      // Step 2b: Repair
-      const repairResult = await handleRepairScript(db, {
-        projectId, scriptRunId, judgeRunId: judge1Body.judgeRunId, canonPackId,
-      }, userId, apiKey);
-      const repairBody = await repairResult.json();
-      if (!repairBody?.ok && repairBody?.error) {
-        steps.push({ step: "repair", status: "failed", error: repairBody.error });
-        return json({ ok: false, steps, scriptRunId, error: `Repair failed: ${repairBody.error}` }, 400);
-      }
-      steps.push({ step: "repair", status: repairBody.status || "complete" });
-
-      // Repair can return before beat updates are visible on replicated reads; re-check.
-      const postRepairReady = await waitForScriptReadiness(db, projectId, scriptRunId, {
-        timeoutMs: 15_000,
-        pollMs: 1_000,
-      });
-      if (!postRepairReady.ready) {
-        steps.push({ step: "script_readiness_post_repair", status: "pending", error: "Repaired script beats are not ready yet" });
-        return json({ ok: false, steps, scriptRunId, error: "Repaired script beats are not ready yet" }, 409);
-      }
-    } else {
-      steps.push({ step: "initial_judge", status: "passed", id: judge1Body.judgeRunId });
-    }
+    // Step 2: Skip mid-pipeline repair pass to avoid gateway timeout.
+    // create_trailer_script_v2 already performs CIK quality + repair attempt when needed.
+    // Keep only final judge after rhythm + shot design.
+    steps.push({ step: "initial_judge", status: "deferred" });
 
     // Step 3: Rhythm grid — check existing
     const { data: existingRhythm } = await db.from("trailer_rhythm_runs")
