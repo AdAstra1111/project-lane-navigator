@@ -1073,3 +1073,78 @@ describe("v4.3 button ending", () => {
     expect(instr.length).toBeLessThanOrEqual(2500);
   });
 });
+
+// ─── CIK v4.4 Unit Role Lock Tests ───
+
+describe("v4.4 unit role lock", () => {
+  // Helper: build a 6-unit ramp with customizable intents per position
+  function makeRoleLockUnits(intents: string[]) {
+    return intents.map((intent, i) => makeUnit({
+      id: `${i}`,
+      energy: 0.35 + i * 0.12,
+      tension: 0.35 + i * 0.12,
+      density: 0.35 + i * 0.08,
+      tonal_polarity: -0.2 + i * 0.15,
+      intent: intent as any,
+    }));
+  }
+
+  it("feature_film: early window dominated by MID triggers WEAK_ARC", () => {
+    // 6 units: earlyEnd=ceil(6*0.3)=2, so indices 0-1 are early window
+    // Both early units are MID → roleMismatchCountEarly=2 > 1
+    const units = makeRoleLockUnits(["threat", "chaos", "chaos", "threat", "emotion", "release"]);
+    const score = scoreCinematic(units, { lane: "feature_film" });
+    expect(score.failures).toContain("WEAK_ARC");
+  });
+
+  it("series: last 2 units not LATE triggers WEAK_ARC", () => {
+    // Second-to-last is MID → triggers WEAK_ARC
+    const units = makeRoleLockUnits(["intrigue", "threat", "chaos", "emotion", "threat", "release"]);
+    const score = scoreCinematic(units, { lane: "series" });
+    expect(score.failures).toContain("WEAK_ARC");
+  });
+
+  it("vertical_drama: first unit MID triggers WEAK_ARC", () => {
+    const units = makeRoleLockUnits(["threat", "threat", "chaos", "emotion", "emotion", "release"]);
+    const score = scoreCinematic(units, { lane: "vertical_drama" });
+    expect(score.failures).toContain("WEAK_ARC");
+  });
+
+  it("vertical_drama: last unit not LATE triggers WEAK_ARC", () => {
+    const units = makeRoleLockUnits(["intrigue", "threat", "chaos", "emotion", "release", "intrigue"]);
+    const score = scoreCinematic(units, { lane: "vertical_drama" });
+    expect(score.failures).toContain("WEAK_ARC");
+  });
+
+  it("documentary: EARLY intent in final 30% triggers WEAK_ARC", () => {
+    // lateStart=max(2, 6-2)=4, so indices 4-5 are late window
+    const units = makeRoleLockUnits(["intrigue", "threat", "chaos", "emotion", "intrigue", "release"]);
+    const score = scoreCinematic(units, { lane: "documentary" });
+    expect(score.failures).toContain("WEAK_ARC");
+  });
+
+  it("clean sequence does not add role lock failures", () => {
+    // Perfect role-aligned sequence
+    const units = makeRoleLockUnits(["intrigue", "wonder", "threat", "chaos", "emotion", "release"]);
+    const score = scoreCinematic(units, { lane: "feature_film" });
+    // Should not have WEAK_ARC or PACING_MISMATCH from role lock
+    // (may have other failures from numeric checks, but role lock specifically shouldn't fire)
+    const seq = analyzeIntentSequencing(units, "feature_film");
+    expect(seq.roleMismatchCountEarly).toBe(0);
+    expect(seq.roleMismatchCountMid).toBeLessThanOrEqual(1);
+    expect(seq.roleMismatchCountLate).toBe(0);
+    expect(seq.lateHasEarlyIntent).toBe(false);
+  });
+
+  it("repair prompt contains UNIT ROLE LOCK and stays <= 2500", () => {
+    const score: CinematicScore = {
+      score: 0.3, pass: false,
+      failures: ["WEAK_ARC", "PACING_MISMATCH"] as CinematicFailureCode[],
+      hard_failures: ["WEAK_ARC", "PACING_MISMATCH"] as CinematicFailureCode[],
+      diagnostic_flags: [], penalty_breakdown: [], metrics: {} as any,
+    };
+    const instr = buildTrailerRepairInstruction(score, 6);
+    expect(instr).toContain("UNIT ROLE LOCK");
+    expect(instr.length).toBeLessThanOrEqual(2500);
+  });
+});

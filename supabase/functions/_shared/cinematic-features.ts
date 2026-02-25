@@ -12,6 +12,12 @@ export interface IntentSequencing {
   intentFlipRate: number;
   finalIntentClass: IntentClass;
   finalIsButton: boolean;
+  // CIK v4.4 — Unit Role Lock
+  firstIntentClass: IntentClass;
+  roleMismatchCountEarly: number;
+  roleMismatchCountMid: number;
+  roleMismatchCountLate: number;
+  lateHasEarlyIntent: boolean;
 }
 
 export interface CinematicFeatures {
@@ -222,11 +228,14 @@ export function classifyIntent(raw: string): IntentClass {
 
 export function analyzeIntentSequencing(units: CinematicUnit[], lane?: string): IntentSequencing {
   const n = units.length;
+  const firstIntentClass: IntentClass = n > 0 ? classifyIntent(units[0].intent) : "other";
   const finalIntentClass: IntentClass = n > 0 ? classifyIntent(units[n - 1].intent) : "other";
   const finalIsButton = finalIntentClass === "late";
   const defaultResult: IntentSequencing = {
     earlyLateInversion: false, excessOscillation: false, intentFlipRate: 0,
-    finalIntentClass, finalIsButton,
+    finalIntentClass, finalIsButton, firstIntentClass,
+    roleMismatchCountEarly: 0, roleMismatchCountMid: 0, roleMismatchCountLate: 0,
+    lateHasEarlyIntent: false,
   };
   if (n < 4) return defaultResult;
 
@@ -254,5 +263,30 @@ export function analyzeIntentSequencing(units: CinematicUnit[], lane?: string): 
   const intentFlipRate = n >= 2 ? flips / (n - 1) : 0;
   const excessOscillation = intentFlipRate > 0.8 && backAndForth >= 2;
 
-  return { earlyLateInversion, excessOscillation, intentFlipRate, finalIntentClass, finalIsButton };
+  // CIK v4.4 — Unit Role Lock: count off-role intents per window
+  // "other" is neutral (never a mismatch)
+  let roleMismatchCountEarly = 0;
+  let roleMismatchCountMid = 0;
+  let roleMismatchCountLate = 0;
+  let lateHasEarlyIntent = false;
+
+  for (let i = 0; i < n; i++) {
+    const cls = classifyIntent(units[i].intent);
+    if (cls === "other") continue;
+    if (i < earlyEnd) {
+      if (cls !== "early") roleMismatchCountEarly++;
+    } else if (i >= lateStart) {
+      if (cls !== "late") roleMismatchCountLate++;
+      if (cls === "early") lateHasEarlyIntent = true;
+    } else {
+      if (cls !== "mid") roleMismatchCountMid++;
+    }
+  }
+
+  return {
+    earlyLateInversion, excessOscillation, intentFlipRate,
+    finalIntentClass, finalIsButton, firstIntentClass,
+    roleMismatchCountEarly, roleMismatchCountMid, roleMismatchCountLate,
+    lateHasEarlyIntent,
+  };
 }
