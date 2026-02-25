@@ -18,6 +18,7 @@ import { Check, Copy, Plus, Film, Loader2, Zap, Layers, RefreshCw, AlertTriangle
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { cinematicApi } from '@/lib/trailerPipeline/cinematicApi';
+import { READY_STATUSES, isReadyStatus } from '@/lib/trailerPipeline/constants';
 
 // ─── Types ───
 
@@ -33,7 +34,8 @@ export interface TrailerPlan {
   error: string | null;
 }
 
-export const READY_STATUSES = ['ready', 'complete', 'v2_shim'];
+// Re-export for backwards compatibility
+export { READY_STATUSES } from '@/lib/trailerPipeline/constants';
 
 export type VariantType = 'FAST' | 'DEEP' | 'FULL_REBUILD';
 
@@ -48,7 +50,7 @@ function planLabel(p: TrailerPlan): string {
 }
 
 function statusBadge(status: string) {
-  if (READY_STATUSES.includes(status))
+  if (isReadyStatus(status))
     return <Badge variant="default" className="text-[10px]">Ready</Badge>;
   if (status === 'failed' || status === 'error')
     return <Badge variant="destructive" className="text-[10px]">Failed</Badge>;
@@ -104,7 +106,7 @@ export function useTrailerPlans(projectId: string | undefined) {
 export function useAutoSelectPlan(projectId: string | undefined) {
   const { data: plans } = useTrailerPlans(projectId);
   return useMemo(() => {
-    const ready = (plans || []).filter(p => READY_STATUSES.includes(p.status));
+    const ready = (plans || []).filter(p => isReadyStatus(p.status));
     return ready.length > 0 ? ready[0].id : undefined;
   }, [plans]);
 }
@@ -136,9 +138,9 @@ export function TrailerPlansPanel({ projectId, activePlanId, onSelectPlan, scrip
   const [voiceover, setVoiceover] = useState('none');
   const [exploration, setExploration] = useState([5]);
 
-  const readyPlans = useMemo(() => (plans || []).filter(p => READY_STATUSES.includes(p.status)), [plans]);
+  const readyPlans = useMemo(() => (plans || []).filter(p => isReadyStatus(p.status)), [plans]);
   const failedPlans = useMemo(() => (plans || []).filter(p => p.status === 'failed' || p.status === 'error'), [plans]);
-  const otherPlans = useMemo(() => (plans || []).filter(p => !READY_STATUSES.includes(p.status) && p.status !== 'failed' && p.status !== 'error'), [plans]);
+  const otherPlans = useMemo(() => (plans || []).filter(p => !isReadyStatus(p.status) && p.status !== 'failed' && p.status !== 'error'), [plans]);
 
   // ─── Rename mutation ───
   const renameMutation = useMutation({
@@ -212,7 +214,7 @@ export function TrailerPlansPanel({ projectId, activePlanId, onSelectPlan, scrip
         .insert({
           project_id: projectId,
           arc_type: source.arc_type,
-          status: READY_STATUSES.includes(source.status) ? source.status : 'draft',
+          status: isReadyStatus(source.status) ? source.status : 'draft',
           created_by: user.id,
           options: opts as any,
           edl: source.edl as any,

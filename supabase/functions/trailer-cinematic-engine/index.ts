@@ -2558,7 +2558,7 @@ async function handleStartClipGeneration(db: any, body: any, userId: string) {
   const beatMap = new Map((allBeats || []).map((b: any) => [b.id, b]));
   const packItems = scriptRun.canon_context_meta_json?.used || [];
 
-  // ── Create v2 blueprint shim (required: trailer_clip_runs/jobs have NOT NULL blueprint_id) ──
+  // ── Create v2 blueprint (complete means blueprint is clip-enqueue-ready — EDL is final) ──
   const edlItems = (allBeats || []).map((b: any) => ({
     beat_index: b.beat_index,
     phase: b.phase,
@@ -2572,7 +2572,7 @@ async function handleStartClipGeneration(db: any, body: any, userId: string) {
   const { data: blueprint, error: bpErr } = await db.from("trailer_blueprints").insert({
     project_id: projectId,
     arc_type: scriptRun.trailer_type || "main",
-    status: "ready",
+    status: "complete",
     edl: edlItems,
     rhythm_analysis: { source: "cinematic_engine_v2", script_run_id: scriptRunId, rhythm_run_id: rhythmRunId || null },
     audio_plan: {},
