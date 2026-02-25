@@ -27,7 +27,7 @@ import {
 import { StagedProgressBar } from '@/components/system/StagedProgressBar';
 import { warningActionFor } from '@/lib/warningActions';
 import { dedupeWarningsStable } from '@/lib/warningUtils';
-import { buildWarningsReport, copyTextToClipboard } from '@/lib/warningsReport';
+import { buildWarningsReport, copyTextToClipboard, buildPageLinkWithAnchor } from '@/lib/warningsReport';
 import {
   useScriptRuns, useScriptBeats, useRhythmRuns, useShotDesignRuns,
   useJudgeRuns, useCinematicMutations,
@@ -459,6 +459,17 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
                   }}
                 >
                   Copy
+                </button>
+                <button
+                  type="button"
+                  className="ml-1 rounded-md bg-muted px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-muted/80"
+                  onClick={() => {
+                    const anchorId = selectedWarning ? warningAnchorId(selectedWarning) : null;
+                    const link = buildPageLinkWithAnchor(anchorId);
+                    if (link) void copyTextToClipboard(link);
+                  }}
+                >
+                  Copy link
                 </button>
                 <div className="flex flex-wrap gap-1 ml-1">
                   {warningsPreview.map((w, i) => {

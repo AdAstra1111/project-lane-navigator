@@ -4,7 +4,7 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { warningActionFor as sbWarningActionFor } from '@/lib/warningActions';
 import { dedupeWarningsStable } from '@/lib/warningUtils';
-import { buildWarningsReport, copyTextToClipboard } from '@/lib/warningsReport';
+import { buildWarningsReport, copyTextToClipboard, buildPageLinkWithAnchor } from '@/lib/warningsReport';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, Layers, Image, RefreshCw, Check, Loader2, Camera, ChevronDown, ChevronRight, Play, Square, AlertTriangle, FileDown, Archive, ExternalLink, Trash2, Film, Settings2, Copy, Link2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -426,6 +426,17 @@ export default function StoryboardPipeline() {
                             }}
                           >
                             Copy
+                          </button>
+                          <button
+                            type="button"
+                            className="ml-1 rounded-md bg-muted px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-muted/80"
+                            onClick={() => {
+                              const anchorId = selectedSBWarning ? sbWarningAnchorId(selectedSBWarning) : null;
+                              const link = buildPageLinkWithAnchor(anchorId);
+                              if (link) void copyTextToClipboard(link);
+                            }}
+                          >
+                            Copy link
                           </button>
                           <div className="flex flex-wrap gap-1">
                             {sbWarningsPreview.map((w, i) => {
