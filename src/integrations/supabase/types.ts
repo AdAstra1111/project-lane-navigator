@@ -19336,8 +19336,11 @@ export type Database = {
           attempt_count: number
           created_at: string
           id: string
+          is_locked: boolean
           job_id: string
           last_error: string | null
+          notes: string | null
+          prompt_delta_json: Json
           prompt_json: Json
           shot_index: number
           status: string
@@ -19348,8 +19351,11 @@ export type Database = {
           attempt_count?: number
           created_at?: string
           id?: string
+          is_locked?: boolean
           job_id: string
           last_error?: string | null
+          notes?: string | null
+          prompt_delta_json?: Json
           prompt_json?: Json
           shot_index: number
           status?: string
@@ -19360,8 +19366,11 @@ export type Database = {
           attempt_count?: number
           created_at?: string
           id?: string
+          is_locked?: boolean
           job_id?: string
           last_error?: string | null
+          notes?: string | null
+          prompt_delta_json?: Json
           prompt_json?: Json
           shot_index?: number
           status?: string
@@ -19999,8 +20008,11 @@ export type Database = {
           attempt_count: number
           created_at: string
           id: string
+          is_locked: boolean
           job_id: string
           last_error: string | null
+          notes: string | null
+          prompt_delta_json: Json
           prompt_json: Json
           shot_index: number
           status: string
