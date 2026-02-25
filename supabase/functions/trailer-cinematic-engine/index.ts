@@ -1508,7 +1508,20 @@ No commentary. No explanation. No markdown. Only valid JSON.${rhythmContext}`);
       maxTokens: 14000,
     }, {
       handler: "create_shot_design_v2",
-      validate: (d): d is any => d && (Array.isArray(d.shot_specs) || Array.isArray(d.shots)),
+      validate: (d): d is any => {
+        if (!d || typeof d !== "object") return false;
+        // Accept shot_specs, shots, or any top-level array property containing objects with beat_index
+        if (Array.isArray(d.shot_specs) && d.shot_specs.length > 0) return true;
+        if (Array.isArray(d.shots) && d.shots.length > 0) return true;
+        // Fallback: find any array of objects with beat_index
+        for (const key of Object.keys(d)) {
+          if (Array.isArray(d[key]) && d[key].length > 0 && typeof d[key][0] === "object" && "beat_index" in d[key][0]) {
+            d.shot_specs = d[key]; // normalize
+            return true;
+          }
+        }
+        return false;
+      },
     });
     const shotSpecs = parsed.shot_specs || parsed.shots || [];
 
@@ -3066,12 +3079,21 @@ async function handleRunTrailerPipeline(db: any, body: any, userId: string, apiK
       shotDesignRunId = existingShotDesign.id;
       steps.push({ step: "shot_design", status: "skipped", id: shotDesignRunId });
     } else {
-      const shotResult = await handleCreateShotDesign(db, {
-        projectId, scriptRunId, rhythmRunId, seed: seed ? `${seed}-shots` : undefined,
-      }, userId, apiKey);
-      const shotBody = await shotResult.json();
-      if (!shotBody.shotDesignRunId) {
-        steps.push({ step: "shot_design", status: "failed", error: shotBody.error || "Shot design failed" });
+      // Attempt shot design with one retry on parse/validation failure
+      let shotBody: any;
+      for (let shotAttempt = 0; shotAttempt < 2; shotAttempt++) {
+        const shotResult = await handleCreateShotDesign(db, {
+          projectId, scriptRunId, rhythmRunId,
+          seed: seed ? `${seed}-shots${shotAttempt > 0 ? `-r${shotAttempt}` : ""}` : (shotAttempt > 0 ? `retry-${shotAttempt}` : undefined),
+        }, userId, apiKey);
+        shotBody = await shotResult.json();
+        if (shotBody.shotDesignRunId && shotBody.ok !== false) break;
+        if (shotAttempt === 0) {
+          steps.push({ step: "shot_design_attempt_1", status: "failed", error: shotBody.error || "Parse error, retrying..." });
+        }
+      }
+      if (!shotBody?.shotDesignRunId || shotBody?.ok === false) {
+        steps.push({ step: "shot_design", status: "failed", error: shotBody?.error || "Shot design failed" });
         return json({ ok: false, steps, scriptRunId, rhythmRunId, error: "Shot design failed" });
       }
       shotDesignRunId = shotBody.shotDesignRunId;
