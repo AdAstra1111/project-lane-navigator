@@ -11,7 +11,7 @@
  *   create_full_cinematic_trailer_plan  (orchestrator: runs 1-4 sequentially)
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { callLLM, MODELS, composeSystem, callLLMWithJsonRetry, parseAiJson } from "../_shared/llm.ts";
+import { callLLM, MODELS, composeSystem, callLLMWithJsonRetry, parseAiJson, callLLMChunked } from "../_shared/llm.ts";
 import { compileTrailerContext } from "../_shared/trailerContext.ts";
 import { enforceCinematicQuality } from "../_shared/cinematic-kernel.ts";
 import { adaptTrailerOutput, adaptTrailerOutputWithMode } from "../_shared/cinematic-adapters.ts";
@@ -1499,33 +1499,94 @@ DURATION RULES:
 Do NOT include copyrighted references. Do NOT invent new characters/locations. Use citations implicitly.
 No commentary. No explanation. No markdown. Only valid JSON.${rhythmContext}`);
 
-    let parsed = await callLLMWithJsonRetry({
-      apiKey,
-      model: MODELS.PRO,
-      system,
-      user: `BEATS:\n${beatSummary}\nSeed: ${resolvedSeed}`,
-      temperature: 0.35,
-      maxTokens: 14000,
-    }, {
-      handler: "create_shot_design_v2",
-      validate: (d): d is any => {
-        if (!d) return false;
-        // Case 1: raw array — LLM returned [...] instead of { shot_specs: [...] }
-        if (Array.isArray(d) && d.length > 0) return true;
-        if (typeof d !== "object") return false;
-        // Case 2: proper wrapper with shot_specs or shots
-        if (Array.isArray(d.shot_specs) && d.shot_specs.length > 0) return true;
-        if (Array.isArray(d.shots) && d.shots.length > 0) return true;
-        // Case 3: any array property containing objects
-        for (const key of Object.keys(d)) {
-          if (Array.isArray(d[key]) && d[key].length > 0 && typeof d[key][0] === "object") {
-            d.shot_specs = d[key];
-            return true;
+    let parsed: any;
+    try {
+      parsed = await callLLMWithJsonRetry({
+        apiKey,
+        model: MODELS.PRO,
+        system,
+        user: `BEATS:\n${beatSummary}\nSeed: ${resolvedSeed}`,
+        temperature: 0.35,
+        maxTokens: 14000,
+      }, {
+        handler: "create_shot_design_v2",
+        validate: (d): d is any => {
+          if (!d) return false;
+          // Case 1: raw array — LLM returned [...] instead of { shot_specs: [...] }
+          if (Array.isArray(d) && d.length > 0) return true;
+          if (typeof d !== "object") return false;
+          // Case 2: proper wrapper with shot_specs or shots
+          if (Array.isArray(d.shot_specs) && d.shot_specs.length > 0) return true;
+          if (Array.isArray(d.shots) && d.shots.length > 0) return true;
+          // Case 3: any array property containing objects
+          for (const key of Object.keys(d)) {
+            if (Array.isArray(d[key]) && d[key].length > 0 && typeof d[key][0] === "object") {
+              d.shot_specs = d[key];
+              return true;
+            }
           }
-        }
-        return false;
-      },
-    });
+          return false;
+        },
+      });
+    } catch (err: any) {
+      const isAiJsonParseError = err?.type === "AI_JSON_PARSE_ERROR" || String(err?.message || "").includes("AI_JSON_PARSE_ERROR");
+      if (!isAiJsonParseError) throw err;
+
+      console.error(JSON.stringify({
+        type: "SHOT_DESIGN_CHUNKED_FALLBACK",
+        handler: "create_shot_design_v2",
+        model: MODELS.PRO,
+        beatCount: beats.length,
+        reason: err?.message || "unknown",
+      }));
+
+      const chunkedShotSpecs = await callLLMChunked<any, any>({
+        llmOpts: {
+          apiKey,
+          model: MODELS.PRO,
+          system: `${system}\n\nFALLBACK MODE: You are processing a subset of beats. Return ONLY valid JSON with this shape: {"shot_specs":[...]}.
+Never return a beats wrapper. No markdown. No prose.`,
+          temperature: 0.2,
+          maxTokens: 7000,
+        },
+        items: beats,
+        batchSize: 4,
+        maxBatches: 8,
+        handler: "create_shot_design_v2_chunked",
+        buildUserPrompt: (batch, batchIndex, totalBatches) => {
+          const batchSummary = batch.map((b: any) => {
+            const refs = (b.source_refs_json || []).slice(0, 2).map((r: any) => `${r.doc_type}:"${(r.excerpt || "").slice(0, 60)}"`).join("; ");
+            return `#${b.beat_index} ${b.phase}: intent="${b.emotional_intent}" movement=${b.movement_intensity_target} density=${b.shot_density_target || "auto"} silence_before=${b.silence_before_ms}ms silence_after=${b.silence_after_ms}ms withholding=${b.withholding_note || "none"} hint=${JSON.stringify(b.generator_hint_json || {})} citations=[${refs}]`;
+          }).join("\n");
+
+          return `BATCH ${batchIndex + 1}/${totalBatches}\nGenerate shot_specs ONLY for these beats:\n${batchSummary}\nSeed: ${resolvedSeed}-batch-${batchIndex + 1}`;
+        },
+        validate: (d): d is any => {
+          if (!d) return false;
+          if (Array.isArray(d) && d.length > 0) return true;
+          if (typeof d !== "object") return false;
+          if (Array.isArray(d.shot_specs) && d.shot_specs.length > 0) return true;
+          if (Array.isArray(d.shots) && d.shots.length > 0) return true;
+          for (const key of Object.keys(d)) {
+            if (Array.isArray(d[key]) && d[key].length > 0 && typeof d[key][0] === "object") return true;
+          }
+          return false;
+        },
+        extractItems: (result: any) => {
+          if (Array.isArray(result)) return result;
+          if (Array.isArray(result.shot_specs)) return result.shot_specs;
+          if (Array.isArray(result.shots)) return result.shots;
+          for (const key of Object.keys(result || {})) {
+            if (Array.isArray(result[key]) && result[key].length > 0 && typeof result[key][0] === "object") return result[key];
+          }
+          return [];
+        },
+        getKey: (item: any) => `${item?.beat_index ?? "x"}:${item?.shot_index ?? "x"}:${(item?.prompt_hint_json?.visual_prompt || item?.subject_action || "").slice(0, 80)}`,
+        dedupe: "first",
+      });
+
+      parsed = { shot_specs: chunkedShotSpecs };
+    }
 
     // Normalize: if LLM returned a raw array, wrap & transform it
     if (Array.isArray(parsed)) {
