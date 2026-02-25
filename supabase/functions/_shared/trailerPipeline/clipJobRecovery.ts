@@ -1,6 +1,6 @@
 /**
  * Stale Job Recovery — Shared constants and query builder
- * ⚠️ DRIFT-LOCKED: Must stay identical to supabase/functions/_shared/trailerPipeline/clipJobRecovery.ts
+ * ⚠️ DRIFT-LOCKED: Must stay identical to src/lib/trailerPipeline/clipJobRecovery.ts
  * A vitest drift-lock test enforces this automatically.
  */
 

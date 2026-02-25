@@ -1,6 +1,6 @@
 /**
  * Clip Candidates — Deterministic sorting comparator
- * ⚠️ DRIFT-LOCKED: Must stay identical to supabase/functions/_shared/trailerPipeline/clipSorting.ts
+ * ⚠️ DRIFT-LOCKED: Must stay identical to src/lib/trailerPipeline/clipSorting.ts
  * A vitest drift-lock test enforces this automatically.
  */
 

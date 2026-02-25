@@ -5,6 +5,8 @@
  *          select_clip, list_clips, list_jobs
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { recoverStaleRunningJobs } from "../_shared/trailerPipeline/clipJobRecovery.ts";
+import { buildUpsertOptions } from "../_shared/trailerPipeline/clipEnqueue.ts";
 
 const STORAGE_BUCKET = "trailers";
 
@@ -788,10 +790,7 @@ async function handleEnqueueForRun(db: any, body: any, userId: string) {
 
   // Batch insert
   if (jobsToInsert.length > 0) {
-    const { error: insertErr } = await db.from("trailer_clip_jobs").upsert(jobsToInsert, {
-      onConflict: "idempotency_key",
-      ignoreDuplicates: !force,
-    });
+    const { error: insertErr } = await db.from("trailer_clip_jobs").upsert(jobsToInsert, buildUpsertOptions(force));
     if (insertErr) {
       console.error("Job insert error:", insertErr);
       for (const job of jobsToInsert) {
@@ -1290,16 +1289,8 @@ async function handleProgress(db: any, body: any) {
   const { projectId, blueprintId } = body;
   if (!blueprintId) return json({ error: "blueprintId required" }, 400);
 
-  // ── Stale job recovery: re-queue "running" jobs claimed > 15 min ago (worker crash recovery) ──
-  const STALE_THRESHOLD_MS = 15 * 60 * 1000;
-  const staleThreshold = new Date(Date.now() - STALE_THRESHOLD_MS).toISOString();
-  const { data: staleJobs } = await db.from("trailer_clip_jobs")
-    .update({ status: "queued", claimed_at: null, error: "Auto-recovered from stale running state" })
-    .eq("project_id", projectId).eq("blueprint_id", blueprintId)
-    .eq("status", "running")
-    .lt("claimed_at", staleThreshold)
-    .select("id");
-  const staleRecovered = (staleJobs || []).length;
+  // ── Stale job recovery (shared helper) ──
+  const staleRecovered = await recoverStaleRunningJobs(db, projectId, blueprintId);
   if (staleRecovered > 0) {
     console.log(`[progress] Recovered ${staleRecovered} stale running jobs for blueprint ${blueprintId}`);
   }
@@ -1436,16 +1427,8 @@ async function handleProcessQueue(db: any, body: any, userId: string) {
   const { projectId, blueprintId, maxJobs = 2 } = body;
   if (!blueprintId) return json({ error: "blueprintId required" }, 400);
 
-  // ── Stale job recovery: re-queue "running" jobs claimed > 15 min ago (worker crash recovery) ──
-  const STALE_THRESHOLD_MS = 15 * 60 * 1000;
-  const staleThreshold = new Date(Date.now() - STALE_THRESHOLD_MS).toISOString();
-  const { data: staleJobs } = await db.from("trailer_clip_jobs")
-    .update({ status: "queued", claimed_at: null, error: "Auto-recovered from stale running state" })
-    .eq("project_id", projectId).eq("blueprint_id", blueprintId)
-    .eq("status", "running")
-    .lt("claimed_at", staleThreshold)
-    .select("id");
-  const staleRecovered = (staleJobs || []).length;
+  // ── Stale job recovery (shared helper) ──
+  const staleRecovered = await recoverStaleRunningJobs(db, projectId, blueprintId);
   if (staleRecovered > 0) {
     console.log(`[process_queue] Recovered ${staleRecovered} stale running jobs`);
   }
