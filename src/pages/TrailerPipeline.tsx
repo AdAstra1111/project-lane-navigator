@@ -4,7 +4,8 @@
  */
 import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Film, Sparkles, Music, Camera, Clapperboard, Wand2, Paintbrush, Video } from 'lucide-react';
+import { lazy, Suspense } from 'react';
+import { ArrowLeft, Film, Sparkles, Music, Camera, Clapperboard, Wand2, Paintbrush, Video, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -18,6 +19,7 @@ import { StudioFinishPanel } from '@/components/trailer/cinematic/StudioFinishPa
 import { LearningBiasIndicator } from '@/components/trailer/cinematic/LearningBiasIndicator';
 // LegacyBlueprintTab removed — canonical cinematic pipeline only
 import { CanonPackManager } from '@/components/trailer/cinematic/CanonPackManager';
+const LazyClipCandidatesStudio = lazy(() => import('./ClipCandidatesStudio'));
 import VideoPlanViewer from '@/components/cinematic/VideoPlanViewer';
 // useBlueprints removed — legacy blueprint queries no longer needed
 import { useScriptRuns } from '@/lib/trailerPipeline/cinematicHooks';
@@ -133,11 +135,6 @@ export default function TrailerPipelinePage() {
 
           <div className="ml-auto flex items-center gap-3">
             {projectId && <LearningBiasIndicator projectId={projectId} />}
-            <Link to={`/projects/${projectId}/trailer-clips`}>
-              <Button variant="outline" size="sm" className="text-xs">
-                <Clapperboard className="h-3 w-3 mr-1" /> Clip Studio
-              </Button>
-            </Link>
           </div>
         </div>
       </header>
@@ -163,7 +160,9 @@ export default function TrailerPipelinePage() {
             <TabsTrigger value="finish" className="text-xs gap-1.5">
               <Paintbrush className="h-3.5 w-3.5" /> Studio Finish
             </TabsTrigger>
-            {/* Legacy blueprint tab removed */}
+            <TabsTrigger value="clips" className="text-xs gap-1.5">
+              <Clapperboard className="h-3.5 w-3.5" /> Clips
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="script">
@@ -202,6 +201,16 @@ export default function TrailerPipelinePage() {
               projectId={projectId!}
               scriptRunId={selectedScriptRunId}
             />
+          </TabsContent>
+
+          <TabsContent value="clips">
+            <Suspense fallback={
+              <div className="flex items-center justify-center p-12">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
+            }>
+              <LazyClipCandidatesStudio embedded />
+            </Suspense>
           </TabsContent>
 
           {/* Legacy blueprint tab content removed */}

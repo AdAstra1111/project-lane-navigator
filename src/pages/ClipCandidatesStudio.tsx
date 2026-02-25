@@ -54,7 +54,7 @@ const STATUS_ICON: Record<string, React.ReactNode> = {
   canceled: <XCircle className="h-3 w-3 text-muted-foreground" />,
 };
 
-export default function ClipCandidatesStudio() {
+export default function ClipCandidatesStudio({ embedded }: { embedded?: boolean } = {}) {
   const { id: projectId } = useParams<{ id: string }>();
   // ⚠ Do not use setSearchParams({ ... }) — it wipes drawer/drawerTab. Use updateSearchParams().
   const [searchParams, setSearchParams] = useSearchParams();
@@ -150,26 +150,28 @@ export default function ClipCandidatesStudio() {
   };
 
   return (
-    <div className="min-h-screen bg-background">
-      <header className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-10">
-        <div className="max-w-[1600px] mx-auto px-4 py-3 flex items-center gap-3">
-          <Link to={`/projects/${projectId}/trailer-pipeline`}>
-            <Button variant="ghost" size="icon"><ArrowLeft className="h-4 w-4" /></Button>
-          </Link>
-          <Film className="h-5 w-5 text-primary" />
-          <h1 className="text-lg font-semibold">Clip Candidates</h1>
-          <Badge variant="outline" className="text-[10px]">v1</Badge>
-          {blueprintId && (
-            <Link to={`/projects/${projectId}/trailer-assemble?blueprintId=${blueprintId}`}>
-              <Button variant="outline" size="sm" className="text-xs ml-2">
-                <Film className="h-3 w-3 mr-1" /> Timeline Studio
-              </Button>
+    <div className={embedded ? '' : 'min-h-screen bg-background'}>
+      {!embedded && (
+        <header className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-10">
+          <div className="max-w-[1600px] mx-auto px-4 py-3 flex items-center gap-3">
+            <Link to={`/projects/${projectId}/trailer-pipeline`}>
+              <Button variant="ghost" size="icon"><ArrowLeft className="h-4 w-4" /></Button>
             </Link>
-          )}
-        </div>
-      </header>
+            <Film className="h-5 w-5 text-primary" />
+            <h1 className="text-lg font-semibold">Clip Candidates</h1>
+            <Badge variant="outline" className="text-[10px]">v1</Badge>
+            {blueprintId && (
+              <Link to={`/projects/${projectId}/trailer-assemble?blueprintId=${blueprintId}`}>
+                <Button variant="outline" size="sm" className="text-xs ml-2">
+                  <Film className="h-3 w-3 mr-1" /> Timeline Studio
+                </Button>
+              </Link>
+            )}
+          </div>
+        </header>
+      )}
 
-      <div className="max-w-[1600px] mx-auto p-4 grid grid-cols-1 lg:grid-cols-12 gap-4">
+      <div className={`${embedded ? '' : 'max-w-[1600px] mx-auto p-4'} grid grid-cols-1 lg:grid-cols-12 gap-4`}>
         {/* LEFT: Controls */}
         <div className="lg:col-span-3 space-y-4 lg:max-h-[calc(100vh-100px)] lg:overflow-y-auto lg:pr-1">
           {/* Blueprint Selector */}
