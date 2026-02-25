@@ -6,7 +6,6 @@ import iffyLogo from '@/assets/iffy-logo-v3.png';
 import { NotificationBell } from '@/components/NotificationBell';
 import { GlobalSearch } from '@/components/GlobalSearch';
 import { ThemeToggle } from '@/components/ThemeToggle';
-import { ModeToggle } from '@/components/ModeToggle';
 import { GuidedTutorial } from '@/components/GuidedTutorial';
 import { Button } from '@/components/ui/button';
 import {
@@ -68,8 +67,6 @@ export function Header() {
 
         {/* Desktop nav */}
         <div className="hidden md:flex items-center gap-3">
-          <ModeToggle />
-          <div className="h-5 w-px bg-border/50" />
           <Button
             variant="ghost"
             size="sm"
@@ -155,10 +152,6 @@ export function Header() {
       {/* Mobile drawer */}
       {mobileOpen && (
         <div className="md:hidden border-t border-border/20 bg-background/95 backdrop-blur-2xl p-4 space-y-1 animate-in slide-in-from-top-2 duration-200">
-          <div className="flex items-center gap-2 px-3 py-2.5">
-            <ModeToggle />
-          </div>
-          <div className="border-t border-border/30 my-2" />
           <button
             onClick={() => { navigate('/dashboard'); setMobileOpen(false); }}
             className="flex items-center gap-3 w-full px-3 py-2.5 rounded-md text-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"

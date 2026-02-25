@@ -5,7 +5,6 @@ import iffyLogo from '@/assets/iffy-logo-v3.png';
 import { Button } from '@/components/ui/button';
 import { GlobalSearch } from '@/components/GlobalSearch';
 import { ThemeToggle } from '@/components/ThemeToggle';
-import { ModeToggle } from '@/components/ModeToggle';
 import { NotificationBell } from '@/components/NotificationBell';
 import { ExplorerSidebar } from './ExplorerSidebar';
 import {
@@ -72,7 +71,6 @@ export function ExplorerLayout({ breadcrumbs, children, title, subtitle, actions
         </Breadcrumb>
 
         <div className="flex items-center gap-1.5 shrink-0">
-          <ModeToggle />
           <GlobalSearch />
           <ThemeToggle />
           <NotificationBell />
