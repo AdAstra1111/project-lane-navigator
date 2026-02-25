@@ -100,9 +100,11 @@ export interface ScoringContext {
 }
 
 export function scoreCinematic(units: CinematicUnit[], ctx?: ScoringContext): CinematicScore {
-  const T = getCinematicThresholds(ctx?.lane, ctx?.strictness);
+  // Normalize lane: trim, lowercase, hyphens → underscores
+  const rawLane = ctx?.lane?.trim().toLowerCase().replace(/-/g, "_");
+  const T = getCinematicThresholds(rawLane, ctx?.strictness);
   const failures: CinematicFailureCode[] = [];
-  const features = extractFeatures(units, T.min_arc_peak_in_last_n, ctx?.lane);
+  const features = extractFeatures(units, T.min_arc_peak_in_last_n, rawLane);
 
   const n = units.length;
   const energies = units.map(u => u.energy);
@@ -156,7 +158,7 @@ export function scoreCinematic(units: CinematicUnit[], ctx?: ScoringContext): Ci
 
       // CIK v4.3 — Button Ending (lane-aware, no new codes)
       if (!failures.includes("WEAK_ARC")) {
-        const lane = ctx?.lane;
+        const lane = rawLane;
         if (lane === "vertical_drama" || lane === "series") {
           if (!seq.finalIsButton) failures.push("WEAK_ARC");
         } else if (lane === "feature_film" || lane === "documentary") {
@@ -166,7 +168,7 @@ export function scoreCinematic(units: CinematicUnit[], ctx?: ScoringContext): Ci
       }
 
       // CIK v4.4 — Unit Role Lock (lane-aware, no new codes)
-      const lane = ctx?.lane;
+      const lane = rawLane;
       if (lane === "feature_film" || lane === "series") {
         // Early window: allow at most 1 off-role
         if (seq.roleMismatchCountEarly > 1 && !failures.includes("WEAK_ARC")) {
@@ -235,7 +237,7 @@ export function scoreCinematic(units: CinematicUnit[], ctx?: ScoringContext): Ci
     }
 
     // ─── CIK v3.12 Ladder Lock checks ───
-    const ladder = analyzeLadder(energies, units.map(u => u.tension), units.map(u => u.density), ctx?.lane);
+    const ladder = analyzeLadder(energies, units.map(u => u.tension), units.map(u => u.density), rawLane);
     if (ladder.n >= 3) {
       if (ladder.meaningfulDownSteps > 1 && !failures.includes("DIRECTION_REVERSAL")) {
         failures.push("DIRECTION_REVERSAL");
