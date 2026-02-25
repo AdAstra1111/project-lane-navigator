@@ -86,8 +86,8 @@ const APPROVAL_REQUIRED_STAGES: Set<string> = new Set([
 
 const ALL_KNOWN_STAGES: DeliverableStage[] = [
   'idea', 'concept_brief', 'market_sheet', 'vertical_market_sheet',
-  'blueprint', 'architecture', 'character_bible', 'beat_sheet',
-  'feature_script', 'episode_script', 'season_master_script', 'production_draft', 'deck',
+  'treatment', 'story_outline', 'character_bible', 'beat_sheet',
+  'episode_beats', 'feature_script', 'episode_script', 'season_master_script', 'production_draft', 'deck',
   'documentary_outline', 'format_rules', 'season_arc', 'episode_grid',
   'vertical_episode_beats',
 ];
@@ -275,12 +275,12 @@ function computeSeriesWriterGates(
     });
   }
 
-  // Gate 3: Season Arc or Blueprint exists
-  const arcKey = pipeline.includes('season_arc') ? 'season_arc' : pipeline.includes('blueprint') ? 'blueprint' : null;
+  // Gate 3: Season Arc or Treatment exists
+  const arcKey = pipeline.includes('season_arc') ? 'season_arc' : pipeline.includes('treatment') ? 'treatment' : null;
   if (arcKey) {
     const hasArc = completedStages[arcKey]?.exists ?? false;
     gates.push({
-      key: 'season_arc_or_blueprint',
+      key: 'season_arc_or_treatment',
       label: `${getDeliverableLabel(arcKey, formatKey)} exists`,
       met: hasArc,
       howToFix: hasArc ? null : `Create a ${getDeliverableLabel(arcKey, formatKey)} first.`,

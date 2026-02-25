@@ -102,9 +102,6 @@ export function findNearestEquivalent(docType: string, format: string): string |
     treatment: ['beat_sheet', 'season_arc', 'concept_brief'],
     story_outline: ['treatment', 'beat_sheet', 'season_arc'],
     beat_sheet: ['treatment', 'season_arc'],
-    // Legacy keys that may still appear after normalization in stage-ladders context
-    blueprint: ['beat_sheet', 'season_arc', 'concept_brief'],
-    architecture: ['blueprint', 'beat_sheet', 'season_arc'],
   };
 
   const candidates = REMAP[normalized] || [];
