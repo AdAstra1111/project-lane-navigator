@@ -95,28 +95,55 @@ export function NoteDrawer({ projectId, noteId, note: noteProp, context, onAppli
   const rawFixes = (note?.suggested_fixes || []) as NoteSuggestedFix[];
 
   // Generate deterministic fallback fixes when none exist
-  const fixes: NoteSuggestedFix[] = rawFixes.length > 0 ? rawFixes.slice(0, 3) : (note ? [
-    {
-      id: 'auto-direct',
-      title: 'Direct fix',
-      description: `Apply the suggested change: ${(note.summary || '').slice(0, 80)}`,
-      instructions: note.summary || note.title,
-    },
-    {
-      id: 'auto-conservative',
-      title: 'Conservative fix',
-      description: 'Apply the change conservatively, preserving original structure as much as possible.',
-      instructions: `${note.summary || note.title}. Preserve the original structure and wording where possible, making only the minimal changes needed.`,
-    },
-  ] as NoteSuggestedFix[] : []);
+  const fixes: NoteSuggestedFix[] =
+    rawFixes.length > 0
+      ? rawFixes.slice(0, 3)
+      : note
+        ? ([
+            {
+              id: 'auto-direct',
+              title: 'Direct fix',
+              description: `Apply the suggested change: ${(note.summary || note.title || '').slice(0, 80)}`,
+              instructions: (note.summary || note.title || '').trim(),
+            },
+            {
+              id: 'auto-conservative',
+              title: 'Conservative fix',
+              description: 'Apply the change conservatively, preserving original structure as much as possible.',
+              instructions: `${(note.summary || note.title || '').trim()}. Preserve the original structure and wording where possible, making only the minimal changes needed.`,
+            },
+          ] as NoteSuggestedFix[])
+        : [];
 
   const isApplied = note?.status === 'applied';
   const isDismissed = note?.status === 'dismissed';
+
+  // Doc-ladder guard: detect notes that need a doc type selection
+  function noteRequiresDocType(n: ProjectNote): boolean {
+    const t = `${n.title || ''} ${n.summary || ''} ${n.detail || ''}`.toLowerCase();
+    return (
+      t.includes('document ladder') ||
+      t.includes('doc ladder') ||
+      t.includes('document type') ||
+      t.includes('doc type') ||
+      (t.includes('section header') && (t.includes('rename') || t.includes('official')))
+    );
+  }
 
   // Quick-fix: propose → apply → verify in one click
   const handleQuickFix = useCallback(async (fix: NoteSuggestedFix) => {
     const id = noteId || note?.id;
     if (!id) return;
+
+    // Doc-ladder guard
+    if (note && noteRequiresDocType(note) && !deferDocType) {
+      setQuickFixError(prev => ({
+        ...prev,
+        [fix.id]: 'Select a document type (Defer dropdown) before applying this fix.',
+      }));
+      return;
+    }
+
     setQuickFixRunning(fix.id);
     setQuickFixError(prev => { const n = { ...prev }; delete n[fix.id]; return n; });
     try {
@@ -139,14 +166,15 @@ export function NoteDrawer({ projectId, noteId, note: noteProp, context, onAppli
         );
       });
       setQuickFixDone(fix.id);
-      onApplied?.(applyData.newVersionId);
+      const newVersionId = (applyData as any)?.newVersionId ?? (applyData as any)?.versionId ?? null;
+      if (newVersionId) onApplied?.(newVersionId);
       setTimeout(() => onClose(), 1200);
     } catch (err: any) {
       setQuickFixError(prev => ({ ...prev, [fix.id]: err?.message || 'Fix failed' }));
     } finally {
       setQuickFixRunning(null);
     }
-  }, [noteId, note, scope, context, proposeMutation, applyMutation, verifyMutation, onApplied, onClose]);
+  }, [noteId, note, scope, context, deferDocType, proposeMutation, applyMutation, verifyMutation, onApplied, onClose]);
 
   // Triage actions
   const handleTriage = useCallback((status: NoteStatus, timing?: NoteTiming) => {
@@ -187,7 +215,8 @@ export function NoteDrawer({ projectId, noteId, note: noteProp, context, onAppli
     setApplyError(null);
     applyMutation.mutate(changePlan.changeEventId, {
       onSuccess: (data) => {
-        onApplied?.(data.newVersionId);
+        const vid = (data as any)?.newVersionId ?? (data as any)?.versionId ?? null;
+        if (vid) onApplied?.(vid);
         onClose();
       },
       onError: (err: any) => {
@@ -351,8 +380,11 @@ export function NoteDrawer({ projectId, noteId, note: noteProp, context, onAppli
                             selectedFixId === fix.id ? 'border-primary bg-primary/5' : 'border-border/50 bg-background hover:border-border'
                           }`}>
                           <div className="flex items-center gap-1.5">
-                            <button onClick={() => !isRunning && setSelectedFixId(fix.id === selectedFixId ? null : fix.id)}
-                              className="flex items-center gap-1.5 flex-1 min-w-0 text-left" disabled={isRunning}>
+                            <button onClick={() => {
+                                if (quickFixRunning) return;
+                                setSelectedFixId(prev => prev === fix.id ? null : fix.id);
+                              }}
+                              className="flex items-center gap-1.5 flex-1 min-w-0 text-left" disabled={!!quickFixRunning}>
                               <div className={`w-3 h-3 rounded-full border-2 flex items-center justify-center shrink-0 ${
                                 selectedFixId === fix.id ? 'border-primary' : 'border-muted-foreground/30'
                               }`}>
