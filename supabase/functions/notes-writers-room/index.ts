@@ -203,12 +203,19 @@ serve(async (req) => {
       let resolvedPreset = presetKey;
 
       if (includeDocumentIds && includeDocumentIds.length > 0) {
-        // Exact doc IDs
+        // Exact doc IDs — fetch then reorder to match caller's deterministic order
         const { data: docs } = await admin.from("project_documents")
           .select("id, doc_type, file_name")
           .eq("project_id", projectId)
           .in("id", includeDocumentIds);
-        docFilter = docs || [];
+        // Reorder to match includeDocumentIds order (`.in()` does not preserve order)
+        const docMap = new Map((docs || []).map((d: any) => [d.id, d]));
+        const ordered: any[] = [];
+        for (const did of includeDocumentIds) {
+          const d = docMap.get(did);
+          if (d) ordered.push(d);
+        }
+        docFilter = ordered;
         resolvedPreset = "custom";
       } else if (includeDocTypes && includeDocTypes.length > 0) {
         const { data: docs } = await admin.from("project_documents")

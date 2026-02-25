@@ -44,7 +44,9 @@ export function useWorkflowDocSets(
         .from('project_doc_set_items')
         .select('*')
         .in('doc_set_id', setIds)
-        .order('sort_order');
+        .order('sort_order', { ascending: true })
+        .order('created_at', { ascending: true })
+        .order('id', { ascending: true });
       if (error) throw error;
       return data || [];
     },

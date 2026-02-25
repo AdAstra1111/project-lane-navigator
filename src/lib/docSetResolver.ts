@@ -47,7 +47,13 @@ export function getDefaultDocSetId(docSets: DocSet[]): string | undefined {
  */
 export function getDocSetDocumentIds(items: DocSetItem[]): string[] {
   return [...items]
-    .sort((a, b) => a.sort_order - b.sort_order)
+    .sort((a, b) => {
+      const so = a.sort_order - b.sort_order;
+      if (so !== 0) return so;
+      const ca = new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+      if (ca !== 0) return ca;
+      return a.document_id < b.document_id ? -1 : a.document_id > b.document_id ? 1 : 0;
+    })
     .map(i => i.document_id);
 }
 
