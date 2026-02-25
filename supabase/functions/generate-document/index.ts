@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { buildBeatGuidanceBlock } from "../_shared/verticalDramaBeats.ts";
 import { generateEpisodeBeatsChunked } from "../_shared/episodeBeatsChunked.ts";
+import { buildLadderPromptBlock, formatToLane } from "../_shared/documentLadders.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -285,6 +286,8 @@ D) OUTPUT CONTRACT — At the top of your response, print:
 
       userPrompt = `PROJECT FACTS (use these as the primary source of truth):\n${upstreamContent}\n\nGenerate the full Topline Narrative for "${project.title}" now. Replace every template placeholder with real content derived from the project facts above.`;
     } else {
+      const ladderBlock = buildLadderPromptBlock(formatToLane(project.format));
+
       system = [
         `You are a professional development document generator for film/TV projects.`,
         `Generate a ${docType.replace(/_/g, " ")} document for the project "${project.title}".`,
@@ -292,6 +295,7 @@ D) OUTPUT CONTRACT — At the top of your response, print:
         completenessBlock,
         qualBlock,
         styleBlock,
+        ladderBlock,
         additionalContext ? `## CREATIVE DIRECTION (MUST INCORPORATE)\n${additionalContext}` : "",
         mode === "final" ? "This is a FINAL version — ensure completeness and polish." : "This is a DRAFT — focus on substance over polish.",
       ].filter(Boolean).join("\n\n");

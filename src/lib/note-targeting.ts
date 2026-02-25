@@ -3,10 +3,12 @@
  * deferral status, and due_when for notes.
  * 
  * Uses Pipeline Brain as the authoritative pipeline source.
+ * Uses documentLadders for canonical normalization.
  */
 
 import ladderData from '../../supabase/_shared/stage-ladders.json';
 import { isStageValidForFormat } from '@/lib/pipeline-brain';
+import { normalizeDocType as normalizeDocTypeCanonical } from '@/config/documentLadders';
 
 const FORMAT_LADDERS: Record<string, string[]> = ladderData.FORMAT_LADDERS as any;
 const DOC_TYPE_ALIASES: Record<string, string> = ladderData.DOC_TYPE_ALIASES as any;
@@ -23,7 +25,9 @@ export function getPipelineForFormat(format: string): string[] {
  */
 export function normalizeDocType(docType: string): string {
   if (!docType) return docType;
-  const lower = docType.toLowerCase().replace(/[\s-]+/g, '_');
+  // First apply canonical ladder aliases, then fall back to stage-ladders aliases
+  const canonical = normalizeDocTypeCanonical(docType);
+  const lower = canonical.toLowerCase().replace(/[\s-]+/g, '_');
   return DOC_TYPE_ALIASES[lower] || lower;
 }
 
