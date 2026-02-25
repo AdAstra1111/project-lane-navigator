@@ -6,7 +6,7 @@ import { describe, it, expect, vi } from "vitest";
 
 import type { CinematicUnit, CinematicFailureCode, CinematicScore } from "../../supabase/functions/_shared/cinematic-model";
 import { DIAGNOSTIC_ONLY_CODES } from "../../supabase/functions/_shared/cinematic-model";
-import { extractFeatures, countDirectionReversals, detectPacingMismatch, summarizeSignal, summarizePolarity, variance, analyzeIntentSequencing } from "../../supabase/functions/_shared/cinematic-features";
+import { extractFeatures, countDirectionReversals, detectPacingMismatch, summarizeSignal, summarizePolarity, variance, analyzeIntentSequencing, classifyIntent } from "../../supabase/functions/_shared/cinematic-features";
 import { scoreCinematic, CINEMATIC_THRESHOLDS, PENALTY_MAP } from "../../supabase/functions/_shared/cinematic-score";
 import { amplifyRepairInstruction, buildTrailerRepairInstruction, buildStoryboardRepairInstruction, numericTargetsForFailures } from "../../supabase/functions/_shared/cinematic-repair";
 import { enforceUnitCount } from "../../supabase/functions/_shared/cinematic-adapters";
@@ -967,5 +967,84 @@ describe("lane-aware late window", () => {
     expect(featureLadder.peakLate25).toBe(false);
     // vertical_drama: peakLate25 should be true (peak at 6 >= lateStart 6)
     expect(vdLadder.peakLate25).toBe(true);
+  });
+});
+
+// ─── CIK v4.3 Button Ending Tests ───
+
+describe("v4.3 button ending", () => {
+  function makeButtonUnits(finalIntent: string) {
+    return [
+      makeUnit({ id: "0", energy: 0.3, tension: 0.3, density: 0.3, tonal_polarity: -0.3, intent: "intrigue" }),
+      makeUnit({ id: "1", energy: 0.5, tension: 0.5, density: 0.5, tonal_polarity: -0.1, intent: "threat" }),
+      makeUnit({ id: "2", energy: 0.7, tension: 0.7, density: 0.7, tonal_polarity: 0.1, intent: "chaos" }),
+      makeUnit({ id: "3", energy: 0.9, tension: 0.9, density: 0.9, tonal_polarity: 0.3, intent: "emotion" }),
+      makeUnit({ id: "4", energy: 0.92, tension: 0.92, density: 0.92, tonal_polarity: 0.5, intent: finalIntent as any }),
+    ];
+  }
+
+  it("classifyIntent maps correctly", () => {
+    expect(classifyIntent("intrigue")).toBe("early");
+    expect(classifyIntent("wonder")).toBe("early");
+    expect(classifyIntent("setup")).toBe("early");
+    expect(classifyIntent("threat")).toBe("mid");
+    expect(classifyIntent("chaos")).toBe("mid");
+    expect(classifyIntent("release")).toBe("late");
+    expect(classifyIntent("emotion")).toBe("late");
+    expect(classifyIntent("climax")).toBe("late");
+    expect(classifyIntent("reveal")).toBe("late");
+    expect(classifyIntent("unknown_thing")).toBe("other");
+  });
+
+  it("vertical_drama: ending with intrigue triggers WEAK_ARC", () => {
+    const units = makeButtonUnits("intrigue");
+    const score = scoreCinematic(units, { lane: "vertical_drama" });
+    expect(score.failures).toContain("WEAK_ARC");
+  });
+
+  it("series: ending with threat (mid) triggers WEAK_ARC", () => {
+    const units = makeButtonUnits("threat");
+    const score = scoreCinematic(units, { lane: "series" });
+    expect(score.failures).toContain("WEAK_ARC");
+  });
+
+  it("documentary: ending with emotion does NOT trigger button WEAK_ARC", () => {
+    const units = makeButtonUnits("emotion");
+    const score = scoreCinematic(units, { lane: "documentary" });
+    // emotion is "late" → no button rule trigger; check WEAK_ARC not from button rule
+    // (may still appear from other arc checks)
+    const seq = analyzeIntentSequencing(units, "documentary");
+    expect(seq.finalIsButton).toBe(true);
+  });
+
+  it("documentary: ending with intrigue triggers WEAK_ARC", () => {
+    const units = makeButtonUnits("intrigue");
+    const score = scoreCinematic(units, { lane: "documentary" });
+    expect(score.failures).toContain("WEAK_ARC");
+  });
+
+  it("feature_film: ending with intrigue triggers WEAK_ARC", () => {
+    const units = makeButtonUnits("intrigue");
+    const score = scoreCinematic(units, { lane: "feature_film" });
+    expect(score.failures).toContain("WEAK_ARC");
+  });
+
+  it("feature_film: ending with emotion does NOT trigger button WEAK_ARC", () => {
+    const units = makeButtonUnits("emotion");
+    const seq = analyzeIntentSequencing(units, "feature_film");
+    expect(seq.finalIntentClass).toBe("late");
+    // finalIntentClass is "late" not "early" → button rule won't fire
+  });
+
+  it("repair prompt includes BUTTON ENDING and stays <= 2500", () => {
+    const score: CinematicScore = {
+      score: 0.3, pass: false,
+      failures: ["WEAK_ARC"] as CinematicFailureCode[],
+      hard_failures: ["WEAK_ARC"] as CinematicFailureCode[],
+      diagnostic_flags: [], penalty_breakdown: [], metrics: {} as any,
+    };
+    const instr = buildTrailerRepairInstruction(score, 6);
+    expect(instr).toContain("BUTTON ENDING");
+    expect(instr.length).toBeLessThanOrEqual(2500);
   });
 });
