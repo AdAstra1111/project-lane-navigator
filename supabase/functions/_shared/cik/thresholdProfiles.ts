@@ -8,10 +8,10 @@ import { CINEMATIC_THRESHOLDS } from "../cinematic-score.ts";
 /** Mutable version of the threshold shape (the source uses `as const` literals). */
 export type CinematicThresholds = { -readonly [K in keyof typeof CINEMATIC_THRESHOLDS]: number };
 
-export type ProductLane = "feature_film" | "series" | "vertical_drama" | "documentary";
+export type ProductLane = "feature_film" | "series" | "vertical_drama" | "documentary" | "advertising" | "music_video";
 
 const KNOWN_LANES: ReadonlySet<string> = new Set<ProductLane>([
-  "feature_film", "series", "vertical_drama", "documentary",
+  "feature_film", "series", "vertical_drama", "documentary", "advertising", "music_video",
 ]);
 
 /**
@@ -52,6 +52,28 @@ const LANE_OVERRIDES: Record<ProductLane, Partial<CinematicThresholds>> = {
     min_arc_end_energy: 0.65,
     // Allow more direction reversals (docs have natural ebb and flow)
     max_direction_reversals: 4,
+  },
+
+  advertising: {
+    // Short form, strict peak
+    min_units: 3,
+    min_slope: 0.04,
+    min_peak_energy: 0.92,
+    energy_drop_threshold: 0.08,
+    // Tight tail
+    penalty_energy_drop: 0.12,
+  },
+
+  music_video: {
+    // Relaxed intent and tonal rules
+    min_intent_distinct: 2,
+    max_tonal_flips: 4,
+    penalty_tonal_whiplash: 0.04,
+    penalty_low_intent_diversity: 0.04,
+    // Lower arc requirements
+    min_arc_mid_energy: 0.45,
+    min_arc_end_energy: 0.60,
+    max_direction_reversals: 5,
   },
 };
 

@@ -1450,3 +1450,204 @@ describe("storyboard engine boundary: assigned_lane → opts.lane → repair lan
   });
 });
 });
+
+// ─── Step 5: Adapter Sanitization Tests ───
+
+describe("adapter sanitization", () => {
+  it("clamps out-of-range numerics without changing valid units", async () => {
+    const { sanitizeUnits } = await import("../../supabase/functions/_shared/cik/adapterSanitize");
+    const validUnit = makeUnit({ id: "v", energy: 0.5, tension: 0.6, density: 0.7, tonal_polarity: 0.1, intent: "chaos" });
+    const { units, quality } = sanitizeUnits([validUnit]);
+    expect(units[0].energy).toBe(0.5);
+    expect(units[0].tension).toBe(0.6);
+    expect(units[0].density).toBe(0.7);
+    expect(units[0].intent).toBe("chaos");
+    expect(quality.missing_energy).toBe(0);
+    expect(quality.out_of_range_clamped).toBe(0);
+    expect(quality.percent_defaulted_fields).toBe(0);
+  });
+
+  it("defaults missing numeric fields and invalid intents", async () => {
+    const { sanitizeUnits } = await import("../../supabase/functions/_shared/cik/adapterSanitize");
+    const broken = { id: "b", intent: "invalid_intent", energy: null, tension: undefined, density: NaN, tonal_polarity: 0.2 } as any;
+    const { units, quality } = sanitizeUnits([broken]);
+    expect(units[0].energy).toBe(0.45);
+    expect(units[0].tension).toBe(0.45);
+    expect(units[0].density).toBe(0.45);
+    expect(units[0].intent).toBe("intrigue");
+    expect(quality.missing_energy).toBe(1);
+    expect(quality.missing_tension).toBe(1);
+    expect(quality.missing_density).toBe(1);
+    expect(quality.missing_intent).toBe(1);
+    expect(quality.percent_defaulted_fields).toBe(1);
+  });
+
+  it("clamps energy > 1 and tension < 0", async () => {
+    const { sanitizeUnits } = await import("../../supabase/functions/_shared/cik/adapterSanitize");
+    const oob = makeUnit({ id: "o", energy: 1.5, tension: -0.3, density: 0.5, tonal_polarity: 0.0, intent: "threat" });
+    const { units, quality } = sanitizeUnits([oob]);
+    expect(units[0].energy).toBe(1.0);
+    expect(units[0].tension).toBe(0.0);
+    expect(quality.out_of_range_clamped).toBe(2);
+  });
+
+  it("adapter quality metrics appear in telemetry payload", async () => {
+    const { enforceCinematicQuality } = await import("../../supabase/functions/_shared/cinematic-kernel");
+    const units = [
+      makeUnit({ id: "0", energy: 0.9, tension: 0.9, density: 0.8, tonal_polarity: 0.0, intent: "intrigue" }),
+      makeUnit({ id: "1", energy: 0.91, tension: 0.91, density: 0.81, tonal_polarity: 0.1, intent: "threat" }),
+      makeUnit({ id: "2", energy: 0.92, tension: 0.92, density: 0.82, tonal_polarity: 0.2, intent: "chaos" }),
+      makeUnit({ id: "3", energy: 0.93, tension: 0.93, density: 0.83, tonal_polarity: 0.3, intent: "emotion" }),
+      makeUnit({ id: "4", energy: 0.95, tension: 0.95, density: 0.9, tonal_polarity: 0.4, intent: "release" }),
+    ];
+    const captured: any[] = [];
+    await enforceCinematicQuality({
+      handler: "test", phase: "test", model: "test",
+      rawOutput: { beats: units },
+      adapter: (raw: any) => ({ units: raw.beats, mode: "explicit" as const }),
+      buildRepairInstruction: buildTrailerRepairInstruction,
+      regenerateOnce: async () => ({ beats: units }),
+      telemetry: (_name: string, payload: any) => captured.push(payload),
+    });
+    expect(captured.length).toBeGreaterThan(0);
+    expect(captured[0].adapter_quality).toBeDefined();
+    expect(captured[0].adapter_quality.extracted_unit_count).toBe(5);
+    expect(captured[0].adapter_quality.missing_energy).toBe(0);
+  });
+});
+
+// ─── Step 6: Repair Validation Telemetry Tests ───
+
+describe("repair validation telemetry", () => {
+  it("logs before/after failure deltas on repair attempt", async () => {
+    const { enforceCinematicQuality } = await import("../../supabase/functions/_shared/cinematic-kernel");
+    const failingUnits = [
+      makeUnit({ id: "0", energy: 0.30, tension: 0.30, density: 0.30, tonal_polarity: -0.3, intent: "intrigue" }),
+      makeUnit({ id: "1", energy: 0.40, tension: 0.40, density: 0.35, tonal_polarity: -0.2, intent: "wonder" }),
+      makeUnit({ id: "2", energy: 0.50, tension: 0.50, density: 0.40, tonal_polarity: -0.1, intent: "threat" }),
+      makeUnit({ id: "3", energy: 0.60, tension: 0.60, density: 0.50, tonal_polarity: 0.0, intent: "chaos" }),
+      makeUnit({ id: "4", energy: 0.70, tension: 0.70, density: 0.55, tonal_polarity: 0.1, intent: "chaos" }),
+      makeUnit({ id: "5", energy: 0.92, tension: 0.92, density: 0.70, tonal_polarity: 0.2, intent: "emotion" }),
+      makeUnit({ id: "6", energy: 0.88, tension: 0.88, density: 0.72, tonal_polarity: 0.3, intent: "emotion" }),
+      makeUnit({ id: "7", energy: 0.89, tension: 0.89, density: 0.75, tonal_polarity: 0.4, intent: "release" }),
+    ];
+
+    // Spy on console.error to capture repair validation
+    const originalError = console.error;
+    const errorLogs: string[] = [];
+    console.error = (msg: any) => { errorLogs.push(typeof msg === "string" ? msg : JSON.stringify(msg)); };
+
+    try {
+      await enforceCinematicQuality({
+        handler: "test", phase: "repair_val_test", model: "test",
+        rawOutput: { beats: failingUnits },
+        adapter: (raw: any) => ({ units: raw.beats, mode: "explicit" as const }),
+        buildRepairInstruction: buildTrailerRepairInstruction,
+        regenerateOnce: async () => ({ beats: failingUnits }),
+        telemetry: () => {},
+        expected_unit_count: 8,
+      });
+    } catch (err: any) {
+      expect(err.type).toBe("AI_CINEMATIC_QUALITY_FAIL");
+    }
+
+    console.error = originalError;
+
+    const repairLog = errorLogs.find(l => l.includes("CINEMATIC_REPAIR_VALIDATION"));
+    expect(repairLog).toBeDefined();
+    const parsed = JSON.parse(repairLog!);
+    expect(parsed.type).toBe("CINEMATIC_REPAIR_VALIDATION");
+    expect(parsed.attempt_before_failures).toBeDefined();
+    expect(parsed.attempt_after_failures).toBeDefined();
+    expect(typeof parsed.failure_delta_count).toBe("number");
+    expect(typeof parsed.score_delta).toBe("number");
+    expect(typeof parsed.score_before).toBe("number");
+    expect(typeof parsed.score_after).toBe("number");
+  });
+});
+
+// ─── Step 7: Tuning Hooks Tests ───
+
+describe("tuning hooks", () => {
+  it("defaults unchanged when tuning not set", async () => {
+    const { applyTuningMul, clearTuning } = await import("../../supabase/functions/_shared/cik/tuning");
+    clearTuning();
+    expect(applyTuningMul(0.06, "vertical_drama", "tailSlackMul")).toBe(0.06);
+    expect(applyTuningMul(0.10, undefined, "peakLeadThresholdMul")).toBe(0.10);
+  });
+
+  it("setting tuning override changes metric deterministically", async () => {
+    const { setTuning, applyTuningMul, clearTuning } = await import("../../supabase/functions/_shared/cik/tuning");
+    clearTuning();
+    setTuning("vertical_drama", { tailSlackMul: 0.5 });
+    expect(applyTuningMul(0.06, "vertical_drama", "tailSlackMul")).toBe(0.03);
+    // Other lanes unaffected
+    expect(applyTuningMul(0.06, "feature_film", "tailSlackMul")).toBe(0.06);
+    clearTuning();
+  });
+
+  it("lateStartRatioOverride replaces rather than multiplies", async () => {
+    const { setTuning, applyTuningMul, clearTuning } = await import("../../supabase/functions/_shared/cik/tuning");
+    clearTuning();
+    setTuning("advertising", { lateStartRatioOverride: 0.70 });
+    expect(applyTuningMul(0.65, "advertising", "lateStartRatioOverride")).toBe(0.70);
+    clearTuning();
+  });
+});
+
+// ─── Step 8: New Lane Profiles Tests ───
+
+describe("new lane profiles (advertising, music_video)", () => {
+  it("advertising uses stricter peak and lower min_units", () => {
+    const { getCinematicThresholds } = require("../../supabase/functions/_shared/cik/thresholdProfiles");
+    const t = getCinematicThresholds("advertising");
+    expect(t.min_units).toBe(3);
+    expect(t.min_peak_energy).toBe(0.92);
+    expect(t.energy_drop_threshold).toBe(0.08);
+  });
+
+  it("music_video uses relaxed intent and tonal rules", () => {
+    const { getCinematicThresholds } = require("../../supabase/functions/_shared/cik/thresholdProfiles");
+    const t = getCinematicThresholds("music_video");
+    expect(t.min_intent_distinct).toBe(2);
+    expect(t.max_tonal_flips).toBe(4);
+    expect(t.max_direction_reversals).toBe(5);
+  });
+
+  it("advertising lateStart uses 0.65 ratio", () => {
+    expect(lateStartIndexForUnitCount(8, "advertising")).toBe(Math.floor(0.65 * 8));
+  });
+
+  it("music_video lateStart uses 0.60 ratio", () => {
+    expect(lateStartIndexForUnitCount(8, "music_video")).toBe(Math.floor(0.60 * 8));
+  });
+
+  it("unknown lane equals exact defaults", () => {
+    const { getCinematicThresholds } = require("../../supabase/functions/_shared/cik/thresholdProfiles");
+    const unknown = getCinematicThresholds("totally_unknown");
+    const defaults = getCinematicThresholds(undefined);
+    expect(unknown).toEqual(defaults);
+  });
+
+  it("lane in telemetry event", async () => {
+    const { enforceCinematicQuality } = await import("../../supabase/functions/_shared/cinematic-kernel");
+    const units = [
+      makeUnit({ id: "0", energy: 0.9, tension: 0.9, density: 0.8, tonal_polarity: 0.0, intent: "intrigue" }),
+      makeUnit({ id: "1", energy: 0.91, tension: 0.91, density: 0.81, tonal_polarity: 0.1, intent: "threat" }),
+      makeUnit({ id: "2", energy: 0.92, tension: 0.92, density: 0.82, tonal_polarity: 0.2, intent: "chaos" }),
+      makeUnit({ id: "3", energy: 0.93, tension: 0.93, density: 0.83, tonal_polarity: 0.3, intent: "emotion" }),
+      makeUnit({ id: "4", energy: 0.95, tension: 0.95, density: 0.9, tonal_polarity: 0.4, intent: "release" }),
+    ];
+    const captured: any[] = [];
+    await enforceCinematicQuality({
+      handler: "test", phase: "test", model: "test",
+      rawOutput: { beats: units },
+      adapter: (raw: any) => ({ units: raw.beats, mode: "explicit" as const }),
+      buildRepairInstruction: buildTrailerRepairInstruction,
+      regenerateOnce: async () => ({ beats: units }),
+      telemetry: (_name: string, payload: any) => captured.push(payload),
+      lane: "advertising",
+    });
+    expect(captured[0].lane).toBe("advertising");
+  });
+});

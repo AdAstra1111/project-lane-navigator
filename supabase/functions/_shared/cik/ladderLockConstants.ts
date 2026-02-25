@@ -15,8 +15,8 @@ function laneLateDipMul(lane?: string): number {
   return 1.0;
 }
 function laneTailSlackMul(lane?: string): number {
-  if (lane === "vertical_drama") return 0.75;
-  if (lane === "documentary") return 1.35;
+  if (lane === "vertical_drama" || lane === "advertising") return 0.75;
+  if (lane === "documentary" || lane === "music_video") return 1.35;
   return 1.0;
 }
 
@@ -51,8 +51,8 @@ export function peakDeltaForUnitCount(n: number): number {
 }
 
 export function lateStartIndexForUnitCount(n: number, lane?: string): number {
-  if (lane === "vertical_drama") return Math.floor(0.65 * n);
-  if (lane === "documentary") return Math.floor(0.60 * n);
+  if (lane === "vertical_drama" || lane === "advertising") return Math.floor(0.65 * n);
+  if (lane === "documentary" || lane === "music_video") return Math.floor(0.60 * n);
   return Math.floor(0.75 * n);
 }
 
