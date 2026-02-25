@@ -85,7 +85,9 @@ import { NextActionsPanel } from '@/components/notes/NextActionsPanel';
 import { NoteDrawer } from '@/components/notes/NoteDrawer';
 import { useProjectNotes } from '@/lib/notes/useProjectNotes';
 import { MessageSquare } from 'lucide-react';
-
+import { WorldRulesAccordion } from '@/components/rulesets/WorldRulesAccordion';
+import { ActiveRulesetBadge } from '@/components/rulesets/ActiveRulesetBadge';
+import { useProjectRuleset } from '@/hooks/useProjectRuleset';
 // ── Main Page ──
 export default function ProjectDevelopmentEngine() {
   const { id: projectId } = useParams<{ id: string }>();
@@ -229,6 +231,12 @@ export default function ProjectDevelopmentEngine() {
   const { packageStatus: packageStatusData, currentResolverHash: pkgResolverHash } = useDocumentPackage(projectId);
   const deferred = useDeferredNotes(projectId);
   const episodeHandoff = useEpisodeHandoff(projectId || '');
+  const rulesetLane = isVerticalDrama ? 'vertical_drama' : 'feature_film';
+  const { activeProfile, isLocked } = useProjectRuleset(projectId, rulesetLane);
+  const [rulesetUserId, setRulesetUserId] = useState('');
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => { if (data.user) setRulesetUserId(data.user.id); });
+  }, []);
 
   // Find active handoff for the currently selected document
   const activeHandoffForDoc = useMemo(() => {
@@ -1112,6 +1120,11 @@ export default function ProjectDevelopmentEngine() {
                       isReturning={episodeHandoff.returnToSeriesWriter.isPending}
                       isCancelling={episodeHandoff.cancelHandoff.isPending}
                     />
+                  )}
+
+                  {/* World Rules */}
+                  {rulesetUserId && (
+                    <WorldRulesAccordion projectId={projectId!} lane={rulesetLane} userId={rulesetUserId} />
                   )}
 
                   <ActionToolbar
