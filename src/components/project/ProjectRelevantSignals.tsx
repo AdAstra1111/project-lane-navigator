@@ -7,24 +7,61 @@ import { useActiveSignals, TrendSignal } from '@/hooks/useTrends';
 import { TrendScoreBadges } from '@/components/market/TrendScoreBadges';
 import type { Project } from '@/lib/types';
 import { SignalCard } from '@/components/market/SignalCard';
+import { getBenchmarkToneTags, type StyleBenchmark } from '@/lib/rulesets/styleBenchmarks';
+import { cn } from '@/lib/utils';
 
 interface Props {
   project: Project;
+  styleBenchmark?: string | null;
 }
 
-function scoreSignal(signal: TrendSignal, project: Project): number {
+interface ScoredSignal {
+  signal: TrendSignal;
+  score: number;
+  reasons: string[];
+}
+
+function scoreSignal(
+  signal: TrendSignal,
+  project: Project,
+  benchmarkTones: string[],
+): ScoredSignal {
   let score = 0;
+  const reasons: string[] = [];
   const genres = (project.genres || []).map(g => g.toLowerCase());
   const tone = project.tone?.toLowerCase() || '';
   const format = project.format?.toLowerCase() || '';
   const lane = project.assigned_lane?.toLowerCase() || '';
 
-  if (signal.genre_tags?.some(gt => genres.some(pg => gt.toLowerCase().includes(pg) || pg.includes(gt.toLowerCase())))) score += 3;
-  if (tone && signal.tone_tags?.some(tt => tt.toLowerCase().includes(tone) || tone.includes(tt.toLowerCase()))) score += 2;
-  if (format && signal.format_tags?.some(ft => ft.toLowerCase().includes(format) || format.includes(ft.toLowerCase()))) score += 2;
-  if (lane && signal.lane_relevance?.some(lr => lr.toLowerCase().includes(lane) || lane.includes(lr.toLowerCase()))) score += 1;
+  // Genre match (strong)
+  if (signal.genre_tags?.some(gt => genres.some(pg => gt.toLowerCase().includes(pg) || pg.includes(gt.toLowerCase())))) {
+    score += 3;
+    reasons.push('genre');
+  }
+  // Tone match from project
+  if (tone && signal.tone_tags?.some(tt => tt.toLowerCase().includes(tone) || tone.includes(tt.toLowerCase()))) {
+    score += 2;
+    reasons.push('tone');
+  }
+  // Format match
+  if (format && signal.format_tags?.some(ft => ft.toLowerCase().includes(format) || format.includes(ft.toLowerCase()))) {
+    score += 2;
+    reasons.push('format');
+  }
+  // Lane relevance (boosted — most important for project specificity)
+  if (lane && signal.lane_relevance?.some(lr => lr.toLowerCase().includes(lane) || lane.includes(lr.toLowerCase()))) {
+    score += 3;
+    reasons.push('lane');
+  }
+  // Benchmark tone tag overlap
+  if (benchmarkTones.length > 0 && signal.tone_tags?.some(tt =>
+    benchmarkTones.some(bt => tt.toLowerCase().includes(bt) || bt.includes(tt.toLowerCase()))
+  )) {
+    score += 2;
+    reasons.push('benchmark');
+  }
 
-  return score;
+  return { signal, score, reasons };
 }
 
 const PHASE_DOT: Record<string, string> = {
@@ -47,17 +84,30 @@ const PHASE_STYLES: Record<string, string> = {
   Declining: 'bg-muted text-muted-foreground border-border',
 };
 
-export function ProjectRelevantSignals({ project }: Props) {
+const REASON_LABELS: Record<string, string> = {
+  genre: 'Genre',
+  tone: 'Tone',
+  format: 'Format',
+  lane: 'Lane',
+  benchmark: 'Benchmark',
+};
+
+export function ProjectRelevantSignals({ project, styleBenchmark }: Props) {
   const [expanded, setExpanded] = useState(false);
   const { data: allSignals = [], isLoading } = useActiveSignals();
+
+  const benchmarkTones = useMemo(
+    () => styleBenchmark ? getBenchmarkToneTags(styleBenchmark) : [],
+    [styleBenchmark]
+  );
 
   const relevantSignals = useMemo(() => {
     if (!allSignals.length) return [];
     return allSignals
-      .map(s => ({ signal: s, score: scoreSignal(s, project) }))
+      .map(s => scoreSignal(s, project, benchmarkTones))
       .filter(x => x.score > 0)
       .sort((a, b) => b.score - a.score || new Date(b.signal.last_updated_at).getTime() - new Date(a.signal.last_updated_at).getTime());
-  }, [allSignals, project]);
+  }, [allSignals, project, benchmarkTones]);
 
   if (isLoading) {
     return (
@@ -99,7 +149,7 @@ export function ProjectRelevantSignals({ project }: Props) {
               {count} {phase}
             </div>
           ))}
-          <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`} />
+          <ChevronDown className={cn('h-4 w-4 text-muted-foreground transition-transform duration-200', expanded && 'rotate-180')} />
         </div>
       </button>
 
@@ -115,7 +165,7 @@ export function ProjectRelevantSignals({ project }: Props) {
           >
             <div className="px-5 pb-4 space-y-1.5">
               <Accordion type="multiple" className="space-y-1.5">
-                {relevantSignals.map(({ signal }) => (
+                {relevantSignals.map(({ signal, reasons }) => (
                   <AccordionItem key={signal.id} value={signal.id} className="glass-card rounded-lg border-none">
                     <AccordionTrigger className="px-4 py-3 hover:no-underline gap-3">
                       <div className="flex items-center gap-2 text-left min-w-0 flex-1">
@@ -126,6 +176,12 @@ export function ProjectRelevantSignals({ project }: Props) {
                         <Badge className={`text-[10px] px-1.5 py-0 border shrink-0 ${PHASE_STYLES[signal.cycle_phase] ?? ''}`}>
                           {signal.cycle_phase}
                         </Badge>
+                        {/* Match reason chips */}
+                        {reasons.map(r => (
+                          <Badge key={r} variant="outline" className="text-[9px] px-1 py-0 border-border text-muted-foreground shrink-0">
+                            {REASON_LABELS[r] || r}
+                          </Badge>
+                        ))}
                       </div>
                       <TrendScoreBadges strength={signal.strength} velocity={signal.velocity} saturationRisk={signal.saturation_risk} compact />
                     </AccordionTrigger>

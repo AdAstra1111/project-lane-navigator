@@ -217,3 +217,23 @@ export function getDefaultBenchmark(lane: string): StyleBenchmark {
   if (lane === 'documentary') return 'prestige_intimate';
   return 'thriller_mystery';
 }
+
+/**
+ * Returns implied tone tags for a benchmark — used for signal matching.
+ */
+const BENCHMARK_TONE_TAGS: Record<StyleBenchmark, string[]> = {
+  glossy_comedy:         ['light', 'comedic', 'aspirational', 'warm', 'playful'],
+  romantic_banter:       ['romantic', 'witty', 'warm', 'sharp', 'dialogue-driven'],
+  kdrama_romance:        ['romantic', 'emotional', 'yearning', 'melodramatic', 'heartfelt'],
+  workplace_power_games: ['tense', 'sharp', 'political', 'cerebral', 'dark'],
+  thriller_mystery:      ['suspenseful', 'dark', 'tense', 'atmospheric', 'mysterious'],
+  prestige_intimate:     ['restrained', 'intimate', 'quiet', 'nuanced', 'literary'],
+  soap_melodrama:        ['melodramatic', 'emotional', 'dramatic', 'sensational', 'intense'],
+  youth_aspirational:    ['aspirational', 'coming-of-age', 'warm', 'identity', 'fresh'],
+  satire_systems:        ['satirical', 'ironic', 'dark comedy', 'institutional', 'cynical'],
+  action_pulse:          ['action', 'kinetic', 'intense', 'physical', 'fast-paced'],
+};
+
+export function getBenchmarkToneTags(benchmark: StyleBenchmark | string): string[] {
+  return BENCHMARK_TONE_TAGS[benchmark as StyleBenchmark] || [];
+}

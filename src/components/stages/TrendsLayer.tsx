@@ -9,9 +9,13 @@ import { AlertTriangle, Info, Clock } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { TrendIntelligencePanel } from '@/components/market/TrendIntelligencePanel';
 import { ProjectRelevantSignals } from '@/components/project/ProjectRelevantSignals';
+import { CreativeDriftCard } from '@/components/market/CreativeDriftCard';
+import { TrendSuggestedActions } from '@/components/market/TrendSuggestedActions';
 import { getStageTrendContext, isTrendStale } from '@/lib/stage-trend-mapping';
 import { getStageMeta, type LifecycleStage } from '@/lib/lifecycle-stages';
 import { cn } from '@/lib/utils';
+import { useProjectCreativeDrift } from '@/hooks/useProjectCreativeDrift';
+import { useActiveSignals } from '@/hooks/useTrends';
 import type { Project } from '@/lib/types';
 
 interface Props {
@@ -30,6 +34,9 @@ const LAYER_COLORS: Record<string, string> = {
 export function TrendsLayer({ project, projectId, lifecycleStage = 'development' }: Props) {
   const ctx = useMemo(() => getStageTrendContext(lifecycleStage), [lifecycleStage]);
   const stageMeta = getStageMeta(lifecycleStage);
+  const lane = project.assigned_lane || 'feature_film';
+  const { data: driftData } = useProjectCreativeDrift(projectId, lane);
+  const { data: allSignals = [] } = useActiveSignals();
 
   return (
     <div className="space-y-4">
@@ -69,14 +76,31 @@ export function TrendsLayer({ project, projectId, lifecycleStage = 'development'
         </div>
       </motion.div>
 
+      {/* Creative Health Card */}
+      <CreativeDriftCard projectId={projectId} lane={lane} />
+
+      {/* Suggested Actions */}
+      {driftData && (
+        <TrendSuggestedActions
+          projectId={projectId}
+          lane={lane}
+          driftData={driftData}
+          signals={allSignals}
+          projectGenres={project.genres || []}
+        />
+      )}
+
       <TrendIntelligencePanel
         projectId={projectId}
         format={project.format}
         budgetRange={project.budget_range}
         primaryTerritory={(project as any).primary_territory || ''}
         assignedLane={project.assigned_lane}
+        styleBenchmark={driftData?.benchmark}
+        pacingFeel={driftData?.feel}
+        targetBpm={driftData?.benchmarkDefaults.beats_per_minute.target}
       />
-      <ProjectRelevantSignals project={project} />
+      <ProjectRelevantSignals project={project} styleBenchmark={driftData?.benchmark} />
     </div>
   );
 }

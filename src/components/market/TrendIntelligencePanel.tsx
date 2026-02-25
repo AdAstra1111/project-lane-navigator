@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Activity, BarChart3, ChevronDown, Gauge, RefreshCw, AlertTriangle, TrendingUp, TrendingDown, Minus, Zap, Edit3, Check, X, Bot, Settings2 } from 'lucide-react';
+import { Activity, BarChart3, ChevronDown, Gauge, RefreshCw, AlertTriangle, TrendingUp, TrendingDown, Minus, Zap, Edit3, Check, X, Bot, Settings2, Palette } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -76,9 +76,12 @@ interface Props {
   budgetRange: string;
   primaryTerritory: string;
   assignedLane: string | null;
+  styleBenchmark?: string;
+  pacingFeel?: string;
+  targetBpm?: number;
 }
 
-export function TrendIntelligencePanel({ projectId, format, budgetRange, primaryTerritory, assignedLane }: Props) {
+export function TrendIntelligencePanel({ projectId, format, budgetRange, primaryTerritory, assignedLane, styleBenchmark, pacingFeel, targetBpm }: Props) {
   const { data: engines = [] } = useTrendEngines();
   const { data: weights = [] } = useEngineWeights(format);
   const { scores, upsertScore } = useProjectEngineScores(projectId);
@@ -128,6 +131,21 @@ export function TrendIntelligencePanel({ projectId, format, budgetRange, primary
                 result.trendScore >= 45 ? 'Mixed signals — some engines show promise, others need attention.' :
                   'Challenging market conditions — consider repositioning or timing.'}
             </p>
+            {/* Benchmark/Feel context */}
+            {styleBenchmark && (
+              <div className="flex items-center gap-1.5 mt-1.5 text-[10px] text-muted-foreground">
+                <Palette className="h-3 w-3" />
+                <span className="capitalize">{styleBenchmark.replace(/_/g, ' ')}</span>
+                <span>·</span>
+                <span className="capitalize">{pacingFeel || 'standard'}</span>
+                {targetBpm != null && (
+                  <>
+                    <span>·</span>
+                    <span className="font-mono">{targetBpm} BPM</span>
+                  </>
+                )}
+              </div>
+            )}
           </div>
         </div>
         {/* Action buttons */}
