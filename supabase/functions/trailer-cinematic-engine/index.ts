@@ -2918,10 +2918,9 @@ async function handleCreateScriptVariants(db: any, body: any, userId: string, ap
   const baseSeed = seedBase || `var-${Date.now().toString(36)}`;
   const results: any[] = [];
 
-  for (const label of variants.slice(0, 5)) {
-    // Deterministic seed per variant
+  // Run all variants in parallel to avoid timeout
+  const variantPromises = variants.slice(0, 3).map(async (label: string) => {
     const variantSeed = `${baseSeed}-${label}`.slice(0, 24);
-
     try {
       const resp = await handleCreateTrailerScript(db, {
         projectId, canonPackId, trailerType, genreKey, platformKey,
@@ -2930,14 +2929,13 @@ async function handleCreateScriptVariants(db: any, body: any, userId: string, ap
       }, userId, apiKey);
       const data = await resp.clone().json();
 
-      // Tag variant label
       if (data.scriptRunId) {
         await db.from("trailer_script_runs")
           .update({ variant_label: label })
           .eq("id", data.scriptRunId);
       }
 
-      results.push({
+      return {
         label,
         scriptRunId: data.scriptRunId || null,
         seed: variantSeed,
@@ -2948,17 +2946,19 @@ async function handleCreateScriptVariants(db: any, body: any, userId: string, ap
         warningsCount: data.warnings?.length ?? 0,
         gatesPassed: data.gatesPassed ?? false,
         error: data.error || null,
-      });
+      };
     } catch (err: any) {
-      results.push({
+      return {
         label,
         scriptRunId: null,
         seed: variantSeed,
         status: "error",
         error: err.message,
-      });
+      };
     }
-  }
+  });
+
+  const results = await Promise.all(variantPromises);
 
   return json({ ok: true, variants: results });
 }
