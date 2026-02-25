@@ -89,10 +89,10 @@ export function WorldRulesAccordion({ projectId, lane, userId, className }: Prop
               conflicts: activeProfile.conflicts || [],
             } : null}
             savedPacingFeel={prefs.pacing_feel}
-            savedGenrePreset={prefs.genre_preset}
+            savedBenchmark={prefs.style_benchmark}
             onRulesChanged={handleRulesChanged}
             onPacingPrefsChanged={(p) => {
-              savePrefs.mutate({ pacing_feel: p.pacing_feel, genre_preset: p.genre_preset });
+              savePrefs.mutate({ pacing_feel: p.pacing_feel, style_benchmark: p.style_benchmark });
             }}
           />
 

@@ -22,9 +22,9 @@ interface WorldRulesPanelProps {
     conflicts: RuleConflict[];
   } | null;
   savedPacingFeel?: string;
-  savedGenrePreset?: string | null;
+  savedBenchmark?: string | null;
   onRulesChanged?: () => void;
-  onPacingPrefsChanged?: (prefs: { pacing_feel: string; genre_preset: string | null }) => void;
+  onPacingPrefsChanged?: (prefs: { pacing_feel: string; style_benchmark: string | null }) => void;
 }
 
 export function WorldRulesPanel({
@@ -33,7 +33,7 @@ export function WorldRulesPanel({
   userId,
   engineProfile,
   savedPacingFeel,
-  savedGenrePreset,
+  savedBenchmark,
   onRulesChanged,
   onPacingPrefsChanged,
 }: WorldRulesPanelProps) {
@@ -185,7 +185,7 @@ export function WorldRulesPanel({
                 userId={userId}
                 engineProfile={engineProfile ? { id: engineProfile.id, rules: engineProfile.rules } : null}
                 savedFeel={savedPacingFeel}
-                savedGenrePreset={savedGenrePreset}
+                savedBenchmark={savedBenchmark}
                 onPacingApplied={onRulesChanged}
                 onPrefsChanged={onPacingPrefsChanged}
               />

@@ -9,7 +9,7 @@ export interface RulesetPrefs {
   auto_diversify?: boolean;
   lock_ruleset?: boolean;
   pacing_feel?: string;
-  genre_preset?: string | null;
+  style_benchmark?: string | null;
   last_ui?: {
     restraint?: number;
     conflict_mode?: string;
