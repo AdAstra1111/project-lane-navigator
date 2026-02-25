@@ -8,7 +8,7 @@ import type { CinematicUnit, CinematicFailureCode } from "../../supabase/functio
 import { DIAGNOSTIC_ONLY_CODES } from "../../supabase/functions/_shared/cinematic-model";
 import { extractFeatures, countDirectionReversals, detectPacingMismatch, summarizeSignal, summarizePolarity, variance } from "../../supabase/functions/_shared/cinematic-features";
 import { scoreCinematic, CINEMATIC_THRESHOLDS, PENALTY_MAP } from "../../supabase/functions/_shared/cinematic-score";
-import { amplifyRepairInstruction, buildTrailerRepairInstruction, buildStoryboardRepairInstruction } from "../../supabase/functions/_shared/cinematic-repair";
+import { amplifyRepairInstruction, buildTrailerRepairInstruction, buildStoryboardRepairInstruction, numericTargetsForFailures } from "../../supabase/functions/_shared/cinematic-repair";
 import { enforceUnitCount } from "../../supabase/functions/_shared/cinematic-adapters";
 import { computeStoryboardExpectedCount, computeTrailerExpectedCount } from "../../supabase/functions/_shared/cinematic-expected-count";
 
@@ -251,17 +251,70 @@ describe("Repair instructions", () => {
     expect(result).toContain("reversals");
   });
 
-  it("buildTrailerRepairInstruction includes shape guard and bullets", () => {
+  it("buildTrailerRepairInstruction includes shape guard, bullets, and no-new-intent", () => {
     const score = scoreCinematic([makeUnit({ id: "0", energy: 0.1 })]);
     const instruction = buildTrailerRepairInstruction(score);
     expect(instruction).toContain("CRITICAL REPAIR CONSTRAINTS");
     expect(instruction).toContain("TOO_SHORT");
+    expect(instruction).toContain("CONSTRAINTS (ATTEMPT 1)");
+    expect(instruction).toContain("Do NOT introduce new characters");
+  });
+
+  it("buildTrailerRepairInstruction includes context-aware numeric targets with unitCount", () => {
+    const score = scoreCinematic([makeUnit({ id: "0", energy: 0.1 })]);
+    const instruction = buildTrailerRepairInstruction(score, 8);
+    expect(instruction).toContain("CONTEXT-AWARE NUMERIC TARGETS");
+    expect(instruction).toContain("unitCount must equal 8 exactly");
   });
 
   it("buildStoryboardRepairInstruction includes unit_key guard", () => {
     const score = scoreCinematic([makeUnit({ id: "0", energy: 0.1 })]);
     const instruction = buildStoryboardRepairInstruction(score);
     expect(instruction).toContain("unit_key");
+  });
+});
+
+// ─── numericTargetsForFailures Tests ───
+
+describe("numericTargetsForFailures", () => {
+  it("returns TOO_SHORT target with exact unit count", () => {
+    const targets = numericTargetsForFailures({ failures: ["TOO_SHORT"], unitCount: 6 });
+    expect(targets).toContain("unitCount must equal 6 exactly (no more, no less)");
+  });
+
+  it("returns NO_PEAK target with correct latePeakMin", () => {
+    const targets = numericTargetsForFailures({ failures: ["NO_PEAK"], unitCount: 8 });
+    // latePeakMin = floor(8 * 0.75) = 6
+    expect(targets.some(t => t.includes("peakIndex must be >= 6"))).toBe(true);
+    expect(targets.some(t => t.includes("climax/turning-point"))).toBe(true);
+  });
+
+  it("returns escalation target for WEAK_ARC", () => {
+    const targets = numericTargetsForFailures({ failures: ["WEAK_ARC"], unitCount: 6 });
+    expect(targets.some(t => t.includes("escalationScore"))).toBe(true);
+  });
+
+  it("returns contrast target for FLATLINE", () => {
+    const targets = numericTargetsForFailures({ failures: ["FLATLINE"], unitCount: 6 });
+    expect(targets.some(t => t.includes("contrastScore"))).toBe(true);
+    expect(targets.some(t => t.includes("higher-intensity"))).toBe(true);
+  });
+
+  it("deduplicates targets for overlapping failures", () => {
+    const targets = numericTargetsForFailures({ failures: ["NO_ESCALATION", "WEAK_ARC"], unitCount: 6 });
+    const escalationTargets = targets.filter(t => t.includes("escalationScore"));
+    expect(escalationTargets).toHaveLength(1); // deduped
+  });
+
+  it("returns empty array for unknown failures", () => {
+    const targets = numericTargetsForFailures({ failures: ["UNKNOWN_CODE" as any], unitCount: 6 });
+    expect(targets).toHaveLength(0);
+  });
+
+  it("computes latePeakMin correctly for small unit counts", () => {
+    const targets = numericTargetsForFailures({ failures: ["ENERGY_DROP"], unitCount: 4 });
+    // latePeakMin = max(1, floor(4 * 0.75)) = 3
+    expect(targets.some(t => t.includes("peakIndex must be >= 3"))).toBe(true);
   });
 });
 
