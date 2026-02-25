@@ -1,14 +1,17 @@
 /**
- * Video Render Jobs Viewer — Minimal list + detail for render jobs.
+ * Video Render Jobs Viewer — List + detail with video preview and polling.
  */
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Clapperboard, ChevronDown, ChevronUp, Loader2, AlertCircle } from "lucide-react";
+import {
+  Clapperboard, ChevronDown, ChevronUp, Loader2, AlertCircle, Play, RefreshCw,
+  CheckCircle2, XCircle,
+} from "lucide-react";
 import { toast } from "sonner";
 import type { VideoRenderJobRow, VideoRenderShotRow } from "@/videoPlans/renderTypes";
 
@@ -47,6 +50,21 @@ export default function VideoRenderJobsViewer({ projectId, planId }: VideoRender
     enabled: !!projectId,
   });
 
+  // Auto-poll running jobs every 10s
+  const hasRunning = jobs?.some(j => j.status === "running" || j.status === "claimed");
+
+  useEffect(() => {
+    if (!hasRunning) return;
+    const interval = setInterval(() => {
+      qc.invalidateQueries({ queryKey: ["video-render-jobs", projectId, planId] });
+      // Also trigger poll action
+      supabase.functions.invoke("process-video-render-job", {
+        body: { project_id: projectId, action: "poll" },
+      }).catch(() => {});
+    }, 10_000);
+    return () => clearInterval(interval);
+  }, [hasRunning, projectId, planId, qc]);
+
   const createJob = useMutation({
     mutationFn: async (targetPlanId: string) => {
       const { data, error } = await supabase.functions.invoke("create-video-render-job", {
@@ -62,25 +80,58 @@ export default function VideoRenderJobsViewer({ projectId, planId }: VideoRender
     onError: (e: any) => toast.error("Failed to create render job: " + e.message),
   });
 
+  const processJob = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.functions.invoke("process-video-render-job", {
+        body: { project_id: projectId, action: "submit" },
+      });
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (data: any) => {
+      qc.invalidateQueries({ queryKey: ["video-render-jobs", projectId] });
+      if (data?.submitted > 0) {
+        toast.success(`Submitted ${data.submitted} shot(s) for rendering`);
+      } else if (data?.message === "No queued jobs") {
+        toast.info("No queued jobs to process");
+      }
+    },
+    onError: (e: any) => toast.error("Processing failed: " + e.message),
+  });
+
   return (
     <Card>
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between">
           <CardTitle className="text-sm font-medium flex items-center gap-1.5">
             <Clapperboard className="h-4 w-4" /> Render Jobs
+            {hasRunning && <Loader2 className="h-3 w-3 animate-spin text-primary" />}
           </CardTitle>
-          {planId && (
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-7 text-xs"
-              disabled={createJob.isPending}
-              onClick={() => createJob.mutate(planId)}
-            >
-              {createJob.isPending && <Loader2 className="h-3 w-3 animate-spin mr-1" />}
-              Create Render Job
-            </Button>
-          )}
+          <div className="flex items-center gap-1.5">
+            {jobs && jobs.some(j => j.status === "queued") && (
+              <Button
+                size="sm"
+                className="h-7 text-xs"
+                disabled={processJob.isPending}
+                onClick={() => processJob.mutate()}
+              >
+                {processJob.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Play className="h-3 w-3 mr-1" />}
+                Start Render
+              </Button>
+            )}
+            {planId && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs"
+                disabled={createJob.isPending}
+                onClick={() => createJob.mutate(planId)}
+              >
+                {createJob.isPending && <Loader2 className="h-3 w-3 animate-spin mr-1" />}
+                Create Job
+              </Button>
+            )}
+          </div>
         </div>
       </CardHeader>
       <CardContent className="p-0">
@@ -91,7 +142,7 @@ export default function VideoRenderJobsViewer({ projectId, planId }: VideoRender
             No render jobs yet.{planId ? " Create one from this plan." : ""}
           </div>
         ) : (
-          <ScrollArea className="max-h-[400px]">
+          <ScrollArea className="max-h-[500px]">
             <div className="divide-y divide-border">
               {jobs.map((job) => (
                 <div key={job.id}>
@@ -102,10 +153,8 @@ export default function VideoRenderJobsViewer({ projectId, planId }: VideoRender
                     <Badge className={`text-[10px] px-1.5 py-0 ${STATUS_COLORS[job.status] || ""}`}>
                       {job.status}
                     </Badge>
-                    <span className="font-mono">attempt {job.attempt_count}</span>
-                    {job.last_error && (
-                      <AlertCircle className="h-3 w-3 text-destructive" />
-                    )}
+                    <span className="font-mono">×{job.attempt_count}</span>
+                    {job.last_error && <AlertCircle className="h-3 w-3 text-destructive" />}
                     <span className="flex-1" />
                     <span className="text-muted-foreground">
                       {new Date(job.created_at).toLocaleString(undefined, {
@@ -114,7 +163,9 @@ export default function VideoRenderJobsViewer({ projectId, planId }: VideoRender
                     </span>
                     {expandedId === job.id ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
                   </button>
-                  {expandedId === job.id && <RenderJobDetail jobId={job.id} lastError={job.last_error} />}
+                  {expandedId === job.id && (
+                    <RenderJobDetail jobId={job.id} lastError={job.last_error} projectId={projectId} />
+                  )}
                 </div>
               ))}
             </div>
@@ -125,7 +176,7 @@ export default function VideoRenderJobsViewer({ projectId, planId }: VideoRender
   );
 }
 
-function RenderJobDetail({ jobId, lastError }: { jobId: string; lastError: string | null }) {
+function RenderJobDetail({ jobId, lastError, projectId }: { jobId: string; lastError: string | null; projectId: string }) {
   const { data: shots, isLoading } = useQuery({
     queryKey: ["video-render-shots", jobId],
     queryFn: async () => {
@@ -137,50 +188,85 @@ function RenderJobDetail({ jobId, lastError }: { jobId: string; lastError: strin
       if (error) throw error;
       return (data || []) as VideoRenderShotRow[];
     },
+    refetchInterval: 10_000, // poll while viewing
   });
+
+  const completeCount = shots?.filter(s => s.status === "complete").length || 0;
+  const errorCount = shots?.filter(s => s.status === "error").length || 0;
+  const totalCount = shots?.length || 0;
 
   return (
     <div className="px-4 pb-4 space-y-2 border-t border-border/50 bg-muted/10">
+      {/* Job summary */}
+      <div className="flex items-center gap-4 pt-2 text-[10px]">
+        <span className="text-muted-foreground">
+          Total: <span className="font-mono font-medium">{totalCount}</span>
+        </span>
+        {completeCount > 0 && (
+          <span className="flex items-center gap-0.5">
+            <CheckCircle2 className="h-3 w-3 text-green-500" />
+            <span className="font-mono">{completeCount}</span>
+          </span>
+        )}
+        {errorCount > 0 && (
+          <span className="flex items-center gap-0.5">
+            <XCircle className="h-3 w-3 text-destructive" />
+            <span className="font-mono">{errorCount}</span>
+          </span>
+        )}
+      </div>
+
       {lastError && (
-        <div className="text-[10px] text-destructive pt-2">
+        <div className="text-[10px] text-destructive">
           <AlertCircle className="h-3 w-3 inline mr-1" />
           {lastError}
         </div>
       )}
+
       {isLoading ? (
         <div className="text-xs text-muted-foreground py-2">Loading shots…</div>
       ) : !shots || shots.length === 0 ? (
         <div className="text-xs text-muted-foreground py-2">No shots in this job.</div>
       ) : (
-        <div className="overflow-x-auto pt-2">
-          <table className="w-full text-[10px] border border-border rounded">
-            <thead>
-              <tr className="bg-muted">
-                <th className="px-2 py-1 text-left font-medium">#</th>
-                <th className="px-2 py-1 text-left font-medium">Status</th>
-                <th className="px-2 py-1 text-left font-medium">Attempts</th>
-                <th className="px-2 py-1 text-left font-medium">Type</th>
-                <th className="px-2 py-1 text-left font-medium">Error</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {shots.map((shot) => (
-                <tr key={shot.id} className="hover:bg-muted/30">
-                  <td className="px-2 py-0.5 font-mono">{shot.shot_index}</td>
-                  <td className="px-2 py-0.5">
-                    <Badge className={`text-[10px] px-1 py-0 ${STATUS_COLORS[shot.status] || ""}`}>
-                      {shot.status}
-                    </Badge>
-                  </td>
-                  <td className="px-2 py-0.5 font-mono">{shot.attempt_count}</td>
-                  <td className="px-2 py-0.5">{(shot.prompt_json as any)?.shotType || "—"}</td>
-                  <td className="px-2 py-0.5 max-w-[200px] truncate text-destructive">
-                    {shot.last_error || "—"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="space-y-1">
+          {shots.map((shot) => {
+            const artifact = shot.artifact_json as any;
+            const prompt = shot.prompt_json as any;
+            const hasVideo = shot.status === "complete" && artifact?.publicUrl;
+
+            return (
+              <div key={shot.id} className="border border-border rounded p-2 text-[10px]">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="font-mono font-medium">#{shot.shot_index}</span>
+                  <Badge className={`text-[10px] px-1 py-0 ${STATUS_COLORS[shot.status] || ""}`}>
+                    {shot.status}
+                  </Badge>
+                  <span className="font-mono text-muted-foreground">×{shot.attempt_count}</span>
+                  {prompt?.providerJobId && (
+                    <span className="text-muted-foreground truncate max-w-[120px]" title={prompt.providerJobId}>
+                      {prompt.providerJobId.split("/").pop()?.slice(0, 12)}…
+                    </span>
+                  )}
+                  <span className="flex-1" />
+                  <span className="text-muted-foreground">{prompt?.shotType || "—"}</span>
+                </div>
+
+                {shot.last_error && (
+                  <div className="text-destructive truncate mb-1">{shot.last_error}</div>
+                )}
+
+                {hasVideo && (
+                  <video
+                    src={artifact.publicUrl}
+                    controls
+                    preload="metadata"
+                    className="w-full max-w-[320px] rounded border border-border mt-1"
+                    style={{ maxHeight: "180px" }}
+                  />
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
