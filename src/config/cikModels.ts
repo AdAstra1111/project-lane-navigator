@@ -2,18 +2,20 @@
  * CIK Model Router — Deterministic model selection for CIK quality gate.
  * Frontend-side mirror of supabase/functions/_shared/cik/modelRouter.ts selectCikModel.
  * No randomness. No time-based decisions. Static constants only.
+ *
+ * Model names and lane overrides are derived from the canonical config in
+ * cikModelConfig.ts. A drift-guard test ensures FE/BE stay in sync.
  */
 
-/* ── Model Constants ── */
+import { CIK_MODEL_ROUTER_CONFIG } from "./cikModelConfig";
 
-export const CIK_MODEL_ATTEMPT0_DEFAULT = "google/gemini-2.5-flash";
-export const CIK_MODEL_ATTEMPT1_STRONG = "google/gemini-2.5-pro";
+/* ── Model Constants (derived from canonical config) ── */
 
-/** Per-lane overrides (static). Unknown lanes fall back to defaults. */
-const LANE_OVERRIDES: Record<string, { attempt0?: string; attempt1Strong?: string }> = {
-  feature_film: { attempt1Strong: "openai/gpt-5" },
-  series: { attempt1Strong: "openai/gpt-5" },
-};
+export const CIK_MODEL_ATTEMPT0_DEFAULT = CIK_MODEL_ROUTER_CONFIG.attempt0Default;
+export const CIK_MODEL_ATTEMPT1_STRONG = CIK_MODEL_ROUTER_CONFIG.attempt1Strong;
+
+/** Per-lane overrides (derived from canonical config). Unknown lanes fall back to defaults. */
+const LANE_OVERRIDES = CIK_MODEL_ROUTER_CONFIG.laneOverrides;
 
 /* ── Router Types ── */
 
