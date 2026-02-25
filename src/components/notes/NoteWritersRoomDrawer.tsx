@@ -304,7 +304,7 @@ export function NoteWritersRoomDrawer({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full sm:max-w-lg flex flex-col p-0">
+      <SheetContent side="right" className="w-full sm:max-w-lg flex flex-col p-0 overflow-y-auto overscroll-contain">
         <SheetHeader className="px-4 pt-4 pb-2">
           <SheetTitle className="text-sm flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-primary" />
@@ -392,11 +392,11 @@ export function NoteWritersRoomDrawer({
         )}
 
         {isLoading ? (
-          <div className="flex-1 flex items-center justify-center">
+          <div className="py-8 flex items-center justify-center">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
         ) : showPlan && currentPlan ? (
-          <div className="flex-1 min-h-0 flex flex-col">
+          <div className="flex flex-col">
             <ChangePlanPanel
               planRow={currentPlan}
               onConfirm={handleConfirmPlan}
@@ -408,7 +408,7 @@ export function NoteWritersRoomDrawer({
             />
           </div>
         ) : (
-          <Tabs value={tab} onValueChange={setTab} className="flex-1 flex flex-col min-h-0">
+          <Tabs value={tab} onValueChange={setTab} className="flex flex-col">
             <TabsList className="mx-4 mt-2">
               <TabsTrigger value="discuss" className="text-xs">Discuss</TabsTrigger>
               <TabsTrigger value="options" className="text-xs">
@@ -523,7 +523,7 @@ export function NoteWritersRoomDrawer({
             </TabsContent>
 
             {/* ── OPTIONS TAB ── */}
-            <TabsContent value="options" className="flex-1 min-h-0 m-0 px-4 py-2 overflow-y-auto overscroll-contain">
+            <TabsContent value="options" className="m-0 px-4 py-2">
               <div className="space-y-4 pr-2 pb-4">
                 {optionSets.map((set: NoteOptionSet) => (
                   <div key={set.id} className="space-y-2">
