@@ -94,25 +94,57 @@ export function NoteDrawer({ projectId, noteId, note: noteProp, context, onAppli
 
   const rawFixes = (note?.suggested_fixes || []) as NoteSuggestedFix[];
 
-  // Generate deterministic fallback fixes when none exist
+  // Smart deterministic fallback fixes
+  type FixKind = 'doc_ladder' | 'naming' | 'formatting' | 'general';
+
+  function classifyNote(n: ProjectNote): FixKind {
+    const t = `${n.title || ''} ${n.summary || ''} ${n.detail || ''}`.toLowerCase();
+    if (
+      t.includes('document ladder') || t.includes('doc ladder') ||
+      t.includes('document type') || t.includes('doc type') ||
+      t.includes('section header') ||
+      (t.includes('header') && (t.includes('rename') || t.includes('official') || t.includes('map')))
+    ) return 'doc_ladder';
+    if (t.includes('label') || t.includes('naming') || t.includes('rename')) return 'naming';
+    if (t.includes('format') || t.includes('markdown') || t.includes('bullet') || t.includes('whitespace')) return 'formatting';
+    return 'general';
+  }
+
+  function buildFallbackFixes(n: ProjectNote, ladder: string): NoteSuggestedFix[] {
+    const kind = classifyNote(n);
+    const base = (n.summary || n.title || '').trim();
+    if (kind === 'doc_ladder') {
+      const lt = (ladder || '').trim();
+      const ladderLine = lt ? `Use the "${lt}" document ladder.` : 'A document ladder selection is required.';
+      return [
+        { id: 'auto-doc-rename', title: 'Map headers to official doc types', description: 'Rename non-official section headers to the selected ladder\'s official document types.', instructions: `${ladderLine} Replace non-official section headers by mapping them to the closest valid official document type header. Do not invent new types outside the ladder. Preserve content; change headings only.` },
+        { id: 'auto-doc-preserve', title: 'Map headers + preserve original label', description: 'Use official document types, but keep the original header as a short subtitle line.', instructions: `${ladderLine} Convert each non-official section header into the closest valid official document type header. Under the new header, add a one-line subtitle preserving the original label. Preserve content; change headings only.` },
+        { id: 'auto-doc-defer', title: 'Defer (needs ladder decision)', description: 'If unsure, do not change headers until the correct ladder is selected.', instructions: `${base}. Do not apply any header renames unless the correct document ladder is selected.` },
+      ];
+    }
+    if (kind === 'formatting') {
+      return [
+        { id: 'auto-format-min', title: 'Minimal formatting fix', description: 'Fix formatting issues with minimal edits.', instructions: `${base}. Make only formatting changes (spacing, bullets, headings) without changing meaning or structure.` },
+        { id: 'auto-format-consistent', title: 'Normalize formatting', description: 'Normalize formatting to match the project\'s standard style.', instructions: `${base}. Normalize formatting consistently (headings, bullets, spacing) to match existing project conventions. Do not rewrite content.` },
+      ];
+    }
+    if (kind === 'naming') {
+      return [
+        { id: 'auto-name-min', title: 'Standardize naming', description: 'Fix naming inconsistencies with minimal changes.', instructions: `${base}. Standardize names/labels to match the project's conventions. Prefer renaming labels over rewriting content.` },
+        { id: 'auto-name-preserve', title: 'Standardize + preserve original', description: 'Standardize names but preserve original term where useful.', instructions: `${base}. Standardize names/labels to match project conventions, preserving original terms in parentheses if needed for clarity.` },
+      ];
+    }
+    return [
+      { id: 'auto-direct', title: 'Direct fix', description: `Apply the suggested change: ${(base || '').slice(0, 80)}`, instructions: base },
+      { id: 'auto-conservative', title: 'Conservative fix', description: 'Apply the change conservatively, preserving original structure as much as possible.', instructions: `${base}. Preserve the original structure and wording where possible, making only the minimal changes needed.` },
+    ];
+  }
+
   const fixes: NoteSuggestedFix[] =
     rawFixes.length > 0
       ? rawFixes.slice(0, 3)
       : note
-        ? ([
-            {
-              id: 'auto-direct',
-              title: 'Direct fix',
-              description: `Apply the suggested change: ${(note.summary || note.title || '').slice(0, 80)}`,
-              instructions: (note.summary || note.title || '').trim(),
-            },
-            {
-              id: 'auto-conservative',
-              title: 'Conservative fix',
-              description: 'Apply the change conservatively, preserving original structure as much as possible.',
-              instructions: `${(note.summary || note.title || '').trim()}. Preserve the original structure and wording where possible, making only the minimal changes needed.`,
-            },
-          ] as NoteSuggestedFix[])
+        ? buildFallbackFixes(note, deferDocType).slice(0, 3)
         : [];
 
   const isApplied = note?.status === 'applied';
@@ -120,14 +152,7 @@ export function NoteDrawer({ projectId, noteId, note: noteProp, context, onAppli
 
   // Doc-ladder guard: detect notes that need a doc type selection
   function noteRequiresDocType(n: ProjectNote): boolean {
-    const t = `${n.title || ''} ${n.summary || ''} ${n.detail || ''}`.toLowerCase();
-    return (
-      t.includes('document ladder') ||
-      t.includes('doc ladder') ||
-      t.includes('document type') ||
-      t.includes('doc type') ||
-      (t.includes('section header') && (t.includes('rename') || t.includes('official')))
-    );
+    return classifyNote(n) === 'doc_ladder';
   }
 
   // Quick-fix: propose → apply → verify in one click
