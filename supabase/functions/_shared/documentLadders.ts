@@ -28,10 +28,11 @@ export const BASE_DOC_TYPES: Record<string, DocTypeMeta> = {
   concept_brief:           { label: 'Concept Brief',           description: 'One-pager expanding the idea' },
   market_sheet:            { label: 'Market Sheet',            description: 'Market positioning analysis' },
   vertical_market_sheet:   { label: 'Vertical Market Sheet',   description: 'Market sheet for vertical formats' },
-  blueprint:               { label: 'Blueprint',               description: 'Treatment / series bible / structural overview' },
-  architecture:            { label: 'Architecture',            description: 'Plot architecture / structural outline' },
+  treatment:               { label: 'Treatment',               description: 'Treatment / series bible / structural overview' },
+  story_outline:           { label: 'Story Outline',           description: 'Plot outline / structural architecture' },
   character_bible:         { label: 'Character Bible',         description: 'Character profiles and arcs' },
   beat_sheet:              { label: 'Beat Sheet',              description: 'Scene-by-scene beat structure' },
+  episode_beats:           { label: 'Episode Beats',           description: 'Beat sheets for series episodes' },
   feature_script:          { label: 'Feature Script',          description: 'Full screenplay for film / feature' },
   episode_script:          { label: 'Episode Script',          description: 'Script for a single episode' },
   season_master_script:    { label: 'Season Master Script',    description: 'Compiled season scripts' },
@@ -41,18 +42,19 @@ export const BASE_DOC_TYPES: Record<string, DocTypeMeta> = {
   format_rules:            { label: 'Format Rules',            description: 'Vertical drama format constraints' },
   season_arc:              { label: 'Season Arc',              description: 'Season-level arc and episode progression' },
   episode_grid:            { label: 'Episode Grid',            description: 'Grid of all episodes with hooks/turns' },
-  vertical_episode_beats:  { label: 'Vertical Episode Beats',  description: 'Beat sheets for vertical episodes' },
+  vertical_episode_beats:  { label: 'Vertical Episode Beats',  description: 'Beat sheets for vertical drama episodes' },
   topline_narrative:       { label: 'Topline Narrative',       description: 'Synopsis + logline + story pillars' },
 };
 
 export const LANE_DOC_LADDERS: Record<LaneKey, string[]> = {
   feature_film: [
-    'idea', 'concept_brief', 'market_sheet', 'blueprint', 'architecture',
+    'idea', 'concept_brief', 'market_sheet', 'treatment', 'story_outline',
     'character_bible', 'beat_sheet', 'feature_script', 'production_draft', 'deck',
   ],
   series: [
-    'idea', 'concept_brief', 'market_sheet', 'blueprint', 'architecture',
-    'character_bible', 'beat_sheet', 'episode_script', 'season_master_script', 'production_draft',
+    'idea', 'concept_brief', 'market_sheet', 'treatment', 'story_outline',
+    'character_bible', 'beat_sheet', 'episode_beats', 'episode_script',
+    'season_master_script', 'production_draft',
   ],
   vertical_drama: [
     'idea', 'concept_brief', 'vertical_market_sheet', 'format_rules',
@@ -63,24 +65,25 @@ export const LANE_DOC_LADDERS: Record<LaneKey, string[]> = {
     'idea', 'concept_brief', 'market_sheet', 'documentary_outline', 'deck',
   ],
   animation: [
-    'idea', 'concept_brief', 'market_sheet', 'blueprint',
+    'idea', 'concept_brief', 'market_sheet', 'treatment',
     'character_bible', 'beat_sheet', 'feature_script',
   ],
   short: [
     'idea', 'concept_brief', 'feature_script',
   ],
   unspecified: [
-    'idea', 'concept_brief', 'market_sheet', 'blueprint', 'architecture',
+    'idea', 'concept_brief', 'market_sheet', 'treatment', 'story_outline',
     'character_bible', 'beat_sheet', 'feature_script', 'production_draft', 'deck',
   ],
 };
 
 export const DOC_LABEL_ALIASES: Record<string, string> = {
-  treatment:               'blueprint',
-  series_bible:            'blueprint',
-  outline:                 'blueprint',
-  season_outline:          'blueprint',
-  plot_architecture:       'architecture',
+  blueprint:               'treatment',
+  series_bible:            'treatment',
+  outline:                 'treatment',
+  season_outline:          'treatment',
+  architecture:            'story_outline',
+  plot_architecture:       'story_outline',
   script:                  'feature_script',
   screenplay:              'feature_script',
   script_pdf:              'feature_script',
@@ -96,8 +99,7 @@ export const DOC_LABEL_ALIASES: Record<string, string> = {
   pitch_deck:              'deck',
   lookbook:                'deck',
   coverage:                'production_draft',
-  episode_beats:           'vertical_episode_beats',
-  episode_beat_sheet:       'beat_sheet',
+  episode_beat_sheet:      'beat_sheet',
   complete_season_script:  'season_master_script',
   doc_outline:             'documentary_outline',
   writers_room:            'episode_script',
@@ -108,10 +110,32 @@ export const DOC_LABEL_ALIASES: Record<string, string> = {
   topline:                 'topline_narrative',
 };
 
-export function normalizeDocType(input: string): string {
+export const DOC_LABEL_ALIASES_BY_LANE: Partial<Record<LaneKey, Record<string, string>>> = {
+  vertical_drama: {
+    episode_beats:  'vertical_episode_beats',
+  },
+};
+
+export function normalizeDocType(
+  input: string,
+  lane?: string | null,
+  format?: string | null,
+): string {
   if (!input) return input;
   const key = input.trim().toLowerCase().replace(/[\s-]+/g, '_');
-  return DOC_LABEL_ALIASES[key] ?? key;
+
+  const effectiveLane = lane ?? (format ? formatToLane(format) : 'unspecified');
+
+  const laneAliases = DOC_LABEL_ALIASES_BY_LANE[effectiveLane as LaneKey];
+  if (laneAliases && key in laneAliases) {
+    return laneAliases[key];
+  }
+
+  if (key in DOC_LABEL_ALIASES) {
+    return DOC_LABEL_ALIASES[key];
+  }
+
+  return key;
 }
 
 export function getLaneLadder(lane: string | null | undefined): string[] {
@@ -119,9 +143,13 @@ export function getLaneLadder(lane: string | null | undefined): string[] {
   return LANE_DOC_LADDERS[key] ?? LANE_DOC_LADDERS.unspecified;
 }
 
-export function isDocTypeAllowedInLane(lane: string | null | undefined, docType: string): boolean {
+export function isDocTypeAllowedInLane(
+  lane: string | null | undefined,
+  docType: string,
+  format?: string | null,
+): boolean {
   const ladder = getLaneLadder(lane);
-  const normalized = normalizeDocType(docType);
+  const normalized = normalizeDocType(docType, lane, format);
   return ladder.includes(normalized);
 }
 
@@ -162,7 +190,7 @@ export function buildLadderPromptBlock(lane: string | null | undefined): string 
   return [
     '## OFFICIAL DOCUMENT TYPES FOR THIS LANE',
     `Use ONLY these official document types: ${labels.join(', ')}.`,
-    'Do not invent new document type labels like "Blueprint" or "Architecture" unless they appear in the list above.',
+    'Do not invent new document type labels like "Blueprint" or "Architecture" — use "Treatment" and "Story Outline" instead.',
     'If referring to structural sections, use the official labels.',
   ].join('\n');
 }
