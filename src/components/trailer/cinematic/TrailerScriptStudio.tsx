@@ -423,8 +423,7 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
     return Array.isArray(refs) && refs.length >= 1;
   }) ?? false;
 
-  const judgePassed = latestJudge?.status === 'complete' &&
-    !latestJudge?.flags?.length;
+  const judgePassed = latestJudge?.status === 'complete';
 
   // Gate-aware proceed logic: script gates + judge must pass
   const scriptGatesPassed = scriptGates?.passed ?? true;
