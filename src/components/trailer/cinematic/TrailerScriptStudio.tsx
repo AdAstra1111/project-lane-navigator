@@ -216,7 +216,7 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
     queryFn: async () => {
       const { data, error } = await supabase
         .from('projects')
-        .select('format, genres, assigned_lane, development_behavior, guardrails_config, episode_target_duration_seconds, episode_target_duration_min_seconds, episode_target_duration_max_seconds, season_episode_count')
+        .select('format, genres, assigned_lane, development_behavior, tone, guardrails_config, episode_target_duration_seconds, episode_target_duration_min_seconds, episode_target_duration_max_seconds, season_episode_count')
         .eq('id', projectId)
         .single();
       if (error) throw error;
@@ -286,7 +286,53 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
     };
 
     const behavior = String(projectProfile.development_behavior || '').toLowerCase();
+    const laneKey = (projectProfile.assigned_lane || '').toLowerCase().replace(/[_ ]+/g, '-');
     const strictMode: 'strict' | 'balanced' = behavior === 'sequential_canon_locked' ? 'strict' : 'balanced';
+
+    // Tone preset mapping from project tone + genre + lane
+    const tonePresetMap: Record<string, string> = {
+      elevated: 'a24',
+      dark: 'prestige_dark',
+      commercial: 'blockbuster',
+      warm: 'romance_warm',
+      provocative: 'thriller_taut',
+    };
+    const genreToneMap: Record<string, string> = {
+      horror: 'horror_dread',
+      comedy: 'comedy_pop',
+      thriller: 'thriller_taut',
+      romance: 'romance_warm',
+      action: 'blockbuster',
+      sci_fi: 'blockbuster',
+      documentary: 'a24',
+      drama: 'a24',
+    };
+    const laneToneMap: Record<string, string> = {
+      'prestige-awards': 'prestige_dark',
+      'independent-film': 'a24',
+      'studio-streamer': 'blockbuster',
+      'genre-market': 'thriller_taut',
+    };
+    const projectTone = (projectProfile.tone || '').toLowerCase();
+    const derivedTonePreset =
+      tonePresetMap[projectTone] ||
+      (mappedGenre ? genreToneMap[mappedGenre] : null) ||
+      laneToneMap[laneKey] ||
+      null;
+
+    // Pacing profile from genre
+    const genrePacingMap: Record<string, string> = {
+      horror: 'slow_burn_spike',
+      thriller: 'steady_escalation',
+      comedy: 'fast_dense',
+      drama: 'dialogue_forward',
+      documentary: 'dialogue_forward',
+      action: 'fast_dense',
+      romance: 'music_forward',
+    };
+    const derivedPacing = mappedGenre ? genrePacingMap[mappedGenre] : null;
+
+
 
     const referenceNotesFromProfile = [
       projectProfile.assigned_lane ? `Lane focus: ${projectProfile.assigned_lane}` : null,
@@ -301,6 +347,8 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
       strictCanonMode: strictMode,
       targetLengthSeconds: targetLengthByPlatform[effectivePlatform] || null,
       referenceNotes: referenceNotesFromProfile || null,
+      tonePreset: derivedTonePreset,
+      pacingProfile: derivedPacing,
     };
   }, [projectProfile]);
 
@@ -311,6 +359,8 @@ export function TrailerScriptStudio({ projectId, canonPackId }: TrailerScriptStu
     if (autofillCriteria.platformKey) setPlatformKey(autofillCriteria.platformKey);
     if (autofillCriteria.trailerType) setTrailerType(autofillCriteria.trailerType);
     if (autofillCriteria.strictCanonMode) setStrictCanonMode(autofillCriteria.strictCanonMode);
+    if (autofillCriteria.tonePreset) setTonePreset(autofillCriteria.tonePreset);
+    if (autofillCriteria.pacingProfile) setPacingProfile(autofillCriteria.pacingProfile);
     if (!targetLengthSeconds && autofillCriteria.targetLengthSeconds) {
       setTargetLengthSeconds(String(autofillCriteria.targetLengthSeconds));
     }

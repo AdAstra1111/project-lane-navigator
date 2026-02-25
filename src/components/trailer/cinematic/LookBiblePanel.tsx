@@ -1,7 +1,9 @@
 /**
  * Look Bible Panel — editor + summary pills for visual style constraints
+ * Auto-fills from project canonical data on first load (genre, lane, tone).
  */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -11,9 +13,84 @@ import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Separator } from '@/components/ui/separator';
-import { Palette, Lock, ChevronDown, Save, Loader2, X, Plus, Eye } from 'lucide-react';
+import { Palette, Lock, ChevronDown, Save, Loader2, X, Plus, Eye, Sparkles } from 'lucide-react';
 import { useLookBible, useLookBibleMutation } from '@/lib/trailerPipeline/lookBibleHooks';
+import { supabase } from '@/integrations/supabase/client';
 import type { LookBible } from '@/lib/trailerPipeline/lookBibleApi';
+
+// ─── Canonical look presets derived from genre + lane + tone ───
+
+interface LookPreset {
+  palette: string;
+  lighting_style: string;
+  contrast: string;
+  camera_language: string;
+  grain: string;
+  color_grade: string;
+  avoid_list: string[];
+}
+
+const GENRE_LOOK_PRESETS: Record<string, Partial<LookPreset>> = {
+  drama:       { palette: 'warm amber practicals, muted earth tones', lighting_style: 'naturalistic with warm practicals', contrast: 'medium contrast, lifted shadows', grain: 'subtle 35mm grain', color_grade: 'warm desaturated' },
+  thriller:    { palette: 'cold steel blues, deep shadows', lighting_style: 'low-key with hard-edge sources', contrast: 'high contrast, crushed blacks', grain: 'medium digital grain', color_grade: 'teal and orange, desaturated midtones' },
+  horror:      { palette: 'sickly greens, deep reds, pitch blacks', lighting_style: 'extreme low-key, motivated single source', contrast: 'very high contrast, no fill', grain: 'heavy 16mm grain', color_grade: 'desaturated with pushed greens' },
+  comedy:      { palette: 'bright pastels, warm golden tones', lighting_style: 'bright, even, flattering key light', contrast: 'low contrast, open shadows', grain: 'clean digital', color_grade: 'warm and saturated' },
+  action:      { palette: 'bold primaries, metallic highlights', lighting_style: 'dynamic mixed sources, rim lights', contrast: 'high contrast, punchy highlights', grain: 'clean digital with motion texture', color_grade: 'teal shadows, warm highlights' },
+  sci_fi:      { palette: 'neon accents, cool clinical whites', lighting_style: 'futuristic practicals, volumetric haze', contrast: 'high contrast, deep blacks with neon pops', grain: 'clean with chromatic aberration', color_grade: 'cool-shifted with electric accents' },
+  documentary: { palette: 'naturalistic, available light palette', lighting_style: 'available light, minimal augmentation', contrast: 'natural contrast', grain: 'handheld texture, 16mm or digital noise', color_grade: 'neutral with slight warmth' },
+  romance:     { palette: 'soft golden hour, blush tones', lighting_style: 'soft diffused key, backlit practicals', contrast: 'low contrast, ethereal halation', grain: 'subtle vintage grain', color_grade: 'warm pastels, lifted blacks' },
+};
+
+const LANE_LOOK_MODIFIERS: Record<string, Partial<LookPreset>> = {
+  'prestige-awards':    { lighting_style: 'Deakins-inspired naturalism, single motivated source', contrast: 'controlled contrast, sculpted shadows', camera_language: 'slow deliberate moves, deep focus compositions' },
+  'independent-film':   { grain: '35mm grain, imperfect texture', camera_language: 'handheld intimacy, long takes', color_grade: 'muted palette, slightly desaturated' },
+  'studio-streamer':    { lighting_style: 'polished high-key with accent practicals', camera_language: 'smooth dolly, Steadicam, wide anamorphic', color_grade: 'commercial grade, balanced saturation' },
+  'genre-market':       { contrast: 'high contrast for maximum visual impact', camera_language: 'dynamic angles, fast cuts', color_grade: 'stylized genre-appropriate grade' },
+  'low-budget':         { grain: 'embrace natural sensor noise', lighting_style: 'available and practical light', camera_language: 'handheld, resourceful framing' },
+  'fast-turnaround':    { grain: 'clean digital', camera_language: 'efficient coverage, steady compositions' },
+};
+
+const TONE_LOOK_MODIFIERS: Record<string, Partial<LookPreset>> = {
+  commercial:   { color_grade: 'bright, accessible, saturated', contrast: 'medium contrast, open shadows' },
+  elevated:     { color_grade: 'restrained palette, controlled saturation', lighting_style: 'motivated naturalistic sources' },
+  provocative:  { contrast: 'stark high contrast', color_grade: 'desaturated with moments of vivid color' },
+  dark:         { palette: 'deep shadows, minimal highlights', contrast: 'very high contrast', color_grade: 'cool desaturated, crushed blacks' },
+  warm:         { palette: 'golden warm tones', color_grade: 'warm amber grade, lifted shadows' },
+};
+
+function buildLookPreset(genre?: string, lane?: string, tone?: string): LookPreset {
+  const base: LookPreset = {
+    palette: 'naturalistic tones',
+    lighting_style: 'motivated naturalistic',
+    contrast: 'medium contrast',
+    camera_language: 'measured compositions, shallow DOF',
+    grain: 'subtle film grain',
+    color_grade: 'neutral balanced grade',
+    avoid_list: [],
+  };
+
+  const genreKey = (genre || '').toLowerCase().replace(/[\s-]+/g, '_');
+  const genrePreset = GENRE_LOOK_PRESETS[genreKey];
+  if (genrePreset) Object.assign(base, genrePreset);
+
+  const laneKey = (lane || '').toLowerCase().replace(/[_ ]+/g, '-');
+  const laneMod = LANE_LOOK_MODIFIERS[laneKey];
+  if (laneMod) Object.assign(base, laneMod);
+
+  const toneKey = (tone || '').toLowerCase();
+  const toneMod = TONE_LOOK_MODIFIERS[toneKey];
+  if (toneMod) Object.assign(base, toneMod);
+
+  // Sensible avoid items based on genre
+  const avoidItems: string[] = [];
+  if (genreKey === 'horror') avoidItems.push('bright flat lighting', 'pastel colors');
+  if (genreKey === 'drama' || genreKey === 'romance') avoidItems.push('dutch angles', 'excessive VFX');
+  if (genreKey === 'documentary') avoidItems.push('artificial lighting setups', 'lens flares');
+  if (laneKey === 'prestige-awards') avoidItems.push('neon', 'oversaturated color', 'shaky cam');
+  base.avoid_list = avoidItems;
+
+  return base;
+}
 
 interface LookBiblePanelProps {
   projectId: string;
@@ -67,8 +144,32 @@ export function LookBiblePanel({ projectId, scopeRefId }: LookBiblePanelProps) {
   const [customDirectives, setCustomDirectives] = useState('');
   const [isLocked, setIsLocked] = useState(false);
   const [newAvoid, setNewAvoid] = useState('');
+  const [autofilled, setAutofilled] = useState(false);
 
-  // Sync state from loaded data
+  // Fetch project profile for auto-fill
+  const { data: projectProfile } = useQuery({
+    queryKey: ['look-bible-project-profile', projectId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('projects')
+        .select('genres, assigned_lane, tone')
+        .eq('id', projectId)
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!projectId,
+  });
+
+  const canonicalPreset = useMemo(() => {
+    if (!projectProfile) return null;
+    const primaryGenre = Array.isArray(projectProfile.genres) && projectProfile.genres.length > 0
+      ? String(projectProfile.genres[0])
+      : undefined;
+    return buildLookPreset(primaryGenre, projectProfile.assigned_lane || undefined, projectProfile.tone || undefined);
+  }, [projectProfile]);
+
+  // Sync state from loaded data — prefer persisted, then canonical auto-fill
   useEffect(() => {
     if (lb) {
       setPalette(lb.palette || '');
@@ -81,8 +182,22 @@ export function LookBiblePanel({ projectId, scopeRefId }: LookBiblePanelProps) {
       setAvoidList(lb.avoid_list || []);
       setCustomDirectives(lb.custom_directives || '');
       setIsLocked(lb.is_locked || false);
+      setAutofilled(true); // persisted data takes priority
     }
   }, [lb]);
+
+  // Auto-fill from canonical when no persisted look bible exists
+  useEffect(() => {
+    if (autofilled || isLoading || lb || !canonicalPreset) return;
+    setPalette(canonicalPreset.palette);
+    setLightingStyle(canonicalPreset.lighting_style);
+    setContrast(canonicalPreset.contrast);
+    setCameraLanguage(canonicalPreset.camera_language);
+    setGrain(canonicalPreset.grain);
+    setColorGrade(canonicalPreset.color_grade);
+    setAvoidList(canonicalPreset.avoid_list);
+    setAutofilled(true);
+  }, [autofilled, isLoading, lb, canonicalPreset]);
 
   const handleSave = () => {
     mutation.mutate({
@@ -128,8 +243,26 @@ export function LookBiblePanel({ projectId, scopeRefId }: LookBiblePanelProps) {
             <CardTitle className="text-sm flex items-center justify-between">
               <span className="flex items-center gap-1.5">
                 <Eye className="h-3.5 w-3.5" /> Visual Style Constraints
+                {!lb && canonicalPreset && (
+                  <Badge variant="outline" className="text-[8px] px-1.5 py-0 font-normal">
+                    <Sparkles className="h-2 w-2 mr-0.5" /> auto-filled
+                  </Badge>
+                )}
               </span>
               <div className="flex items-center gap-2">
+                {canonicalPreset && (
+                  <Button variant="ghost" size="sm" className="h-6 text-[9px] gap-1" onClick={() => {
+                    setPalette(canonicalPreset.palette);
+                    setLightingStyle(canonicalPreset.lighting_style);
+                    setContrast(canonicalPreset.contrast);
+                    setCameraLanguage(canonicalPreset.camera_language);
+                    setGrain(canonicalPreset.grain);
+                    setColorGrade(canonicalPreset.color_grade);
+                    setAvoidList(canonicalPreset.avoid_list);
+                  }}>
+                    <Sparkles className="h-2.5 w-2.5" /> Reset from Project
+                  </Button>
+                )}
                 <Label className="text-[9px] text-muted-foreground uppercase">Lock</Label>
                 <Switch checked={isLocked} onCheckedChange={setIsLocked} />
               </div>
