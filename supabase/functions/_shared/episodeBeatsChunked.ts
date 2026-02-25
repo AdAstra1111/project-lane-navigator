@@ -1,239 +1,309 @@
 /**
- * episodeBeatsChunked — Chunked episode beats generation with completeness
- * guard and auto-repair for missing episodes.
- *
- * Root cause fix: single LLM calls truncate at ~12K tokens, silently skipping
- * mid-range episodes (e.g., 20–29). This module generates in batches of
- * BATCH_SIZE episodes, verifies completeness, and auto-repairs gaps.
+ * episodeBeatsChunked — Chunked episode beats generation with JSON-per-episode
+ * contract, deterministic merge, collapse detection, and auto-repair.
  *
  * Guarantees:
- *  - Every episode 1..N appears exactly once
+ *  - Every episode 1..N appears exactly once with full heading + beats
+ *  - Untouched episodes are never regenerated or summarised
+ *  - Collapsed range summaries ("Eps 1–7…") are detected and repaired
+ *  - Max 2 repair cycles before hard fail
  *  - Numeric ordering (not lexical)
- *  - Idempotent merge by episode_number key
- *  - Max 2 repair attempts before hard fail
  */
 
-import { callLLM, MODELS } from "./llm.ts";
+import { callLLM, MODELS, extractJSON } from "./llm.ts";
+import {
+  parseEpisodeBlocks,
+  mergeEpisodeBlocks,
+  extractEpisodeNumbersFromOutput,
+  detectCollapsedRangeSummaries,
+  buildEpisodeScaffold,
+} from "./episodeScope.ts";
 
-const BATCH_SIZE = 8;
-const MAX_REPAIR_ATTEMPTS = 2;
+const BATCH_SIZE = 6;
+const MAX_REPAIR_CYCLES = 2;
+const MAX_RETRIES_PER_BATCH = 3;
 
-interface EpisodeBeatsOpts {
+export interface EpisodeBeatsOpts {
   apiKey: string;
   episodeCount: number;
   systemPrompt: string;
   upstreamContent: string;
   projectTitle: string;
+  requestId?: string;
 }
 
-interface EpisodeBeatBlock {
-  episodeNumber: number;
-  text: string;
-}
+// ─── JSON Batch Contract ───
 
-async function callLLMRaw(apiKey: string, system: string, user: string, maxTokens = 8000): Promise<string> {
-  const result = await callLLM({
-    apiKey,
-    model: MODELS.FAST,
-    system,
-    user,
-    temperature: 0.5,
-    maxTokens,
-  });
-  return result.content;
+const BATCH_SYSTEM_PROMPT = `You output ONLY valid JSON. No markdown fences, no commentary, no preamble.
+
+JSON schema:
+{"episodes": {"1": "<FULL EPISODE 1 BLOCK>", "2": "<FULL EPISODE 2 BLOCK>", ...}}
+
+Rules:
+- Only output the requested episode numbers.
+- Each episode value MUST start with a heading line: "## EPISODE N: <title>"
+- Each episode MUST include 5–8 numbered beats.
+- NEVER collapse multiple episodes into one entry.
+- NEVER write ranges like "Eps 1–7" or "Episodes 2-5 follow same structure".
+- NEVER use placeholders, "template", "follow established structure", or abbreviations.
+- Every requested episode MUST appear as its own key in the JSON object.`;
+
+function buildBatchUserPrompt(
+  episodes: number[],
+  totalEpisodes: number,
+  projectTitle: string,
+  upstreamContent: string,
+  contextPrompt: string,
+): string {
+  return `${contextPrompt}
+
+PROJECT: "${projectTitle}" (${totalEpisodes} total episodes in season)
+
+UPSTREAM CONTEXT:
+${upstreamContent}
+
+REQUESTED EPISODES: ${episodes.join(', ')}
+
+You MUST output JSON with a key for EVERY episode listed above. Each value is the full episode block text starting with "## EPISODE N:" heading and 5–8 numbered beats.
+
+OUTPUT JSON ONLY.`;
 }
 
 /**
- * Parse raw LLM text output into episode blocks.
- * Looks for patterns like "## EPISODE 5" or "## EP 5" or "# Episode 5:" etc.
+ * Parse the JSON batch response into a replacements map.
+ * Handles {"episodes": {"1": "...", "2": "..."}} format.
  */
-export function parseEpisodeBlocks(raw: string): EpisodeBeatBlock[] {
-  // Match episode headers: ## EPISODE 5, ## EP 5, # Episode 5:, EP5, etc.
-  const headerPattern = /^#{1,3}\s*(?:EPISODE|EP\.?)\s*(\d+)\b[^\n]*/gim;
-  const matches = [...raw.matchAll(headerPattern)];
+function parseBatchResponse(raw: string): Record<number, string> {
+  const jsonStr = extractJSON(raw);
+  const parsed = JSON.parse(jsonStr);
 
-  if (matches.length === 0) return [];
+  const episodes = parsed.episodes || parsed;
+  const replacements: Record<number, string> = {};
 
-  const blocks: EpisodeBeatBlock[] = [];
-  for (let i = 0; i < matches.length; i++) {
-    const epNum = parseInt(matches[i][1], 10);
-    const startIdx = matches[i].index!;
-    const endIdx = i < matches.length - 1 ? matches[i + 1].index! : raw.length;
-    const text = raw.slice(startIdx, endIdx).trim();
-    blocks.push({ episodeNumber: epNum, text });
+  for (const [key, value] of Object.entries(episodes)) {
+    const epNum = parseInt(key, 10);
+    if (!isNaN(epNum) && typeof value === 'string' && value.trim().length > 0) {
+      replacements[epNum] = value.trim();
+    }
   }
 
-  return blocks;
+  return replacements;
 }
 
 /**
- * Merge episode blocks by episode_number key.
- * "last wins" semantics — repairs overwrite earlier partial results.
+ * Call LLM for a batch of episodes with retry logic.
  */
-export function mergeByEpisodeNumber(existing: EpisodeBeatBlock[], incoming: EpisodeBeatBlock[]): EpisodeBeatBlock[] {
-  const map = new Map<number, EpisodeBeatBlock>();
-  for (const block of existing) map.set(block.episodeNumber, block);
-  for (const block of incoming) map.set(block.episodeNumber, block);
+async function generateBatch(
+  apiKey: string,
+  episodes: number[],
+  totalEpisodes: number,
+  projectTitle: string,
+  upstreamContent: string,
+  contextPrompt: string,
+  requestId: string,
+): Promise<Record<number, string>> {
+  for (let attempt = 0; attempt < MAX_RETRIES_PER_BATCH; attempt++) {
+    const userPrompt = buildBatchUserPrompt(
+      episodes, totalEpisodes, projectTitle, upstreamContent, contextPrompt,
+    );
 
-  // Sort numerically — this is the fix for the lexical sort bug
-  return [...map.values()].sort((a, b) => a.episodeNumber - b.episodeNumber);
-}
+    const systemWithRetry = attempt > 0
+      ? BATCH_SYSTEM_PROMPT + `\n\nRETRY ATTEMPT ${attempt + 1}. Your previous response was invalid or incomplete. Return ONLY valid JSON with ALL requested episodes: ${episodes.join(', ')}.`
+      : BATCH_SYSTEM_PROMPT;
 
-/**
- * Find missing episode numbers from expected set 1..N.
- */
-export function findMissing(blocks: EpisodeBeatBlock[], expectedCount: number): number[] {
-  const present = new Set(blocks.map(b => b.episodeNumber));
-  const missing: number[] = [];
-  for (let i = 1; i <= expectedCount; i++) {
-    if (!present.has(i)) missing.push(i);
+    console.error(JSON.stringify({
+      diag: "EPISODE_BATCH_CALL",
+      requestId,
+      episodes,
+      attempt: attempt + 1,
+      maxRetries: MAX_RETRIES_PER_BATCH,
+    }));
+
+    try {
+      const result = await callLLM({
+        apiKey,
+        model: MODELS.FAST,
+        system: systemWithRetry,
+        user: userPrompt,
+        temperature: 0.5,
+        maxTokens: 8000,
+      });
+
+      const replacements = parseBatchResponse(result.content);
+      const gotEpisodes = Object.keys(replacements).map(Number).sort((a, b) => a - b);
+      const missingFromBatch = episodes.filter(e => !gotEpisodes.includes(e));
+
+      console.error(JSON.stringify({
+        diag: "EPISODE_BATCH_RESULT",
+        requestId,
+        requested: episodes,
+        received: gotEpisodes,
+        missing: missingFromBatch,
+        attempt: attempt + 1,
+      }));
+
+      if (missingFromBatch.length === 0) {
+        return replacements;
+      }
+
+      // If some missing, try to use what we got + retry for missing on next attempt
+      if (Object.keys(replacements).length > 0 && attempt < MAX_RETRIES_PER_BATCH - 1) {
+        // Partial success — we'll merge what we have and the outer loop will repair missing
+        if (gotEpisodes.length >= episodes.length / 2) {
+          return replacements; // Good enough, repair loop handles the rest
+        }
+      }
+    } catch (err) {
+      console.error(JSON.stringify({
+        diag: "EPISODE_BATCH_ERROR",
+        requestId,
+        episodes,
+        attempt: attempt + 1,
+        error: String(err),
+      }));
+
+      if (attempt === MAX_RETRIES_PER_BATCH - 1) {
+        throw new Error(`Episode batch generation failed after ${MAX_RETRIES_PER_BATCH} retries for episodes ${episodes.join(', ')}: ${err}`);
+      }
+    }
   }
-  return missing;
+
+  return {};
 }
 
 /**
- * Assemble final document text from sorted episode blocks.
- */
-function assembleDocument(blocks: EpisodeBeatBlock[]): string {
-  return blocks.map(b => b.text).join("\n\n");
-}
-
-/**
- * Generate episode beats in batches with completeness verification + auto-repair.
+ * Generate episode beats/grid in batches with deterministic merge + validation + repair.
  */
 export async function generateEpisodeBeatsChunked(opts: EpisodeBeatsOpts): Promise<string> {
   const { apiKey, episodeCount, systemPrompt, upstreamContent, projectTitle } = opts;
+  const requestId = opts.requestId || crypto.randomUUID();
 
-  // Build numeric batches: [1..8], [9..16], [17..24], [25..30], etc.
+  // Build numeric batches: [1..6], [7..12], etc.
+  const allEpisodes = Array.from({ length: episodeCount }, (_, i) => i + 1);
   const batches: number[][] = [];
-  for (let i = 1; i <= episodeCount; i += BATCH_SIZE) {
-    const batch: number[] = [];
-    for (let j = i; j <= Math.min(i + BATCH_SIZE - 1, episodeCount); j++) {
-      batch.push(j);
-    }
-    batches.push(batch);
+  for (let i = 0; i < allEpisodes.length; i += BATCH_SIZE) {
+    batches.push(allEpisodes.slice(i, i + BATCH_SIZE));
   }
 
   console.error(JSON.stringify({
-    type: "EPISODE_BEATS_CHUNKED_START",
+    diag: "EPISODE_CHUNKED_START",
+    requestId,
     episodeCount,
     batchCount: batches.length,
-    batchSizes: batches.map(b => b.length),
+    batchSize: BATCH_SIZE,
+    batches: batches.map(b => `${b[0]}-${b[b.length - 1]}`),
   }));
 
-  let allBlocks: EpisodeBeatBlock[] = [];
+  // Start with a deterministic scaffold
+  let masterText = buildEpisodeScaffold(episodeCount);
 
-  // Phase 1: Generate in batches
+  // Phase 1: Generate in batches, merging into scaffold
   for (let i = 0; i < batches.length; i++) {
     const batch = batches[i];
-    const batchLabel = batch.length === 1
-      ? `Episode ${batch[0]}`
-      : `Episodes ${batch[0]}–${batch[batch.length - 1]}`;
 
-    const userPrompt = `Using the upstream documents below, generate detailed episode beats for ${batchLabel} (out of ${episodeCount} total episodes in the season) for "${projectTitle}".
+    const replacements = await generateBatch(
+      apiKey, batch, episodeCount, projectTitle, upstreamContent, systemPrompt, requestId,
+    );
 
-MANDATORY STRUCTURE RULES:
-- You MUST output every episode individually. Each episode MUST have its own "## EPISODE N" heading.
-- DO NOT summarize multiple episodes into one line or range (e.g., NEVER write "Eps 24–30 remain templates").
-- Every episode from the list below must include: Episode number, Title, and 5–8 numbered beats.
-- If episodes share similar structure, you MUST still write each one out fully with unique beats.
-- DO NOT collapse, skip, abbreviate, or batch any episodes together.
-
-CRITICAL: You MUST generate beats for EVERY episode listed: ${batch.join(", ")}. Do NOT skip any episode.
-
-${upstreamContent}`;
+    // Merge into master text — untouched episodes stay byte-identical
+    const mergeResult = mergeEpisodeBlocks(masterText, replacements);
+    masterText = mergeResult.mergedText;
 
     console.error(JSON.stringify({
-      type: "EPISODE_BEATS_BATCH",
+      diag: "EPISODE_BATCH_MERGED",
+      requestId,
       batch: i + 1,
       totalBatches: batches.length,
-      episodes: batch,
+      replaced: mergeResult.replacedEpisodes,
+      preserved: mergeResult.preservedEpisodes,
     }));
-
-    const raw = await callLLMRaw(apiKey, systemPrompt, userPrompt);
-    const parsed = parseEpisodeBlocks(raw);
-
-    console.error(JSON.stringify({
-      type: "EPISODE_BEATS_BATCH_RESULT",
-      batch: i + 1,
-      expectedEpisodes: batch,
-      parsedEpisodes: parsed.map(p => p.episodeNumber),
-    }));
-
-    allBlocks = mergeByEpisodeNumber(allBlocks, parsed);
   }
 
-  // Phase 2: Completeness verification + auto-repair
-  for (let attempt = 0; attempt < MAX_REPAIR_ATTEMPTS; attempt++) {
-    const missing = findMissing(allBlocks, episodeCount);
+  // Phase 2: Validation + Repair
+  for (let cycle = 0; cycle < MAX_REPAIR_CYCLES; cycle++) {
+    const extracted = extractEpisodeNumbersFromOutput(masterText);
+    const missing = allEpisodes.filter(n => !extracted.includes(n));
+    const hasCollapse = detectCollapsedRangeSummaries(masterText);
 
-    if (missing.length === 0) {
+    // Check for scaffold stubs still present (episodes that weren't replaced)
+    const blocks = parseEpisodeBlocks(masterText);
+    const stubEpisodes = blocks
+      .filter(b => b.bodyText.trim() === '1.\n2.\n3.\n4.\n5.' || b.rawBlock.includes('(Title TBD)'))
+      .map(b => b.episodeNumber);
+
+    const needsRepair = [...new Set([...missing, ...stubEpisodes])].sort((a, b) => a - b);
+
+    console.error(JSON.stringify({
+      diag: "EPISODE_VALIDATION",
+      requestId,
+      cycle,
+      extracted_count: extracted.length,
+      expected_count: episodeCount,
+      missing,
+      stub_episodes: stubEpisodes,
+      collapse_detected: hasCollapse,
+      needs_repair: needsRepair,
+    }));
+
+    if (needsRepair.length === 0 && !hasCollapse) {
       console.error(JSON.stringify({
-        type: "EPISODE_BEATS_COMPLETE",
+        diag: "EPISODE_GENERATION_COMPLETE",
+        requestId,
         episodeCount,
-        producedCount: allBlocks.length,
-        repairAttempts: attempt,
+        producedCount: extracted.length,
+        repairCycles: cycle,
       }));
       break;
     }
 
-    console.error(JSON.stringify({
-      type: "EPISODE_BEATS_REPAIR",
-      attempt: attempt + 1,
-      maxAttempts: MAX_REPAIR_ATTEMPTS,
-      missingEpisodes: missing,
-    }));
+    if (cycle === MAX_REPAIR_CYCLES - 1) {
+      // Last cycle — if still broken, throw
+      if (needsRepair.length > 0) {
+        const errMsg = `Episode generation incomplete after ${MAX_REPAIR_CYCLES} repair cycles: missing episodes [${needsRepair.join(', ')}], collapseDetected=${hasCollapse}`;
+        console.error(JSON.stringify({
+          diag: "⚠️ EPISODE_GENERATION_FAILED",
+          requestId,
+          missing: needsRepair,
+          collapse_detected: hasCollapse,
+          message: errMsg,
+        }));
+        throw new Error(errMsg);
+      }
+    }
 
-    // Repair: generate only the missing episodes
+    // Repair: generate only the episodes that need it
     const repairBatches: number[][] = [];
-    for (let i = 0; i < missing.length; i += BATCH_SIZE) {
-      repairBatches.push(missing.slice(i, i + BATCH_SIZE));
+    for (let i = 0; i < needsRepair.length; i += BATCH_SIZE) {
+      repairBatches.push(needsRepair.slice(i, i + BATCH_SIZE));
+    }
+
+    // If collapse detected, also re-request first batch (most commonly collapsed)
+    if (hasCollapse && repairBatches.length === 0) {
+      repairBatches.push(batches[0]);
     }
 
     for (const repairBatch of repairBatches) {
-      const userPrompt = `Using the upstream documents below, generate detailed episode beats for Episodes ${repairBatch.join(", ")} (out of ${episodeCount} total episodes in the season) for "${projectTitle}".
+      console.error(JSON.stringify({
+        diag: "EPISODE_REPAIR_BATCH",
+        requestId,
+        cycle: cycle + 1,
+        episodes: repairBatch,
+      }));
 
-MANDATORY STRUCTURE RULES:
-- You MUST output every episode individually. Each episode MUST have its own "## EPISODE N" heading.
-- DO NOT summarize multiple episodes into one line or range (e.g., NEVER write "Eps 24–30 remain templates").
-- Every episode must include: Episode number, Title, and 5–8 numbered beats.
-- If episodes share similar structure, you MUST still write each one out fully with unique beats.
-- DO NOT collapse, skip, abbreviate, or batch any episodes together.
+      const replacements = await generateBatch(
+        apiKey, repairBatch, episodeCount, projectTitle, upstreamContent, systemPrompt, requestId,
+      );
 
-CRITICAL: You MUST generate beats for EVERY episode listed: ${repairBatch.join(", ")}. Do NOT skip any.
-
-${upstreamContent}`;
-
-      const raw = await callLLMRaw(apiKey, systemPrompt, userPrompt);
-      const parsed = parseEpisodeBlocks(raw);
-      allBlocks = mergeByEpisodeNumber(allBlocks, parsed);
+      const mergeResult = mergeEpisodeBlocks(masterText, replacements);
+      masterText = mergeResult.mergedText;
     }
-  }
-
-  // Final completeness check
-  const finalMissing = findMissing(allBlocks, episodeCount);
-  if (finalMissing.length > 0) {
-    console.error(JSON.stringify({
-      type: "EPISODE_BEATS_INCOMPLETE_AFTER_REPAIR",
-      missingEpisodes: finalMissing,
-      producedCount: allBlocks.length,
-      expectedCount: episodeCount,
-    }));
-    // Generate placeholder stubs for still-missing episodes so output is never incomplete
-    for (const epNum of finalMissing) {
-      allBlocks.push({
-        episodeNumber: epNum,
-        text: `## EPISODE ${epNum}\n\n[Beats pending — generation incomplete. Retry to fill.]`,
-      });
-    }
-    allBlocks = allBlocks.sort((a, b) => a.episodeNumber - b.episodeNumber);
   }
 
   // Strip output contract headers
-  let content = assembleDocument(allBlocks);
-  content = content.replace(/^Deliverable Type:.*?\n/gim, "")
+  masterText = masterText
+    .replace(/^Deliverable Type:.*?\n/gim, "")
     .replace(/^Completion Status:.*?\n/gim, "")
     .replace(/^Completeness Check:.*?\n/gim, "");
 
-  return content;
+  return masterText;
 }

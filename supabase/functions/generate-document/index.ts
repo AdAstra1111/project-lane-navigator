@@ -2,6 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { buildBeatGuidanceBlock } from "../_shared/verticalDramaBeats.ts";
 import { generateEpisodeBeatsChunked } from "../_shared/episodeBeatsChunked.ts";
 import { buildLadderPromptBlock, formatToLane } from "../_shared/documentLadders.ts";
+import { EPISODE_DOC_TYPES, extractEpisodeNumbersFromOutput, detectCollapsedRangeSummaries } from "../_shared/episodeScope.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -309,15 +310,15 @@ D) OUTPUT CONTRACT — At the top of your response, print:
     let content: string;
 
     // ─────────────────────────────────────────────────────────────
-    // EPISODE FORENSICS (diagnostics only — no behaviour changes)
+    // EPISODE FORENSICS + ROUTING
     // Fires for: episode_grid, episode_beats, vertical_episode_beats
     // ─────────────────────────────────────────────────────────────
     const requestId = crypto.randomUUID();
-    const isEpisodeDocType =
-      (docType === "episode_grid" ||
-       docType === "episode_beats" ||
-       docType === "vertical_episode_beats") &&
-      !!resolvedQuals.is_series;
+    const isEpisodeDocType = EPISODE_DOC_TYPES.has(docType) && !!resolvedQuals.is_series;
+
+    // Episode count: prefer client override, then qualifiers, NO fallback
+    const finalEpisodeCount: number | null =
+      (body as any)?.episodeCount ?? resolvedQuals?.season_episode_count ?? null;
 
     if (isEpisodeDocType) {
       // A) DIAG_REQ — Request Context
@@ -335,67 +336,46 @@ D) OUTPUT CONTRACT — At the top of your response, print:
       // B) DIAG_EP_COUNT — Episode Count Resolution
       const clientEpCount = (body as any)?.episodeCount ?? null;
       const qualsEpCount = resolvedQuals?.season_episode_count ?? null;
-      // DO NOT CHANGE BEHAVIOUR — keep existing logic
-      const episodeCountUsed = qualsEpCount || 8;
       const episodeCountSource =
-        qualsEpCount ? "resolvedQuals.season_episode_count" : "HARDCODED_FALLBACK_8";
+        clientEpCount != null ? "body.episodeCount"
+        : qualsEpCount != null ? "resolvedQuals.season_episode_count"
+        : "NONE";
 
       console.error(JSON.stringify({
         diag: "DIAG_EP_COUNT",
         requestId,
-        candidates: {
-          clientEpCount,
-          qualsEpCount,
-        },
-        episodeCountUsed,
+        candidates: { clientEpCount, qualsEpCount },
+        finalEpisodeCount,
         episodeCountSource,
       }));
 
-      if (episodeCountUsed <= 8 &&
-          clientEpCount != null &&
-          clientEpCount > 8) {
-        console.error(JSON.stringify({
-          diag: "⚠️ EPISODE_COUNT_COLLAPSE",
-          requestId,
-          message: `episodeCountUsed=${episodeCountUsed} but client sent ${clientEpCount}`,
-        }));
-      }
-
-      if (episodeCountSource === "HARDCODED_FALLBACK_8") {
+      if (finalEpisodeCount == null) {
         console.error(JSON.stringify({
           diag: "⚠️ DEFAULT_EPISODE_COUNT_USED",
           requestId,
-          message: "All episode count sources are null — falling back to 8",
+          message: "All episode count sources are null — will return error",
+        }));
+      }
+
+      if (finalEpisodeCount != null && finalEpisodeCount <= 8 &&
+          ((clientEpCount != null && clientEpCount > 8) || (qualsEpCount != null && qualsEpCount > 8))) {
+        console.error(JSON.stringify({
+          diag: "⚠️ EPISODE_COUNT_COLLAPSE",
+          requestId,
+          message: `finalEpisodeCount=${finalEpisodeCount} but a source indicates >8`,
+          candidates: { clientEpCount, qualsEpCount },
         }));
       }
 
       // C) DIAG_PATH — Generation Path
-      const willEnterChunked =
-        (docType === "vertical_episode_beats" ||
-         docType === "episode_beats") &&
-        !!resolvedQuals?.season_episode_count;
-      const BATCH_SIZE_CONST = 8;
-
       console.error(JSON.stringify({
         diag: "DIAG_PATH",
         requestId,
-        chunked_generator: willEnterChunked,
-        single_shot_callLLM: !willEnterChunked,
-        branch_condition: willEnterChunked
-          ? "Chunked path"
-          : "Fallback single LLM call",
-        batch_size: BATCH_SIZE_CONST,
+        chunked_generator: finalEpisodeCount != null,
+        single_shot_callLLM: false,
+        branch_condition: "ALL episode doc types use chunked generator",
+        batch_size: 6,
       }));
-
-      if (!willEnterChunked &&
-          (docType === "episode_beats" ||
-           docType === "vertical_episode_beats")) {
-        console.error(JSON.stringify({
-          diag: "⚠️ FALLBACK_PATH_USED",
-          requestId,
-          message: "Single callLLM() will be used — token limits may truncate long episode lists",
-        }));
-      }
 
       // D) DIAG_UPSTREAM_DOCS — Upstream Document Forensics
       const upstreamDiag: any[] = [];
@@ -485,62 +465,58 @@ D) OUTPUT CONTRACT — At the top of your response, print:
       }
     }
 
-    // ── Special path for episode beats: chunked generation with completeness guard ──
-    const finalEpisodeCount = (body as any)?.episodeCount ?? resolvedQuals.season_episode_count ?? null;
-    const isEpisodeBeatsPath = (docType === "vertical_episode_beats" || docType === "episode_beats") && resolvedQuals.is_series;
-    if (isEpisodeBeatsPath && finalEpisodeCount) {
+    // ── Episode doc types: ALWAYS use chunked generator ──
+    if (isEpisodeDocType) {
+      if (finalEpisodeCount == null) {
+        return new Response(JSON.stringify({
+          error: "missing_episode_count",
+          message: "Cannot generate episode document: season_episode_count is not set. Please set the episode count in project criteria or pass episodeCount in the request.",
+        }), { status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
       content = await generateEpisodeBeatsChunked({
         apiKey,
         episodeCount: finalEpisodeCount,
         systemPrompt: system,
         upstreamContent,
         projectTitle: project.title || "Untitled",
+        requestId,
       });
+
+      // F) DIAG_OUTPUT_VALIDATION
+      const extractedEpNums = extractEpisodeNumbersFromOutput(content);
+      const expectedRange = Array.from({ length: finalEpisodeCount }, (_, i) => i + 1);
+      const missingEps = expectedRange.filter(n => !extractedEpNums.includes(n));
+      const collapseDetected = detectCollapsedRangeSummaries(content);
+
+      console.error(JSON.stringify({
+        diag: "DIAG_OUTPUT_VALIDATION",
+        requestId,
+        extracted_episode_numbers: extractedEpNums,
+        expected_range: `1-${finalEpisodeCount}`,
+        total_extracted: extractedEpNums.length,
+        total_expected: finalEpisodeCount,
+        missing_episodes: missingEps,
+        collapse_detected: collapseDetected,
+        output_length_chars: content.length,
+      }));
+
+      if (missingEps.length > 0) {
+        console.error(JSON.stringify({
+          diag: "⚠️ TRUNCATION_DETECTED",
+          requestId,
+          missing_episodes: missingEps,
+        }));
+      }
+      if (collapseDetected) {
+        console.error(JSON.stringify({
+          diag: "⚠️ COLLAPSE_SUMMARY_DETECTED",
+          requestId,
+          message: "Output contains collapsed range summaries — episodes may be abbreviated",
+        }));
+      }
     } else {
       content = await callLLM(apiKey, system, userPrompt);
-    }
-
-    // ─────────────────────────────────────────────────────────────
-    // AFTER GENERATION — Output Validation (same requestId)
-    // ─────────────────────────────────────────────────────────────
-    if (isEpisodeDocType) {
-      const valEpCount =
-        (body as any)?.episodeCount ??
-        resolvedQuals?.season_episode_count ??
-        null;
-
-      if (valEpCount) {
-        const epHeaderPattern = /^#{1,3}\s*(?:EPISODE|EP\.?\s*)(\d+)\b/gim;
-        const epMatches = [...content.matchAll(epHeaderPattern)];
-        const extractedEpNums = [...new Set(
-          epMatches.map(m => parseInt(m[1], 10))
-        )]
-          .filter(n => !isNaN(n))
-          .sort((a, b) => a - b);
-        const expectedRange =
-          Array.from({ length: valEpCount }, (_, i) => i + 1);
-        const missingEps =
-          expectedRange.filter(n => !extractedEpNums.includes(n));
-
-        console.error(JSON.stringify({
-          diag: "DIAG_OUTPUT_VALIDATION",
-          requestId,
-          extracted_episode_numbers: extractedEpNums,
-          expected_range: `1-${valEpCount}`,
-          total_extracted: extractedEpNums.length,
-          total_expected: valEpCount,
-          missing_episodes: missingEps,
-          output_length_chars: content.length,
-        }));
-
-        if (missingEps.length > 0) {
-          console.error(JSON.stringify({
-            diag: "⚠️ TRUNCATION_DETECTED",
-            requestId,
-            missing_episodes: missingEps,
-          }));
-        }
-      }
     }
 
     // 6a) Topline placeholder validator (hard gate — never save template)

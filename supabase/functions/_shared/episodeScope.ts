@@ -1,10 +1,12 @@
 /**
- * episodeScope — Deterministic episode block parsing + merge-based rewrite guard.
+ * episodeScope — Deterministic episode block parsing + merge + validation + collapse detection.
  *
- * Used by Writers' Room apply_change_plan for episode_grid, episode_beats,
- * and vertical_episode_beats doc types. Ensures untouched episodes remain
- * byte-identical after selective rewrites — NO summarization allowed.
+ * Used by:
+ *   - episodeBeatsChunked.ts (generation pipeline)
+ *   - notes-writers-room (selective rewrites)
+ *   - generate-document (output validation)
  *
+ * Guarantees: untouched episodes remain byte-identical after merges.
  * NO LLM calls — purely text-based episode segmentation.
  */
 
@@ -35,6 +37,13 @@ export interface EpisodeValidationResult {
 
 // ─── Constants ───
 
+/** Episode doc types that use episode-scoped processing */
+export const EPISODE_DOC_TYPES = new Set([
+  'episode_grid',
+  'episode_beats',
+  'vertical_episode_beats',
+]);
+
 /**
  * Episode header regex — supports these variants:
  *   ## EPISODE 9: Title
@@ -49,11 +58,24 @@ export interface EpisodeValidationResult {
  */
 const EPISODE_HEADER_RE = /^(?:#{1,3}\s+|\*{2})?(?:EPISODE\s+|EP\.?\s*)(\d+)\b[^\n]*/i;
 
+/**
+ * Patterns that indicate the model collapsed multiple episodes into a summary.
+ * If any match, the output is considered corrupted.
+ */
+const COLLAPSE_PATTERNS: RegExp[] = [
+  /\bEps?\s*\d+\s*[-–—]\s*\d+\b/i,              // "Eps 1–7", "Ep 2-5"
+  /follow(?:s)?\s+(?:the\s+)?established/i,       // "follows established structure"
+  /remain(?:s)?\s+high[- ]density/i,              // "remain high-density"
+  /\btemplate(?:s)?\b/i,                           // "templates"
+  /\bsame\s+structure\s+as\s+(?:above|previous)/i, // "same structure as above"
+  /\bcontinue(?:s)?\s+(?:the\s+)?pattern/i,        // "continues the pattern"
+  /\brepeat(?:s)?\s+(?:the\s+)?format/i,           // "repeats the format"
+];
+
 // ─── Parsing ───
 
 /**
  * Parse episode-structured text into ordered episode blocks.
- *
  * Splits on episode headers, preserving everything between one header
  * and the next (or EOF) as a single block.
  */
@@ -65,7 +87,6 @@ export function parseEpisodeBlocks(text: string): ParsedEpisodeBlock[] {
 
   let currentHeader: string | null = null;
   let currentEpNum = 0;
-  let currentHeaderLineIdx = -1;
   let bodyLines: string[] = [];
 
   function closeBlock() {
@@ -90,7 +111,6 @@ export function parseEpisodeBlocks(text: string): ParsedEpisodeBlock[] {
       closeBlock();
       currentHeader = trimmed;
       currentEpNum = parseInt(match[1], 10);
-      currentHeaderLineIdx = i;
       bodyLines = [];
     } else if (currentHeader !== null) {
       bodyLines.push(line);
@@ -106,7 +126,6 @@ export function parseEpisodeBlocks(text: string): ParsedEpisodeBlock[] {
 
 /**
  * Merge replacement episode blocks into the original text.
- *
  * Only episodes in `replacements` are swapped; ALL other episodes
  * remain byte-identical to the original. Preamble text (before the
  * first episode header) is also preserved verbatim.
@@ -127,7 +146,6 @@ export function mergeEpisodeBlocks(
       preamble = originalText.slice(0, firstBlockStart);
     }
   } else {
-    // No episodes found — return original unchanged
     return { mergedText: originalText, replacedEpisodes: [], preservedEpisodes: [] };
   }
 
@@ -172,13 +190,11 @@ export function validateEpisodeMerge(
   const missingEpisodes: number[] = [];
   const mutatedUntouchedEpisodes: number[] = [];
 
-  // Build merged map by episode number
   const mergedMap = new Map<number, ParsedEpisodeBlock>();
   for (const b of mergedBlocks) {
     mergedMap.set(b.episodeNumber, b);
   }
 
-  // Check: every original episode must still exist
   for (const ob of originalBlocks) {
     const mb = mergedMap.get(ob.episodeNumber);
     if (!mb) {
@@ -187,7 +203,6 @@ export function validateEpisodeMerge(
       continue;
     }
 
-    // For untouched episodes: must be byte-identical
     if (!targetedSet.has(ob.episodeNumber)) {
       if (ob.rawBlock !== mb.rawBlock) {
         mutatedUntouchedEpisodes.push(ob.episodeNumber);
@@ -206,14 +221,47 @@ export function validateEpisodeMerge(
   };
 }
 
-// ─── Helpers ───
+// ─── Episode Number Extraction ───
 
-/** Episode doc types that use episode-scoped rewrites instead of scene-scoped */
-export const EPISODE_DOC_TYPES = new Set([
-  'episode_grid',
-  'episode_beats',
-  'vertical_episode_beats',
-]);
+/**
+ * Extract episode numbers from output text by scanning for episode headers.
+ * Returns sorted unique episode numbers found.
+ */
+export function extractEpisodeNumbersFromOutput(text: string): number[] {
+  const headerPattern = /^(?:#{1,3}\s+|\*{2})?(?:EPISODE\s+|EP\.?\s*)(\d+)\b/gim;
+  const matches = [...text.matchAll(headerPattern)];
+  const nums = [...new Set(matches.map(m => parseInt(m[1], 10)))].filter(n => !isNaN(n));
+  return nums.sort((a, b) => a - b);
+}
+
+// ─── Collapse Detection ───
+
+/**
+ * Detect if output contains collapsed range summaries — patterns that indicate
+ * the model summarised multiple episodes into one line instead of writing them out.
+ *
+ * Returns true if ANY collapse pattern is detected.
+ */
+export function detectCollapsedRangeSummaries(text: string): boolean {
+  return COLLAPSE_PATTERNS.some(p => p.test(text));
+}
+
+// ─── Scaffold Generator ───
+
+/**
+ * Generate a minimal episode scaffold for 1..N episodes.
+ * Used as the "original text" when generating from scratch,
+ * giving parseEpisodeBlocks anchors to merge against.
+ */
+export function buildEpisodeScaffold(episodeCount: number): string {
+  const parts: string[] = [];
+  for (let i = 1; i <= episodeCount; i++) {
+    parts.push(`## EPISODE ${i}: (Title TBD)\n1.\n2.\n3.\n4.\n5.`);
+  }
+  return parts.join('\n\n');
+}
+
+// ─── Helpers ───
 
 /**
  * Extract target episode numbers from a change plan.
@@ -230,12 +278,10 @@ export function extractTargetEpisodes(changePlan: {
   const episodes = new Set<number>();
 
   for (const c of changePlan.changes || []) {
-    // Explicit episode_numbers in target
     for (const en of c.target?.episode_numbers || []) {
       episodes.add(en);
     }
 
-    // Infer from instructions/title text
     const text = `${c.instructions || ''} ${c.title || ''}`;
     const matches = text.matchAll(/\b(?:episode|ep\.?)\s*(\d+)/gi);
     for (const m of matches) {
