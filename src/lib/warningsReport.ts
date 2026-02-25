@@ -35,3 +35,13 @@ export async function copyTextToClipboard(text: string) {
     // no-op
   }
 }
+
+export function buildPageLinkWithAnchor(anchorId?: string | null): string {
+  try {
+    const { origin, pathname, search } = window.location;
+    const base = `${origin}${pathname}${search}`;
+    return anchorId ? `${base}#${anchorId}` : base;
+  } catch {
+    return "";
+  }
+}
