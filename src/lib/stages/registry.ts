@@ -21,10 +21,11 @@ export type DeliverableStage =
   | 'concept_brief'
   | 'market_sheet'
   | 'vertical_market_sheet'
-  | 'blueprint'
-  | 'architecture'
+  | 'treatment'
+  | 'story_outline'
   | 'character_bible'
   | 'beat_sheet'
+  | 'episode_beats'
   | 'feature_script'
   | 'episode_script'
   | 'season_master_script'
@@ -124,15 +125,16 @@ export function getNearestExistingStage(
  * Neither "draft" nor "coverage" are real stage doc_types.
  */
 export const DOC_TYPE_TO_LADDER_STAGE: Record<string, DeliverableStage> = {
-  // Direct matches
+  // Direct matches (canonical keys)
   idea:                    'idea',
   concept_brief:           'concept_brief',
   market_sheet:            'market_sheet',
   vertical_market_sheet:   'vertical_market_sheet',
-  blueprint:               'blueprint',
-  architecture:            'architecture',
+  treatment:               'treatment',
+  story_outline:           'story_outline',
   character_bible:         'character_bible',
   beat_sheet:              'beat_sheet',
+  episode_beats:           'episode_beats',
   feature_script:          'feature_script',
   episode_script:          'episode_script',
   season_master_script:    'season_master_script',
@@ -144,12 +146,15 @@ export const DOC_TYPE_TO_LADDER_STAGE: Record<string, DeliverableStage> = {
   episode_grid:            'episode_grid',
   vertical_episode_beats:  'vertical_episode_beats',
   series_writer:           'series_writer',
-  // Aliases (from shared JSON)
+  // Legacy aliases → canonical keys
+  blueprint:               'treatment',
+  series_bible:            'treatment',
+  architecture:            'story_outline',
+  plot_architecture:       'story_outline',
   logline:                 'idea',
   one_pager:               'concept_brief',
-  treatment:               'blueprint',
-  season_outline:          'blueprint',
-  outline:                 'blueprint',
+  season_outline:          'treatment',
+  outline:                 'treatment',
   episode_beat_sheet:      'beat_sheet',
   pilot_script:            'episode_script',
   episode_1_script:        'episode_script',
@@ -201,13 +206,19 @@ export function runStageRegistrySelfTest(verbose = false): { passed: boolean; fa
     }
   }
 
-  // 3. 'draft' must NOT appear in any ladder (legacy alias — use 'script' instead)
+  // 3. 'draft', 'blueprint', 'architecture' must NOT appear in any ladder (legacy aliases)
   for (const [fmt, ladder] of Object.entries(FORMAT_LADDERS)) {
     if ((ladder as string[]).includes('draft')) {
-      failures.push(`Format "${fmt}": ladder contains legacy "draft" — replace with "script" or "production_draft"`);
+      failures.push(`Format "${fmt}": ladder contains legacy "draft" — replace with "feature_script" or "episode_script"`);
     }
     if ((ladder as string[]).includes('coverage')) {
       failures.push(`Format "${fmt}": ladder contains legacy "coverage" — replace with "production_draft"`);
+    }
+    if ((ladder as string[]).includes('blueprint')) {
+      failures.push(`Format "${fmt}": ladder contains legacy "blueprint" — replace with "treatment"`);
+    }
+    if ((ladder as string[]).includes('architecture')) {
+      failures.push(`Format "${fmt}": ladder contains legacy "architecture" — replace with "story_outline"`);
     }
   }
 
@@ -235,6 +246,16 @@ export function runStageRegistrySelfTest(verbose = false): { passed: boolean; fa
   const draftMapped = mapDocTypeToLadderStage('draft');
   if (draftMapped !== 'feature_script') {
     failures.push(`mapDocTypeToLadderStage("draft") returned "${draftMapped}", expected "feature_script"`);
+  }
+  // 6b. mapDocTypeToLadderStage('blueprint') must return 'treatment'
+  const blueprintMapped = mapDocTypeToLadderStage('blueprint');
+  if (blueprintMapped !== 'treatment') {
+    failures.push(`mapDocTypeToLadderStage("blueprint") returned "${blueprintMapped}", expected "treatment"`);
+  }
+  // 6c. mapDocTypeToLadderStage('architecture') must return 'story_outline'
+  const archMapped = mapDocTypeToLadderStage('architecture');
+  if (archMapped !== 'story_outline') {
+    failures.push(`mapDocTypeToLadderStage("architecture") returned "${archMapped}", expected "story_outline"`);
   }
 
   // 7. FORMAT_LADDERS matches the JSON source
