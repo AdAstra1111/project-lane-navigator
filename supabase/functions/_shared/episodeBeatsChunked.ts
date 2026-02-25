@@ -131,7 +131,14 @@ export async function generateEpisodeBeatsChunked(opts: EpisodeBeatsOpts): Promi
 
     const userPrompt = `Using the upstream documents below, generate detailed episode beats for ${batchLabel} (out of ${episodeCount} total episodes in the season) for "${projectTitle}".
 
-CRITICAL: You MUST generate beats for EVERY episode listed: ${batch.join(", ")}. Do NOT skip any episode. Use the heading format "## EPISODE N" for each episode.
+MANDATORY STRUCTURE RULES:
+- You MUST output every episode individually. Each episode MUST have its own "## EPISODE N" heading.
+- DO NOT summarize multiple episodes into one line or range (e.g., NEVER write "Eps 24–30 remain templates").
+- Every episode from the list below must include: Episode number, Title, and 5–8 numbered beats.
+- If episodes share similar structure, you MUST still write each one out fully with unique beats.
+- DO NOT collapse, skip, abbreviate, or batch any episodes together.
+
+CRITICAL: You MUST generate beats for EVERY episode listed: ${batch.join(", ")}. Do NOT skip any episode.
 
 ${upstreamContent}`;
 
@@ -185,7 +192,14 @@ ${upstreamContent}`;
     for (const repairBatch of repairBatches) {
       const userPrompt = `Using the upstream documents below, generate detailed episode beats for Episodes ${repairBatch.join(", ")} (out of ${episodeCount} total episodes in the season) for "${projectTitle}".
 
-CRITICAL: You MUST generate beats for EVERY episode listed: ${repairBatch.join(", ")}. Do NOT skip any. Use the heading format "## EPISODE N" for each episode.
+MANDATORY STRUCTURE RULES:
+- You MUST output every episode individually. Each episode MUST have its own "## EPISODE N" heading.
+- DO NOT summarize multiple episodes into one line or range (e.g., NEVER write "Eps 24–30 remain templates").
+- Every episode must include: Episode number, Title, and 5–8 numbered beats.
+- If episodes share similar structure, you MUST still write each one out fully with unique beats.
+- DO NOT collapse, skip, abbreviate, or batch any episodes together.
+
+CRITICAL: You MUST generate beats for EVERY episode listed: ${repairBatch.join(", ")}. Do NOT skip any.
 
 ${upstreamContent}`;
 
