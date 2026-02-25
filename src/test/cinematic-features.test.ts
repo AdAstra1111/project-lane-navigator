@@ -6,7 +6,7 @@ import { describe, it, expect, vi } from "vitest";
 
 import type { CinematicUnit, CinematicFailureCode, CinematicScore } from "../../supabase/functions/_shared/cinematic-model";
 import { DIAGNOSTIC_ONLY_CODES } from "../../supabase/functions/_shared/cinematic-model";
-import { extractFeatures, countDirectionReversals, detectPacingMismatch, summarizeSignal, summarizePolarity, variance } from "../../supabase/functions/_shared/cinematic-features";
+import { extractFeatures, countDirectionReversals, detectPacingMismatch, summarizeSignal, summarizePolarity, variance, analyzeIntentSequencing } from "../../supabase/functions/_shared/cinematic-features";
 import { scoreCinematic, CINEMATIC_THRESHOLDS, PENALTY_MAP } from "../../supabase/functions/_shared/cinematic-score";
 import { amplifyRepairInstruction, buildTrailerRepairInstruction, buildStoryboardRepairInstruction, numericTargetsForFailures } from "../../supabase/functions/_shared/cinematic-repair";
 import { enforceUnitCount } from "../../supabase/functions/_shared/cinematic-adapters";
@@ -740,5 +740,62 @@ describe("ladder lock repair prompt", () => {
     const instr = buildTrailerRepairInstruction(makeScore(manyFailures), 8);
     // Should contain "Also address:" for overflow failures
     expect(instr).toContain("Also address:");
+  });
+});
+
+// ─── CIK v3.14 Intent Sequencing Lock Tests ───
+
+describe("v3.14 intent sequencing", () => {
+  it("late window dominated by early intents triggers WEAK_ARC", () => {
+    // 5 units: late window = last 2 units dominated by intrigue (early intent)
+    const units = [
+      makeUnit({ id: "0", energy: 0.3, tension: 0.3, density: 0.3, intent: "intrigue" }),
+      makeUnit({ id: "1", energy: 0.5, tension: 0.5, density: 0.5, intent: "threat" }),
+      makeUnit({ id: "2", energy: 0.6, tension: 0.6, density: 0.6, intent: "chaos" }),
+      makeUnit({ id: "3", energy: 0.85, tension: 0.85, density: 0.85, intent: "intrigue" }),
+      makeUnit({ id: "4", energy: 0.95, tension: 0.95, density: 0.95, intent: "wonder" }),
+    ];
+    const seq = analyzeIntentSequencing(units);
+    expect(seq.earlyLateInversion).toBe(true);
+    const score = scoreCinematic(units);
+    expect(score.failures).toContain("WEAK_ARC");
+  });
+
+  it("early window dominated by late intents triggers WEAK_ARC", () => {
+    const units = [
+      makeUnit({ id: "0", energy: 0.3, tension: 0.3, density: 0.3, intent: "release" }),
+      makeUnit({ id: "1", energy: 0.5, tension: 0.5, density: 0.5, intent: "emotion" }),
+      makeUnit({ id: "2", energy: 0.6, tension: 0.6, density: 0.6, intent: "threat" }),
+      makeUnit({ id: "3", energy: 0.85, tension: 0.85, density: 0.85, intent: "chaos" }),
+      makeUnit({ id: "4", energy: 0.95, tension: 0.95, density: 0.95, intent: "release" }),
+    ];
+    const seq = analyzeIntentSequencing(units);
+    expect(seq.earlyLateInversion).toBe(true);
+  });
+
+  it("clean phase sequence passes intent sequencing checks", () => {
+    const units = [
+      makeUnit({ id: "0", energy: 0.3, tension: 0.3, density: 0.3, tonal_polarity: -0.3, intent: "intrigue" }),
+      makeUnit({ id: "1", energy: 0.5, tension: 0.5, density: 0.5, tonal_polarity: -0.1, intent: "threat" }),
+      makeUnit({ id: "2", energy: 0.7, tension: 0.7, density: 0.7, tonal_polarity: 0.1, intent: "chaos" }),
+      makeUnit({ id: "3", energy: 0.9, tension: 0.9, density: 0.9, tonal_polarity: 0.3, intent: "emotion" }),
+      makeUnit({ id: "4", energy: 0.92, tension: 0.92, density: 0.92, tonal_polarity: 0.5, intent: "release" }),
+    ];
+    const seq = analyzeIntentSequencing(units);
+    expect(seq.earlyLateInversion).toBe(false);
+    expect(seq.excessOscillation).toBe(false);
+  });
+
+  it("repair includes compact intent sequencing target when WEAK_ARC and diversity ok", () => {
+    const score: CinematicScore = {
+      score: 0.3, pass: false,
+      failures: ["WEAK_ARC"] as CinematicFailureCode[],
+      hard_failures: ["WEAK_ARC"] as CinematicFailureCode[],
+      diagnostic_flags: [], penalty_breakdown: [], metrics: {} as any,
+    };
+    const instr = buildTrailerRepairInstruction(score, 6);
+    expect(instr).toContain("INTENT SEQUENCING");
+    expect(instr).toContain("early=setup/intrigue");
+    expect(instr.length).toBeLessThanOrEqual(2500);
   });
 });
