@@ -74,8 +74,9 @@ export function numericTargetsForFailures(args: {
   failures: string[];
   unitCount: number;
   thresholds?: typeof CINEMATIC_THRESHOLDS;
+  lane?: string;
 }): { targets: string[]; covered: Set<string> } {
-  const { failures, unitCount, thresholds: t = CINEMATIC_THRESHOLDS } = args;
+  const { failures, unitCount, thresholds: t = CINEMATIC_THRESHOLDS, lane } = args;
   const out: string[] = [];
   const covered = new Set<string>();
   const latePeakMin = Math.max(1, Math.floor(unitCount * 0.75));
@@ -145,10 +146,10 @@ export function numericTargetsForFailures(args: {
   const hasLadderFailure = failures.some(f => LADDER_FAILURES.has(f));
   if (hasLadderFailure && unitCount >= 3) {
     const lateStart = lateStartIndexForUnitCount(unitCount);
-    const minUp = minUpFracForUnitCount(unitCount);
-    const maxFlips = maxZigzagFlipsForUnitCount(unitCount);
-    const pLead = peakLeadThresholdForUnitCount(unitCount);
-    const tSlack = tailSlackForUnitCount(unitCount);
+    const minUp = minUpFracForUnitCount(unitCount, lane);
+    const maxFlips = maxZigzagFlipsForUnitCount(unitCount, lane);
+    const pLead = peakLeadThresholdForUnitCount(unitCount, lane);
+    const tSlack = tailSlackForUnitCount(unitCount, lane);
     out.push(`Rises ≥ ${Math.round(minUp * 100)}%`);
     out.push(`Dips ≤1; 0 in final 25%`);
     out.push(`Peak units ${lateStart + 1}–${unitCount}`);

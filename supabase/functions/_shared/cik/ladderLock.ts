@@ -74,6 +74,7 @@ export function analyzeLadder(
   energy: number[],
   tension: number[],
   density: number[],
+  lane?: string,
 ): LadderMetrics {
   const minLen = Math.min(energy.length, tension.length, density.length);
   if (minLen < 3) return { ...SAFE_DEFAULTS, n: minLen };
@@ -93,10 +94,10 @@ export function analyzeLadder(
   }
 
   const lateStart = lateStartIndexForUnitCount(n);
-  const dipAbs = dipAbsForUnitCount(n);
-  const lateDipAbs = lateDipAbsForUnitCount(n);
-  const minUpFrac = minUpFracForUnitCount(n);
-  const maxFlips = maxZigzagFlipsForUnitCount(n);
+  const dipAbs = dipAbsForUnitCount(n, lane);
+  const lateDipAbs = lateDipAbsForUnitCount(n, lane);
+  const minUpFrac = minUpFracForUnitCount(n, lane);
+  const maxFlips = maxZigzagFlipsForUnitCount(n, lane);
   const peakDelta = peakDeltaForUnitCount(n);
 
   let meaningfulDownSteps = 0;
@@ -140,7 +141,7 @@ export function analyzeLadder(
   }
 
   // v3.13 — Peak Lead: peakValue vs max of pre-late window
-  const pLeadThreshold = peakLeadThresholdForUnitCount(n);
+  const pLeadThreshold = peakLeadThresholdForUnitCount(n, lane);
   let preLateMax = 0;
   for (let i = 0; i < Math.min(lateStart, n); i++) {
     if (ladder[i] > preLateMax) preLateMax = ladder[i];
@@ -148,7 +149,7 @@ export function analyzeLadder(
   const peakLead = peakValue - preLateMax;
 
   // v3.13 — Tail Seal: mean of last 2 units
-  const tSlack = tailSlackForUnitCount(n);
+  const tSlack = tailSlackForUnitCount(n, lane);
   const tailCount = Math.min(2, n);
   let tailSum = 0;
   for (let i = n - tailCount; i < n; i++) {
