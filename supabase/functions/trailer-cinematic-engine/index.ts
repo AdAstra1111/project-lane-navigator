@@ -1499,7 +1499,7 @@ DURATION RULES:
 Do NOT include copyrighted references. Do NOT invent new characters/locations. Use citations implicitly.
 No commentary. No explanation. No markdown. Only valid JSON.${rhythmContext}`);
 
-    const parsed = await callLLMWithJsonRetry({
+    let parsed = await callLLMWithJsonRetry({
       apiKey,
       model: MODELS.PRO,
       system,
@@ -1509,20 +1509,72 @@ No commentary. No explanation. No markdown. Only valid JSON.${rhythmContext}`);
     }, {
       handler: "create_shot_design_v2",
       validate: (d): d is any => {
-        if (!d || typeof d !== "object") return false;
-        // Accept shot_specs, shots, or any top-level array property containing objects with beat_index
+        if (!d) return false;
+        // Case 1: raw array — LLM returned [...] instead of { shot_specs: [...] }
+        if (Array.isArray(d) && d.length > 0) return true;
+        if (typeof d !== "object") return false;
+        // Case 2: proper wrapper with shot_specs or shots
         if (Array.isArray(d.shot_specs) && d.shot_specs.length > 0) return true;
         if (Array.isArray(d.shots) && d.shots.length > 0) return true;
-        // Fallback: find any array of objects with beat_index
+        // Case 3: any array property containing objects
         for (const key of Object.keys(d)) {
-          if (Array.isArray(d[key]) && d[key].length > 0 && typeof d[key][0] === "object" && "beat_index" in d[key][0]) {
-            d.shot_specs = d[key]; // normalize
+          if (Array.isArray(d[key]) && d[key].length > 0 && typeof d[key][0] === "object") {
+            d.shot_specs = d[key];
             return true;
           }
         }
         return false;
       },
     });
+
+    // Normalize: if LLM returned a raw array, wrap & transform it
+    if (Array.isArray(parsed)) {
+      const first = parsed[0];
+      if (first && ("beat_index" in first || "shot_index" in first) && ("camera_move" in first || "shot_type" in first)) {
+        // Already shot_specs format
+        parsed = { shot_specs: parsed };
+      } else if (first && typeof first === "object") {
+        // Beat-level objects — extract shot specs from each beat
+        const extractedSpecs: any[] = [];
+        for (let i = 0; i < parsed.length; i++) {
+          const beatObj = parsed[i];
+          const beatIndex = (typeof beatObj.beat_index === "number") ? beatObj.beat_index
+            : (typeof beatObj.id === "number") ? beatObj.id : i;
+          const hint = beatObj.hint || {};
+          if (Array.isArray(beatObj.shots) && beatObj.shots.length > 0) {
+            for (const s of beatObj.shots) {
+              extractedSpecs.push({ ...s, beat_index: beatIndex });
+            }
+          } else {
+            extractedSpecs.push({
+              beat_index: beatIndex,
+              shot_index: 0,
+              shot_type: hint.shot_type || beatObj.shot_type || "medium",
+              lens_mm: hint.lens_mm || null,
+              camera_move: hint.camera_move || beatObj.camera_move || "push_in",
+              movement_intensity: beatObj.movement ?? beatObj.movement_intensity ?? 5,
+              depth_strategy: hint.depth_strategy || "mixed",
+              foreground_element: hint.foreground_element || null,
+              lighting_note: hint.lighting_note || beatObj.lighting_note || null,
+              subject_action: hint.subject_action || beatObj.subject_action || "ambient motion",
+              reveal_mechanic: hint.reveal_mechanic || beatObj.reveal_mechanic || "progressive reveal",
+              transition_in: hint.transition_in || "hard_cut",
+              transition_out: hint.transition_out || "hard_cut",
+              target_duration_ms: hint.target_duration_ms || beatObj.target_duration_ms || null,
+              prompt_hint_json: {
+                visual_prompt: hint.visual_prompt || beatObj.visual_prompt || beatObj.intent || "",
+                style: hint.style || beatObj.movement_style || null,
+                preferred_provider: hint.preferred_provider || "veo",
+              },
+            });
+          }
+        }
+        parsed = { shot_specs: extractedSpecs };
+      } else {
+        parsed = { shot_specs: parsed };
+      }
+    }
+
     const shotSpecs = parsed.shot_specs || parsed.shots || [];
 
     // ── Validation ──
