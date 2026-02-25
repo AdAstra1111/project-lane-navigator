@@ -20,7 +20,7 @@ import {
   History,
 } from 'lucide-react';
 import { useNoteWritersRoom, type ContextPack, type ProjectDocInfo } from '@/hooks/useNoteWritersRoom';
-import { useDocSets, docSetItemOrder, type DocSet, type DocSetWithItems } from '@/hooks/useDocSets';
+import { useDocSets, docSetItemOrder, selectDefaultDocSet, type DocSet, type DocSetWithItems } from '@/hooks/useDocSets';
 import { noteFingerprint } from '@/lib/decisions/fingerprint';
 import { ChangePlanPanel } from './ChangePlanPanel';
 import { ChangesetTimeline } from './ChangesetTimeline';
@@ -105,7 +105,7 @@ export function NoteWritersRoomDrawer({
   // Doc sets integration
   const docSets = useDocSets(projectId);
   const docSetsList = docSets.listQuery.data || [];
-  const defaultDocSet = docSetsList.find(s => s.is_default);
+  const defaultDocSet = selectDefaultDocSet(docSetsList);
 
   const data = query.data;
   const state = data?.state;
