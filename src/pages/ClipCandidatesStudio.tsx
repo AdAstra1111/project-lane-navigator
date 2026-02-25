@@ -28,6 +28,7 @@ import type { EDLBeat, TrailerClip } from '@/lib/trailerPipeline/types';
 import { isReadyStatus } from '@/lib/trailerPipeline/constants';
 import { clipCandidateComparator } from '@/lib/trailerPipeline/clipSorting';
 import { buildClipFilename, getDownloadUrl } from '@/lib/trailerPipeline/clipDownload';
+import { ClipAttemptAccordion } from '@/components/trailer/ClipAttemptAccordion';
 
 const ROLE_COLORS: Record<string, string> = {
   hook: 'bg-red-500/20 text-red-300',
@@ -710,6 +711,15 @@ export default function ClipCandidatesStudio({ embedded }: { embedded?: boolean 
                                             </TooltipProvider>
                                           );
                                         })()}
+
+                                        {/* Attempt history accordion */}
+                                        <ClipAttemptAccordion
+                                          clipId={clip.id}
+                                          projectId={projectId!}
+                                          bestAttemptId={(clip as any).best_attempt_id}
+                                          bestScore={(clip as any).best_score}
+                                          attemptsCount={(clip as any).attempts_count || 0}
+                                        />
 
                                         <div className="flex items-center gap-1">
                                           {!clip.selected && ['complete', 'approved_technical'].includes(clip.status) && !clip.auto_rejected && (
