@@ -3,7 +3,7 @@
  * Phase 1 Slice 5: Test Hardening
  */
 import { describe, it, expect } from "vitest";
-import { computeFailureDiff, computePassRate, computeAvgScore, buildChartData } from "@/components/cinematic/QualityRunHistory";
+import { computeFailureDiff, computePassRate, computeAvgScore, buildChartData, normalizeScores } from "@/components/cinematic/QualityRunHistory";
 
 /* ── A) Diff Logic ── */
 
@@ -225,7 +225,66 @@ describe("buildChartData", () => {
   });
 });
 
-/* ── D) Graceful missing states ── */
+/* ── D) Normalization ── */
+
+describe("normalizeScores", () => {
+  it("returns empty for empty input", () => {
+    const r = normalizeScores([]);
+    expect(r.normalized).toEqual([]);
+    expect(r.min).toBe(0);
+    expect(r.max).toBe(0);
+    expect(r.avg).toBe(0);
+  });
+
+  it("scores in [0,1] are preserved as-is", () => {
+    const r = normalizeScores([0.3, 0.7, 0.5]);
+    expect(r.normalized).toEqual([0.3, 0.7, 0.5]);
+    expect(r.min).toBeCloseTo(0.3);
+    expect(r.max).toBeCloseTo(0.7);
+    expect(r.avg).toBeCloseTo(0.5);
+  });
+
+  it("scores outside [0,1] are min-max normalized", () => {
+    const r = normalizeScores([10, 20, 30]);
+    expect(r.normalized).toEqual([0, 0.5, 1]);
+    expect(r.min).toBe(10);
+    expect(r.max).toBe(30);
+    expect(r.avg).toBeCloseTo(20);
+  });
+
+  it("handles all identical scores (range=0)", () => {
+    const r = normalizeScores([0.5, 0.5, 0.5]);
+    expect(r.normalized).toEqual([0.5, 0.5, 0.5]);
+    expect(r.min).toBeCloseTo(0.5);
+    expect(r.max).toBeCloseTo(0.5);
+  });
+
+  it("handles identical scores outside [0,1]", () => {
+    const r = normalizeScores([5, 5]);
+    // range=0, fallback range=1 → (5-5)/1=0
+    expect(r.normalized).toEqual([0, 0]);
+  });
+
+  it("is deterministic across multiple calls", () => {
+    const input = [0.1, 0.9, 0.4, 0.6];
+    const r1 = normalizeScores(input);
+    const r2 = normalizeScores(input);
+    expect(r1).toEqual(r2);
+  });
+
+  it("single score in [0,1] preserved", () => {
+    const r = normalizeScores([0.42]);
+    expect(r.normalized).toEqual([0.42]);
+    expect(r.avg).toBeCloseTo(0.42);
+  });
+
+  it("boundary: max exactly 1.0", () => {
+    const r = normalizeScores([0.0, 1.0]);
+    expect(r.normalized).toEqual([0.0, 1.0]);
+  });
+});
+
+/* ── E) Graceful missing states ── */
 
 describe("run detail graceful states", () => {
   it("single-attempt run: no diff computed when attempt1 missing", () => {
