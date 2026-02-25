@@ -1,5 +1,5 @@
 /**
- * CIK v3.12 — Ladder Lock Analyzer
+ * CIK v3.12/v3.13 — Ladder Lock Analyzer
  * Deterministic near-monotonic ramp analysis on weighted signal.
  * Pure math, no LLM. O(n) only.
  */
@@ -10,6 +10,8 @@ import {
   maxZigzagFlipsForUnitCount,
   peakDeltaForUnitCount,
   lateStartIndexForUnitCount,
+  peakLeadThresholdForUnitCount,
+  tailSlackForUnitCount,
 } from "./ladderLockConstants.ts";
 
 // Fixed signal weights
@@ -49,6 +51,11 @@ export interface LadderMetrics {
   ladderMin: number;
   ladderMedian: number;
   ladderMax: number;
+  // v3.13 Peak Clamp + Tail Seal
+  peakLead: number;
+  peakLeadThreshold: number;
+  tailMean: number;
+  tailSlack: number;
 }
 
 const SAFE_DEFAULTS: LadderMetrics = {
@@ -59,6 +66,8 @@ const SAFE_DEFAULTS: LadderMetrics = {
   zigzagFlips: 0, peakIndex: 0, peakValue: 0,
   peakLate25: true, peakDominance: 0,
   ladderMin: 0, ladderMedian: 0, ladderMax: 0,
+  peakLead: 1, peakLeadThreshold: 0.10,
+  tailMean: 1, tailSlack: 0.06,
 };
 
 export function analyzeLadder(
@@ -98,15 +107,13 @@ export function analyzeLadder(
   for (let i = 0; i < deltas.length; i++) {
     const d = deltas[i];
     if (d <= -dipAbs) meaningfulDownSteps++;
-    // lateDownSteps: delta index i corresponds to transition from unit i to i+1
-    // unit i+1 is in late zone if i+1 >= lateStart
     if ((i + 1) >= lateStart && d <= -lateDipAbs) lateDownSteps++;
     if (d >= 0.01) upSteps++;
   }
 
   const upStepFrac = deltas.length > 0 ? upSteps / deltas.length : 1;
 
-  // Zigzag flips: sign flips in consecutive deltas where both abs >= 0.02
+  // Zigzag flips
   let lastSignificantSign = 0;
   for (let i = 0; i < deltas.length; i++) {
     if (Math.abs(deltas[i]) < 0.02) continue;
@@ -132,10 +139,28 @@ export function analyzeLadder(
     if (ladder[i] > ladderMax) ladderMax = ladder[i];
   }
 
+  // v3.13 — Peak Lead: peakValue vs max of pre-late window
+  const pLeadThreshold = peakLeadThresholdForUnitCount(n);
+  let preLateMax = 0;
+  for (let i = 0; i < Math.min(lateStart, n); i++) {
+    if (ladder[i] > preLateMax) preLateMax = ladder[i];
+  }
+  const peakLead = peakValue - preLateMax;
+
+  // v3.13 — Tail Seal: mean of last 2 units
+  const tSlack = tailSlackForUnitCount(n);
+  const tailCount = Math.min(2, n);
+  let tailSum = 0;
+  for (let i = n - tailCount; i < n; i++) {
+    tailSum += ladder[i];
+  }
+  const tailMean = tailSum / tailCount;
+
   return {
     n, lateStart, dipAbs, lateDipAbs, minUpFrac, maxFlips, peakDelta,
     meaningfulDownSteps, lateDownSteps, upSteps, upStepFrac, zigzagFlips,
     peakIndex, peakValue, peakLate25, peakDominance,
     ladderMin, ladderMedian: med, ladderMax,
+    peakLead, peakLeadThreshold: pLeadThreshold, tailMean, tailSlack: tSlack,
   };
 }

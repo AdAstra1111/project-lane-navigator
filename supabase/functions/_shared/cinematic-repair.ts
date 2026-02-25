@@ -4,7 +4,7 @@
  */
 import type { CinematicScore, CinematicFailureCode } from "./cinematic-model.ts";
 import { CINEMATIC_THRESHOLDS } from "./cinematic-score.ts";
-import { lateStartIndexForUnitCount, minUpFracForUnitCount, maxZigzagFlipsForUnitCount } from "./cik/ladderLockConstants.ts";
+import { lateStartIndexForUnitCount, minUpFracForUnitCount, maxZigzagFlipsForUnitCount, peakLeadThresholdForUnitCount, tailSlackForUnitCount } from "./cik/ladderLockConstants.ts";
 
 // Deterministic priority order for failure bullets (Critical→Structure→Pacing→Tone→Metadata)
 const BULLET_PRIORITY: readonly CinematicFailureCode[] = [
@@ -141,16 +141,20 @@ export function numericTargetsForFailures(args: {
     }
   }
 
-  // CIK v3.12 — Compact ladder targets (when any ladder failure present)
+  // CIK v3.12/v3.13 — Compact ladder + peak clamp + tail seal targets
   const hasLadderFailure = failures.some(f => LADDER_FAILURES.has(f));
   if (hasLadderFailure && unitCount >= 3) {
     const lateStart = lateStartIndexForUnitCount(unitCount);
     const minUp = minUpFracForUnitCount(unitCount);
     const maxFlips = maxZigzagFlipsForUnitCount(unitCount);
+    const pLead = peakLeadThresholdForUnitCount(unitCount);
+    const tSlack = tailSlackForUnitCount(unitCount);
     out.push(`Rises ≥ ${Math.round(minUp * 100)}%`);
     out.push(`Dips ≤1; 0 in final 25%`);
     out.push(`Peak units ${lateStart + 1}–${unitCount}`);
     out.push(`Zigzags ≤ ${maxFlips}`);
+    out.push(`Peak lead ≥ ${pLead} vs any pre-late unit`);
+    out.push(`Tail seal: last 2 units within ${tSlack} of peak`);
     for (const f of failures) {
       if (LADDER_FAILURES.has(f)) covered.add(f);
     }

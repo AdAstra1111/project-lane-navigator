@@ -1,5 +1,5 @@
 /**
- * CIK v3.12 — Ladder Lock Constants
+ * CIK v3.12/v3.13 — Ladder Lock Constants
  * Deterministic threshold functions for near-monotonic energy ramp enforcement.
  */
 
@@ -33,4 +33,17 @@ export function peakDeltaForUnitCount(n: number): number {
 
 export function lateStartIndexForUnitCount(n: number): number {
   return Math.floor(0.75 * n);
+}
+
+// v3.13 — Peak Clamp + Tail Seal thresholds
+export function peakLeadThresholdForUnitCount(n: number): number {
+  if (n <= 8) return 0.10;
+  if (n <= 12) return 0.08;
+  return 0.06;
+}
+
+export function tailSlackForUnitCount(n: number): number {
+  if (n <= 8) return 0.06;
+  if (n <= 12) return 0.05;
+  return 0.04;
 }
