@@ -150,8 +150,160 @@ describe("model router", () => {
 });
 
 /**
+ * Quality History Persistence Tests
+ */
+import {
+  persistCinematicQualityRun,
+  type PersistQualityRunParams,
+} from "../../supabase/functions/_shared/cik/qualityHistory";
+
+describe("persistCinematicQualityRun", () => {
+  const baseParams: PersistQualityRunParams = {
+    projectId: "00000000-0000-0000-0000-000000000001",
+    documentId: null,
+    runSource: "trailer-engine",
+    lane: "feature_film",
+    adapterMode: "explicit",
+    strictnessMode: "standard",
+    attempt0: {
+      model: "balanced",
+      score: 0.72,
+      pass: false,
+      failures: ["WEAK_ARC"],
+      hardFailures: ["WEAK_ARC"],
+      diagnosticFlags: [],
+      unitCount: 6,
+    },
+    repairInstruction: "Raise arc peak in last 25%",
+    attempt1: {
+      model: "strong",
+      score: 0.88,
+      pass: true,
+      failures: [],
+      hardFailures: [],
+      diagnosticFlags: [],
+      unitCount: 6,
+    },
+    final: {
+      pass: true,
+      finalScore: 0.88,
+      hardFailures: [],
+      diagnosticFlags: [],
+      metricsJson: { arc_peak: 0.92 },
+    },
+  };
+
+  it("calls RPC with correct payload shape including lane and run_source", async () => {
+    let capturedArgs: any = null;
+    const mockDb = {
+      rpc: async (name: string, args: any) => {
+        capturedArgs = { name, args };
+        return { data: "mock-uuid", error: null };
+      },
+    };
+
+    const result = await persistCinematicQualityRun(mockDb, baseParams);
+
+    expect(result).toBe("mock-uuid");
+    expect(capturedArgs.name).toBe("insert_cinematic_quality_run_with_attempts");
+    expect(capturedArgs.args.p_run.lane).toBe("feature_film");
+    expect(capturedArgs.args.p_run.run_source).toBe("trailer-engine");
+    expect(capturedArgs.args.p_run.final_pass).toBe(true);
+    expect(capturedArgs.args.p_attempt0.attempt_index).toBe(0);
+    expect(capturedArgs.args.p_attempt1.attempt_index).toBe(1);
+  });
+
+  it("stores repair_instruction in attempt1.input_summary_json", async () => {
+    let capturedArgs: any = null;
+    const mockDb = {
+      rpc: async (_: string, args: any) => {
+        capturedArgs = args;
+        return { data: "uuid", error: null };
+      },
+    };
+
+    await persistCinematicQualityRun(mockDb, baseParams);
+
+    expect(capturedArgs.p_attempt1.input_summary_json.repair_instruction)
+      .toBe("Raise arc peak in last 25%");
+    // attempt0 should NOT have repair_instruction
+    expect(capturedArgs.p_attempt0.input_summary_json.repair_instruction).toBeUndefined();
+  });
+
+  it("swallows RPC errors without throwing", async () => {
+    const mockDb = {
+      rpc: async () => {
+        return { data: null, error: { message: "DB connection failed" } };
+      },
+    };
+
+    // Must not throw
+    const result = await persistCinematicQualityRun(mockDb, baseParams);
+    expect(result).toBeNull();
+  });
+
+  it("swallows thrown exceptions without throwing", async () => {
+    const mockDb = {
+      rpc: async () => {
+        throw new Error("Network timeout");
+      },
+    };
+
+    const result = await persistCinematicQualityRun(mockDb, baseParams);
+    expect(result).toBeNull();
+  });
+
+  it("handles single-attempt pass (no attempt1)", async () => {
+    let capturedArgs: any = null;
+    const mockDb = {
+      rpc: async (_: string, args: any) => {
+        capturedArgs = args;
+        return { data: "uuid-single", error: null };
+      },
+    };
+
+    const singleAttemptParams: PersistQualityRunParams = {
+      ...baseParams,
+      attempt1: undefined,
+      repairInstruction: undefined,
+      final: { pass: true, finalScore: 0.85, hardFailures: [], diagnosticFlags: [], metricsJson: {} },
+    };
+
+    const result = await persistCinematicQualityRun(mockDb, singleAttemptParams);
+    expect(result).toBe("uuid-single");
+    expect(capturedArgs.p_attempt1).toBeNull();
+    expect(capturedArgs.p_run.attempt_count).toBe(1);
+  });
+
+  it("sets lane to 'unknown' when lane is empty", async () => {
+    let capturedArgs: any = null;
+    const mockDb = {
+      rpc: async (_: string, args: any) => {
+        capturedArgs = args;
+        return { data: "uuid", error: null };
+      },
+    };
+
+    await persistCinematicQualityRun(mockDb, { ...baseParams, lane: "" });
+    expect(capturedArgs.p_run.lane).toBe("unknown");
+  });
+
+  it("derives engine from runSource", async () => {
+    let capturedArgs: any = null;
+    const mockDb = {
+      rpc: async (_: string, args: any) => {
+        capturedArgs = args;
+        return { data: "uuid", error: null };
+      },
+    };
+
+    await persistCinematicQualityRun(mockDb, { ...baseParams, runSource: "storyboard-engine" });
+    expect(capturedArgs.p_run.engine).toBe("storyboard");
+  });
+});
+
+/**
  * Quality History RPC — compile-time + shape tests
- * (No live DB; validates TypeScript types & RPC name resolution)
  */
 describe("quality history RPC types", () => {
   it("RPC payload shapes are well-formed JSON", () => {
@@ -197,14 +349,10 @@ describe("quality history RPC types", () => {
       timing_json: {},
     };
 
-    // Validate shapes serialize to valid JSON
     expect(() => JSON.stringify(run)).not.toThrow();
     expect(() => JSON.stringify(attempt0)).not.toThrow();
     expect(() => JSON.stringify(attempt1)).not.toThrow();
-
-    // Validate required fields
     expect(run.project_id).toBeTruthy();
-    expect(run.engine).toBe("trailer");
     expect(attempt0.attempt_index).toBe(0);
     expect(attempt1.attempt_index).toBe(1);
   });
@@ -214,17 +362,8 @@ describe("quality history RPC types", () => {
     expect(rpcName).toMatch(/^insert_cinematic_quality_run/);
   });
 
-  it("run_source field accepts known engine values", () => {
-    const validSources = ["trailer-engine", "storyboard-engine", "unknown"];
-    for (const src of validSources) {
-      expect(typeof src).toBe("string");
-      expect(src.length).toBeGreaterThan(0);
-    }
-  });
-
   it("attempt_index is constrained to 0 or 1", () => {
-    const validIndexes = [0, 1];
-    for (const idx of validIndexes) {
+    for (const idx of [0, 1]) {
       expect(idx).toBeGreaterThanOrEqual(0);
       expect(idx).toBeLessThanOrEqual(1);
     }
