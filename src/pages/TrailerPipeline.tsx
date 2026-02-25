@@ -34,7 +34,9 @@ import { useUIMode } from '@/hooks/useUIMode';
 export default function TrailerPipelinePage() {
   const { id: projectId } = useParams<{ id: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'script');
+  const VALID_TABS = new Set(['script', 'rhythm', 'shots', 'plans', 'assembly', 'videoplan', 'finish', 'clips']);
+  const studioTabParam = searchParams.get('studioTab');
+  const [activeTab, setActiveTab] = useState(studioTabParam && VALID_TABS.has(studioTabParam) ? studioTabParam : 'script');
   const [selectedScriptRunId, setSelectedScriptRunId] = useState<string>();
   const { mode } = useUIMode();
 
@@ -152,7 +154,7 @@ export default function TrailerPipelinePage() {
       </header>
 
       <div className="max-w-[1600px] mx-auto p-4">
-        <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v); updateSearchParams(setSearchParams, (n) => n.set('tab', v), { replace: true }); }}>
+        <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v); updateSearchParams(setSearchParams, (n) => n.set('studioTab', v), { replace: true }); }}>
           <TabsList className="mb-4">
             <TabsTrigger value="script" className="text-xs gap-1.5">
               <Sparkles className="h-3.5 w-3.5" /> Script Studio
