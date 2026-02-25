@@ -202,6 +202,13 @@ export function useNoteWritersRoom(opts: {
       }
       invalidatePlan();
       invalidate();
+      // Invalidate document-related queries so the editor reflects the new version
+      qc.invalidateQueries({ queryKey: ['dev-v2-versions'] });
+      qc.invalidateQueries({ queryKey: ['dev-v2-docs'] });
+      qc.invalidateQueries({ queryKey: ['document-versions'] });
+      qc.invalidateQueries({ queryKey: ['project-documents'] });
+      qc.invalidateQueries({ queryKey: ['dev-engine-sessions'] });
+      qc.invalidateQueries({ queryKey: ['dev-engine-iterations'] });
       toast.success(`Applied! New version created.`);
     },
     onError: (e: Error) => toast.error(e.message),
