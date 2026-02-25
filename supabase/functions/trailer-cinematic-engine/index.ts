@@ -2572,7 +2572,7 @@ async function handleStartClipGeneration(db: any, body: any, userId: string) {
   const { data: blueprint, error: bpErr } = await db.from("trailer_blueprints").insert({
     project_id: projectId,
     arc_type: scriptRun.trailer_type || "main",
-    status: "v2_shim",
+    status: "ready",
     edl: edlItems,
     rhythm_analysis: { source: "cinematic_engine_v2", script_run_id: scriptRunId, rhythm_run_id: rhythmRunId || null },
     audio_plan: {},
@@ -3428,6 +3428,270 @@ async function handleRunTrailerPipeline(db: any, body: any, userId: string, apiK
   }
 }
 
+// ─── ACTION 13: Create Trailer Plan Variant (FAST) ───
+
+async function handleCreatePlanVariantFast(db: any, body: any, userId: string) {
+  const { projectId, arc_type = "classic_three_act", options = {}, scriptRunId, shotDesignRunId: inputShotDesignRunId, rhythmRunId: inputRhythmRunId } = body;
+
+  // Find latest shot design run if not provided
+  let shotDesignRunId = inputShotDesignRunId;
+  if (!shotDesignRunId) {
+    const filter: any = { project_id: projectId };
+    const query = scriptRunId
+      ? db.from("trailer_shot_design_runs").select("id").eq("script_run_id", scriptRunId).eq("status", "complete").order("created_at", { ascending: false }).limit(1)
+      : db.from("trailer_shot_design_runs").select("id, script_run_id").eq("status", "complete").order("created_at", { ascending: false }).limit(1);
+
+    const { data: sdRuns } = scriptRunId
+      ? await db.from("trailer_shot_design_runs").select("id").eq("script_run_id", scriptRunId).eq("status", "complete").order("created_at", { ascending: false }).limit(1)
+      : await db.from("trailer_shot_design_runs").select("id").eq("status", "complete").order("created_at", { ascending: false }).limit(1);
+
+    if (!sdRuns?.length) return json({ error: "No completed shot design run found. Run the pipeline first." }, 400);
+    shotDesignRunId = sdRuns[0].id;
+  }
+
+  // Fetch shot specs
+  const { data: shotSpecs } = await db.from("trailer_shot_specs").select("*").eq("shot_design_run_id", shotDesignRunId);
+  if (!shotSpecs?.length) return json({ error: "No shot specs found for shot design run" }, 400);
+
+  // Fetch beats if scriptRunId available
+  let beats: any[] = [];
+  let resolvedScriptRunId = scriptRunId;
+  if (!resolvedScriptRunId) {
+    const { data: sdRun } = await db.from("trailer_shot_design_runs").select("script_run_id").eq("id", shotDesignRunId).single();
+    resolvedScriptRunId = sdRun?.script_run_id;
+  }
+  if (resolvedScriptRunId) {
+    const { data: b } = await db.from("trailer_script_beats").select("*").eq("script_run_id", resolvedScriptRunId).order("beat_index");
+    beats = b || [];
+  }
+
+  // Build EDL from shot specs + beats
+  const beatMap = new Map(beats.map((b: any) => [b.id, b]));
+  const edlItems: any[] = [];
+  const beatsSeen = new Set<number>();
+
+  for (const spec of shotSpecs) {
+    const beat = beatMap.get(spec.beat_id);
+    const beatIndex = beat?.beat_index ?? spec.shot_index ?? edlItems.length;
+    if (beatsSeen.has(beatIndex)) continue;
+    beatsSeen.add(beatIndex);
+
+    edlItems.push({
+      beat_index: beatIndex,
+      phase: beat?.phase || "setup",
+      emotional_intent: beat?.emotional_intent || null,
+      text_card: beat?.text_card || null,
+      movement_intensity_target: beat?.movement_intensity_target || spec.movement_intensity || 5,
+      shot_density_target: beat?.shot_density_target || 1,
+      target_duration_ms: spec.target_duration_ms || null,
+      visual_prompt: spec.prompt_hint_json?.visual_prompt || null,
+      shot_type: spec.shot_type || null,
+      camera_move: spec.camera_move || null,
+    });
+  }
+
+  edlItems.sort((a: any, b: any) => a.beat_index - b.beat_index);
+
+  // Validate
+  if (edlItems.length === 0) return json({ error: "EDL compilation produced 0 beats" }, 400);
+
+  // Insert blueprint
+  const { data: blueprint, error: bpErr } = await db.from("trailer_blueprints").insert({
+    project_id: projectId,
+    arc_type,
+    status: "ready",
+    edl: edlItems,
+    rhythm_analysis: { source: "plan_variant_fast", rhythm_run_id: inputRhythmRunId || null },
+    audio_plan: {},
+    text_card_plan: {},
+    options: { ...options, variant_type: "FAST", shot_design_run_id: shotDesignRunId, script_run_id: resolvedScriptRunId },
+    created_by: userId,
+  }).select("id").single();
+
+  if (bpErr) return json({ error: `Blueprint creation failed: ${bpErr.message}` }, 500);
+
+  return json({
+    ok: true,
+    blueprintId: blueprint.id,
+    edlCount: edlItems.length,
+    shotDesignRunId,
+    scriptRunId: resolvedScriptRunId,
+    variantType: "FAST",
+  });
+}
+
+// ─── ACTION 14: Create Trailer Plan Variant (DEEP) ───
+
+async function handleCreatePlanVariantDeep(db: any, body: any, userId: string, apiKey: string) {
+  const { projectId, arc_type = "classic_three_act", options = {}, scriptRunId: inputScriptRunId, rhythmRunId: inputRhythmRunId, exploration } = body;
+
+  // Resolve scriptRunId
+  let scriptRunId = inputScriptRunId;
+  if (!scriptRunId) {
+    const { data: latestScript } = await db.from("trailer_script_runs")
+      .select("id").eq("project_id", projectId).eq("status", "complete")
+      .order("created_at", { ascending: false }).limit(1).maybeSingle();
+    if (!latestScript) return json({ error: "No completed script run found" }, 400);
+    scriptRunId = latestScript.id;
+  }
+
+  // Resolve rhythmRunId
+  let rhythmRunId = inputRhythmRunId;
+  if (!rhythmRunId) {
+    const { data: latestRhythm } = await db.from("trailer_rhythm_runs")
+      .select("id").eq("script_run_id", scriptRunId).eq("status", "complete")
+      .order("created_at", { ascending: false }).limit(1).maybeSingle();
+    if (!latestRhythm) return json({ error: "No completed rhythm run found. Run rhythm grid first." }, 400);
+    rhythmRunId = latestRhythm.id;
+  }
+
+  // Generate new shot design
+  const seed = `deep-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+  const shotResult = await handleCreateShotDesign(db, {
+    projectId, scriptRunId, rhythmRunId, seed,
+    styleOptions: options,
+  }, userId, apiKey);
+  const shotBody = await shotResult.clone().json();
+  if (!shotBody.shotDesignRunId) {
+    return json({ error: shotBody.error || "Shot design generation failed", variantType: "DEEP" }, 500);
+  }
+
+  // Run judge
+  const judgeResult = await handleRunJudge(db, {
+    projectId, scriptRunId, rhythmRunId, shotDesignRunId: shotBody.shotDesignRunId,
+  }, userId, apiKey);
+  const judgeBody = await judgeResult.clone().json();
+
+  const judgePassed = judgeBody.gatesPassed ?? false;
+
+  // Now compile plan using the fast path
+  const fastResult = await handleCreatePlanVariantFast(db, {
+    projectId,
+    arc_type,
+    options: { ...options, variant_type: "DEEP", judgeRunId: judgeBody.judgeRunId, shotDesignRunId: shotBody.shotDesignRunId, rhythmRunId, scriptRunId },
+    scriptRunId,
+    shotDesignRunId: shotBody.shotDesignRunId,
+    rhythmRunId,
+  }, userId);
+  const fastBody = await fastResult.clone().json();
+
+  if (!fastBody.blueprintId) {
+    return json({ error: fastBody.error || "Plan compilation failed", variantType: "DEEP" }, 500);
+  }
+
+  // If judge failed, mark blueprint as failed
+  if (!judgePassed) {
+    await db.from("trailer_blueprints")
+      .update({ status: "failed", error: `Judge gates failed: ${(judgeBody.blockers || []).join(", ")}` })
+      .eq("id", fastBody.blueprintId);
+  } else {
+    // Ensure variant_type is DEEP
+    const { data: bp } = await db.from("trailer_blueprints").select("options").eq("id", fastBody.blueprintId).single();
+    await db.from("trailer_blueprints").update({
+      options: { ...(bp?.options || {}), variant_type: "DEEP", judgeRunId: judgeBody.judgeRunId },
+    }).eq("id", fastBody.blueprintId);
+  }
+
+  return json({
+    ok: true,
+    blueprintId: fastBody.blueprintId,
+    shotDesignRunId: shotBody.shotDesignRunId,
+    judgeRunId: judgeBody.judgeRunId,
+    edlCount: fastBody.edlCount,
+    status: judgePassed ? "ready" : "failed",
+    variantType: "DEEP",
+  });
+}
+
+// ─── ACTION 15: Create Trailer Plan Variant (FULL REBUILD) ───
+
+async function handleCreatePlanVariantFullRebuild(db: any, body: any, userId: string, apiKey: string) {
+  const { projectId, arc_type = "classic_three_act", options = {}, scriptRunId: inputScriptRunId, exploration } = body;
+
+  // Resolve scriptRunId
+  let scriptRunId = inputScriptRunId;
+  if (!scriptRunId) {
+    const { data: latestScript } = await db.from("trailer_script_runs")
+      .select("id").eq("project_id", projectId).eq("status", "complete")
+      .order("created_at", { ascending: false }).limit(1).maybeSingle();
+    if (!latestScript) return json({ error: "No completed script run found" }, 400);
+    scriptRunId = latestScript.id;
+  }
+
+  const seed = `rebuild-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+
+  // Step 1: Regenerate rhythm grid
+  const rhythmResult = await handleCreateRhythmGrid(db, {
+    projectId, scriptRunId, seed: `${seed}-rhythm`,
+  }, userId, apiKey);
+  const rhythmBody = await rhythmResult.clone().json();
+  if (!rhythmBody.rhythmRunId) {
+    return json({ error: rhythmBody.error || "Rhythm regeneration failed", variantType: "FULL_REBUILD" }, 500);
+  }
+
+  // Step 2: Regenerate shot design
+  const shotResult = await handleCreateShotDesign(db, {
+    projectId, scriptRunId, rhythmRunId: rhythmBody.rhythmRunId, seed: `${seed}-shots`,
+    styleOptions: options,
+  }, userId, apiKey);
+  const shotBody = await shotResult.clone().json();
+  if (!shotBody.shotDesignRunId) {
+    return json({ error: shotBody.error || "Shot design regeneration failed", variantType: "FULL_REBUILD" }, 500);
+  }
+
+  // Step 3: Run judge
+  const judgeResult = await handleRunJudge(db, {
+    projectId, scriptRunId, rhythmRunId: rhythmBody.rhythmRunId, shotDesignRunId: shotBody.shotDesignRunId,
+  }, userId, apiKey);
+  const judgeBody = await judgeResult.clone().json();
+  const judgePassed = judgeBody.gatesPassed ?? false;
+
+  // Step 4: Compile plan
+  const fastResult = await handleCreatePlanVariantFast(db, {
+    projectId,
+    arc_type,
+    options: {
+      ...options,
+      variant_type: "FULL_REBUILD",
+      rhythmRunId: rhythmBody.rhythmRunId,
+      shotDesignRunId: shotBody.shotDesignRunId,
+      judgeRunId: judgeBody.judgeRunId,
+      scriptRunId,
+    },
+    scriptRunId,
+    shotDesignRunId: shotBody.shotDesignRunId,
+    rhythmRunId: rhythmBody.rhythmRunId,
+  }, userId);
+  const fastBody = await fastResult.clone().json();
+
+  if (!fastBody.blueprintId) {
+    return json({ error: fastBody.error || "Plan compilation failed", variantType: "FULL_REBUILD" }, 500);
+  }
+
+  // Update status if judge failed
+  if (!judgePassed) {
+    await db.from("trailer_blueprints")
+      .update({ status: "failed", error: `Judge gates failed: ${(judgeBody.blockers || []).join(", ")}` })
+      .eq("id", fastBody.blueprintId);
+  } else {
+    const { data: bp } = await db.from("trailer_blueprints").select("options").eq("id", fastBody.blueprintId).single();
+    await db.from("trailer_blueprints").update({
+      options: { ...(bp?.options || {}), variant_type: "FULL_REBUILD", rhythmRunId: rhythmBody.rhythmRunId, judgeRunId: judgeBody.judgeRunId },
+    }).eq("id", fastBody.blueprintId);
+  }
+
+  return json({
+    ok: true,
+    blueprintId: fastBody.blueprintId,
+    rhythmRunId: rhythmBody.rhythmRunId,
+    shotDesignRunId: shotBody.shotDesignRunId,
+    judgeRunId: judgeBody.judgeRunId,
+    edlCount: fastBody.edlCount,
+    status: judgePassed ? "ready" : "failed",
+    variantType: "FULL_REBUILD",
+  });
+}
+
 // ─── Main Handler ───
 
 Deno.serve(async (req) => {
@@ -3476,6 +3740,12 @@ Deno.serve(async (req) => {
         return await handleRegenerateCrescendoMontage(db, body, userId, apiKey);
       case "run_trailer_pipeline_v1":
         return await handleRunTrailerPipeline(db, body, userId, apiKey);
+      case "create_trailer_plan_variant_fast":
+        return await handleCreatePlanVariantFast(db, body, userId);
+      case "create_trailer_plan_variant_deep":
+        return await handleCreatePlanVariantDeep(db, body, userId, apiKey);
+      case "create_trailer_plan_variant_full_rebuild":
+        return await handleCreatePlanVariantFullRebuild(db, body, userId, apiKey);
       default:
         return json({ error: `Unknown action: ${action}` }, 400);
     }
