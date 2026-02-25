@@ -73,6 +73,9 @@ export function NoteDrawer({ projectId, noteId, note: noteProp, context, onAppli
   const [verifyComment, setVerifyComment] = useState('');
   const [detailOpen, setDetailOpen] = useState(false);
   const [applyError, setApplyError] = useState<any>(null);
+  const [quickFixRunning, setQuickFixRunning] = useState<string | null>(null);
+  const [quickFixError, setQuickFixError] = useState<Record<string, string>>({});
+  const [quickFixDone, setQuickFixDone] = useState<string | null>(null);
 
   // Reset state when note changes
   useEffect(() => {
@@ -84,11 +87,66 @@ export function NoteDrawer({ projectId, noteId, note: noteProp, context, onAppli
     setDetailOpen(false);
     setDeferDocType('');
     setApplyError(null);
+    setQuickFixRunning(null);
+    setQuickFixError({});
+    setQuickFixDone(null);
   }, [noteId]);
 
-  const fixes = (note?.suggested_fixes || []) as NoteSuggestedFix[];
+  const rawFixes = (note?.suggested_fixes || []) as NoteSuggestedFix[];
+
+  // Generate deterministic fallback fixes when none exist
+  const fixes: NoteSuggestedFix[] = rawFixes.length > 0 ? rawFixes.slice(0, 3) : (note ? [
+    {
+      id: 'auto-direct',
+      title: 'Direct fix',
+      description: `Apply the suggested change: ${(note.summary || '').slice(0, 80)}`,
+      instructions: note.summary || note.title,
+    },
+    {
+      id: 'auto-conservative',
+      title: 'Conservative fix',
+      description: 'Apply the change conservatively, preserving original structure as much as possible.',
+      instructions: `${note.summary || note.title}. Preserve the original structure and wording where possible, making only the minimal changes needed.`,
+    },
+  ] as NoteSuggestedFix[] : []);
+
   const isApplied = note?.status === 'applied';
   const isDismissed = note?.status === 'dismissed';
+
+  // Quick-fix: propose → apply → verify in one click
+  const handleQuickFix = useCallback(async (fix: NoteSuggestedFix) => {
+    const id = noteId || note?.id;
+    if (!id) return;
+    setQuickFixRunning(fix.id);
+    setQuickFixError(prev => { const n = { ...prev }; delete n[fix.id]; return n; });
+    try {
+      // Step 1: Propose change plan
+      const data = await new Promise<any>((resolve, reject) => {
+        proposeMutation.mutate(
+          { noteId: id, fixId: fix.id, customInstruction: fix.instructions || fix.description, scope, baseVersionId: context?.versionId },
+          { onSuccess: resolve, onError: reject }
+        );
+      });
+      // Step 2: Apply change plan
+      const applyData = await new Promise<any>((resolve, reject) => {
+        applyMutation.mutate(data.changeEventId, { onSuccess: resolve, onError: reject });
+      });
+      // Step 3: Verify resolved
+      await new Promise<void>((resolve, reject) => {
+        verifyMutation.mutate(
+          { noteId: id, result: 'resolved', comment: `Auto-resolved via fix: ${fix.title}` },
+          { onSuccess: () => resolve(), onError: reject }
+        );
+      });
+      setQuickFixDone(fix.id);
+      onApplied?.(applyData.newVersionId);
+      setTimeout(() => onClose(), 1200);
+    } catch (err: any) {
+      setQuickFixError(prev => ({ ...prev, [fix.id]: err?.message || 'Fix failed' }));
+    } finally {
+      setQuickFixRunning(null);
+    }
+  }, [noteId, note, scope, context, proposeMutation, applyMutation, verifyMutation, onApplied, onClose]);
 
   // Triage actions
   const handleTriage = useCallback((status: NoteStatus, timing?: NoteTiming) => {
@@ -277,40 +335,57 @@ export function NoteDrawer({ projectId, noteId, note: noteProp, context, onAppli
             )}
 
             {/* 5. Fix Options */}
-            {!isApplied && !isDismissed && (
+             {!isApplied && !isDismissed && (
               <div className="space-y-2">
                 <p className="text-[10px] font-semibold text-foreground uppercase tracking-wide">Fix Options</p>
                 {fixes.length > 0 ? (
                   <div className="space-y-1.5">
-                    {fixes.map((fix) => (
-                      <button key={fix.id} onClick={() => setSelectedFixId(fix.id === selectedFixId ? null : fix.id)}
-                        className={`w-full text-left rounded-lg border p-2.5 space-y-1 transition-colors ${
-                          selectedFixId === fix.id ? 'border-primary bg-primary/5' : 'border-border/50 bg-background hover:border-border'
-                        }`}>
-                        <div className="flex items-center gap-1.5">
-                          <div className={`w-3 h-3 rounded-full border-2 flex items-center justify-center shrink-0 ${
-                            selectedFixId === fix.id ? 'border-primary' : 'border-muted-foreground/30'
+                    {fixes.map((fix) => {
+                      const isRunning = quickFixRunning === fix.id;
+                      const isDone = quickFixDone === fix.id;
+                      const error = quickFixError[fix.id];
+                      return (
+                        <div key={fix.id}
+                          className={`w-full text-left rounded-lg border p-2.5 space-y-1 transition-colors ${
+                            isDone ? 'border-emerald-500/50 bg-emerald-500/5' :
+                            selectedFixId === fix.id ? 'border-primary bg-primary/5' : 'border-border/50 bg-background hover:border-border'
                           }`}>
-                            {selectedFixId === fix.id && <div className="w-1.5 h-1.5 rounded-full bg-primary" />}
+                          <div className="flex items-center gap-1.5">
+                            <button onClick={() => !isRunning && setSelectedFixId(fix.id === selectedFixId ? null : fix.id)}
+                              className="flex items-center gap-1.5 flex-1 min-w-0 text-left" disabled={isRunning}>
+                              <div className={`w-3 h-3 rounded-full border-2 flex items-center justify-center shrink-0 ${
+                                selectedFixId === fix.id ? 'border-primary' : 'border-muted-foreground/30'
+                              }`}>
+                                {selectedFixId === fix.id && <div className="w-1.5 h-1.5 rounded-full bg-primary" />}
+                              </div>
+                              <span className="text-xs font-medium text-foreground truncate">{fix.title}</span>
+                            </button>
+                            {fix.risk_level && (
+                              <Badge variant="outline" className={`text-[7px] px-1 py-0 shrink-0 ${
+                                fix.risk_level === 'high' ? 'text-destructive border-destructive/30' :
+                                fix.risk_level === 'med' ? 'text-amber-500 border-amber-500/30' :
+                                'text-emerald-500 border-emerald-500/30'
+                              }`}>{fix.risk_level} risk</Badge>
+                            )}
+                            <Button variant="outline" size="sm"
+                              className={`h-5 text-[9px] px-2 gap-1 shrink-0 ${isDone ? 'border-emerald-500/30 text-emerald-500' : ''}`}
+                              disabled={isRunning || !!quickFixRunning || isDone}
+                              onClick={(e) => { e.stopPropagation(); handleQuickFix(fix); }}>
+                              {isRunning ? <><Loader2 className="h-2.5 w-2.5 animate-spin" /> Applying…</> :
+                               isDone ? <><Check className="h-2.5 w-2.5" /> Applied</> :
+                               <><ArrowRight className="h-2.5 w-2.5" /> Apply fix</>}
+                            </Button>
                           </div>
-                          <span className="text-xs font-medium text-foreground">{fix.title}</span>
-                          {fix.risk_level && (
-                            <Badge variant="outline" className={`text-[7px] px-1 py-0 ${
-                              fix.risk_level === 'high' ? 'text-destructive border-destructive/30' :
-                              fix.risk_level === 'med' ? 'text-amber-500 border-amber-500/30' :
-                              'text-emerald-500 border-emerald-500/30'
-                            }`}>{fix.risk_level} risk</Badge>
+                          <p className="text-[11px] text-muted-foreground pl-[18px]">{fix.description}</p>
+                          {fix.expected_effect && selectedFixId === fix.id && (
+                            <p className="text-[10px] text-primary/80 pl-[18px] italic">Expected: {fix.expected_effect}</p>
                           )}
-                          {fix.patch_strategy && (
-                            <Badge variant="outline" className="text-[7px] px-1 py-0 text-muted-foreground">{fix.patch_strategy.replace(/_/g, ' ')}</Badge>
+                          {error && (
+                            <p className="text-[10px] text-destructive pl-[18px]">Error: {error}</p>
                           )}
                         </div>
-                        <p className="text-[11px] text-muted-foreground pl-[18px]">{fix.description}</p>
-                        {fix.expected_effect && selectedFixId === fix.id && (
-                          <p className="text-[10px] text-primary/80 pl-[18px] italic">Expected: {fix.expected_effect}</p>
-                        )}
-                      </button>
-                    ))}
+                      );
+                    })}
                   </div>
                 ) : (
                   <p className="text-[10px] text-muted-foreground italic">No suggested fixes yet. Use "Custom" or generate a change plan directly.</p>
