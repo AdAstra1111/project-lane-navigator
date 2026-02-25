@@ -8,6 +8,7 @@ import { useScriptPipeline } from '@/hooks/useScriptPipeline';
 import { useRewritePipeline } from '@/hooks/useRewritePipeline';
 import { useSceneRewritePipeline } from '@/hooks/useSceneRewritePipeline';
 import { SceneRewritePanel } from '@/components/devengine/SceneRewritePanel';
+import QualityRunHistory from '@/components/cinematic/QualityRunHistory';
 import { ProcessProgressBar } from '@/components/devengine/ProcessProgressBar';
 import { ActivityTimeline } from '@/components/devengine/ActivityTimeline';
 import { Button } from '@/components/ui/button';
@@ -1315,11 +1316,12 @@ export default function ProjectDevelopmentEngine() {
               <TabsTrigger value="package" className="text-xs">Package</TabsTrigger>
               <TabsTrigger value="canon" className="text-xs">Canon</TabsTrigger>
               <TabsTrigger value="provenance" className="text-xs">Provenance</TabsTrigger>
-              <TabsTrigger value="scenes" className="text-xs">Scenes</TabsTrigger>
-              {convergenceHistory.length > 0 && (
-                <TabsTrigger value="timeline" className="text-xs">Timeline ({convergenceHistory.length})</TabsTrigger>
-              )}
-            </TabsList>
+               <TabsTrigger value="scenes" className="text-xs">Scenes</TabsTrigger>
+               <TabsTrigger value="quality" className="text-xs">Quality</TabsTrigger>
+               {convergenceHistory.length > 0 && (
+                 <TabsTrigger value="timeline" className="text-xs">Timeline ({convergenceHistory.length})</TabsTrigger>
+               )}
+             </TabsList>
 
             <TabsContent value="notes" className="mt-3 space-y-3">
               {/* Next Actions Panel */}
@@ -1723,8 +1725,12 @@ export default function ProjectDevelopmentEngine() {
             </TabsContent>
 
             <TabsContent value="scenes" className="mt-3">
-              <SceneGraphPanel projectId={projectId!} documents={documents} />
-            </TabsContent>
+               <SceneGraphPanel projectId={projectId!} documents={documents} />
+             </TabsContent>
+
+             <TabsContent value="quality" className="mt-3">
+               <QualityRunHistory projectId={projectId!} />
+             </TabsContent>
 
             {convergenceHistory.length > 0 && (
               <TabsContent value="timeline" className="mt-3">

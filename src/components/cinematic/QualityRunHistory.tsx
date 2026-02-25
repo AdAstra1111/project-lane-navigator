@@ -1,27 +1,37 @@
 /**
- * Quality Run History — Shows CIK quality run history for a project.
- * Displays pass/fail, scores, lanes, and diff between attempts.
+ * Quality Run History — CIK quality run history for a project.
+ * Shows run list, run detail with attempt diff, units table, repair instruction.
  */
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { CheckCircle2, XCircle, Clock, Copy, ChevronDown, ChevronUp } from 'lucide-react';
+import {
+  CheckCircle2, XCircle, Clock, Copy, ChevronDown, ChevronUp, AlertTriangle,
+} from 'lucide-react';
 import { toast } from 'sonner';
+
+/* ── Types ── */
 
 interface QualityRun {
   id: string;
   engine: string;
   lane: string | null;
   model: string;
+  run_source: string | null;
+  adapter_mode: string | null;
+  strictness_mode: string | null;
   attempt_count: number;
   final_pass: boolean;
   final_score: number;
+  hard_failures: string[] | null;
+  diagnostic_flags: string[] | null;
+  metrics_json: any;
+  settings_json: any;
   created_at: string;
 }
 
@@ -29,6 +39,7 @@ interface QualityAttempt {
   id: string;
   run_id: string;
   attempt_index: number;
+  model: string | null;
   score: number;
   pass: boolean;
   failures: string[];
@@ -37,23 +48,42 @@ interface QualityAttempt {
   unit_count: number | null;
   expected_unit_count: number | null;
   repair_instruction: string | null;
+  input_summary_json: any;
+  output_json: any;
   units_json: any;
   metrics_json: any;
+  adapter_metrics_json: any;
 }
 
-export default function QualityRunHistory() {
-  const { id: projectId } = useParams<{ id: string }>();
+/* ── Diff Logic (exported for testing) ── */
+
+export function computeFailureDiff(
+  attempt0Failures: string[],
+  attempt1Failures: string[],
+): { fixed: string[]; remaining: string[]; newFailures: string[] } {
+  const set0 = new Set(attempt0Failures);
+  const set1 = new Set(attempt1Failures);
+  return {
+    fixed: attempt0Failures.filter(f => !set1.has(f)),
+    remaining: attempt0Failures.filter(f => set1.has(f)),
+    newFailures: attempt1Failures.filter(f => !set0.has(f)),
+  };
+}
+
+/* ── Main Component ── */
+
+export default function QualityRunHistory({ projectId }: { projectId: string }) {
   const [expandedRunId, setExpandedRunId] = useState<string | null>(null);
 
-  const { data: runs, isLoading } = useQuery({
+  const { data: runs, isLoading, error } = useQuery({
     queryKey: ['quality-runs', projectId],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from('cinematic_quality_runs')
         .select('*')
-        .eq('project_id', projectId!)
+        .eq('project_id', projectId)
         .order('created_at', { ascending: false })
-        .limit(50);
+        .limit(20);
       if (error) throw error;
       return (data || []) as QualityRun[];
     },
@@ -63,7 +93,7 @@ export default function QualityRunHistory() {
   const { data: attempts } = useQuery({
     queryKey: ['quality-attempts', expandedRunId],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from('cinematic_quality_attempts')
         .select('*')
         .eq('run_id', expandedRunId!)
@@ -80,7 +110,20 @@ export default function QualityRunHistory() {
         <CardContent className="p-6">
           <div className="flex items-center gap-2 text-muted-foreground">
             <Clock className="h-4 w-4 animate-spin" />
-            Loading quality history...
+            Loading quality history…
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (error) {
+    return (
+      <Card>
+        <CardContent className="p-6">
+          <div className="flex items-center gap-2 text-destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <span className="text-sm">Failed to load quality history.</span>
           </div>
         </CardContent>
       </Card>
@@ -94,7 +137,9 @@ export default function QualityRunHistory() {
           <CardTitle className="text-sm font-medium">Quality Run History</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-sm text-muted-foreground">No quality runs recorded yet.</p>
+          <p className="text-sm text-muted-foreground">
+            No quality runs recorded yet. Runs are logged automatically when CIK evaluates trailer or storyboard output.
+          </p>
         </CardContent>
       </Card>
     );
@@ -102,16 +147,25 @@ export default function QualityRunHistory() {
 
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="pb-2">
         <CardTitle className="text-sm font-medium">Quality Run History</CardTitle>
       </CardHeader>
       <CardContent className="p-0">
-        <ScrollArea className="max-h-[500px]">
+        <ScrollArea className="max-h-[600px]">
+          {/* Column headers */}
+          <div className="px-4 py-2 grid grid-cols-[auto_1fr_auto_auto_auto_auto] gap-3 text-[10px] text-muted-foreground font-medium border-b border-border">
+            <span className="w-4" />
+            <span>Source / Lane</span>
+            <span>Score</span>
+            <span>Hard</span>
+            <span>Diag</span>
+            <span>Time</span>
+          </div>
           <div className="divide-y divide-border">
             {runs.map((run) => (
               <div key={run.id}>
                 <button
-                  className="w-full px-4 py-3 flex items-center gap-3 hover:bg-muted/50 transition-colors text-left"
+                  className="w-full px-4 py-2.5 grid grid-cols-[auto_1fr_auto_auto_auto_auto] gap-3 items-center hover:bg-muted/50 transition-colors text-left"
                   onClick={() => setExpandedRunId(expandedRunId === run.id ? null : run.id)}
                 >
                   {run.final_pass ? (
@@ -119,25 +173,24 @@ export default function QualityRunHistory() {
                   ) : (
                     <XCircle className="h-4 w-4 text-destructive shrink-0" />
                   )}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <Badge variant="outline" className="text-xs">{run.engine}</Badge>
-                      {run.lane && <Badge variant="secondary" className="text-xs">{run.lane}</Badge>}
-                      <span className="text-xs text-muted-foreground">{run.model}</span>
-                    </div>
-                    <div className="text-xs text-muted-foreground mt-1">
-                      Score: {Number(run.final_score).toFixed(2)} · {run.attempt_count} attempt(s) · {new Date(run.created_at).toLocaleString()}
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <Badge variant="outline" className="text-[10px] px-1.5 py-0">{run.run_source || run.engine}</Badge>
+                      {run.lane && run.lane !== 'unknown' && (
+                        <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{run.lane}</Badge>
+                      )}
                     </div>
                   </div>
-                  {expandedRunId === run.id ? (
-                    <ChevronUp className="h-4 w-4 text-muted-foreground shrink-0" />
-                  ) : (
-                    <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
-                  )}
+                  <span className="text-xs font-mono tabular-nums">{Number(run.final_score).toFixed(2)}</span>
+                  <span className="text-xs font-mono tabular-nums text-destructive">{(run.hard_failures || []).length}</span>
+                  <span className="text-xs font-mono tabular-nums text-muted-foreground">{(run.diagnostic_flags || []).length}</span>
+                  <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                    {new Date(run.created_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                  </span>
                 </button>
 
                 {expandedRunId === run.id && attempts && (
-                  <RunDetail attempts={attempts} />
+                  <RunDetail run={run} attempts={attempts} />
                 )}
               </div>
             ))}
@@ -148,45 +201,117 @@ export default function QualityRunHistory() {
   );
 }
 
-function RunDetail({ attempts }: { attempts: QualityAttempt[] }) {
+/* ── Run Detail ── */
+
+function RunDetail({ run, attempts }: { run: QualityRun; attempts: QualityAttempt[] }) {
   if (attempts.length === 0) return null;
 
   const attempt0 = attempts.find(a => a.attempt_index === 0);
   const attempt1 = attempts.find(a => a.attempt_index === 1);
 
-  const scoreDelta = attempt1 && attempt0 ? attempt1.score - attempt0.score : null;
-  const failureDelta = attempt1 && attempt0
-    ? attempt0.hard_failures.length - attempt1.hard_failures.length
+  const diff = attempt0 && attempt1
+    ? computeFailureDiff(attempt0.hard_failures || [], attempt1.hard_failures || [])
     : null;
+  const scoreDelta = attempt1 && attempt0 ? attempt1.score - attempt0.score : null;
+
+  // Repair instruction: prefer attempt1.input_summary_json.repair_instruction, fallback to attempt1.repair_instruction
+  const repairInstruction = attempt1?.input_summary_json?.repair_instruction
+    || attempt1?.repair_instruction
+    || null;
 
   return (
-    <div className="px-4 pb-4 space-y-3">
+    <div className="px-4 pb-4 space-y-3 border-t border-border/50 bg-muted/10">
+      {/* Run header */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-3 text-xs">
+        <div><span className="text-muted-foreground">Lane: </span><span className="font-medium">{run.lane || '—'}</span></div>
+        <div><span className="text-muted-foreground">Source: </span><span>{run.run_source || run.engine}</span></div>
+        <div><span className="text-muted-foreground">Adapter: </span><span>{run.adapter_mode || '—'}</span></div>
+        <div><span className="text-muted-foreground">Strictness: </span><span>{run.strictness_mode || 'standard'}</span></div>
+      </div>
+
       {/* Diff summary */}
-      {attempt0 && attempt1 && (
-        <div className="rounded-md border border-border bg-muted/30 p-3">
-          <p className="text-xs font-medium mb-2">Repair Impact</p>
-          <div className="grid grid-cols-2 gap-2 text-xs">
+      {diff && (
+        <div className="rounded-md border border-border bg-background p-3 space-y-2">
+          <p className="text-xs font-medium">Repair Impact</p>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
             <div>
               <span className="text-muted-foreground">Score Δ: </span>
-              <span className={scoreDelta && scoreDelta > 0 ? 'text-green-500' : 'text-destructive'}>
+              <span className={scoreDelta && scoreDelta > 0 ? 'text-green-500 font-medium' : 'text-destructive font-medium'}>
                 {scoreDelta !== null ? (scoreDelta > 0 ? '+' : '') + scoreDelta.toFixed(3) : '—'}
               </span>
             </div>
             <div>
-              <span className="text-muted-foreground">Failures fixed: </span>
-              <span className={failureDelta && failureDelta > 0 ? 'text-green-500' : 'text-muted-foreground'}>
-                {failureDelta ?? '—'}
+              <span className="text-muted-foreground">Fixed: </span>
+              <span className={diff.fixed.length > 0 ? 'text-green-500' : 'text-muted-foreground'}>
+                {diff.fixed.length}
               </span>
             </div>
+            <div>
+              <span className="text-muted-foreground">Remaining: </span>
+              <span className={diff.remaining.length > 0 ? 'text-destructive' : 'text-muted-foreground'}>
+                {diff.remaining.length}
+              </span>
+            </div>
+            {diff.newFailures.length > 0 && (
+              <div>
+                <span className="text-muted-foreground">New: </span>
+                <span className="text-destructive font-medium">{diff.newFailures.length}</span>
+              </div>
+            )}
           </div>
+          {diff.fixed.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {diff.fixed.map(f => (
+                <Badge key={`fixed-${f}`} className="text-[10px] px-1.5 py-0 bg-green-500/10 text-green-600 border-green-500/30">✓ {f}</Badge>
+              ))}
+            </div>
+          )}
+          {diff.remaining.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {diff.remaining.map(f => (
+                <Badge key={`rem-${f}`} variant="destructive" className="text-[10px] px-1.5 py-0">⬤ {f}</Badge>
+              ))}
+            </div>
+          )}
+          {diff.newFailures.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {diff.newFailures.map(f => (
+                <Badge key={`new-${f}`} variant="destructive" className="text-[10px] px-1.5 py-0">⚠ {f}</Badge>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
+      {/* Repair instruction */}
+      {repairInstruction && (
+        <div>
+          <div className="flex items-center gap-1 mb-1">
+            <span className="text-xs text-muted-foreground font-medium">Repair instruction</span>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-5 px-1"
+              onClick={() => {
+                navigator.clipboard.writeText(repairInstruction);
+                toast.success('Copied to clipboard');
+              }}
+            >
+              <Copy className="h-3 w-3" />
+            </Button>
+          </div>
+          <pre className="bg-muted rounded p-2 text-[10px] leading-tight whitespace-pre-wrap max-h-40 overflow-auto font-mono border border-border">
+            {repairInstruction}
+          </pre>
+        </div>
+      )}
+
+      {/* Attempt tabs */}
       <Tabs defaultValue="0" className="w-full">
         <TabsList className="w-full">
           {attempts.map((a) => (
             <TabsTrigger key={a.attempt_index} value={String(a.attempt_index)} className="flex-1 text-xs">
-              {a.attempt_index === 0 ? 'Initial' : `Repair ${a.attempt_index}`}
+              {a.attempt_index === 0 ? 'Initial' : 'Repair'}
               {a.pass ? (
                 <CheckCircle2 className="h-3 w-3 ml-1 text-green-500" />
               ) : (
@@ -206,25 +331,21 @@ function RunDetail({ attempts }: { attempts: QualityAttempt[] }) {
   );
 }
 
+/* ── Attempt Detail ── */
+
 function AttemptDetail({ attempt }: { attempt: QualityAttempt }) {
+  const [showPayload, setShowPayload] = useState(false);
+
   return (
     <div className="space-y-2 text-xs">
-      <div className="grid grid-cols-3 gap-2">
-        <div>
-          <span className="text-muted-foreground">Score: </span>
-          <span className="font-mono">{Number(attempt.score).toFixed(3)}</span>
-        </div>
-        <div>
-          <span className="text-muted-foreground">Units: </span>
-          <span>{attempt.unit_count ?? '?'}{attempt.expected_unit_count ? ` / ${attempt.expected_unit_count}` : ''}</span>
-        </div>
-        <div>
-          <span className="text-muted-foreground">Pass: </span>
-          <span>{attempt.pass ? '✓' : '✗'}</span>
-        </div>
+      <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+        <div><span className="text-muted-foreground">Score: </span><span className="font-mono">{Number(attempt.score).toFixed(3)}</span></div>
+        <div><span className="text-muted-foreground">Model: </span><span>{attempt.model || '—'}</span></div>
+        <div><span className="text-muted-foreground">Units: </span><span>{attempt.unit_count ?? '?'}{attempt.expected_unit_count ? ` / ${attempt.expected_unit_count}` : ''}</span></div>
+        <div><span className="text-muted-foreground">Pass: </span><span>{attempt.pass ? '✓' : '✗'}</span></div>
       </div>
 
-      {attempt.hard_failures.length > 0 && (
+      {(attempt.hard_failures?.length > 0) && (
         <div>
           <span className="text-muted-foreground">Hard failures: </span>
           <div className="flex flex-wrap gap-1 mt-1">
@@ -235,9 +356,9 @@ function AttemptDetail({ attempt }: { attempt: QualityAttempt }) {
         </div>
       )}
 
-      {attempt.diagnostic_flags.length > 0 && (
+      {(attempt.diagnostic_flags?.length > 0) && (
         <div>
-          <span className="text-muted-foreground">Diagnostic flags: </span>
+          <span className="text-muted-foreground">Diagnostics: </span>
           <div className="flex flex-wrap gap-1 mt-1">
             {attempt.diagnostic_flags.map(f => (
               <Badge key={f} variant="outline" className="text-[10px] px-1.5 py-0">{f}</Badge>
@@ -246,36 +367,90 @@ function AttemptDetail({ attempt }: { attempt: QualityAttempt }) {
         </div>
       )}
 
-      {attempt.repair_instruction && (
-        <div className="mt-2">
-          <div className="flex items-center gap-1 mb-1">
-            <span className="text-muted-foreground">Repair instruction:</span>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-5 px-1"
-              onClick={() => {
-                navigator.clipboard.writeText(attempt.repair_instruction || '');
-                toast.success('Copied to clipboard');
-              }}
-            >
-              <Copy className="h-3 w-3" />
-            </Button>
-          </div>
-          <pre className="bg-muted rounded p-2 text-[10px] leading-tight whitespace-pre-wrap max-h-40 overflow-auto font-mono">
-            {attempt.repair_instruction}
-          </pre>
-        </div>
-      )}
+      {/* Attempt payload viewer */}
+      <div>
+        <Button variant="ghost" size="sm" className="h-6 px-2 text-[10px]" onClick={() => setShowPayload(!showPayload)}>
+          {showPayload ? 'Hide' : 'Show'} output
+          {showPayload ? <ChevronUp className="h-3 w-3 ml-1" /> : <ChevronDown className="h-3 w-3 ml-1" />}
+        </Button>
 
-      {attempt.metrics_json && (
+        {showPayload && <PayloadViewer outputJson={attempt.output_json} />}
+      </div>
+
+      {attempt.metrics_json && Object.keys(attempt.metrics_json).length > 0 && (
         <div>
           <span className="text-muted-foreground">Metrics:</span>
-          <pre className="bg-muted rounded p-2 text-[10px] leading-tight whitespace-pre-wrap max-h-32 overflow-auto font-mono mt-1">
+          <pre className="bg-muted rounded p-2 text-[10px] leading-tight whitespace-pre-wrap max-h-32 overflow-auto font-mono mt-1 border border-border">
             {JSON.stringify(attempt.metrics_json, null, 2)}
           </pre>
         </div>
       )}
     </div>
   );
+}
+
+/* ── Payload / Units Viewer ── */
+
+function PayloadViewer({ outputJson }: { outputJson: any }) {
+  if (!outputJson) {
+    return <p className="text-[10px] text-muted-foreground italic">No output data.</p>;
+  }
+
+  // Try to find units array
+  const units: any[] | null = extractUnits(outputJson);
+
+  if (units && units.length > 0) {
+    return (
+      <div className="overflow-x-auto mt-1">
+        <table className="w-full text-[10px] border border-border rounded">
+          <thead>
+            <tr className="bg-muted">
+              <th className="px-2 py-1 text-left font-medium">#</th>
+              <th className="px-2 py-1 text-left font-medium">Intent</th>
+              <th className="px-2 py-1 text-right font-medium">Energy</th>
+              <th className="px-2 py-1 text-right font-medium">Tension</th>
+              <th className="px-2 py-1 text-right font-medium">Density</th>
+              <th className="px-2 py-1 text-left font-medium">Role</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {units.map((u: any, i: number) => (
+              <tr key={i} className="hover:bg-muted/30">
+                <td className="px-2 py-0.5 font-mono">{i}</td>
+                <td className="px-2 py-0.5">{u.intent || u.emotional_intent || '—'}</td>
+                <td className="px-2 py-0.5 text-right font-mono">{fmtNum(u.energy)}</td>
+                <td className="px-2 py-0.5 text-right font-mono">{fmtNum(u.tension)}</td>
+                <td className="px-2 py-0.5 text-right font-mono">{fmtNum(u.density)}</td>
+                <td className="px-2 py-0.5">{u.role || u.shot_type || '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+
+  // Fallback: JSON viewer
+  return (
+    <ScrollArea className="max-h-48 mt-1">
+      <pre className="bg-muted rounded p-2 text-[10px] leading-tight whitespace-pre-wrap font-mono border border-border">
+        {JSON.stringify(outputJson, null, 2).slice(0, 5000)}
+      </pre>
+    </ScrollArea>
+  );
+}
+
+function extractUnits(json: any): any[] | null {
+  if (!json) return null;
+  if (Array.isArray(json)) return json.length > 0 && typeof json[0] === 'object' ? json : null;
+  for (const key of ['units', 'beats', 'segments', 'panels', 'items']) {
+    if (Array.isArray(json[key]) && json[key].length > 0) return json[key];
+  }
+  return null;
+}
+
+function fmtNum(v: any): string {
+  if (v == null) return '—';
+  const n = Number(v);
+  return isNaN(n) ? '—' : n.toFixed(2);
 }
