@@ -2,6 +2,8 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { callLLM, extractJSON, MODELS } from "../_shared/llm.ts";
 
+const WRITERS_ROOM_BUILD_ID = "2026-02-25_scoped_shrink_v2";
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -1074,7 +1076,12 @@ Do NOT summarize or compress any part of the script. Maintain the original lengt
             reason: "shrink_guard",
             shrink_pct: shrinkResult.shrinkPct,
             is_selective: shrinkResult.isSelective,
-            message: `${scopeLabel} which exceeds the ${Math.round(SHRINK_GUARD_THRESHOLD * 100)}% safety threshold. No explicit deletions found in the plan. Set forceShrink=true to override.`,
+            build_id: WRITERS_ROOM_BUILD_ID,
+            scope_mode: scopeResult.mode,
+            allowed_scenes: scopeResult.allowedScenes,
+            targeted_original_len: shrinkResult.targetedOriginalLength,
+            targeted_rewritten_len: shrinkResult.targetedRewrittenLength,
+            message: `SCOPED_SHRINK_GUARD: ${scopeLabel} which exceeds the ${Math.round(SHRINK_GUARD_THRESHOLD * 100)}% safety threshold. No explicit deletions found in the plan. Set forceShrink=true to override. (build: ${WRITERS_ROOM_BUILD_ID})`,
           });
         }
         const shrinkLabel = shrinkResult.isSelective ? 'Targeted scenes' : 'Text';

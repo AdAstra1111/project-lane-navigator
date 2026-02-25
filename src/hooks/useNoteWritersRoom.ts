@@ -197,6 +197,7 @@ export function useNoteWritersRoom(opts: {
       invoke('apply_change_plan', { planId, forceShrink }),
     onSuccess: (data) => {
       if (data?.blocked) {
+        console.error('[WritersRoom] Shrink guard blocked:', JSON.stringify(data, null, 2));
         toast.error(data.message || `Blocked: text would shrink by ${data.shrink_pct}%`);
         return;
       }
