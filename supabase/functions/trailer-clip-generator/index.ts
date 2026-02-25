@@ -1176,8 +1176,9 @@ async function handlePollPendingJobs(db: any, body: any, userId: string) {
         stillPolling++;
         // Check if job has been polling too long (>10 min)
         const claimedAt = new Date(job.claimed_at).getTime();
-        if (Date.now() - claimedAt > 10 * 60 * 1000) {
-          await markJobFailed(db, job, job.id, projectId, userId, "Veo generation timed out after 10 minutes");
+        const timeoutMs = job.provider === "runway" ? 5 * 60 * 1000 : 10 * 60 * 1000;
+        if (Date.now() - claimedAt > timeoutMs) {
+          await markJobFailed(db, job, job.id, projectId, userId, `${job.provider} generation timed out after ${timeoutMs / 60000} minutes`);
           failed++;
           stillPolling--;
         }
@@ -1331,6 +1332,7 @@ async function handleProcessQueue(db: any, body: any, userId: string) {
   if (!blueprintId) return json({ error: "blueprintId required" }, 400);
 
   const results: any[] = [];
+  const rateLimitedProviders = new Set<string>();
 
   for (let i = 0; i < maxJobs; i++) {
     const { data: jobId } = await db.rpc("claim_next_trailer_clip_job", {
@@ -1339,21 +1341,37 @@ async function handleProcessQueue(db: any, body: any, userId: string) {
     });
     if (!jobId) break;
 
+    // Check if this job's provider is rate-limited — if so, re-queue and try next
+    const { data: peekedJob } = await db.from("trailer_clip_jobs").select("provider").eq("id", jobId).single();
+    if (peekedJob && rateLimitedProviders.has(peekedJob.provider)) {
+      // Re-queue this job and continue to the next one
+      await db.from("trailer_clip_jobs").update({ status: "queued", claimed_at: null }).eq("id", jobId);
+      continue;
+    }
+
     const processResult = await handleProcessJob(db, { projectId, jobId }, userId);
     const resultBody = await processResult.json();
     results.push({ jobId, ...resultBody });
 
-    // If we got rate limited, stop submitting more jobs this cycle
-    if (resultBody.status === "requeued") {
-      console.log(`[process_queue] Rate limited — stopping batch after ${results.length} jobs`);
-      break;
+    // If rate limited, mark this provider as blocked but keep processing other providers
+    if (resultBody.status === "requeued" && peekedJob?.provider) {
+      rateLimitedProviders.add(peekedJob.provider);
+      console.log(`[process_queue] ${peekedJob.provider} rate limited — skipping provider, continuing others`);
+      continue;
     }
 
-    // Delay between jobs to respect Veo rate limits (~2 req/min on free tier)
-    if (i < maxJobs - 1) await sleep(5000);
+    // Delay between jobs to respect rate limits
+    if (i < maxJobs - 1) await sleep(3000);
   }
 
-  return json({ ok: true, processed: results.length, results });
+  // Also poll any pending/polling jobs in the same cycle
+  let pollResult = { polled: 0, completed: 0, stillPolling: 0, failed: 0 };
+  try {
+    const pollResp = await handlePollPendingJobs(db, { projectId, blueprintId }, userId);
+    pollResult = await pollResp.json();
+  } catch {}
+
+  return json({ ok: true, processed: results.length, results, poll: pollResult });
 }
 
 // ─── Action: cancel_all (stop all queued/running jobs) ───
