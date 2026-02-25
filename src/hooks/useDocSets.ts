@@ -38,9 +38,40 @@ export function docSetItemOrder(items: DocSetItem[]): string[] {
   return [...items].sort((a, b) => a.sort_order - b.sort_order).map(i => i.document_id);
 }
 
+/** Alias matching the spec name: buildIncludeDocumentIds */
+export const buildIncludeDocumentIds = docSetItemOrder;
+
 /** Enforce at most one default: returns updated list with only targetId as default. */
 export function enforceOneDefault(sets: DocSet[], targetId: string): DocSet[] {
   return sets.map(s => ({ ...s, is_default: s.id === targetId }));
+}
+
+/**
+ * selectDefaultDocSet — deterministically pick the active doc set.
+ * If one has is_default=true, return it.
+ * If none, return the one with the oldest created_at (stable tiebreak by id asc).
+ * If empty array, return undefined.
+ */
+export function selectDefaultDocSet(sets: DocSet[]): DocSet | undefined {
+  if (sets.length === 0) return undefined;
+  const def = sets.find(s => s.is_default);
+  if (def) return def;
+  // Fallback: oldest created_at, then smallest id for stability
+  return [...sets].sort((a, b) => {
+    const timeDiff = new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+    if (timeDiff !== 0) return timeDiff;
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  })[0];
+}
+
+/**
+ * normalizePositions — after removal, re-index items to 1..N deterministically.
+ * Input items are sorted by their current sort_order first.
+ */
+export function normalizePositions(items: DocSetItem[]): DocSetItem[] {
+  return [...items]
+    .sort((a, b) => a.sort_order - b.sort_order)
+    .map((item, i) => ({ ...item, sort_order: i + 1 }));
 }
 
 /* ── Query Keys ── */
