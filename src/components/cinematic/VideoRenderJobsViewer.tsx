@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import type { VideoRenderJobRow, VideoRenderShotRow } from "@/videoPlans/renderTypes";
+import RoughCutPlayer from "./RoughCutPlayer";
 
 const STATUS_COLORS: Record<string, string> = {
   queued: "bg-muted text-muted-foreground",
@@ -177,6 +178,20 @@ export default function VideoRenderJobsViewer({ projectId, planId }: VideoRender
 }
 
 function RenderJobDetail({ jobId, lastError, projectId }: { jobId: string; lastError: string | null; projectId: string }) {
+  // We need planId for rough cut — fetch from the job
+  const { data: jobRow } = useQuery({
+    queryKey: ["video-render-job-detail", jobId],
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("video_render_jobs")
+        .select("plan_id")
+        .eq("id", jobId)
+        .single();
+      if (error) throw error;
+      return data as { plan_id: string };
+    },
+  });
+
   const { data: shots, isLoading } = useQuery({
     queryKey: ["video-render-shots", jobId],
     queryFn: async () => {
@@ -267,6 +282,18 @@ function RenderJobDetail({ jobId, lastError, projectId }: { jobId: string; lastE
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Rough Cut Player */}
+      {jobRow?.plan_id && (
+        <div className="mt-3">
+          <RoughCutPlayer
+            projectId={projectId}
+            jobId={jobId}
+            planId={jobRow.plan_id}
+            allShotsComplete={completeCount > 0 && completeCount === totalCount}
+          />
         </div>
       )}
     </div>
