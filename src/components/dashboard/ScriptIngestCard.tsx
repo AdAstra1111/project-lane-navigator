@@ -108,18 +108,10 @@ export function ScriptIngestCard({ projects }: ScriptIngestCardProps) {
           <div className="flex gap-2">
             <Button
               size="sm"
-              variant="outline"
-              onClick={() => navigate(selectedProjectId ? `/quick-review?projectId=${selectedProjectId}` : '/quick-review')}
+              onClick={() => navigate(selectedProjectId ? `/projects/${selectedProjectId}/script?drawer=open&drawerTab=analysis` : '/dashboard')}
             >
               <Zap className="h-4 w-4 mr-1.5" />
-              Quick Review
-            </Button>
-            <Button
-              size="sm"
-              onClick={() => navigate(selectedProjectId ? `/deep-review?projectId=${selectedProjectId}` : '/deep-review')}
-            >
-              <Search className="h-4 w-4 mr-1.5" />
-              Deep Review
+              Run Analysis
             </Button>
           </div>
         </div>
@@ -148,17 +140,9 @@ export function ScriptIngestCard({ projects }: ScriptIngestCardProps) {
                     variant="ghost"
                     size="sm"
                     className="h-6 text-[10px] px-2"
-                    onClick={() => navigate(`/quick-review?projectId=${selectedProjectId}&docId=${doc.id}`)}
+                    onClick={() => navigate(`/projects/${selectedProjectId}/script?drawer=open&drawerTab=analysis`)}
                   >
-                    Quick
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 text-[10px] px-2"
-                    onClick={() => navigate(`/deep-review?projectId=${selectedProjectId}&docId=${doc.id}`)}
-                  >
-                    Deep
+                    Analyse
                   </Button>
                 </div>
               </div>

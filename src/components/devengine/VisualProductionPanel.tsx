@@ -76,15 +76,7 @@ export function VisualProductionPanel({ projectId, scenes, selectedSceneId, onSe
           <Film className="h-3 w-3" />
           Trailer Intelligence
         </Button>
-        <Button
-          size="sm"
-          variant="secondary"
-          className="h-6 text-[9px] gap-1 px-2"
-          onClick={() => navigate(`/projects/${projectId}/ai-trailer`)}
-        >
-          <Film className="h-3 w-3" />
-          AI Trailer Factory
-        </Button>
+        {/* AI Trailer Factory button removed — use Trailer Intelligence pipeline */}
       </div>
 
       {/* Scene List (left) */}
@@ -126,9 +118,7 @@ export function VisualProductionPanel({ projectId, scenes, selectedSceneId, onSe
             <TabsTrigger value="ai-heatmap" className="text-[10px] flex-1 gap-1">
               <Sparkles className="h-2.5 w-2.5" /> AI Readiness
             </TabsTrigger>
-            <TabsTrigger value="ai-trailer" className="text-[10px] flex-1 gap-1">
-              <Film className="h-2.5 w-2.5" /> AI Trailer
-            </TabsTrigger>
+            {/* AI Trailer tab removed — canonical Trailer Intelligence in Trailer Hub */}
           </TabsList>
 
           <TabsContent value="shots" className="mt-2">
@@ -249,22 +239,7 @@ export function VisualProductionPanel({ projectId, scenes, selectedSceneId, onSe
             <AiShotHeatmapDashboard projectId={projectId} />
           </TabsContent>
 
-          <TabsContent value="ai-trailer" className="mt-2">
-            <Card className="border-border/50">
-              <CardContent className="p-6 text-center space-y-3">
-                <Film className="h-8 w-8 mx-auto text-primary/60" />
-                <div className="space-y-1">
-                  <p className="text-sm font-medium">AI Trailer Factory</p>
-                  <p className="text-xs text-muted-foreground">
-                    Build a pitch-ready taster trailer from your script using AI-generated storyboard frames and motion stills.
-                  </p>
-                </div>
-                <Button size="sm" className="text-xs gap-1" onClick={() => navigate(`/projects/${projectId}/ai-trailer`)}>
-                  <Film className="h-3 w-3" /> Open AI Trailer Factory
-                </Button>
-              </CardContent>
-            </Card>
-          </TabsContent>
+          {/* AI Trailer tab content removed */}
         </Tabs>
       </div>
 
