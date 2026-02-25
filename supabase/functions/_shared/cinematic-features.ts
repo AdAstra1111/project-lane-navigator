@@ -222,10 +222,11 @@ export function classifyIntent(raw: string): IntentClass {
 
 export function analyzeIntentSequencing(units: CinematicUnit[], lane?: string): IntentSequencing {
   const n = units.length;
+  const finalIntentClass: IntentClass = n > 0 ? classifyIntent(units[n - 1].intent) : "other";
+  const finalIsButton = finalIntentClass === "late";
   const defaultResult: IntentSequencing = {
     earlyLateInversion: false, excessOscillation: false, intentFlipRate: 0,
-    finalIntentClass: n > 0 ? classifyIntent(units[n - 1].intent) : "other",
-    finalIsButton: n > 0 ? classifyIntent(units[n - 1].intent) === "late" : false,
+    finalIntentClass, finalIsButton,
   };
   if (n < 4) return defaultResult;
 
@@ -252,9 +253,6 @@ export function analyzeIntentSequencing(units: CinematicUnit[], lane?: string): 
   }
   const intentFlipRate = n >= 2 ? flips / (n - 1) : 0;
   const excessOscillation = intentFlipRate > 0.8 && backAndForth >= 2;
-
-  const finalIntentClass = classifyIntent(units[n - 1].intent);
-  const finalIsButton = finalIntentClass === "late";
 
   return { earlyLateInversion, excessOscillation, intentFlipRate, finalIntentClass, finalIsButton };
 }

@@ -1010,11 +1010,36 @@ describe("v4.3 button ending", () => {
 
   it("documentary: ending with emotion does NOT trigger button WEAK_ARC", () => {
     const units = makeButtonUnits("emotion");
-    const score = scoreCinematic(units, { lane: "documentary" });
-    // emotion is "late" → no button rule trigger; check WEAK_ARC not from button rule
-    // (may still appear from other arc checks)
     const seq = analyzeIntentSequencing(units, "documentary");
     expect(seq.finalIsButton).toBe(true);
+  });
+
+  it("documentary: button rule isolates — emotion vs intrigue flips WEAK_ARC", () => {
+    // Craft a clean ramp that minimizes other WEAK_ARC triggers:
+    // monotonic energy ramp, late peak, sealed tail, >=3 distinct intents, no inversion
+    function makeCleanRamp(finalIntent: string) {
+      return [
+        makeUnit({ id: "0", energy: 0.40, tension: 0.40, density: 0.40, tonal_polarity: -0.2, intent: "intrigue" }),
+        makeUnit({ id: "1", energy: 0.55, tension: 0.55, density: 0.50, tonal_polarity: -0.1, intent: "threat" }),
+        makeUnit({ id: "2", energy: 0.70, tension: 0.70, density: 0.60, tonal_polarity: 0.0, intent: "chaos" }),
+        makeUnit({ id: "3", energy: 0.85, tension: 0.85, density: 0.70, tonal_polarity: 0.2, intent: "emotion" }),
+        makeUnit({ id: "4", energy: 0.90, tension: 0.90, density: 0.75, tonal_polarity: 0.3, intent: "release" }),
+        makeUnit({ id: "5", energy: 0.92, tension: 0.92, density: 0.80, tonal_polarity: 0.4, intent: finalIntent as any }),
+      ];
+    }
+
+    const emotionScore = scoreCinematic(makeCleanRamp("emotion"), { lane: "documentary" });
+    const intrigueScore = scoreCinematic(makeCleanRamp("intrigue"), { lane: "documentary" });
+
+    // "intrigue" is early → button rule fires WEAK_ARC; "emotion" is late → does not
+    const emotionHasWeak = emotionScore.failures.includes("WEAK_ARC");
+    const intrigueHasWeak = intrigueScore.failures.includes("WEAK_ARC");
+
+    // The key assertion: changing ONLY the final intent flips WEAK_ARC
+    expect(intrigueHasWeak).toBe(true);
+    // emotion should not have WEAK_ARC from button rule (may or may not from other checks,
+    // but with this clean ramp it should be absent)
+    expect(emotionHasWeak).toBe(false);
   });
 
   it("documentary: ending with intrigue triggers WEAK_ARC", () => {
