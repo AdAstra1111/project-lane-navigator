@@ -1,17 +1,18 @@
 /**
  * Nuance Control Stack — Fingerprinting & diversity defense
  */
-import type { NuanceFingerprint, StoryEngine, CausalGrammar } from './types';
+import type { NuanceFingerprint, StoryEngine, CausalGrammar, ConflictMode } from './types';
+import { getDefaultConflictMode } from './defaults';
 
 /**
  * Compute a fingerprint from generated text + profile settings.
- * Uses heuristic keyword detection.
  */
 export function computeFingerprint(
   text: string,
   lane: string,
   storyEngine: StoryEngine,
   causalGrammar: CausalGrammar,
+  conflictMode?: ConflictMode,
 ): NuanceFingerprint {
   const lower = text.toLowerCase();
 
@@ -61,6 +62,7 @@ export function computeFingerprint(
     lane,
     story_engine: storyEngine,
     causal_grammar: causalGrammar,
+    conflict_mode: conflictMode || getDefaultConflictMode(lane),
     stakes_type: stakesType,
     twist_count_bucket: twistBucket,
     antagonist_type: antagonistType,
@@ -76,22 +78,38 @@ export function computeFingerprint(
 export function computeSimilarityRisk(
   current: NuanceFingerprint,
   recent: NuanceFingerprint[],
+  lane?: string,
 ): number {
   if (recent.length === 0) return 0;
 
-  let totalOverlap = 0;
-  const fields: (keyof NuanceFingerprint)[] = [
-    'story_engine', 'causal_grammar', 'stakes_type',
-    'twist_count_bucket', 'antagonist_type', 'ending_type',
-    'inciting_incident_category',
-  ];
+  const l = (lane || current.lane || '').toLowerCase();
 
+  // Lane-aware field weighting
+  let fields: (keyof NuanceFingerprint)[];
+  let weights: number[];
+
+  if (l.includes('vertical')) {
+    // Vertical drama: diversify primarily by conflict_mode and inciting_incident_category
+    fields = ['conflict_mode', 'inciting_incident_category', 'story_engine', 'causal_grammar', 'stakes_type', 'antagonist_type', 'ending_type'];
+    weights = [3, 3, 1, 1, 1, 1, 1]; // conflict_mode & inciting weighted 3x
+  } else if (l.includes('feature')) {
+    // Feature film: diversify primarily by story_engine and causal_grammar
+    fields = ['story_engine', 'causal_grammar', 'conflict_mode', 'inciting_incident_category', 'stakes_type', 'antagonist_type', 'ending_type'];
+    weights = [3, 3, 1, 1, 1, 1, 1];
+  } else {
+    fields = ['story_engine', 'causal_grammar', 'conflict_mode', 'stakes_type', 'twist_count_bucket', 'antagonist_type', 'ending_type', 'inciting_incident_category'];
+    weights = fields.map(() => 1);
+  }
+
+  const totalWeight = weights.reduce((a, b) => a + b, 0);
+
+  let totalOverlap = 0;
   for (const prev of recent) {
-    let matchCount = 0;
-    for (const f of fields) {
-      if (current[f] === prev[f]) matchCount++;
+    let matchScore = 0;
+    for (let i = 0; i < fields.length; i++) {
+      if (current[fields[i]] === prev[fields[i]]) matchScore += weights[i];
     }
-    totalOverlap += matchCount / fields.length;
+    totalOverlap += matchScore / totalWeight;
   }
 
   return Math.min(1, totalOverlap / recent.length);
@@ -100,28 +118,45 @@ export function computeSimilarityRisk(
 /**
  * Get diversification suggestions based on recent fingerprints.
  */
-export function getDiversificationHints(recent: NuanceFingerprint[]): {
+export function getDiversificationHints(recent: NuanceFingerprint[], lane?: string): {
   avoidEngines: StoryEngine[];
   avoidGrammars: CausalGrammar[];
   avoidStakesTypes: string[];
+  avoidConflictModes: ConflictMode[];
+  avoidIncitingCategories: string[];
 } {
-  if (recent.length === 0) return { avoidEngines: [], avoidGrammars: [], avoidStakesTypes: [] };
+  if (recent.length === 0) return { avoidEngines: [], avoidGrammars: [], avoidStakesTypes: [], avoidConflictModes: [], avoidIncitingCategories: [] };
 
-  // Count frequency
   const engineCounts: Record<string, number> = {};
   const grammarCounts: Record<string, number> = {};
   const stakesCounts: Record<string, number> = {};
+  const conflictCounts: Record<string, number> = {};
+  const incitingCounts: Record<string, number> = {};
 
   for (const fp of recent) {
     engineCounts[fp.story_engine] = (engineCounts[fp.story_engine] || 0) + 1;
     grammarCounts[fp.causal_grammar] = (grammarCounts[fp.causal_grammar] || 0) + 1;
     stakesCounts[fp.stakes_type] = (stakesCounts[fp.stakes_type] || 0) + 1;
+    if (fp.conflict_mode) conflictCounts[fp.conflict_mode] = (conflictCounts[fp.conflict_mode] || 0) + 1;
+    incitingCounts[fp.inciting_incident_category] = (incitingCounts[fp.inciting_incident_category] || 0) + 1;
   }
 
   const threshold = recent.length * 0.4;
-  return {
-    avoidEngines: Object.entries(engineCounts).filter(([, c]) => c >= threshold).map(([k]) => k as StoryEngine),
-    avoidGrammars: Object.entries(grammarCounts).filter(([, c]) => c >= threshold).map(([k]) => k as CausalGrammar),
-    avoidStakesTypes: Object.entries(stakesCounts).filter(([, c]) => c >= threshold).map(([k]) => k),
-  };
+  const l = (lane || '').toLowerCase();
+
+  const avoidEngines = Object.entries(engineCounts).filter(([, c]) => c >= threshold).map(([k]) => k as StoryEngine);
+  const avoidGrammars = Object.entries(grammarCounts).filter(([, c]) => c >= threshold).map(([k]) => k as CausalGrammar);
+  const avoidStakesTypes = Object.entries(stakesCounts).filter(([, c]) => c >= threshold).map(([k]) => k);
+  const avoidConflictModes = Object.entries(conflictCounts).filter(([, c]) => c >= threshold).map(([k]) => k as ConflictMode);
+  const avoidIncitingCategories = Object.entries(incitingCounts).filter(([, c]) => c >= threshold).map(([k]) => k);
+
+  // For vertical_drama, lower threshold for conflict_mode + inciting (prioritize diversity there)
+  if (l.includes('vertical')) {
+    const vtThreshold = recent.length * 0.3;
+    const vtConflict = Object.entries(conflictCounts).filter(([, c]) => c >= vtThreshold).map(([k]) => k as ConflictMode);
+    const vtInciting = Object.entries(incitingCounts).filter(([, c]) => c >= vtThreshold).map(([k]) => k);
+    return { avoidEngines, avoidGrammars, avoidStakesTypes, avoidConflictModes: vtConflict, avoidIncitingCategories: vtInciting };
+  }
+
+  return { avoidEngines, avoidGrammars, avoidStakesTypes, avoidConflictModes, avoidIncitingCategories };
 }
