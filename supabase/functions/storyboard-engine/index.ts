@@ -324,7 +324,7 @@ Return ONLY valid JSON`;
       model: MODELS.BALANCED,
       rawOutput: cikInput,
       adapter: (raw: any) => adaptStoryboardPanelsWithMode(raw, { expectedUnitCount, expectedUnitKeys }),
-      buildRepairInstruction: (s, u) => buildStoryboardRepairInstruction(s, u, projectLane),
+      buildRepairInstruction: buildStoryboardRepairInstruction,
       isStoryboard: true,
       expected_unit_count: expectedUnitCount,
       lane: projectLane,

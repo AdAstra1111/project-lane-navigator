@@ -821,7 +821,7 @@ No markdown.`;
       model: MODELS.PRO,
       rawOutput: parsedRaw,
       adapter: (raw: any) => adaptTrailerOutputWithMode(raw, trailerExpectedUnitCount),
-      buildRepairInstruction: (s, u) => buildTrailerRepairInstruction(s, u, projectLane),
+      buildRepairInstruction: buildTrailerRepairInstruction,
       expected_unit_count: trailerExpectedUnitCount,
       lane: projectLane,
       regenerateOnce: async (repairInstruction: string) => {

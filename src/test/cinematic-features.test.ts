@@ -1263,8 +1263,9 @@ describe("enforceCinematicQuality lane propagation (kernel boundary)", () => {
           model: "test",
           rawOutput,
           adapter,
-          buildRepairInstruction: (score, unitCount) => {
-            capturedInstruction = buildTrailerRepairInstruction(score, unitCount, lane);
+          // Now the kernel auto-threads opts.lane into buildRepairInstruction(score, unitCount, lane)
+          buildRepairInstruction: (score, unitCount, laneArg) => {
+            capturedInstruction = buildTrailerRepairInstruction(score, unitCount, laneArg);
             return capturedInstruction;
           },
           regenerateOnce: async (_instruction: string) => {

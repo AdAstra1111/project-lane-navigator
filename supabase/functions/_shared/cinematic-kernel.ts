@@ -32,7 +32,7 @@ export interface CinematicQualityOpts<T> {
   model: string;
   rawOutput: T;
   adapter: ((raw: T) => CinematicUnit[] | AdapterResult) | ((raw: T, expectedUnitCount?: number) => CinematicUnit[] | AdapterResult);
-  buildRepairInstruction: (score: CinematicScore, unitCount?: number) => string;
+  buildRepairInstruction: (score: CinematicScore, unitCount?: number, lane?: string) => string;
   regenerateOnce: (repairInstruction: string) => Promise<T>;
   telemetry?: (eventName: string, payload: CinematicQualityGateEvent) => void;
   isStoryboard?: boolean;
@@ -141,7 +141,7 @@ export async function enforceCinematicQuality<T>(opts: CinematicQualityOpts<T>):
   }
 
   // Repair attempt (exactly once)
-  let instruction = buildRepairInstruction(score0, opts.expected_unit_count);
+  let instruction = buildRepairInstruction(score0, opts.expected_unit_count, opts.lane);
   const anchors = extractStyleAnchors(opts.rawOutput);
   if (anchors.length > 0) {
     instruction += `\n\nSTYLE LOCK (MUST PRESERVE):\n${anchors.map((a) => `• ${a}`).join("\n")}\nDo not rename, swap, or remove these anchors.`;
