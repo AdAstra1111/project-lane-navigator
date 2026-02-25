@@ -14,7 +14,7 @@ import {
   recordDiagnosticFlags, flushCinematicSummaryIfDue,
 } from "./cinematic-telemetry.ts";
 import { persistCinematicQualityRun, type PersistQualityRunParams } from "./cik/qualityHistory.ts";
-import { type CikModelSelection } from "./cik/modelRouter.ts";
+import { selectCikModel, type CikModelSelection } from "./cik/modelRouter.ts";
 
 export interface CinematicQualityGateEvent {
   handler: string;
@@ -143,11 +143,17 @@ export async function enforceCinematicQuality<T>(opts: CinematicQualityOpts<T>):
   const runSource = opts.isStoryboard ? "storyboard-engine" : "trailer-engine";
   const strictnessMode = opts.strictness || "standard";
 
-  // Build model_router telemetry shape from opts (if provided)
-  const routerTelemetry = opts.modelRouter
-    ? { attempt0: { model: opts.modelRouter.attempt0.model, reason: opts.modelRouter.attempt0.reason },
-        ...(opts.modelRouter.attempt1 ? { attempt1: { model: opts.modelRouter.attempt1.model, reason: opts.modelRouter.attempt1.reason } } : {}) }
-    : undefined;
+  // Build model_router telemetry — attempt1 will be recomputed after attempt0 scoring
+  // to use actual hard failures instead of a placeholder.
+  const routerAttempt0 = opts.modelRouter?.attempt0;
+  let routerAttempt1 = opts.modelRouter?.attempt1;
+  const buildRouterTelemetry = () => {
+    if (!routerAttempt0) return undefined;
+    return {
+      attempt0: { model: routerAttempt0.model, reason: routerAttempt0.reason },
+      ...(routerAttempt1 ? { attempt1: { model: routerAttempt1.model, reason: routerAttempt1.reason } } : {}),
+    };
+  };
 
   // Attempt 0: adapt + sanitize + score
   const adapterResult0 = runAdapter(adapter, opts.rawOutput, opts.expected_unit_count);
@@ -156,7 +162,7 @@ export async function enforceCinematicQuality<T>(opts: CinematicQualityOpts<T>):
   const mode0 = adapterResult0.mode;
   const score0 = scoreCinematic(units0, scoringCtx);
   const evt0 = buildGateEvent(handler, phase, model, 0, score0, mode0, units0, opts.lane, sanitized0.quality);
-  if (routerTelemetry) evt0.model_router = routerTelemetry;
+  { const rt = buildRouterTelemetry(); if (rt) evt0.model_router = rt; }
 
   log("CINEMATIC_QUALITY_GATE", evt0);
   recordAttempt0(evt0);
@@ -194,7 +200,8 @@ export async function enforceCinematicQuality<T>(opts: CinematicQualityOpts<T>):
     // Persist: single attempt pass
     if (opts.db && opts.projectId) {
       const baseMetrics = score0.metrics as unknown as Record<string, unknown>;
-      const metricsWithRouter = routerTelemetry ? { ...baseMetrics, model_router: routerTelemetry } : baseMetrics;
+      const rt0 = buildRouterTelemetry();
+      const metricsWithRouter = rt0 ? { ...baseMetrics, model_router: rt0 } : baseMetrics;
       persistCinematicQualityRun(opts.db, {
         projectId: opts.projectId,
         documentId: opts.documentId,
@@ -209,6 +216,15 @@ export async function enforceCinematicQuality<T>(opts: CinematicQualityOpts<T>):
     }
 
     return stripCik(opts.rawOutput);
+  }
+
+  // ── Recompute attempt1 router with ACTUAL hard failures from attempt0 ──
+  if (routerAttempt0 && score0.hard_failures.length > 0) {
+    routerAttempt1 = selectCikModel({
+      attemptIndex: 1,
+      lane: opts.lane || "unknown",
+      attempt0HardFailures: score0.hard_failures,
+    });
   }
 
   // Repair attempt (exactly once)
@@ -264,7 +280,7 @@ export async function enforceCinematicQuality<T>(opts: CinematicQualityOpts<T>):
 
   const score1 = scoreCinematic(units1, { ...scoringCtx, adapterMode: mode1 });
   const evt1 = buildGateEvent(handler, phase, model, 1, score1, mode1, units1, opts.lane, sanitized1.quality);
-  if (routerTelemetry) evt1.model_router = routerTelemetry;
+  { const rt = buildRouterTelemetry(); if (rt) evt1.model_router = rt; }
 
   // Repair validation telemetry (before/after delta)
   console.error(JSON.stringify({
@@ -285,7 +301,7 @@ export async function enforceCinematicQuality<T>(opts: CinematicQualityOpts<T>):
 
   // Build attempt1 payload for persistence
   const attempt1Payload = {
-    model: opts.modelRouter?.attempt1?.model || model,
+    model: routerAttempt1?.model || opts.modelRouter?.attempt1?.model || model,
     score: score1.score,
     pass: score1.pass,
     failures: score1.failures,
@@ -300,7 +316,8 @@ export async function enforceCinematicQuality<T>(opts: CinematicQualityOpts<T>):
   const persistFn = () => {
     if (!opts.db || !opts.projectId) return;
     const finalMetrics = score1.metrics as unknown as Record<string, unknown>;
-    const finalMetricsWithRouter = routerTelemetry ? { ...finalMetrics, model_router: routerTelemetry } : finalMetrics;
+    const rtFinal = buildRouterTelemetry();
+    const finalMetricsWithRouter = rtFinal ? { ...finalMetrics, model_router: rtFinal } : finalMetrics;
     persistCinematicQualityRun(opts.db, {
       projectId: opts.projectId,
       documentId: opts.documentId,
