@@ -539,6 +539,45 @@ async function checkIdempotency(db: any, projectId: string, trailerType: string,
   return null;
 }
 
+async function waitForScriptReadiness(
+  db: any,
+  projectId: string,
+  scriptRunId: string,
+  opts?: { timeoutMs?: number; pollMs?: number },
+): Promise<{ ready: boolean; status: string; beatCount: number; reason?: string }> {
+  const timeoutMs = opts?.timeoutMs ?? 45_000;
+  const pollMs = opts?.pollMs ?? 1_500;
+  const startedAt = Date.now();
+
+  while ((Date.now() - startedAt) < timeoutMs) {
+    const [{ data: run }, { data: beats }] = await Promise.all([
+      db.from("trailer_script_runs")
+        .select("status")
+        .eq("id", scriptRunId)
+        .eq("project_id", projectId)
+        .maybeSingle(),
+      db.from("trailer_script_beats")
+        .select("id")
+        .eq("script_run_id", scriptRunId)
+        .limit(1),
+    ]);
+
+    const status = run?.status || "running";
+    const beatCount = beats?.length || 0;
+
+    if (status === "error") {
+      return { ready: false, status, beatCount, reason: "script_error" };
+    }
+    if (beatCount > 0) {
+      return { ready: true, status, beatCount };
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
+  }
+
+  return { ready: false, status: "running", beatCount: 0, reason: "timeout" };
+}
+
 // ─── fetchCanonPack replaced by shared compileTrailerContext ───
 
 // ─── ACTION 1: Create Trailer Script v2 ───
@@ -555,7 +594,21 @@ async function handleCreateTrailerScript(db: any, body: any, userId: string, api
 
   // Idempotency check
   const existingId = await checkIdempotency(db, projectId, trailerType, idempotencyKey);
-  if (existingId) return json({ ok: true, scriptRunId: existingId, idempotent: true });
+  if (existingId) {
+    const [existingRunResp, existingBeatsResp] = await Promise.all([
+      db.from("trailer_script_runs").select("status").eq("id", existingId).maybeSingle(),
+      db.from("trailer_script_beats").select("id").eq("script_run_id", existingId).limit(1),
+    ]);
+    const existingStatus = existingRunResp?.data?.status || "running";
+    const existingBeatCount = existingBeatsResp?.data?.length || 0;
+    return json({
+      ok: true,
+      scriptRunId: existingId,
+      idempotent: true,
+      status: existingStatus,
+      beatCount: existingBeatCount,
+    });
+  }
 
   const resolvedSeed = resolveSeed(inputSeed || idempotencyKey);
 
@@ -2957,6 +3010,19 @@ async function handleRunTrailerPipeline(db: any, body: any, userId: string, apiK
       steps.push({ step: "script", status: "complete", id: scriptRunId });
     }
 
+    const scriptReady = await waitForScriptReadiness(db, projectId, scriptRunId, {
+      timeoutMs: 45_000,
+      pollMs: 1_500,
+    });
+
+    if (!scriptReady.ready) {
+      const reason = scriptReady.reason === "script_error"
+        ? "Script generation ended in error before beats were available"
+        : "Script beats are still being generated; retry in a few seconds";
+      steps.push({ step: "script_readiness", status: "pending", error: reason });
+      return json({ ok: false, steps, scriptRunId, error: reason }, 409);
+    }
+
     // Step 2: Initial judge for repair check
     const judge1Result = await handleRunJudge(db, { projectId, scriptRunId }, userId, apiKey);
     const judge1Body = await judge1Result.json();
@@ -2968,7 +3034,21 @@ async function handleRunTrailerPipeline(db: any, body: any, userId: string, apiK
         projectId, scriptRunId, judgeRunId: judge1Body.judgeRunId, canonPackId,
       }, userId, apiKey);
       const repairBody = await repairResult.json();
+      if (!repairBody?.ok && repairBody?.error) {
+        steps.push({ step: "repair", status: "failed", error: repairBody.error });
+        return json({ ok: false, steps, scriptRunId, error: `Repair failed: ${repairBody.error}` }, 400);
+      }
       steps.push({ step: "repair", status: repairBody.status || "complete" });
+
+      // Repair can return before beat updates are visible on replicated reads; re-check.
+      const postRepairReady = await waitForScriptReadiness(db, projectId, scriptRunId, {
+        timeoutMs: 15_000,
+        pollMs: 1_000,
+      });
+      if (!postRepairReady.ready) {
+        steps.push({ step: "script_readiness_post_repair", status: "pending", error: "Repaired script beats are not ready yet" });
+        return json({ ok: false, steps, scriptRunId, error: "Repaired script beats are not ready yet" }, 409);
+      }
     } else {
       steps.push({ step: "initial_judge", status: "passed", id: judge1Body.judgeRunId });
     }
