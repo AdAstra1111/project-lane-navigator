@@ -15,6 +15,8 @@ Deno.serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const apiKey = Deno.env.get("LOVABLE_API_KEY");
+    if (!apiKey) throw new Error("LOVABLE_API_KEY not configured");
     const supabase = createClient(supabaseUrl, serviceKey);
 
     const body = await req.json();
@@ -22,7 +24,7 @@ Deno.serve(async (req) => {
 
     switch (action) {
       case "find_candidates":
-        return await handleFindCandidates(supabase, body);
+        return await handleFindCandidates(supabase, body, apiKey);
       case "set_influencers":
         return await handleSetInfluencers(supabase, body);
       case "build_engine_profile":
@@ -48,7 +50,7 @@ Deno.serve(async (req) => {
 
 // ─── find_candidates ────────────────────────────────────────────
 
-async function handleFindCandidates(supabase: any, body: any) {
+async function handleFindCandidates(supabase: any, body: any, apiKey: string) {
   const { project_id, lane, filters = {}, seed_text = {}, user_id } = body;
   if (!project_id || !lane || !user_id) {
     return jsonResp({ error: "project_id, lane, user_id required" }, 400);
@@ -56,7 +58,7 @@ async function handleFindCandidates(supabase: any, body: any) {
 
   const prompt = buildCandidatePrompt(lane, filters, seed_text);
   const result = await callLLM({
-    apiKey: "lovable-ai",
+    apiKey,
     model: MODELS.FAST,
     system: `You are a film/TV comparables analyst. Given project info, suggest 12 comparable titles.
 Return ONLY a JSON array of objects with: title, year, format (film|series|vertical|other), region, genres (string[]), rationale (1-2 sentences), confidence (0-1).
