@@ -8,6 +8,8 @@ export interface RulesetPrefs {
   active_engine_profile_id?: string | null;
   auto_diversify?: boolean;
   lock_ruleset?: boolean;
+  pacing_feel?: string;
+  genre_preset?: string | null;
   last_ui?: {
     restraint?: number;
     conflict_mode?: string;

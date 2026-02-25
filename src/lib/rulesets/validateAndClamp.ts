@@ -16,8 +16,8 @@ export interface PacingClamps {
 
 const LANE_CLAMPS: Record<string, PacingClamps> = {
   vertical_drama: {
-    min:    { floor: 2,   ceiling: 5 },
-    target: { floor: 3,   ceiling: 5 },
+    min:    { floor: 2.5, ceiling: 5 },
+    target: { floor: 3,   ceiling: 6 },
     max:    { floor: 4,   ceiling: 7 },
   },
   feature_film: {
