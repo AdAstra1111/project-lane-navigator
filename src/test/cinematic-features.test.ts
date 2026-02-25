@@ -798,7 +798,21 @@ describe("v3.14 intent sequencing", () => {
     expect(instr).toContain("INTENT SEQUENCING");
     expect(instr).toContain("early=setup/intrigue");
     expect(instr.length).toBeLessThanOrEqual(2500);
-});
+  });
+
+  it("50% early intents in late window: triggers for feature_film, not for documentary", () => {
+    // 4 units: late window = last 2 units; exactly 1 of 2 is early intent (50%)
+    const units = [
+      makeUnit({ id: "0", energy: 0.3, tension: 0.3, density: 0.3, intent: "threat" }),
+      makeUnit({ id: "1", energy: 0.5, tension: 0.5, density: 0.5, intent: "chaos" }),
+      makeUnit({ id: "2", energy: 0.85, tension: 0.85, density: 0.85, intent: "intrigue" }),
+      makeUnit({ id: "3", energy: 0.95, tension: 0.95, density: 0.95, intent: "emotion" }),
+    ];
+    const seqFeature = analyzeIntentSequencing(units, "feature_film");
+    const seqDoc = analyzeIntentSequencing(units, "documentary");
+    expect(seqFeature.earlyLateInversion).toBe(true);
+    expect(seqDoc.earlyLateInversion).toBe(false);
+  });
 
 // ─── Product-Lane Threshold Profiles Tests ───
 
