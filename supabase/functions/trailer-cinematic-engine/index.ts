@@ -2916,7 +2916,7 @@ async function handleCreateScriptVariants(db: any, body: any, userId: string, ap
   if (!canonPackId) return json({ error: "canonPackId required" }, 400);
 
   const baseSeed = seedBase || `var-${Date.now().toString(36)}`;
-  const results: any[] = [];
+  
 
   // Run all variants in parallel to avoid timeout
   const variantPromises = variants.slice(0, 3).map(async (label: string) => {
