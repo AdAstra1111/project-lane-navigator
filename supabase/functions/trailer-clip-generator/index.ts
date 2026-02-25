@@ -21,6 +21,38 @@ function json(data: unknown, status = 200) {
   });
 }
 
+// ─── Shared Constants ───
+
+/** Blueprint statuses that are clip-enqueue-ready. Must match frontend READY_STATUSES. */
+const BLUEPRINT_READY_STATUSES = ["complete", "ready", "v2_shim"] as const;
+
+/** Known Veo/Gemini content-policy error patterns */
+const VEO_CONTENT_POLICY_PATTERNS = [
+  "usage guidelines",
+  "content policy",
+  "safety filter",
+  "safety settings",
+  "blocked by safety",
+  "prohibited content",
+  "violates",
+  "SAFETY",
+  "ResponsibleAI",
+] as const;
+
+function isContentPolicyError(errorMessage: string): boolean {
+  const lower = errorMessage.toLowerCase();
+  return VEO_CONTENT_POLICY_PATTERNS.some(p => lower.includes(p.toLowerCase()));
+}
+
+/** Maximum Runway prompt length (hard limit is 1000, we use 990 margin) */
+const RUNWAY_MAX_PROMPT_CHARS = 990;
+
+/** Truncate prompt deterministically to fit provider limits */
+function truncatePrompt(prompt: string, maxChars: number): string {
+  if (prompt.length <= maxChars) return prompt;
+  return prompt.slice(0, maxChars - 3) + "...";
+}
+
 function parseUserId(token: string): string {
   const payload = JSON.parse(atob(token.split(".")[1]));
   if (!payload.sub || (payload.exp && payload.exp < Date.now() / 1000)) throw new Error("expired");
@@ -462,10 +494,8 @@ async function callRunway(params: {
   const model = "gen4.5";
   const durationSec = Math.max(5, Math.min(10, Math.round(params.lengthMs / 1000)));
 
-  // Runway enforces a 1000-char limit on promptText
-  const truncatedPrompt = params.prompt.length > 990
-    ? params.prompt.slice(0, 987) + "..."
-    : params.prompt;
+  // Runway enforces a 1000-char limit on promptText — use shared truncation
+  const truncatedPrompt = truncatePrompt(params.prompt, RUNWAY_MAX_PROMPT_CHARS);
 
   const body: any = {
     model,
@@ -608,10 +638,12 @@ async function handleEnqueueForRun(db: any, body: any, userId: string) {
     .select("id, edl, status, options")
     .eq("id", blueprintId).eq("project_id", projectId).single();
   if (!bp) return json({ error: "Blueprint not found" }, 404);
-  if (bp.status !== "complete") return json({ error: "Blueprint not complete" }, 400);
+  if (!BLUEPRINT_READY_STATUSES.includes(bp.status as any)) {
+    return json({ error: `Blueprint status '${bp.status}' is not clip-ready. Expected one of: ${BLUEPRINT_READY_STATUSES.join(", ")}` }, 400);
+  }
 
   const edl = bp.edl || [];
-  if (edl.length === 0) return json({ error: "Blueprint has no beats" }, 400);
+  if (edl.length === 0) return json({ error: "Blueprint has empty EDL — cannot enqueue clips" }, 400);
 
   // Load styleOptions from script run
   let styleOptions: Record<string, any> = {};
@@ -877,6 +909,44 @@ async function handleProcessJob(db: any, body: any, userId: string) {
       }).eq("id", jobId);
       return json({ ok: true, status: "requeued", message: "Rate limited, job re-queued for later" });
     }
+    // ── Veo content-policy failure: deterministic single fallback to Runway ──
+    if (job.provider === "veo" && isContentPolicyError(err.message)) {
+      console.log(`[process_job] Veo content-policy failure for job ${jobId} — attempting Runway fallback`);
+      await markJobFailed(db, job, jobId, projectId, userId, `Veo content-policy: ${err.message}`);
+
+      // Idempotency: check if a fallback job already exists for same beat/candidate
+      const fallbackKey = `${job.idempotency_key}-runway-fallback`;
+      const { data: existingFallback } = await db.from("trailer_clip_jobs")
+        .select("id").eq("idempotency_key", fallbackKey).maybeSingle();
+
+      if (!existingFallback) {
+        const fallbackPrompt = truncatePrompt(job.prompt, RUNWAY_MAX_PROMPT_CHARS);
+        await db.from("trailer_clip_jobs").insert({
+          project_id: projectId,
+          blueprint_id: job.blueprint_id,
+          clip_run_id: job.clip_run_id,
+          beat_index: job.beat_index,
+          candidate_index: job.candidate_index,
+          provider: "runway",
+          mode: job.mode,
+          prompt: fallbackPrompt,
+          length_ms: job.length_ms,
+          aspect_ratio: job.aspect_ratio,
+          fps: job.fps,
+          seed: job.seed,
+          init_image_paths: job.init_image_paths || [],
+          params_json: { ...(job.params_json || {}), fallback_from_provider: "veo" },
+          idempotency_key: fallbackKey,
+          status: "queued",
+        });
+        console.log(`[process_job] Created Runway fallback job for beat ${job.beat_index}, candidate ${job.candidate_index}`);
+      } else {
+        console.log(`[process_job] Runway fallback already exists for beat ${job.beat_index} — skipping duplicate`);
+      }
+
+      return json({ ok: true, status: "fallback_to_runway", message: "Veo content-policy failure, fallback job created" });
+    }
+
     console.error(`[process_job] Error:`, err.message);
     await markJobFailed(db, job, jobId, projectId, userId, err.message);
     return json({ error: err.message }, 500);
@@ -1187,6 +1257,27 @@ async function handlePollPendingJobs(db: any, body: any, userId: string) {
       console.error(`[poll_pending] Job ${job.id} error:`, err.message);
       await markJobFailed(db, job, job.id, projectId, userId, err.message);
       failed++;
+
+      // Veo content-policy failure during polling — single fallback to Runway
+      if (job.provider === "veo" && isContentPolicyError(err.message)) {
+        const fallbackKey = `${job.idempotency_key}-runway-fallback`;
+        const { data: existingFb } = await db.from("trailer_clip_jobs")
+          .select("id").eq("idempotency_key", fallbackKey).maybeSingle();
+        if (!existingFb) {
+          const fallbackPrompt = truncatePrompt(job.prompt, RUNWAY_MAX_PROMPT_CHARS);
+          await db.from("trailer_clip_jobs").insert({
+            project_id: projectId, blueprint_id: job.blueprint_id,
+            clip_run_id: job.clip_run_id, beat_index: job.beat_index,
+            candidate_index: job.candidate_index, provider: "runway",
+            mode: job.mode, prompt: fallbackPrompt,
+            length_ms: job.length_ms, aspect_ratio: job.aspect_ratio,
+            fps: job.fps, seed: job.seed, init_image_paths: job.init_image_paths || [],
+            params_json: { ...(job.params_json || {}), fallback_from_provider: "veo" },
+            idempotency_key: fallbackKey, status: "queued",
+          });
+          console.log(`[poll_pending] Created Runway fallback for Veo content-policy on beat ${job.beat_index}`);
+        }
+      }
     }
   }
 
