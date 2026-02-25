@@ -3,6 +3,7 @@
  * Includes shot table, continuity warnings, export, and "Generate Plan" CTA.
  */
 import { useState } from "react";
+import VideoRenderJobsViewer from "./VideoRenderJobsViewer";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Badge } from "@/components/ui/badge";
@@ -150,7 +151,14 @@ export default function VideoPlanViewer({ projectId, qualityRunUnits, qualityRun
                       {expandedId === row.id ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
                     </button>
 
-                    {expandedId === row.id && <PlanDetail plan={plan} />}
+                    {expandedId === row.id && (
+                      <div className="space-y-3">
+                        <PlanDetail plan={plan} />
+                        <div className="px-4 pb-4">
+                          <VideoRenderJobsViewer projectId={projectId} planId={row.id} />
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               })}
