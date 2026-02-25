@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { buildGuardrailBlock } from "../_shared/guardrails.ts";
+import { MODELS } from "../_shared/llm.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -135,7 +136,7 @@ Provide:
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
+        model: MODELS.FAST,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },

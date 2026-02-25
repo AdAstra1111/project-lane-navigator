@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { buildGuardrailBlock } from "../_shared/guardrails.ts";
+import { MODELS } from "../_shared/llm.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -64,7 +65,7 @@ Deno.serve(async (req) => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: "google/gemini-3-flash-preview",
+          model: MODELS.BALANCED,
           messages: [
             {
               role: "system",
@@ -234,7 +235,7 @@ Keep your response to 4-6 sentences. Be direct and producer-facing.`;
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
+        model: MODELS.FAST,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: `Assess the current market value and project impact of ${person_name} (${disambiguation_hint || roleContext}).` },

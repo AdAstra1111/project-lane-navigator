@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { buildGuardrailBlock } from "../_shared/guardrails.ts";
+import { MODELS } from "../_shared/llm.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -82,7 +83,7 @@ ${JSON.stringify(sceneSummary)}`;
         Authorization: `Bearer ${lovableApiKey}`,
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
+        model: MODELS.FAST,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userContent },

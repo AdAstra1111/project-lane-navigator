@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 import { buildGuardrailBlock } from "../_shared/guardrails.ts";
+import { MODELS } from "../_shared/llm.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -123,7 +124,7 @@ Return ONLY valid JSON with this structure:
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
+        model: MODELS.BALANCED,
         messages: [
           { role: "system", content: "You are a film industry market analyst with deep knowledge of box office performance, streaming data, and international sales. Return only valid JSON. When grounded research data is provided, prioritize those real numbers over estimates." },
           { role: "user", content: prompt },
