@@ -64,12 +64,15 @@ const EPISODE_HEADER_RE = /^(?:#{1,3}\s+|\*{2})?(?:EPISODE\s+|EP\.?\s*)(\d+)\b[^
  */
 const COLLAPSE_PATTERNS: RegExp[] = [
   /\bEps?\s*\d+\s*[-–—]\s*\d+\b/i,              // "Eps 1–7", "Ep 2-5"
+  /\bEpisodes?\s*\d+\s*[-–—]\s*\d+\b/i,          // "Episodes 1–7"
   /follow(?:s)?\s+(?:the\s+)?established/i,       // "follows established structure"
   /remain(?:s)?\s+high[- ]density/i,              // "remain high-density"
   /\btemplate(?:s)?\b/i,                           // "templates"
   /\bsame\s+structure\s+as\s+(?:above|previous)/i, // "same structure as above"
   /\bcontinue(?:s)?\s+(?:the\s+)?pattern/i,        // "continues the pattern"
   /\brepeat(?:s)?\s+(?:the\s+)?format/i,           // "repeats the format"
+  /\buse(?:s)?\s+the\s+(?:same\s+)?structure/i,    // "uses the same structure"
+  /\b(?:high[- ]density|remain(?:s)?\s+the\s+same)\b/i, // "high-density", "remains the same"
 ];
 
 // ─── Parsing ───
@@ -244,6 +247,24 @@ export function extractEpisodeNumbersFromOutput(text: string): number[] {
  */
 export function detectCollapsedRangeSummaries(text: string): boolean {
   return COLLAPSE_PATTERNS.some(p => p.test(text));
+}
+
+/**
+ * Find which specific episode blocks contain collapse patterns.
+ * Returns sorted unique episode numbers whose body/rawBlock matches any collapse tell.
+ */
+export function findEpisodesWithCollapse(text: string): number[] {
+  const blocks = parseEpisodeBlocks(text);
+  const collapsed: number[] = [];
+
+  for (const block of blocks) {
+    const searchText = block.bodyText || block.rawBlock;
+    if (COLLAPSE_PATTERNS.some(p => p.test(searchText))) {
+      collapsed.push(block.episodeNumber);
+    }
+  }
+
+  return [...new Set(collapsed)].sort((a, b) => a - b);
 }
 
 // ─── Scaffold Generator ───

@@ -16,6 +16,7 @@ import {
   mergeEpisodeBlocks,
   extractEpisodeNumbersFromOutput,
   detectCollapsedRangeSummaries,
+  findEpisodesWithCollapse,
   buildEpisodeScaffold,
 } from "./episodeScope.ts";
 
@@ -46,7 +47,10 @@ Rules:
 - NEVER collapse multiple episodes into one entry.
 - NEVER write ranges like "Eps 1–7" or "Episodes 2-5 follow same structure".
 - NEVER use placeholders, "template", "follow established structure", or abbreviations.
-- Every requested episode MUST appear as its own key in the JSON object.`;
+- Every requested episode MUST appear as its own key in the JSON object.
+- Do NOT reference other episodes by range or shorthand (e.g., "Eps 1–7…") anywhere inside an episode block.
+- Do NOT include meta commentary about the season structure.
+- Every beat must describe THIS episode's unique events — no "same as above" or "continues the pattern".`;
 
 function buildBatchUserPrompt(
   episodes: number[],
@@ -225,13 +229,27 @@ export async function generateEpisodeBeatsChunked(opts: EpisodeBeatsOpts): Promi
     const missing = allEpisodes.filter(n => !extracted.includes(n));
     const hasCollapse = detectCollapsedRangeSummaries(masterText);
 
+    // Attribute collapse to specific episode blocks (not always batch 1)
+    const collapseEpisodes = findEpisodesWithCollapse(masterText);
+
     // Check for scaffold stubs still present (episodes that weren't replaced)
     const blocks = parseEpisodeBlocks(masterText);
+    const STUB_BODY_RE = /^\s*1\.\s*\n\s*2\.\s*\n\s*3\.\s*\n\s*4\.\s*\n\s*5\.\s*$/m;
     const stubEpisodes = blocks
-      .filter(b => b.bodyText.trim() === '1.\n2.\n3.\n4.\n5.' || b.rawBlock.includes('(Title TBD)'))
+      .filter(b => b.rawBlock.includes('(Title TBD)') || STUB_BODY_RE.test(b.bodyText.trim()))
       .map(b => b.episodeNumber);
 
-    const needsRepair = [...new Set([...missing, ...stubEpisodes])].sort((a, b) => a - b);
+    const needsRepair = [...new Set([...missing, ...stubEpisodes, ...collapseEpisodes])].sort((a, b) => a - b);
+
+    if (collapseEpisodes.length > 0) {
+      console.error(JSON.stringify({
+        diag: "EPISODE_COLLAPSE_ATTRIBUTION",
+        requestId,
+        cycle,
+        collapse_episodes: collapseEpisodes,
+        message: `Collapse patterns found inside episode blocks: [${collapseEpisodes.join(', ')}] — will re-generate these`,
+      }));
+    }
 
     console.error(JSON.stringify({
       diag: "EPISODE_VALIDATION",
@@ -241,6 +259,7 @@ export async function generateEpisodeBeatsChunked(opts: EpisodeBeatsOpts): Promi
       expected_count: episodeCount,
       missing,
       stub_episodes: stubEpisodes,
+      collapse_episodes: collapseEpisodes,
       collapse_detected: hasCollapse,
       needs_repair: needsRepair,
     }));
@@ -257,13 +276,13 @@ export async function generateEpisodeBeatsChunked(opts: EpisodeBeatsOpts): Promi
     }
 
     if (cycle === MAX_REPAIR_CYCLES - 1) {
-      // Last cycle — if still broken, throw
-      if (needsRepair.length > 0) {
-        const errMsg = `Episode generation incomplete after ${MAX_REPAIR_CYCLES} repair cycles: missing episodes [${needsRepair.join(', ')}], collapseDetected=${hasCollapse}`;
+      if (needsRepair.length > 0 || hasCollapse) {
+        const errMsg = `Episode generation incomplete after ${MAX_REPAIR_CYCLES} repair cycles: missing/bad episodes [${needsRepair.join(', ')}], collapseEpisodes=[${collapseEpisodes.join(', ')}], collapseDetected=${hasCollapse}`;
         console.error(JSON.stringify({
           diag: "⚠️ EPISODE_GENERATION_FAILED",
           requestId,
           missing: needsRepair,
+          collapse_episodes: collapseEpisodes,
           collapse_detected: hasCollapse,
           message: errMsg,
         }));
@@ -275,11 +294,6 @@ export async function generateEpisodeBeatsChunked(opts: EpisodeBeatsOpts): Promi
     const repairBatches: number[][] = [];
     for (let i = 0; i < needsRepair.length; i += BATCH_SIZE) {
       repairBatches.push(needsRepair.slice(i, i + BATCH_SIZE));
-    }
-
-    // If collapse detected, also re-request first batch (most commonly collapsed)
-    if (hasCollapse && repairBatches.length === 0) {
-      repairBatches.push(batches[0]);
     }
 
     for (const repairBatch of repairBatches) {
