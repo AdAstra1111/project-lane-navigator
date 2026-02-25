@@ -519,6 +519,26 @@ export function NoteWritersRoomDrawer({
                     </Button>
                   )}
                 </div>
+                {/* Apply Changes button */}
+                {currentPlan?.status === 'confirmed' ? (
+                  <Button
+                    size="sm" className="w-full text-xs h-8 gap-1.5"
+                    onClick={() => applyChangePlan.mutate({ planId: currentPlan.id })}
+                    disabled={applyChangePlan.isPending}
+                  >
+                    {applyChangePlan.isPending
+                      ? <><Loader2 className="h-3 w-3 animate-spin" /> Applying...</>
+                      : <><Check className="h-3 w-3" /> Apply Changes</>
+                    }
+                  </Button>
+                ) : currentPlan?.status === 'draft' ? (
+                  <Button
+                    size="sm" variant="secondary" className="w-full text-xs h-8 gap-1.5"
+                    onClick={() => { setShowPlan(true); setTab('plan'); }}
+                  >
+                    <FileEdit className="h-3 w-3" /> Review & Confirm Plan
+                  </Button>
+                ) : null}
               </div>
             </TabsContent>
 
