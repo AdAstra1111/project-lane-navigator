@@ -29,18 +29,46 @@ function extractJSON(raw: string): string {
 async function callAI(apiKey: string, model: string, system: string, user: string, temperature = 0.3, maxTokens = 8000): Promise<string> {
   const MAX_RETRIES = 3;
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model,
-        messages: [{ role: "system", content: system }, { role: "user", content: user }],
-        temperature,
-        max_tokens: maxTokens,
-      }),
-    });
+    let response: Response;
+    try {
+      response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model,
+          messages: [{ role: "system", content: system }, { role: "user", content: user }],
+          temperature,
+          max_tokens: maxTokens,
+        }),
+      });
+    } catch (fetchErr: any) {
+      // Connection-level error (e.g. "error reading a body from connection")
+      console.error(`AI fetch error (attempt ${attempt + 1}/${MAX_RETRIES}):`, fetchErr?.message || fetchErr);
+      if (attempt < MAX_RETRIES - 1) {
+        const delay = Math.pow(2, attempt) * 3000;
+        console.log(`Retrying after connection error in ${delay}ms...`);
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+      throw new Error(`AI connection failed after ${MAX_RETRIES} attempts: ${fetchErr?.message || "unknown"}`);
+    }
+
+    // Read body safely — connection can drop during body read
+    let text: string;
+    try {
+      text = await response.text();
+    } catch (bodyErr: any) {
+      console.error(`AI body read error (attempt ${attempt + 1}/${MAX_RETRIES}):`, bodyErr?.message || bodyErr);
+      if (attempt < MAX_RETRIES - 1) {
+        const delay = Math.pow(2, attempt) * 3000;
+        console.log(`Retrying after body read error in ${delay}ms...`);
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+      throw new Error(`AI body read failed after ${MAX_RETRIES} attempts: ${bodyErr?.message || "unknown"}`);
+    }
+
     if (response.ok) {
-      const text = await response.text();
       if (!text || text.trim().length === 0) {
         console.error(`Empty response body from AI (attempt ${attempt + 1}/${MAX_RETRIES})`);
         if (attempt < MAX_RETRIES - 1) {
@@ -67,8 +95,7 @@ async function callAI(apiKey: string, model: string, system: string, user: strin
       }
       return data.choices?.[0]?.message?.content || "";
     }
-    const t = await response.text();
-    console.error(`AI error (attempt ${attempt + 1}/${MAX_RETRIES}):`, response.status, t);
+    console.error(`AI error (attempt ${attempt + 1}/${MAX_RETRIES}):`, response.status, text);
     if (response.status === 429) throw new Error("RATE_LIMIT");
     if (response.status === 402) throw new Error("PAYMENT_REQUIRED");
     if (response.status >= 500 && attempt < MAX_RETRIES - 1) {
