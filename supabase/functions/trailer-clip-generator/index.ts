@@ -1284,11 +1284,25 @@ async function handlePollPendingJobs(db: any, body: any, userId: string) {
   return json({ ok: true, polled: pollingJobs.length, completed, stillPolling, failed });
 }
 
-// ─── Action: progress ───
+// ─── Action: progress (DB-backed state reconstruction — refresh-safe) ───
 
 async function handleProgress(db: any, body: any) {
   const { projectId, blueprintId } = body;
   if (!blueprintId) return json({ error: "blueprintId required" }, 400);
+
+  // ── Stale job recovery: re-queue "running" jobs claimed > 15 min ago (worker crash recovery) ──
+  const STALE_THRESHOLD_MS = 15 * 60 * 1000;
+  const staleThreshold = new Date(Date.now() - STALE_THRESHOLD_MS).toISOString();
+  const { data: staleJobs } = await db.from("trailer_clip_jobs")
+    .update({ status: "queued", claimed_at: null, error: "Auto-recovered from stale running state" })
+    .eq("project_id", projectId).eq("blueprint_id", blueprintId)
+    .eq("status", "running")
+    .lt("claimed_at", staleThreshold)
+    .select("id");
+  const staleRecovered = (staleJobs || []).length;
+  if (staleRecovered > 0) {
+    console.log(`[progress] Recovered ${staleRecovered} stale running jobs for blueprint ${blueprintId}`);
+  }
 
   const { data: jobs } = await db.from("trailer_clip_jobs").select("id, beat_index, status, provider, candidate_index")
     .eq("project_id", projectId).eq("blueprint_id", blueprintId);
@@ -1302,7 +1316,7 @@ async function handleProgress(db: any, body: any) {
     counts[j.status as keyof typeof counts] = ((counts[j.status as keyof typeof counts] as number) || 0) + 1;
   }
 
-  // Per-beat summary
+  // Per-beat summary (deterministic: sorted by beat_index, then candidate_index)
   const beatSummary: Record<number, any> = {};
   for (const j of (jobs || [])) {
     if (!beatSummary[j.beat_index]) beatSummary[j.beat_index] = { jobs: [], clips: [], selectedClipId: null };
@@ -1318,7 +1332,7 @@ async function handleProgress(db: any, body: any) {
   const { data: runs } = await db.from("trailer_clip_runs").select("*")
     .eq("blueprint_id", blueprintId).order("created_at", { ascending: false }).limit(5);
 
-  return json({ ok: true, counts, beatSummary, clipCount: (clips || []).length, runs: runs || [] });
+  return json({ ok: true, counts, beatSummary, clipCount: (clips || []).length, runs: runs || [], staleRecovered });
 }
 
 // ─── Action: retry_job ───

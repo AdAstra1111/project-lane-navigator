@@ -1,7 +1,8 @@
 /**
  * Clip Candidates Studio — Per-beat video clip generation + selection UI
+ * All state is DB-backed. UI reconstructs fully from DB on mount/refresh.
  */
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
 import { updateSearchParams } from '@/lib/searchParams';
 import {
@@ -24,6 +25,7 @@ import { useClipProgress, useClipPolling, useAutoProcessQueue, useClipsList, use
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { toast } from 'sonner';
 import type { EDLBeat, TrailerClip } from '@/lib/trailerPipeline/types';
+import { isReadyStatus } from '@/lib/trailerPipeline/constants';
 
 const ROLE_COLORS: Record<string, string> = {
   hook: 'bg-red-500/20 text-red-300',
@@ -61,9 +63,21 @@ export default function ClipCandidatesStudio({ embedded }: { embedded?: boolean 
   const blueprintIdParam = searchParams.get('runId') || searchParams.get('blueprintId') || undefined;
   const [expandedBeats, setExpandedBeats] = useState<Set<number>>(new Set());
   const [showProcessingBar, setShowProcessingBar] = useState(false);
-  const [providerVeo, setProviderVeo] = useState(true);
-  const [providerRunway, setProviderRunway] = useState(false);
   const [showRejected, setShowRejected] = useState(false);
+
+  // Persist provider toggles in sessionStorage so they survive refresh
+  const storageKey = `clip-providers-${projectId}`;
+  const [providerVeo, setProviderVeo] = useState(() => {
+    try { const s = sessionStorage.getItem(storageKey); return s ? JSON.parse(s).veo ?? true : true; } catch { return true; }
+  });
+  const [providerRunway, setProviderRunway] = useState(() => {
+    try { const s = sessionStorage.getItem(storageKey); return s ? JSON.parse(s).runway ?? false : false; } catch { return false; }
+  });
+
+  // Write provider toggles to sessionStorage on change
+  useEffect(() => {
+    try { sessionStorage.setItem(storageKey, JSON.stringify({ veo: providerVeo, runway: providerRunway })); } catch {}
+  }, [providerVeo, providerRunway, storageKey]);
 
   const enabledProviders = useMemo(() => {
     const p: string[] = [];
@@ -74,7 +88,7 @@ export default function ClipCandidatesStudio({ embedded }: { embedded?: boolean 
 
   // Queries
   const { data: bpListData } = useBlueprints(projectId);
-  const blueprints = useMemo(() => (bpListData?.blueprints || []).filter((bp: any) => bp.status === 'complete' || bp.status === 'v2_shim' || bp.status === 'ready'), [bpListData]);
+  const blueprints = useMemo(() => (bpListData?.blueprints || []).filter((bp: any) => isReadyStatus(bp.status)), [bpListData]);
 
   // Auto-select latest blueprint if none specified
   const blueprintId = blueprintIdParam || (blueprints.length > 0 ? blueprints[0].id : undefined);
