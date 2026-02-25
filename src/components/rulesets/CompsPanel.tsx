@@ -9,7 +9,7 @@ import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
-  Search, Star, Loader2, FileText, ChevronDown, CheckCircle2, Plus, Eye,
+  Search, Star, Loader2, FileText, ChevronDown, CheckCircle2, Plus, Eye, Film, Tv, Smartphone,
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { INFLUENCE_DIMENSIONS, type InfluenceDimension } from '@/lib/rulesets/types';
@@ -69,11 +69,36 @@ interface CompsPanelProps {
   onInfluencersSet?: () => void;
 }
 
+function inferBucket(c: Candidate): 'vertical' | 'series' | 'film' {
+  if (c.query?.format_bucket) {
+    const b = c.query.format_bucket.toLowerCase();
+    if (b === 'vertical') return 'vertical';
+    if (b === 'series') return 'series';
+    return 'film';
+  }
+  const f = (c.format || '').toLowerCase();
+  if (f === 'vertical' || f === 'vertical_drama' || f === 'short-form') return 'vertical';
+  if (f === 'series' || f === 'tv' || f === 'streaming') return 'series';
+  return 'film';
+}
+
+const BUCKET_CONFIG = {
+  vertical: { label: 'Vertical Drama Comps', icon: Smartphone, description: 'Short-form vertical dramas', color: 'text-primary' },
+  series: { label: 'Format-Adjacent Series', icon: Tv, description: 'TV/streaming series with similar tone', color: 'text-muted-foreground' },
+  film: { label: 'Film Comps', icon: Film, description: 'Films with similar premise/tone', color: 'text-muted-foreground' },
+};
+
 export function CompsPanel({ projectId, lane, userId, onInfluencersSet }: CompsPanelProps) {
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [loading, setLoading] = useState(false);
   const [selections, setSelections] = useState<Record<string, InfluencerSelection>>({});
   const [saving, setSaving] = useState(false);
+
+  // Format filter toggles
+  const isVertical = lane === 'vertical_drama';
+  const [includeFilms, setIncludeFilms] = useState(!isVertical);
+  const [includeSeries, setIncludeSeries] = useState(true);
+  const [includeVertical, setIncludeVertical] = useState(isVertical);
 
   // Auto-seed state
   const [useProjectDocs, setUseProjectDocs] = useState(true);
@@ -123,6 +148,9 @@ export function CompsPanel({ projectId, lane, userId, onInfluencersSet }: CompsP
           user_id: userId,
           use_project_docs: useProjectDocs,
           seed_override: showSeedOverride && seedOverride.trim() ? seedOverride.trim() : null,
+          include_films: includeFilms,
+          include_series: includeSeries,
+          include_vertical: includeVertical,
           filters: {},
         },
       });
@@ -249,6 +277,122 @@ export function CompsPanel({ projectId, lane, userId, onInfluencersSet }: CompsP
 
   const selectedCount = Object.keys(selections).length;
 
+  // Bucket candidates
+  const verticalCandidates = candidates.filter(c => inferBucket(c) === 'vertical');
+  const seriesCandidates = candidates.filter(c => inferBucket(c) === 'series');
+  const filmCandidates = candidates.filter(c => inferBucket(c) === 'film');
+
+  const renderCandidateCard = (c: Candidate) => {
+    const selected = !!selections[c.id];
+    const isUserValidated = c.query?.source === 'user_requested_lookup';
+    const bucket = inferBucket(c);
+    const whyComp = c.query?.why_this_comp;
+
+    return (
+      <div
+        key={c.id}
+        className={`p-2 rounded-md border text-xs cursor-pointer transition-colors ${
+          selected ? 'border-primary bg-primary/5' : 'border-border/50 hover:border-border'
+        }`}
+        onClick={() => toggleCandidate(c.id)}
+      >
+        <div className="flex items-start gap-2">
+          <Checkbox checked={selected} className="mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="font-medium truncate">{c.title}</span>
+              {c.year && <span className="text-muted-foreground">({c.year})</span>}
+              <Badge
+                variant="outline"
+                className={`text-[9px] shrink-0 ${
+                  bucket === 'vertical' ? 'border-primary/40 text-primary' :
+                  bucket === 'series' ? 'border-secondary text-secondary-foreground' :
+                  'border-muted text-muted-foreground'
+                }`}
+              >
+                {c.format}
+              </Badge>
+              {isUserValidated && (
+                <Badge variant="secondary" className="text-[8px] shrink-0">
+                  <CheckCircle2 className="h-2.5 w-2.5 mr-0.5" />
+                  validated
+                </Badge>
+              )}
+            </div>
+            <p className="text-muted-foreground mt-0.5 line-clamp-2">{c.rationale}</p>
+            {whyComp && (
+              <p className="text-[9px] text-primary/70 mt-0.5 italic">{whyComp}</p>
+            )}
+            {c.genres?.length > 0 && (
+              <div className="flex gap-1 mt-1 flex-wrap">
+                {(c.genres as string[]).slice(0, 3).map(g => (
+                  <Badge key={g} variant="secondary" className="text-[8px]">{g}</Badge>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {selected && (
+          <div className="mt-2 pl-6 space-y-2" onClick={e => e.stopPropagation()}>
+            <div className="space-y-1">
+              <label className="text-[10px] text-muted-foreground">Weight</label>
+              <Slider
+                value={[selections[c.id].weight]}
+                min={0.1} max={2.0} step={0.1}
+                onValueChange={([v]) => updateSelection(c.id, { weight: v })}
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[10px] text-muted-foreground">Influence Dimensions</label>
+              <div className="flex flex-wrap gap-1">
+                {INFLUENCE_DIMENSIONS.map(dim => (
+                  <Badge
+                    key={dim}
+                    variant={selections[c.id].dimensions.includes(dim) ? 'default' : 'outline'}
+                    className="text-[8px] cursor-pointer"
+                    onClick={() => toggleDimension(c.id, dim)}
+                  >
+                    {DIM_LABELS[dim]}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderBucket = (
+    bucketKey: 'vertical' | 'series' | 'film',
+    items: Candidate[],
+    defaultOpen: boolean,
+  ) => {
+    if (items.length === 0) return null;
+    const config = BUCKET_CONFIG[bucketKey];
+    const Icon = config.icon;
+
+    return (
+      <Collapsible defaultOpen={defaultOpen}>
+        <CollapsibleTrigger className="flex items-center justify-between w-full py-1.5 text-xs hover:bg-muted/20 rounded px-1">
+          <div className="flex items-center gap-1.5">
+            <Icon className={`h-3.5 w-3.5 ${config.color}`} />
+            <span className="font-medium">{config.label}</span>
+            <Badge variant="outline" className="text-[8px] px-1.5 py-0">{items.length}</Badge>
+          </div>
+          <ChevronDown className="h-3 w-3 text-muted-foreground" />
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <p className="text-[9px] text-muted-foreground mb-1.5 px-1">{config.description}</p>
+          <div className="space-y-1.5">
+            {items.map(renderCandidateCard)}
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
+    );
+  };
+
   return (
     <Card className="border-border/50">
       <CardHeader className="pb-3">
@@ -270,6 +414,25 @@ export function CompsPanel({ projectId, lane, userId, onInfluencersSet }: CompsP
               Find Comparables
             </Button>
           </div>
+
+          {/* ── Format Filter Toggles ── */}
+          {isVertical && (
+            <div className="flex items-center gap-4 text-[10px] bg-muted/30 rounded-md p-2">
+              <span className="text-muted-foreground font-medium shrink-0">Format filters:</span>
+              <div className="flex items-center gap-1.5">
+                <Switch checked={includeVertical} onCheckedChange={setIncludeVertical} className="scale-75" />
+                <span className="text-muted-foreground">Vertical</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <Switch checked={includeSeries} onCheckedChange={setIncludeSeries} className="scale-75" />
+                <span className="text-muted-foreground">Series</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <Switch checked={includeFilms} onCheckedChange={setIncludeFilms} className="scale-75" />
+                <span className="text-muted-foreground">Films</span>
+              </div>
+            </div>
+          )}
 
           {/* Seed Sources Display */}
           {seedSources.length > 0 && (
@@ -370,28 +533,41 @@ export function CompsPanel({ projectId, lane, userId, onInfluencersSet }: CompsP
               <p className="text-[10px] text-muted-foreground font-medium">
                 Select the correct match:
               </p>
-              {lookupMatches.map((m, i) => (
-                <div
-                  key={`${m.title}-${m.year}-${i}`}
-                  className="flex items-center justify-between gap-2 p-1.5 rounded border border-border/50 bg-background text-xs"
-                >
-                  <div className="min-w-0">
-                    <span className="font-medium">{m.title}</span>
-                    {m.year && <span className="text-muted-foreground ml-1">({m.year})</span>}
-                    <Badge variant="outline" className="text-[8px] ml-1.5">{m.format}</Badge>
-                    <p className="text-[10px] text-muted-foreground mt-0.5 line-clamp-1">{m.rationale}</p>
-                  </div>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-6 text-[10px] shrink-0 text-primary"
-                    onClick={() => confirmLookupMatch(m)}
+              {lookupMatches.map((m, i) => {
+                const matchBucket = inferBucket({ format: m.format } as Candidate);
+                const isLaneFit = (isVertical && matchBucket === 'vertical') || (!isVertical && matchBucket !== 'vertical');
+                return (
+                  <div
+                    key={`${m.title}-${m.year}-${i}`}
+                    className={`flex items-center justify-between gap-2 p-1.5 rounded border text-xs ${
+                      isLaneFit ? 'border-primary/30 bg-primary/5' : 'border-border/50 bg-background'
+                    }`}
                   >
-                    <CheckCircle2 className="h-3 w-3 mr-0.5" />
-                    This one
-                  </Button>
-                </div>
-              ))}
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-medium">{m.title}</span>
+                        {m.year && <span className="text-muted-foreground">({m.year})</span>}
+                        <Badge variant="outline" className="text-[8px]">{m.format}</Badge>
+                        {isLaneFit && (
+                          <Badge variant="secondary" className="text-[8px] bg-primary/10 text-primary">
+                            Best fit
+                          </Badge>
+                        )}
+                      </div>
+                      <p className="text-[10px] text-muted-foreground mt-0.5 line-clamp-1">{m.rationale}</p>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-6 text-[10px] shrink-0 text-primary"
+                      onClick={() => confirmLookupMatch(m)}
+                    >
+                      <CheckCircle2 className="h-3 w-3 mr-0.5" />
+                      This one
+                    </Button>
+                  </div>
+                );
+              })}
               <button
                 onClick={() => { setShowLookupResults(false); setLookupMatches([]); }}
                 className="text-[10px] text-muted-foreground hover:text-foreground"
@@ -410,75 +586,27 @@ export function CompsPanel({ projectId, lane, userId, onInfluencersSet }: CompsP
           </div>
         )}
 
-        {/* ── Candidate List ── */}
+        {/* ── Bucketed Candidate List ── */}
         {candidates.length > 0 && (
-          <div className="space-y-2 max-h-80 overflow-y-auto">
-            {candidates.map(c => {
-              const selected = !!selections[c.id];
-              const isUserValidated = c.query?.source === 'user_requested_lookup';
-              return (
-                <div
-                  key={c.id}
-                  className={`p-2 rounded-md border text-xs cursor-pointer transition-colors ${
-                    selected ? 'border-primary bg-primary/5' : 'border-border/50 hover:border-border'
-                  }`}
-                  onClick={() => toggleCandidate(c.id)}
-                >
-                  <div className="flex items-start gap-2">
-                    <Checkbox checked={selected} className="mt-0.5" />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5">
-                        <span className="font-medium truncate">{c.title}</span>
-                        {c.year && <span className="text-muted-foreground">({c.year})</span>}
-                        <Badge variant="outline" className="text-[9px] shrink-0">{c.format}</Badge>
-                        {isUserValidated && (
-                          <Badge variant="secondary" className="text-[8px] shrink-0">
-                            <CheckCircle2 className="h-2.5 w-2.5 mr-0.5" />
-                            validated
-                          </Badge>
-                        )}
-                      </div>
-                      <p className="text-muted-foreground mt-0.5 line-clamp-2">{c.rationale}</p>
-                      {c.genres?.length > 0 && (
-                        <div className="flex gap-1 mt-1 flex-wrap">
-                          {(c.genres as string[]).slice(0, 3).map(g => (
-                            <Badge key={g} variant="secondary" className="text-[8px]">{g}</Badge>
-                          ))}
-                        </div>
-                      )}
-                    </div>
+          <div className="space-y-3 max-h-[500px] overflow-y-auto">
+            {isVertical ? (
+              <>
+                {renderBucket('vertical', verticalCandidates, true)}
+                {renderBucket('series', seriesCandidates, true)}
+                {renderBucket('film', filmCandidates, false)}
+                {verticalCandidates.length === 0 && seriesCandidates.length === 0 && (
+                  <div className="text-center py-3 text-[10px] text-muted-foreground bg-muted/20 rounded-md">
+                    <p>No vertical or series comps found.</p>
+                    <p>Try enabling "Include Films" or refining your seed.</p>
                   </div>
-
-                  {selected && (
-                    <div className="mt-2 pl-6 space-y-2" onClick={e => e.stopPropagation()}>
-                      <div className="space-y-1">
-                        <label className="text-[10px] text-muted-foreground">Weight</label>
-                        <Slider
-                          value={[selections[c.id].weight]}
-                          min={0.1} max={2.0} step={0.1}
-                          onValueChange={([v]) => updateSelection(c.id, { weight: v })}
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[10px] text-muted-foreground">Influence Dimensions</label>
-                        <div className="flex flex-wrap gap-1">
-                          {INFLUENCE_DIMENSIONS.map(dim => (
-                            <Badge
-                              key={dim}
-                              variant={selections[c.id].dimensions.includes(dim) ? 'default' : 'outline'}
-                              className="text-[8px] cursor-pointer"
-                              onClick={() => toggleDimension(c.id, dim)}
-                            >
-                              {DIM_LABELS[dim]}
-                            </Badge>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+                )}
+              </>
+            ) : (
+              // Non-vertical lanes: show flat list
+              <div className="space-y-1.5">
+                {candidates.map(renderCandidateCard)}
+              </div>
+            )}
           </div>
         )}
 
