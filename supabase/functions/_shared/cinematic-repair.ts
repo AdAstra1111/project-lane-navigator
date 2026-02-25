@@ -20,7 +20,7 @@ const BULLET_TEXT: Record<string, (u: string) => string> = {
   FLATLINE: u => `Avoid consecutive ${u}s with identical energy; include ≥0.20 jump.`,
   LOW_CONTRAST: () => `Add a contrast pivot: calm-to-chaos or hope-to-threat.`,
   TONAL_WHIPLASH: () => `Reduce polarity flips. Max 1 flip across the sequence.`,
-  TOO_SHORT: u => `Ensure at least 4 ${u}s in the output.`,
+  TOO_SHORT: u => `Unit count must match the required ${u} count exactly (no more, no less).`,
   WEAK_ARC: () => `Build a clear arc: restrained start, build through mid, peak near end.`,
   LOW_INTENT_DIVERSITY: u => `Use ≥3 distinct intents across ${u}s.`,
   PACING_MISMATCH: u => `Fix pacing: late ${u}s need higher density than early ones.`,
