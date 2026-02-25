@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { callLLM, MODELS, extractJSON } from "../_shared/llm.ts";
+import { callLLM, MODELS, parseAiJson } from "../_shared/llm.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -238,9 +238,10 @@ No commentary outside the JSON array.`,
 
   let candidates: any[];
   try {
-    candidates = JSON.parse(extractJSON(result.content));
-    if (!Array.isArray(candidates)) candidates = [];
-  } catch {
+    const parsed = parseAiJson(result.content, { handler: "find_candidates", model: MODELS.FAST });
+    candidates = Array.isArray(parsed) ? parsed : (parsed?.candidates || []);
+  } catch (e) {
+    console.error("find_candidates parse error:", e);
     candidates = [];
   }
 
@@ -322,9 +323,10 @@ No commentary outside the JSON array.`,
 
   let matches: any[];
   try {
-    matches = JSON.parse(extractJSON(result.content));
-    if (!Array.isArray(matches)) matches = [];
-  } catch {
+    const parsed = parseAiJson(result.content, { handler: "lookup_comp", model: MODELS.FAST });
+    matches = Array.isArray(parsed) ? parsed : (parsed?.matches || []);
+  } catch (e) {
+    console.error("lookup_comp parse error:", e);
     matches = [];
   }
 
