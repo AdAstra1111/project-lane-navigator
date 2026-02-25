@@ -6,49 +6,46 @@ import type { CinematicScore, CinematicFailureCode } from "./cinematic-model.ts"
 import { CINEMATIC_THRESHOLDS } from "./cinematic-score.ts";
 import { lateStartIndexForUnitCount, minUpFracForUnitCount, maxZigzagFlipsForUnitCount } from "./cik/ladderLockConstants.ts";
 
-function failureBullets(failures: CinematicFailureCode[], domain: "trailer" | "storyboard"): string[] {
-  const bullets: string[] = [];
-  const unitLabel = domain === "trailer" ? "beat" : "panel";
+// Deterministic priority order for failure bullets (Critical→Structure→Pacing→Tone→Metadata)
+const BULLET_PRIORITY: readonly CinematicFailureCode[] = [
+  "TOO_SHORT", "NO_PEAK", "NO_ESCALATION", "WEAK_ARC",
+  "FLATLINE", "ENERGY_DROP", "DIRECTION_REVERSAL",
+  "LOW_CONTRAST", "PACING_MISMATCH", "TONAL_WHIPLASH",
+  "LOW_INTENT_DIVERSITY", "EYE_LINE_BREAK",
+];
 
-  for (const f of failures) {
-    switch (f) {
-      case "NO_PEAK":
-        bullets.push(`• Ensure at least one climax ${unitLabel} late in the sequence has very high energy/tension (movement_intensity_target >= 9 for trailers, vivid action for storyboards).`);
-        break;
-      case "NO_ESCALATION":
-        bullets.push(`• Later ${unitLabel}s MUST have noticeably higher energy than early ${unitLabel}s. Build a clear upward trajectory.`);
-        break;
-      case "FLATLINE":
-        bullets.push(`• Avoid consecutive ${unitLabel}s with nearly identical energy. Include at least one jump of ≥0.20 energy between adjacent ${unitLabel}s.`);
-        break;
-      case "LOW_CONTRAST":
-        bullets.push(`• Add a clear contrast pivot: a calm-to-chaos or hope-to-threat transition within the sequence.`);
-        break;
-      case "TONAL_WHIPLASH":
-        bullets.push(`• Reduce abrupt polarity flips. Add ramp/transition ${unitLabel}s between tonal shifts. Max 1 polarity flip across the sequence.`);
-        break;
-      case "TOO_SHORT":
-        bullets.push(`• Ensure at least 4 ${unitLabel}s in the output.`);
-        break;
-      case "WEAK_ARC":
-        bullets.push(`• Build a clear dramatic arc: start restrained, build through mid, peak near the end.`);
-        break;
-      case "LOW_INTENT_DIVERSITY":
-        bullets.push(`• Use at least 3 distinct intents across ${unitLabel}s (e.g., intrigue, threat, chaos, emotion, release).`);
-        break;
-      case "PACING_MISMATCH":
-        bullets.push(`• Fix pacing: late ${unitLabel}s should have higher density than early ones. Avoid uniform density throughout.`);
-        break;
-      case "ENERGY_DROP":
-        bullets.push(`• Do NOT let energy drop in the final ${unitLabel}s. The ending must maintain or exceed mid-sequence energy.`);
-        break;
-      case "DIRECTION_REVERSAL":
-        bullets.push(`• Reduce energy zigzag. Energy should trend upward overall, not alternate high-low-high repeatedly.`);
-        break;
-      case "EYE_LINE_BREAK":
-        bullets.push(`• Ensure visual continuity: consecutive ${unitLabel}s should have coherent intent progression, not random jumps.`);
-        break;
-    }
+const BULLET_TEXT: Record<string, (u: string) => string> = {
+  NO_PEAK: u => `Ensure a climax ${u} late with very high energy/tension.`,
+  NO_ESCALATION: u => `Later ${u}s MUST have higher energy than early ${u}s.`,
+  FLATLINE: u => `Avoid consecutive ${u}s with identical energy; include ≥0.20 jump.`,
+  LOW_CONTRAST: () => `Add a contrast pivot: calm-to-chaos or hope-to-threat.`,
+  TONAL_WHIPLASH: () => `Reduce polarity flips. Max 1 flip across the sequence.`,
+  TOO_SHORT: u => `Ensure at least 4 ${u}s in the output.`,
+  WEAK_ARC: () => `Build a clear arc: restrained start, build through mid, peak near end.`,
+  LOW_INTENT_DIVERSITY: u => `Use ≥3 distinct intents across ${u}s.`,
+  PACING_MISMATCH: u => `Fix pacing: late ${u}s need higher density than early ones.`,
+  ENERGY_DROP: u => `Do NOT let energy drop in final ${u}s.`,
+  DIRECTION_REVERSAL: () => `Reduce energy zigzag; trend upward overall.`,
+  EYE_LINE_BREAK: u => `Ensure visual continuity between consecutive ${u}s.`,
+};
+
+function failureBullets(failures: CinematicFailureCode[], domain: "trailer" | "storyboard"): string[] {
+  const unitLabel = domain === "trailer" ? "beat" : "panel";
+  // Sort by deterministic priority
+  const sorted = [...failures].sort((a, b) => {
+    const ia = BULLET_PRIORITY.indexOf(a);
+    const ib = BULLET_PRIORITY.indexOf(b);
+    return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+  });
+  const MAX_BULLETS = 6;
+  const shown = sorted.slice(0, MAX_BULLETS);
+  const rest = sorted.slice(MAX_BULLETS);
+  const bullets = shown.map(f => {
+    const fn = BULLET_TEXT[f];
+    return fn ? `• ${fn(unitLabel)}` : `• Fix: ${f}`;
+  });
+  if (rest.length > 0) {
+    bullets.push(`• Also address: ${rest.join(", ")}.`);
   }
   return bullets;
 }
@@ -144,17 +141,16 @@ export function numericTargetsForFailures(args: {
     }
   }
 
-  // CIK v3.12 — Ladder lock targets (when any ladder failure present)
+  // CIK v3.12 — Compact ladder targets (when any ladder failure present)
   const hasLadderFailure = failures.some(f => LADDER_FAILURES.has(f));
   if (hasLadderFailure && unitCount >= 3) {
     const lateStart = lateStartIndexForUnitCount(unitCount);
     const minUp = minUpFracForUnitCount(unitCount);
     const maxFlips = maxZigzagFlipsForUnitCount(unitCount);
-    out.push(`Adjacent rises: ≥ ${Math.round(minUp * 100)}% of transitions must go up`);
-    out.push(`Meaningful decreases: ≤ 1 total; and 0 in final 25%`);
-    out.push(`Peak in final 25%: units ${lateStart + 1}–${unitCount}`);
-    out.push(`Zigzag flips ≤ ${maxFlips}`);
-    // Mark all ladder failures as covered
+    out.push(`Rises ≥ ${Math.round(minUp * 100)}%`);
+    out.push(`Dips ≤1; 0 in final 25%`);
+    out.push(`Peak units ${lateStart + 1}–${unitCount}`);
+    out.push(`Zigzags ≤ ${maxFlips}`);
     for (const f of failures) {
       if (LADDER_FAILURES.has(f)) covered.add(f);
     }
@@ -210,13 +206,8 @@ PROCEDURE (MANDATORY, ATTEMPT 1)
 Rules:
 - No new characters/settings/props not already implied.`;
 
-const PROCEDURE_LADDER_LOCK = `
-LADDER LOCK (MANDATORY, ATTEMPT 1)
-- Adjacent units must generally RISE in intensity (energy/tension/density).
-- Allow at most ONE intentional dip before the midpoint ("twist"); ZERO dips in final 25%.
-- Peak must land in the final 25% of units.
-- Reorder or delete first to enforce the ladder; only rephrase after structure is correct.
-- Keep exact unit count; no new intents/characters/settings.`;
+const LADDER_LOCK_SUFFIX = `
+LADDER LOCK (ATTEMPT 1): adjacent units generally rise; ≤1 dip total (midpoint only); 0 dips in final 25%; peak in final 25%; reorder/delete before rephrase; keep exact unitCount; no new intents/chars/setting.`;
 
 export function addIntentSequencingHint(base: string, failures: string[]): string {
   if (!failures.includes("LOW_INTENT_DIVERSITY") && !failures.includes("WEAK_ARC")) return base;
@@ -247,7 +238,7 @@ TONAL RAMP LOCK (REPAIR ONLY):
  * Drops optional sections if total exceeds MAX_REPAIR_CHARS.
  * Never drops: shape guard, numeric targets, no-new-intent, procedure.
  */
-const MAX_REPAIR_CHARS = 3500;
+const MAX_REPAIR_CHARS = 2500;
 
 interface RepairSection {
   label: string;
@@ -306,36 +297,27 @@ Maintain all existing required fields and overall structure.`;
     ? `\nNUMERIC TARGETS (MUST MEET):\n${deconflictedStaticTargets.join("\n")}`
     : "";
 
-  // Procedure block by domain
-  const procedureBlock = domain === "storyboard" ? PROCEDURE_STORYBOARD : PROCEDURE_TRAILER;
+  // Procedure block by domain — append ladder suffix when ladder failures present
+  const LADDER_FAILURE_SET = new Set(["DIRECTION_REVERSAL", "ENERGY_DROP", "FLATLINE", "PACING_MISMATCH", "WEAK_ARC"]);
+  const hasLadderFailure = score.failures.some(f => LADDER_FAILURE_SET.has(f));
+  const baseProcedure = domain === "storyboard" ? PROCEDURE_STORYBOARD : PROCEDURE_TRAILER;
+  const procedureBlock = hasLadderFailure ? baseProcedure + LADDER_LOCK_SUFFIX : baseProcedure;
 
   // Optional sections
   const intentHint = (score.failures.includes("LOW_INTENT_DIVERSITY") || score.failures.includes("WEAK_ARC"))
     ? `\nINTENT ARC SUGGESTION (REPAIR ONLY):
-- Early units: intrigue or wonder (setup/mystery)
-- Mid units: threat or chaos (escalation)
-- Late units: emotion or release (resolution/button)
-Rules:
-- Use at least 3 distinct intents across units.
-- Keep peak intensity in final 2 units.`
+- Early: intrigue/wonder; Mid: threat/chaos; Late: emotion/release.
+- ≥3 distinct intents; peak intensity in final 2 units.`
     : "";
 
   const polarityLock = (score.failures.includes("TONAL_WHIPLASH") || score.failures.includes("WEAK_ARC"))
-    ? `\nTONAL RAMP LOCK (REPAIR ONLY):
-- No more than 1 polarity sign flip across units.
-- Adjacent tonal_polarity changes should be gradual (prefer step <= 0.6).
-- Use a ramp (generally darker->lighter or lighter->darker), not oscillation.`
+    ? `\nTONAL RAMP LOCK: ≤1 polarity flip; gradual changes (step ≤0.6); use a ramp not oscillation.`
     : "";
-
-  // Check if ladder-related failures are present for procedure block
-  const LADDER_FAILURE_SET = new Set(["DIRECTION_REVERSAL", "ENERGY_DROP", "FLATLINE", "PACING_MISMATCH", "WEAK_ARC"]);
-  const hasLadderFailure = score.failures.some(f => LADDER_FAILURE_SET.has(f));
 
   const sections: RepairSection[] = [
     { label: "core", text: coreBase, priority: 100 },
     { label: "no-new-intent", text: NO_NEW_INTENT_BLOCK, priority: 95 },
     { label: "procedure", text: procedureBlock, priority: 92 },
-    ...(hasLadderFailure ? [{ label: "ladder-procedure", text: PROCEDURE_LADDER_LOCK, priority: 91 }] : []),
     { label: "context-targets", text: contextTargetsBlock, priority: 90 },
     { label: "static-targets", text: staticTargetsBlock, priority: 85 },
     { label: "polarity-lock", text: polarityLock, priority: 30 },
