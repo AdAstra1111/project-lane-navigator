@@ -40,7 +40,7 @@ export interface BuildEngineOptsArgs<T> {
  * Reads project.assigned_lane and maps it to opts.lane.
  */
 export function buildEngineOpts<T>(args: BuildEngineOptsArgs<T>): CinematicQualityOpts<T> {
-  const lane = args.project.assigned_lane || undefined;
+  const lane = args.project.assigned_lane?.trim().toLowerCase().replace(/-/g, "_") || undefined;
   return {
     handler: args.handler,
     phase: args.phase,

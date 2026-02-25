@@ -498,15 +498,45 @@ function runJudgeGates(scores: Record<string, number>): { passed: boolean; block
 
 async function checkIdempotency(db: any, projectId: string, trailerType: string, idempotencyKey?: string): Promise<string | null> {
   if (!idempotencyKey) return null;
+
   const { data } = await db.from("trailer_script_runs")
-    .select("id, status")
+    .select("id, status, created_at")
     .eq("project_id", projectId)
     .eq("trailer_type", trailerType)
     .eq("seed", idempotencyKey)
     .in("status", ["queued", "running", "complete"])
-    .limit(1)
-    .single();
-  return data?.id || null;
+    .order("created_at", { ascending: false })
+    .limit(5);
+
+  if (!data?.length) return null;
+
+  // If we already have a completed run for this seed, reuse it.
+  const completed = data.find((r: any) => r.status === "complete");
+  if (completed?.id) return completed.id;
+
+  // Keep active dedupe only for fresh queued/running runs (prevents stale lockups).
+  const now = Date.now();
+  const STALE_MS = 10 * 60 * 1000;
+  const freshActive = data.find((r: any) => {
+    if (!(r.status === "queued" || r.status === "running")) return false;
+    const createdAtMs = Date.parse(r.created_at || "");
+    return Number.isFinite(createdAtMs) && (now - createdAtMs) < STALE_MS;
+  });
+
+  if (freshActive?.id) return freshActive.id;
+
+  // Mark stale active runs as error so retries can create a clean run.
+  const staleIds = data
+    .filter((r: any) => r.status === "queued" || r.status === "running")
+    .map((r: any) => r.id);
+
+  if (staleIds.length > 0) {
+    await db.from("trailer_script_runs")
+      .update({ status: "error", warnings: ["Stale run auto-closed; please retry generation."] })
+      .in("id", staleIds);
+  }
+
+  return null;
 }
 
 // ─── fetchCanonPack replaced by shared compileTrailerContext ───
@@ -535,6 +565,7 @@ async function handleCreateTrailerScript(db: any, body: any, userId: string, api
     const { data: projRow } = await db.from("projects").select("assigned_lane").eq("id", projectId).single();
     projectLane = projRow?.assigned_lane || undefined;
   } catch { /* no lane available — defaults apply */ }
+  const normalizedProjectLane = projectLane?.trim().toLowerCase().replace(/-/g, "_");
 
   // ── Use shared canon pack context builder ──
   const packCtx = await compileTrailerContext(db, projectId, canonPackId);
@@ -816,32 +847,47 @@ No markdown.`;
     // ── CIK quality gate (1 bounded repair attempt) ──
     const rawBeats = parsedRaw?.beats || (Array.isArray(parsedRaw) ? parsedRaw : []);
     const trailerExpectedUnitCount = rawBeats.length > 0 ? rawBeats.length : undefined;
-    const cikRouter0 = selectCikModel({ attemptIndex: 0, lane: projectLane || "unknown" });
-    const cikRouter1 = selectCikModel({ attemptIndex: 1, lane: projectLane || "unknown", attempt0HardFailures: [] }); // placeholder; actual failures not known yet
-    const parsed = await enforceCinematicQuality({
-      handler: "trailer-cinematic-engine",
-      phase: "create_trailer_script_v2",
-      model: MODELS.PRO,
-      rawOutput: parsedRaw,
-      adapter: (raw: any) => adaptTrailerOutputWithMode(raw, trailerExpectedUnitCount),
-      buildRepairInstruction: buildTrailerRepairInstruction,
-      expected_unit_count: trailerExpectedUnitCount,
-      lane: projectLane,
-      modelRouter: { attempt0: cikRouter0, attempt1: cikRouter1 },
-      regenerateOnce: async (repairInstruction: string) => {
-        return await callLLMWithJsonRetry({
-          apiKey,
-          model: MODELS.PRO,
-          system: systemMsg + "\n\n" + repairInstruction,
-          user: userPrompt,
-          temperature: 0.4,
-          maxTokens: 14000,
-        }, {
-          handler: "create_trailer_script_v2_repair",
-          validate: (d): d is any => Array.isArray(d) || (d && Array.isArray(d.beats)),
-        });
-      },
-    });
+    const cikRouter0 = selectCikModel({ attemptIndex: 0, lane: normalizedProjectLane || "unknown" });
+    const cikRouter1 = selectCikModel({ attemptIndex: 1, lane: normalizedProjectLane || "unknown", attempt0HardFailures: [] }); // placeholder; actual failures not known yet
+
+    let parsed: any;
+    let qualitySoftFailWarning: string | null = null;
+    try {
+      parsed = await enforceCinematicQuality({
+        handler: "trailer-cinematic-engine",
+        phase: "create_trailer_script_v2",
+        model: MODELS.PRO,
+        rawOutput: parsedRaw,
+        adapter: (raw: any) => adaptTrailerOutputWithMode(raw, trailerExpectedUnitCount),
+        buildRepairInstruction: buildTrailerRepairInstruction,
+        expected_unit_count: trailerExpectedUnitCount,
+        lane: normalizedProjectLane,
+        modelRouter: { attempt0: cikRouter0, attempt1: cikRouter1 },
+        regenerateOnce: async (repairInstruction: string) => {
+          return await callLLMWithJsonRetry({
+            apiKey,
+            model: MODELS.PRO,
+            system: systemMsg + "\n\n" + repairInstruction,
+            user: userPrompt,
+            temperature: 0.4,
+            maxTokens: 14000,
+          }, {
+            handler: "create_trailer_script_v2_repair",
+            validate: (d): d is any => Array.isArray(d) || (d && Array.isArray(d.beats)),
+          });
+        },
+      });
+    } catch (qualityErr: any) {
+      if (qualityErr?.type === "AI_CINEMATIC_QUALITY_FAIL") {
+        // Soft-fail for script generation: keep beats so downstream rhythm/shot stages can still run.
+        parsed = parsedRaw;
+        qualitySoftFailWarning = typeof qualityErr?.message === "string"
+          ? qualityErr.message
+          : "CIK quality gate failed; script marked needs_repair for iterative refinement.";
+      } else {
+        throw qualityErr;
+      }
+    }
 
     const beatArray: any[] = Array.isArray(parsed) ? parsed : (parsed.beats || []);
 
@@ -948,6 +994,7 @@ No markdown.`;
 
     // Merge all warnings
     const allWarnings = [...(gateResult.failures || []), ...(parsed.warnings || [])];
+    if (qualitySoftFailWarning) allWarnings.push(qualitySoftFailWarning);
 
     // Target length soft validation
     if (targetLengthMs) {
