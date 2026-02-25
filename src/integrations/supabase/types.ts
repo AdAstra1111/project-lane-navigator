@@ -11923,6 +11923,74 @@ export type Database = {
           },
         ]
       }
+      rough_cuts: {
+        Row: {
+          artifact_json: Json
+          created_at: string
+          id: string
+          job_id: string
+          last_error: string | null
+          plan_id: string
+          project_id: string
+          status: string
+          timeline_json: Json
+          updated_at: string
+        }
+        Insert: {
+          artifact_json?: Json
+          created_at?: string
+          id?: string
+          job_id: string
+          last_error?: string | null
+          plan_id: string
+          project_id: string
+          status?: string
+          timeline_json?: Json
+          updated_at?: string
+        }
+        Update: {
+          artifact_json?: Json
+          created_at?: string
+          id?: string
+          job_id?: string
+          last_error?: string | null
+          plan_id?: string
+          project_id?: string
+          status?: string
+          timeline_json?: Json
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rough_cuts_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "video_render_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rough_cuts_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "video_generation_plans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rough_cuts_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "project_script_scene_state"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "rough_cuts_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       scenario_decision_events: {
         Row: {
           created_at: string
