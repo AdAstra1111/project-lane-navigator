@@ -47,8 +47,8 @@ export function useStoryboardMutations(projectId: string | undefined) {
   };
 
   const createRunAndPanels = useMutation({
-    mutationFn: (params?: { unitKeys?: string[]; stylePreset?: string; aspectRatio?: string }) =>
-      storyboardApi.createRunAndPanels(projectId!, params?.unitKeys, params?.stylePreset, params?.aspectRatio),
+    mutationFn: (params?: { unitKeys?: string[]; stylePreset?: string; aspectRatio?: string; includeDocumentIds?: string[] }) =>
+      storyboardApi.createRunAndPanels(projectId!, params?.unitKeys, params?.stylePreset, params?.aspectRatio, params?.includeDocumentIds),
     onSuccess: (data) => {
       toast.success(`Panel plan created: ${data.panelsCount} panels`);
       invalidateAll();

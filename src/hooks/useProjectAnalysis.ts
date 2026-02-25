@@ -1,6 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { getDefaultDocSetId, getDocSetDocumentIds } from '@/lib/docSetResolver';
+import type { DocSet, DocSetItem } from '@/hooks/useDocSets';
 
 /** Shape of the analysis_passes JSON stored on projects table */
 export interface AnalysisPasses {
@@ -95,11 +97,43 @@ export function useRunAnalysis() {
         .single();
       if (projErr || !project) throw new Error('Project not found');
 
-      // Get all document paths
-      const { data: docs } = await supabase
+      // Check for default doc set to filter documents
+      let docSetDocIds: string[] | null = null;
+      try {
+        const { data: docSetsData } = await (supabase as any)
+          .from('project_doc_sets')
+          .select('*')
+          .eq('project_id', projectId);
+        const docSets: DocSet[] = docSetsData || [];
+        if (docSets.length > 0) {
+          const defaultId = getDefaultDocSetId(docSets);
+          if (defaultId) {
+            const { data: itemsData } = await (supabase as any)
+              .from('project_doc_set_items')
+              .select('*')
+              .eq('doc_set_id', defaultId)
+              .order('sort_order');
+            const items: DocSetItem[] = itemsData || [];
+            if (items.length > 0) {
+              docSetDocIds = getDocSetDocumentIds(items);
+            }
+          }
+        }
+      } catch {
+        // Doc sets not available; continue with legacy behavior
+      }
+
+      // Get document paths — filtered by doc set if available
+      let docsQuery = supabase
         .from('project_documents')
-        .select('file_path')
+        .select('id, file_path')
         .eq('project_id', projectId);
+
+      if (docSetDocIds && docSetDocIds.length > 0) {
+        docsQuery = docsQuery.in('id', docSetDocIds);
+      }
+
+      const { data: docs } = await docsQuery;
 
       const documentPaths = (docs || []).map(d => d.file_path).filter(Boolean);
       if (documentPaths.length === 0) {
