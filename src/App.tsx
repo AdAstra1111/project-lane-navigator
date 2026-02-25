@@ -93,6 +93,20 @@ function TrailerRedirect({ tab }: { tab?: string }) {
   const to = `/projects/${id}/trailer${resolvedTab ? `?tab=${resolvedTab}` : ''}`;
   return <Navigate to={to} replace />;
 }
+
+/**
+ * ReviewRedirect — deterministic redirect for legacy /quick-review and /deep-review routes.
+ * If projectId is present, redirects to canonical workspace analysis.
+ * Otherwise redirects to /dashboard.
+ */
+function ReviewRedirect() {
+  const [searchParams] = useSearchParams();
+  const projectId = searchParams.get('projectId');
+  if (projectId) {
+    return <Navigate to={`/projects/${projectId}/script?drawer=open&drawerTab=analysis`} replace />;
+  }
+  return <Navigate to="/dashboard" replace />;
+}
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -185,9 +199,9 @@ const AnimatedRoutes = () => {
           <Route path="/showcase" element={<ProtectedRoute><Showcase /></ProtectedRoute>} />
 
           <Route path="/processing" element={<Processing />} />
-          {/* Quick/Deep review routes redirect to dashboard (no project context) */}
-          <Route path="/quick-review" element={<Navigate to="/dashboard" replace />} />
-          <Route path="/deep-review" element={<Navigate to="/dashboard" replace />} />
+          {/* Quick/Deep review: preserve projectId context when present */}
+          <Route path="/quick-review" element={<ReviewRedirect />} />
+          <Route path="/deep-review" element={<ReviewRedirect />} />
           <Route path="/invite" element={<AcceptInvite />} />
           <Route path="/share/pack/:token" element={<SharePackView />} />
           <Route path="*" element={<NotFound />} />
