@@ -272,6 +272,7 @@ function buildRepairInstruction(
   score: CinematicScore,
   domain: "trailer" | "storyboard",
   unitCount: number,
+  lane?: string,
 ): string {
   const guard = domain === "storyboard" ? `${SHAPE_GUARD}${STORYBOARD_GUARD}` : SHAPE_GUARD;
   const bullets = failureBullets(score.failures, domain);
@@ -287,6 +288,7 @@ Maintain all existing required fields and overall structure.`;
   const ctx = numericTargetsForFailures({
     failures: score.failures,
     unitCount,
+    lane,
   });
   const contextTargetsBlock = ctx.targets.length > 0
     ? `\nCONTEXT-AWARE NUMERIC TARGETS (MANDATORY):\n${ctx.targets.map(t => `• ${t}`).join("\n")}`
@@ -332,10 +334,10 @@ Maintain all existing required fields and overall structure.`;
   return assembleRepairSections(sections);
 }
 
-export function buildTrailerRepairInstruction(score: CinematicScore, unitCount?: number): string {
-  return buildRepairInstruction(score, "trailer", unitCount ?? 6);
+export function buildTrailerRepairInstruction(score: CinematicScore, unitCount?: number, lane?: string): string {
+  return buildRepairInstruction(score, "trailer", unitCount ?? 6, lane);
 }
 
-export function buildStoryboardRepairInstruction(score: CinematicScore, unitCount?: number): string {
-  return buildRepairInstruction(score, "storyboard", unitCount ?? 8);
+export function buildStoryboardRepairInstruction(score: CinematicScore, unitCount?: number, lane?: string): string {
+  return buildRepairInstruction(score, "storyboard", unitCount ?? 8, lane);
 }

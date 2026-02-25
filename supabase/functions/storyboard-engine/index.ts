@@ -130,6 +130,13 @@ async function handleListCanonicalUnits(db: any, body: any) {
 async function handleCreateRunAndPanels(db: any, body: any, userId: string, apiKey: string) {
   const { projectId, unitKeys: requestedKeys, stylePreset = "cinematic_realism", aspectRatio = "16:9" } = body;
 
+  // Read project lane once for CIK lane-aware checks
+  let projectLane: string | undefined;
+  try {
+    const { data: projRow } = await db.from("projects").select("assigned_lane").eq("id", projectId).single();
+    projectLane = projRow?.assigned_lane || undefined;
+  } catch { /* no lane available — defaults apply */ }
+
   const { data: allUnits } = await db.from("visual_units").select("*").eq("project_id", projectId);
   if (!allUnits || allUnits.length === 0) return json({ error: "No canonical visual units found" }, 400);
 
@@ -317,9 +324,10 @@ Return ONLY valid JSON`;
       model: MODELS.BALANCED,
       rawOutput: cikInput,
       adapter: (raw: any) => adaptStoryboardPanelsWithMode(raw, { expectedUnitCount, expectedUnitKeys }),
-      buildRepairInstruction: buildStoryboardRepairInstruction,
+      buildRepairInstruction: (s, u) => buildStoryboardRepairInstruction(s, u, projectLane),
       isStoryboard: true,
       expected_unit_count: expectedUnitCount,
+      lane: projectLane,
       regenerateOnce: async (repairInstruction: string) => {
         // Re-run the same generation with repair instruction injected
         const repairedSystemPrompt = panelSystemPrompt + "\n\n" + repairInstruction;

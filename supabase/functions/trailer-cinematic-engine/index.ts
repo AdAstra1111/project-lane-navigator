@@ -528,6 +528,13 @@ async function handleCreateTrailerScript(db: any, body: any, userId: string, api
 
   const resolvedSeed = resolveSeed(inputSeed || idempotencyKey);
 
+  // Read project lane once for CIK lane-aware checks
+  let projectLane: string | undefined;
+  try {
+    const { data: projRow } = await db.from("projects").select("assigned_lane").eq("id", projectId).single();
+    projectLane = projRow?.assigned_lane || undefined;
+  } catch { /* no lane available — defaults apply */ }
+
   // ── Use shared canon pack context builder ──
   const packCtx = await compileTrailerContext(db, projectId, canonPackId);
   const canonText = packCtx.mergedText;
@@ -814,8 +821,9 @@ No markdown.`;
       model: MODELS.PRO,
       rawOutput: parsedRaw,
       adapter: (raw: any) => adaptTrailerOutputWithMode(raw, trailerExpectedUnitCount),
-      buildRepairInstruction: buildTrailerRepairInstruction,
+      buildRepairInstruction: (s, u) => buildTrailerRepairInstruction(s, u, projectLane),
       expected_unit_count: trailerExpectedUnitCount,
+      lane: projectLane,
       regenerateOnce: async (repairInstruction: string) => {
         return await callLLMWithJsonRetry({
           apiKey,
