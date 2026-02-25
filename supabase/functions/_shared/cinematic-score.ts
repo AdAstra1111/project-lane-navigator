@@ -6,6 +6,7 @@ import type { CinematicUnit, CinematicScore, CinematicFailureCode, CinematicMetr
 import { DIAGNOSTIC_ONLY_CODES } from "./cinematic-model.ts";
 import { extractFeatures } from "./cinematic-features.ts";
 import { analyzeLadder, type LadderMetrics } from "./cik/ladderLock.ts";
+import { getCinematicThresholds } from "./cik/thresholdProfiles.ts";
 
 // ─── Centralized thresholds (single source of truth) ───
 
@@ -92,10 +93,12 @@ function escalationSlope(units: CinematicUnit[]): number {
 export interface ScoringContext {
   isStoryboard?: boolean;
   adapterMode?: string;
+  /** Product lane for threshold selection (e.g. "documentary", "vertical_drama") */
+  lane?: string;
 }
 
 export function scoreCinematic(units: CinematicUnit[], ctx?: ScoringContext): CinematicScore {
-  const T = CINEMATIC_THRESHOLDS;
+  const T = getCinematicThresholds(ctx?.lane);
   const failures: CinematicFailureCode[] = [];
   const features = extractFeatures(units, T.min_arc_peak_in_last_n);
 
@@ -250,11 +253,25 @@ export function scoreCinematic(units: CinematicUnit[], ctx?: ScoringContext): Ci
   const hard_failures = failures.filter(f => !DIAGNOSTIC_ONLY_CODES.has(f));
   const diagnostic_flags = failures.filter(f => DIAGNOSTIC_ONLY_CODES.has(f));
 
-  // ─── Score calculation with penalty breakdown ───
+  // ─── Score calculation with penalty breakdown (lane-aware penalties) ───
+  const penaltyMap: Record<string, number> = {
+    TOO_SHORT: T.penalty_too_short,
+    NO_PEAK: T.penalty_no_peak,
+    NO_ESCALATION: T.penalty_no_escalation,
+    FLATLINE: T.penalty_flatline,
+    LOW_CONTRAST: T.penalty_low_contrast,
+    TONAL_WHIPLASH: T.penalty_tonal_whiplash,
+    LOW_INTENT_DIVERSITY: T.penalty_low_intent_diversity,
+    WEAK_ARC: T.penalty_weak_arc,
+    PACING_MISMATCH: T.penalty_pacing_mismatch,
+    ENERGY_DROP: T.penalty_energy_drop,
+    DIRECTION_REVERSAL: T.penalty_direction_reversal,
+    EYE_LINE_BREAK: T.penalty_eye_line_break,
+  };
   const penalty_breakdown: PenaltyEntry[] = [];
   let score = 1.0;
   for (const code of failures) {
-    const mag = PENALTY_MAP[code] || 0;
+    const mag = penaltyMap[code] || 0;
     if (mag > 0) {
       score -= mag;
       penalty_breakdown.push({ code, magnitude: mag });
