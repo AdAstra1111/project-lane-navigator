@@ -1,10 +1,9 @@
 /**
- * Nuance Control Stack — Deterministic Gate
- * Runs after generation to detect melodrama/overcomplexity/similarity issues.
+ * Nuance Control Stack — Deterministic Gate (lane-aware)
  */
 import type { NuanceMetrics, GateFailure, GateAttempt, NuanceCaps } from './types';
 import { computeMelodramaScore, computeNuanceScore } from './scoring';
-import { getMelodramaThreshold } from './defaults';
+import { getMelodramaThreshold, getSimilarityThreshold } from './defaults';
 
 export interface GateConfig {
   lane: string;
@@ -15,8 +14,7 @@ export interface GateConfig {
 }
 
 /**
- * Run the nuance gate on computed metrics.
- * Returns the attempt result with pass/fail and list of failures.
+ * Run the nuance gate on computed metrics with lane-aware thresholds.
  */
 export function runNuanceGate(
   metrics: NuanceMetrics,
@@ -27,7 +25,7 @@ export function runNuanceGate(
   const nuanceScore = computeNuanceScore(metrics);
 
   const melodramaThreshold = getMelodramaThreshold(config.lane);
-  // Restraint modifies threshold: higher restraint = lower tolerance for melodrama
+  // Restraint modifies threshold: higher restraint = lower tolerance
   const adjustedThreshold = melodramaThreshold * (1 - (config.restraint - 50) / 200);
 
   // 1. MELODRAMA
@@ -35,17 +33,18 @@ export function runNuanceGate(
     failures.push('MELODRAMA');
   }
 
-  // 2. OVERCOMPLEXITY
+  // 2. OVERCOMPLEXITY — lane-aware caps
   if (
     metrics.plot_thread_count > config.caps.plotThreadCap * 2 ||
-    metrics.named_factions > 6 ||
+    metrics.named_factions > config.caps.factionCap * 2 ||
     metrics.new_character_density > config.caps.newCharacterCap
   ) {
     failures.push('OVERCOMPLEXITY');
   }
 
-  // 3. TEMPLATE_SIMILARITY
-  if (config.diversifyEnabled && config.similarityRisk > 0.7) {
+  // 3. TEMPLATE_SIMILARITY — lane-aware threshold
+  const simThreshold = getSimilarityThreshold(config.lane);
+  if (config.diversifyEnabled && config.similarityRisk > simThreshold) {
     failures.push('TEMPLATE_SIMILARITY');
   }
 
@@ -59,13 +58,13 @@ export function runNuanceGate(
     failures.push('TWIST_OVERUSE');
   }
 
-  // 6. SUBTEXT_MISSING
-  if (metrics.subtext_scene_count < 3) {
+  // 6. SUBTEXT_MISSING — lane-aware minimum
+  if (metrics.subtext_scene_count < config.caps.subtextScenesMin) {
     failures.push('SUBTEXT_MISSING');
   }
 
-  // 7. QUIET_BEATS_MISSING
-  if (metrics.quiet_beats_count < 2) {
+  // 7. QUIET_BEATS_MISSING — lane-aware minimum
+  if (metrics.quiet_beats_count < config.caps.quietBeatsMin) {
     failures.push('QUIET_BEATS_MISSING');
   }
 

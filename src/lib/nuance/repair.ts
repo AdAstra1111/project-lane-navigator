@@ -1,34 +1,48 @@
 /**
- * Nuance Control Stack — Repair instruction builder
- * Converts gate failures into a deterministic repair instruction for the LLM.
+ * Nuance Control Stack — Lane-aware repair instruction builder
  */
 import type { GateFailure, NuanceCaps, AntiTrope } from './types';
 
-const MELODRAMA_TRANSLATIONS: Record<string, string> = {
-  'screaming_confession': 'Replace with a withheld correction or silence with consequence.',
-  'physical_threat': 'Replace with resource withdrawal, access denial, contract clause, or social leverage.',
-  'villain_monologue': 'Replace with a polite email, policy document, or bureaucratic language.',
-  'sudden_violence': 'Replace with reputational, financial, procedural, or legal consequence.',
-};
-
 /**
- * Build a repair instruction from gate failures.
- * The instruction is deterministic and additive-free (removes/replaces, never adds new events).
+ * Build a lane-aware repair instruction from gate failures.
+ * Repairs remove/replace (never add new events).
  */
 export function buildRepairInstruction(
   failures: GateFailure[],
   caps: NuanceCaps,
   antiTropes: AntiTrope[],
+  lane?: string,
 ): string {
   const directives: string[] = [];
+  const l = (lane || '').toLowerCase();
+  const isVertical = l.includes('vertical');
+  const isFeature = l.includes('feature');
 
   if (failures.includes('MELODRAMA')) {
+    directives.push('REDUCE MELODRAMA:');
+    if (isVertical) {
+      directives.push(
+        '- Replace melodrama with leverage, bureaucracy, or status consequences.',
+        '- Ensure the hook remains strong but grounded — NO conspiracy.',
+        '- Reduce secrets; increase misalignment and social friction.',
+        '- Convert screaming confessions to loaded silence or withheld corrections.',
+      );
+    } else if (isFeature) {
+      directives.push(
+        '- Remove twists and add quiet beats with teeth.',
+        '- Deepen contradiction matrix and subtext density.',
+        '- Replace physical threats with social leverage or contractual pressure.',
+        '- Replace villain monologues with polite emails, policies, or bureaucratic language.',
+      );
+    } else {
+      directives.push(
+        '- Convert screaming confessions to withheld corrections or loaded silence.',
+        '- Replace physical threats with resource withdrawal, contract clauses, or social leverage.',
+        '- Replace villain monologues with polite emails, policies, or bureaucratic language.',
+        '- Replace sudden violence with reputational/financial/procedural consequences.',
+      );
+    }
     directives.push(
-      'REDUCE MELODRAMA:',
-      '- Convert any screaming confessions to withheld corrections or loaded silence.',
-      '- Replace physical threats with resource withdrawal, contract clauses, or social leverage.',
-      '- Replace villain monologues with polite emails, policies, or bureaucratic language.',
-      '- Replace sudden violence with reputational/financial/procedural consequences.',
       '- Cut absolute language ("always", "never", "everything", "nothing") by half.',
     );
   }
@@ -38,7 +52,7 @@ export function buildRepairInstruction(
       'REDUCE COMPLEXITY:',
       `- Collapse plot threads to at most ${caps.plotThreadCap} major threads.`,
       `- Limit core characters to ${caps.newCharacterCap}. Merge or remove excess.`,
-      '- Remove any faction or organization that is not essential to the central conflict.',
+      `- Limit factions/organizations to ${caps.factionCap}. Remove non-essential ones.`,
       '- Do NOT add any new elements — only remove or merge.',
     );
   }
@@ -53,12 +67,16 @@ export function buildRepairInstruction(
   }
 
   if (failures.includes('STAKES_TOO_BIG_TOO_EARLY')) {
+    const pct = Math.round((1 - caps.stakesLateThreshold) * 100);
     directives.push(
       'REFRAME EARLY STAKES:',
-      '- Keep stakes personal/relational in the first 80% of the story.',
+      `- Keep stakes personal/relational until the final ${pct}% of the story.`,
       '- Remove any global/life-threatening stakes from early acts.',
       '- Replace with professional, social, or domestic consequences.',
     );
+    if (isFeature) {
+      directives.push('- Enforce personal stakes until late; no global stakes before final act.');
+    }
   }
 
   if (failures.includes('TWIST_OVERUSE')) {
@@ -68,12 +86,15 @@ export function buildRepairInstruction(
       '- Replace removed twists with character insight or consequence.',
       '- Never use "turns out" or "all along" more than once.',
     );
+    if (isVertical) {
+      directives.push('- Additional twists (beyond 1) must be meaning-shifts or consequence-based, not information reveals.');
+    }
   }
 
   if (failures.includes('SUBTEXT_MISSING')) {
     directives.push(
       'ADD SUBTEXT:',
-      '- Include at least 3 subtext scenes. For each: what each character wants, what they won\'t say, what they say instead, their tactic, and the tell.',
+      `- Include at least ${caps.subtextScenesMin} subtext scenes. For each: what each character wants, what they won't say, what they say instead, their tactic, and the tell.`,
       '- Subtext must advance the plot without explicit confrontation.',
     );
   }
@@ -81,7 +102,7 @@ export function buildRepairInstruction(
   if (failures.includes('QUIET_BEATS_MISSING')) {
     directives.push(
       'ADD QUIET BEATS WITH TEETH:',
-      '- Include at least 2 quiet beats where tension is present but unexpressed.',
+      `- Include at least ${caps.quietBeatsMin} quiet beat(s) where tension is present but unexpressed.`,
       '- Each quiet beat should reveal character through behavior, not dialogue.',
     );
   }
@@ -98,6 +119,25 @@ export function buildRepairInstruction(
     directives.push(
       'AVOID THESE TROPES:',
       ...antiTropes.map(t => `- No ${t.replace(/_/g, ' ')}.`),
+    );
+  }
+
+  // Lane-specific repair priorities
+  if (isVertical) {
+    directives.push(
+      '',
+      'VERTICAL DRAMA REPAIR PRIORITIES:',
+      '1. Replace melodrama with leverage/bureaucracy/status consequences.',
+      '2. Ensure hook remains strong but grounded (no conspiracy).',
+      '3. Reduce secrets; increase misalignment and social friction.',
+    );
+  } else if (isFeature) {
+    directives.push(
+      '',
+      'FEATURE FILM REPAIR PRIORITIES:',
+      '1. Remove twists and add quiet beats with teeth.',
+      '2. Enforce personal stakes until late.',
+      '3. Deepen contradiction matrix and subtext density.',
     );
   }
 

@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { computeNuanceMetrics, computeMelodramaScore, computeNuanceScore } from '@/lib/nuance/scoring';
-import { computeFingerprint, computeSimilarityRisk } from '@/lib/nuance/fingerprint';
+import { computeFingerprint, computeSimilarityRisk, getDiversificationHints } from '@/lib/nuance/fingerprint';
 import { runNuanceGate } from '@/lib/nuance/gate';
 import { buildRepairInstruction } from '@/lib/nuance/repair';
-import { getDefaultCaps } from '@/lib/nuance/defaults';
+import { getDefaultCaps, getDefaultConflictMode, getMelodramaThreshold, getSimilarityThreshold } from '@/lib/nuance/defaults';
 
 // ─── Scoring Tests ──────────────────────────────────────────────────────────
 
@@ -16,7 +16,6 @@ describe('computeNuanceMetrics', () => {
   });
 
   it('detects melodrama signals', () => {
-    // Put shock events early in a longer text so they fall in the first 20%
     const text = 'A kidnapping. A murder. An explosion rocks the compound. ' +
       'He always knew this was everything. She never trusted anyone. ' +
       'Suddenly he reveals the betrayal. It turns out the secret organization was behind it all along. ' +
@@ -70,6 +69,60 @@ describe('computeNuanceScore', () => {
   });
 });
 
+// ─── Defaults & Thresholds Tests ────────────────────────────────────────────
+
+describe('lane-aware defaults', () => {
+  it('vertical_drama has correct caps', () => {
+    const caps = getDefaultCaps('vertical_drama');
+    expect(caps.dramaBudget).toBe(3);
+    expect(caps.twistCap).toBe(2);
+    expect(caps.subtextScenesMin).toBe(2);
+    expect(caps.quietBeatsMin).toBe(1);
+    expect(caps.factionCap).toBe(2);
+    expect(caps.stakesLateThreshold).toBe(0.75);
+  });
+
+  it('feature_film has correct caps', () => {
+    const caps = getDefaultCaps('feature_film');
+    expect(caps.dramaBudget).toBe(2);
+    expect(caps.twistCap).toBe(1);
+    expect(caps.subtextScenesMin).toBe(4);
+    expect(caps.quietBeatsMin).toBe(3);
+    expect(caps.factionCap).toBe(1);
+  });
+
+  it('series has correct caps', () => {
+    const caps = getDefaultCaps('series');
+    expect(caps.twistCap).toBe(1);
+    expect(caps.subtextScenesMin).toBe(3);
+    expect(caps.quietBeatsMin).toBe(2);
+  });
+
+  it('documentary has twist_cap 0', () => {
+    const caps = getDefaultCaps('documentary');
+    expect(caps.twistCap).toBe(0);
+    expect(caps.dramaBudget).toBe(1);
+    expect(caps.quietBeatsMin).toBe(3);
+  });
+
+  it('melodrama thresholds are lane-aware', () => {
+    expect(getMelodramaThreshold('vertical_drama')).toBe(0.62);
+    expect(getMelodramaThreshold('feature_film')).toBe(0.50);
+    expect(getMelodramaThreshold('documentary')).toBe(0.15);
+  });
+
+  it('similarity thresholds are lane-aware', () => {
+    expect(getSimilarityThreshold('vertical_drama')).toBe(0.70);
+    expect(getSimilarityThreshold('feature_film')).toBe(0.60);
+  });
+
+  it('default conflict modes are lane-aware', () => {
+    expect(getDefaultConflictMode('vertical_drama')).toBe('status_reputation');
+    expect(getDefaultConflictMode('feature_film')).toBe('moral_trap');
+    expect(getDefaultConflictMode('documentary')).toBe('legal_procedural');
+  });
+});
+
 // ─── Fingerprint Tests ──────────────────────────────────────────────────────
 
 describe('computeFingerprint', () => {
@@ -79,6 +132,16 @@ describe('computeFingerprint', () => {
       'feature_film', 'pressure_cooker', 'accumulation'
     );
     expect(fp.stakes_type).toBe('systemic');
+  });
+
+  it('includes conflict_mode', () => {
+    const fp = computeFingerprint('test', 'vertical_drama', 'pressure_cooker', 'accumulation', 'status_reputation');
+    expect(fp.conflict_mode).toBe('status_reputation');
+  });
+
+  it('defaults conflict_mode by lane', () => {
+    const fp = computeFingerprint('test', 'feature_film', 'pressure_cooker', 'accumulation');
+    expect(fp.conflict_mode).toBe('moral_trap');
   });
 
   it('detects setting tags', () => {
@@ -109,20 +172,38 @@ describe('computeSimilarityRisk', () => {
     const recent = [fp, fp, fp];
     expect(computeSimilarityRisk(fp, recent)).toBeGreaterThan(0.5);
   });
+
+  it('uses lane-aware weighting for vertical_drama', () => {
+    const fp1 = computeFingerprint('test', 'vertical_drama', 'pressure_cooker', 'accumulation', 'status_reputation');
+    const fp2 = computeFingerprint('test', 'vertical_drama', 'pressure_cooker', 'accumulation', 'family_obligation');
+    // Different conflict_mode should reduce similarity more for vertical_drama
+    const risk = computeSimilarityRisk(fp2, [fp1], 'vertical_drama');
+    expect(risk).toBeLessThan(1);
+  });
+});
+
+describe('getDiversificationHints', () => {
+  it('returns avoidConflictModes for vertical_drama', () => {
+    const fps = Array(5).fill(null).map(() =>
+      computeFingerprint('test', 'vertical_drama', 'pressure_cooker', 'accumulation', 'status_reputation')
+    );
+    const hints = getDiversificationHints(fps, 'vertical_drama');
+    expect(hints.avoidConflictModes).toContain('status_reputation');
+  });
 });
 
 // ─── Gate Tests ─────────────────────────────────────────────────────────────
 
 describe('runNuanceGate', () => {
-  const baseCaps = getDefaultCaps('feature_film');
-
-  it('passes for clean nuanced text', () => {
+  it('passes for clean nuanced text (feature_film)', () => {
     const text = 'Subtext layers what won\'t say. Says instead something. Unspoken beneath surface. ' +
-      'Silence pause stillness. Quiet moment contemplation. Reinterprets new light. ' +
-      'Valid point from their perspective. Cost sacrifice trade-off.';
+      'Another subtext scene. Fourth subtext moment with underlying tension. ' +
+      'Silence pause stillness. Quiet moment contemplation. Another quiet beat with breath. ' +
+      'Reinterprets new light. Valid point from their perspective. Cost sacrifice trade-off.';
     const metrics = computeNuanceMetrics(text);
+    const caps = getDefaultCaps('feature_film');
     const result = runNuanceGate(metrics, {
-      lane: 'feature_film', caps: baseCaps, diversifyEnabled: false,
+      lane: 'feature_film', caps, diversifyEnabled: false,
       similarityRisk: 0, restraint: 75,
     });
     expect(result.failures).not.toContain('SUBTEXT_MISSING');
@@ -131,40 +212,73 @@ describe('runNuanceGate', () => {
 
   it('flags SUBTEXT_MISSING for plain text', () => {
     const metrics = computeNuanceMetrics('A simple story. He walked. She talked. The end.');
+    const caps = getDefaultCaps('feature_film');
     const result = runNuanceGate(metrics, {
-      lane: 'feature_film', caps: baseCaps, diversifyEnabled: false,
+      lane: 'feature_film', caps, diversifyEnabled: false,
       similarityRisk: 0, restraint: 75,
     });
     expect(result.failures).toContain('SUBTEXT_MISSING');
     expect(result.pass).toBe(false);
   });
 
-  it('flags TEMPLATE_SIMILARITY when risk is high and diversify on', () => {
+  it('uses lane-aware similarity threshold (feature_film = 0.60)', () => {
     const metrics = computeNuanceMetrics('test');
+    const caps = getDefaultCaps('feature_film');
     const result = runNuanceGate(metrics, {
-      lane: 'series', caps: baseCaps, diversifyEnabled: true,
-      similarityRisk: 0.85, restraint: 70,
+      lane: 'feature_film', caps, diversifyEnabled: true,
+      similarityRisk: 0.65, restraint: 75,
     });
     expect(result.failures).toContain('TEMPLATE_SIMILARITY');
   });
 
+  it('uses lane-aware similarity threshold (vertical = 0.70)', () => {
+    const metrics = computeNuanceMetrics('test');
+    const caps = getDefaultCaps('vertical_drama');
+    const result = runNuanceGate(metrics, {
+      lane: 'vertical_drama', caps, diversifyEnabled: true,
+      similarityRisk: 0.65, restraint: 60,
+    });
+    expect(result.failures).not.toContain('TEMPLATE_SIMILARITY');
+  });
+
   it('does not flag similarity when diversify off', () => {
     const metrics = computeNuanceMetrics('test');
+    const caps = getDefaultCaps('series');
     const result = runNuanceGate(metrics, {
-      lane: 'series', caps: baseCaps, diversifyEnabled: false,
+      lane: 'series', caps, diversifyEnabled: false,
       similarityRisk: 0.85, restraint: 70,
     });
     expect(result.failures).not.toContain('TEMPLATE_SIMILARITY');
+  });
+
+  it('uses lane-aware faction cap for OVERCOMPLEXITY', () => {
+    const metrics = computeNuanceMetrics('test');
+    const caps = getDefaultCaps('feature_film');
+    // feature_film factionCap=1, so named_factions > 2 triggers
+    metrics.named_factions = 3;
+    const result = runNuanceGate(metrics, {
+      lane: 'feature_film', caps, diversifyEnabled: false,
+      similarityRisk: 0, restraint: 75,
+    });
+    expect(result.failures).toContain('OVERCOMPLEXITY');
   });
 });
 
 // ─── Repair Tests ───────────────────────────────────────────────────────────
 
 describe('buildRepairInstruction', () => {
-  it('includes MELODRAMA directives for that failure', () => {
-    const instruction = buildRepairInstruction(['MELODRAMA'], getDefaultCaps(), []);
-    expect(instruction).toContain('REDUCE MELODRAMA');
-    expect(instruction).toContain('screaming confessions');
+  it('includes vertical_drama-specific repair priorities', () => {
+    const instruction = buildRepairInstruction(['MELODRAMA'], getDefaultCaps('vertical_drama'), [], 'vertical_drama');
+    expect(instruction).toContain('VERTICAL DRAMA REPAIR PRIORITIES');
+    expect(instruction).toContain('leverage');
+    expect(instruction).toContain('social friction');
+  });
+
+  it('includes feature_film-specific repair priorities', () => {
+    const instruction = buildRepairInstruction(['MELODRAMA'], getDefaultCaps('feature_film'), [], 'feature_film');
+    expect(instruction).toContain('FEATURE FILM REPAIR PRIORITIES');
+    expect(instruction).toContain('quiet beats');
+    expect(instruction).toContain('subtext density');
   });
 
   it('includes trope avoidance', () => {
@@ -177,6 +291,11 @@ describe('buildRepairInstruction', () => {
     const instruction = buildRepairInstruction(['OVERCOMPLEXITY'], getDefaultCaps(), []);
     expect(instruction).toContain('Do NOT add new plot elements');
     expect(instruction).toContain('REDUCE COMPLEXITY');
+  });
+
+  it('uses lane-aware caps in directives', () => {
+    const instruction = buildRepairInstruction(['SUBTEXT_MISSING'], getDefaultCaps('feature_film'), [], 'feature_film');
+    expect(instruction).toContain('at least 4 subtext scenes');
   });
 
   it('handles multiple failures', () => {

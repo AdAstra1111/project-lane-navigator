@@ -38,6 +38,18 @@ export const ANTI_TROPE_OPTIONS = [
 ] as const;
 export type AntiTrope = typeof ANTI_TROPE_OPTIONS[number];
 
+export const CONFLICT_MODES = [
+  'romance_misalignment',
+  'status_reputation',
+  'money_time_pressure',
+  'family_obligation',
+  'workplace_power',
+  'moral_trap',
+  'identity_shame',
+  'legal_procedural',
+] as const;
+export type ConflictMode = typeof CONFLICT_MODES[number];
+
 export const GATE_FAILURES = [
   'MELODRAMA',
   'OVERCOMPLEXITY',
@@ -72,6 +84,7 @@ export interface NuanceFingerprint {
   lane: string;
   story_engine: StoryEngine;
   causal_grammar: CausalGrammar;
+  conflict_mode: ConflictMode;
   stakes_type: 'personal' | 'social' | 'systemic' | 'global';
   twist_count_bucket: '0' | '1' | '2+';
   antagonist_type: 'self' | 'relationship' | 'system' | 'person';
@@ -145,5 +158,9 @@ export interface NuanceCaps {
   twistCap: number;
   newCharacterCap: number;
   plotThreadCap: number;
+  factionCap: number;
+  subtextScenesMin: number;
+  quietBeatsMin: number;
   stakesScaleEarly: boolean; // true = penalize global stakes before final 20%
+  stakesLateThreshold: number; // fraction of story before global stakes allowed (e.g. 0.75 = final 25%)
 }

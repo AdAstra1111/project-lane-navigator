@@ -1,6 +1,5 @@
 /**
  * NuanceControls — Accordion UI for story nuance configuration.
- * Exposes restraint slider, engine dropdown, avoid-tropes multi-select, auto-diversify toggle.
  */
 import React from 'react';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
@@ -9,11 +8,16 @@ import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Brain } from 'lucide-react';
-import { STORY_ENGINES, ANTI_TROPE_OPTIONS, type NuanceProfile, type StoryEngine, type AntiTrope } from '@/lib/nuance/types';
+import {
+  STORY_ENGINES, ANTI_TROPE_OPTIONS, CONFLICT_MODES,
+  type NuanceProfile, type StoryEngine, type AntiTrope, type ConflictMode,
+} from '@/lib/nuance/types';
 
 interface NuanceControlsProps {
   profile: NuanceProfile;
   onChange: (profile: NuanceProfile) => void;
+  conflictMode?: ConflictMode;
+  onConflictModeChange?: (mode: ConflictMode) => void;
 }
 
 const ENGINE_LABELS: Record<StoryEngine, string> = {
@@ -38,7 +42,18 @@ const TROPE_LABELS: Record<AntiTrope, string> = {
   last_minute_double_betrayal: 'Last-Minute Double Betrayal',
 };
 
-export function NuanceControls({ profile, onChange }: NuanceControlsProps) {
+const CONFLICT_MODE_LABELS: Record<ConflictMode, string> = {
+  romance_misalignment: 'Romance / Misalignment',
+  status_reputation: 'Status / Reputation',
+  money_time_pressure: 'Money / Time Pressure',
+  family_obligation: 'Family Obligation',
+  workplace_power: 'Workplace Power',
+  moral_trap: 'Moral Trap',
+  identity_shame: 'Identity / Shame',
+  legal_procedural: 'Legal / Procedural',
+};
+
+export function NuanceControls({ profile, onChange, conflictMode, onConflictModeChange }: NuanceControlsProps) {
   const toggleTrope = (trope: AntiTrope) => {
     const current = profile.antiTropes;
     const next = current.includes(trope)
@@ -96,6 +111,28 @@ export function NuanceControls({ profile, onChange }: NuanceControlsProps) {
             </Select>
           </div>
 
+          {/* Conflict Mode */}
+          {onConflictModeChange && (
+            <div className="space-y-1">
+              <label className="text-[11px] font-medium text-muted-foreground">Conflict Mode</label>
+              <Select
+                value={conflictMode || 'moral_trap'}
+                onValueChange={(v) => onConflictModeChange(v as ConflictMode)}
+              >
+                <SelectTrigger className="h-7 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {CONFLICT_MODES.map(m => (
+                    <SelectItem key={m} value={m} className="text-xs">
+                      {CONFLICT_MODE_LABELS[m]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
           {/* Avoid Tropes */}
           <div className="space-y-1.5">
             <label className="text-[11px] font-medium text-muted-foreground">Avoid Tropes</label>
@@ -126,3 +163,4 @@ export function NuanceControls({ profile, onChange }: NuanceControlsProps) {
     </Accordion>
   );
 }
+
