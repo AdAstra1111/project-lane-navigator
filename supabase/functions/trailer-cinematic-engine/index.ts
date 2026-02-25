@@ -16,6 +16,7 @@ import { compileTrailerContext } from "../_shared/trailerContext.ts";
 import { enforceCinematicQuality } from "../_shared/cinematic-kernel.ts";
 import { adaptTrailerOutput, adaptTrailerOutputWithMode } from "../_shared/cinematic-adapters.ts";
 import { buildTrailerRepairInstruction } from "../_shared/cinematic-repair.ts";
+import { selectCikModel, buildModelRouterTelemetry } from "../_shared/cik/modelRouter.ts";
 
 // ─── Helpers ───
 
@@ -815,6 +816,8 @@ No markdown.`;
     // ── CIK quality gate (1 bounded repair attempt) ──
     const rawBeats = parsedRaw?.beats || (Array.isArray(parsedRaw) ? parsedRaw : []);
     const trailerExpectedUnitCount = rawBeats.length > 0 ? rawBeats.length : undefined;
+    const cikRouter0 = selectCikModel({ attemptIndex: 0, lane: projectLane || "unknown" });
+    const cikRouter1 = selectCikModel({ attemptIndex: 1, lane: projectLane || "unknown", attempt0HardFailures: [] }); // placeholder; actual failures not known yet
     const parsed = await enforceCinematicQuality({
       handler: "trailer-cinematic-engine",
       phase: "create_trailer_script_v2",
@@ -824,6 +827,7 @@ No markdown.`;
       buildRepairInstruction: buildTrailerRepairInstruction,
       expected_unit_count: trailerExpectedUnitCount,
       lane: projectLane,
+      modelRouter: { attempt0: cikRouter0, attempt1: cikRouter1 },
       regenerateOnce: async (repairInstruction: string) => {
         return await callLLMWithJsonRetry({
           apiKey,

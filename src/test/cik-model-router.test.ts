@@ -14,13 +14,13 @@ describe("selectCikModel", () => {
   it("attempt 0 returns default cheap model", () => {
     const result = selectCikModel({ attemptIndex: 0, lane: "feature_film" });
     expect(result.model).toBe(CIK_MODEL_ATTEMPT0_DEFAULT);
-    expect(result.router_reason).toBe("attempt0_default");
+    expect(result.reason).toBe("attempt0_default");
   });
 
   it("attempt 0 returns default for unknown lane", () => {
     const result = selectCikModel({ attemptIndex: 0, lane: "unknown_lane_xyz" });
     expect(result.model).toBe(CIK_MODEL_ATTEMPT0_DEFAULT);
-    expect(result.router_reason).toBe("attempt0_default");
+    expect(result.reason).toBe("attempt0_default");
   });
 
   it("attempt 0 ignores hard failures param", () => {
@@ -30,7 +30,7 @@ describe("selectCikModel", () => {
       attempt0HardFailures: ["WEAK_ARC", "FLATLINE"],
     });
     expect(result.model).toBe(CIK_MODEL_ATTEMPT0_DEFAULT);
-    expect(result.router_reason).toBe("attempt0_default");
+    expect(result.reason).toBe("attempt0_default");
   });
 
   /* ── B) Attempt 1 with hard failures returns strong model ── */
@@ -42,7 +42,7 @@ describe("selectCikModel", () => {
       attempt0HardFailures: ["WEAK_ARC"],
     });
     expect(result.model).toBe(CIK_MODEL_ATTEMPT1_STRONG);
-    expect(result.router_reason).toBe("attempt1_strong_due_to_hard_failures");
+    expect(result.reason).toBe("attempt1_strong_due_to_hard_failures");
   });
 
   it("attempt 1 returns strong model with multiple hard failures", () => {
@@ -52,7 +52,7 @@ describe("selectCikModel", () => {
       attempt0HardFailures: ["WEAK_ARC", "ENERGY_DROP", "FLATLINE"],
     });
     expect(result.model).toBe(CIK_MODEL_ATTEMPT1_STRONG);
-    expect(result.router_reason).toBe("attempt1_strong_due_to_hard_failures");
+    expect(result.reason).toBe("attempt1_strong_due_to_hard_failures");
   });
 
   /* ── C) Attempt 1 without hard failures returns default ── */
@@ -64,7 +64,7 @@ describe("selectCikModel", () => {
       attempt0HardFailures: [],
     });
     expect(result.model).toBe(CIK_MODEL_ATTEMPT0_DEFAULT);
-    expect(result.router_reason).toBe("attempt1_default_no_hard_failures");
+    expect(result.reason).toBe("attempt1_default_no_hard_failures");
   });
 
   it("attempt 1 returns default when hard failures undefined", () => {
@@ -73,7 +73,7 @@ describe("selectCikModel", () => {
       lane: "series",
     });
     expect(result.model).toBe(CIK_MODEL_ATTEMPT0_DEFAULT);
-    expect(result.router_reason).toBe("attempt1_default_no_hard_failures");
+    expect(result.reason).toBe("attempt1_default_no_hard_failures");
   });
 
   /* ── D) Lane overrides ── */
@@ -85,7 +85,7 @@ describe("selectCikModel", () => {
       attempt0HardFailures: ["WEAK_ARC"],
     });
     expect(result.model).toBe("openai/gpt-5");
-    expect(result.router_reason).toBe("attempt1_strong_due_to_hard_failures");
+    expect(result.reason).toBe("attempt1_strong_due_to_hard_failures");
   });
 
   it("series attempt 1 with failures uses GPT-5", () => {
@@ -113,13 +113,13 @@ describe("selectCikModel", () => {
     expect(r1).toEqual(r2);
   });
 
-  /* ── F) Router reason strings ── */
+  /* ── F) Reason strings ── */
 
-  it("router_reason strings are one of the three expected values", () => {
+  it("reason strings are one of the three expected values", () => {
     const reasons = new Set<string>();
-    reasons.add(selectCikModel({ attemptIndex: 0, lane: "x" }).router_reason);
-    reasons.add(selectCikModel({ attemptIndex: 1, lane: "x", attempt0HardFailures: ["A"] }).router_reason);
-    reasons.add(selectCikModel({ attemptIndex: 1, lane: "x", attempt0HardFailures: [] }).router_reason);
+    reasons.add(selectCikModel({ attemptIndex: 0, lane: "x" }).reason);
+    reasons.add(selectCikModel({ attemptIndex: 1, lane: "x", attempt0HardFailures: ["A"] }).reason);
+    reasons.add(selectCikModel({ attemptIndex: 1, lane: "x", attempt0HardFailures: [] }).reason);
     expect(reasons).toEqual(new Set([
       "attempt0_default",
       "attempt1_strong_due_to_hard_failures",
@@ -132,26 +132,22 @@ describe("selectCikModel", () => {
 
 describe("CIK router integration", () => {
   it("simulated two-attempt run records router decisions correctly", () => {
-    // Simulate attempt 0
     const a0Router = selectCikModel({ attemptIndex: 0, lane: "feature_film" });
     expect(a0Router.model).toBe(CIK_MODEL_ATTEMPT0_DEFAULT);
 
-    // Simulate attempt 0 result: hard failure
     const attempt0HardFailures = ["WEAK_ARC", "ENERGY_DROP"];
-
-    // Simulate attempt 1 router decision
     const a1Router = selectCikModel({
       attemptIndex: 1,
       lane: "feature_film",
       attempt0HardFailures,
     });
-    expect(a1Router.model).toBe("openai/gpt-5"); // feature_film override
+    expect(a1Router.model).toBe("openai/gpt-5");
 
-    // Build metrics_json with router info (as it would be persisted)
+    // Build metrics_json with router info (as persisted)
     const metricsJson = {
       model_router: {
-        attempt0: { model: a0Router.model, reason: a0Router.router_reason },
-        attempt1: { model: a1Router.model, reason: a1Router.router_reason },
+        attempt0: { model: a0Router.model, reason: a0Router.reason },
+        attempt1: { model: a1Router.model, reason: a1Router.reason },
       },
     };
 
@@ -162,7 +158,6 @@ describe("CIK router integration", () => {
 
   it("passing attempt 0 would select default for attempt 1 if invoked", () => {
     const a0 = selectCikModel({ attemptIndex: 0, lane: "documentary" });
-    // attempt 0 passes — no hard failures
     const a1 = selectCikModel({
       attemptIndex: 1,
       lane: "documentary",
@@ -170,20 +165,19 @@ describe("CIK router integration", () => {
     });
     expect(a0.model).toBe(CIK_MODEL_ATTEMPT0_DEFAULT);
     expect(a1.model).toBe(CIK_MODEL_ATTEMPT0_DEFAULT);
-    expect(a1.router_reason).toBe("attempt1_default_no_hard_failures");
+    expect(a1.reason).toBe("attempt1_default_no_hard_failures");
   });
 
   it("persistence payload includes router reasons in metrics_json", () => {
     const a0 = selectCikModel({ attemptIndex: 0, lane: "series" });
     const a1 = selectCikModel({ attemptIndex: 1, lane: "series", attempt0HardFailures: ["FLATLINE"] });
 
-    // Simulated persistence payload
     const persistPayload = {
       p_run: {
         metrics_json: {
           model_router: {
-            attempt0: { model: a0.model, reason: a0.router_reason },
-            attempt1: { model: a1.model, reason: a1.router_reason },
+            attempt0: { model: a0.model, reason: a0.reason },
+            attempt1: { model: a1.model, reason: a1.reason },
           },
         },
       },
@@ -194,5 +188,40 @@ describe("CIK router integration", () => {
     expect(persistPayload.p_attempt0.model).toBe(CIK_MODEL_ATTEMPT0_DEFAULT);
     expect(persistPayload.p_attempt1.model).toBe("openai/gpt-5");
     expect(persistPayload.p_run.metrics_json.model_router.attempt0.reason).toBe("attempt0_default");
+  });
+
+  it("telemetry event model_router shape matches expectation", () => {
+    const a0 = selectCikModel({ attemptIndex: 0, lane: "vertical_drama" });
+    const event: Record<string, any> = {
+      handler: "trailer-engine",
+      phase: "test",
+      model: a0.model,
+      attempt: 0,
+      pass: true,
+      score: 0.85,
+      failures: [],
+      metrics: {},
+      model_router: {
+        attempt0: { model: a0.model, reason: a0.reason },
+      },
+    };
+
+    expect(event.model_router.attempt0.model).toBe(CIK_MODEL_ATTEMPT0_DEFAULT);
+    expect(event.model_router.attempt0.reason).toBe("attempt0_default");
+    expect(event.model_router.attempt1).toBeUndefined();
+  });
+
+  it("telemetry event includes attempt1 when repair runs", () => {
+    const a0 = selectCikModel({ attemptIndex: 0, lane: "feature_film" });
+    const a1 = selectCikModel({ attemptIndex: 1, lane: "feature_film", attempt0HardFailures: ["WEAK_ARC"] });
+    const event: Record<string, any> = {
+      model_router: {
+        attempt0: { model: a0.model, reason: a0.reason },
+        attempt1: { model: a1.model, reason: a1.reason },
+      },
+    };
+
+    expect(event.model_router.attempt1).toBeDefined();
+    expect(event.model_router.attempt1.model).toBe("openai/gpt-5");
   });
 });
