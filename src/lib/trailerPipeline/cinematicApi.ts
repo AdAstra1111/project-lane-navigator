@@ -60,6 +60,7 @@ export const cinematicApi = {
     strictCanonMode?: 'strict' | 'balanced';
     targetLengthMs?: number;
     stylePresetKey?: string;
+    includeDocumentIds?: string[];
   }) => callCinematicEngine('create_trailer_script_v2', params),
 
   /** Create rhythm grid from script (step 2) */

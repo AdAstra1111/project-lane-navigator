@@ -31,8 +31,8 @@ export const storyboardApi = {
   listCanonicalUnits: (projectId: string, unitKeys?: string[]) =>
     callSBE('list_canonical_units', { projectId, unitKeys }),
 
-  createRunAndPanels: (projectId: string, unitKeys?: string[], stylePreset?: string, aspectRatio?: string) =>
-    callSBE('create_run_and_panels', { projectId, unitKeys, stylePreset, aspectRatio }),
+  createRunAndPanels: (projectId: string, unitKeys?: string[], stylePreset?: string, aspectRatio?: string, includeDocumentIds?: string[]) =>
+    callSBE('create_run_and_panels', { projectId, unitKeys, stylePreset, aspectRatio, includeDocumentIds }),
 
   listRuns: (projectId: string, limit?: number) =>
     callSBE('list_runs', { projectId, limit }),

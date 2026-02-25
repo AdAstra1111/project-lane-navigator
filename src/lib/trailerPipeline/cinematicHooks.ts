@@ -123,6 +123,7 @@ export function useCinematicMutations(projectId: string | undefined) {
       strictCanonMode?: 'strict' | 'balanced';
       targetLengthMs?: number;
       stylePresetKey?: string;
+      includeDocumentIds?: string[];
       onStageChange?: (stage: number) => void;
     }) => {
       const { onStageChange, ...apiParams } = params;
