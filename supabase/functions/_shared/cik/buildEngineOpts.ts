@@ -30,6 +30,7 @@ export interface BuildEngineOptsArgs<T> {
   expected_unit_count?: number;
   isStoryboard?: boolean;
   modelRouter?: { attempt0: CikModelSelection; attempt1?: CikModelSelection };
+  promptVersion?: string;
 }
 
 /**
@@ -50,5 +51,6 @@ export function buildEngineOpts<T>(args: BuildEngineOptsArgs<T>): CinematicQuali
     isStoryboard: args.isStoryboard,
     lane,
     modelRouter: args.modelRouter,
+    promptVersion: args.promptVersion,
   };
 }

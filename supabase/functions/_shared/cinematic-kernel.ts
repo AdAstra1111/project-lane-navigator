@@ -59,6 +59,8 @@ export interface CinematicQualityOpts<T> {
     attempt0: CikModelSelection;
     attempt1?: CikModelSelection;
   };
+  /** Prompt version string for persistence (e.g. "cik_v4.4") */
+  promptVersion?: string;
 }
 
 function defaultTelemetry(eventName: string, payload: CinematicQualityGateEvent): void {
@@ -170,6 +172,7 @@ export async function enforceCinematicQuality<T>(opts: CinematicQualityOpts<T>):
   // Helper to build attempt payload from gate event + score
   const buildAttemptPayload = (score: CinematicScore, adapterMode: string, adapterQuality: AdapterQualityMetrics | undefined, attemptModel?: string) => ({
     model: attemptModel || model,
+    promptVersion: opts.promptVersion || null,
     score: score.score,
     pass: score.pass,
     failures: score.failures,
