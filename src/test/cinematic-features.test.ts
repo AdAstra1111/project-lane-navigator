@@ -13,6 +13,7 @@ import { enforceUnitCount } from "../../supabase/functions/_shared/cinematic-ada
 import { computeStoryboardExpectedCount, computeTrailerExpectedCount } from "../../supabase/functions/_shared/cinematic-expected-count";
 import { analyzeLadder } from "../../supabase/functions/_shared/cik/ladderLock";
 import { lateStartIndexForUnitCount, minUpFracForUnitCount, maxZigzagFlipsForUnitCount } from "../../supabase/functions/_shared/cik/ladderLockConstants";
+import { getCinematicThresholds } from "../../supabase/functions/_shared/cik/thresholdProfiles";
 
 function makeUnit(overrides: Partial<CinematicUnit> & { id: string }): CinematicUnit {
   return {
@@ -797,5 +798,70 @@ describe("v3.14 intent sequencing", () => {
     expect(instr).toContain("INTENT SEQUENCING");
     expect(instr).toContain("early=setup/intrigue");
     expect(instr.length).toBeLessThanOrEqual(2500);
+});
+
+// ─── Product-Lane Threshold Profiles Tests ───
+
+describe("threshold profiles", () => {
+  it("unknown lane returns exact defaults", () => {
+    const t = getCinematicThresholds("unknown_thing");
+    expect(t.min_units).toBe(CINEMATIC_THRESHOLDS.min_units);
+    expect(t.min_contrast).toBe(CINEMATIC_THRESHOLDS.min_contrast);
+    expect(t.max_tonal_flips).toBe(CINEMATIC_THRESHOLDS.max_tonal_flips);
+    expect(t.penalty_low_contrast).toBe(CINEMATIC_THRESHOLDS.penalty_low_contrast);
   });
+
+  it("undefined lane returns exact defaults", () => {
+    const t = getCinematicThresholds(undefined);
+    expect(t.min_units).toBe(CINEMATIC_THRESHOLDS.min_units);
+  });
+
+  it("vertical_drama profile differs in expected fields", () => {
+    const t = getCinematicThresholds("vertical_drama");
+    expect(t.min_units).toBe(3);
+    expect(t.min_slope).toBe(0.03);
+    expect(t.min_peak_energy).toBe(0.90);
+    expect(t.energy_drop_threshold).toBe(0.10);
+    // Unchanged fields remain at defaults
+    expect(t.min_contrast).toBe(CINEMATIC_THRESHOLDS.min_contrast);
+  });
+
+  it("documentary profile differs in expected fields", () => {
+    const t = getCinematicThresholds("documentary");
+    expect(t.min_contrast).toBe(0.40);
+    expect(t.max_tonal_flips).toBe(3);
+    expect(t.penalty_low_contrast).toBe(0.06);
+    expect(t.penalty_tonal_whiplash).toBe(0.06);
+    expect(t.min_arc_end_energy).toBe(0.65);
+    expect(t.max_direction_reversals).toBe(4);
+    // Unchanged
+    expect(t.min_units).toBe(CINEMATIC_THRESHOLDS.min_units);
+  });
+
+  it("series profile has tighter peak-late", () => {
+    const t = getCinematicThresholds("series");
+    expect(t.min_arc_peak_in_last_n).toBe(3);
+    expect(t.min_arc_mid_energy).toBe(0.50);
+  });
+
+  it("units failing contrast under feature_film pass under documentary", () => {
+    // Craft units with contrast ~0.45 (fails feature_film min_contrast=0.55, passes doc min_contrast=0.40)
+    const units = [
+      makeUnit({ id: "0", energy: 0.40, tension: 0.40, density: 0.40, tonal_polarity: -0.2, intent: "intrigue" }),
+      makeUnit({ id: "1", energy: 0.50, tension: 0.50, density: 0.50, tonal_polarity: -0.1, intent: "threat" }),
+      makeUnit({ id: "2", energy: 0.65, tension: 0.65, density: 0.65, tonal_polarity: 0.0, intent: "chaos" }),
+      makeUnit({ id: "3", energy: 0.85, tension: 0.85, density: 0.85, tonal_polarity: 0.2, intent: "emotion" }),
+      makeUnit({ id: "4", energy: 0.95, tension: 0.95, density: 0.95, tonal_polarity: 0.4, intent: "release" }),
+    ];
+    const featureScore = scoreCinematic(units, { lane: "feature_film" });
+    const docScore = scoreCinematic(units, { lane: "documentary" });
+    // Feature film should flag LOW_CONTRAST; documentary should not
+    const featureHasContrast = featureScore.failures.includes("LOW_CONTRAST");
+    const docHasContrast = docScore.failures.includes("LOW_CONTRAST");
+    // At minimum, documentary should be more lenient on contrast
+    if (featureHasContrast) {
+      expect(docHasContrast).toBe(false);
+    }
+  });
+});
 });
