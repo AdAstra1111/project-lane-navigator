@@ -4,6 +4,7 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { warningActionFor as sbWarningActionFor } from '@/lib/warningActions';
 import { dedupeWarningsStable } from '@/lib/warningUtils';
+import { buildWarningsReport, copyTextToClipboard } from '@/lib/warningsReport';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, Layers, Image, RefreshCw, Check, Loader2, Camera, ChevronDown, ChevronRight, Play, Square, AlertTriangle, FileDown, Archive, ExternalLink, Trash2, Film, Settings2, Copy, Link2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -408,6 +409,21 @@ export default function StoryboardPipeline() {
                           <span className="text-muted-foreground">
                             {sbWarningsCount} warning{sbWarningsCount > 1 ? 's' : ''}
                           </span>
+                          <button
+                            type="button"
+                            className="ml-1 rounded-md bg-muted px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-muted/80"
+                            onClick={() => {
+                              const report = buildWarningsReport({
+                                kind: "storyboard",
+                                runId: (renderRun as any)?.id ?? null,
+                                status: renderRun?.status ?? null,
+                                warnings: sbWarningsDeduped,
+                              });
+                              void copyTextToClipboard(report);
+                            }}
+                          >
+                            Copy
+                          </button>
                           <div className="flex flex-wrap gap-1">
                             {sbWarningsPreview.map((w, i) => {
                               const label = w.length > 40 ? w.slice(0, 37) + '…' : w;
