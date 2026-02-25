@@ -37,6 +37,8 @@ export interface CinematicQualityOpts<T> {
   telemetry?: (eventName: string, payload: CinematicQualityGateEvent) => void;
   isStoryboard?: boolean;
   expected_unit_count?: number;
+  /** Product lane for lane-aware CIK checks (e.g. "feature_film", "vertical_drama") */
+  lane?: string;
 }
 
 function defaultTelemetry(eventName: string, payload: CinematicQualityGateEvent): void {
@@ -90,9 +92,10 @@ function buildSnapshot(units: CinematicUnit[], rawOutput: unknown): { head: stri
 function recordTelemetryAtFinal(
   handler: string, phase: string, model: string,
   adapterMode: string, units: CinematicUnit[], score: CinematicScore,
+  lane?: string,
 ): void {
-  const features = extractFeatures(units, CINEMATIC_THRESHOLDS.min_arc_peak_in_last_n);
-  const ladder = analyzeLadder(units.map(u => u.energy), units.map(u => u.tension), units.map(u => u.density));
+  const features = extractFeatures(units, CINEMATIC_THRESHOLDS.min_arc_peak_in_last_n, lane);
+  const ladder = analyzeLadder(units.map(u => u.energy), units.map(u => u.tension), units.map(u => u.density), lane);
   recordFeatureSummary(handler, phase, model, features, ladder.n >= 3 ? {
     meaningfulDownSteps: ladder.meaningfulDownSteps,
     lateDownSteps: ladder.lateDownSteps,
@@ -108,7 +111,7 @@ function recordTelemetryAtFinal(
 export async function enforceCinematicQuality<T>(opts: CinematicQualityOpts<T>): Promise<T> {
   const { handler, phase, model, adapter, buildRepairInstruction, regenerateOnce } = opts;
   const log = opts.telemetry || defaultTelemetry;
-  const scoringCtx: ScoringContext = { isStoryboard: opts.isStoryboard };
+  const scoringCtx: ScoringContext = { isStoryboard: opts.isStoryboard, lane: opts.lane };
 
   // Attempt 0
   const adapterResult0 = runAdapter(adapter, opts.rawOutput, opts.expected_unit_count);
@@ -132,7 +135,7 @@ export async function enforceCinematicQuality<T>(opts: CinematicQualityOpts<T>):
 
   if (score0.pass) {
     recordFinal(evt0, "attempt0");
-    recordTelemetryAtFinal(handler, phase, model, mode0, units0, score0);
+    recordTelemetryAtFinal(handler, phase, model, mode0, units0, score0, opts.lane);
     flushCinematicSummaryIfDue({ handler, phase, model });
     return stripCik(opts.rawOutput);
   }
@@ -190,7 +193,7 @@ export async function enforceCinematicQuality<T>(opts: CinematicQualityOpts<T>):
 
   log("CINEMATIC_QUALITY_GATE", evt1);
   recordFinal(evt1, "attempt1");
-  recordTelemetryAtFinal(handler, phase, model, mode1, units1, score1);
+  recordTelemetryAtFinal(handler, phase, model, mode1, units1, score1, opts.lane);
   flushCinematicSummaryIfDue({ handler, phase, model });
 
   if (score1.pass) {

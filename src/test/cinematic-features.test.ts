@@ -1148,3 +1148,73 @@ describe("v4.4 unit role lock", () => {
     expect(instr.length).toBeLessThanOrEqual(2500);
   });
 });
+
+// ─── Lane Propagation Integration Tests ───
+
+describe("lane propagation end-to-end", () => {
+  // A ramp that's borderline — peak at index 4 of 7 units
+  // For vertical_drama (lateStart=floor(0.65*7)=4), peak at 4 IS late → passes
+  // For feature_film (lateStart=floor(0.75*7)=5), peak at 4 is NOT late → WEAK_ARC
+  function makeBorderlineRamp() {
+    return [
+      makeUnit({ id: "0", energy: 0.35, tension: 0.35, density: 0.35, tonal_polarity: -0.3, intent: "intrigue" }),
+      makeUnit({ id: "1", energy: 0.45, tension: 0.45, density: 0.40, tonal_polarity: -0.2, intent: "wonder" }),
+      makeUnit({ id: "2", energy: 0.60, tension: 0.60, density: 0.50, tonal_polarity: -0.1, intent: "threat" }),
+      makeUnit({ id: "3", energy: 0.72, tension: 0.72, density: 0.60, tonal_polarity: 0.0, intent: "chaos" }),
+      makeUnit({ id: "4", energy: 0.93, tension: 0.93, density: 0.75, tonal_polarity: 0.2, intent: "emotion" }),
+      makeUnit({ id: "5", energy: 0.90, tension: 0.90, density: 0.78, tonal_polarity: 0.3, intent: "release" }),
+      makeUnit({ id: "6", energy: 0.91, tension: 0.91, density: 0.80, tonal_polarity: 0.4, intent: "release" }),
+    ];
+  }
+
+  it("vertical_drama uses stricter late window than feature_film", () => {
+    const units = makeBorderlineRamp();
+    const vdScore = scoreCinematic(units, { lane: "vertical_drama" });
+    const ffScore = scoreCinematic(units, { lane: "feature_film" });
+    // Both may have WEAK_ARC from various checks, but the ladder/peak window differs
+    // vertical_drama lateStart=4 (peak at 4 is late), feature_film lateStart=5 (peak at 4 is not late)
+    const vdLadder = analyzeLadder(
+      units.map(u => u.energy), units.map(u => u.tension), units.map(u => u.density), "vertical_drama"
+    );
+    const ffLadder = analyzeLadder(
+      units.map(u => u.energy), units.map(u => u.tension), units.map(u => u.density), "feature_film"
+    );
+    // vertical_drama should consider peak late, feature_film should not
+    expect(vdLadder.peakLate25).toBe(true);
+    expect(ffLadder.peakLate25).toBe(false);
+  });
+
+  it("documentary uses softer thresholds via lane-aware profiles", () => {
+    const docThresholds = getCinematicThresholds("documentary");
+    const defaultThresholds = getCinematicThresholds(undefined);
+    // Documentary has relaxed contrast threshold
+    expect(docThresholds.min_contrast).toBeLessThanOrEqual(defaultThresholds.min_contrast);
+  });
+
+  it("unknown lane preserves exact default behavior", () => {
+    const units = makeBorderlineRamp();
+    const unknownScore = scoreCinematic(units, { lane: "some_unknown_lane" });
+    const noLaneScore = scoreCinematic(units, {});
+    // Should produce identical failures and score
+    expect(unknownScore.failures.sort()).toEqual(noLaneScore.failures.sort());
+    expect(unknownScore.score).toBe(noLaneScore.score);
+  });
+
+  it("repair instruction threads lane to numericTargets", () => {
+    const score: CinematicScore = {
+      score: 0.3, pass: false,
+      failures: ["WEAK_ARC", "ENERGY_DROP"] as CinematicFailureCode[],
+      hard_failures: ["WEAK_ARC", "ENERGY_DROP"] as CinematicFailureCode[],
+      diagnostic_flags: [], penalty_breakdown: [], metrics: {} as any,
+    };
+    // vertical_drama uses lateStart at floor(0.65*8)=5, so "Peak units 6–8"
+    const instrVD = buildTrailerRepairInstruction(score, 8, "vertical_drama");
+    expect(instrVD).toContain("Peak units 6");
+    // feature_film uses lateStart at floor(0.75*8)=6, so "Peak units 7–8"
+    const instrFF = buildTrailerRepairInstruction(score, 8, "feature_film");
+    expect(instrFF).toContain("Peak units 7");
+    // Both under limit
+    expect(instrVD.length).toBeLessThanOrEqual(2500);
+    expect(instrFF.length).toBeLessThanOrEqual(2500);
+  });
+});
